@@ -295,7 +295,7 @@
   "lazyBoundary": {
     "loadError": "Esta sección no se pudo cargar. Recarga la página para intentarlo de nuevo."
   },
-  "macosAppBanner": {
+  "desktopAppBanner": {
     "ariaLabel": "{platform, select, windows {Descargar la app de Windows} other {Descargar la app de macOS}}",
     "ctaAriaLabel": "{platform, select, windows {Descargar la app de Windows} other {Descargar la app de macOS}}",
     "ctaLabel": "Descargar",

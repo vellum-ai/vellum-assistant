@@ -27,7 +27,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 const { NativeAppBanner } =
   await import("@/components/nudges/native-app-banner");
-const { MacOSAppBanner } = await import("@/components/nudges/macos-app-banner");
+const { DesktopAppBanner } =
+  await import("@/components/nudges/desktop-app-banner");
 const { resolveMobilePromotion } = await import("@/hooks/use-native-app-nudge");
 
 function screensFromCalls(): string[] {
@@ -82,15 +83,39 @@ describe("banner impression", () => {
   });
 
   test("counts the macOS banner against its own target", () => {
-    render(<MacOSAppBanner onDownload={() => {}} onDismiss={() => {}} />);
+    render(
+      <DesktopAppBanner
+        platform="macos"
+        onDownload={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
 
     expect(screensFromCalls()).toEqual(["banner:macos"]);
   });
 
-  test("keeps mobile and macOS impressions independent", () => {
-    renderMobileBanner();
-    render(<MacOSAppBanner onDownload={() => {}} onDismiss={() => {}} />);
+  test("counts the Windows banner against its own target", () => {
+    render(
+      <DesktopAppBanner
+        platform="windows"
+        onDownload={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
 
-    expect(screensFromCalls()).toEqual(["banner:ios", "banner:macos"]);
+    expect(screensFromCalls()).toEqual(["banner:windows"]);
+  });
+
+  test("keeps mobile and desktop impressions independent", () => {
+    renderMobileBanner();
+    render(
+      <DesktopAppBanner
+        platform="windows"
+        onDownload={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(screensFromCalls()).toEqual(["banner:ios", "banner:windows"]);
   });
 });

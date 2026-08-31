@@ -26,10 +26,17 @@ export function detectDesktopAppPlatform(): DesktopAppPlatform {
     return window.vellum.hostOS;
   }
 
-  const platform = getBrowserPlatform();
-  return /win/i.test(platform) || /Windows/i.test(navigator.userAgent)
-    ? "windows"
-    : "macos";
+  return isWindowsBrowser() ? "windows" : "macos";
+}
+
+/** True when browser platform signals identify Windows. */
+export function isWindowsBrowser(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  return (
+    /win/i.test(getBrowserPlatform()) || /Windows/i.test(navigator.userAgent)
+  );
 }
 
 const noop = () => () => {};

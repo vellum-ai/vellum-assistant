@@ -403,18 +403,14 @@ export function useIsMobileWeb(): boolean {
   );
 }
 
-/**
- * macOS web user who should see custom nudge surfaces.
- *
- * Excludes Electron because the user is already inside the macOS desktop
- * app — showing a "download the macOS app" nudge would be nonsensical.
- * Also excludes Capacitor (via `isNativePlatform()`) for symmetry with
- * the iOS hook above.
- */
-export function useIsMacOSWeb(): boolean {
+/** Desktop browser user who may be offered the detected desktop app. */
+export function useIsDesktopAppWeb(): boolean {
   return useSyncExternalStore(
     noop,
-    () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
+    () =>
+      !isMobileBrowser() &&
+      !isNativePlatform() &&
+      !isElectron(),
     () => false,
   );
 }
@@ -430,7 +426,7 @@ export function useIsMacOSWeb(): boolean {
  * renders client-only through `createRoot` (no SSR, no hydration).
  *
  * Prefer it over the bare function in JSX (docs/CAPACITOR.md): it keeps the
- * shape consistent with `useIsIOSWeb` / `useIsMacOSWeb` and stays correct if a
+ * shape consistent with `useIsIOSWeb` / `useIsDesktopAppWeb` and stays correct if a
  * prerender step is ever added. There is no first-paint flicker to avoid.
  */
 export function useIsNativeIOS(): boolean {

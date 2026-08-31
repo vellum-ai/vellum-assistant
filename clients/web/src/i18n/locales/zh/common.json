@@ -295,7 +295,7 @@
   "lazyBoundary": {
     "loadError": "此部分无法加载。请重新加载页面重试。"
   },
-  "macosAppBanner": {
+  "desktopAppBanner": {
     "ariaLabel": "{platform, select, windows {下载 Windows 应用} other {下载 macOS 应用}}",
     "ctaAriaLabel": "{platform, select, windows {下载 Windows 应用} other {下载 macOS 应用}}",
     "ctaLabel": "下载",

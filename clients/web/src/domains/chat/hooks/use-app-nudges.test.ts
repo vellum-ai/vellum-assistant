@@ -1,6 +1,6 @@
 /**
- * Pins the mobile leg of the nudge cascade: which device resolves which
- * promotion, and the one device that must resolve none.
+ * Pins the platform leg of the nudge cascade: which device resolves which
+ * promotion, including both desktop app targets.
  *
  * Driven through `navigator.userAgent` rather than a module mock, so the real
  * detection helpers are what decide. The rest of the cascade (turn counting,
@@ -31,6 +31,9 @@ const DESKTOP_CHROME_UA =
 const MAC_SAFARI_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
   "(KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+const LINUX_CHROME_UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const ORIGINAL_UA = navigator.userAgent;
 const ORIGINAL_PLATFORM = navigator.platform;
@@ -65,7 +68,7 @@ afterEach(() => {
   setPlatform(ORIGINAL_PLATFORM);
 });
 
-describe("useAppNudges mobile promotion", () => {
+describe("useAppNudges platform promotion", () => {
   test("suppresses the promotion on iOS Safari", () => {
     // Apple's Smart App Banner already offers the app there. `useIsIOSWeb`
     // opts Safari out, but `useIsMobileWeb` does not, so the generic fallback
@@ -113,14 +116,27 @@ describe("useAppNudges mobile promotion", () => {
 
     const result = renderNudges();
     expect(result.current.mobilePromotion).toBeNull();
-    expect(result.current.isOnMacOS).toBe(true);
+    expect(result.current.isOnDesktop).toBe(true);
+    expect(result.current.desktopAppPlatform).toBe("macos");
     expect(result.current.isOnNudgePlatform).toBe(true);
   });
 
-  test("resolves nothing on a plain desktop browser", () => {
+  test("promotes the Windows app in a Windows browser", () => {
     const result = renderNudges();
     expect(result.current.mobilePromotion).toBeNull();
-    expect(result.current.isOnNudgePlatform).toBe(false);
+    expect(result.current.isOnDesktop).toBe(true);
+    expect(result.current.desktopAppPlatform).toBe("windows");
+    expect(result.current.isOnNudgePlatform).toBe(true);
     expect(result.current.showBanner).toBe(false);
+  });
+
+  test("defaults the desktop nudge to macOS when the browser OS is unknown", () => {
+    setUserAgent(LINUX_CHROME_UA);
+    setPlatform("Linux x86_64");
+
+    const result = renderNudges();
+    expect(result.current.desktopAppPlatform).toBe("macos");
+    expect(result.current.isOnDesktop).toBe(true);
+    expect(result.current.isOnNudgePlatform).toBe(true);
   });
 });
