@@ -38,8 +38,19 @@ const unstorableAttachmentIds = new Set<string>();
 // reached without breaking the linking a test's own setup depends on.
 let failNextLink = false;
 
+// Armed for exactly one attachment resolve, which fails the persist before it
+// reaches the message insert.
+let failNextResolve = false;
+
 mock.module("../../persistence/attachments-store.js", () => ({
   ...realStore,
+  resolveAttachmentsForPersist: (ids: string[]) => {
+    if (failNextResolve) {
+      failNextResolve = false;
+      throw new Error("simulated attachment read failure");
+    }
+    return realStore.resolveAttachmentsForPersist(ids);
+  },
   linkAttachmentToMessage: (
     messageId: string,
     attachmentId: string,
@@ -63,6 +74,36 @@ mock.module("../../persistence/attachments-store.js", () => ({
           conversationCreatedAt,
           attachmentId,
         ),
+}));
+
+// The content rewrite the repair branch performs, which is the statement that
+// can throw AFTER the message row is already inserted.
+import * as conversationCrudNamespace from "../../persistence/conversation-crud.js";
+
+const realCrud = { ...conversationCrudNamespace };
+
+let failNextContentUpdate = false;
+
+// Armed for exactly one by-id read, which is how the "cannot tell whether the
+// row landed" branch is reached.
+let failNextMessageLookup = false;
+
+mock.module("../../persistence/conversation-crud.js", () => ({
+  ...realCrud,
+  updateMessageContent: (messageId: string, content: string) => {
+    if (failNextContentUpdate) {
+      failNextContentUpdate = false;
+      throw new Error("simulated content rewrite failure");
+    }
+    return realCrud.updateMessageContent(messageId, content);
+  },
+  getMessageById: (messageId: string, conversationId?: string) => {
+    if (failNextMessageLookup) {
+      failNextMessageLookup = false;
+      throw new Error("simulated message lookup failure");
+    }
+    return realCrud.getMessageById(messageId, conversationId);
+  },
 }));
 
 import { Conversation } from "../../daemon/conversation.js";
@@ -258,6 +299,77 @@ describe("a camera frame whose message link fails", () => {
     } finally {
       live.dispose();
       source.dispose();
+    }
+  });
+});
+
+describe("a camera frame whose persist throws", () => {
+  test("keeps its attachment when the message row already exists", async () => {
+    // A persist can fail well after the insert: the link write fails, the
+    // repair rewrites the content, and that rewrite throws in turn. The row
+    // then references the attachment with no link protecting it, which is
+    // exactly what a link-aware delete reads as collectible, so reclaiming
+    // would strip the image out of a message the transcript still shows.
+    const live = liveConversation("Live voice throw after insert");
+    try {
+      const frame = await uploadFrame("throws-late.png");
+
+      failNextLink = true;
+      failNextContentUpdate = true;
+      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+        ok: false,
+      });
+      expect(failNextLink).toBe(false);
+      expect(failNextContentUpdate).toBe(false);
+
+      // The row landed before the throw, so the frame is not the daemon's to
+      // collect however the call reported itself.
+      expect(getMessages(live.id)).toHaveLength(1);
+      expect(realStore.getAttachmentById(frame)).not.toBeNull();
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("gives up its attachment when it threw before the insert", async () => {
+    // Nothing was written, so the upload is stranded exactly as a superseded
+    // or timed-out keep's is.
+    const live = liveConversation("Live voice throw before insert");
+    try {
+      const frame = await uploadFrame("throws-early.png");
+
+      failNextResolve = true;
+      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+        ok: false,
+      });
+      expect(failNextResolve).toBe(false);
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(realStore.getAttachmentById(frame)).toBeNull();
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("keeps its attachment when it cannot tell whether the row landed", async () => {
+    // Nothing was inserted here, so the frame would have been reclaimed. The
+    // read that would prove it fails, and an unanswerable question resolves
+    // toward leaking a row rather than risking one a message references.
+    const live = liveConversation("Live voice throw with unreadable row");
+    try {
+      const frame = await uploadFrame("throws-unreadable.png");
+
+      failNextResolve = true;
+      failNextMessageLookup = true;
+      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+        ok: false,
+      });
+      expect(failNextMessageLookup).toBe(false);
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(realStore.getAttachmentById(frame)).not.toBeNull();
+    } finally {
+      live.dispose();
     }
   });
 });

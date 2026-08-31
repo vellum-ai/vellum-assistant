@@ -66,7 +66,10 @@ import {
   deleteOrphanAttachments,
   resolveAttachmentsForPersist,
 } from "../persistence/attachments-store.js";
-import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
+import {
+  getMessageById,
+  recordConversationPersistedSeq,
+} from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -211,9 +214,20 @@ async function enqueueStandaloneImagePersist(
  * The client uploaded it and then the daemon dropped it, so nothing else will
  * ever collect it: the client's own abandon-delete fires only when the send
  * fails, and attachment collection is candidate-driven with no sweep.
- * {@link deleteOrphanAttachments} is link-aware, which is the backstop that
- * makes this safe on the thrown path: a write that failed after linking leaves
- * a `message_attachments` row, and an id with a link is refused.
+ *
+ * Each caller owes the invariant in the first line. The supersede and timeout
+ * paths have it by construction, neither having reached the persist; the
+ * thrown path establishes it by checking that no row was inserted
+ * ({@link messageMayExist}), because a persist can fail after `addMessage`
+ * succeeded. {@link deleteOrphanAttachments} being link-aware is the second
+ * backstop rather than the only one: a failure between the insert and the link
+ * leaves a row that references the attachment with no link to protect it.
+ *
+ * The reclaim names the id the caller handed in, which is not always the id
+ * the row ended up referencing: conversation scoping clones an attachment
+ * already linked elsewhere, and the persisted block then names the clone. The
+ * insert check still guards the case that matters, because without a clone the
+ * two ids are the same one, and that is the dangling reference this protects.
  *
  * Keeps only. A photo is a deliberate upload the user watched themselves make,
  * and one that failed to persist is theirs to retry, not the daemon's to
@@ -300,6 +314,9 @@ async function writeStandaloneImage(
   persistOptions: Omit<PersistMessageOptions, "attachments" | "requestId">,
 ): Promise<LiveVoicePhotoResult> {
   const { content } = persistOptions;
+  // The id the row is inserted under, so a failure can ask whether the insert
+  // landed before deciding the frame is safe to reclaim.
+  const requestId = uuidv7();
   try {
     const attachments = resolveAttachmentsForPersist([attachmentId]);
     if (attachments.length === 0) {
@@ -330,7 +347,7 @@ async function writeStandaloneImage(
       const persisted = await persistQueuedMessageBody(conversation, {
         ...persistOptions,
         attachments,
-        requestId: uuidv7(),
+        requestId,
       });
 
       // The row exists but no turn will announce it, so the clients that
@@ -358,10 +375,35 @@ async function writeStandaloneImage(
       { err, conversationId, attachmentId, kind },
       "Failed to persist a live-voice image",
     );
-    if (kind === "sight_frame") {
+    if (kind === "sight_frame" && !messageMayExist(conversationId, requestId)) {
       reclaimDroppedFrame(attachmentId);
     }
     return { ok: false };
+  }
+}
+
+/**
+ * Whether the persist may have inserted its row before throwing.
+ *
+ * A persist can fail well after `addMessage` succeeded: a link write that
+ * fails is repaired by rewriting the content, and that rewrite can throw in
+ * turn. The row then exists and references the attachment while no
+ * `message_attachments` link was ever written, which is exactly the shape
+ * link-awareness reads as collectible, so reclaiming would strip an image out
+ * of a message the transcript still shows.
+ *
+ * True on a failed lookup as well. Leaking one row costs bytes; deleting one a
+ * message references breaks that message for good.
+ */
+function messageMayExist(conversationId: string, messageId: string): boolean {
+  try {
+    return getMessageById(messageId, conversationId) !== null;
+  } catch (err) {
+    log.warn(
+      { err, conversationId, messageId },
+      "Could not tell whether a live-voice image persisted; keeping its attachment",
+    );
+    return true;
   }
 }
 
