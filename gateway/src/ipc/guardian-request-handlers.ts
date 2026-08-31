@@ -26,6 +26,7 @@ import {
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GetGuardianRequestIpcParamsSchema,
   GuardianRequestInScopeIpcParamsSchema,
+  ListGuardianRequestDeliveriesByChatIpcParamsSchema,
   ListGuardianRequestDeliveriesIpcParamsSchema,
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
@@ -49,6 +50,7 @@ import {
   getRequestByPendingQuestion,
   isGuardianRequestInScope,
   listGuardianRequestDeliveries,
+  listGuardianRequestDeliveriesByChat,
   listGuardianRequests,
   listPendingRequestsByDestination,
   listPendingRequestsByScope,
@@ -185,6 +187,18 @@ export const guardianRequestRoutes: IpcRoute[] = [
       const { requestId } =
         ListGuardianRequestDeliveriesIpcParamsSchema.parse(params);
       return listGuardianRequestDeliveries(requestId);
+    },
+  },
+  {
+    // Transcript importers: the delivery rows addressed to one chat, so
+    // guardian card messages can be recognized as projections rather
+    // than imported as conversation content.
+    method: GUARDIAN_REQUESTS_IPC_METHODS.listDeliveriesByChat,
+    schema: ListGuardianRequestDeliveriesByChatIpcParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const { channel, chatId } =
+        ListGuardianRequestDeliveriesByChatIpcParamsSchema.parse(params);
+      return listGuardianRequestDeliveriesByChat(channel, chatId);
     },
   },
   {

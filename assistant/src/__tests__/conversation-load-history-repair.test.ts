@@ -645,6 +645,65 @@ describe("loadFromDb history repair", () => {
     expect(allText).not.toContain("secret text");
   });
 
+  test("the assistant's own reaction row renders second-person", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "great work" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.9",
+            eventKind: "message",
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          messageKind: "reaction",
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.9",
+              emoji: "🎉",
+              op: "added",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).not.toContain("[reaction]");
+    expect(allText).toContain("You reacted with 🎉 to this message:");
+    // The quoted target is sender text and stays fenced even in the
+    // assistant's own row.
+    expect(allText).toContain("great work");
+    expect(allText).toContain("<external_content");
+  });
+
   test("a reaction row does not count as a turn on rehydration", async () => {
     mockConversation = {
       id: "conv-1",

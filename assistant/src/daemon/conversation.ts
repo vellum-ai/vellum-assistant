@@ -176,6 +176,7 @@ import type { ConversationTransportMetadata } from "./message-types/conversation
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { renderReactionHistoryText } from "./reaction-history-render.js";
+import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
   resolveSummarizeBoundary,
   startsNewTurn,
@@ -543,6 +544,13 @@ export class Conversation {
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ loadedHistoryStale = false;
+  /**
+   * @internal Reactions the current turn delivered, awaiting their durable
+   * rows. Written mid-turn by the react tool, drained by the agent loop at
+   * the turn boundary so the rows never land between a tool_use and its
+   * tool_result.
+   */
+  pendingReactionRecords: QueuedReactionRecord[] = [];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /**
@@ -1207,7 +1215,6 @@ export class Conversation {
       // carry neither fact: both envelopes spell these keys literally, in
       // providerMeta and in nested slackMeta alike.
       if (
-        role === "user" &&
         m.metadata &&
         (m.metadata.includes("reaction") || m.metadata.includes("deletedAt"))
       ) {
@@ -1216,11 +1223,14 @@ export class Conversation {
           const rendered = renderReactionHistoryText(
             providerMeta,
             resolveReactionTarget,
+            // An assistant-role reaction row is the assistant's own act,
+            // persisted by the react tool.
+            { selfAuthored: role === "assistant" },
           );
           if (rendered) {
             content = [{ type: "text", text: rendered }];
           }
-        } else if (providerMeta?.deletedAt !== undefined) {
+        } else if (role === "user" && providerMeta?.deletedAt !== undefined) {
           // Neutral marker, no actor: Discord deletes can be authorless
           // (`actorUnattributed`), so the marker never claims who deleted.
           content = [{ type: "text", text: "[This message was deleted]" }];
@@ -1618,6 +1628,11 @@ export class Conversation {
    */
   markHistoryStale(): void {
     this.loadedHistoryStale = true;
+  }
+
+  /** Queue a delivered reaction for its durable row at the turn boundary. */
+  queueReactionRecord(record: QueuedReactionRecord): void {
+    this.pendingReactionRecords.push(record);
   }
 
   /**

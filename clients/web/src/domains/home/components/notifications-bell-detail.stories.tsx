@@ -173,3 +173,89 @@ export const LinksPending: Story = {
     }),
   },
 };
+
+/**
+ * A pending guardian approval: the canonical "Needs attention" item for a
+ * request raised from a channel. The body is the guardian card with
+ * requester and source context first, then Approve/Reject against the
+ * canonical request, with the source-thread jump in the footer.
+ */
+export const GuardianApprovalPending: Story = {
+  args: {
+    item: feedItem({
+      id: "guardian:req-approval",
+      title: "Alice asked the assistant to look up ticket ABC-123",
+      summary:
+        "Alice asked the assistant to look up ticket ABC-123 before replying in the thread.",
+      category: "security",
+      urgency: "high",
+      detailPanel: { kind: "permissionChat" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+      guardianRequest: {
+        requestId: "req-approval",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+        requesterLabel: "Alice",
+        toolName: "linear_graphql",
+        sourceChannel: "slack",
+        sourceContextLabel: "Slack #user-feedback",
+        sourceUrl: "https://slack.com/archives/C0123456789/p1725100000000100",
+        slackCardUrl:
+          "https://slack.com/archives/D0AAAAAAAAA/p1725100001000100",
+      },
+    }),
+  },
+};
+
+/** A pending guardian question routes to the source conversation to answer. */
+export const GuardianQuestionPending: Story = {
+  args: {
+    item: feedItem({
+      id: "guardian:req-question",
+      title: "Which venue should I book?",
+      summary: "Vex needs an answer before booking the offsite venue.",
+      category: "security",
+      urgency: "high",
+      detailPanel: { kind: "permissionChat" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+      guardianRequest: {
+        requestId: "req-question",
+        kind: "pending_question",
+        intent: "question",
+        status: "pending",
+      },
+    }),
+  },
+};
+
+/**
+ * The terminal receipt: the same item after resolution, with the outcome
+ * in place of the buttons and the row an ordinary clearable
+ * notification.
+ */
+export const GuardianApprovalResolved: Story = {
+  args: {
+    item: feedItem({
+      id: "guardian:req-resolved",
+      title: "Alice asked the assistant to look up ticket ABC-123",
+      summary:
+        "Alice asked the assistant to look up ticket ABC-123 before replying in the thread.",
+      category: "security",
+      urgency: "medium",
+      detailPanel: { kind: "permissionChat" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+      guardianRequest: {
+        requestId: "req-resolved",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "approved",
+        requesterLabel: "Alice",
+        toolName: "linear_graphql",
+        sourceContextLabel: "Slack #user-feedback",
+        decidedByLabel: "Bob",
+        decidedAt: "2026-08-31T13:00:00.000Z",
+      },
+    }),
+  },
+};

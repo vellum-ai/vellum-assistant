@@ -3,13 +3,18 @@ import { ArrowLeft } from "lucide-react";
 import { DetailShell } from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  type FeedItem,
+  type FeedItemStatus,
+  isPendingGuardianFeedItem,
+} from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { buildReadToggle } from "../read-toggle";
 import { HomeGenericDetail } from "./home-generic-detail";
+import { HomeGuardianRequestCard } from "./home-guardian-request-card";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
 
 export interface HomeDetailPanelProps {
@@ -133,6 +138,8 @@ export function HomeDetailPanel({
         <div className="flex-1 overflow-y-auto p-4">
           {panelKind === "toolPermission" ? (
             <HomeToolPermissionCard item={item} />
+          ) : panelKind === "permissionChat" ? (
+            <HomeGuardianRequestCard item={item} />
           ) : (
             <HomeGenericDetail item={item} />
           )}
@@ -219,9 +226,14 @@ export function HomeDetailPanel({
                 >
                   {readToggleLabel}
                 </Button>
-                <Button variant="primary" onClick={() => onDismiss(item.id)}>
-                  {t("actions.dismiss")}
-                </Button>
+                {/* The live projection of an unresolved guardian request
+                    offers no dismiss: resolution retires it, and only its
+                    receipt is clearable. */}
+                {isPendingGuardianFeedItem(item) ? null : (
+                  <Button variant="primary" onClick={() => onDismiss(item.id)}>
+                    {t("actions.dismiss")}
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -230,6 +242,8 @@ export function HomeDetailPanel({
     >
       {panelKind === "toolPermission" ? (
         <HomeToolPermissionCard item={item} />
+      ) : panelKind === "permissionChat" ? (
+        <HomeGuardianRequestCard item={item} />
       ) : (
         <HomeGenericDetail item={item} />
       )}

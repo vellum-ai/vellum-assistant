@@ -1731,6 +1731,11 @@
     "openTitle": "開啟 {path}"
   },
   "transcript": {
-    "noResponse": "決定不回覆"
+    "noResponse": "決定不回覆",
+    "reactionAddedSelf": "已用 {emoji} 回應",
+    "reactionRemovedSelf": "已移除 {emoji} 回應",
+    "reactionAdded": "{name} 用 {emoji} 回應",
+    "reactionRemoved": "{name} 移除了 {emoji} 回應",
+    "reactionSomeone": "有人"
   }
 }

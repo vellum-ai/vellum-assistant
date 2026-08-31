@@ -44,6 +44,32 @@ const PROACTIVE_ITEM: CreditsUpsellItem = {
   key: "credits-upsell-proactive",
 };
 
+describe("TranscriptRow reaction dispatch", () => {
+  test("a neutral reaction row renders the reaction line in the shell, never the sentinel", () => {
+    const message: DisplayMessage = {
+      id: "m-react",
+      role: "assistant",
+      ...textBody("[reaction]"),
+      reaction: {
+        emoji: "🎉",
+        op: "added",
+        targetMessageId: "555.1",
+        selfAuthored: true,
+      },
+    };
+    const { getByTestId, queryByText, container } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-react", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    expect(getByTestId("reaction-line-row")).toBeTruthy();
+    expect(getByTestId("reaction-line-row").textContent).toContain("🎉");
+    expect(queryByText("[reaction]")).toBeNull();
+    expect(container.querySelector("#msg-m-react")).toBeTruthy();
+  });
+});
+
 describe("TranscriptRow deliberate-silence dispatch", () => {
   test("an isNoResponse message renders the quiet marker in the message shell", () => {
     // The wire shape: the route strips sentinel text from projected content,

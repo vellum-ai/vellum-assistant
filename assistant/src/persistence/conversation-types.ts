@@ -179,6 +179,24 @@ export function isNoResponseMetadata(
 }
 
 /**
+ * Marker for an assistant-authored reaction row: the assistant reacted with
+ * an emoji, and the row records it durably. The reaction fact itself lives
+ * in the row's `providerMeta.reaction` envelope, same as inbound reaction
+ * rows; this kind carries the display and grouping semantics, keeping the
+ * row a standalone turn (never merged into adjacent assistant speech, where
+ * consolidation would fold its sentinel text into a bubble and drop the
+ * envelope from the wire).
+ */
+export const REACTION_MESSAGE_KIND = "reaction";
+
+/** Shared predicate for the assistant-reaction marker. */
+export function isReactionMessageMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === REACTION_MESSAGE_KIND;
+}
+
+/**
  * True when a role-`"user"` row is internal scaffolding rather than a person's
  * prompt: a daemon-injected run lifecycle notification (subagent
  * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the

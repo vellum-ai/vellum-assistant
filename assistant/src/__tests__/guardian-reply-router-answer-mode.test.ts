@@ -34,7 +34,13 @@ mock.module("../approvals/guardian-decision-primitive.js", () => ({
     applyGuardianDecisionMock(params),
 }));
 
+// Spread the actual module so transitive importers of names this
+// factory does not stub keep resolving (a partial factory breaks at
+// import time when the graph gains a new named import).
+const actualGatewayGuardianRequests =
+  await import("../channels/gateway-guardian-requests.js");
 mock.module("../channels/gateway-guardian-requests.js", () => ({
+  ...actualGatewayGuardianRequests,
   getGuardianRequestOrNull: (id: string) =>
     Promise.resolve(requestsById.get(id) ?? null),
   getGuardianRequestByCodeOrNull: () => Promise.resolve(null),

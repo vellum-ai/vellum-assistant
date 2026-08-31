@@ -1,7 +1,11 @@
 import { RotateCcw, Trash2 } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  type FeedItem,
+  type FeedItemStatus,
+  isPendingGuardianFeedItem,
+} from "@vellumai/assistant-api";
 import { Button } from "@vellumai/design-library";
 
 import { buildReadToggle } from "./read-toggle";
@@ -48,7 +52,9 @@ export function FeedItemStatusActions({
           aria-label={t("actions.restore")}
           tooltip={t("actions.restore")}
         />
-      ) : (
+      ) : isPendingGuardianFeedItem(item) ? null : (
+        // The live projection of an unresolved guardian request offers no
+        // dismiss: resolution retires it, and only its receipt is clearable.
         <Button
           variant="ghost"
           iconOnly={<Trash2 />}

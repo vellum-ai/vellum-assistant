@@ -21,6 +21,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
+import { listGuardianRequestDeliveriesByChat } from "../../channels/gateway-guardian-requests.js";
 import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
@@ -2142,6 +2143,19 @@ async function runBackfillSlackDmIfCold(params: {
       return;
     }
 
+    // Guardian approval cards posted to this chat are delivery
+    // projections of canonical requests, never conversation content, so
+    // their message ts must not be imported as transcript rows. The
+    // gateway delivery registry is the authority on which messages
+    // those are (it covers cards from every daemon build). An
+    // unreachable gateway aborts the backfill rather than importing a
+    // card: the DM stays cold, so the next inbound message retries.
+    const guardianCardTs = new Set(
+      (await listGuardianRequestDeliveriesByChat("slack", params.channelId))
+        .map((delivery) => delivery.destinationMessageId)
+        .filter((ts): ts is string => typeof ts === "string" && ts.length > 0),
+    );
+
     const seen = readStoredSlackChannelTs(params.conversationId);
     let written = 0;
     // Slack's conversation.history returns most-recent first. Reverse so
@@ -2151,6 +2165,9 @@ async function runBackfillSlackDmIfCold(params: {
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
       if (seen.has(message.id)) {
+        continue;
+      }
+      if (guardianCardTs.has(message.id)) {
         continue;
       }
       if (await isSlackAssistantThreadPlaceholder(message, params.account)) {

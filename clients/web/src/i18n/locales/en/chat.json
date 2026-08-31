@@ -1764,6 +1764,11 @@
     "openTitle": "Open {path}"
   },
   "transcript": {
-    "noResponse": "Chose not to respond"
+    "noResponse": "Chose not to respond",
+    "reactionAddedSelf": "Reacted with {emoji}",
+    "reactionRemovedSelf": "Removed the {emoji} reaction",
+    "reactionAdded": "{name} reacted with {emoji}",
+    "reactionRemoved": "{name} removed their {emoji} reaction",
+    "reactionSomeone": "Someone"
   }
 }

@@ -2,6 +2,10 @@ import { telemetryIngestCreate } from "@/generated/api/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { getClientId } from "./client-identity";
+import {
+  __resetReportedConditionsForTests,
+  claimUnreportedConditions,
+} from "./report-once";
 
 /**
  * Drops keys whose value is `undefined` so they are omitted from the wire
@@ -25,32 +29,6 @@ function stripUndefined(event: object): Record<string, unknown> {
  * for every opted-out user.
  */
 const EXPECTED_DROP_REASONS = new Set(["analytics_opt_out"]);
-
-/**
- * Ingest failure conditions (`rejected:<status>`, `dropped:<reason>`) already
- * reported for this page load.
- *
- * An ingest failure is systemic, not per-event: it means this client emits
- * something the server contract does not accept (an event type outside the
- * session allowlist, a serializer that has not shipped yet). One report per
- * condition per page load is enough to see it; one per flush would be a flood.
- */
-const reportedConditions = new Set<string>();
-
-/**
- * Filters to the conditions not yet reported this page load and marks them,
- * per condition rather than per batch, so a reason that already fired alone
- * cannot fire again by arriving alongside a new one.
- */
-function claimUnreported(conditions: readonly string[]): string[] {
-  const fresh = conditions.filter(
-    (condition) => !reportedConditions.has(condition),
-  );
-  for (const condition of fresh) {
-    reportedConditions.add(condition);
-  }
-  return fresh;
-}
 
 /**
  * Wraps events in the telemetry envelope and fire-and-forgets them to the
@@ -81,7 +59,10 @@ export function postTelemetryEvents(events: readonly object[]): void {
     .then(({ data, response }) => {
       if (!response?.ok) {
         const status = response?.status ?? null;
-        if (claimUnreported([`rejected:${status ?? "no-response"}`]).length) {
+        if (
+          claimUnreportedConditions([`rejected:${status ?? "no-response"}`])
+            .length
+        ) {
           captureError(
             new Error(
               `telemetry ingest rejected with ${status ?? "no response"}`,
@@ -101,7 +82,7 @@ export function postTelemetryEvents(events: readonly object[]): void {
       const unexpected = Object.keys(data.dropped)
         .filter((reason) => !EXPECTED_DROP_REASONS.has(reason))
         .sort();
-      const fresh = claimUnreported(
+      const fresh = claimUnreportedConditions(
         unexpected.map((reason) => `dropped:${reason}`),
       );
       if (fresh.length === 0) {
@@ -125,5 +106,5 @@ export function postTelemetryEvents(events: readonly object[]): void {
 }
 
 export function __resetTelemetryIngestForTests(): void {
-  reportedConditions.clear();
+  __resetReportedConditionsForTests();
 }

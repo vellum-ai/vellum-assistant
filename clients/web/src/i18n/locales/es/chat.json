@@ -1753,6 +1753,11 @@
     "openTitle": "Abrir {path}"
   },
   "transcript": {
-    "noResponse": "Decidió no responder"
+    "noResponse": "Decidió no responder",
+    "reactionAddedSelf": "Reaccionó con {emoji}",
+    "reactionRemovedSelf": "Quitó la reacción {emoji}",
+    "reactionAdded": "{name} reaccionó con {emoji}",
+    "reactionRemoved": "{name} quitó su reacción {emoji}",
+    "reactionSomeone": "Alguien"
   }
 }
