@@ -41,6 +41,7 @@ import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -166,6 +167,39 @@ function BillingTabSkeleton() {
       <SkeletonCardBlock />
       <SkeletonCardBlock />
       <SkeletonCardBlock />
+    </div>
+  );
+}
+
+/**
+ * Stand-in for the whole page while the platform-session probe is still
+ * pending. It reuses the settled render's wrappers exactly: the `space-y-6`
+ * shell, a `Tabs.List` built from the real trigger parts so the bar's height
+ * matches to the pixel, and the panel's `pt-4` around the card stack. Settling
+ * therefore swaps content in place instead of mounting chrome above the cards.
+ *
+ * The triggers stand in for labels the probe has not decided on yet, so they
+ * are disabled and hidden from the accessibility tree; the card stack inside
+ * carries the loading announcement.
+ */
+function BillingPageSkeleton() {
+  return (
+    <div className="space-y-6" data-testid="billing-page-skeleton">
+      <Tabs.Root value="billing">
+        <Tabs.List aria-hidden>
+          <Tabs.Trigger value="billing" disabled>
+            {/* Matches the trigger's 18px line box, so the placeholder bar is
+                exactly as tall as one holding a real label. */}
+            <Skeleton className="h-[18px] w-12 rounded-md" />
+          </Tabs.Trigger>
+          <Tabs.Trigger value="usage" disabled>
+            <Skeleton className="h-[18px] w-12 rounded-md" />
+          </Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Panel value="billing" className="pt-4">
+          <BillingTabSkeleton />
+        </Tabs.Panel>
+      </Tabs.Root>
     </div>
   );
 }
@@ -418,7 +452,7 @@ export function BillingPage() {
   };
 
   if (holdForPlatformSession) {
-    return <BillingTabSkeleton />;
+    return <BillingPageSkeleton />;
   }
 
   return (

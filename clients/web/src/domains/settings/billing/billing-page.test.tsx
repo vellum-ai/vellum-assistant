@@ -15,7 +15,9 @@
  *
  * The same harness covers the two windows where the tab has nothing to show
  * yet, both of which render the skeleton stack: the assistant lifecycle still
- * resolving, and the platform-session probe not settled.
+ * resolving, and the platform-session probe not settled. The pre-settle hold
+ * renders that stack inside the settled page's own wrappers, so the tests
+ * check the chrome around it as well as the stack itself.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -559,6 +561,10 @@ describe("BillingTab lifecycle loading", () => {
     // The old inline spinner row is gone, and so is its copy.
     expect(queryByText("Loading billing\u2026")).toBeNull();
     expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
+    // The real tab chrome is already mounted here, so the lifecycle window
+    // never needs the page-level stand-in.
+    expect(queryByTestId("billing-page-skeleton")).toBeNull();
+    expect(stack.closest('[data-slot="tabs-panel"]')).toBeTruthy();
   });
 });
 
@@ -567,7 +573,23 @@ describe("BillingPage platform-session pre-settle hold", () => {
     platformSessionPending = true;
     const { getByTestId, queryByTestId } = renderPage("");
 
-    expect(getByTestId("billing-tab-skeleton")).toBeTruthy();
+    const stack = getByTestId("billing-tab-skeleton");
+    // The hold renders inside the same wrappers the settled page uses, so the
+    // tab bar and the panel padding are already holding their space: settling
+    // swaps content in place rather than pushing the cards down.
+    const shell = getByTestId("billing-page-skeleton");
+    expect(shell.className).toContain("space-y-6");
+    const tabList = shell.querySelector('[data-slot="tabs-list"]');
+    expect(tabList).toBeTruthy();
+    const panel = stack.closest('[data-slot="tabs-panel"]');
+    expect(panel).toBeTruthy();
+    expect(panel?.className).toContain("pt-4");
+    // The tab-bar stand-ins hold space only: they stay out of the
+    // accessibility tree, so the card stack is still the one announced region.
+    expect(tabList?.getAttribute("aria-hidden")).toBe("true");
+    const announced = shell.querySelectorAll('[role="status"][aria-label]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]).toBe(stack);
     // The Usage tree would otherwise mount its own skeletons here, only to be
     // torn down once the probe lands on a Billing destination.
     expect(queryByTestId("usage-tab")).toBeNull();
@@ -582,6 +604,11 @@ describe("BillingPage platform-session pre-settle hold", () => {
 
     expect(getByTestId("billing-tab-skeleton")).toBeTruthy();
     expect(
+      getByTestId("billing-page-skeleton").querySelector(
+        '[data-slot="tabs-list"]',
+      ),
+    ).toBeTruthy();
+    expect(
       queryByText("Log in to the Vellum platform to manage billing and usage."),
     ).toBeNull();
   });
@@ -592,6 +619,7 @@ describe("BillingPage platform-session pre-settle hold", () => {
 
     expect(getByTestId("usage-tab")).toBeTruthy();
     expect(queryByTestId("billing-tab-skeleton")).toBeNull();
+    expect(queryByTestId("billing-page-skeleton")).toBeNull();
   });
 
   test("renders the billing tab once the session settles", async () => {
@@ -601,6 +629,7 @@ describe("BillingPage platform-session pre-settle hold", () => {
       expect(getByTestId("plan-card-tier-upgraded")).toBeTruthy(),
     );
     expect(queryByTestId("billing-tab-skeleton")).toBeNull();
+    expect(queryByTestId("billing-page-skeleton")).toBeNull();
     expect(getByTestId("loc").textContent).toBe(
       "/assistant/settings/usage?tab=billing",
     );
