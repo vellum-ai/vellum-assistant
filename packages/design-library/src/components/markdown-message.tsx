@@ -31,9 +31,11 @@ type RehypeKatexPlugin = typeof import("rehype-katex").default;
  * pays the load once, and so a synchronous render (renderToStaticMarkup,
  * and any tree already warmed by {@link preloadMarkdownMath}) can pick the
  * plugin up via `peek()` without an effect. A failed chunk load is not
- * cached (see {@link asyncOnce}): the next math-bearing mount or preload
- * call retries, which current engines honor with a real refetch
- * (whatwg/html#10327 evicts failed fetches from the module map).
+ * cached (see {@link asyncOnce}), so the next math-bearing mount or preload
+ * call invokes import() again. Whether that reaches the network is
+ * engine-dependent while whatwg/html#10327 rolls out: new-model engines
+ * evict failed fetches from the module map and refetch, old-model engines
+ * return the cached failure, where math stays raw TeX until reload.
  */
 const rehypeKatexOnce = asyncOnce<RehypeKatexPlugin>(async () => {
   const [mod] = await Promise.all([
