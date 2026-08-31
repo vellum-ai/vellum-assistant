@@ -911,39 +911,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
-        id: "accounts/fireworks/models/glm-5p3-flash",
-        displayName: "GLM 5.3 Flash",
-        // Fireworks serves the GLM 5.3 family with a 1,040K input window.
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: true,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 0.15,
-          outputPer1mTokens: 0.5,
-          cacheReadPer1mTokens: 0.029,
-        },
-      },
-      {
-        id: "accounts/fireworks/models/glm-5p3",
-        displayName: "GLM 5.3",
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 1.4,
-          outputPer1mTokens: 4.4,
-          cacheReadPer1mTokens: 0.26,
-        },
-      },
-      {
         id: "accounts/fireworks/models/glm-5p2",
         displayName: "GLM 5.2",
         // Fireworks serves GLM 5.2 with a 1,040K input window.
