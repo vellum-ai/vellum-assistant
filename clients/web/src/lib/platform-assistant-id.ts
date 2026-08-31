@@ -1,3 +1,4 @@
+import { remoteGatewayPublicBaseUrl } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
 import {
   fetchPlatformStatus,
@@ -36,7 +37,7 @@ export async function resolvePlatformAssistantId(
     try {
       const status = await fetchPlatformStatus(
         {
-          gatewayUrl: window.location.origin,
+          gatewayUrl: remoteGatewayPublicBaseUrl(),
           actorToken: getSelfHostedActorToken(),
         },
         assistantId,

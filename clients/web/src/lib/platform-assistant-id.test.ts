@@ -12,7 +12,11 @@ const fetchPlatformStatusMock = mock(
   async (): Promise<{ assistantId: string } | null> => null,
 );
 let remoteGatewayMode = false;
+let remoteGatewayBaseUrl = "https://gateway.example.com";
 
+mock.module("@/lib/auth/remote-gateway-session", () => ({
+  remoteGatewayPublicBaseUrl: () => remoteGatewayBaseUrl,
+}));
 mock.module("@/lib/local-platform-identity", () => ({
   isUuid: (value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -38,6 +42,7 @@ const { resolvePlatformAssistantId } = await import(
 
 beforeEach(() => {
   remoteGatewayMode = false;
+  remoteGatewayBaseUrl = "https://gateway.example.com";
   resolveLocalAssistantPlatformIdentityMock.mockClear();
   resolveLocalAssistantPlatformIdentityMock.mockImplementation(
     async (assistantId: string) => assistantId,
@@ -104,7 +109,26 @@ describe("resolvePlatformAssistantId", () => {
     expect(resolveLocalAssistantPlatformIdentityMock).toHaveBeenCalled();
     expect(fetchPlatformStatusMock).toHaveBeenCalledWith(
       {
-        gatewayUrl: window.location.origin,
+        gatewayUrl: "https://gateway.example.com",
+        actorToken: "actor-token",
+      },
+      "self",
+    );
+  });
+
+  test("probes platform status through a prefix-served remote-gateway base", async () => {
+    remoteGatewayMode = true;
+    remoteGatewayBaseUrl = "https://gateway.example.com/assistant-123";
+    fetchPlatformStatusMock.mockImplementationOnce(async () => ({
+      assistantId: PLATFORM_ASSISTANT_ID,
+    }));
+
+    await expect(resolvePlatformAssistantId("self")).resolves.toBe(
+      PLATFORM_ASSISTANT_ID,
+    );
+    expect(fetchPlatformStatusMock).toHaveBeenCalledWith(
+      {
+        gatewayUrl: "https://gateway.example.com/assistant-123",
         actorToken: "actor-token",
       },
       "self",
