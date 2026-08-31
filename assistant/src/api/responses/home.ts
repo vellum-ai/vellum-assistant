@@ -154,7 +154,7 @@ export const FeedItemGuardianRequestSchema = z.object({
   kind: z.string(),
   intent: FeedItemGuardianIntentSchema,
   status: FeedItemGuardianStatusSchema,
-  /** Display name or identifier of the requester (e.g. "Aaron"). */
+  /** Display name or identifier of the requester (e.g. "Alice"). */
   requesterLabel: z.string().optional(),
   /** Tool the request is about, when it is a tool approval/grant. */
   toolName: z.string().optional(),

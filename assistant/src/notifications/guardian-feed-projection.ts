@@ -42,10 +42,12 @@ import {
 import { getLogger } from "../util/logger.js";
 import {
   buildToolApprovalSourceView,
+  type GuardianQuestionRequestKind,
   LenientToolApprovalPayloadSchema,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
+import { readPayloadString } from "./notification-utils.js";
 import type { NotificationDeliveryResult } from "./types.js";
 
 const log = getLogger("guardian-feed-projection");
@@ -62,6 +64,19 @@ type StatusEnumsAligned = [GuardianRequestStatus] extends [FeedStatus]
   : never;
 const _statusEnumsAligned: StatusEnumsAligned = true;
 void _statusEnumsAligned;
+
+/**
+ * The signal events that carry a guardian request. `guardian.question`
+ * covers tool approvals, tool grants, and questions; access requests
+ * predate that registry and still ride their own event with an implied
+ * `access_request` kind.
+ */
+export function isGuardianRequestSignalEvent(sourceEventName: string): boolean {
+  return (
+    sourceEventName === "guardian.question" ||
+    sourceEventName === "ingress.access_request"
+  );
+}
 
 /** Feed-item id of the canonical projection for a guardian request. */
 export function guardianFeedItemId(requestId: string): string {
@@ -98,8 +113,19 @@ function guardianReceiptName(): string | undefined {
 export function buildPendingGuardianProjection(
   contextPayload: unknown,
   slackDelivery?: NotificationDeliveryResult,
+  fallbackKind?: GuardianQuestionRequestKind,
 ): FeedItemGuardianRequest | null {
-  const parsed = LenientToolApprovalPayloadSchema.safeParse(contextPayload);
+  // Access-request payloads predate the kind registry and carry no
+  // `requestKind`; the producer's event name supplies it instead.
+  const normalizedPayload =
+    contextPayload &&
+    typeof contextPayload === "object" &&
+    !Array.isArray(contextPayload) &&
+    !("requestKind" in contextPayload) &&
+    fallbackKind
+      ? { ...contextPayload, requestKind: fallbackKind }
+      : contextPayload;
+  const parsed = LenientToolApprovalPayloadSchema.safeParse(normalizedPayload);
   if (!parsed.success) {
     return null;
   }
@@ -115,15 +141,18 @@ export function buildPendingGuardianProjection(
 
   const sourceView = buildToolApprovalSourceView(payload);
   const slackLinks = buildSlackCardLinks(slackDelivery);
+  // Access-request payloads name their requester differently.
+  const requesterLabel =
+    payload.requesterIdentifier?.trim() ||
+    readPayloadString(contextPayload, "actorDisplayName")?.trim() ||
+    readPayloadString(contextPayload, "senderIdentifier")?.trim();
 
   return {
     requestId,
     kind: payload.requestKind,
     intent,
     status: "pending",
-    ...(payload.requesterIdentifier?.trim()
-      ? { requesterLabel: payload.requesterIdentifier.trim() }
-      : {}),
+    ...(requesterLabel ? { requesterLabel } : {}),
     ...(payload.toolName?.trim() ? { toolName: payload.toolName.trim() } : {}),
     ...(sourceView?.channel ? { sourceChannel: sourceView.channel } : {}),
     ...(sourceView
@@ -215,6 +244,21 @@ export async function writeGuardianFeedReceipt(
 ): Promise<boolean> {
   const itemId = guardianFeedItemId(params.requestId);
   try {
+    // `patchFeedItemContent` resolves null both for a missing item and
+    // for a failed file write, and only the second may gate a retry.
+    // The pre-check splits them: an id present here that nulls below is
+    // a lost write (or a concurrent removal, where a retry is harmless).
+    if (!readHomeFeed().items.some((item) => item.id === itemId)) {
+      // No projection item: either the request predates the projection
+      // or the pending write raced the resolution and has not landed
+      // yet. The pending writer converges the race by re-checking
+      // canonical status after its append.
+      log.debug(
+        { requestId: params.requestId, status: params.status },
+        "No guardian feed item to receipt",
+      );
+      return true;
+    }
     const updated = await patchFeedItemContent(itemId, {
       urgency: "medium",
       guardianRequest: (existing) => ({
@@ -237,15 +281,11 @@ export async function writeGuardianFeedReceipt(
       }),
     });
     if (!updated) {
-      // No projection item: either the request predates the projection
-      // or the pending write raced the resolution and has not landed
-      // yet. The pending writer converges the race by re-checking
-      // canonical status after its append.
-      log.debug(
+      log.warn(
         { requestId: params.requestId, status: params.status },
-        "No guardian feed item to receipt",
+        "Guardian feed receipt did not persist",
       );
-      return true;
+      return false;
     }
     return true;
   } catch (err) {
@@ -266,9 +306,47 @@ function decidedByLabelPatch(): Pick<
   return name === undefined ? {} : { decidedByLabel: name };
 }
 
+/**
+ * Rewrite a request's feed item into its receipt when the canonical row
+ * is already terminal. Converges the write-vs-resolve race from the
+ * writer's side: a request decided while a pending item was being
+ * written already ran its receipt fan-out against an item that did not
+ * exist yet. Best-effort: a transport failure skips (never misreads a
+ * hiccup as "request gone"), and the reconciliation sweep heals what
+ * this misses.
+ */
+export async function receiptGuardianFeedItemIfRequestTerminal(
+  requestId: string,
+): Promise<void> {
+  try {
+    const request = await getGuardianRequest(requestId);
+    if (!request || request.status === "pending") {
+      return;
+    }
+    await writeGuardianFeedReceipt({
+      requestId,
+      status: request.status,
+      decidedAtMs: request.updatedAt,
+    });
+  } catch (err) {
+    log.warn(
+      { err, requestId },
+      "Failed to converge guardian feed item with terminal request",
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Reconciliation
 // ---------------------------------------------------------------------------
+
+/**
+ * Ceiling on backfills per reconciliation round, mirroring the expiry
+ * sweep's batch bound: one round's IPC and file writes stay bounded
+ * however large a backlog grows, and the remainder drains on later
+ * rounds (the sweep runs every minute).
+ */
+const RECONCILE_BACKFILL_LIMIT = 50;
 
 /**
  * Converge the feed against canonical guardian state. Run from the
@@ -309,15 +387,25 @@ export async function reconcileGuardianFeedProjections(): Promise<void> {
 
   const pendingIds = new Set(pending.map((request) => request.id));
 
-  for (const request of pending) {
-    if (itemsByRequestId.has(request.id)) {
-      continue;
-    }
+  const missing = pending.filter(
+    (request) => !itemsByRequestId.has(request.id),
+  );
+  if (missing.length > RECONCILE_BACKFILL_LIMIT) {
+    log.warn(
+      { missing: missing.length, limit: RECONCILE_BACKFILL_LIMIT },
+      "Guardian feed backfill backlog exceeds one round; remainder drains next round",
+    );
+  }
+  for (const request of missing.slice(0, RECONCILE_BACKFILL_LIMIT)) {
     log.info(
       { requestId: request.id, kind: request.kind, surface: "home_feed" },
       "Backfilling feed projection for pending guardian request",
     );
     await appendFeedItem(buildBackfillGuardianFeedItem(request));
+    // The request may have resolved between the pending listing and this
+    // append; without the recheck the fresh item would restore live
+    // actions for a terminal request until the next round.
+    await receiptGuardianFeedItemIfRequestTerminal(request.id);
   }
 
   for (const [requestId, item] of itemsByRequestId) {

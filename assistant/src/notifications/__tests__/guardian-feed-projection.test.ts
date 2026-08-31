@@ -1,7 +1,16 @@
+import * as fs from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 // The feed writer publishes `home_feed_updated` on every write; the hub is
 // stubbed so tests run without an SSE server. Mocked before the writer
@@ -37,7 +46,7 @@ const {
   requestIdFromGuardianFeedItemId,
   writeGuardianFeedReceipt,
 } = await import("../guardian-feed-projection.js");
-const { appendFeedItem, bulkSetFeedItemStatus, readHomeFeed } =
+const { appendFeedItem, bulkSetFeedItemStatus, getHomeFeedPath, readHomeFeed } =
   await import("../../home/feed-writer.js");
 const { isPendingGuardianFeedItem } =
   await import("../../api/responses/home.js");
@@ -67,11 +76,11 @@ const toolApprovalPayload = {
   requestKind: "tool_approval",
   requestId: "req-1",
   requestCode: "ABC123",
-  questionText: "Aaron asked Vex to look up an issue",
+  questionText: "Alice asked the assistant to look up an issue",
   toolName: "linear_graphql",
   sourceChannel: "slack",
   sourceChatId: "C0123456789",
-  requesterIdentifier: "Aaron",
+  requesterIdentifier: "Alice",
 };
 
 function pendingGuardianItem(requestId: string): FeedItem {
@@ -86,7 +95,7 @@ function pendingGuardianItem(requestId: string): FeedItem {
     id: guardianFeedItemId(requestId),
     type: "notification",
     priority: 50,
-    summary: "Aaron asked Vex to look up an issue",
+    summary: "Alice asked the assistant to look up an issue",
     timestamp: "2026-08-31T12:00:00.000Z",
     createdAt: "2026-08-31T12:00:00.000Z",
     status: "new",
@@ -103,7 +112,7 @@ describe("buildPendingGuardianProjection", () => {
       kind: "tool_approval",
       intent: "approval",
       status: "pending",
-      requesterLabel: "Aaron",
+      requesterLabel: "Alice",
       toolName: "linear_graphql",
       sourceChannel: "slack",
       sourceContextLabel: "Slack #C0123456789",
@@ -135,6 +144,26 @@ describe("buildPendingGuardianProjection", () => {
     expect(
       buildPendingGuardianProjection({ requestKind: "tool_approval" }),
     ).toBeNull();
+  });
+
+  test("an access-request payload projects with the event's implied kind", () => {
+    const projection = buildPendingGuardianProjection(
+      {
+        requestId: "req-a",
+        requestCode: "AC1234",
+        sourceChannel: "telegram",
+        senderIdentifier: "Alice",
+      },
+      undefined,
+      "access_request",
+    );
+    expect(projection).toMatchObject({
+      requestId: "req-a",
+      kind: "access_request",
+      intent: "approval",
+      status: "pending",
+      requesterLabel: "Alice",
+    });
   });
 });
 
@@ -241,6 +270,34 @@ describe("writeGuardianFeedReceipt", () => {
       await writeGuardianFeedReceipt({ requestId: "ghost", status: "expired" }),
     ).toBe(true);
   });
+
+  test("a lost write on an existing item resolves false so callers retry", async () => {
+    await appendFeedItem(pendingGuardianItem("req-5"));
+    // Fail the next feed-file write while the item is still present in
+    // the read path, so the missing-item and lost-write cases separate.
+    const feedPath = getHomeFeedPath();
+    const originalWrite = fs.writeFileSync;
+    const spy = spyOn(fs, "writeFileSync").mockImplementation(((
+      path: fs.PathOrFileDescriptor,
+      data: string | NodeJS.ArrayBufferView,
+      options?: fs.WriteFileOptions,
+    ) => {
+      if (typeof path === "string" && path === feedPath) {
+        throw new Error("Simulated write failure");
+      }
+      return originalWrite(path, data, options);
+    }) as typeof fs.writeFileSync);
+    try {
+      expect(
+        await writeGuardianFeedReceipt({
+          requestId: "req-5",
+          status: "expired",
+        }),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("reconcileGuardianFeedProjections", () => {
@@ -256,7 +313,7 @@ describe("reconcileGuardianFeedProjections", () => {
     guardianPrincipalId: null,
     callSessionId: null,
     pendingQuestionId: null,
-    questionText: "Aaron asked Vex to look up an issue",
+    questionText: "Alice asked the assistant to look up an issue",
     requestCode: "ABC123",
     toolName: "linear_graphql",
     inputDigest: null,

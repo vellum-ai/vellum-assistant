@@ -184,9 +184,9 @@ export const GuardianApprovalPending: Story = {
   args: {
     item: feedItem({
       id: "guardian:req-approval",
-      title: "Aaron asked Vex to look up LUM-3445",
+      title: "Alice asked the assistant to look up ticket ABC-123",
       summary:
-        "Aaron asked Vex to look up LUM-3445 in Linear before replying in the thread.",
+        "Alice asked the assistant to look up ticket ABC-123 before replying in the thread.",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "permissionChat" },
@@ -196,7 +196,7 @@ export const GuardianApprovalPending: Story = {
         kind: "tool_approval",
         intent: "approval",
         status: "pending",
-        requesterLabel: "Aaron",
+        requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceChannel: "slack",
         sourceContextLabel: "Slack #user-feedback",
@@ -238,9 +238,9 @@ export const GuardianApprovalResolved: Story = {
   args: {
     item: feedItem({
       id: "guardian:req-resolved",
-      title: "Aaron asked Vex to look up LUM-3445",
+      title: "Alice asked the assistant to look up ticket ABC-123",
       summary:
-        "Aaron asked Vex to look up LUM-3445 in Linear before replying in the thread.",
+        "Alice asked the assistant to look up ticket ABC-123 before replying in the thread.",
       category: "security",
       urgency: "medium",
       detailPanel: { kind: "permissionChat" },
@@ -250,10 +250,10 @@ export const GuardianApprovalResolved: Story = {
         kind: "tool_approval",
         intent: "approval",
         status: "approved",
-        requesterLabel: "Aaron",
+        requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceContextLabel: "Slack #user-feedback",
-        decidedByLabel: "Ashlee",
+        decidedByLabel: "Bob",
         decidedAt: "2026-08-31T13:00:00.000Z",
       },
     }),

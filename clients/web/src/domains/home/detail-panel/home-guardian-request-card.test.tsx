@@ -55,7 +55,7 @@ function guardianItem(
 ): FeedItem {
   return feedItem({
     id: "guardian:req-1",
-    summary: "Aaron asked Vex to look up an issue",
+    summary: "Alice asked the assistant to look up an issue",
     timestamp: "2026-08-31T12:00:00.000Z",
     createdAt: "2026-08-31T12:00:00.000Z",
     guardianRequest: {
@@ -78,14 +78,14 @@ describe("HomeGuardianRequestCard", () => {
     render(
       createElement(HomeGuardianRequestCard, {
         item: guardianItem({
-          requesterLabel: "Aaron",
+          requesterLabel: "Alice",
           toolName: "linear_graphql",
           sourceContextLabel: "Slack #user-feedback",
         }),
       }),
     );
 
-    expect(screen.getByText("Aaron")).toBeTruthy();
+    expect(screen.getByText("Alice")).toBeTruthy();
     expect(
       screen.getByText("linear_graphql · Slack #user-feedback"),
     ).toBeTruthy();
@@ -119,14 +119,8 @@ describe("HomeGuardianRequestCard", () => {
   });
 
   test.each([
-    [
-      { status: "approved", decidedByLabel: "Ashlee" } as const,
-      "Approved by Ashlee",
-    ],
-    [
-      { status: "denied", decidedByLabel: "Ashlee" } as const,
-      "Rejected by Ashlee",
-    ],
+    [{ status: "approved", decidedByLabel: "Bob" } as const, "Approved by Bob"],
+    [{ status: "denied", decidedByLabel: "Bob" } as const, "Rejected by Bob"],
     [{ status: "expired" } as const, "Expired"],
     [{ status: "denied", terminalReason: "superseded" } as const, "Superseded"],
     [

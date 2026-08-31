@@ -10,7 +10,6 @@
  * mirrors the high-signal subset of that traffic into the home feed so
  * the macOS Home page surfaces them alongside other activity.
  */
-import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
 import {
   type FeedItem,
   type FeedItemCategory,
@@ -33,7 +32,8 @@ import { deriveTitle } from "./copy-composer.js";
 import {
   buildPendingGuardianProjection,
   guardianFeedItemId,
-  writeGuardianFeedReceipt,
+  isGuardianRequestSignalEvent,
+  receiptGuardianFeedItemIfRequestTerminal,
 } from "./guardian-feed-projection.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
@@ -115,9 +115,12 @@ export async function writeHomeFeedItemForSignal(
     renderedCopy?.body?.trim() ||
     payloadBody?.trim() ||
     // Guardian requests must never be dropped for missing copy: the
-    // producer's questionText is already the human-readable ask.
-    (signal.sourceEventName === "guardian.question"
-      ? (readPayloadString(signal.contextPayload, "questionText")?.trim() ?? "")
+    // producer's questionText (or, for access requests, the triggering
+    // message preview) is already the human-readable ask.
+    (isGuardianRequestSignalEvent(signal.sourceEventName)
+      ? (readPayloadString(signal.contextPayload, "questionText")?.trim() ??
+        readPayloadString(signal.contextPayload, "messagePreview")?.trim() ??
+        "")
       : "");
   if (!resolvedSummary) {
     log.warn(
@@ -170,15 +173,19 @@ export async function writeHomeFeedItemForSignal(
   // signal, so the feed's replace-in-place merge keeps exactly one
   // canonical "Needs attention" item per request across re-emits and
   // the terminal-status receipt rewrite.
-  const guardianProjection =
-    signal.sourceEventName === "guardian.question"
-      ? buildPendingGuardianProjection(
-          signal.contextPayload,
-          deliveryResults?.find(
-            (r) => r.channel === "slack" && r.status === "sent",
-          ),
-        )
-      : null;
+  const guardianProjection = isGuardianRequestSignalEvent(
+    signal.sourceEventName,
+  )
+    ? buildPendingGuardianProjection(
+        signal.contextPayload,
+        deliveryResults?.find(
+          (r) => r.channel === "slack" && r.status === "sent",
+        ),
+        signal.sourceEventName === "ingress.access_request"
+          ? "access_request"
+          : undefined,
+      )
+    : null;
 
   const item: FeedItem = {
     id: guardianProjection
@@ -236,40 +243,14 @@ export async function writeHomeFeedItemForSignal(
 
   // Converge the write-vs-resolve race: a request decided while this
   // write was in flight already ran its receipt fan-out against an item
-  // that did not exist yet, so re-read canonical status and receipt the
-  // fresh item when it landed terminal. Mirrors the delivery recorder's
+  // that did not exist yet. Mirrors the delivery recorder's
   // `withdrawIfRequestAlreadyTerminal`.
   if (guardianProjection) {
-    await receiptIfRequestAlreadyTerminal(guardianProjection.requestId);
-  }
-  return card;
-}
-
-/**
- * Rewrite a just-written pending guardian item into its receipt when the
- * canonical request is already terminal. Best-effort: an unreachable
- * gateway leaves the pending item, and the next resolution rail or sweep
- * pass converges it.
- */
-async function receiptIfRequestAlreadyTerminal(
-  requestId: string,
-): Promise<void> {
-  try {
-    const request = await getGuardianRequestOrNull(requestId);
-    if (!request || request.status === "pending") {
-      return;
-    }
-    await writeGuardianFeedReceipt({
-      requestId,
-      status: request.status,
-      decidedAtMs: request.updatedAt,
-    });
-  } catch (err) {
-    log.warn(
-      { err, requestId },
-      "Failed to converge guardian feed item with terminal request",
+    await receiptGuardianFeedItemIfRequestTerminal(
+      guardianProjection.requestId,
     );
   }
+  return card;
 }
 
 /**
@@ -486,7 +467,7 @@ function deriveDetailPanelKind(
   // dispatches the guardian card off the item's `guardianRequest`
   // projection, and the panel kind keeps pre-projection clients (and
   // bucket-fallback derivations) treating the row as an approval.
-  if (signal.sourceEventName === "guardian.question") {
+  if (isGuardianRequestSignalEvent(signal.sourceEventName)) {
     return "permissionChat";
   }
 
@@ -543,7 +524,7 @@ function resolveHomeFeedMirror(
   // Guardian requests always project into the feed: the "Needs
   // attention" item is the request's canonical home, and the request
   // blocks on the guardian whatever kind of conversation raised it.
-  if (signal.sourceEventName === "guardian.question") {
+  if (isGuardianRequestSignalEvent(signal.sourceEventName)) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (isBackgroundConversationType(sourceRow?.conversationType)) {

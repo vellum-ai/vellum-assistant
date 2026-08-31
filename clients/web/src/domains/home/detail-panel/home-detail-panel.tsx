@@ -3,7 +3,11 @@ import { ArrowLeft } from "lucide-react";
 import { DetailShell } from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  type FeedItem,
+  type FeedItemStatus,
+  isPendingGuardianFeedItem,
+} from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import { resolveCategoryStyle } from "../home-feed-filter-bar";
@@ -222,9 +226,14 @@ export function HomeDetailPanel({
                 >
                   {readToggleLabel}
                 </Button>
-                <Button variant="primary" onClick={() => onDismiss(item.id)}>
-                  {t("actions.dismiss")}
-                </Button>
+                {/* The live projection of an unresolved guardian request
+                    offers no dismiss: resolution retires it, and only its
+                    receipt is clearable. */}
+                {isPendingGuardianFeedItem(item) ? null : (
+                  <Button variant="primary" onClick={() => onDismiss(item.id)}>
+                    {t("actions.dismiss")}
+                  </Button>
+                )}
               </>
             )}
           </div>

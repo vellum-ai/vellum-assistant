@@ -37,6 +37,7 @@ import {
   composeConversationSeed,
   isConversationSeedSane,
 } from "./conversation-seed-composer.js";
+import { isGuardianRequestSignalEvent } from "./guardian-feed-projection.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ConversationAction,
@@ -122,15 +123,19 @@ export async function pairDeliveryWithConversation(
       };
     }
 
-    // The Slack guardian-DM approval card is a delivery projection of a
-    // canonical guardian request, not conversation content: its in-app
-    // homes are the home-feed "Needs attention" item and the source
-    // conversation's card (the vellum delivery). Pairing it here would
-    // either write the card into the guardian's bound DM transcript or
-    // mint a fresh conversation for a transient work item, so it gets
-    // neither a row nor a conversation. The gateway delivery row (chat
-    // id + message ts) remains its only persisted envelope.
-    if (signal.sourceEventName === "guardian.question" && channel === "slack") {
+    // A Slack guardian-request approval card (tool approvals, questions,
+    // and access requests alike) is a delivery projection of a canonical
+    // guardian request, not conversation content: its in-app homes are
+    // the home-feed "Needs attention" item and the source conversation's
+    // card (the vellum delivery). Pairing it here would either write the
+    // card into the guardian's bound DM transcript or mint a fresh
+    // conversation for a transient work item, so it gets neither a row
+    // nor a conversation. The gateway delivery row (chat id + message
+    // ts) remains its only persisted envelope.
+    if (
+      isGuardianRequestSignalEvent(signal.sourceEventName) &&
+      channel === "slack"
+    ) {
       return {
         conversationId: null,
         messageId: null,
