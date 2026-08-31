@@ -930,7 +930,7 @@
     "loadError": "Failed to load invoices.",
     "loadMore": "Load more",
     "loadMoreError": "Failed to load more invoices.",
-    "loading": "Loading invoices...",
+    "loadingAriaLabel": "Loading invoices",
     "retry": "Retry",
     "showButton": "Show Invoices",
     "showLess": "Show less",
@@ -1267,7 +1267,7 @@
     "addButton": "Add Payment Method",
     "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
-    "loading": "Loading…",
+    "loadingAriaLabel": "Loading payment method",
     "title": "Payment Method"
   },
   "pendingPairingRequests": {

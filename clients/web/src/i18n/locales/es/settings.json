@@ -930,7 +930,7 @@
     "loadError": "No se pudieron cargar las facturas.",
     "loadMore": "Cargar más",
     "loadMoreError": "No se pudieron cargar más facturas.",
-    "loading": "Cargando facturas...",
+    "loadingAriaLabel": "Cargando facturas",
     "retry": "Reintentar",
     "showButton": "Mostrar facturas",
     "showLess": "Mostrar menos",
@@ -1267,7 +1267,7 @@
     "addButton": "Añadir método de pago",
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
-    "loading": "Cargando…",
+    "loadingAriaLabel": "Cargando el método de pago",
     "title": "Método de pago"
   },
   "pendingPairingRequests": {

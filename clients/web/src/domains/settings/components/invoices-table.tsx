@@ -29,6 +29,8 @@ import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 
 import { useTranslation } from "@/i18n";
 import { BillingSectionHeader } from "./billing-section-header";
+import { ContentReveal } from "./content-reveal";
+import { SkeletonLines } from "./skeleton-lines";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
 
@@ -267,12 +269,11 @@ export function InvoicesTable() {
         />
 
         {!expanded ? null : invoicesQuery.isLoading ? (
-          <div className="flex items-center gap-2 py-6 text-[var(--content-tertiary)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <Typography as="span" variant="body-small-default">
-              {t("invoicesTable.loading")}
-            </Typography>
-          </div>
+          <SkeletonLines
+            lines={3}
+            lineClassName="h-9 rounded-md"
+            label={t("invoicesTable.loadingAriaLabel")}
+          />
         ) : invoicesQuery.isLoadingError ? (
           <Notice tone="error">{t("invoicesTable.loadError")}</Notice>
         ) : invoices.length === 0 ? (
@@ -285,7 +286,9 @@ export function InvoicesTable() {
             {t("invoicesTable.empty")}
           </Typography>
         ) : (
-          <>
+          // The card lays its sections out with `flex flex-col gap-4`, so the
+          // reveal wrapper repeats it to keep the table and footer spaced.
+          <ContentReveal className="flex flex-col gap-4">
             <div className="overflow-x-auto">
               <table className="w-full" data-testid="invoices-table">
                 <thead>
@@ -361,7 +364,9 @@ export function InvoicesTable() {
                               variant="ghost"
                               size="compact"
                               iconOnly={<Download className="h-3.5 w-3.5" />}
-                              aria-label={t("invoicesTable.downloadPdfAriaLabel")}
+                              aria-label={t(
+                                "invoicesTable.downloadPdfAriaLabel",
+                              )}
                               onClick={() => downloadPdf(invoice.invoice_pdf!)}
                             />
                           )}
@@ -434,7 +439,7 @@ export function InvoicesTable() {
                 )}
               </div>
             )}
-          </>
+          </ContentReveal>
         )}
       </div>
     </Card>
