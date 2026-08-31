@@ -3163,7 +3163,7 @@ function handleUsage(
         JSON.stringify(event.rawResponse),
         undefined,
         providerName,
-        "mainAgent",
+        deps.ctx.currentCallSite,
         latencyBreakdownJson,
       );
     } catch (err) {
@@ -3244,7 +3244,7 @@ function handleProviderError(
       JSON.stringify(buildProviderErrorResponsePayload(event.error)),
       undefined,
       event.actualProvider,
-      "mainAgent",
+      deps.ctx.currentCallSite,
     );
   } catch (err) {
     deps.rlog.warn(
