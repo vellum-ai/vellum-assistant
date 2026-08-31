@@ -6,6 +6,9 @@
  * measures those. The summary is served from the query cache and the panel's
  * heavier siblings are stubbed, so the tile's own formatting is the only
  * moving part.
+ *
+ * The unseeded case covers the loading branch: a shimmer tile the same height
+ * as the resolved one, with no spinner and no "Loading" copy.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -20,6 +23,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
   organizationsBillingSummaryCreate: () =>
     Promise.resolve({ data: {}, response: { ok: true } }),
+  // Never settles: the seeded cases are fresh forever (`staleTime: Infinity`)
+  // so they never call this, and the unseeded case wants to stay loading.
+  organizationsBillingSummaryRetrieve: () => new Promise(() => {}),
 }));
 
 // The siblings below the tile each pull their own billing reads and Stripe
@@ -84,13 +90,16 @@ function summary(
   };
 }
 
-function renderPanel(seed: BillingSummaryResponse) {
+/** Omit `seed` to leave the cache empty, which holds the summary pending. */
+function renderPanel(seed?: BillingSummaryResponse) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
     },
   });
-  client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), seed);
+  if (seed) {
+    client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), seed);
+  }
   return render(
     <QueryClientProvider client={client}>
       <BillingPanel />
@@ -101,6 +110,18 @@ function renderPanel(seed: BillingSummaryResponse) {
 afterEach(() => {
   setObscureCredits(false);
   cleanup();
+});
+
+describe("BillingPanel balance tile while loading", () => {
+  test("stands in a shimmer tile with no spinner or loading copy", () => {
+    const { container, queryByTestId } = renderPanel();
+
+    const status = container.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-label")).toBe("Loading credit balance");
+    expect(status?.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
+    expect(queryByTestId("effective-balance")).toBeNull();
+    expect(container.textContent).not.toContain("Loading");
+  });
 });
 
 describe("BillingPanel balance tile", () => {

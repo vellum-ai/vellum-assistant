@@ -12,6 +12,8 @@
  *  - a server-rejected clear renders the DRF field error, not the generic copy
  *  - an errored auto top-up query fails open so the toggle still clears the
  *    limit, including when the error lands on top of stale cached data
+ *  - a pending limit query renders shimmer rows, not loading copy, and the
+ *    deep-link scroll still waits for that content
  *  - `validateDailyLimit` bounds checks (pure)
  *  - the exported anchor id stays in sync with the deep-link route constant
  *
@@ -49,6 +51,8 @@ let limitResponse: DailyCreditLimitResponse;
 let summaryResponse: BillingSummaryResponse;
 let autoTopUpResponse: AutoTopUpConfigResponse;
 let autoTopUpShouldFail = false;
+// Holds the daily-limit GET unresolved so the card stays in its loading branch.
+let limitRetrieveNeverSettles = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -76,7 +80,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     return Promise.resolve({ data: autoTopUpResponse, response: { ok: true } });
   },
   organizationsBillingDailyCreditLimitRetrieve: () =>
-    Promise.resolve({ data: limitResponse, response: { ok: true } }),
+    limitRetrieveNeverSettles
+      ? new Promise(() => {})
+      : Promise.resolve({ data: limitResponse, response: { ok: true } }),
   organizationsBillingSummaryRetrieve: () =>
     Promise.resolve({ data: summaryResponse, response: { ok: true } }),
   organizationsBillingDailyCreditLimitSkipTodayDestroy: (
@@ -167,13 +173,18 @@ const SUMMARY: BillingSummaryResponse = {
   next_credit_expiry_at: null,
 };
 
+/** No retries, so a rejected mock surfaces on the first attempt. */
+function newClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+}
+
 function makeClient(
   config: DailyCreditLimitResponse,
   autoTopUp?: AutoTopUpConfigResponse,
 ): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  const client = newClient();
   client.setQueryData(
     organizationsBillingDailyCreditLimitRetrieveQueryKey(),
     config,
@@ -254,6 +265,7 @@ beforeEach(() => {
   summaryResponse = { ...SUMMARY };
   autoTopUpResponse = { ...AUTO_TOP_UP_OFF };
   autoTopUpShouldFail = false;
+  limitRetrieveNeverSettles = false;
 });
 
 afterEach(cleanup);
@@ -533,5 +545,62 @@ describe("DailyCreditLimitCard auto top-up dependency", () => {
       }
     });
     expect(updateCalls[0]!.body).toEqual({ daily_credit_limit_usd: null });
+  });
+});
+
+describe("DailyCreditLimitCard loading state", () => {
+  /** Render inside the anchor container `BillingPanel` wraps the card in. */
+  function renderAtAnchor(client: QueryClient): ReturnType<typeof render> {
+    return render(
+      <QueryClientProvider client={client}>
+        <div id={DAILY_CREDIT_LIMIT_ANCHOR_ID}>
+          <DailyCreditLimitCard />
+        </div>
+      </QueryClientProvider>,
+    );
+  }
+
+  test("a pending limit renders shimmer rows, not loading copy", () => {
+    limitRetrieveNeverSettles = true;
+    const { getByTestId } = renderAtAnchor(newClient());
+
+    const card = getByTestId("daily-credit-limit-card");
+    expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBe(2);
+    expect(
+      card.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Loading daily credit limit settings");
+    expect(card.textContent).toBe("");
+  });
+
+  test("the deep-link scroll still waits for the resolved card", async () => {
+    // The skeleton is the same node the anchor points at, so scrolling to it
+    // while the card is still loading would land the user above content that
+    // has not taken its final height yet.
+    const proto = window.Element.prototype;
+    const originalScroll = proto.scrollIntoView;
+    const originalHash = window.location.hash;
+    let scrolls = 0;
+    proto.scrollIntoView = function countScroll(): void {
+      scrolls += 1;
+    };
+    window.location.hash = `#${DAILY_CREDIT_LIMIT_ANCHOR_ID}`;
+
+    try {
+      limitRetrieveNeverSettles = true;
+      renderAtAnchor(newClient());
+      expect(scrolls).toBe(0);
+      cleanup();
+
+      limitRetrieveNeverSettles = false;
+      renderAtAnchor(makeClient(OFF));
+      await waitFor(() => {
+        if (scrolls === 0) {
+          throw new Error("the resolved card never scrolled to the anchor");
+        }
+      });
+    } finally {
+      proto.scrollIntoView = originalScroll;
+      window.location.hash = originalHash;
+    }
   });
 });

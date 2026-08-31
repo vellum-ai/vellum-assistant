@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import {
   organizationsBillingDailyCreditLimitRetrieveOptions,
@@ -98,18 +100,18 @@ export function DailyCreditLimitCard() {
   if (limitQuery.isLoading) {
     return (
       <div data-testid="daily-credit-limit-card">
-        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("dailyCreditLimitCard.loading")}
-        </p>
+        <SkeletonLines
+          lines={2}
+          lineClassName="h-6"
+          label={t("dailyCreditLimitCard.loadingLabel")}
+        />
       </div>
     );
   }
   if (limitQuery.isError || !limitQuery.data) {
     return (
       <div data-testid="daily-credit-limit-card">
-        <Notice tone="error">
-          {t("dailyCreditLimitCard.loadError")}
-        </Notice>
+        <Notice tone="error">{t("dailyCreditLimitCard.loadError")}</Notice>
       </div>
     );
   }
@@ -209,12 +211,10 @@ export function DailyCreditLimitCard() {
   ).daily_credit_limit_usd;
   const saveError =
     serverLimitError ??
-    (updateMutation.isError
-      ? t("dailyCreditLimitCard.saveError")
-      : undefined);
+    (updateMutation.isError ? t("dailyCreditLimitCard.saveError") : undefined);
   const visibleError = touched ? clientError : undefined;
 
-  return (
+  const cardBody = (
     <div data-testid="daily-credit-limit-card">
       <div className="flex flex-col gap-4">
         <Toggle
@@ -346,4 +346,6 @@ export function DailyCreditLimitCard() {
       )}
     </div>
   );
+
+  return <ContentReveal>{cardBody}</ContentReveal>;
 }

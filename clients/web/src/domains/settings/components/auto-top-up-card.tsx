@@ -24,6 +24,8 @@ import {
   type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import {
   modalSnapshotFor,
   paymentMethodCards,
@@ -297,9 +299,11 @@ export function AutoTopUpCard() {
   if (configQuery.isPending) {
     return (
       <div data-testid="auto-top-up-card">
-        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("autoTopUpCard.loading")}
-        </p>
+        <SkeletonLines
+          lines={2}
+          lineClassName="h-6"
+          label={t("autoTopUpCard.loadingLabel")}
+        />
       </div>
     );
   }
@@ -519,7 +523,7 @@ export function AutoTopUpCard() {
 
   const toggleChecked = enabled || pendingEnable;
 
-  return (
+  const cardBody = (
     <div ref={cardRef} data-testid="auto-top-up-card">
       <div className="flex items-center justify-between gap-4">
         <Toggle
@@ -701,4 +705,6 @@ export function AutoTopUpCard() {
       />
     </div>
   );
+
+  return <ContentReveal>{cardBody}</ContentReveal>;
 }
