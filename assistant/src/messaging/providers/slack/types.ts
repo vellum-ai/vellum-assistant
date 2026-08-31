@@ -1,5 +1,11 @@
 /** Slack Web API response types. */
 
+import type {
+  AnyBlock,
+  GenericMessageEvent,
+  MessageAttachment,
+} from "@slack/types";
+
 export interface SlackApiResponse {
   ok: boolean;
   error?: string;
@@ -55,35 +61,6 @@ export interface SlackConversationsListResponse extends SlackApiResponse {
   response_metadata?: { next_cursor?: string };
 }
 
-/**
- * Legacy secondary attachment carried on bot/webhook messages. Only the
- * text-bearing fields consumed by fallback-text extraction are modeled;
- * `fallback` is Slack's own plain-text summary of the attachment.
- * @see https://api.slack.com/reference/messaging/attachments
- */
-export interface SlackMessageAttachment {
-  fallback?: string;
-  pretext?: string;
-  author_name?: string;
-  title?: string;
-  title_link?: string;
-  text?: string;
-  fields?: Array<{ title?: string; value?: string }>;
-  footer?: string;
-}
-
-/**
- * Block Kit block (subset used for fallback-text extraction): `section`,
- * `header`, and `context` carry the plain/mrkdwn text a message body shows.
- * @see https://api.slack.com/reference/block-kit/blocks
- */
-export interface SlackMessageBlock {
-  type?: string;
-  text?: { text?: string };
-  fields?: Array<{ text?: string }>;
-  elements?: Array<{ type?: string; text?: string }>;
-}
-
 export interface SlackMessage {
   type: string;
   subtype?: string;
@@ -95,20 +72,17 @@ export interface SlackMessage {
    * legacy bot posts, which carry no `user` to resolve a name from).
    */
   username?: string;
-  /** Profile of the posting app, attached to bot-authored rows. */
-  bot_profile?: {
-    id?: string;
-    name?: string;
-    app_id?: string;
-    team_id?: string;
-  };
+  /** Profile of the posting app, attached to bot-authored rows. The type is
+   *  indexed off the official message event because `@slack/types` does not
+   *  export `BotProfile` from its root. */
+  bot_profile?: GenericMessageEvent["bot_profile"];
   text: string;
   /**
    * Bot/webhook posts routinely leave `text` empty and put the visible
    * content here or in `blocks`; see `slackMessageRawText`.
    */
-  attachments?: SlackMessageAttachment[];
-  blocks?: SlackMessageBlock[];
+  attachments?: MessageAttachment[];
+  blocks?: AnyBlock[];
   thread_ts?: string;
   reply_count?: number;
   reactions?: Array<{ name: string; count: number; users: string[] }>;

@@ -194,7 +194,10 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
             username: "Deploy Webhook",
             text: "",
             blocks: [
-              { type: "section", text: { text: "Deploy finished" } },
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "Deploy finished" },
+              },
               {
                 type: "context",
                 elements: [{ type: "mrkdwn", text: "took 42s" }],

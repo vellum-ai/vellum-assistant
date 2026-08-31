@@ -13,10 +13,14 @@
  * `renderSlackTextForModel` pass as ordinary message text.
  */
 import type {
-  SlackMessage,
-  SlackMessageAttachment,
-  SlackMessageBlock,
-} from "./types.js";
+  AnyBlock,
+  ContextBlock,
+  HeaderBlock,
+  MessageAttachment,
+  SectionBlock,
+} from "@slack/types";
+
+import type { SlackMessage } from "./types.js";
 
 /**
  * The model-facing raw mrkdwn for a Slack message: `text` when present,
@@ -36,7 +40,7 @@ export function slackMessageRawText(
   return parts.join("\n");
 }
 
-function slackAttachmentText(attachment: SlackMessageAttachment): string {
+function slackAttachmentText(attachment: MessageAttachment): string {
   const title = trimmed(attachment.title);
   const titleLink = trimmed(attachment.title_link);
   const fieldLines = (attachment.fields ?? []).map((field) => {
@@ -61,44 +65,53 @@ function slackAttachmentText(attachment: SlackMessageAttachment): string {
   return trimmed(attachment.fallback) ?? "";
 }
 
+function isSectionBlock(block: AnyBlock): block is SectionBlock {
+  return block.type === "section";
+}
+
+function isHeaderBlock(block: AnyBlock): block is HeaderBlock {
+  return block.type === "header";
+}
+
+function isContextBlock(block: AnyBlock): block is ContextBlock {
+  return block.type === "context";
+}
+
 /**
  * Text carried by the block types that hold a message body's copy. Other
  * block types contribute nothing: images/dividers/actions are non-textual,
  * and `rich_text` (deeply nested; produced for user-typed messages, which
  * carry the equivalent top-level `text`) is intentionally not walked.
  */
-function slackBlocksText(
-  blocks: readonly SlackMessageBlock[] | undefined,
-): string[] {
+function slackBlocksText(blocks: readonly AnyBlock[] | undefined): string[] {
   const parts: string[] = [];
   for (const block of blocks ?? []) {
-    switch (block.type) {
-      case "section":
-      case "header": {
-        const text = trimmed(block.text?.text);
-        if (text) {
-          parts.push(text);
-        }
-        for (const field of block.fields ?? []) {
-          const fieldText = trimmed(field.text);
-          if (fieldText) {
-            parts.push(fieldText);
-          }
-        }
-        break;
+    if (isSectionBlock(block)) {
+      const text = trimmed(block.text?.text);
+      if (text) {
+        parts.push(text);
       }
-      case "context": {
-        const contextText = (block.elements ?? [])
-          .map((element) => trimmed(element.text))
-          .filter((text): text is string => !!text)
-          .join(" ");
-        if (contextText) {
-          parts.push(contextText);
+      for (const field of block.fields ?? []) {
+        const fieldText = trimmed(field.text);
+        if (fieldText) {
+          parts.push(fieldText);
         }
-        break;
       }
-      default:
-        break;
+    } else if (isHeaderBlock(block)) {
+      const text = trimmed(block.text.text);
+      if (text) {
+        parts.push(text);
+      }
+    } else if (isContextBlock(block)) {
+      const contextText = block.elements
+        .map((element) =>
+          "text" in element ? trimmed(element.text) : undefined,
+        )
+        .filter((text): text is string => !!text)
+        .join(" ");
+      if (contextText) {
+        parts.push(contextText);
+      }
     }
   }
   return parts;

@@ -35,7 +35,7 @@ describe("slackMessageRawText", () => {
             text: "3 tests failing",
             fields: [
               { title: "Branch", value: "main" },
-              { value: "value-only" },
+              { title: "", value: "value-only" },
             ],
             footer: "workflow #12",
           },
@@ -77,11 +77,17 @@ describe("slackMessageRawText", () => {
       slackMessageRawText({
         text: "",
         blocks: [
-          { type: "header", text: { text: "Release v1.2" } },
+          {
+            type: "header",
+            text: { type: "plain_text", text: "Release v1.2" },
+          },
           {
             type: "section",
-            text: { text: "All green" },
-            fields: [{ text: "Env: prod" }, { text: "" }],
+            text: { type: "mrkdwn", text: "All green" },
+            fields: [
+              { type: "mrkdwn", text: "Env: prod" },
+              { type: "mrkdwn", text: "" },
+            ],
           },
           { type: "divider" },
           {
