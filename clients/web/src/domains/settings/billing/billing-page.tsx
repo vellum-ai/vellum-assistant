@@ -156,9 +156,9 @@ function FinishProSetupNotice({
 /**
  * Stand-in for the whole Billing tab while it cannot render yet: each card's
  * own exported skeleton, so the stack's geometry and its responsive stacking
- * cannot drift from the cards it stands in for. The cards are mounted without
- * labels here and the stack carries the one announcement, so a screen reader
- * hears the wait once rather than once per card.
+ * cannot drift from the cards it stands in for. The stack carries the one
+ * announcement and each card is hidden from assistive tech, so the live
+ * region does not read out the real headings the card skeletons paint.
  */
 function BillingTabSkeleton() {
   const { t } = useTranslation("settings");
@@ -169,9 +169,15 @@ function BillingTabSkeleton() {
       className="space-y-4"
       data-testid="billing-tab-skeleton"
     >
-      <PlanCardSkeleton />
-      <PaymentMethodsCardSkeleton />
-      <BillingPanelSkeleton />
+      <div aria-hidden>
+        <PlanCardSkeleton />
+      </div>
+      <div aria-hidden>
+        <PaymentMethodsCardSkeleton />
+      </div>
+      <div aria-hidden>
+        <BillingPanelSkeleton />
+      </div>
     </div>
   );
 }
@@ -437,11 +443,10 @@ export function BillingPage() {
   // skeletons and then get torn down when the probe lands. The gate bounds
   // its own pending state, so this cannot hold forever.
   //
-  // A `"gated"` gate is decided without the session (local mode with the
-  // platform API off), and `shouldShowBillingTab` never shows Billing for it,
-  // so those viewers skip the hold and mount Usage on the first paint.
-  const holdForPlatformSession =
-    platformSessionPending && !wantsUsageTab && billingGate !== "gated";
+  // A pending probe reads as `"disabled"` above, so a viewer the gate decided
+  // without the session (`"gated"`: local mode with the platform API off) is
+  // already settled here and mounts Usage on the first paint.
+  const holdForPlatformSession = platformSessionPending && !wantsUsageTab;
 
   // Keep the active tab explicit in the URL so both tabs are symmetric and
   // the address bar always names what's shown: a bare `/settings/usage` — or

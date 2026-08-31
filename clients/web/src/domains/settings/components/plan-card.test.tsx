@@ -1530,34 +1530,20 @@ describe("PlanCard with obscure-credits on", () => {
 });
 
 describe("PlanCard loading state", () => {
-  test("keeps the card chrome and stands the layout in with shimmer", () => {
+  test("mounts the card's own skeleton, labeled, with no spinner", () => {
+    // Geometry is the skeleton's own contract; what belongs here is that this
+    // card reaches for it and labels it. It loads on its own inside the
+    // settled tab, where nothing else announces the wait; the tab's skeleton
+    // stack mounts it without a label and announces the stack once instead.
     const host = renderLoadingCardDom();
-    expect(host.querySelector("h2")?.textContent).toBe("Plan");
-    // Plan name, renewal line, usage bar, and one per plan tile.
-    expect(host.querySelectorAll('[data-slot="skeleton"]').length).toBe(5);
+    expect(
+      host.querySelector('[data-testid="plan-card-skeleton"]'),
+    ).not.toBeNull();
     expect(host.querySelectorAll(".animate-spin").length).toBe(0);
-    expect(host.textContent).not.toContain("Loading plan");
-  });
-
-  test("stacks the tile placeholders the way the resolved tiles stack", () => {
-    const host = renderLoadingCardDom();
-    const tiles = Array.from(
-      host.querySelectorAll('[data-slot="skeleton"]'),
-    ).slice(-2);
-    const row = tiles[0]?.parentElement;
-    expect(tiles[1]?.parentElement).toBe(row);
-    expect(row?.className).toContain("flex-col");
-    expect(row?.className).toContain("lg:flex-row");
-  });
-
-  test("announces the wait it is standing in for", () => {
-    // The card loads on its own inside the settled tab, where nothing else
-    // announces the wait. The tab's own skeleton stack mounts this card
-    // without a label and announces the whole stack once instead.
-    const host = renderLoadingCardDom();
     const announced = host.querySelectorAll('[role="status"]');
     expect(announced.length).toBe(1);
     expect(announced[0]?.getAttribute("aria-label")).toBe("Loading plan");
+    // The loading copy exists only as that label, never as visible text.
     expect(host.textContent).not.toContain("Loading plan");
   });
 

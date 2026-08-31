@@ -2,6 +2,7 @@ import { Card } from "@vellumai/design-library/components/card";
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
+import { PaymentMethodsActionSlot } from "@/domains/settings/components/payment-methods-action-slot";
 import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 
 export interface PaymentMethodsCardSkeletonProps {
@@ -24,21 +25,21 @@ export function PaymentMethodsCardSkeleton({
   return (
     <Card padding="md" data-testid="payment-methods-card-skeleton">
       <BillingSectionHeader
-        title={<Skeleton aria-hidden className="h-6 w-40 rounded-md" />}
+        title={
+          <Skeleton
+            as="span"
+            aria-hidden
+            className="block h-5 w-40 rounded-md"
+          />
+        }
         actions={
-          // The same button-tall slot the resolved header keeps mounted, so
-          // the header row holds its height (a whole stacked row below `sm`)
-          // across the swap.
-          <div
-            className="flex h-8 items-center"
-            data-testid="payment-methods-action-slot"
-          >
+          <PaymentMethodsActionSlot>
             <Skeleton
               aria-hidden
               className="h-8 w-24 rounded-md"
               data-testid="payment-methods-add-skeleton"
             />
-          </div>
+          </PaymentMethodsActionSlot>
         }
       />
       <SkeletonLines

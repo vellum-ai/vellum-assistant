@@ -591,6 +591,12 @@ describe("BillingTab lifecycle loading", () => {
     expect(stack.getAttribute("role")).toBe("status");
     expect(stack.querySelectorAll('[role="status"]').length).toBe(0);
     expect(stack.getAttribute("aria-label")).toBe("Loading billing");
+    // Each card is hidden from assistive tech: the card skeletons paint real
+    // heading text, which this live region would otherwise read out.
+    expect(stack.children.length).toBe(3);
+    for (const child of Array.from(stack.children)) {
+      expect(child.getAttribute("aria-hidden")).toBe("true");
+    }
     // The loading copy exists only as the aria-label above, never as visible text.
     expect(queryByText("Loading billing")).toBeNull();
     expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
@@ -598,22 +604,6 @@ describe("BillingTab lifecycle loading", () => {
     // never needs the page-level stand-in.
     expect(queryByTestId("billing-page-skeleton")).toBeNull();
     expect(stack.closest('[data-slot="tabs-panel"]')).toBeTruthy();
-  });
-
-  test("stands the credits card in with its own nested row groups", () => {
-    lifecycleIsLoading = true;
-    const { getByTestId } = renderPage();
-
-    // The header the real panel paints from its first frame, so settling only
-    // swaps the body below it.
-    expect(getByTestId("billing-panel-skeleton").textContent).toContain(
-      "Extra Usage Credits",
-    );
-    // Balance tile, then the auto-reload, daily-limit and low-balance rows the
-    // real panel nests inside the card, the last two behind its dividers.
-    const body = getByTestId("billing-panel-skeleton-body");
-    expect(body.children.length).toBe(4);
-    expect(body.querySelectorAll(".border-t").length).toBe(2);
   });
 });
 

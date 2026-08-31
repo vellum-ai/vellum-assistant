@@ -8,7 +8,8 @@
  * moving part.
  *
  * The unseeded case covers the loading branch: a shimmer tile the same height
- * as the resolved one, with no spinner and no "Loading" copy.
+ * as the resolved one, with no spinner and no "Loading" copy, and the rest of
+ * the card still mounted around it.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -29,13 +30,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
 }));
 
 // The siblings below the tile each pull their own billing reads and Stripe
-// wiring; none of them is what this suite is about.
+// wiring; none of them is what this suite is about. They render a marker so
+// the loading case can prove they are mounted alongside the pending summary.
 mock.module("@/domains/settings/components/auto-top-up-card", () => ({
-  AutoTopUpCard: () => null,
+  AutoTopUpCard: () => <div data-testid="auto-top-up-card-stub" />,
 }));
 mock.module("@/domains/settings/components/daily-credit-limit-card", () => ({
   DAILY_CREDIT_LIMIT_ANCHOR_ID: "daily-credit-limit",
-  DailyCreditLimitCard: () => null,
+  DailyCreditLimitCard: () => (
+    <div data-testid="daily-credit-limit-card-stub" />
+  ),
 }));
 mock.module("@/domains/settings/components/low-balance-alert-card", () => ({
   LowBalanceAlertCard: () => null,
@@ -113,26 +117,39 @@ afterEach(() => {
 });
 
 describe("BillingPanel while loading", () => {
-  test("stands the whole card in with shimmer, no spinner or loading copy", () => {
+  test("swaps only the balance for shimmer, with no spinner or loading copy", () => {
     const { container, getByTestId, queryByTestId } = renderPanel();
 
-    const skeleton = getByTestId("billing-panel-skeleton");
-    // The header the real panel paints from the first frame, so the swap
-    // keeps its title and subtitle in place.
-    expect(skeleton.textContent).toContain("Extra Usage Credits");
+    expect(getByTestId("billing-panel-balance-skeleton")).not.toBeNull();
     expect(queryByTestId("effective-balance")).toBeNull();
     expect(container.textContent).not.toContain("Loading");
+    // The header the real panel paints from the first frame, so the swap
+    // keeps its title and subtitle in place.
+    expect(container.textContent).toContain("Extra Usage Credits");
+  });
 
-    // Balance tile, then the auto-reload, daily-limit and low-balance rows.
-    const body = getByTestId("billing-panel-skeleton-body");
-    expect(body.children.length).toBe(4);
-    expect(body.querySelectorAll(".border-t").length).toBe(2);
+  test("keeps the rest of the card mounted while the summary is pending", () => {
+    // The nested cards each run their own read, so they have to mount now
+    // rather than behind this one; the deep-link anchor they hang under has
+    // to be in the document for the same reason.
+    const { container, getByTestId, queryByTestId } = renderPanel();
+
+    expect(queryByTestId("auto-top-up-card-stub")).not.toBeNull();
+    expect(queryByTestId("daily-credit-limit-card-stub")).not.toBeNull();
+    expect(container.querySelector("#daily-credit-limit")).not.toBeNull();
+    expect(container.textContent).toContain("Custom Low Balance Alert");
+    // Earning credits asks nothing of the summary, so it stays usable; adding
+    // them needs the top-up bounds it carries.
+    const earn = getByTestId("earn-credits-button") as HTMLButtonElement;
+    expect(earn.disabled).toBe(false);
+    const add = getByTestId("add-credits-button") as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
   });
 
   test("announces the wait it is standing in for", () => {
     // The panel loads on its own inside the settled tab, where nothing else
-    // announces the wait. The tab's own skeleton stack mounts it without a
-    // label and announces the whole stack once instead.
+    // announces the wait. The tab's own skeleton stack mounts the whole-card
+    // stand-in instead and announces that once.
     const { container } = renderPanel();
 
     const announced = container.querySelectorAll('[role="status"]');

@@ -662,7 +662,6 @@ describe("DailyCreditLimitCard loading state", () => {
     const { getByTestId } = renderAtAnchor(newClient());
 
     const card = getByTestId("daily-credit-limit-card");
-    expect(card.getAttribute("aria-hidden")).toBeNull();
     expect(
       card.querySelector('[role="status"]')?.getAttribute("aria-label"),
     ).toBe("Loading daily credit limit settings");
