@@ -41,9 +41,38 @@ export const notificationPreferences = sqliteTable("notification_preferences", {
   preferenceText: text("preference_text").notNull(),
   appliesWhenJson: text("applies_when_json").notNull().default("{}"),
   priority: integer("priority").notNull().default(0),
+  matchJson: text("match_json").notNull().default("{}"), // structured predicate
+  tier: text("tier"), // NULL keeps the row advisory prose only
+  provenance: text("provenance").notNull().default("user"), // user | agent
+  sourceRequestId: text("source_request_id"),
+  status: text("status").notNull().default("active"), // active | retired
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const notificationRuleDeclines = sqliteTable(
+  "notification_rule_declines",
+  {
+    id: text("id").primaryKey(),
+    scopeKey: text("scope_key").notNull().unique(),
+    proposedTier: text("proposed_tier").notNull(),
+    requestId: text("request_id"),
+    declinedAt: integer("declined_at").notNull(), // epoch ms
+  },
+);
+
+export const notificationInteractions = sqliteTable(
+  "notification_interactions",
+  {
+    id: text("id").primaryKey(),
+    deliveryId: text("delivery_id").notNull(),
+    normalizedJson: text("normalized_json").notNull(),
+    tier: text("tier").notNull(),
+    kind: text("kind").notNull(),
+    observedAt: integer("observed_at").notNull(), // epoch ms
+  },
+  (table) => [index("idx_notif_interactions_observed").on(table.observedAt)],
+);
 
 export const sequences = sqliteTable("sequences", {
   id: text("id").primaryKey(),
