@@ -12,7 +12,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 
 const ingestMock = mock(
   async (_options: { body: unknown; keepalive?: boolean }) => ({
@@ -104,6 +104,7 @@ describe("banner impression", () => {
     );
 
     expect(screensFromCalls()).toEqual(["banner:windows"]);
+    expect(screen.getByText("Get the Windows app")).toBeDefined();
   });
 
   test("keeps mobile and desktop impressions independent", () => {

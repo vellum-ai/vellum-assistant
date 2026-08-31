@@ -5,8 +5,8 @@ import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 /**
- * Shared in-chat floating banner used by the iOS, macOS, and GitHub
- * nudges. Each nudge supplies its own icon, copy, and primary CTA; the
+ * Shared in-chat floating banner used by the mobile app, desktop app, and
+ * GitHub nudges. Each nudge supplies its own icon, copy, and primary CTA; the
  * dismiss interaction is identical across nudges and lives here.
  *
  * Width is constrained to `--chat-max-width` so the banner aligns with

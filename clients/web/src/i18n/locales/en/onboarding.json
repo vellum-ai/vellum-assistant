@@ -13,7 +13,8 @@
     "logIn": "Log In",
     "logOut": "Log out",
     "loginToUse": "Log in to use",
-    "downloadDesktopApp": "{platform, select, windows {Download the Windows app} other {Download the macOS app}}",
+    "downloadMacOSApp": "Download the macOS app",
+    "downloadWindowsApp": "Download the Windows app",
     "claim": "Claim",
     "skipForNow": "Skip for now",
     "starting": "Starting…"

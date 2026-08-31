@@ -3,6 +3,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { createPortal } from "react-dom";
 
 import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
+import { getDesktopAppDownloadActionKey } from "@/domains/onboarding/utils/desktop-app-copy";
 import { useTranslation } from "@/i18n";
 import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 
@@ -46,9 +47,7 @@ export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
           platformHostedDisabled ? (
             <Button asChild variant="primary" size="regular">
               <a href={`${window.location.origin}/download`}>
-                {t("actions.downloadDesktopApp", {
-                  platform: desktopAppPlatform,
-                })}
+                {t(getDesktopAppDownloadActionKey(desktopAppPlatform))}
               </a>
             </Button>
           ) : (

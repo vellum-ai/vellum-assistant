@@ -38,6 +38,7 @@ import {
   MAX_HATCH_WAIT_MS,
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
+import { getDesktopAppDownloadActionKey } from "@/domains/onboarding/utils/desktop-app-copy";
 import {
   isLocalClient,
   loadLockfile,
@@ -813,9 +814,7 @@ export function HatchingScreen() {
                 className={electron ? undefined : "h-11 text-base"}
               >
                 <a href={`${window.location.origin}/download`}>
-                  {t("actions.downloadDesktopApp", {
-                    platform: desktopAppPlatform,
-                  })}
+                  {t(getDesktopAppDownloadActionKey(desktopAppPlatform))}
                 </a>
               </Button>
             </div>

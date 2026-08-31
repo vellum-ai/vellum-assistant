@@ -5,6 +5,7 @@ import { useSyncExternalStore } from "react";
 import {
   detectDesktopAppPlatform,
   getBrowserPlatform,
+  isKnownUnsupportedDesktopBrowser,
 } from "@/runtime/desktop-app-platform";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
@@ -410,7 +411,8 @@ export function useIsDesktopAppWeb(): boolean {
     () =>
       !isMobileBrowser() &&
       !isNativePlatform() &&
-      !isElectron(),
+      !isElectron() &&
+      !isKnownUnsupportedDesktopBrowser(),
     () => false,
   );
 }

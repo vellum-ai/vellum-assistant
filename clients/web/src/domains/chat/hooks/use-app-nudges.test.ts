@@ -34,6 +34,11 @@ const MAC_SAFARI_UA =
 const LINUX_CHROME_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const CHROMEOS_CHROME_UA =
+  "Mozilla/5.0 (X11; CrOS x86_64 16093.68.0) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const UNKNOWN_DESKTOP_UA =
+  "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
 
 const ORIGINAL_UA = navigator.userAgent;
 const ORIGINAL_PLATFORM = navigator.platform;
@@ -131,12 +136,24 @@ describe("useAppNudges platform promotion", () => {
   });
 
   test("defaults the desktop nudge to macOS when the browser OS is unknown", () => {
-    setUserAgent(LINUX_CHROME_UA);
-    setPlatform("Linux x86_64");
+    setUserAgent(UNKNOWN_DESKTOP_UA);
+    setPlatform("");
 
     const result = renderNudges();
     expect(result.current.desktopAppPlatform).toBe("macos");
     expect(result.current.isOnDesktop).toBe(true);
     expect(result.current.isOnNudgePlatform).toBe(true);
+  });
+
+  test.each([
+    ["Linux", LINUX_CHROME_UA, "Linux x86_64"],
+    ["ChromeOS", CHROMEOS_CHROME_UA, "Linux x86_64"],
+  ])("does not promote a desktop app on %s", (_name, userAgent, platform) => {
+    setUserAgent(userAgent);
+    setPlatform(platform);
+
+    const result = renderNudges();
+    expect(result.current.isOnDesktop).toBe(false);
+    expect(result.current.isOnNudgePlatform).toBe(false);
   });
 });

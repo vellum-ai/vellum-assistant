@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "Сборка",
-    "tagline": "{platform, select, windows {ИИ-ассистент для вашего ПК} other {ИИ-ассистент для вашего Mac}}",
+    "taglineMacOS": "ИИ-ассистент для вашего Mac",
+    "taglineWindows": "ИИ-ассистент для вашего ПК",
     "version": "Версия"
   },
   "addCreditsModal": {
@@ -47,11 +48,14 @@
     "tooltip": "Стоп"
   },
   "desktopAppBanner": {
-    "ariaLabel": "{platform, select, windows {Скачать приложение для Windows} other {Скачать приложение для macOS}}",
-    "ctaAriaLabel": "{platform, select, windows {Скачать приложение для Windows} other {Скачать приложение для macOS}}",
+    "ariaLabelMacOS": "Скачать приложение для macOS",
+    "ariaLabelWindows": "Скачать приложение для Windows",
+    "ctaAriaLabelMacOS": "Скачать приложение для macOS",
+    "ctaAriaLabelWindows": "Скачать приложение для Windows",
     "ctaLabel": "Скачать",
     "subtitle": "Работа с компьютером · доступ к терминалу · нативная автоматизация",
-    "title": "{platform, select, windows {Установите приложение для Windows} other {Установите приложение для macOS}}"
+    "titleMacOS": "Установите приложение для macOS",
+    "titleWindows": "Установите приложение для Windows"
   },
   "discordSetupConnectStep": {
     "instructions": "Вставьте токен бота, скопированный со страницы Bot.",

@@ -36,7 +36,9 @@ export function AboutPage() {
     <div className="flex h-svh w-screen flex-col items-center justify-center bg-background px-8 pt-14 pb-8 text-center text-foreground select-none">
       <h1 className="mt-4 text-2xl font-semibold">{display.appName}</h1>
       <p className="text-muted-foreground mt-1 mb-7 text-xs">
-        {t("aboutPage.tagline", { platform: desktopAppPlatform })}
+        {desktopAppPlatform === "windows"
+          ? t("aboutPage.taglineWindows")
+          : t("aboutPage.taglineMacOS")}
       </p>
       <dl className="mb-7 grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 text-sm">
         <dt className="text-muted-foreground text-right">

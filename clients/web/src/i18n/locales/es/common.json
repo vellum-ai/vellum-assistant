@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "Compilación",
-    "tagline": "{platform, select, windows {Asistente de IA para tu PC} other {Asistente de IA para tu Mac}}",
+    "taglineMacOS": "Asistente de IA para tu Mac",
+    "taglineWindows": "Asistente de IA para tu PC",
     "version": "Versión"
   },
   "activeAssistantGate": {
@@ -296,11 +297,14 @@
     "loadError": "Esta sección no se pudo cargar. Recarga la página para intentarlo de nuevo."
   },
   "desktopAppBanner": {
-    "ariaLabel": "{platform, select, windows {Descargar la app de Windows} other {Descargar la app de macOS}}",
-    "ctaAriaLabel": "{platform, select, windows {Descargar la app de Windows} other {Descargar la app de macOS}}",
+    "ariaLabelMacOS": "Descargar la app de macOS",
+    "ariaLabelWindows": "Descargar la app de Windows",
+    "ctaAriaLabelMacOS": "Descargar la app de macOS",
+    "ctaAriaLabelWindows": "Descargar la app de Windows",
     "ctaLabel": "Descargar",
     "subtitle": "Uso del ordenador · acceso a terminal · automatización nativa",
-    "title": "{platform, select, windows {Consigue la app de Windows} other {Consigue la app de macOS}}"
+    "titleMacOS": "Consigue la app de macOS",
+    "titleWindows": "Consigue la app de Windows"
   },
   "nativeAppBanner": {
     "bannerAria": "Descargar la app de {appName}",

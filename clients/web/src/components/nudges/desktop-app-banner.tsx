@@ -34,12 +34,24 @@ export function DesktopAppBanner({
   return (
     <NudgeChatBanner
       icon={icon}
-      title={t("desktopAppBanner.title", { platform })}
+      title={
+        platform === "windows"
+          ? t("desktopAppBanner.titleWindows")
+          : t("desktopAppBanner.titleMacOS")
+      }
       subtitle={t("desktopAppBanner.subtitle")}
       ctaLabel={t("desktopAppBanner.ctaLabel")}
       ctaLeftIcon={<Download />}
-      ctaAriaLabel={t("desktopAppBanner.ctaAriaLabel", { platform })}
-      ariaLabel={t("desktopAppBanner.ariaLabel", { platform })}
+      ctaAriaLabel={
+        platform === "windows"
+          ? t("desktopAppBanner.ctaAriaLabelWindows")
+          : t("desktopAppBanner.ctaAriaLabelMacOS")
+      }
+      ariaLabel={
+        platform === "windows"
+          ? t("desktopAppBanner.ariaLabelWindows")
+          : t("desktopAppBanner.ariaLabelMacOS")
+      }
       onAction={onDownload}
       onDismiss={onDismiss}
     />

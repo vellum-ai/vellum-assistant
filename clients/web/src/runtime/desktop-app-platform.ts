@@ -39,6 +39,17 @@ export function isWindowsBrowser(): boolean {
   );
 }
 
+/** True when browser signals identify a desktop OS without a Vellum app. */
+export function isKnownUnsupportedDesktopBrowser(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const platformSignals = `${getBrowserPlatform()} ${navigator.userAgent}`;
+  return /\b(?:CrOS|Linux|X11|FreeBSD|OpenBSD|NetBSD)\b/i.test(
+    platformSignals,
+  );
+}
+
 const noop = () => () => {};
 
 /** Hook form of `detectDesktopAppPlatform()`, safe in render bodies. */
