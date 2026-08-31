@@ -153,6 +153,44 @@ describe("healing toward the gateway snapshot", () => {
     await runMirrorReconcile();
 
     expect(channelRow("slack", "U123")?.contactId).toBe("co-truth");
+    // The heal adopts the gateway id in the same write.
+    expect(channelRow("slack", "U123")?.id).toBe("ch-gw");
+  });
+
+  test("adopts the gateway channel id onto a same-owner legacy row, then reaches a fixed point", async () => {
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "U123",
+      displayName: "Alice Example",
+      contactId: "co-1",
+      channelId: "legacy-ch",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    snapshot = {
+      ok: true,
+      contacts: [
+        gatewayContact({
+          id: "co-1",
+          displayName: "Alice Example",
+          channels: [{ id: "ch-gw", type: "slack", address: "U123" }],
+        }),
+      ],
+    };
+
+    await runMirrorReconcile();
+    expect(channelRow("slack", "U123")?.id).toBe("ch-gw");
+
+    // Converged: a follow-up pass writes nothing.
+    const before = getSqlite()
+      .query("SELECT updated_at AS u FROM contact_channels WHERE id = 'ch-gw'")
+      .get() as { u: number };
+    await runMirrorReconcile();
+    const after = getSqlite()
+      .query("SELECT updated_at AS u FROM contact_channels WHERE id = 'ch-gw'")
+      .get() as { u: number };
+    expect(after.u).toBe(before.u);
   });
 
   test("recreates a channel-less gateway contact as an identity stub", async () => {

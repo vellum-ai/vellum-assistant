@@ -508,6 +508,16 @@ function syncChannels(
 
     if (existing) {
       const updateSet: Record<string, unknown> = {};
+      // Adopt a caller-supplied (gateway-minted) id onto a row still keyed
+      // by a divergent legacy id: the byId lookup above missed, so the id is
+      // free, and aligning it converges the two stores' keys (id-keyed
+      // gateway read-backs and client PATCHes then resolve directly).
+      // Nothing daemon-side persists a mirror channel id elsewhere, and
+      // readers holding the old id already fall back to the (type, address)
+      // logical key, so the swap only removes divergence.
+      if (ch.id && ch.id !== existing.id) {
+        updateSet.id = ch.id;
+      }
       // Self-heal legacy lowercased addresses to canonical form.
       if (existing.address !== ch.address) {
         updateSet.address = ch.address;
@@ -540,6 +550,12 @@ function syncChannels(
           contactId,
           updatedAt: now,
         };
+        // Adopt the caller-supplied (gateway-minted) id in the same write:
+        // the byId lookup above missed, so the id is free (same rationale as
+        // the same-contact adopt branch).
+        if (ch.id && ch.id !== conflicting.id) {
+          reassignSet.id = ch.id;
+        }
         if (ch.externalChatId !== undefined) {
           reassignSet.externalChatId = ch.externalChatId;
         }

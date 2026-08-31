@@ -130,6 +130,34 @@ describe("identity-mirror faithful-replica semantics", () => {
     expect(result?.contact.userFile).toBeNull();
   });
 
+  test("an op carrying the gateway channel id adopts it onto a divergent legacy row", () => {
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPTID",
+      displayName: "Alice",
+      contactId: "co-adopt-id",
+      channelId: "legacy-ch",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+    });
+
+    // The gateway's row for the same identity lives under a different UUID;
+    // the mirror adopts it so both stores key the channel identically.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPTID",
+      displayName: "Alice",
+      contactId: "co-adopt-id",
+      channelId: "gw-ch-aligned",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+    });
+
+    expect(channelOwnerById("gw-ch-aligned")).toBe("co-adopt-id");
+    expect(channelOwnerById("legacy-ch")).toBeUndefined();
+    expect(channelCount("slack", "UADOPTID")).toBe(1);
+  });
+
   test("Finding B: an explicit (gateway-minted) channel id is reused verbatim", () => {
     const result = upsertContactChannel({
       sourceChannel: "slack",
@@ -233,9 +261,11 @@ describe("mirror channel-reparenting race semantics", () => {
       reassignConflictingChannels: false,
     });
 
-    // Original channel stays under contact #1; no duplicate channel was created.
-    expect(channelOwnerById("gw-ch-race-1")).toBe("co-race-1");
-    expect(channelOwnerById("gw-ch-race-2")).toBeUndefined();
+    // Ownership never moves without reassign and no duplicate channel is
+    // created; the row's id follows the latest gateway-sourced op (id
+    // adoption), which is what keeps the two stores' keys aligned.
+    expect(channelOwnerById("gw-ch-race-2")).toBe("co-race-1");
+    expect(channelOwnerById("gw-ch-race-1")).toBeUndefined();
     expect(channelCount("slack", "URACE")).toBe(1);
     // The losing seed adopts contact #1 rather than minting a channel-less
     // contact under its own id.
