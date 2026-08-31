@@ -18,13 +18,11 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * Repair those leaves only on an exact stale match, replacing with
  * `accounts/fireworks/models/minimax-m3`: the only MiniMax model Fireworks
- * still serves serverless, at the same per-token pricing. Migration 137
- * deliberately avoided m3 because rewriting a hand-edited `custom-*`
- * profile onto the balanced-intent template's model can make it read as
- * unedited to `ensureByokDefaultProfiles`; with no other live MiniMax entry
- * that trade-off is now unavoidable, and it is benign: a copy that reads
- * as unedited collapses into the balanced default, which routes to the same
- * model.
+ * still serves serverless, at the same per-token pricing. Because m3 is
+ * also the balanced-intent template's model, a repaired hand-edited
+ * `custom-*` profile can read as unedited to `ensureByokDefaultProfiles`
+ * and collapse into the balanced default. That is acceptable: the
+ * collapsed copy routes to the same model this migration writes.
  *
  * Provider guard: the stale ID belongs to the `fireworks` provider and also
  * appears in managed profiles stamped `provider: "vellum"` (which route
