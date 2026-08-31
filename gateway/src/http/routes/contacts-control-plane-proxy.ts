@@ -1688,6 +1688,21 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
               { status: 400 },
             );
           }
+          if (ch?.externalChatId === null) {
+            // Clearing is off the contract: a stored null is
+            // indistinguishable from never-learned, so no reader (the pull
+            // reconciler included) could tell a deliberate clear from a gap.
+            return Response.json(
+              {
+                error: {
+                  code: "BAD_REQUEST",
+                  message:
+                    "channel.externalChatId cannot be null; omit the field to preserve the stored value (clearing is not supported)",
+                },
+              },
+              { status: 400 },
+            );
+          }
           if (typeof ch?.address !== "string" || !ch.address.trim()) {
             return Response.json(
               {
@@ -1756,11 +1771,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           type: ch.type,
           address: ch.address,
           isPrimary: ch.isPrimary,
-          // Omit-vs-null is load-bearing: syncChannels preserves the stored
+          // Passed through verbatim: syncChannels preserves the stored
           // delivery chat id when the field is undefined and writes when it
           // is not, so an omitted field must stay omitted (a channel upsert
-          // that never mentions the chat id must not blank it) and an
-          // explicit null stays a deliberate clear.
+          // that never mentions the chat id must not blank it). Explicit
+          // nulls were rejected with a 400 above, so no clear can reach the
+          // store through this path.
           externalChatId: ch.externalChatId,
           status: ch.status,
           policy: ch.policy,

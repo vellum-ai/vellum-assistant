@@ -663,11 +663,14 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(params.autoApproveThreshold).toBeUndefined();
   });
 
-  test("a channel omitting externalChatId stays omitted; an explicit null stays a clear", async () => {
+  test("a channel omitting externalChatId stays omitted; an explicit null is rejected", async () => {
     // Omit-vs-null is load-bearing: syncChannels preserves the stored
     // delivery chat id when the field is undefined and writes when it is
     // not, so conflating an omitted field with null makes every channel
     // upsert that never mentions the chat id (e.g. link-account) blank it.
+    // And a null must never reach the store at all: a stored null is
+    // indistinguishable from never-learned, so no reader (the pull
+    // reconciler included) could tell a deliberate clear from a gap.
     contactStoreUpsertMock = mock(async () => ({
       contact: DEFAULT_MOCK_CONTACT,
       created: false,
@@ -693,11 +696,11 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect("externalChatId" in omitted.channels[0]).toBe(true);
     expect(omitted.channels[0].externalChatId).toBeUndefined();
 
-    expect((await upsert({ externalChatId: null })).status).toBe(200);
-    const [cleared] = contactStoreUpsertMock.mock.calls[1] as [
-      { channels: Array<Record<string, unknown>> },
-    ];
-    expect(cleared.channels[0].externalChatId).toBeNull();
+    const rejected = await upsert({ externalChatId: null });
+    expect(rejected.status).toBe(400);
+    const body = await rejected.json();
+    expect(body.error.message).toContain("clearing is not supported");
+    expect(contactStoreUpsertMock.mock.calls).toHaveLength(1);
   });
 
   test("passes a valid autoApproveThreshold through to the store", async () => {
