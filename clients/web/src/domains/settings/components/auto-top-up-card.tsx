@@ -24,7 +24,7 @@ import {
   type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
-import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { ContentReveal } from "@/components/content-reveal";
 import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import {
   modalSnapshotFor,

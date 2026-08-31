@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ContentReveal } from "@/components/content-reveal";
 import { organizationsBillingInvoicesRetrieveInfiniteQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   organizationsBillingInvoicesDownloadRetrieve,
@@ -30,7 +31,6 @@ import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 
 import { useTranslation } from "@/i18n";
 import { BillingSectionHeader } from "./billing-section-header";
-import { ContentReveal } from "./content-reveal";
 import { SkeletonLines } from "./skeleton-lines";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };

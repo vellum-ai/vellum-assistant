@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
-import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { ContentReveal } from "@/components/content-reveal";
 import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import {
   organizationsBillingLowBalanceAlertRetrieveOptions,

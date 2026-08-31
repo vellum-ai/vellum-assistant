@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useReactivateSubscription } from "@/domains/settings/billing/use-reactivate-subscription";
 import { isDirectCancelEligible } from "@/domains/settings/components/adjust-plan-utils";
-import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { ContentReveal } from "@/components/content-reveal";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
