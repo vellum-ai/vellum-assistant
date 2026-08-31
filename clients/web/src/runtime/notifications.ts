@@ -357,9 +357,9 @@ export interface PostLocalNotificationArgs {
   /** Native platforms that accepted this delivery for remote push. */
   remotePushPlatforms?: ("ios" | "android")[];
   /**
-   * The daemon's urgency-derived flag: true means file the notification
-   * without claiming attention with a banner. Honored on the Electron
-   * path, which forwards it to `electron.Notification`.
+   * The daemon's urgency-derived flag: true means this intent must not
+   * reach the OS notification surface. Honored on the Electron path, where
+   * main skips the notification entirely and still acks a success.
    */
   silent?: boolean;
 }

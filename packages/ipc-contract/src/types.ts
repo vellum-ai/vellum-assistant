@@ -544,11 +544,12 @@ export interface ShowNotificationPayload {
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
   /**
-   * Suppresses the OS banner while still filing the notification in the
-   * notification center. Originates from the daemon's urgency-derived
-   * flag on the `notification_intent` event
-   * (`assistant/src/notifications/adapters/macos.ts`). Omitted means not
-   * silent.
+   * True means do not post this to the OS notification surface at all:
+   * main skips the notification rather than muting it, because Electron's
+   * own `silent` option only drops the sound and would still banner. Non-
+   * banner side effects (the renderer's in-app chime, the deep link) still
+   * run. Originates from the daemon's urgency-derived flag on the
+   * `notification_intent` event. Omitted means not silent.
    */
   silent?: boolean;
 }

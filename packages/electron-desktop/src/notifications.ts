@@ -62,7 +62,6 @@ export interface NotificationLike {
 export interface NotificationCreateOptions {
   title: string;
   body: string;
-  silent: boolean;
   actions: CategoryAction[];
 }
 
@@ -244,6 +243,23 @@ const showNotification = (
   payload: ShowNotificationPayload,
 ): Promise<ShowResult> => {
   const { ensureVisible, isSupported, create, logger } = requireRuntime();
+
+  if (payload.silent) {
+    // The wire contract (`assistant/src/api/events/notification-intent.ts`)
+    // defines `silent` as "do not post this to the OS notification surface";
+    // the daemon sets it from the signal's urgency. Electron's own `silent`
+    // option only mutes the sound, so honoring the contract means not
+    // constructing the notification at all. Non-banner side effects (the
+    // renderer's in-app chime, the deep link it keeps) still run.
+    //
+    // This acks as a success like the cooldown path does: the client handled
+    // the intent exactly as asked, and recording a failure would put a
+    // phantom delivery error in the daemon's audit trail. Nothing reached
+    // the OS, so the cooldown window is deliberately left untouched: a later
+    // non-silent intent for the same key must still be free to banner.
+    return Promise.resolve({ success: true });
+  }
+
   if (!(isSupported ?? Notification.isSupported)()) {
     return Promise.resolve({
       success: false,
@@ -265,7 +281,6 @@ const showNotification = (
   )({
     title: payload.title,
     body: payload.body,
-    silent: payload.silent ?? false,
     actions,
   });
 
