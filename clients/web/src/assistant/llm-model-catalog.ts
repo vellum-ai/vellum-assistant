@@ -17,6 +17,7 @@ export interface LlmCatalogModel {
   maxOutputTokens: number;
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
+  thinkingFloor?: "minimal" | "low";
   longContextPricingThresholdTokens?: number;
   /** When set, the model is hidden unless that assistant flag is on. */
   featureFlag?: string;
@@ -201,6 +202,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
       supportsThinking: true,
+      thinkingFloor: "low",
     },
     {
       id: "gemini-3.6-flash",
@@ -233,6 +235,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
       supportsThinking: true,
+      thinkingFloor: "low",
       longContextPricingThresholdTokens: 200_000,
     },
     {
@@ -242,6 +245,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
       supportsThinking: true,
+      thinkingFloor: "low",
       longContextPricingThresholdTokens: 200_000,
     },
     {

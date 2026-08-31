@@ -45,6 +45,7 @@ interface MetaCatalogModel {
   longContextPricingThresholdTokens?: number;
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
+  thinkingFloor?: "minimal" | "low";
 }
 
 interface MetaCatalogProvider {
@@ -84,6 +85,7 @@ function comparableModel(model: MetaCatalogModel) {
     longContextPricingThresholdTokens: model.longContextPricingThresholdTokens,
     supportsThinking: model.supportsThinking === true,
     adaptiveThinkingOnly: model.adaptiveThinkingOnly === true,
+    thinkingFloor: model.thinkingFloor,
   };
 }
 

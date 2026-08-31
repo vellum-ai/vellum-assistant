@@ -245,10 +245,21 @@ describe("modelSupportsThinking", () => {
 });
 
 describe("geminiThinkingLevels", () => {
-  test("pro models exclude 'minimal'", () => {
+  test("uncatalogued Pro models exclude 'minimal' via the regex fallback", () => {
     const levels = geminiThinkingLevels("gemini-3.0-pro");
     expect(levels).toEqual(["low", "medium", "high"]);
     expect(levels).not.toContain("minimal");
+  });
+
+  test("cataloged Pro models exclude 'minimal' via thinkingFloor", () => {
+    expect(geminiThinkingLevels("gemini-3.1-pro-preview")).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
+    expect(
+      geminiThinkingLevels("gemini-3.1-pro-preview-customtools"),
+    ).toEqual(["low", "medium", "high"]);
   });
 
   test("gemini-3.7-flash excludes 'minimal'", () => {

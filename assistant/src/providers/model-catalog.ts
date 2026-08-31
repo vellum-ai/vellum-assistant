@@ -59,6 +59,12 @@ export interface CatalogModel {
    * `adaptiveThinkingOnly`.
    */
   adaptiveThinkingUnsupported?: boolean;
+  /**
+   * Lowest thinking level the model accepts on the Gemini wire. `"low"`
+   * means `"minimal"` is not a valid request. Omit when `"minimal"` is
+   * accepted.
+   */
+  thinkingFloor?: "minimal" | "low";
   supportsCaching?: boolean;
   supportsVision?: boolean;
   /**
@@ -603,6 +609,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 1048576,
         maxOutputTokens: 65536,
         supportsThinking: true,
+        thinkingFloor: "low",
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -664,6 +671,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 65536,
         longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
+        thinkingFloor: "low",
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -688,6 +696,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 65536,
         longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
+        thinkingFloor: "low",
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,

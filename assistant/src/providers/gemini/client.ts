@@ -75,22 +75,24 @@ function isGeminiProModel(model: string): boolean {
   return /^gemini-3.*pro/.test(normalizeGeminiModelId(model));
 }
 
-/**
- * Gemini 3.7 Flash accepts only `low`/`medium`/`high`. `"minimal"` is rejected
- * upstream. Unlike Pro, an absent level still resolves to Google's per-model
- * default (`"medium"`), so we only raise the floor, we do not pin a default.
- */
-function isGemini37Flash(model: string): boolean {
-  return normalizeGeminiModelId(model) === "gemini-3.7-flash";
+function findGeminiCatalogModel(model: string) {
+  const normalized = normalizeGeminiModelId(model);
+  return PROVIDER_CATALOG.find(
+    (provider) => provider.id === "gemini",
+  )?.models.find((m) => m.id === normalized);
 }
 
 /**
- * Lowest thinking level the model accepts. Pro and Gemini 3.7 Flash reject
- * `"minimal"` (floor `"low"`); every other thinking-capable Gemini model
- * accepts `"minimal"`.
+ * Lowest thinking level the model accepts. Catalog `thinkingFloor` wins when
+ * present. Uncatalogued Gemini 3.x Pro IDs fall back to `"low"`; every other
+ * thinking-capable Gemini model accepts `"minimal"`.
  */
 function geminiThinkingFloor(model: string): ThinkingLevelName {
-  return isGeminiProModel(model) || isGemini37Flash(model) ? "low" : "minimal";
+  const catalogFloor = findGeminiCatalogModel(model)?.thinkingFloor;
+  if (catalogFloor === "low" || catalogFloor === "minimal") {
+    return catalogFloor;
+  }
+  return isGeminiProModel(model) ? "low" : "minimal";
 }
 
 /**
@@ -172,11 +174,7 @@ function buildThinkingConfig(
  * behavior); only an explicit `supportsThinking: false` suppresses it.
  */
 function geminiModelSupportsThinking(model: string): boolean {
-  const normalized = normalizeGeminiModelId(model);
-  const catalogModel = PROVIDER_CATALOG.find(
-    (provider) => provider.id === "gemini",
-  )?.models.find((m) => m.id === normalized);
-  return catalogModel?.supportsThinking !== false;
+  return findGeminiCatalogModel(model)?.supportsThinking !== false;
 }
 
 function stripGeminiHttpOptions(

@@ -95,11 +95,19 @@ const GEMINI_THINKING_LEVELS_FULL = [
 const GEMINI_THINKING_LEVELS_NO_MINIMAL = ["low", "medium", "high"] as const;
 
 /**
- * Gemini models that reject `"minimal"` (floor is `"low"`). Mirrors the
- * daemon's `geminiThinkingFloor` in `assistant/src/providers/gemini/client.ts`.
+ * Gemini models whose thinking floor is `"low"` (they do not accept
+ * `"minimal"`). Prefers catalog `thinkingFloor`; uncatalogued Gemini 3.x Pro
+ * IDs fall back to the Pro regex so the picker stays conservative.
  */
 function geminiOmitsMinimalThinking(modelId: string): boolean {
-  return /^gemini-3.*pro/.test(modelId) || modelId === "gemini-3.7-flash";
+  const catalogFloor = findCatalogModel("gemini", modelId)?.thinkingFloor;
+  if (catalogFloor === "low") {
+    return true;
+  }
+  if (catalogFloor === "minimal") {
+    return false;
+  }
+  return /^gemini-3.*pro/.test(modelId);
 }
 
 /**
