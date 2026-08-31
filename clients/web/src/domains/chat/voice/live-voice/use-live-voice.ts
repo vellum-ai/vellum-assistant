@@ -29,7 +29,10 @@
  * (full duplex; echo cancellation is requested on capture) and the *server*
  * owns utterance boundaries and barge-in: `speech_started` flushes local TTS
  * playback and opens the next utterance, `utterance_end` marks transcription,
- * and `turn_cancelled` drops a barged-in turn's playback. The client-local
+ * and `turn_cancelled` drops a barged-in turn's playback. That flush is
+ * reversible (see {@link HELD_PLAYBACK_TIMEOUT_MS}): server VAD fires on room
+ * noise as well as on speech, and a barge-in it later retracts with
+ * `utterance_discarded` puts the flushed audio back. The client-local
  * silence auto-release and amplitude barge-in below are disabled in this mode.
  * The session ends only on user toggle-off, `busy`, a terminal `error`, or
  * socket close — errors the daemon marks `recoverable` (transient transcriber
@@ -121,6 +124,22 @@ const SILENCE_DURATION_BEFORE_RELEASE_MS = 1000;
 
 /** Minimum speech (ms) required before a silence window can trigger release. */
 const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
+
+/**
+ * How long a barge-in's flushed playback is held before it is dropped for good.
+ *
+ * The daemon retracts a wrong barge-in by closing the utterance with an empty
+ * transcript, which takes the VAD's trailing-silence threshold (800ms by
+ * default) plus the transcriber's finalize grace (up to 1s) plus a network hop.
+ * This covers that with headroom while staying short enough that a resume still
+ * lands as the same reply continuing: audio put back long after the room went
+ * quiet is a non-sequitur, and losing it is the better failure.
+ *
+ * The deadline is the backstop, not the usual path. A hold is normally released
+ * by whatever happens next (the resume itself, a real barge-in, the next turn),
+ * and every teardown path drops it with the player.
+ */
+const HELD_PLAYBACK_TIMEOUT_MS = 6_000;
 
 // ---------------------------------------------------------------------------
 // Reconnect (hands-free only)
@@ -223,6 +242,12 @@ export interface UseLiveVoiceOptions {
    * seconds; production uses {@link RECONNECT_BACKOFF_MS}.
    */
   reconnectBackoffMs?: number[];
+  /**
+   * Override how long a barge-in's flushed playback is held before it is
+   * dropped. Primarily a test seam so specs don't wait real seconds; production
+   * uses {@link HELD_PLAYBACK_TIMEOUT_MS}.
+   */
+  heldPlaybackTimeoutMs?: number;
 }
 
 /**
@@ -323,6 +348,14 @@ interface SessionContext {
    * Cleared on teardown/flush.
    */
   assistantAudioIdleTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Deadline after which a barge-in's held playback is dropped rather than
+   * resumed. Armed by each flush that leaves audio held, cleared when the hold
+   * is released for any other reason.
+   */
+  heldPlaybackTimer: ReturnType<typeof setTimeout> | null;
+  /** Resolved {@link HELD_PLAYBACK_TIMEOUT_MS} for this session. */
+  heldPlaybackTimeoutMs: number;
 }
 
 /** Number of bytes per Int16 PCM sample. */
@@ -785,6 +818,9 @@ export function useLiveVoice(
         turnHeardStampMs: null,
         clientHeardLatencyMs: null,
         assistantAudioIdleTimer: null,
+        heldPlaybackTimer: null,
+        heldPlaybackTimeoutMs:
+          opts.heldPlaybackTimeoutMs ?? HELD_PLAYBACK_TIMEOUT_MS,
       };
 
       const capture = (
@@ -909,7 +945,13 @@ export function useLiveVoice(
           }
           session.utteranceOpen = true;
           s.setUtteranceOpen(true);
-          flushPlaybackToListening(session);
+          // Server VAD fires on room noise as well as on speech, so hold the
+          // flushed audio instead of destroying it: `utterance_discarded`
+          // retracts a wrong barge-in and puts the reply back. A second onset
+          // arriving on top of an unresolved hold drops it first, because by
+          // then the user is demonstrably talking over the reply.
+          clearHeldPlayback(session);
+          flushPlaybackToListening(session, { holdAudio: true });
         }),
         client.on("utteranceEnd", () => {
           if (!live() || !session.handsFree) {
@@ -936,6 +978,12 @@ export function useLiveVoice(
           // The discarded utterance never becomes a turn: drop its
           // end-of-speech stamp so it can't pair with a later turn's audio.
           session.speechEndedAtMs = null;
+          // The utterance the barge-in opened held no speech, so the barge-in
+          // was wrong: put the flushed reply back rather than leaving silence
+          // where the answer was. Resuming sets `speaking` itself.
+          if (resumeHeldPlayback(session, teardown)) {
+            return;
+          }
           // The closed utterance had no usable speech (noise/cough); return
           // to listening. A discarded utterance never reaches `thinking`
           // (empty finals stay in `transcribing`), so any other state belongs
@@ -1012,6 +1060,9 @@ export function useLiveVoice(
           // list.
           //
           // New response: reset the per-response transcript and barge-in flags.
+          // A turn starting is the definitive answer that the barge-in before
+          // it was real, so the previous reply's held audio is spent.
+          clearHeldPlayback(session);
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
@@ -1128,7 +1179,10 @@ export function useLiveVoice(
           // own `thinking` will bind it.
           session.turnHeardStampMs = null;
           // Barge-in aborted the turn; no tts_done follows a cancelled turn.
-          flushPlaybackToListening(session);
+          // This lands right behind the `speech_started` that already flushed,
+          // so it keeps that flush's hold rather than replacing it: the
+          // barge-in can still turn out to have been noise.
+          flushPlaybackToListening(session, { holdAudio: true });
         }),
         client.on("metrics", (frame) => {
           if (!live()) {
@@ -1448,6 +1502,7 @@ function disposeSessionPrimitives(
 ): void {
   session.generation += 1;
   clearAssistantAudioActive(session);
+  clearHeldPlaybackTimer(session);
   for (const unsubscribe of session.unsubscribes) {
     unsubscribe();
   }
@@ -1810,12 +1865,78 @@ function clearAssistantAudioActive(session: SessionContext): void {
 /**
  * Hands-free: flush local TTS playback immediately, drop expectations for the
  * in-flight response, and keep the session live in `listening`.
+ *
+ * `holdAudio` makes the flush reversible: the unplayed audio is retained so
+ * {@link resumeHeldPlayback} can put it back if the daemon retracts the
+ * barge-in. Only the server-barge-in frames pass it. A deliberate stop (the
+ * user's own interrupt, teardown, reconnect) flushes without it, which also
+ * discards anything already held.
  */
-function flushPlaybackToListening(session: SessionContext): void {
-  session.player.stop();
+function flushPlaybackToListening(
+  session: SessionContext,
+  options?: { holdAudio?: boolean },
+): void {
+  if (options?.holdAudio) {
+    holdPlaybackForResume(session);
+  } else {
+    clearHeldPlayback(session);
+    session.player.stop();
+  }
   session.responseAudioStarted = false;
   clearAssistantAudioActive(session);
   useLiveVoiceStore.getState().setState("listening");
+}
+
+/** Flush playback keeping the unplayed audio, and arm the hold's deadline. */
+function holdPlaybackForResume(session: SessionContext): void {
+  session.player.holdPlayback();
+  clearHeldPlaybackTimer(session);
+  if (!session.player.hasHeldPlayback()) {
+    return;
+  }
+  session.heldPlaybackTimer = setTimeout(() => {
+    session.heldPlaybackTimer = null;
+    session.player.discardHeldPlayback();
+  }, session.heldPlaybackTimeoutMs);
+}
+
+/**
+ * Put a wrongly flushed reply back and resume the turn around it. Returns
+ * whether anything actually resumed.
+ *
+ * A flush resolves the drain waiter armed by this turn's `tts_done`, so a
+ * resumed turn needs a fresh one or the session would sit in `speaking` once
+ * the audio finishes. `responseEpoch` is bumped to hand state ownership to the
+ * resumed turn: the superseded waiter must not settle onto audio that is
+ * playing again (the guard only checks inequality, so the bump is safe even
+ * though this is the same response).
+ */
+function resumeHeldPlayback(
+  session: SessionContext,
+  teardown: () => void,
+): boolean {
+  clearHeldPlaybackTimer(session);
+  if (!session.player.resumeHeldPlayback()) {
+    return false;
+  }
+  session.responseEpoch += 1;
+  markAssistantAudioActive(session);
+  useLiveVoiceStore.getState().setState("speaking");
+  void finishResponseAfterPlayback(session, teardown);
+  return true;
+}
+
+/** Drop held audio and its deadline (a real barge-in, a new turn, teardown). */
+function clearHeldPlayback(session: SessionContext): void {
+  clearHeldPlaybackTimer(session);
+  session.player.discardHeldPlayback();
+}
+
+function clearHeldPlaybackTimer(session: SessionContext): void {
+  if (session.heldPlaybackTimer !== null) {
+    clearTimeout(session.heldPlaybackTimer);
+    session.heldPlaybackTimer = null;
+  }
 }
 
 /**
