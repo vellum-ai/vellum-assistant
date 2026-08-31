@@ -1207,7 +1207,6 @@ export class Conversation {
       // carry neither fact: both envelopes spell these keys literally, in
       // providerMeta and in nested slackMeta alike.
       if (
-        role === "user" &&
         m.metadata &&
         (m.metadata.includes("reaction") || m.metadata.includes("deletedAt"))
       ) {
@@ -1216,11 +1215,14 @@ export class Conversation {
           const rendered = renderReactionHistoryText(
             providerMeta,
             resolveReactionTarget,
+            // An assistant-role reaction row is the assistant's own act,
+            // persisted by the react tool.
+            { selfAuthored: role === "assistant" },
           );
           if (rendered) {
             content = [{ type: "text", text: rendered }];
           }
-        } else if (providerMeta?.deletedAt !== undefined) {
+        } else if (role === "user" && providerMeta?.deletedAt !== undefined) {
           // Neutral marker, no actor: Discord deletes can be authorless
           // (`actorUnattributed`), so the marker never claims who deleted.
           content = [{ type: "text", text: "[This message was deleted]" }];

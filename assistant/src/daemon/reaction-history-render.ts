@@ -62,18 +62,37 @@ function snippetOf(text: string): string {
 export function renderReactionHistoryText(
   meta: ProviderMessageMetadata,
   resolveTargetText: (targetMessageId: string) => string | undefined,
+  options?: {
+    /**
+     * The row is the assistant's own reaction (an assistant-role row the
+     * react tool persisted). Rendered second-person and unfenced: the actor
+     * and emoji are the model's own output, not sender-authored text.
+     */
+    selfAuthored?: boolean;
+  },
 ): string | null {
   if (meta.eventKind !== "reaction" || !meta.reaction) {
     return null;
   }
   const { emoji, op, targetMessageId } = meta.reaction;
+  const target = resolveTargetText(targetMessageId);
+  const snippet = target ? snippetOf(target) : "";
+
+  if (options?.selfAuthored) {
+    const verb =
+      op === "removed"
+        ? `removed your ${formatEmoji(emoji)} reaction from`
+        : `reacted with ${formatEmoji(emoji)} to`;
+    return snippet
+      ? `You ${verb} the message "${snippet}"`
+      : `You ${verb} an earlier message`;
+  }
+
   const actor = meta.reaction.actorDisplayName ?? meta.displayName ?? "Someone";
   const verb =
     op === "removed"
       ? `removed their ${formatEmoji(emoji)} reaction from`
       : `reacted with ${formatEmoji(emoji)} to`;
-  const target = resolveTargetText(targetMessageId);
-  const snippet = target ? snippetOf(target) : "";
   const line = snippet
     ? `${actor} ${verb} the message "${snippet}"`
     : `${actor} ${verb} an earlier message`;

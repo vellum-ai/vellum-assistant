@@ -117,6 +117,29 @@ describe("renderReactionHistoryText", () => {
     expect(rendered).toContain("Bob reacted with");
   });
 
+  test("a self-authored row renders second-person and unfenced", () => {
+    const rendered = renderReactionHistoryText(
+      reactionMeta({ source: "discord" }),
+      () => "Deploy is done",
+      { selfAuthored: true },
+    );
+    expect(rendered).toBe(
+      'You reacted with :thumbsup: to the message "Deploy is done"',
+    );
+    expect(rendered).not.toContain("<external_content");
+  });
+
+  test("a self-authored removal reads as your reaction", () => {
+    const rendered = renderReactionHistoryText(
+      reactionMeta({ reaction: { op: "removed" } }),
+      noTarget,
+      { selfAuthored: true },
+    );
+    expect(rendered).toContain(
+      "You removed your :thumbsup: reaction from an earlier message",
+    );
+  });
+
   test("returns null for a message row", () => {
     const meta: ProviderMessageMetadata = {
       source: "slack",

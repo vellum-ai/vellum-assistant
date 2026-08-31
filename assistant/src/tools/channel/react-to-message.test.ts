@@ -15,6 +15,33 @@ mock.module("../../messaging/providers/index.js", () => ({
   },
 }));
 
+let persisted: Array<{
+  conversationId: string;
+  role: string;
+  content: string;
+  metadata: Record<string, unknown> | undefined;
+}> = [];
+const actualCrud = await import("../../persistence/conversation-crud.js");
+mock.module("../../persistence/conversation-crud.js", () => ({
+  ...actualCrud,
+  addMessage: async (
+    conversationId: string,
+    role: string,
+    content: string,
+    opts?: { metadata?: Record<string, unknown> },
+  ) => {
+    persisted.push({ conversationId, role, content, metadata: opts?.metadata });
+    return { id: `persisted-${persisted.length}` };
+  },
+}));
+
+let staleMarked: string[] = [];
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (id: string) => ({
+    markHistoryStale: () => staleMarked.push(id),
+  }),
+}));
+
 const { reactToMessageTool } = await import("./react-to-message.js");
 
 function channelContext(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -34,6 +61,8 @@ describe("react_to_message", () => {
     reactCalls = [];
     reactResultOk = true;
     channelSupported = true;
+    persisted = [];
+    staleMarked = [];
   });
 
   test("reacts to the triggering message by default", async () => {
@@ -112,6 +141,49 @@ describe("react_to_message", () => {
       channelContext(),
     );
     expect(result.isError).toBe(true);
+  });
+
+  test("a delivered reaction persists as a standalone reaction row", async () => {
+    await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
+    expect(persisted).toHaveLength(1);
+    const row = persisted[0]!;
+    expect(row.conversationId).toBe("conv-1");
+    expect(row.role).toBe("assistant");
+    expect(row.content).toBe("[reaction]");
+    expect(row.metadata?.messageKind).toBe("reaction");
+    expect(row.metadata?.provenanceTrustClass).toBe("guardian");
+    expect(row.metadata?.provenanceSourceChannel).toBe("slack");
+    const envelope = JSON.parse(String(row.metadata?.providerMeta)) as {
+      source: string;
+      eventKind: string;
+      reaction: { targetMessageId: string; emoji: string; op: string };
+    };
+    expect(envelope.source).toBe("slack");
+    expect(envelope.eventKind).toBe("reaction");
+    expect(envelope.reaction).toEqual({
+      targetMessageId: "1700000000.111111",
+      emoji: "thumbsup",
+      op: "added",
+    });
+    expect(staleMarked).toEqual(["conv-1"]);
+  });
+
+  test("a removed reaction persists op removed", async () => {
+    await reactToMessageTool.execute(
+      { emoji: "thumbsup", action: "remove" },
+      channelContext(),
+    );
+    const envelope = JSON.parse(
+      String(persisted[0]?.metadata?.providerMeta),
+    ) as { reaction: { op: string } };
+    expect(envelope.reaction.op).toBe("removed");
+  });
+
+  test("a rejected reaction persists nothing", async () => {
+    reactResultOk = false;
+    await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
+    expect(persisted).toHaveLength(0);
+    expect(staleMarked).toHaveLength(0);
   });
 
   test("rejects input with no emoji", async () => {

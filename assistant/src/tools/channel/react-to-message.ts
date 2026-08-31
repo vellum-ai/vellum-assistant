@@ -14,11 +14,18 @@
  */
 import { z } from "zod";
 
+import { parseChannelId } from "../../channels/types.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
+import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import {
   sendChannelReaction,
   supportsChannelReaction,
 } from "../../messaging/providers/index.js";
 import { RiskLevel } from "../../permissions/types.js";
+import {
+  addMessage,
+  REACTION_MESSAGE_KIND,
+} from "../../persistence/conversation-crud.js";
 import {
   invalidToolInputResult,
   toToolInputSchema,
@@ -116,6 +123,44 @@ export const reactToMessageTool = {
         isError: true,
       };
     }
+
+    // The delivered reaction persists as a row, the same canonical fact
+    // inbound reactions store, so it survives eviction, renders in agent
+    // history, and stays a standalone turn under the reaction message kind.
+    // Provenance mirrors the turn's, keeping the row visible to the same
+    // actor-scoped loads; failure to persist never fails the tool, since
+    // the reaction itself already happened.
+    const sourceChannel = parseChannelId(channel);
+    try {
+      if (!sourceChannel) {
+        throw new Error(`unrecognized channel id: ${channel}`);
+      }
+      const providerMeta: ProviderMessageMetadata = {
+        source: sourceChannel,
+        conversationExternalId: chatId,
+        eventKind: "reaction",
+        reaction: {
+          targetMessageId: messageId,
+          emoji: parsed.data.emoji,
+          op: action === "remove" ? "removed" : "added",
+        },
+      };
+      await addMessage(context.conversationId, "assistant", "[reaction]", {
+        metadata: {
+          messageKind: REACTION_MESSAGE_KIND,
+          ...(context.trustClass
+            ? { provenanceTrustClass: context.trustClass }
+            : {}),
+          provenanceSourceChannel: channel,
+          providerMeta: JSON.stringify(providerMeta),
+        },
+        skipIndexing: true,
+      });
+      findConversation(context.conversationId)?.markHistoryStale();
+    } catch {
+      // Logged by persistence; the reaction was delivered either way.
+    }
+
     return {
       content:
         action === "remove"
