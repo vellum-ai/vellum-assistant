@@ -543,6 +543,15 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * True means do not post this to the OS notification surface at all:
+   * main skips the notification rather than muting it, because Electron's
+   * own `silent` option only drops the sound and would still banner. Non-
+   * banner side effects (the renderer's in-app chime, the deep link) still
+   * run. Originates from the daemon's urgency-derived flag on the
+   * `notification_intent` event. Omitted means not silent.
+   */
+  silent?: boolean;
 }
 
 export type TextInsertionResult =

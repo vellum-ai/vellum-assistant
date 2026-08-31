@@ -33,7 +33,6 @@ import type { z } from "zod";
 interface MockNotificationOptions {
   title: string;
   body: string;
-  silent: boolean;
   actions: Array<{ type: "button"; text: string }>;
 }
 
@@ -226,6 +225,87 @@ describe("category action buttons", () => {
   }
 });
 
+// --- Silent flag -----------------------------------------------------------
+
+describe("silent flag", () => {
+  // The wire contract defines `silent` as "do not post to the OS
+  // notification surface", not Electron's "mute the sound but still
+  // banner", so the notification must never be constructed.
+  test("silent: true posts nothing to the OS and still acks a success", async () => {
+    const result = await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "silent-1",
+      silent: true,
+    });
+    expect(result.success).toBe(true);
+    expect(result.errorMessage).toBeUndefined();
+    expect(constructed).toHaveLength(0);
+  });
+
+  test("silent: false posts the banner exactly as an omitted flag does", async () => {
+    expect(
+      (
+        await show({
+          category: "notificationIntent",
+          title: "T",
+          body: "B",
+          deliveryId: "silent-2",
+          silent: false,
+        })
+      ).success,
+    ).toBe(true);
+    expect(constructed).toHaveLength(1);
+
+    expect(
+      (
+        await show({
+          category: "notificationIntent",
+          title: "T",
+          body: "B",
+          deliveryId: "silent-3",
+        })
+      ).success,
+    ).toBe(true);
+    expect(constructed).toHaveLength(2);
+  });
+
+  test("a silent intent is handled even where notifications are unsupported", async () => {
+    // Nothing has to be delivered, so platform support is irrelevant: the
+    // client still handled the intent correctly by not posting it.
+    notificationSupported = false;
+    const result = await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "silent-4",
+      silent: true,
+    });
+    expect(result.success).toBe(true);
+    expect(constructed).toHaveLength(0);
+  });
+
+  test("the captured schema accepts the silent flag and rejects a non-boolean", () => {
+    const { schema } = showHandler();
+    expect(() =>
+      schema.parse([
+        { category: "notificationIntent", title: "t", body: "b", silent: true },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      schema.parse([
+        {
+          category: "notificationIntent",
+          title: "t",
+          body: "b",
+          silent: "yes",
+        },
+      ]),
+    ).toThrow();
+  });
+});
+
 // --- Dedup / cooldown ------------------------------------------------------
 
 describe("dedup / cooldown", () => {
@@ -251,6 +331,25 @@ describe("dedup / cooldown", () => {
     at(11_000);
     expect((await show(payload)).success).toBe(true);
     expect(constructed).toHaveLength(2);
+  });
+
+  test("a skipped silent intent does not consume the cooldown window", async () => {
+    const payload = {
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "dup-2",
+    };
+
+    // Nothing reached the OS, so the follow-up must still be free to banner:
+    // recording the skip would suppress a notification the user never saw.
+    at(0);
+    expect((await show({ ...payload, silent: true })).success).toBe(true);
+    expect(constructed).toHaveLength(0);
+
+    at(5_000);
+    expect((await show(payload)).success).toBe(true);
+    expect(constructed).toHaveLength(1);
   });
 
   test("toolConfirmation has no cooldown and always posts", async () => {

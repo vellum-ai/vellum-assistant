@@ -78,6 +78,7 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       assistantId: assistantId ?? undefined,
       remotePushDispatched: event.remotePushDispatched,
       remotePushPlatforms: event.remotePushPlatforms,
+      silent: event.silent,
     });
   });
 }

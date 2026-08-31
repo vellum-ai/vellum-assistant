@@ -356,6 +356,12 @@ export interface PostLocalNotificationArgs {
   remotePushDispatched?: boolean;
   /** Native platforms that accepted this delivery for remote push. */
   remotePushPlatforms?: ("ios" | "android")[];
+  /**
+   * The daemon's urgency-derived flag: true means this intent must not
+   * reach the OS notification surface. Honored on the Electron path, where
+   * main skips the notification entirely and still acks a success.
+   */
+  silent?: boolean;
 }
 
 /**
@@ -427,6 +433,7 @@ export async function postLocalNotification(
         deliveryId: args.deliveryId,
         conversationId: extractConversationId(args.deepLinkMetadata),
         deepLinkMetadata: args.deepLinkMetadata,
+        silent: args.silent,
       });
       success = result.success;
       errorMessage = result.errorMessage;
