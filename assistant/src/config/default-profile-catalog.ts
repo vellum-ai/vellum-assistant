@@ -86,7 +86,7 @@ type ProfileImpls = Record<DefaultProfileKey, DefaultProfileTemplate>;
  */
 const VELLUM_PROFILE_IMPLS: ProfileImpls = {
   balanced: {
-    model: "accounts/fireworks/models/glm-5p2",
+    model: "accounts/fireworks/models/glm-5p3-flash",
     provider: "vellum",
     source: "managed",
     label: "Balanced",
@@ -241,25 +241,26 @@ const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
 };
 
 /**
- * Arm to managed model pin for the `experiment-balanced-model-2026-08-06` A/B
+ * Arm to managed model pin for the `experiment-balanced-model-2026-08-31` A/B
  * test (`balanced-model-experiment.ts` owns the flag read). An arm repoints
  * the model of the managed (`vellum`) implementation of `balanced` and nothing
  * else: effort, thinking, token budget, label and description all stay on the
  * shipped body, and the `chatgpt` and BYOK columns are untouched because those
  * installs run the provider their user chose and sit outside the experiment.
  *
- * `control` is absent by design. It, an arm this build does not know, and an
- * unset flag all resolve to the shipped body, so no LaunchDarkly value can
- * strand an install on a model that is not pinned here. A `Map` rather than an
- * object literal keeps that true for every string LaunchDarkly can send: the
- * arm is remote input, and an object lookup would resolve `constructor` or
- * `toString` to an inherited `Object.prototype` member instead of missing.
+ * An arm this build does not know, and an unset flag, both resolve to the
+ * shipped body, so no LaunchDarkly value can strand an install on a model that
+ * is not pinned here. A `Map` rather than an object literal keeps that true for
+ * every string LaunchDarkly can send: the arm is remote input, and an object
+ * lookup would resolve `constructor` or `toString` to an inherited
+ * `Object.prototype` member instead of missing.
  *
- * `glm-5p2` names the same model as the shipped pin and stays in the table so
- * the arm keeps its meaning if the shipped pin moves again.
+ * `glm-5p3-flash` names the same model as the shipped pin and stays in the
+ * table so the arm keeps its meaning if the shipped pin moves again.
  */
 const BALANCED_EXPERIMENT_MODELS = new Map<string, string>([
-  ["terra", "gpt-5.6-terra"],
+  ["glm-5p3-flash", "accounts/fireworks/models/glm-5p3-flash"],
+  ["glm-5p3", "accounts/fireworks/models/glm-5p3"],
   ["glm-5p2", "accounts/fireworks/models/glm-5p2"],
 ]);
 

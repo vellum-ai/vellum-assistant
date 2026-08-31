@@ -377,6 +377,22 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
+      id: "accounts/fireworks/models/glm-5p3-flash",
+      displayName: "GLM 5.3 Flash",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
+      id: "accounts/fireworks/models/glm-5p3",
+      displayName: "GLM 5.3",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
       id: "accounts/fireworks/models/glm-5p2",
       displayName: "GLM 5.2",
       vendor: "zhipu",
