@@ -3,9 +3,10 @@ import { type TFunction, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
-import type {
-  FeedItem,
-  FeedItemGuardianRequest,
+import {
+  type FeedItem,
+  type FeedItemGuardianRequest,
+  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
 } from "@vellumai/assistant-api";
 import { Button, Typography } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -241,7 +242,7 @@ function receiptLabel(
       : t("homeGuardianRequestCard.receipt.approved");
   }
   if (status === "denied") {
-    if (terminalReason === "superseded") {
+    if (terminalReason === GUARDIAN_TERMINAL_REASON_SUPERSEDED) {
       return t("homeGuardianRequestCard.receipt.superseded");
     }
     if (decidedAction === "leave_unverified") {

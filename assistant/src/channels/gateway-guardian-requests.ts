@@ -290,7 +290,7 @@ export const listGuardianRequestDeliveriesOrEmpty = degradeOnFailure(
  * transport failure so callers can fail safe instead of importing a
  * card as conversation content.
  */
-export async function listGuardianRequestDeliveriesForChat(
+export async function listGuardianRequestDeliveriesByChat(
   channel: string,
   chatId: string,
 ): Promise<GuardianRequestDeliveryWire[]> {

@@ -21,7 +21,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
-import { listGuardianRequestDeliveriesForChat } from "../../channels/gateway-guardian-requests.js";
+import { listGuardianRequestDeliveriesByChat } from "../../channels/gateway-guardian-requests.js";
 import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
@@ -2151,7 +2151,7 @@ async function runBackfillSlackDmIfCold(params: {
     // unreachable gateway aborts the backfill rather than importing a
     // card: the DM stays cold, so the next inbound message retries.
     const guardianCardTs = new Set(
-      (await listGuardianRequestDeliveriesForChat("slack", params.channelId))
+      (await listGuardianRequestDeliveriesByChat("slack", params.channelId))
         .map((delivery) => delivery.destinationMessageId)
         .filter((ts): ts is string => typeof ts === "string" && ts.length > 0),
     );

@@ -109,9 +109,9 @@ export function buildPendingGuardianProjection(
     return null;
   }
 
-  const modeResolution = resolveGuardianQuestionInstructionMode(payload);
-  const intent: FeedItemGuardianIntent =
-    modeResolution.mode === "answer" ? "question" : "approval";
+  const intent = intentFromInstructionMode(
+    resolveGuardianQuestionInstructionMode(payload).mode,
+  );
 
   const sourceView = buildToolApprovalSourceView(payload);
   const slackLinks = buildSlackCardLinks(slackDelivery);
@@ -133,6 +133,18 @@ export function buildPendingGuardianProjection(
     ...(slackLinks?.webUrl ? { slackCardUrl: slackLinks.webUrl } : {}),
     ...(slackLinks?.appUrl ? { slackCardAppUrl: slackLinks.appUrl } : {}),
   };
+}
+
+/**
+ * A request in answer mode asks the guardian a question; every other
+ * mode asks for an approval. The instruction mode already encodes this
+ * (it decides whether cards render answer options or approve/reject),
+ * so the projection's `intent` is a straight reading of it.
+ */
+function intentFromInstructionMode(
+  mode: "approval" | "answer" | undefined,
+): FeedItemGuardianIntent {
+  return mode === "answer" ? "question" : "approval";
 }
 
 /**
@@ -356,9 +368,11 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
     request.questionText?.trim() ||
     request.activityText?.trim() ||
     `Guardian request ${request.requestCode ?? request.id}`;
-  const mode = resolveGuardianInstructionModeFromFields(
-    request.kind,
-    request.toolName ?? undefined,
+  const intent = intentFromInstructionMode(
+    resolveGuardianInstructionModeFromFields(
+      request.kind,
+      request.toolName ?? undefined,
+    )?.mode,
   );
   const now = new Date().toISOString();
   return {
@@ -379,7 +393,7 @@ function buildBackfillGuardianFeedItem(request: GuardianRequestWire): FeedItem {
     guardianRequest: {
       requestId: request.id,
       kind: request.kind,
-      intent: mode?.mode === "answer" ? "question" : "approval",
+      intent,
       status: "pending",
       ...(request.toolName ? { toolName: request.toolName } : {}),
       ...(request.sourceChannel

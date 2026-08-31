@@ -441,7 +441,7 @@ export function createGuardianGatewaySim() {
       .map((d) => ({ ...d }));
   }
 
-  async function listGuardianRequestDeliveriesForChat(
+  async function listGuardianRequestDeliveriesByChat(
     channel: string,
     chatId: string,
   ): Promise<SimGuardianDelivery[]> {
@@ -619,7 +619,7 @@ export function createGuardianGatewaySim() {
     createGuardianRequestDelivery,
     updateGuardianRequestDelivery,
     listGuardianRequestDeliveries,
-    listGuardianRequestDeliveriesForChat,
+    listGuardianRequestDeliveriesByChat,
     listGuardianRequestDeliveriesOrEmpty: degrade(
       listGuardianRequestDeliveries,
       [],

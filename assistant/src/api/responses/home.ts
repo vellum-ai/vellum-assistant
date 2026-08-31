@@ -231,6 +231,13 @@ export const FeedItemSchema = z.object({
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
 /**
+ * `terminalReason` value for a request auto-denied because a newer
+ * inbound message superseded it. Shared by the daemon rails that record
+ * it and the clients that render "Superseded" instead of a rejection.
+ */
+export const GUARDIAN_TERMINAL_REASON_SUPERSEDED = "superseded";
+
+/**
  * Whether a feed item is the live projection of an unresolved guardian
  * request. Shared by the daemon (bulk-dismiss protection in the feed
  * writer) and clients (visibility carve-outs, bulk-action id sets) so

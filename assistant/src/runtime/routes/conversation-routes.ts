@@ -23,6 +23,7 @@ import {
   type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
+import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
 import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
   expireGuardianRequest,
@@ -2332,7 +2333,7 @@ export async function handleSendMessage(
           requestId: interaction.requestId,
           status: "denied",
           syncContext: "auto-deny-idle-send",
-          terminalReason: "superseded",
+          terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
         });
       }
     }

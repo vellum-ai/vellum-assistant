@@ -792,6 +792,7 @@ export {
   FeedItemTypeSchema,
   type FeedItemUrgency,
   FeedItemUrgencySchema,
+  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
   type HomeFeedResponse,
   HomeFeedResponseSchema,
   isPendingGuardianFeedItem,

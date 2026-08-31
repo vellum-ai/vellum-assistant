@@ -1,4 +1,5 @@
 import { peekAcpSessionManager } from "../../acp/index.js";
+import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
 import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
   clearAll,
@@ -531,7 +532,7 @@ export function supersedePendingInteractionsOnEnqueue(
           requestId: interaction.requestId,
           status: "denied",
           syncContext: "supersede-on-enqueue",
-          terminalReason: "superseded",
+          terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
         });
       }
     }
