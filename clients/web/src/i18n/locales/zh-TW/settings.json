@@ -308,7 +308,7 @@
     "finishSetupBody": "您的助理電子郵件地址尚未設定。",
     "finishSetupButton": "完成設定",
     "finishSetupTitle": "完成 {plan} 方案的設定",
-    "loadingBilling": "載入帳單中…",
+    "loadingBillingAriaLabel": "載入帳單中…",
     "platformLoginNotice": "登入 Vellum 平台以管理帳單和用量。",
     "usageTab": "用量"
   },

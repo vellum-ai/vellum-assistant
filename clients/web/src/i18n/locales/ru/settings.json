@@ -296,7 +296,7 @@
     "finishSetupBody": "Почта ассистента ещё не настроена.",
     "finishSetupButton": "Завершить настройку",
     "finishSetupTitle": "Завершение настройки плана {plan}",
-    "loadingBilling": "Загрузка оплаты…",
+    "loadingBillingAriaLabel": "Загрузка оплаты…",
     "platformLoginNotice": "Вход на платформу Vellum для управления оплатой и использованием.",
     "usageTab": "Использование"
   },

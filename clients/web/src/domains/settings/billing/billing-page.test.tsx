@@ -12,6 +12,10 @@
  * mutable responses, force the platform-hosted gate open, and stub the heavy
  * billing children so the page wiring under test is the only moving part. The
  * onboarding modal stub reports its `open` prop via a data attribute.
+ *
+ * The same harness covers the two windows where the tab has nothing to show
+ * yet, both of which render the skeleton stack: the assistant lifecycle still
+ * resolving, and the platform-session probe not settled.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -49,6 +53,12 @@ let domainsListPaths: string[] = [];
 // login where the org store hasn't hydrated yet.
 let orgReady = true;
 let nativeAndroid = false;
+// Drives the active assistant's lifecycle window (hatching / cleaning up),
+// where the billing tab has nothing to render yet.
+let lifecycleIsLoading = false;
+// Drives the platform-session pre-settle window: the gate reports "pending",
+// `usePlatformGate` collapses it to "disabled", and nothing is settled yet.
+let platformSessionPending = false;
 
 const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
@@ -87,12 +97,19 @@ let activeAssistantIsPlatformHosted = true;
 
 mock.module("@/hooks/use-platform-gate", () => ({
   ...platformGate,
-  usePlatformGate: (options?: { platformHostedOnly?: boolean }) =>
-    options?.platformHostedOnly === true && !activeAssistantIsPlatformHosted
-      ? "gated"
-      : "full",
+  usePlatformGate: (options?: { platformHostedOnly?: boolean }) => {
+    if (
+      options?.platformHostedOnly === true &&
+      !activeAssistantIsPlatformHosted
+    ) {
+      return "gated";
+    }
+    return platformSessionPending ? "disabled" : "full";
+  },
+  usePlatformGateWithPending: () =>
+    platformSessionPending ? "pending" : "full",
   useActiveAssistantIsPlatformHosted: () => activeAssistantIsPlatformHosted,
-  useActiveAssistantLifecycleIsLoading: () => false,
+  useActiveAssistantLifecycleIsLoading: () => lifecycleIsLoading,
 }));
 
 // The Usage tab reads the active assistant, which normally comes from the
@@ -104,7 +121,7 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
 
 mock.module("@/stores/auth-store", () => ({
   ...authStore,
-  useIsPlatformSessionSettled: () => true,
+  useIsPlatformSessionSettled: () => !platformSessionPending,
 }));
 
 mock.module("@/hooks/use-is-org-ready", () => ({
@@ -136,7 +153,7 @@ mock.module(
   }),
 );
 mock.module("@/domains/settings/billing/usage/usage-tab", () => ({
-  UsageTab: () => null,
+  UsageTab: () => <div data-testid="usage-tab" />,
 }));
 mock.module("@/domains/settings/components/adjust-plan-modal", () => ({
   AdjustPlanModal: () => null,
@@ -262,6 +279,8 @@ beforeEach(() => {
   domainsListPaths = [];
   orgReady = true;
   nativeAndroid = false;
+  lifecycleIsLoading = false;
+  platformSessionPending = false;
   activeAssistantIsPlatformHosted = true;
   setupIntentReturnUnmounts = 0;
 });
@@ -277,9 +296,7 @@ describe("BillingTab on native Android", () => {
 
     expect(getByTestId("plan-card-tier-upgraded")).toBeTruthy();
     expect(getByTestId("onboarding-modal")).toBeTruthy();
-    expect(
-      queryByText("Manage your subscription on our website."),
-    ).toBeNull();
+    expect(queryByText("Manage your subscription on our website.")).toBeNull();
   });
 });
 
@@ -526,5 +543,66 @@ describe("BillingPage Stripe redirect return", () => {
       }
     });
     expect(setupIntentReturnUnmounts).toBe(0);
+  });
+});
+
+describe("BillingTab lifecycle loading", () => {
+  test("renders the skeleton stack instead of a spinner row", () => {
+    lifecycleIsLoading = true;
+    const { getByTestId, queryByTestId, queryByText } = renderPage();
+
+    const stack = getByTestId("billing-tab-skeleton");
+    expect(
+      stack.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0);
+    expect(stack.getAttribute("aria-label")).toBe("Loading billing\u2026");
+    // The old inline spinner row is gone, and so is its copy.
+    expect(queryByText("Loading billing\u2026")).toBeNull();
+    expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
+  });
+});
+
+describe("BillingPage platform-session pre-settle hold", () => {
+  test("holds the skeleton stack rather than flashing the Usage tab", () => {
+    platformSessionPending = true;
+    const { getByTestId, queryByTestId } = renderPage("");
+
+    expect(getByTestId("billing-tab-skeleton")).toBeTruthy();
+    // The Usage tree would otherwise mount its own skeletons here, only to be
+    // torn down once the probe lands on a Billing destination.
+    expect(queryByTestId("usage-tab")).toBeNull();
+    expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
+    // Nothing settles the tab into the URL while the hold is up.
+    expect(getByTestId("loc").textContent).toBe("/assistant/settings/usage");
+  });
+
+  test("holds on a billing deeplink instead of flashing the login notice", () => {
+    platformSessionPending = true;
+    const { getByTestId, queryByText } = renderPage();
+
+    expect(getByTestId("billing-tab-skeleton")).toBeTruthy();
+    expect(
+      queryByText("Log in to the Vellum platform to manage billing and usage."),
+    ).toBeNull();
+  });
+
+  test("mounts Usage right away when the URL asks for it", () => {
+    platformSessionPending = true;
+    const { getByTestId, queryByTestId } = renderPage("?tab=usage");
+
+    expect(getByTestId("usage-tab")).toBeTruthy();
+    expect(queryByTestId("billing-tab-skeleton")).toBeNull();
+  });
+
+  test("renders the billing tab once the session settles", async () => {
+    const { getByTestId, queryByTestId } = renderPage("");
+
+    await waitFor(() =>
+      expect(getByTestId("plan-card-tier-upgraded")).toBeTruthy(),
+    );
+    expect(queryByTestId("billing-tab-skeleton")).toBeNull();
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
   });
 });
