@@ -816,7 +816,8 @@ export function buildChannelCapabilityBlock(
     caps.supportsVoiceInput &&
     !isGroupChatType(caps.chatType) &&
     clientOs !== "macos" &&
-    clientOs !== "windows"
+    clientOs !== "windows" &&
+    clientOs !== "linux"
   ) {
     return null;
   }
@@ -841,6 +842,13 @@ export function buildChannelCapabilityBlock(
     lines.push("");
     lines.push(
       "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths. Prefer PowerShell or CLI automation over foreground computer use when either can complete the task reliably.",
+    );
+  }
+
+  if (clientOs === "linux") {
+    lines.push("");
+    lines.push(
+      "On Linux, prefer CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
     );
   }
 

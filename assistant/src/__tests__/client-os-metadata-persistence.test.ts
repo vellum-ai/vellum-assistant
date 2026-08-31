@@ -111,7 +111,7 @@ describe("client OS surface metadata persistence", () => {
     addMessageCalls.length = 0;
   });
 
-  test.each(["macos", "windows", "ios", "android", "web"])(
+  test.each(["macos", "windows", "linux", "ios", "android", "web"])(
     "stamps client.os = %s from the conversation's clientOs",
     async (os) => {
       const ctx = createWebTurnContext(os);
@@ -137,7 +137,7 @@ describe("client OS surface metadata persistence", () => {
   });
 
   test("omits the client bag for values outside the ClientOs vocabulary", async () => {
-    const ctx = createWebTurnContext("linux");
+    const ctx = createWebTurnContext("plan9");
     await persistQueuedMessageBody(ctx, {
       content: "hello",
       requestId: "req-invalid",
@@ -214,9 +214,22 @@ describe("client OS per-row evidence marker", () => {
     expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(true);
   });
 
+  test("recognizes a Linux app turn as desktop-originated", async () => {
+    const ctx = createWebTurnContext("linux");
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-transport-os-linux",
+      requestClientOs: "linux",
+    });
+
+    expect(lastUserMetadata().client).toEqual({ os: "linux" });
+    expect(lastUserMetadata().clientOsFromRequest).toBe(true);
+    expect(isDesktopOriginatedUserMessage(lastUserMetadata())).toBe(true);
+  });
+
   // Mirrors the Mac-originated case above: a plain browser tab reports
   // `client.os: "web"`, while the Electron desktop renderer resolves its own
-  // host OS first and persists `macos`/`windows` instead.
+  // host OS first and persists `macos`/`windows`/`linux` instead.
   test("marks an OS this row's own transport reported (web)", async () => {
     const ctx = createWebTurnContext("web");
     await persistQueuedMessageBody(ctx, {
