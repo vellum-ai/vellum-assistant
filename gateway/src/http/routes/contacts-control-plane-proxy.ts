@@ -1657,7 +1657,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         address: string;
         isPrimary?: boolean;
         externalUserId?: string | null;
-        externalChatId?: string | null;
+        /** Omitted preserves the stored value; null is off the contract (the
+         *  reject below enforces it), so past validation only two states
+         *  exist and a `?? null` coercion cannot type-check again. */
+        externalChatId?: string;
         status?: string;
         policy?: string;
       };
@@ -1688,7 +1691,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
               { status: 400 },
             );
           }
-          if (ch?.externalChatId === null) {
+          // The wire can still carry an explicit null (the cast above does
+          // not validate), so read the field at unknown width; the tightened
+          // ChannelInput type rules null out everywhere past this reject.
+          const rawExternalChatId: unknown = ch?.externalChatId;
+          if (rawExternalChatId === null) {
             // Clearing is off the contract: a stored null is
             // indistinguishable from never-learned, so no reader (the pull
             // reconciler included) could tell a deliberate clear from a gap.

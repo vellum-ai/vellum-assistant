@@ -156,6 +156,9 @@ export async function runMirrorReconcile(): Promise<void> {
         const local = localByTypeAddress.get(
           channelKey(channel.type, channel.address),
         );
+        // A gateway-null externalChatId means the delivery chat id was
+        // never learned (clearing one is off the upsert contract), so the
+        // mirror's value is the richer of the two and is not divergence.
         const diverges =
           !local ||
           local.contactId !== contact.id ||

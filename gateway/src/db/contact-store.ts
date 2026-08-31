@@ -1254,7 +1254,11 @@ export class ContactStore {
       type: string;
       address: string;
       isPrimary?: boolean;
-      externalChatId?: string | null;
+      /** Omit to preserve an existing row's value. Deliberately not
+       *  nullable: a stored null is indistinguishable from never-learned,
+       *  so clearing has no contract here, and admitting null is what let
+       *  an omit-conflating caller blank stored delivery chat ids. */
+      externalChatId?: string;
       status?: string;
       policy?: string;
       verifiedAt?: number | null;
