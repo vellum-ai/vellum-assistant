@@ -13,7 +13,10 @@ import {
   resolveSightKeepLatestFrames,
   stripAgedSightFrames,
 } from "../daemon/conversation-sight-frames.js";
-import { sightFrameAttachmentIdsFromMetadata } from "../persistence/conversation-types.js";
+import {
+  messageMetadataCarriesSightFrames,
+  sightFrameAttachmentIdsFromMetadata,
+} from "../persistence/conversation-types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -541,5 +544,43 @@ describe("sightFrameAttachmentIdsFromMetadata", () => {
         sightFrameAttachmentIds: ["att-1", "", 7, null],
       }),
     ).toEqual(["att-1"]);
+  });
+});
+
+describe("messageMetadataCarriesSightFrames", () => {
+  test("reads the tag off a stored metadata column", () => {
+    expect(
+      messageMetadataCarriesSightFrames(
+        JSON.stringify({
+          voiceSessionTurn: true,
+          scripted: true,
+          sightFrameAttachmentIds: ["att-1"],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("an ordinary row is not a frame", () => {
+    expect(messageMetadataCarriesSightFrames(null)).toBe(false);
+    expect(messageMetadataCarriesSightFrames("")).toBe(false);
+    expect(
+      messageMetadataCarriesSightFrames(JSON.stringify({ livePhoto: true })),
+    ).toBe(false);
+    expect(
+      messageMetadataCarriesSightFrames(
+        JSON.stringify({ sightFrameAttachmentIds: [] }),
+      ),
+    ).toBe(false);
+  });
+
+  test("unreadable metadata is not a frame, so the row keeps its work", () => {
+    // Both callers use this to hold frames BACK, so a row whose marking
+    // cannot be read stays ordinary content and is still indexed or reviewed.
+    expect(messageMetadataCarriesSightFrames("{not json")).toBe(false);
+    expect(
+      messageMetadataCarriesSightFrames(
+        JSON.stringify({ sightFrameAttachmentIds: "att-1" }),
+      ),
+    ).toBe(false);
   });
 });

@@ -56,11 +56,13 @@
  *
  * A persist that throws after its row landed is reported as the success it
  * is, because the transcript has the image and the client's view has to match
- * what a reload will show. Two things are knowingly left behind in that case.
- * The live in-memory history may omit the frame, since the persist unwinds its
- * own push, so the model may not see this one until a reload or a compaction
- * reassembly; that array belongs to `persistQueuedMessageBody` and is not
- * pushed into from out here. And when the failure was a link write, the
+ * what a reload will show. The persist unwinds its own push before rethrowing,
+ * so the resident history is left not matching the rows; rather than reach
+ * into an array `persistQueuedMessageBody` owns, the recovery marks the
+ * conversation's history stale, and the next turn's
+ * `ensureActorScopedHistory` reloads from the DB and sees the frame.
+ *
+ * One thing is knowingly left behind: when the failure was a link write, the
  * persisted content can reference an attachment row with no link. The row
  * survives (nothing reclaims on a committed persist) and collection only ever
  * considers ids a caller hands it, so the reference keeps resolving.
@@ -72,6 +74,7 @@ import {
   type PersistMessageOptions,
   persistQueuedMessageBody,
 } from "../daemon/conversation-messaging.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import {
   deleteOrphanAttachments,
@@ -383,6 +386,12 @@ async function writeStandaloneImage(
       // over: the client retracts what it showed and stops treating it as
       // pending, and the row it was told never landed appears on the next
       // reload.
+      //
+      // The persist unwound its own push before rethrowing, so the resident
+      // history no longer matches the rows. Same situation a channel edit or
+      // reaction leaves behind, and the same fix: the next turn's
+      // `ensureActorScopedHistory` reloads instead of reusing what it holds.
+      findConversation(conversationId)?.markHistoryStale();
       try {
         announcePersistedImage(conversationId, content, requestId);
       } catch (announceErr) {

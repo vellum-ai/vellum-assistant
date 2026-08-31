@@ -236,6 +236,7 @@ function liveConversation(title: string) {
   return {
     id: conversation.id,
     createdAt: conversation.createdAt,
+    activeConversation,
     dispose: () => {
       deleteConversation(conversation.id);
       activeConversation.dispose();
@@ -402,6 +403,10 @@ describe("a camera frame whose persist throws", () => {
     const live = liveConversation("Live voice throw after insert");
     try {
       const frame = await uploadFrame("throws-late.png");
+      // Load once so the resident history is not stale for an unrelated
+      // reason: without this the actor-scope check would reload anyway.
+      await live.activeConversation.ensureActorScopedHistory();
+      expect(live.activeConversation.getMessages()).toHaveLength(0);
 
       messagesChangedFor.length = 0;
       failNextLink = true;
@@ -417,6 +422,15 @@ describe("a camera frame whose persist throws", () => {
       expect(realStore.getAttachmentById(frame)).not.toBeNull();
       // And the clients rendering this conversation were told.
       expect(messagesChangedFor).toContain(live.id);
+
+      // The persist unwound its own push, so the resident history is missing
+      // the row it just committed.
+      expect(live.activeConversation.getMessages()).toHaveLength(0);
+      // Marked stale, so the next turn rehydrates and the model sees it. The
+      // trust class is unchanged from the load above, so nothing but the stale
+      // mark can cause this reload.
+      await live.activeConversation.ensureActorScopedHistory();
+      expect(live.activeConversation.getMessages()).toHaveLength(1);
     } finally {
       live.dispose();
     }

@@ -39,34 +39,12 @@ import {
   type MessageRow,
 } from "../../../persistence/conversation-crud.js";
 import {
+  messageMetadataCarriesSightFrames,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
-  sightFrameAttachmentIdsFromMetadata,
 } from "../../../persistence/conversation-types.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { messages } from "../../../persistence/schema/index.js";
 import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";
-
-/**
- * True when the row carries ambient camera frames the call sampled by itself.
- *
- * The sight tag is the only durable marker for them: `skipIndexing` is a
- * per-write option with no column behind it, and `scripted` covers every
- * auto-sent row rather than these.
- */
-export function isSightFrameMessage(row: { metadata: string | null }): boolean {
-  if (!row.metadata) {
-    return false;
-  }
-  try {
-    return (
-      sightFrameAttachmentIdsFromMetadata(
-        JSON.parse(row.metadata) as Record<string, unknown>,
-      ).length > 0
-    );
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Rows the retrospective must not account for: a prior run's own skill card,
@@ -80,7 +58,9 @@ export function isSightFrameMessage(row: { metadata: string | null }): boolean {
 function isExcludedFromRetrospectiveAccounting(row: {
   metadata: string | null;
 }): boolean {
-  return isSkillCardMessage(row) || isSightFrameMessage(row);
+  return (
+    isSkillCardMessage(row) || messageMetadataCarriesSightFrames(row.metadata)
+  );
 }
 
 /** True when a message row's metadata carries the skill-card kind. */
@@ -241,7 +221,8 @@ export function hasQualifyingUserMessageAfter(
 
   return rows.some(
     (row) =>
-      !isSightFrameMessage(row) && rawUserContentCarriesActivity(row.content),
+      !messageMetadataCarriesSightFrames(row.metadata) &&
+      rawUserContentCarriesActivity(row.content),
   );
 }
 

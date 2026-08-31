@@ -256,6 +256,42 @@ export function sightFrameAttachmentIdsFromMetadata(
 }
 
 /**
+ * True when a stored `messages.metadata` column carries ambient camera frames.
+ *
+ * The raw-column counterpart to {@link sightFrameAttachmentIdsFromMetadata},
+ * for consumers holding the JSON string a row was written with rather than a
+ * parsed bag: the memory rebuild's re-embed scan and the retrospective's
+ * accounting both ask this question of rows they never otherwise decode. It
+ * lives here, beside the key and the parser, so the two cannot drift into
+ * disagreeing about what a frame is.
+ *
+ * The tag is the only durable marker for these rows: `skipIndexing` is a
+ * per-write option with no column behind it, and `scripted` covers every
+ * auto-sent row rather than these.
+ *
+ * Absent or unparseable metadata is not a frame. Both callers use this to hold
+ * frames BACK from work, so a row whose marking cannot be read is treated as
+ * ordinary content and still gets indexed or reviewed, which is the direction
+ * that loses nothing.
+ */
+export function messageMetadataCarriesSightFrames(
+  metadata: string | null,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    return (
+      sightFrameAttachmentIdsFromMetadata(
+        JSON.parse(metadata) as Record<string, unknown>,
+      ).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *
