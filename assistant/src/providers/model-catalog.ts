@@ -78,6 +78,16 @@ export interface CatalogModel {
    */
   maxEffort?: "high" | "xhigh" | "max";
   /**
+   * Wire `reasoning_effort` values this model's upstream accepts, for models
+   * whose accepted set is sparse rather than a contiguous range under
+   * `maxEffort` (e.g. GLM 5.3 accepts only low/high/max). After the
+   * `maxEffort` ceiling clamp, provider clients snap an unsupported value
+   * down to the nearest listed value ("none" is exempt: it is the explicit
+   * opt-out and keeps its own rejection handling). Daemon-only: not
+   * projected into the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportedEfforts?: readonly ("low" | "medium" | "high" | "xhigh" | "max")[];
+  /**
    * Daemon-only: when true, the direct-OpenAI Responses transport sends
    * explicit prompt-cache breakpoints for this model (GPT-5.6+ semantics:
    * request-wide `prompt_cache_options: { mode: "explicit" }` plus
@@ -906,6 +916,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         maxEffort: "max",
+        supportedEfforts: ["low", "high", "max"],
         pricing: {
           inputPer1mTokens: 1.4,
           outputPer1mTokens: 4.4,
@@ -924,6 +935,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         maxEffort: "max",
+        supportedEfforts: ["low", "high", "max"],
         pricing: {
           inputPer1mTokens: 0.15,
           outputPer1mTokens: 0.5,
@@ -2399,6 +2411,24 @@ export function modelEffortCeilings(
   return new Map(
     PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
       m.maxEffort ? ([[m.id, m.maxEffort]] as const) : [],
+    ) ?? [],
+  );
+}
+
+/**
+ * Per-model sparse `reasoning_effort` support for a provider, keyed by model
+ * ID (same derivation pattern as {@link modelEffortCeilings}). Models without
+ * `supportedEfforts` are absent and accept any value under their ceiling.
+ */
+export function modelSupportedEfforts(
+  providerId: string,
+): ReadonlyMap<
+  string,
+  readonly ("low" | "medium" | "high" | "xhigh" | "max")[]
+> {
+  return new Map(
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
+      m.supportedEfforts ? ([[m.id, m.supportedEfforts]] as const) : [],
     ) ?? [],
   );
 }

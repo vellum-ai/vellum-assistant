@@ -225,6 +225,28 @@ export function clampReasoningEffort(
     : value;
 }
 
+/** Snap a wire effort onto a model's sparse accepted set: the nearest
+ *  supported value at or below it, or the smallest supported value when the
+ *  request sits below all of them. Models like GLM 5.3 accept only
+ *  `low|high|max` and 4xx on the in-between tiers instead of rounding, so the
+ *  client rounds for them. `"none"` is never snapped: it is the explicit
+ *  opt-out and has its own rejection retry. */
+export function snapReasoningEffortToSupported(
+  value: ReasoningEffortWire,
+  supported: readonly ReasoningEffortWire[],
+): ReasoningEffortWire {
+  if (value === "none" || supported.includes(value)) {
+    return value;
+  }
+  const ranked = [...supported].sort(
+    (a, b) => REASONING_EFFORT_RANK[a] - REASONING_EFFORT_RANK[b],
+  );
+  const atOrBelow = ranked.filter(
+    (s) => REASONING_EFFORT_RANK[s] < REASONING_EFFORT_RANK[value],
+  );
+  return atOrBelow[atOrBelow.length - 1] ?? ranked[0] ?? value;
+}
+
 /** Human-readable text from an OpenAI-compatible error, including wrapped
  *  upstream detail (OpenRouter `metadata.raw`). Used by the one-shot
  *  compatibility retries so a generic SDK wrapper message cannot hide the
@@ -781,12 +803,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort && typeof nestedReasoningEffort !== "string") {
-        const ceiling = this.resolveMaxReasoningEffort(
-          modelOverride ?? this.model,
-        );
-        params.reasoning_effort = clampReasoningEffort(
+        const effortModel = modelOverride ?? this.model;
+        const clamped = clampReasoningEffort(
           reasoningEffort,
-          ceiling,
+          this.resolveMaxReasoningEffort(effortModel),
+        );
+        const supported = this.resolveSupportedReasoningEfforts(effortModel);
+        params.reasoning_effort = (
+          supported
+            ? snapReasoningEffortToSupported(clamped, supported)
+            : clamped
         ) as OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"];
       }
 
@@ -1350,6 +1376,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
     _model: string,
   ): "high" | "xhigh" | "max" {
     return this.maxReasoningEffort;
+  }
+
+  /**
+   * Per-model sparse `reasoning_effort` support. Subclasses return the
+   * accepted values for models that 4xx on in-between tiers (e.g. GLM 5.3's
+   * `low|high|max`); the outbound value is snapped onto that set after the
+   * ceiling clamp (see {@link snapReasoningEffortToSupported}). Undefined
+   * means any value under the ceiling is accepted.
+   */
+  protected resolveSupportedReasoningEfforts(
+    _model: string,
+  ): readonly ReasoningEffortWire[] | undefined {
+    return undefined;
   }
 
   /** Convert neutral messages + system prompt to OpenAI message format. */
