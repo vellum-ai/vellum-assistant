@@ -32,6 +32,24 @@
  * Scoped to the assistant that owns the contact, so a version held for the
  * outgoing assistant cannot light the card up against the incoming one.
  *
+ * RUNNING LOCALLY: a daemon started from source reports the version in
+ * `assistant/package.json`, which is the last RELEASED number, so it reads as
+ * released 0.11.7 and this gate correctly hides the card. There is no floor
+ * that separates the two: a local build and the shipped release report the
+ * identical string. Unblock a local session from the devtools console with
+ *
+ *   _vellumDebug.flags.impersonateVersion("0.11.7-dev.202608311330.4861086")
+ *
+ * which persists in localStorage and reloads. `impersonateVersion(null)`
+ * clears it. See `impersonate-version-flag.ts` and the self-hosted caveat in
+ * docs/BACKWARDS_COMPAT.md.
+ *
+ * This is temporary and expires on its own. Each release lands a
+ * `Release vX.Y.Z` commit bumping `assistant/package.json`, so once the next
+ * release bumps it past 0.11.7, a source build reports the higher number and
+ * clears this floor on the base comparison alone. Only people running the
+ * feature BEFORE that bump need the override.
+ *
  * Delete this gate, and the `MIN_VERSION` branch at the card in
  * `contact-detail-view.tsx`, once the minimum supported assistant is
  * >= MIN_VERSION.
