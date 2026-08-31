@@ -914,10 +914,14 @@ export async function upsertContactChannel(params: {
   });
   // Gateway DB is the source of truth for ACL: a blocked channel stays
   // blocked, and gets no identity refresh in either store.
-  if (seeded.outcome === "blocked") return;
+  if (seeded.outcome === "blocked") {
+    return;
+  }
 
   const { path: socketPath } = resolveIpcSocketPath("assistant");
-  if (!existsSync(socketPath)) return;
+  if (!existsSync(socketPath)) {
+    return;
+  }
 
   // One follower op for create and existing alike, projecting the gateway's
   // decision: both gateway-minted ids (so the two stores key the contact and
