@@ -282,6 +282,7 @@
     "confirmFailed": "無法儲存付款方式。",
     "confirmingWithBank": "正在與您的銀行確認…",
     "declined": "您的銀行拒絕了這張卡。請改用其他卡片，或與銀行聯絡。",
+    "loadingFields": "正在載入付款欄位",
     "paymentFormLoadError": "無法載入付款表單。請關閉並重新開啟此對話方塊。",
     "primaryAdd": "儲存信用卡",
     "primaryReplace": "替換信用卡",

@@ -282,6 +282,7 @@
     "confirmFailed": "No se pudo guardar el método de pago.",
     "confirmingWithBank": "Confirmando con tu banco…",
     "declined": "Tu banco rechazó esta tarjeta. Prueba con otra o comunícate con ellos.",
+    "loadingFields": "Cargando los campos de pago",
     "paymentFormLoadError": "No se pudo cargar el formulario de pago. Cierra y vuelve a abrir este diálogo.",
     "primaryAdd": "Guardar tarjeta",
     "primaryReplace": "Reemplazar tarjeta",

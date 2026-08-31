@@ -282,6 +282,7 @@
     "confirmFailed": "Failed to save payment method.",
     "confirmingWithBank": "Confirming with your bank…",
     "declined": "Your bank declined this card. Try another, or contact them.",
+    "loadingFields": "Loading payment fields",
     "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
     "primaryAdd": "Save card",
     "primaryReplace": "Replace card",

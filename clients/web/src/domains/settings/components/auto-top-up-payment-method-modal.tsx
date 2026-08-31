@@ -7,7 +7,6 @@ import {
 } from "@stripe/react-stripe-js";
 import type { SetupIntentResult } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -35,6 +34,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
  * Our own terms sentence waits on legal sign-off; while this is false Stripe's
@@ -93,7 +94,8 @@ export interface AutoTopUpPaymentMethodModalProps {
  * Flow:
  *  1. Modal opens, fire `organizationsBillingAutoTopUpSetupIntentCreate`
  *     to fetch a `client_secret`.
- *  2. While pending, render a centered spinner.
+ *  2. While pending, and on through the Stripe iframes' own boot,
+ *     render one field-shaped skeleton.
  *  3. On error, render a `Notice tone="error"` with a "Try again" button
  *     that re-runs the mutation.
  *  4. On success, mount `<SetupCardForm />` inside `<Elements>` and let the
@@ -223,6 +225,13 @@ function AutoTopUpPaymentMethodModalContent({
 
   const clientSecret = setupIntentMutation.data?.client_secret ?? null;
 
+  // A re-open, or a new client secret, boots fresh element instances, so the
+  // skeleton takes the surface back until both report ready again.
+  const [fieldsReady, setFieldsReady] = useState(false);
+  useEffect(() => {
+    setFieldsReady(false);
+  }, [open, clientSecret]);
+
   const theme = useDocumentTheme();
   // react-stripe-js forwards appearance changes to elements.update(), so a
   // theme toggle while the modal is open re-themes the iframes.
@@ -310,33 +319,48 @@ function AutoTopUpPaymentMethodModalContent({
         </div>
       );
     }
-    if (!clientSecret) {
-      return (
-        <div
-          className="flex min-h-[180px] items-center justify-center"
-          data-testid="auto-top-up-pm-modal-spinner"
-        >
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-        </div>
-      );
-    }
+    // One skeleton spans the SetupIntent fetch and the iframes' boot: it
+    // stays mounted while the elements arrive underneath, so the shimmer
+    // never restarts mid-wait.
     return (
-      <Elements
-        stripe={getStripePromise()}
-        options={{
-          clientSecret,
-          appearance: stripeAppearance,
-          fonts: STRIPE_FONTS,
-        }}
-      >
-        <SetupCardForm
-          billingAddress={billingAddress}
-          onCompleteChange={setFormComplete}
-          onError={setErrorMessage}
-          onSave={handleSave}
-          onSubmitReady={registerSubmit}
-        />
-      </Elements>
+      <div className="relative">
+        {fieldsReady ? null : <FieldSkeletons />}
+        {clientSecret ? (
+          // Revealed in place: mounting this wrapper at the flip would tear
+          // <Elements> down and back up, destroying the iframes we just waited
+          // for, so `fieldsReady` drives the fade instead. `absolute` keeps the
+          // booting iframes out of the flow so the skeleton sets the height.
+          <div
+            className={cn(
+              "flex flex-col gap-[10px] transition-opacity duration-200 ease-out motion-reduce:transition-none",
+              fieldsReady
+                ? "opacity-100"
+                : "invisible absolute inset-x-0 top-0 opacity-0",
+            )}
+          >
+            <Elements
+              stripe={getStripePromise()}
+              options={{
+                clientSecret,
+                appearance: stripeAppearance,
+                fonts: STRIPE_FONTS,
+                // Our skeleton already covers the iframe boot; Stripe's own
+                // loader would be a second loading language on top of it.
+                loader: "never",
+              }}
+            >
+              <SetupCardForm
+                billingAddress={billingAddress}
+                onCompleteChange={setFormComplete}
+                onError={setErrorMessage}
+                onFieldsReady={setFieldsReady}
+                onSave={handleSave}
+                onSubmitReady={registerSubmit}
+              />
+            </Elements>
+          </div>
+        ) : null}
+      </div>
     );
   };
 
@@ -391,6 +415,35 @@ function toStripeAddress(address: BillingAddress) {
   };
 }
 
+/** Row height of a mounted Stripe input, so the swap does not move the modal. */
+const FIELD_ROW_CLASS = "h-[42px] w-full rounded-lg";
+
+/**
+ * Stand-in for the mounted card and billing-address inputs: card number, the
+ * expiry/CVC pair, then name, country and street. It carries the whole loading
+ * story, from the SetupIntent fetch through the iframes' own boot.
+ */
+function FieldSkeletons() {
+  const { t } = useTranslation("settings");
+  return (
+    <div
+      role="status"
+      aria-label={t("autoTopUpPaymentMethodModal.loadingFields")}
+      data-testid="auto-top-up-pm-modal-skeleton"
+      className="flex flex-col gap-[10px]"
+    >
+      <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
+      <div className="grid grid-cols-2 gap-[10px]">
+        <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
+        <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
+      </div>
+      <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
+      <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
+      <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
+    </div>
+  );
+}
+
 // Fallback when VITE_STRIPE_PUBLISHABLE_KEY is not set at build time.
 
 function MissingStripeKeyNotice() {
@@ -416,12 +469,15 @@ function SetupCardForm({
   billingAddress,
   onCompleteChange,
   onError,
+  onFieldsReady,
   onSave,
   onSubmitReady,
 }: {
   billingAddress: BillingAddress | null;
   onCompleteChange: (complete: boolean) => void;
   onError: (message: string) => void;
+  /** Both elements have painted, so the parent can drop its skeleton. */
+  onFieldsReady: (ready: boolean) => void;
   onSave: (confirm: () => Promise<SetupIntentResult>) => Promise<void>;
   onSubmitReady: (submit: () => Promise<void>) => void;
 }) {
@@ -437,8 +493,12 @@ function SetupCardForm({
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [addressComplete, setAddressComplete] = useState(false);
 
-  const complete =
-    paymentReady && addressReady && paymentComplete && addressComplete;
+  const ready = paymentReady && addressReady;
+  useEffect(() => {
+    onFieldsReady(ready);
+  }, [onFieldsReady, ready]);
+
+  const complete = ready && paymentComplete && addressComplete;
   useEffect(() => {
     onCompleteChange(complete);
   }, [complete, onCompleteChange]);
