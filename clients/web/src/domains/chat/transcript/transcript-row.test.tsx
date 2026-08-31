@@ -68,6 +68,28 @@ describe("TranscriptRow reaction dispatch", () => {
     expect(queryByText("[reaction]")).toBeNull();
     expect(container.querySelector("#msg-m-react")).toBeTruthy();
   });
+
+  test("a Discord custom emoji renders as its shortcode name, never raw markup", () => {
+    const message: DisplayMessage = {
+      id: "m-react-custom",
+      role: "assistant",
+      reaction: {
+        emoji: "<:vex:12345>",
+        op: "added",
+        targetMessageId: "555.2",
+        selfAuthored: true,
+      },
+    };
+    const { getByTestId } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-react-custom", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    const text = getByTestId("reaction-line-row").textContent ?? "";
+    expect(text).toContain(":vex:");
+    expect(text).not.toContain("<:vex:12345>");
+  });
 });
 
 describe("TranscriptRow deliberate-silence dispatch", () => {
