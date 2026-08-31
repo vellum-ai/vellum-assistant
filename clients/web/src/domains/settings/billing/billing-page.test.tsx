@@ -558,7 +558,7 @@ describe("BillingTab lifecycle loading", () => {
       stack.querySelectorAll('[data-slot="skeleton"]').length,
     ).toBeGreaterThan(0);
     expect(stack.getAttribute("aria-label")).toBe("Loading billing\u2026");
-    // The old inline spinner row is gone, and so is its copy.
+    // The loading copy exists only as the aria-label above, never as visible text.
     expect(queryByText("Loading billing\u2026")).toBeNull();
     expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
     // The real tab chrome is already mounted here, so the lifecycle window
