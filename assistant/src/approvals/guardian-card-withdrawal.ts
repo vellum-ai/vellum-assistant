@@ -72,11 +72,11 @@ export interface WithdrawGuardianCardsParams {
   originChannel?: string;
   /**
    * Conversation the in-app decision was made from, when `originChannel` is
-   * `vellum`. The same request projects a card into several conversations
-   * (the vellum card plus each channel card's paired conversation), and only
-   * the acting conversation's client holds the optimistic completion the
-   * broadcast suppression exists to protect; every sibling projection still
-   * needs its live `ui_surface_complete`. Absent, every in-app projection is
+   * `vellum`. A request can project a card into more than one conversation
+   * (the vellum card, plus any legacy channel rows that paired one), and
+   * only the acting conversation's client holds the optimistic completion
+   * the broadcast suppression exists to protect; every sibling projection
+   * still needs its live `ui_surface_complete`. Absent, every in-app projection is
    * treated as the acting one: a vellum-origin decision then suppresses the
    * broadcast on all of them and only persists their completions.
    */
@@ -161,13 +161,13 @@ export async function withdrawGuardianRequestCards(
     }
     let withdrawn = false;
     try {
-      // Every delivery can carry two projections of the same card: the
-      // channel-native message, and the in-app rendering of the conversation
-      // the delivery was paired with (`destinationConversationId`; the
-      // decision engine injects the same actionable seed blocks into every
-      // channel's copy). Withdrawal must settle both, or the in-app
-      // projection of a channel card keeps live Approve/Reject buttons after
-      // the decision (LUM-3489).
+      // A delivery can carry two projections of the same card: the
+      // channel-native message, and the in-app rendering of any paired
+      // conversation (`destinationConversationId`). New channel guardian
+      // deliveries pair no conversation, so only the vellum delivery and
+      // legacy channel rows carry one; where a row does, withdrawal must
+      // settle both projections, or the paired conversation keeps live
+      // Approve/Reject buttons after the decision (LUM-3489).
       const inAppWithdrawn = completeInAppProjection(
         request,
         delivery,
@@ -235,11 +235,13 @@ export async function withdrawGuardianRequestCards(
 
 /**
  * Complete a delivery's in-app card projection so it stops offering live
- * actions while keeping its content. Applies to every delivery that records a
- * paired conversation, not only the vellum card: a channel delivery's paired
- * conversation renders the same actionable card in-app, and the channel edit
- * alone leaves that projection clickable. No-ops (successfully) when the
- * delivery recorded no conversation.
+ * actions while keeping its content. Applies to any delivery whose row
+ * records a paired conversation: the vellum card, and legacy channel rows
+ * written before channel deliveries stopped pairing, whose paired
+ * conversation renders the same actionable card in-app (the channel edit
+ * alone would leave that projection clickable). No-ops (successfully) when
+ * the delivery recorded no conversation, which is every new channel
+ * delivery.
  *
  * The completion is always persisted onto the card's `ui_surface` block. The
  * acting client's optimistic completion is in-memory only, so without this write

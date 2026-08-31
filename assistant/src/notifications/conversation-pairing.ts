@@ -1,10 +1,12 @@
 /**
  * Generic notification conversation pairing.
  *
- * Materializes a conversation + message for each notification delivery
- * before the adapter sends it. This ensures every delivery has an
- * auditable conversation trail and enables the macOS/iOS client to
- * deep-link directly into the notification conversation.
+ * Materializes a conversation + message for a notification delivery
+ * before the adapter sends it, so the delivery has an auditable
+ * conversation trail and the macOS/iOS client can deep-link into it.
+ * Guardian-request deliveries to channels are the exception: they are
+ * delivery projections of a canonical request and pair nothing (see the
+ * guard below); only their vellum delivery carries a conversation.
  *
  * Resolution order:
  * 1. Explicit `reuse_existing` conversation action — highest precedence.
