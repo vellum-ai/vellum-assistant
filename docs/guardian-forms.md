@@ -83,7 +83,9 @@ throwing; a throw is caught as a backstop and reported as a 500, which loses
 the status you meant.
 
 Whatever you put in `resolution` reaches the parked caller untouched, via the
-form-agnostic `resolve_guardian_form` callback. Contacts pin the older
+form-agnostic `resolve_guardian_form` callback, except `requestId` and
+`error`: those are the rail's, one addressing the callback and the other
+marking the outcome a failure. Contacts pin the older
 `resolve_contact_prompt` name, so pass `resolveOperation` only if you have the
 same reason.
 

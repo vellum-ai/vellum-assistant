@@ -31,6 +31,10 @@ export interface GuardianFormWriteFailure {
  * What a write reports. `resolution` is merged into the callback the parked
  * call receives; `failure` becomes both the client's response and what the
  * parked call is told went wrong.
+ *
+ * `requestId` and `error` are the rail's: a resolution carrying either has it
+ * overwritten, since one addresses the callback and the other is what makes an
+ * outcome a failure.
  */
 export type GuardianFormWriteOutcome =
   | { resolution: Record<string, unknown> }
@@ -150,7 +154,10 @@ export async function submitGuardianForm(
 
   await reportResolution(
     requestId,
-    { requestId, ...outcome.resolution },
+    // The rail's id wins. A form whose result happened to carry `requestId`
+    // would otherwise redirect its own callback to a different form or to
+    // none, and its caller would time out over a write that committed.
+    { ...outcome.resolution, requestId },
     settleDeadline,
     resolveOperation,
   );
