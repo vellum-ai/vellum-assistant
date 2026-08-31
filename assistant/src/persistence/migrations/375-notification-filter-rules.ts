@@ -17,17 +17,18 @@ const PREFERENCE_COLUMNS: Array<{ name: string; definition: string }> = [
  *
  * `notification_preferences` holds natural-language preferences that are read
  * into a prompt. That is the right shape for nuance and the wrong shape for a
- * verdict the filter has to reach the same way every time. The new columns sit
- * beside the prose rather than replacing it: `match_json` is a structured
+ * verdict the filter has to reach the same way every time. These columns sit
+ * beside the prose rather than carrying it: `match_json` is a structured
  * predicate, `tier` is the verdict the rule asserts when that predicate holds,
  * `provenance` separates a rule the user wrote from one the assistant
  * proposed, `source_request_id` links a proposed rule back to the approval
- * that created it, and `status` retires a rule without deleting it.
+ * that created it, and `status` gates whether a rule is live or retired
+ * without being deleted.
  *
- * `tier` is nullable and that nullability is the compatibility story: every
- * row written before this migration keeps `tier = NULL` and stays advisory
- * prose, so an upgrade changes no existing behavior. A row only becomes
- * deterministic once something sets a tier on it.
+ * `tier` is nullable, and a row holding `tier = NULL` is advisory prose only:
+ * it is never matched deterministically. A row becomes deterministic when
+ * something sets a tier on it. `match_json` defaults to `'{}'`, a predicate
+ * that matches nothing.
  *
  * `notification_rule_declines` records the user saying no to a proposal. The
  * `scope_key` is unique because the record is a fact about a scope, not a log
