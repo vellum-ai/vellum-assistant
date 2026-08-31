@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AddCreditsModal } from "@/components/add-credits-modal";
 import { ContentReveal } from "@/components/content-reveal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
+import { BillingPanelSkeleton } from "@/domains/settings/components/billing-panel-skeleton";
 import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
@@ -16,7 +17,6 @@ import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { useTranslation } from "@/i18n";
@@ -128,7 +128,7 @@ export function BillingPanel() {
           <Button
             variant="primary"
             onClick={() => setAddCreditsOpen(true)}
-            disabled={isLoading || !summary}
+            disabled={!summary}
             data-testid="add-credits-button"
           >
             {t("billingPanel.addCreditsButton")}
@@ -167,22 +167,6 @@ export function BillingPanel() {
   };
 
   const renderBalanceBody = (): ReactNode => {
-    if (isLoading) {
-      // Built from the resolved tile so the placeholder is exactly as tall as
-      // the balance it stands in for.
-      return (
-        // Presentational: the tab-level skeleton stack owns the single loading
-        // announcement, so this placeholder stays out of the accessibility
-        // tree instead of adding a competing status region.
-        <div className="mt-4" aria-hidden>
-          <StatSquare
-            icon={<Skeleton aria-hidden className="h-4 w-4 rounded-sm" />}
-            value={<Skeleton aria-hidden className="h-5 w-28 rounded-md" />}
-            label={<Skeleton aria-hidden className="h-4 w-24 rounded-md" />}
-          />
-        </div>
-      );
-    }
     if (isError) {
       return (
         <div className="mt-4">
@@ -211,29 +195,36 @@ export function BillingPanel() {
 
   return (
     <>
-      <Card padding="md">
-        {creditsHeader}
-        {renderBalanceBody()}
-        <div className="mt-6">
-          <AutoTopUpCard />
-        </div>
-        <div
-          id={DAILY_CREDIT_LIMIT_ANCHOR_ID}
-          className="mt-6 scroll-mt-4 border-t border-[var(--border-subtle)] pt-6"
-        >
-          <DailyCreditLimitCard />
-        </div>
-        <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
-          <div className="flex flex-col gap-4">
-            <Toggle
-              checked={lowBalanceExpanded}
-              onChange={setLowBalanceExpanded}
-              label={t("billingPanel.lowBalanceToggle")}
-            />
-            {lowBalanceExpanded && <LowBalanceAlertCard />}
+      {isLoading ? (
+        // The panel's own skeleton, so the tab-level stack and this branch
+        // cannot drift apart. It carries the loading announcement: in the
+        // settled tree no outer region announces this wait.
+        <BillingPanelSkeleton label={t("billingPanel.loadingLabel")} />
+      ) : (
+        <Card padding="md">
+          {creditsHeader}
+          {renderBalanceBody()}
+          <div className="mt-6">
+            <AutoTopUpCard />
           </div>
-        </div>
-      </Card>
+          <div
+            id={DAILY_CREDIT_LIMIT_ANCHOR_ID}
+            className="mt-6 scroll-mt-4 border-t border-[var(--border-subtle)] pt-6"
+          >
+            <DailyCreditLimitCard />
+          </div>
+          <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
+            <div className="flex flex-col gap-4">
+              <Toggle
+                checked={lowBalanceExpanded}
+                onChange={setLowBalanceExpanded}
+                label={t("billingPanel.lowBalanceToggle")}
+              />
+              {lowBalanceExpanded && <LowBalanceAlertCard />}
+            </div>
+          </div>
+        </Card>
+      )}
 
       <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
       <ReferralModal open={referralOpen} onOpenChange={setReferralOpen} />

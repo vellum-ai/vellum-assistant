@@ -62,13 +62,12 @@ export function LowBalanceAlertCard() {
 
   if (alertQuery.isLoading) {
     return (
-      // Presentational: the tab-level skeleton stack owns the single loading
-      // announcement, so this placeholder stays out of the accessibility tree.
-      <div data-testid="low-balance-alert-card" aria-hidden>
+      <div data-testid="low-balance-alert-card">
         <SkeletonLines
           lines={1}
           lineClassName="h-14"
           className="w-60 max-w-full"
+          label={t("lowBalanceAlertCard.loadingLabel")}
         />
       </div>
     );

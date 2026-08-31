@@ -112,21 +112,34 @@ afterEach(() => {
   cleanup();
 });
 
-describe("BillingPanel balance tile while loading", () => {
-  test("stands in a shimmer tile with no spinner or loading copy", () => {
-    const { container, queryByTestId } = renderPanel();
+describe("BillingPanel while loading", () => {
+  test("stands the whole card in with shimmer, no spinner or loading copy", () => {
+    const { container, getByTestId, queryByTestId } = renderPanel();
 
-    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
+    const skeleton = getByTestId("billing-panel-skeleton");
+    // The header the real panel paints from the first frame, so the swap
+    // keeps its title and subtitle in place.
+    expect(skeleton.textContent).toContain("Extra Usage Credits");
     expect(queryByTestId("effective-balance")).toBeNull();
     expect(container.textContent).not.toContain("Loading");
+
+    // Balance tile, then the auto-reload, daily-limit and low-balance rows.
+    const body = getByTestId("billing-panel-skeleton-body");
+    expect(body.children.length).toBe(4);
+    expect(body.querySelectorAll(".border-t").length).toBe(2);
   });
 
-  test("announces nothing of its own, leaving that to the tab-level stack", () => {
-    // Three cards skeleton at once inside the Credits card, so a labelled
-    // status region here would be one of several simultaneous announcements.
+  test("announces the wait it is standing in for", () => {
+    // The panel loads on its own inside the settled tab, where nothing else
+    // announces the wait. The tab's own skeleton stack mounts it without a
+    // label and announces the whole stack once instead.
     const { container } = renderPanel();
 
-    expect(container.querySelector('[role="status"][aria-label]')).toBeNull();
+    const announced = container.querySelectorAll('[role="status"]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]?.getAttribute("aria-label")).toBe(
+      "Loading credit balance",
+    );
   });
 });
 

@@ -37,8 +37,8 @@
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
  *    no saved card.
- *  - That loading state is a presentational skeleton mirroring the card row,
- *    and the header action slot is always mounted at button height, so the
+ *  - That loading state is the card's own exported skeleton, which announces
+ *    the wait and reserves the header action slot at button height, so the
  *    header keeps its geometry whether the config resolves into the Add
  *    button or into the card-on-file header, which offers no action at all.
  *
@@ -365,11 +365,16 @@ describe("PaymentMethodsCard loading skeleton", () => {
     holdRetrieve();
     const { container } = render(wrap());
 
-    // Presentational: the tab's skeleton stack owns the one labelled loading
-    // region for this surface, so the card must not announce the wait again.
-    expect(container.querySelector('[role="status"][aria-label]')).toBeNull();
-    // The header placeholder plus the one card-row line.
-    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(2);
+    // The card loads on its own inside the settled tab, where nothing else
+    // announces the wait. The tab's own skeleton stack mounts it without a
+    // label and announces the whole stack once instead.
+    const announced = container.querySelectorAll('[role="status"]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]?.getAttribute("aria-label")).toBe(
+      "Loading payment method",
+    );
+    // The title and action placeholders plus the one card-row line.
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
     expect(
       container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
     ).not.toBeNull();
@@ -379,9 +384,9 @@ describe("PaymentMethodsCard loading skeleton", () => {
   });
 
   test("keeps the reserved header slot when the config resolves with a card", async () => {
-    // The card-on-file header offers no action, so a slot that unmounted with
-    // its placeholder would take a whole stacked row out of the header at the
-    // moment the config landed.
+    // The card-on-file header offers no action, so a header that dropped the
+    // slot the skeleton reserved would take a whole stacked row out of itself
+    // at the moment the config landed.
     retrieveResponse = { ...DISABLED_WITH_CARD };
     holdRetrieve();
     const client = makeClient();
@@ -405,12 +410,15 @@ describe("PaymentMethodsCard loading skeleton", () => {
         throw new Error("saved card row not rendered");
       }
     });
-    // The same node, still button-tall, now holding nothing.
-    expect(
-      container.querySelector('[data-testid="payment-methods-action-slot"]'),
-    ).toBe(slot);
-    expect(slot?.className).toContain("h-8");
-    expect(slot?.children.length).toBe(0);
+    // The skeleton hands the slot over to the resolved header, which keeps it
+    // button-tall while holding nothing.
+    const resolvedSlot = container.querySelector(
+      '[data-testid="payment-methods-action-slot"]',
+    );
+    expect(resolvedSlot).not.toBeNull();
+    expect(resolvedSlot?.className).toBe(slot?.className);
+    expect(resolvedSlot?.className).toContain("h-8");
+    expect(resolvedSlot?.children.length).toBe(0);
     expect(
       container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();

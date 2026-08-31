@@ -331,17 +331,19 @@ describe("AutoTopUpCard loading state", () => {
     expect(card.textContent).toBe("");
   });
 
-  test("the placeholder announces nothing of its own", () => {
-    // Several cards skeleton at once inside the Credits card, so the single
-    // loading announcement lives on the tab-level stack instead.
+  test("the placeholder announces the wait it is standing in for", () => {
     retrieveNeverSettles = true;
     const { getByTestId } = render(
       wrap(DISABLED_CONFIG, "/", new QueryClient({ defaultOptions: EAGER })),
     );
 
     const card = getByTestId("auto-top-up-card");
-    expect(card.getAttribute("aria-hidden")).toBe("true");
-    expect(card.querySelector('[role="status"][aria-label]')).toBeNull();
+    expect(card.hasAttribute("aria-hidden")).toBe(false);
+    const announced = card.querySelectorAll('[role="status"]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]?.getAttribute("aria-label")).toBe(
+      "Loading auto-reload settings",
+    );
   });
 });
 

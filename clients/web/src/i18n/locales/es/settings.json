@@ -250,6 +250,7 @@
     "disableError": "No se pudo desactivar la recarga automática. Inténtalo de nuevo.",
     "dismiss": "Descartar",
     "loadError": "No se pudo cargar la configuración de la recarga automática.",
+    "loadingLabel": "Cargando la configuración de la recarga automática",
     "summary": "Añadir {amount} cuando el saldo baje de {threshold}",
     "toggleHelper": "Las recargas automáticas solo ocurren cuando se agota el uso incluido en tu plan",
     "toggleLabel": "Activar recarga automática",
@@ -318,6 +319,7 @@
     "degradedNotice": "No se pudieron calcular los cargos pendientes. El saldo mostrado puede estar incompleto.",
     "earnCreditsButton": "Gana créditos gratis",
     "loadError": "No se pudo cargar el resumen de facturación. Inténtalo de nuevo más tarde.",
+    "loadingLabel": "Cargando el saldo de créditos",
     "lowBalanceToggle": "Alerta personalizada de saldo bajo",
     "noInfo": "No hay información de facturación disponible.",
     "subtitle": "Créditos que se usan al alcanzar el límite de uso",
@@ -929,6 +931,7 @@
     "loadError": "No se pudieron cargar las facturas.",
     "loadMore": "Cargar más",
     "loadMoreError": "No se pudieron cargar más facturas.",
+    "loadingLabel": "Cargando facturas",
     "retry": "Reintentar",
     "showButton": "Mostrar facturas",
     "showLess": "Mostrar menos",
@@ -954,6 +957,7 @@
     "helperText": "El valor predeterminado es {amount} si no se establece",
     "label": "Avisarme cuando mi saldo baje de",
     "loadError": "No se pudo cargar la configuración de alerta de saldo bajo.",
+    "loadingLabel": "Cargando la configuración de alerta de saldo bajo",
     "reset": "Restablecer al valor predeterminado",
     "save": "Guardar",
     "saveError": "No se pudo guardar la alerta de saldo bajo. Inténtalo de nuevo."
@@ -1264,6 +1268,7 @@
     "addButton": "Añadir método de pago",
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
+    "loadingLabel": "Cargando el método de pago",
     "title": "Método de pago"
   },
   "pendingPairingRequests": {
@@ -1282,6 +1287,7 @@
     "freeForever": "Gratis para siempre",
     "heading": "Plan",
     "loadError": "No se pudo cargar el plan.",
+    "loadingLabel": "Cargando plan",
     "manageSubscription": "Gestionar suscripción",
     "nextPlan": "Siguiente plan",
     "powerUp": "Potenciar",

@@ -14,17 +14,16 @@ import { proPackageDisplayName } from "@/domains/settings/billing/package-types"
 import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
+import { BillingPanelSkeleton } from "@/domains/settings/components/billing-panel-skeleton";
 import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler";
 import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/billing-usage-panel";
 import { ContentReveal } from "@/components/content-reveal";
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
-import {
-  PlanCard,
-  PlanCardSkeleton,
-} from "@/domains/settings/components/plan-card";
-import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
+import { PaymentMethodsCardSkeleton } from "@/domains/settings/components/payment-methods-card-skeleton";
+import { PlanCard } from "@/domains/settings/components/plan-card";
+import { PlanCardSkeleton } from "@/domains/settings/components/plan-card-skeleton";
 import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
@@ -44,9 +43,7 @@ import {
 import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -157,51 +154,11 @@ function FinishProSetupNotice({
 }
 
 /**
- * Stand-in for `PaymentMethodsCard`, built from its own geometry: the section
- * header with its action slot, then the single card row.
- */
-function PaymentMethodCardSkeleton() {
-  return (
-    <Card padding="md">
-      <div className="flex items-center justify-between gap-4">
-        <Skeleton aria-hidden className="h-6 w-40 rounded-md" />
-        <Skeleton aria-hidden className="h-8 w-24 rounded-md" />
-      </div>
-      <SkeletonLines
-        lines={1}
-        lineClassName="h-10 rounded-lg"
-        className="mt-4"
-      />
-    </Card>
-  );
-}
-
-/**
- * Stand-in for `BillingPanel`, built from its own geometry: the header with a
- * subtitle and two actions, the balance `StatSquare` (a 40px icon in `p-3`),
- * then the auto-reload and daily-limit rows nested below it.
- */
-function CreditsCardSkeleton() {
-  return (
-    <Card padding="md">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0 space-y-2">
-          <Skeleton aria-hidden className="h-6 w-32 rounded-md" />
-          <Skeleton aria-hidden className="h-4 w-64 max-w-full rounded-md" />
-        </div>
-        <Skeleton aria-hidden className="h-9 w-40 shrink-0 rounded-md" />
-      </div>
-      <Skeleton aria-hidden className="mt-4 h-16 w-full rounded-xl" />
-      <SkeletonLines lines={2} lineClassName="h-6" className="mt-6" />
-    </Card>
-  );
-}
-
-/**
- * Stand-in for the whole Billing tab while it cannot render yet: the real plan
- * skeleton plus placeholders shaped like the payment-method and credits cards,
- * so the swap to real content does not jump. Only the stack is labeled, so a
- * screen reader hears one announcement rather than one per card.
+ * Stand-in for the whole Billing tab while it cannot render yet: each card's
+ * own exported skeleton, so the stack's geometry and its responsive stacking
+ * cannot drift from the cards it stands in for. The cards are mounted without
+ * labels here and the stack carries the one announcement, so a screen reader
+ * hears the wait once rather than once per card.
  */
 function BillingTabSkeleton() {
   const { t } = useTranslation("settings");
@@ -213,8 +170,8 @@ function BillingTabSkeleton() {
       data-testid="billing-tab-skeleton"
     >
       <PlanCardSkeleton />
-      <PaymentMethodCardSkeleton />
-      <CreditsCardSkeleton />
+      <PaymentMethodsCardSkeleton />
+      <BillingPanelSkeleton />
     </div>
   );
 }
@@ -442,23 +399,16 @@ function UsagePanel() {
   );
 }
 
-/**
- * How long the pre-settle hold waits for the probe before letting the tabs
- * resolve on their own. Shorter than the gate's own 5s default: this hold
- * replaces the entire page, so an unanswered probe should hand the tabs back
- * sooner than on a surface that stays usable while it waits.
- */
-const PRE_SETTLE_HOLD_TIMEOUT_MS = 2_000;
-
 export function BillingPage() {
   const { t } = useTranslation("settings");
-  const billingGate = usePlatformGate();
-  // The same gate with the pre-settle window kept distinct, for the hold
-  // below. Every other branch here reads that window as `"disabled"`.
-  const platformSessionPending =
-    usePlatformGateWithPending({
-      settleTimeoutMs: PRE_SETTLE_HOLD_TIMEOUT_MS,
-    }) === "pending";
+  // One read of the gate, with the pre-settle window kept distinct for the
+  // hold below. Collapsing that window into `"disabled"` is exactly what
+  // `usePlatformGate` does, which is how every other branch here reads it.
+  // The hold keeps the gate's own settle deadline: it stays interactive while
+  // it waits, so a slow probe costs the viewer nothing.
+  const pendingGate = usePlatformGateWithPending();
+  const billingGate = pendingGate === "pending" ? "disabled" : pendingGate;
+  const platformSessionPending = pendingGate === "pending";
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();

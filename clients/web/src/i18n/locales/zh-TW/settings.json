@@ -250,6 +250,7 @@
     "disableError": "無法停用自動加值。請再試一次。",
     "dismiss": "關閉",
     "loadError": "無法載入自動加值設定。",
+    "loadingLabel": "正在載入自動加值設定",
     "summary": "當餘額低於 {threshold} 時，自動加值 {amount}",
     "toggleHelper": "自動加值僅在方案用量耗盡時發生",
     "toggleLabel": "啟用自動加值",
@@ -318,6 +319,7 @@
     "degradedNotice": "待處理費用無法計算。顯示的餘額可能不完整。",
     "earnCreditsButton": "賺取免費點數",
     "loadError": "載入帳務摘要失敗。請稍後再試。",
+    "loadingLabel": "正在載入點數餘額",
     "lowBalanceToggle": "自訂低餘額提醒",
     "noInfo": "無可用的帳務資訊。",
     "subtitle": "達到使用上限時所使用的點數",
@@ -929,6 +931,7 @@
     "loadError": "載入發票失敗。",
     "loadMore": "載入更多",
     "loadMoreError": "載入更多發票失敗。",
+    "loadingLabel": "正在載入發票",
     "retry": "重試",
     "showButton": "顯示發票",
     "showLess": "顯示較少",
@@ -954,6 +957,7 @@
     "helperText": "未設定時，預設為 {amount}",
     "label": "當我的餘額低於以下金額時提醒我",
     "loadError": "載入低餘額提醒設定失敗。",
+    "loadingLabel": "正在載入低餘額提醒設定",
     "reset": "重設為預設值",
     "save": "儲存",
     "saveError": "儲存低餘額提醒失敗。請再試一次。"
@@ -1264,6 +1268,7 @@
     "addButton": "新增付款方式",
     "empty": "未儲存任何付款方式。新增一個以使用自動儲值。",
     "loadError": "載入付款方式失敗。",
+    "loadingLabel": "正在載入付款方式",
     "title": "付款方式"
   },
   "pendingPairingRequests": {
@@ -1282,6 +1287,7 @@
     "freeForever": "永久免費",
     "heading": "方案",
     "loadError": "載入方案失敗。",
+    "loadingLabel": "正在載入方案",
     "manageSubscription": "管理訂閱",
     "nextPlan": "下一個方案",
     "powerUp": "升級",

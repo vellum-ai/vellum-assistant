@@ -54,11 +54,12 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ContentReveal } from "@/components/content-reveal";
+import { PlanCardSkeleton } from "@/domains/settings/components/plan-card-skeleton";
+import { PlanHeading } from "@/domains/settings/components/plan-heading";
 import {
   formatDollars,
   priceLabelFromCents,
@@ -76,49 +77,6 @@ export interface PlanCardProps {
    * emits after a tier change.
    */
   onTierUpgraded?: () => void;
-}
-
-function PlanHeading() {
-  const { t } = useTranslation("settings");
-  return (
-    <Typography
-      as="h2"
-      variant="title-medium"
-      className="text-[var(--content-emphasised)]"
-    >
-      {t("planCard.heading")}
-    </Typography>
-  );
-}
-
-/**
- * Stand-in for the resolved card: a plan-name row, the renewal line, the usage
- * bar and the two plan tiles, so the card holds its height while the
- * subscription and plan catalog land.
- *
- * Presentational: the surface that mounts it owns the loading announcement, so
- * this emits no live region of its own.
- */
-export function PlanCardSkeleton() {
-  return (
-    <Card padding="md">
-      <PlanHeading />
-      <div className="mt-4 flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <Skeleton aria-hidden className="h-6 w-40 rounded-md" />
-          <Skeleton aria-hidden className="h-4 w-56 rounded-md" />
-        </div>
-        <Skeleton aria-hidden className="h-3 w-full rounded-full" />
-        {/* Same container as the resolved tile row, so the placeholders stack
-            below `lg` exactly as the tiles do. The height is a real tile's:
-            tag, avatar row, three spec chips and a footer row. */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
-          <Skeleton aria-hidden className="h-84 rounded-xl lg:flex-1" />
-          <Skeleton aria-hidden className="h-84 rounded-xl lg:flex-1" />
-        </div>
-      </div>
-    </Card>
-  );
 }
 
 interface RecommendedUpgradeProps {
@@ -421,7 +379,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   });
 
   if (subscriptionQuery.isLoading || plansQuery.isLoading) {
-    return <PlanCardSkeleton />;
+    return <PlanCardSkeleton label={t("planCard.loadingLabel")} />;
   }
 
   const subscription = subscriptionQuery.data;

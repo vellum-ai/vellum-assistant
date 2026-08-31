@@ -250,6 +250,7 @@
     "disableError": "Failed to disable auto-reload. Please try again.",
     "dismiss": "Dismiss",
     "loadError": "Failed to load auto-reload configuration.",
+    "loadingLabel": "Loading auto-reload settings",
     "summary": "Add {amount} when balance falls under {threshold}",
     "toggleHelper": "Auto reloads only occur when plan based usage is exhausted",
     "toggleLabel": "Enable auto-reload",
@@ -318,6 +319,7 @@
     "degradedNotice": "Pending charges could not be calculated. The balance shown may be incomplete.",
     "earnCreditsButton": "Earn Free Credits",
     "loadError": "Failed to load billing summary. Please try again later.",
+    "loadingLabel": "Loading credit balance",
     "lowBalanceToggle": "Custom Low Balance Alert",
     "noInfo": "No billing information available.",
     "subtitle": "Credits used when usage limit is reached",
@@ -929,6 +931,7 @@
     "loadError": "Failed to load invoices.",
     "loadMore": "Load more",
     "loadMoreError": "Failed to load more invoices.",
+    "loadingLabel": "Loading invoices",
     "retry": "Retry",
     "showButton": "Show Invoices",
     "showLess": "Show less",
@@ -954,6 +957,7 @@
     "helperText": "Default is {amount} when unset",
     "label": "Alert me when my balance drops below",
     "loadError": "Failed to load low-balance alert settings.",
+    "loadingLabel": "Loading low-balance alert settings",
     "reset": "Reset to default",
     "save": "Save",
     "saveError": "Failed to save low-balance alert. Please try again."
@@ -1264,6 +1268,7 @@
     "addButton": "Add Payment Method",
     "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
+    "loadingLabel": "Loading payment method",
     "title": "Payment Method"
   },
   "pendingPairingRequests": {
@@ -1282,6 +1287,7 @@
     "freeForever": "Free Forever",
     "heading": "Plan",
     "loadError": "Failed to load plan.",
+    "loadingLabel": "Loading plan",
     "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",

@@ -5,12 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { ContentReveal } from "@/components/content-reveal";
-import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
+import { PaymentMethodsCardSkeleton } from "@/domains/settings/components/payment-methods-card-skeleton";
 import {
   modalSnapshotFor,
   paymentMethodCards,
@@ -116,18 +115,9 @@ export function PaymentMethodsCard() {
     });
   }, [outcome, queryClient]);
 
-  // Contents of the always-mounted action slot below: a button-sized
-  // placeholder while the config is pending, then the Add button or nothing.
+  // Contents of the always-mounted action slot below: the Add button, or
+  // nothing when a card is already on file.
   const renderHeaderAction = () => {
-    if (configPending) {
-      return (
-        <Skeleton
-          aria-hidden
-          className="h-8 w-24 rounded-md"
-          data-testid="payment-methods-add-skeleton"
-        />
-      );
-    }
     if (!showAddButton) {
       return null;
     }
@@ -172,34 +162,35 @@ export function PaymentMethodsCard() {
   };
 
   return (
-    <Card padding="md" data-testid="payment-methods-card">
-      <BillingSectionHeader
-        title={t("paymentMethodsCard.title")}
-        actions={
-          // The slot is mounted at button height for every outcome, because
-          // while the config is pending we cannot know which one is coming:
-          // a slot that appeared only when it had something to show would
-          // take its whole row back out of the header (about 44px, stacked
-          // below `sm`) as soon as a card-on-file config landed.
-          <div
-            className="flex h-8 items-center"
-            data-testid="payment-methods-action-slot"
-          >
-            {renderHeaderAction()}
-          </div>
-        }
-      />
-
+    <>
       {configPending ? (
-        // Presentational: the tab's own skeleton stack carries the label, so
-        // a per-card status region would announce the same wait twice.
-        <SkeletonLines
-          lines={1}
-          lineClassName="h-10 rounded-lg"
-          className="mt-4"
+        // The card's own skeleton, so the tab-level stack and this branch
+        // cannot drift apart. It carries the loading announcement: in the
+        // settled tree no outer region announces this wait.
+        <PaymentMethodsCardSkeleton
+          label={t("paymentMethodsCard.loadingLabel")}
         />
       ) : (
-        <ContentReveal className="mt-4">{renderBody()}</ContentReveal>
+        <Card padding="md" data-testid="payment-methods-card">
+          <BillingSectionHeader
+            title={t("paymentMethodsCard.title")}
+            actions={
+              // The slot is mounted at button height whether or not it holds
+              // an action, matching the one the skeleton reserves: a slot that
+              // appeared only when it had something to show would take its
+              // whole row back out of the header (about 44px, stacked below
+              // `sm`) as soon as a card-on-file config landed.
+              <div
+                className="flex h-8 items-center"
+                data-testid="payment-methods-action-slot"
+              >
+                {renderHeaderAction()}
+              </div>
+            }
+          />
+
+          <ContentReveal className="mt-4">{renderBody()}</ContentReveal>
+        </Card>
       )}
 
       <AutoTopUpPaymentMethodModal
@@ -214,6 +205,6 @@ export function PaymentMethodsCard() {
         initialOutcome={outcome}
         onSavedOptimistic={syncPaymentMethodSaved}
       />
-    </Card>
+    </>
   );
 }
