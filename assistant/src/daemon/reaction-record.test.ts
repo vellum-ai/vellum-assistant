@@ -99,33 +99,53 @@ describe("persistReactionRecords", () => {
     });
   });
 
-  test("the terminal drain persists queued records, clears the queue, and stale-marks", async () => {
+  test("the terminal drain persists the turn's owned records and stale-marks", async () => {
     // The drain runs in the agent loop's finally, so an error exit still
     // reaches it: a delivered reaction's record must not depend on the turn
     // finishing cleanly.
     let staleMarked = 0;
-    const ctx = {
-      conversationId: "conv-1",
-      pendingReactionRecords: [record(), record({ emoji: "👍" })],
-      markHistoryStale: () => {
-        staleMarked += 1;
+    const owned = [record(), record({ emoji: "👍" })];
+    await drainQueuedReactionRecords(
+      {
+        conversationId: "conv-1",
+        markHistoryStale: () => {
+          staleMarked += 1;
+        },
       },
-    };
-    await drainQueuedReactionRecords(ctx);
+      owned,
+    );
     expect(persisted).toHaveLength(2);
-    expect(ctx.pendingReactionRecords).toHaveLength(0);
+    expect(owned).toHaveLength(0);
     expect(staleMarked).toBe(1);
   });
 
-  test("the terminal drain is a no-op on an empty queue", async () => {
-    let staleMarked = 0;
-    await drainQueuedReactionRecords({
+  test("one turn's drain never consumes a following turn's live queue", async () => {
+    // Ownership is captured at release, while the turn is still exclusive;
+    // the drain takes only that captured array. A record a following turn
+    // queued on the conversation's live field stays untouched until that
+    // turn's own boundary, so its row cannot land before its tool_result.
+    const followingTurnQueue = [record({ emoji: "🆕" })];
+    const ctx = {
       conversationId: "conv-1",
-      pendingReactionRecords: [],
-      markHistoryStale: () => {
-        staleMarked += 1;
+      pendingReactionRecords: followingTurnQueue,
+      markHistoryStale: () => {},
+    };
+    await drainQueuedReactionRecords(ctx, []);
+    expect(persisted).toHaveLength(0);
+    expect(followingTurnQueue).toHaveLength(1);
+  });
+
+  test("the terminal drain is a no-op on an empty or absent owned set", async () => {
+    let staleMarked = 0;
+    await drainQueuedReactionRecords(
+      {
+        conversationId: "conv-1",
+        markHistoryStale: () => {
+          staleMarked += 1;
+        },
       },
-    });
+      undefined,
+    );
     expect(persisted).toHaveLength(0);
     expect(staleMarked).toBe(0);
   });
