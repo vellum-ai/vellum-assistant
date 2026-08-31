@@ -173,18 +173,21 @@ export function ContactVoiceprintSection({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" onClick={() => void begin()} disabled={busy}>
-          {enrollPending
-            ? t("voiceprint.enrolling")
-            : inSequence
-              ? t("voiceprint.enrollNext", {
-                  index: captured.length + 1,
-                  total: ENROLL_CLIPS,
-                })
-              : profile
-                ? t("voiceprint.rerecord")
+        {/* No re-record. Replacing a profile in place gave the card two
+            competing actions and let an enrollment be overwritten by
+            accident; deleting first makes the intent explicit. */}
+        {!profile ? (
+          <Button type="button" onClick={() => void begin()} disabled={busy}>
+            {enrollPending
+              ? t("voiceprint.enrolling")
+              : inSequence
+                ? t("voiceprint.enrollNext", {
+                    index: captured.length + 1,
+                    total: ENROLL_CLIPS,
+                  })
                 : t("voiceprint.record")}
-        </Button>
+          </Button>
+        ) : null}
 
         {inSequence ? (
           <Button type="button" variant="outlined" onClick={startOver}>
@@ -203,14 +206,6 @@ export function ContactVoiceprintSection({
           </Button>
         ) : null}
       </div>
-
-      {/* Re-recording replaces the profile rather than adding to it, which the
-          button alone does not convey. */}
-      {profile && !inSequence ? (
-        <span className="text-xs text-gray-500">
-          {t("voiceprint.replaces")}
-        </span>
-      ) : null}
 
       {error ? <span className="text-sm text-red-600">{error}</span> : null}
 

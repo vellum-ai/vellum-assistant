@@ -184,8 +184,6 @@
     "startOver": "Start over",
     "deleteConfirmTitle": "Delete this voice profile?",
     "deleteConfirmMessage": "This contact will no longer be recognized by voice. Recording a new profile takes about a minute.",
-    "record": "Record voice",
-    "rerecord": "Re-record",
-    "replaces": "Replaces the current profile"
+    "record": "Record voice"
   }
 }
