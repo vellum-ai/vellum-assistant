@@ -263,6 +263,7 @@ export const CLIENT_OS_VALUES = [
   "ios",
   "macos",
   "windows",
+  "linux",
   "android",
 ] as const;
 

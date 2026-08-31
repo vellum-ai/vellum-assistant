@@ -185,13 +185,20 @@ describe("parseClientOs", () => {
     );
   });
 
+  test("includes linux (Electron desktop client)", () => {
+    expect(parseClientOs("linux")).toBe("linux");
+    expect((CLIENT_OS_VALUES as readonly string[]).includes("linux")).toBe(
+      true,
+    );
+  });
+
   test("rejects transport-only interface ids and unknown values", () => {
     // `clientOs` is an OS surface, not a transport interface — values like
     // "cli"/"telegram" (real interfaces) are not valid OS surfaces.
     expect(parseClientOs("cli")).toBeNull();
     expect(parseClientOs("telegram")).toBeNull();
     expect(parseClientOs("vellum")).toBeNull();
-    expect(parseClientOs("linux")).toBeNull();
+    expect(parseClientOs("plan9")).toBeNull();
     expect(parseClientOs(undefined)).toBeNull();
     expect(parseClientOs(42)).toBeNull();
   });

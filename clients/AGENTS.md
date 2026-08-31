@@ -4,7 +4,7 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
 
 ## Conventions
 
-- `clients/web/`, `clients/macos/`, `clients/windows/`, and `clients/docs/`
+- `clients/web/`, `clients/macos/`, `clients/linux/`, `clients/windows/`, and `clients/docs/`
   are members of the root bun workspace: the single root `bun.lock` covers them, and
   `bun install` anywhere in the tree resolves to the workspace root (scope
   with `--filter=@vellumai/<name>` when needed). Each keeps its own
@@ -19,7 +19,7 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
 - Exact version pinning is enforced repo-wide; see root `AGENTS.md` for the
   dependency, license, and tool-version rules.
 - All current client apps use bundlers (`clients/web/` via Vite,
-  `clients/macos/` and `clients/windows/` via electron-vite,
+  `clients/macos/`, `clients/linux/`, and `clients/windows/` via electron-vite,
   `clients/docs/` via Next.js) and
   therefore use `moduleResolution: "Bundler"` with `module: "ESNext"`.
   Bundler-mode apps omit `.js` extensions on imports. If a future client
