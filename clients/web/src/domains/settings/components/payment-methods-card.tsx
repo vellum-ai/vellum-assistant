@@ -66,6 +66,10 @@ export function PaymentMethodsCard() {
   const config = configQuery.data;
   const cards = useMemo(() => paymentMethodCards(config), [config]);
   const showAddButton = config != null && cards.length === 0;
+  // `isPending` rather than `isLoading`: the query idles with no data until
+  // the org store is ready, and that gap must read as loading, not as the
+  // error state.
+  const configPending = configQuery.isPending;
 
   const openPaymentModal = () => {
     setPmModal(modalSnapshotFor(cards));
@@ -112,10 +116,10 @@ export function PaymentMethodsCard() {
     });
   }, [outcome, queryClient]);
 
-  // The action slot holds a button-sized placeholder while the config is
-  // pending, so the header row keeps its height when `showAddButton` resolves.
+  // Contents of the always-mounted action slot below: a button-sized
+  // placeholder while the config is pending, then the Add button or nothing.
   const renderHeaderAction = () => {
-    if (configQuery.isPending) {
+    if (configPending) {
       return (
         <Skeleton
           aria-hidden
@@ -125,7 +129,7 @@ export function PaymentMethodsCard() {
       );
     }
     if (!showAddButton) {
-      return undefined;
+      return null;
     }
     return (
       <Button
@@ -171,18 +175,28 @@ export function PaymentMethodsCard() {
     <Card padding="md" data-testid="payment-methods-card">
       <BillingSectionHeader
         title={t("paymentMethodsCard.title")}
-        actions={renderHeaderAction()}
+        actions={
+          // The slot is mounted at button height for every outcome, because
+          // while the config is pending we cannot know which one is coming:
+          // a slot that appeared only when it had something to show would
+          // take its whole row back out of the header (about 44px, stacked
+          // below `sm`) as soon as a card-on-file config landed.
+          <div
+            className="flex h-8 items-center"
+            data-testid="payment-methods-action-slot"
+          >
+            {renderHeaderAction()}
+          </div>
+        }
       />
 
-      {/* `isPending` rather than `isLoading`: the query idles with no data
-          until the org store is ready, and that gap must read as loading,
-          not as the error state. */}
-      {configQuery.isPending ? (
+      {configPending ? (
+        // Presentational: the tab's own skeleton stack carries the label, so
+        // a per-card status region would announce the same wait twice.
         <SkeletonLines
           lines={1}
           lineClassName="h-10 rounded-lg"
           className="mt-4"
-          label={t("paymentMethodsCard.loadingAriaLabel")}
         />
       ) : (
         <ContentReveal className="mt-4">{renderBody()}</ContentReveal>

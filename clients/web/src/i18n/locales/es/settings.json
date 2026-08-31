@@ -282,7 +282,7 @@
     "confirmFailed": "No se pudo guardar el método de pago.",
     "confirmingWithBank": "Confirmando con tu banco…",
     "declined": "Tu banco rechazó esta tarjeta. Prueba con otra o comunícate con ellos.",
-    "loadingFields": "Cargando los campos de pago",
+    "loadingLabel": "Cargando los campos de pago",
     "paymentFormLoadError": "No se pudo cargar el formulario de pago. Cierra y vuelve a abrir este diálogo.",
     "primaryAdd": "Guardar tarjeta",
     "primaryReplace": "Reemplazar tarjeta",
@@ -931,7 +931,6 @@
     "loadError": "No se pudieron cargar las facturas.",
     "loadMore": "Cargar más",
     "loadMoreError": "No se pudieron cargar más facturas.",
-    "loadingAriaLabel": "Cargando facturas",
     "retry": "Reintentar",
     "showButton": "Mostrar facturas",
     "showLess": "Mostrar menos",
@@ -1268,7 +1267,6 @@
     "addButton": "Añadir método de pago",
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
-    "loadingAriaLabel": "Cargando el método de pago",
     "title": "Método de pago"
   },
   "pendingPairingRequests": {

@@ -22,6 +22,7 @@ import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -155,6 +156,13 @@ export function InvoicesTable() {
   // phases so a mid-retry click can't cancel the in-flight page fetch.
   const retryInFlight =
     invoicesQuery.isRefetching || invoicesQuery.isFetchingNextPage;
+  // A page fetch appends a shimmer row where the invoices will land, so
+  // pagination loads in the same language as the rest of the surface rather
+  // than a spinner. The retry's refetch phase counts only behind its error
+  // banner: an ordinary background refetch stays silent, as it does there.
+  const pageFetchInFlight =
+    invoicesQuery.isFetchingNextPage ||
+    (showLoadMoreError && invoicesQuery.isRefetching);
 
   function loadMore(): void {
     // fetchNextPage() resolves with the query result rather than rejecting,
@@ -269,10 +277,13 @@ export function InvoicesTable() {
         />
 
         {!expanded ? null : invoicesQuery.isLoading ? (
+          // `py-6` keeps the loading section as tall as the branches it
+          // stands in for. Presentational: the tab's own skeleton stack
+          // carries the label, so this must not announce the wait again.
           <SkeletonLines
             lines={3}
             lineClassName="h-9 rounded-md"
-            label={t("invoicesTable.loadingAriaLabel")}
+            className="py-6"
           />
         ) : invoicesQuery.isLoadingError ? (
           <Notice tone="error">{t("invoicesTable.loadError")}</Notice>
@@ -376,6 +387,13 @@ export function InvoicesTable() {
                   ))}
                 </tbody>
               </table>
+              {pageFetchInFlight && (
+                <Skeleton
+                  aria-hidden
+                  className="mt-3 h-9 w-full rounded-md"
+                  data-testid="invoices-page-skeleton"
+                />
+              )}
             </div>
             {(hasHiddenRows || showLoadMore || showLoadMoreError) && (
               <div className="flex flex-wrap items-center gap-4 self-start">
@@ -398,11 +416,6 @@ export function InvoicesTable() {
                     variant="link"
                     onClick={loadMore}
                     disabled={invoicesQuery.isFetchingNextPage}
-                    leftIcon={
-                      invoicesQuery.isFetchingNextPage && (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      )
-                    }
                     className={FOOTER_LINK_CLASS}
                     data-testid="invoices-load-more"
                   >
@@ -425,11 +438,6 @@ export function InvoicesTable() {
                       variant="link"
                       onClick={retryLoadMore}
                       disabled={retryInFlight}
-                      leftIcon={
-                        retryInFlight && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )
-                      }
                       className={FOOTER_LINK_CLASS}
                       data-testid="invoices-load-more-retry"
                     >

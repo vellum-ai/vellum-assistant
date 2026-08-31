@@ -37,9 +37,10 @@
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
  *    no saved card.
- *  - That loading state is a skeleton mirroring the card row, and the header
- *    action slot holds a button-sized placeholder, so the header keeps its
- *    height when the config resolves and decides whether Add is offered.
+ *  - That loading state is a presentational skeleton mirroring the card row,
+ *    and the header action slot is always mounted at button height, so the
+ *    header keeps its geometry whether the config resolves into the Add
+ *    button or into the card-on-file header, which offers no action at all.
  *
  * Strategy: pre-populate the React Query cache so `useQuery` resolves
  * synchronously; mock the SDK boundary so any background refetch is
@@ -364,12 +365,52 @@ describe("PaymentMethodsCard loading skeleton", () => {
     holdRetrieve();
     const { container } = render(wrap());
 
-    const status = container.querySelector('[role="status"]');
-    expect(status?.getAttribute("aria-label")).toBe("Loading payment method");
-    expect(status?.querySelectorAll('[data-slot="skeleton"]').length).toBe(1);
+    // Presentational: the tab's skeleton stack owns the one labelled loading
+    // region for this surface, so the card must not announce the wait again.
+    expect(container.querySelector('[role="status"][aria-label]')).toBeNull();
+    // The header placeholder plus the one card-row line.
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(2);
     expect(
       container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).toBeNull();
+  });
+
+  test("keeps the reserved header slot when the config resolves with a card", async () => {
+    // The card-on-file header offers no action, so a slot that unmounted with
+    // its placeholder would take a whole stacked row out of the header at the
+    // moment the config landed.
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    holdRetrieve();
+    const client = makeClient();
+    const { container } = render(wrapWith(client));
+
+    const slot = container.querySelector(
+      '[data-testid="payment-methods-action-slot"]',
+    );
+    expect(slot?.className).toContain("h-8");
+    expect(
+      container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
+    ).not.toBeNull();
+
+    releaseHeldRetrieve();
+    await settleConfigQuery(client);
+
+    await waitFor(() => {
+      if (
+        container.querySelector('[data-testid="payment-method-row"]') == null
+      ) {
+        throw new Error("saved card row not rendered");
+      }
+    });
+    // The same node, still button-tall, now holding nothing.
+    expect(
+      container.querySelector('[data-testid="payment-methods-action-slot"]'),
+    ).toBe(slot);
+    expect(slot?.className).toContain("h-8");
+    expect(slot?.children.length).toBe(0);
     expect(
       container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();
@@ -397,9 +438,10 @@ describe("PaymentMethodsCard loading skeleton", () => {
     expect(
       container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
     ).toBeNull();
-    // The info Notice also carries role="status", so the shimmer nodes are
-    // what prove the skeleton is gone.
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    expect(
+      container.querySelector('[data-testid="payment-methods-action-slot"]'),
+    ).not.toBeNull();
     expect(
       container.querySelector('[data-testid="payment-methods-empty"]'),
     ).not.toBeNull();

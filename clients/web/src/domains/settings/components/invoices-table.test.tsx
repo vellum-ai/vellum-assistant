@@ -1,7 +1,8 @@
 /**
  * Tests for the Invoices section: the collapsed-by-default toggle, the
  * shimmer rows the expanded section loads behind, and the cursor-paginated
- * table (Load more, inline error, and retry).
+ * table (Load more, inline error, and retry), whose in-flight state is an
+ * appended shimmer row rather than a spinner.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -189,9 +190,13 @@ describe("InvoicesTable loading", () => {
 
     fireEvent.click(getByTestId("invoices-toggle"));
 
-    const status = container.querySelector('[role="status"]');
-    expect(status?.getAttribute("aria-label")).toBe("Loading invoices");
-    expect(status?.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
+    // Presentational: the tab's skeleton stack owns the one labelled loading
+    // region for this surface, so these rows must not announce it again.
+    expect(container.querySelector('[role="status"][aria-label]')).toBeNull();
+    const rows = container.querySelectorAll('[data-slot="skeleton"]');
+    expect(rows.length).toBe(3);
+    // The padding the spinner branch carried, so the section keeps its height.
+    expect(rows[0]?.parentElement?.className).toContain("py-6");
     expect(queryByText("Loading invoices...")).toBeNull();
     expect(container.querySelector(".animate-spin")).toBeNull();
     expect(queryByTestId("invoices-table")).toBeNull();
@@ -299,6 +304,80 @@ describe("InvoicesTable pagination", () => {
       "Show more (1 more)",
     );
     expect(queryByTestId("invoices-load-more")).toBeNull();
+  });
+
+  test("Load more loads behind an appended shimmer row, not a spinner", async () => {
+    seedTwoPages();
+    let releaseNextPage: () => void = () => {};
+    nextPageGate = new Promise((resolve) => {
+      releaseNextPage = resolve;
+    });
+    const { container, getByTestId, queryByTestId, getAllByTestId } =
+      await openTable({ showAll: true });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+
+    await waitFor(() =>
+      expect(queryByTestId("invoices-page-skeleton")).not.toBeNull(),
+    );
+    expect(container.querySelector(".animate-spin")).toBeNull();
+
+    releaseNextPage();
+    nextPageGate = null;
+
+    await waitFor(() => expect(getAllByTestId("invoice-row").length).toBe(7));
+    expect(queryByTestId("invoices-page-skeleton")).toBeNull();
+  });
+
+  test("Retry loads behind the same shimmer row", async () => {
+    seedTwoPages();
+    nextPageErrorStatus = 400;
+    const { container, getByTestId, queryByTestId, getAllByTestId } =
+      await openTable({ showAll: true });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+    await waitFor(() =>
+      expect(queryByTestId("invoices-load-more-error")).not.toBeNull(),
+    );
+    expect(queryByTestId("invoices-page-skeleton")).toBeNull();
+
+    nextPageErrorStatus = null;
+    let releaseNextPage: () => void = () => {};
+    nextPageGate = new Promise((resolve) => {
+      releaseNextPage = resolve;
+    });
+    fireEvent.click(getByTestId("invoices-load-more-retry"));
+
+    await waitFor(() =>
+      expect(queryByTestId("invoices-page-skeleton")).not.toBeNull(),
+    );
+    expect(container.querySelector(".animate-spin")).toBeNull();
+
+    releaseNextPage();
+    nextPageGate = null;
+
+    await waitFor(() => expect(getAllByTestId("invoice-row").length).toBe(7));
+    expect(queryByTestId("invoices-page-skeleton")).toBeNull();
+  });
+
+  test("a background refetch appends no shimmer row", async () => {
+    // The row is pagination's loading language; a refetch the user never
+    // asked for stays silent, exactly as the inline error does.
+    seedTwoPages();
+    const { client, queryByTestId } = await openTable({ showAll: true });
+
+    let releaseFirstPage: () => void = () => {};
+    firstPageGate = new Promise((resolve) => {
+      releaseFirstPage = resolve;
+    });
+    const refetch = client.refetchQueries();
+
+    await waitFor(() => expect(listRetrieveCalls.length).toBe(2));
+    expect(queryByTestId("invoices-page-skeleton")).toBeNull();
+
+    releaseFirstPage();
+    firstPageGate = null;
+    await refetch;
   });
 
   test("a failed Load more keeps loaded rows and shows an inline retry", async () => {

@@ -332,13 +332,19 @@ function AutoTopUpPaymentMethodModalContent({
           // booting iframes out of the flow so the skeleton sets the height.
           <div
             className={cn(
-              "flex flex-col gap-[10px] transition-opacity duration-200 ease-out motion-reduce:transition-none",
+              FIELD_STACK_CLASS,
+              "transition-opacity duration-200 ease-out motion-reduce:transition-none",
               fieldsReady
                 ? "opacity-100"
                 : "invisible absolute inset-x-0 top-0 opacity-0",
             )}
           >
             <Elements
+              // A new client secret boots new element instances, and it is
+              // also when `fieldsReady` resets: keying the provider makes
+              // those the same event, so the reset can never outlive the
+              // readiness this form last reported.
+              key={clientSecret}
               stripe={getStripePromise()}
               options={{
                 clientSecret,
@@ -419,6 +425,12 @@ function toStripeAddress(address: BillingAddress) {
 const FIELD_ROW_CLASS = "h-[42px] w-full rounded-lg";
 
 /**
+ * Vertical rhythm of the field stack. The skeleton and the mounted form share
+ * it so they stay the same height and the reveal does not move the modal.
+ */
+const FIELD_STACK_CLASS = "flex flex-col gap-[10px]";
+
+/**
  * Stand-in for the mounted card and billing-address inputs: card number, the
  * expiry/CVC pair, then name, country and street. It carries the whole loading
  * story, from the SetupIntent fetch through the iframes' own boot.
@@ -428,9 +440,9 @@ function FieldSkeletons() {
   return (
     <div
       role="status"
-      aria-label={t("autoTopUpPaymentMethodModal.loadingFields")}
+      aria-label={t("autoTopUpPaymentMethodModal.loadingLabel")}
       data-testid="auto-top-up-pm-modal-skeleton"
-      className="flex flex-col gap-[10px]"
+      className={FIELD_STACK_CLASS}
     >
       <Skeleton aria-hidden className={FIELD_ROW_CLASS} />
       <div className="grid grid-cols-2 gap-[10px]">
@@ -494,6 +506,9 @@ function SetupCardForm({
   const [addressComplete, setAddressComplete] = useState(false);
 
   const ready = paymentReady && addressReady;
+  // Invariant: every mount reports readiness from scratch, so the parent's
+  // `fieldsReady` reset (keyed on [open, clientSecret]) is never left holding
+  // a report from a previous set of elements.
   useEffect(() => {
     onFieldsReady(ready);
   }, [onFieldsReady, ready]);
