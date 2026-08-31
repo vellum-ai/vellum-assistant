@@ -530,13 +530,17 @@ export interface LatestInboundEventReference {
  * API call, and a rename converges on the next inbound message. Null when
  * no row names the chat (DMs, providers without names, pre-capture rows).
  *
- * The `LIKE` is an indexable prefilter only (same contract as
- * `selectProviderMetaCandidateMetadata`); every candidate is parsed and
- * source-checked before its name is trusted. The patterns are unquoted
- * on purpose: `slackMeta` is stored as a JSON string inside the outer
- * metadata, so its inner keys appear with escaped quotes on disk, which
- * a quoted pattern would never match.
+ * Reads a fixed window of the conversation's newest rows through the
+ * conversation index (backward index scan supplies the rowid order, the
+ * same trick `getLatestInboundEventReference` documents), then parses in
+ * code: no LIKE against the serialized metadata, whose nested escaping
+ * a substring pattern is easy to get wrong. Every channel inbound row
+ * carries the name, so a name deeper than the window only hides behind
+ * a tail of pure assistant/local traffic and reads as absent, which
+ * degrades to the raw-id label.
  */
+const CONVERSATION_NAME_SCAN_WINDOW = 50;
+
 export function getLatestExternalConversationName(
   conversationId: string,
   sourceChannel: string,
@@ -548,14 +552,11 @@ export function getLatestExternalConversationName(
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        or(
-          like(messages.metadata, "%conversationName%"),
-          like(messages.metadata, "%channelName%"),
-        ),
+        isNotNull(messages.metadata),
       ),
     )
     .orderBy(desc(sql`rowid`))
-    .limit(20)
+    .limit(CONVERSATION_NAME_SCAN_WINDOW)
     .all();
   for (const row of rows) {
     const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
