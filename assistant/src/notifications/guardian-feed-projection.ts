@@ -177,10 +177,12 @@ function intentFromInstructionMode(
 }
 
 /**
- * Display label for the originating chat, mirroring the wording the
- * in-app approval card's source row uses (`sourceMetadataRow` in
- * `approval-card-data.ts`): Slack chats are named, other channels fall
- * back to the channel id.
+ * Display label for the originating chat. A named Slack channel renders
+ * as the bare `#name` (the bell's context line joins it with the tool,
+ * so the channel word would be noise); unnamed chats keep the id-based
+ * wording the in-app card's source row uses (`sourceMetadataRow` in
+ * `approval-card-data.ts`), and other channels fall back to the channel
+ * id.
  */
 function describeApprovalSourceContext(view: {
   channel: string;
