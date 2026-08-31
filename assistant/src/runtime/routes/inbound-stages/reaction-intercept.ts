@@ -30,11 +30,11 @@ import { findConversation } from "../../../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
-import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
+import { writeSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
 import {
-  type SlackMessageMetadata,
-  writeSlackMetadata,
-} from "../../../messaging/providers/slack/message-metadata.js";
+  buildNeutralReactionMeta,
+  buildSlackReactionMeta,
+} from "../../../messaging/reaction-envelopes.js";
 import {
   addMessage,
   provenanceFromTrustContext,
@@ -317,31 +317,21 @@ async function persistReactionAsMessage(params: {
   if (params.duplicate) {
     return;
   }
-  const parsed = { op: params.reaction.op, emoji: params.reaction.emoji };
+  const facts = {
+    channel: params.sourceChannel,
+    chatId: params.conversationExternalId,
+    targetMessageId: params.reactedMessageTs,
+    emoji: params.reaction.emoji,
+    op: params.reaction.op,
+    ...(params.actorExternalId
+      ? { actorExternalId: params.actorExternalId }
+      : {}),
+    ...(params.actorDisplayName
+      ? { actorDisplayName: params.actorDisplayName }
+      : {}),
+  };
 
   if (params.sourceChannel !== "slack") {
-    // Slack keeps its own envelope for its renderer; every other channel
-    // writes the neutral shape readProviderMetadata serves to
-    // channel-agnostic readers.
-    const providerMeta: ProviderMessageMetadata = {
-      source: params.sourceChannel,
-      conversationExternalId: params.conversationExternalId,
-      eventKind: "reaction",
-      ...(params.actorExternalId
-        ? { actorExternalId: params.actorExternalId }
-        : {}),
-      ...(params.actorDisplayName
-        ? { displayName: params.actorDisplayName }
-        : {}),
-      reaction: {
-        targetMessageId: params.reactedMessageTs,
-        emoji: parsed.emoji,
-        op: parsed.op,
-        ...(params.actorDisplayName
-          ? { actorDisplayName: params.actorDisplayName }
-          : {}),
-      },
-    };
     const persisted = await addMessage(
       params.conversationId,
       "user",
@@ -349,7 +339,7 @@ async function persistReactionAsMessage(params: {
       {
         metadata: {
           ...provenanceFromTrustContext(params.trustCtx),
-          providerMeta: JSON.stringify(providerMeta),
+          providerMeta: JSON.stringify(buildNeutralReactionMeta(facts)),
         },
         skipIndexing: true,
       },
@@ -359,31 +349,7 @@ async function persistReactionAsMessage(params: {
     return;
   }
 
-  const slackMeta: SlackMessageMetadata = {
-    source: "slack",
-    channelId: params.conversationExternalId,
-    channelTs: params.reactedMessageTs,
-    eventKind: "reaction",
-    // No `threadTs`: Slack sends none on a reaction, so the gateway's thread
-    // id here is the reacted message's own ts. It equals `channelTs`, which
-    // every reader treats as "not in a thread" anyway, and storing it makes
-    // the row false evidence that a thread belongs to this conversation
-    // (`legacySlackConversationHasThreadEvidence`).
-    ...(params.actorExternalId
-      ? { actorExternalUserId: params.actorExternalId }
-      : {}),
-    ...(params.actorDisplayName
-      ? { displayName: params.actorDisplayName }
-      : {}),
-    reaction: {
-      emoji: parsed.emoji,
-      targetChannelTs: params.reactedMessageTs,
-      op: parsed.op,
-      ...(params.actorDisplayName
-        ? { actorDisplayName: params.actorDisplayName }
-        : {}),
-    },
-  };
+  const slackMeta = buildSlackReactionMeta(facts);
 
   // Sentinel content — Slack transcript renderers read `slackMeta` to format
   // the reaction line; the literal text is never displayed to the model.

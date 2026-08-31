@@ -16,11 +16,11 @@
  * included.
  */
 import type { ChannelId } from "../channels/types.js";
-import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
+import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
-  type SlackMessageMetadata,
-  writeSlackMetadata,
-} from "../messaging/providers/slack/message-metadata.js";
+  buildNeutralReactionMeta,
+  buildSlackReactionMeta,
+} from "../messaging/reaction-envelopes.js";
 import {
   addMessage,
   REACTION_MESSAGE_KIND,
@@ -51,10 +51,17 @@ export async function persistReactionRecords(
 ): Promise<void> {
   for (const record of records) {
     try {
+      const facts = {
+        channel: record.channel,
+        chatId: record.chatId,
+        targetMessageId: record.messageId,
+        emoji: record.emoji,
+        op: record.op,
+      };
       const envelope =
         record.channel === "slack"
-          ? { slackMeta: writeSlackMetadata(slackReactionMeta(record)) }
-          : { providerMeta: JSON.stringify(neutralReactionMeta(record)) };
+          ? { slackMeta: writeSlackMetadata(buildSlackReactionMeta(facts)) }
+          : { providerMeta: JSON.stringify(buildNeutralReactionMeta(facts)) };
       await addMessage(conversationId, "assistant", "[reaction]", {
         metadata: {
           messageKind: REACTION_MESSAGE_KIND,
@@ -73,35 +80,4 @@ export async function persistReactionRecords(
       );
     }
   }
-}
-
-function neutralReactionMeta(
-  record: QueuedReactionRecord,
-): ProviderMessageMetadata {
-  return {
-    source: record.channel,
-    conversationExternalId: record.chatId,
-    eventKind: "reaction",
-    reaction: {
-      targetMessageId: record.messageId,
-      emoji: record.emoji,
-      op: record.op,
-    },
-  };
-}
-
-function slackReactionMeta(record: QueuedReactionRecord): SlackMessageMetadata {
-  return {
-    source: "slack",
-    channelId: record.chatId,
-    // A reaction row stores the reacted message's ts here; it is the target,
-    // not an id of the row's own, mirroring the inbound persist shape.
-    channelTs: record.messageId,
-    eventKind: "reaction",
-    reaction: {
-      emoji: record.emoji,
-      targetChannelTs: record.messageId,
-      op: record.op,
-    },
-  };
 }
