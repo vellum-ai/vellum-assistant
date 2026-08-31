@@ -7,8 +7,10 @@
  * - `offer`     surfaces with a claim on attention, not urgent
  * - `response`  urgent, breaks through
  *
- * `Urgency` stays the transport every channel adapter already understands;
- * `tierToUrgency` is the one place the two scales are related.
+ * `Urgency` stays the transport every channel adapter already understands.
+ * `tierToUrgency` is the one place the two scales are related, and
+ * `resolveSilent` is the one place a delivery's banner decision is made from
+ * whichever scale the signal carries.
  */
 
 import { z } from "zod";
@@ -42,6 +44,35 @@ export function tierToUrgency(tier: Tier): Urgency {
 /** False only for `suppress`; every other tier is delivered. */
 export function tierShouldNotify(tier: Tier): boolean {
   return tier !== "suppress";
+}
+
+/** Tiers allowed to claim attention with a banner once they are delivered. */
+const TIER_CLAIMS_ATTENTION: Record<Tier, boolean> = {
+  suppress: false,
+  hint: false,
+  offer: true,
+  response: true,
+};
+
+/**
+ * Whether a delivery must stay silent: the inbox entry still appears, the OS
+ * banner does not. Tier decides when the filter path set one; otherwise the
+ * urgency scale does, so producers that never reach the filter deliver
+ * exactly as they did before Tier existed.
+ *
+ * This is the single definition of that decision. The vellum adapter's
+ * `notification_intent` and the broadcaster's
+ * `notification_conversation_created` both read it, so a paired delivery can
+ * never emit two contradictory banner instructions.
+ */
+export function resolveSilent(
+  tier: Tier | undefined,
+  urgency: Urgency,
+): boolean {
+  if (tier) {
+    return !TIER_CLAIMS_ATTENTION[tier];
+  }
+  return urgency !== "high" && urgency !== "critical";
 }
 
 /**

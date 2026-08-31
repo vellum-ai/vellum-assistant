@@ -14,6 +14,7 @@ import type { Urgency } from "../urgency.js";
 import {
   compareTier,
   FALLBACK_TIER,
+  resolveSilent,
   type Tier,
   TIER_ORDER,
   tierShouldNotify,
@@ -76,6 +77,46 @@ describe("tierShouldNotify", () => {
   });
 });
 
+describe("resolveSilent", () => {
+  // Keyed by Tier, and iterated over TIER_ORDER, so a new tier fails to
+  // compile here until its documented banner behavior is written down.
+  const documented: Record<Tier, boolean> = {
+    suppress: true,
+    hint: true,
+    offer: false,
+    response: false,
+  };
+
+  for (const tier of TIER_ORDER) {
+    test(`${tier} resolves silent=${documented[tier]} at every urgency`, () => {
+      const urgencies: Urgency[] = ["low", "medium", "high", "critical"];
+      for (const urgency of urgencies) {
+        expect(resolveSilent(tier, urgency)).toBe(documented[tier]);
+      }
+    });
+  }
+
+  test("no tier falls back to urgency", () => {
+    const expected: [Urgency, boolean][] = [
+      ["low", true],
+      ["medium", true],
+      ["high", false],
+      ["critical", false],
+    ];
+    for (const [urgency, silent] of expected) {
+      expect(resolveSilent(undefined, urgency)).toBe(silent);
+    }
+  });
+
+  test("a tier that must not notify is never allowed a banner", () => {
+    for (const tier of TIER_ORDER) {
+      if (!tierShouldNotify(tier)) {
+        expect(resolveSilent(tier, "critical")).toBe(true);
+      }
+    }
+  });
+});
+
 describe("compareTier", () => {
   test("totally orders TIER_ORDER least to most interrupting", () => {
     expect([...TIER_ORDER].reverse().sort(compareTier)).toEqual([
@@ -118,6 +159,16 @@ describe("vellum adapter tier precedence", () => {
     expect(
       await broadcastSilentFlag(makePayload({ tier: "offer", urgency: "low" })),
     ).toBe(false);
+  });
+
+  test("suppress broadcasts silent: true if it ever reaches the adapter", async () => {
+    // The broadcaster drops suppress before dispatch, so this is the
+    // belt-and-braces case: a payload that got here anyway must not banner.
+    expect(
+      await broadcastSilentFlag(
+        makePayload({ tier: "suppress", urgency: "critical" }),
+      ),
+    ).toBe(true);
   });
 
   test("response broadcasts silent: false", async () => {

@@ -7,6 +7,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../../api/index.js";
+import type { ConversationCreatedInfo } from "../broadcaster.js";
 import type { PairingResult } from "../conversation-pairing.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
@@ -16,7 +18,9 @@ import type {
   ChannelDestination,
   DeliveryResult,
   NotificationDecision,
+  NotificationDeliveryResult,
 } from "../types.js";
+import type { Urgency } from "../urgency.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────
 //
@@ -815,5 +819,233 @@ describe("NotificationBroadcaster tier projection", () => {
 
     expect(sends.length).toBe(1);
     expect(sends[0]?.payload.tier).toBeUndefined();
+  });
+});
+
+describe("NotificationBroadcaster suppress tier", () => {
+  function suppressDecision(): NotificationDecision {
+    return makeDecision({
+      selectedChannels: ["vellum", "platform"],
+      renderedCopy: {
+        vellum: { title: "Title", body: "Body" },
+        platform: { title: "Title", body: "Body" },
+      },
+    });
+  }
+
+  test("dispatches to no channel", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      suppressDecision(),
+    );
+
+    expect(vellum.sends.length).toBe(0);
+    expect(platform.sends.length).toBe(0);
+  });
+
+  test("records every selected channel as skipped, never failed", async () => {
+    // A suppressed signal was never attempted, so it must not read as a
+    // delivery that could be retried into existence.
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      suppressDecision(),
+    );
+
+    expect(results.length).toBe(2);
+    expect(results.map((r) => r.status)).toEqual(["skipped", "skipped"]);
+    expect(results.map((r) => r.channel).sort()).toEqual([
+      "platform",
+      "vellum",
+    ]);
+    for (const result of results) {
+      expect(result.errorMessage).toContain("suppress");
+    }
+  });
+
+  test("appends the skipped results to a caller's results sink", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter]);
+    const sink: NotificationDeliveryResult[] = [];
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+      { resultsSink: sink },
+    );
+
+    expect(results).toBe(sink);
+    expect(sink.length).toBe(1);
+    expect(sink[0]?.status).toBe("skipped");
+  });
+
+  test("pairs no conversation and emits no conversation-created event", async () => {
+    // "Do not surface at all" also means no sidebar entry appears.
+    pairingByChannel = {
+      vellum: {
+        conversationId: "conv-suppressed",
+        messageId: "msg-1",
+        strategy: "start_new_conversation",
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      },
+    };
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter]);
+    const created: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => {
+      created.push(info);
+    });
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+      {
+        onConversationCreated: (info) => {
+          created.push(info);
+        },
+      },
+    );
+
+    expect(created.length).toBe(0);
+  });
+
+  test("a non-suppress tier still dispatches", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "hint" } }),
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+    );
+
+    expect(vellum.sends.length).toBe(1);
+    expect(results[0]?.status).toBe("sent");
+  });
+});
+
+describe("NotificationBroadcaster paired silence", () => {
+  /**
+   * Runs a real VellumAdapter so the assertion compares the two events a
+   * client actually receives: `notification_intent.silent` and
+   * `ConversationCreatedInfo.silent`. They must never disagree -- a client
+   * using the conversation-created event for a fallback banner would
+   * otherwise surface a hint or hide an offer.
+   */
+  async function broadcastPaired(
+    urgency: Urgency,
+    tier?: string,
+  ): Promise<{ intentSilent?: boolean; conversationSilent?: boolean }> {
+    pairingByChannel = {
+      vellum: {
+        conversationId: "conv-paired",
+        messageId: "msg-1",
+        strategy: "start_new_conversation",
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      },
+    };
+    const events: AssistantEvent[] = [];
+    const adapter = new realMacosAdapter.VellumAdapter((event) => {
+      events.push(event);
+    });
+    const broadcaster = new NotificationBroadcaster([adapter]);
+    const created: ConversationCreatedInfo[] = [];
+
+    const signal = makeSignal({
+      attentionHints: {
+        requiresAction: false,
+        urgency,
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      ...(tier ? { routingHints: { tier } } : {}),
+    });
+
+    await broadcaster.broadcastDecision(
+      signal,
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+      {
+        onConversationCreated: (info) => {
+          created.push(info);
+        },
+      },
+    );
+
+    expect(events.length).toBe(1);
+    expect(created.length).toBe(1);
+    return {
+      intentSilent: (events[0] as { silent?: boolean }).silent,
+      conversationSilent: created[0]?.silent,
+    };
+  }
+
+  test("hint at a critical urgency is silent on both events", async () => {
+    const { intentSilent, conversationSilent } = await broadcastPaired(
+      "critical",
+      "hint",
+    );
+    expect(intentSilent).toBe(true);
+    expect(conversationSilent).toBe(true);
+  });
+
+  test("offer at a low urgency banners on both events", async () => {
+    const { intentSilent, conversationSilent } = await broadcastPaired(
+      "low",
+      "offer",
+    );
+    expect(intentSilent).toBe(false);
+    expect(conversationSilent).toBe(false);
+  });
+
+  test("response at a low urgency banners on both events", async () => {
+    const { intentSilent, conversationSilent } = await broadcastPaired(
+      "low",
+      "response",
+    );
+    expect(intentSilent).toBe(false);
+    expect(conversationSilent).toBe(false);
+  });
+
+  test("no tier keeps both events on the urgency-derived value", async () => {
+    // The regression guard: a producer that never reaches the filter must
+    // deliver exactly as it did before Tier existed, on both events.
+    const expected: [Urgency, boolean][] = [
+      ["low", true],
+      ["medium", true],
+      ["high", false],
+      ["critical", false],
+    ];
+    for (const [urgency, silent] of expected) {
+      const { intentSilent, conversationSilent } =
+        await broadcastPaired(urgency);
+      expect(intentSilent).toBe(silent);
+      expect(conversationSilent).toBe(silent);
+    }
   });
 });

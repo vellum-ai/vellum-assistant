@@ -7,6 +7,9 @@
  *   2. Pulls rendered copy from the decision (or falls back to copy-composer)
  *   3. Dispatches through the channel adapter
  *   4. Records a delivery audit row in the deliveries-store
+ *
+ * A signal whose attention tier is `suppress` never enters that loop: it is
+ * dropped up front and every selected channel is reported skipped.
  */
 
 import { v4 as uuid } from "uuid";
@@ -32,7 +35,12 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
-import { type Tier, TierSchema } from "./filter/tier.js";
+import {
+  resolveSilent,
+  type Tier,
+  TierSchema,
+  tierShouldNotify,
+} from "./filter/tier.js";
 import {
   buildQuestionAnswerActions,
   buildToolApprovalSourceView,
@@ -197,9 +205,10 @@ function resolveQuestionOptionsContext(
 
 /**
  * Attention tier carried on `routingHints.tier` by the filter path, resolved
- * once per broadcast so channel adapters read it off the payload instead of
- * re-parsing routing hints. Producers that do not go through the filter carry
- * no tier and keep their urgency-derived delivery.
+ * once per broadcast: it gates the broadcast on `tierShouldNotify`, decides
+ * the shared `silent` value, and rides the payload so channel adapters read
+ * it instead of re-parsing routing hints. Producers that do not go through
+ * the filter carry no tier and keep their urgency-derived delivery.
  */
 function resolveTier(signal: NotificationSignal): Tier | undefined {
   const parsed = TierSchema.safeParse(signal.routingHints?.tier);
@@ -218,8 +227,10 @@ export interface ConversationCreatedInfo {
   /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
   source?: string;
   /**
-   * Mirrors the vellum adapter's `silent` flag. When true the client
-   * must skip the fallback OS banner — the sidebar entry still appears.
+   * The same `silent` flag the vellum adapter puts on `notification_intent`,
+   * derived once per broadcast by `resolveSilent` so the two events cannot
+   * disagree. When true the client must skip the fallback OS banner — the
+   * sidebar entry still appears.
    */
   silent: boolean;
 }
@@ -321,6 +332,39 @@ export class NotificationBroadcaster {
     decision: NotificationDecision,
     options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
+    const tier = resolveTier(signal);
+
+    // A `suppress` tier means "do not surface at all", so no channel is
+    // dispatched: not the vellum intent, not a device push, not a
+    // channel-native message. Defense in depth -- the filter path returns
+    // early on suppress, but `routingHints` reaches the broadcaster from any
+    // producer, so the drop cannot be left to the caller. The channels are
+    // reported skipped rather than failed: nothing was attempted, so nothing
+    // is worth retrying.
+    if (tier && !tierShouldNotify(tier)) {
+      const suppressed: NotificationDeliveryResult[] =
+        options?.resultsSink ?? [];
+      for (const channel of decision.selectedChannels) {
+        suppressed.push({
+          channel,
+          destination: "",
+          status: "skipped",
+          errorMessage: `Suppressed by attention tier: ${tier}`,
+        });
+      }
+      log.info(
+        {
+          signalId: signal.signalId,
+          tier,
+          channels: decision.selectedChannels,
+        },
+        "Attention tier is suppress -- dispatching to no channel",
+      );
+      return suppressed;
+    }
+
+    const silent = resolveSilent(tier, signal.attentionHints.urgency);
+
     // Pull the guardian list once so the resolver stays pure. A null list
     // (gateway unreachable) falls back to the local contacts read.
     const guardians = await getGuardianDelivery();
@@ -356,7 +400,6 @@ export class NotificationBroadcaster {
     const resolvedApproval = resolveApprovalContext(signal);
     const approvalContext = resolvedApproval?.approval;
     const toolApprovalSource = resolvedApproval?.toolApprovalSource;
-    const tier = resolveTier(signal);
     const accessRequestContext =
       signal.sourceEventName === "ingress.access_request" &&
       signal.contextPayload
@@ -612,9 +655,6 @@ export class NotificationBroadcaster {
 
           const conversationTitle =
             copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
-          const conversationSilent =
-            signal.attentionHints.urgency !== "high" &&
-            signal.attentionHints.urgency !== "critical";
           const info: ConversationCreatedInfo = {
             conversationId: pairing.conversationId,
             title: conversationTitle,
@@ -622,7 +662,9 @@ export class NotificationBroadcaster {
             targetGuardianPrincipalId,
             groupId: signal.conversationMetadata?.groupId,
             source: signal.conversationMetadata?.source,
-            silent: conversationSilent,
+            // The same value the vellum adapter puts on `notification_intent`,
+            // derived once above so the two events cannot disagree.
+            silent,
           };
 
           // The per-dispatch onConversationCreated callback fires whenever a vellum
