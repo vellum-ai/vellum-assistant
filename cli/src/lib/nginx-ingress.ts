@@ -225,15 +225,17 @@ export const MAX_PRESERVED_MODULE_PRELOADS = 12;
 const MODULE_PRELOAD_RE = /<link[^>]+rel="modulepreload"[^>]*>\s*/g;
 
 /**
- * A failed module fetch is cached in the document's module map (HTML's
- * "fetch a single module script" stores the failure, and a later import
- * returns it without refetching), so a dropped request for a BOOT chunk
- * blanks the app whether or not the chunk was hinted: the entry's static
- * imports fetch the same URLs through the same map moments later, with the
- * same no-retry semantics. Hints for the boot set therefore add no failure
- * surface; they only start the same fetches earlier. What the strip guards
- * against is the whole-graph shape, where hundreds of NON-boot fetches
- * amplify the odds of any failure and a dropped lazy chunk poisons a later
+ * Failure semantics are engine-dependent while whatwg/html#10327 rolls out:
+ * older engines cache a failed module fetch in the module map (a later
+ * import returns the failure without refetching), newer ones evict it so a
+ * later import refetches. The invariant that matters holds in both models:
+ * the preserved hints name exactly the URLs the entry's static imports
+ * fetch anyway, through the same module map, so a dropped request for a
+ * BOOT chunk has the same outcome whether or not the chunk was hinted.
+ * Hints for the boot set add no failure surface; they only start the same
+ * fetches earlier. What the strip guards against is the whole-graph shape,
+ * where hundreds of speculative NON-boot fetches amplify the odds of any
+ * failure and (on old-model engines) a dropped lazy chunk poisons a later
  * dynamic import.
  */
 function stripExcessModulePreloads(html: string): string {
