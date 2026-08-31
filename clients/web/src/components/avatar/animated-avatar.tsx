@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
 import {
+  canResolveDefinitions,
   computeTransforms,
   resolveDefinitions,
 } from "@/utils/avatar-svg-compositor";
@@ -128,8 +129,27 @@ function precomputeWobbledPaths(
  *   - Blink + twitch paused
  *
  * All animations respect `prefers-reduced-motion`.
+ *
+ * Trait ids missing from `components` render nothing. The compositor throws
+ * on unknown ids, and this page-level avatar is mounted on identity and
+ * chat, so an uncaught throw is a full-route crash.
  */
-export function AnimatedAvatar({
+export function AnimatedAvatar(props: AnimatedAvatarProps) {
+  const { components, traits } = props;
+  if (
+    !canResolveDefinitions(
+      components,
+      traits.bodyShape,
+      traits.eyeStyle,
+      traits.color,
+    )
+  ) {
+    return null;
+  }
+  return <AnimatedAvatarResolved {...props} />;
+}
+
+function AnimatedAvatarResolved({
   components,
   traits,
   size,
