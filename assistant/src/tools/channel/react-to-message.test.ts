@@ -62,6 +62,20 @@ describe("react_to_message", () => {
     expect(reactCalls[0]?.target.messageId).toBe("1700000000.222222");
   });
 
+  test("the turn's thread coordinate rides only the default target", async () => {
+    await reactToMessageTool.execute(
+      { emoji: "tada" },
+      channelContext({ sourceThreadId: "THREAD-1" }),
+    );
+    expect(reactCalls[0]?.target.threadId).toBe("THREAD-1");
+
+    await reactToMessageTool.execute(
+      { emoji: "tada", messageId: "other-msg" },
+      channelContext({ sourceThreadId: "THREAD-1" }),
+    );
+    expect(reactCalls[1]?.target.threadId).toBeUndefined();
+  });
+
   test("remove action passes through and reports removal", async () => {
     const result = await reactToMessageTool.execute(
       { emoji: "tada", action: "remove" },

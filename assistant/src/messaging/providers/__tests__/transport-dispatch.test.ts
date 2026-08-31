@@ -255,6 +255,38 @@ describe("react dispatch", () => {
     );
   });
 
+  test("a Discord thread reaction addresses the thread channel, not the parent", async () => {
+    await sendChannelReaction("discord", {
+      chatId: "PARENT",
+      threadId: "THREAD",
+      messageId: "M1",
+      emoji: "👍",
+      action: "add",
+    });
+    expect(discord.sendDiscordReaction).toHaveBeenCalledWith(
+      "THREAD",
+      "👍",
+      "M1",
+      "add",
+    );
+  });
+
+  test("Slack ignores the thread coordinate: chatId plus ts addresses the message", async () => {
+    await sendChannelReaction("slack", {
+      chatId: "C1",
+      threadId: "1716000000.000001",
+      messageId: "1716000000.000002",
+      emoji: "thumbsup",
+      action: "add",
+    });
+    expect(slack.sendSlackReaction).toHaveBeenCalledWith(
+      "C1",
+      "thumbsup",
+      "1716000000.000002",
+      "add",
+    );
+  });
+
   test("sendChannelReaction routes to the Discord reaction sender", async () => {
     const result = await sendChannelReaction("discord", {
       chatId: "C9",

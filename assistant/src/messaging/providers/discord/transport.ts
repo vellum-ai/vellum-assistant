@@ -79,7 +79,7 @@ export const discordTransport: ChannelTransport = {
 
   async react(target) {
     return sendDiscordReaction(
-      target.chatId,
+      target.threadId ?? target.chatId,
       target.emoji,
       target.messageId,
       target.action,

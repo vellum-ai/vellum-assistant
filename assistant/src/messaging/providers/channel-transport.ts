@@ -83,6 +83,15 @@ export interface ReactionTarget {
   readonly chatId: string;
   /** The target message, in the channel's own id space. */
   readonly messageId: string;
+  /**
+   * Provider id of the thread the target message sits in, absent when it is
+   * not in one. Discord needs it: `chatId` is the delivery address (a thread
+   * message's parent channel), but a thread is its own channel and the
+   * reaction route must name the channel the message actually lives in.
+   * Slack and Telegram address reactions by `chatId` + `messageId` alone
+   * and ignore it.
+   */
+  readonly threadId?: string;
   readonly emoji: string;
   readonly action: "add" | "remove";
 }

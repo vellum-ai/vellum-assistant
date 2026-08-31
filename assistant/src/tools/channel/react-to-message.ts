@@ -97,9 +97,14 @@ export const reactToMessageTool = {
     }
 
     const action = parsed.data.action ?? "add";
+    // The turn's thread coordinate belongs only to the turn's own message;
+    // an explicit messageId may live elsewhere, so it travels bare.
+    const threadId =
+      parsed.data.messageId === undefined ? context.sourceThreadId : undefined;
     const result = await sendChannelReaction(channel, {
       chatId,
       messageId,
+      ...(threadId ? { threadId } : {}),
       emoji: parsed.data.emoji,
       action,
     });
