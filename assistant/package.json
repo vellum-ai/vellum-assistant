@@ -63,7 +63,6 @@
     "marked": "18.0.0",
     "mdast-util-to-hast": "13.2.1",
     "minimatch": "10.2.4",
-    "onnxruntime-node": "1.29.0",
     "openai": "6.29.0",
     "pino": "9.14.0",
     "pino-pretty": "13.1.3",

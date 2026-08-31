@@ -17,12 +17,11 @@ import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-import * as ort from "onnxruntime-node";
-
 import { getVoiceprintModelPath } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { applyCmn, computeFbank, WESPEAKER_FBANK } from "./fbank.js";
+import { runEmbeddingWorker } from "./voiceprint-worker.js";
 
 const log = getLogger("voiceprint-embedder");
 
@@ -101,30 +100,27 @@ async function resolveModelPath(): Promise<string> {
   return cached;
 }
 
-let sessionPromise: Promise<ort.InferenceSession> | undefined;
+let modelPathPromise: Promise<string> | undefined;
 
 /**
- * Load the model once per process. The session is thread-safe for
- * concurrent `run` calls and costs ~40 ms to create, so it is cached
- * rather than rebuilt per request.
+ * Resolve (and download) the weights once per process. The path is cached
+ * rather than re-checked per request; the ONNX session itself lives in the
+ * worker process and is created per spawn.
  */
-function getSession(): Promise<ort.InferenceSession> {
-  if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const path = await resolveModelPath();
-      return ort.InferenceSession.create(path);
-    })().catch((err: unknown) => {
-      // Do not cache a failed load; a later call should retry.
-      sessionPromise = undefined;
+function getModelPath(): Promise<string> {
+  if (!modelPathPromise) {
+    modelPathPromise = resolveModelPath().catch((err: unknown) => {
+      // Do not cache a failed download; a later call should retry.
+      modelPathPromise = undefined;
       throw err;
     });
   }
-  return sessionPromise;
+  return modelPathPromise;
 }
 
-/** Release the cached session. Intended for tests. */
+/** Release the cached model path. Intended for tests. */
 export function resetEmbedderForTests(): void {
-  sessionPromise = undefined;
+  modelPathPromise = undefined;
 }
 
 // ---------------------------------------------------------------
@@ -148,14 +144,9 @@ function l2Normalize(vec: Float32Array): Float32Array {
 }
 
 /**
- * Extract an L2-normalized speaker embedding from mono PCM.
- *
- * `samples` must be normalized floats at `WESPEAKER_FBANK.sampleRate`.
+ * Compute the fbank features for one clip, validating its rate and length.
  */
-export async function extractEmbedding(
-  samples: Float32Array,
-  sampleRate: number,
-): Promise<Float32Array> {
+function featuresFor(samples: Float32Array, sampleRate: number) {
   if (sampleRate !== WESPEAKER_FBANK.sampleRate) {
     throw new Error(
       `Expected ${WESPEAKER_FBANK.sampleRate} Hz audio, got ${sampleRate} Hz. Resample first.`,
@@ -165,23 +156,48 @@ export async function extractEmbedding(
   if (seconds < MIN_AUDIO_SECONDS) {
     throw new AudioTooShortError(seconds);
   }
+  return applyCmn(computeFbank(samples));
+}
 
-  const feats = applyCmn(computeFbank(samples));
-  const session = await getSession();
-  const input = new ort.Tensor("float32", feats.data, [
-    1,
-    feats.frames,
-    feats.dim,
-  ]);
-  const outputs = await session.run({ [session.inputNames[0]!]: input });
-  const raw = outputs[session.outputNames[0]!]!.data as Float32Array;
-
-  if (raw.length !== EMBEDDING_DIM) {
-    throw new Error(
-      `Expected a ${EMBEDDING_DIM}-dim embedding, got ${raw.length}`,
-    );
+/**
+ * Extract L2-normalized speaker embeddings from several mono PCM clips.
+ *
+ * All clips share a single worker spawn, so enrolling N clips costs one
+ * process start rather than N. Each `samples` must be normalized floats at
+ * `WESPEAKER_FBANK.sampleRate`.
+ */
+export async function extractEmbeddings(
+  clips: { samples: Float32Array; sampleRate: number }[],
+): Promise<Float32Array[]> {
+  if (clips.length === 0) {
+    return [];
   }
-  return l2Normalize(raw);
+  // Validate and featurize every clip before spawning, so a bad clip fails
+  // fast instead of after the process start.
+  const features = clips.map((c) => featuresFor(c.samples, c.sampleRate));
+  const raw = await runEmbeddingWorker(features, await getModelPath());
+
+  return raw.map((embedding) => {
+    if (embedding.length !== EMBEDDING_DIM) {
+      throw new Error(
+        `Expected a ${EMBEDDING_DIM}-dim embedding, got ${embedding.length}`,
+      );
+    }
+    return l2Normalize(embedding);
+  });
+}
+
+/**
+ * Extract an L2-normalized speaker embedding from mono PCM.
+ *
+ * `samples` must be normalized floats at `WESPEAKER_FBANK.sampleRate`.
+ */
+export async function extractEmbedding(
+  samples: Float32Array,
+  sampleRate: number,
+): Promise<Float32Array> {
+  const [embedding] = await extractEmbeddings([{ samples, sampleRate }]);
+  return embedding!;
 }
 
 // ---------------------------------------------------------------

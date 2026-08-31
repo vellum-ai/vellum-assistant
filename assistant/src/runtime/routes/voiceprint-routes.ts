@@ -17,7 +17,7 @@ import { z } from "zod";
 
 import {
   AudioTooShortError,
-  extractEmbedding,
+  extractEmbeddings,
 } from "../../voiceprint/embedder.js";
 import {
   DEFAULT_MATCH_THRESHOLD,
@@ -74,33 +74,47 @@ const LabelBodySchema = z.object({
 // ── Helpers ───────────────────────────────────────────────
 
 /**
- * Decode one base64 WAV and embed it.
+ * Decode base64 WAVs and embed them in a single worker spawn.
  *
  * Audio problems are the caller's fault far more often than
  * ours, so they surface as 400s with the underlying reason
  * rather than as a generic failure.
  */
-async function embedBase64Clip(base64: string): Promise<Float32Array> {
-  let bytes: Buffer;
-  try {
-    bytes = Buffer.from(base64, "base64");
-  } catch {
-    throw new BadRequestError("Clip is not valid base64");
-  }
-  if (bytes.byteLength === 0) {
-    throw new BadRequestError("Clip is empty");
-  }
+async function embedBase64Clips(clips: string[]): Promise<Float32Array[]> {
+  const decoded = clips.map((base64) => {
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(base64, "base64");
+    } catch {
+      throw new BadRequestError("Clip is not valid base64");
+    }
+    if (bytes.byteLength === 0) {
+      throw new BadRequestError("Clip is empty");
+    }
+    try {
+      return decodeWav(
+        bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof UnsupportedAudioError) {
+        throw new BadRequestError(err.message);
+      }
+      throw err;
+    }
+  });
 
   try {
-    const audio = decodeWav(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    return await extractEmbeddings(
+      decoded.map((audio) => ({
+        samples: audio.samples,
+        sampleRate: audio.sampleRate,
+      })),
     );
-    return await extractEmbedding(audio.samples, audio.sampleRate);
   } catch (err) {
-    if (
-      err instanceof UnsupportedAudioError ||
-      err instanceof AudioTooShortError
-    ) {
+    if (err instanceof AudioTooShortError) {
       throw new BadRequestError(err.message);
     }
     throw err;
@@ -130,10 +144,7 @@ async function handleEnroll(contactId: string, body: unknown) {
     throw new BadRequestError(`Invalid request body: ${parsed.error.message}`);
   }
 
-  const embeddings: Float32Array[] = [];
-  for (const clip of parsed.data.clips) {
-    embeddings.push(await embedBase64Clip(clip));
-  }
+  const embeddings = await embedBase64Clips(parsed.data.clips);
 
   try {
     const voiceprint = enrollVoiceprint({
@@ -155,9 +166,9 @@ async function handleIdentify(body: unknown) {
   if (!parsed.success) {
     throw new BadRequestError(`Invalid request body: ${parsed.error.message}`);
   }
-  const embedding = await embedBase64Clip(parsed.data.clip);
+  const [embedding] = await embedBase64Clips([parsed.data.clip]);
   const result = identifySpeaker(
-    embedding,
+    embedding!,
     parsed.data.threshold ?? DEFAULT_MATCH_THRESHOLD,
   );
   return { ok: true, ...result };
