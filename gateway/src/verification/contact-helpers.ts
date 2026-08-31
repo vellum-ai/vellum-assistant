@@ -219,14 +219,23 @@ function reassignChannelContact(params: {
  * duplicate of the guardian in the Contacts pane.
  *
  * Deletion is deliberately narrow so a claim can never destroy real data:
- * the gateway contact must have role `contact`, no principal, and no
- * remaining channels; the assistant mirror must agree (no channels) and
+ * the gateway contact must have role `contact`, no principal, no
+ * guardian-set auto-approve ceiling (a threshold is guardian-authored
+ * configuration, so a contact carrying one is not a disposable seed), and
+ * no remaining channels; the assistant mirror must agree (no channels) and
  * carry no guardian-authored data (notes, persona-file pointer, non-default
  * contact type, or assistant-species metadata). When any check fails, BOTH
  * rows are kept, so the two stores never disagree about the contact's
  * existence. A mirror that is unreachable (IPC socket absent) does not block
  * the gateway-side delete; a leftover mirror row is recoverable via the
  * tolerant contact delete (LUM-2662).
+ *
+ * The gateway reads before the mirror probe are a fast-path only: the mirror
+ * probe awaits IPC, so a concurrent write (e.g. an inbound seed attaching a
+ * fresh channel) can land in the gap. The final DELETE therefore re-encodes
+ * every gateway predicate in its own WHERE clause, one atomic statement, so
+ * a contact that stopped qualifying mid-flight is kept rather than
+ * cascade-deleting a channel the pre-checks never saw.
  *
  * Callers must invoke this only after all re-parent writes (gateway AND
  * assistant mirror) have completed, or the mirror inspection can observe the
@@ -236,26 +245,21 @@ export async function deleteContactIfOrphaned(
   contactId: string,
 ): Promise<void> {
   const gwDb = getGatewayDb();
+  const orphanPredicates = and(
+    eq(gwContacts.id, contactId),
+    eq(gwContacts.role, "contact"),
+    sql`${gwContacts.principalId} IS NULL`,
+    sql`${gwContacts.autoApproveThreshold} IS NULL`,
+    sql`NOT EXISTS (SELECT 1 FROM ${gwContactChannels} WHERE ${gwContactChannels.contactId} = ${contactId})`,
+  );
 
   try {
-    const contact = gwDb
-      .select({
-        role: gwContacts.role,
-        principalId: gwContacts.principalId,
-      })
+    const eligible = gwDb
+      .select({ id: gwContacts.id })
       .from(gwContacts)
-      .where(eq(gwContacts.id, contactId))
+      .where(orphanPredicates)
       .get();
-    if (!contact || contact.role !== "contact" || contact.principalId) {
-      return;
-    }
-    const remainingChannel = gwDb
-      .select({ id: gwContactChannels.id })
-      .from(gwContactChannels)
-      .where(eq(gwContactChannels.contactId, contactId))
-      .limit(1)
-      .get();
-    if (remainingChannel) {
+    if (!eligible) {
       return;
     }
   } catch (gwErr) {
@@ -311,7 +315,22 @@ export async function deleteContactIfOrphaned(
   }
 
   try {
-    gwDb.delete(gwContacts).where(eq(gwContacts.id, contactId)).run();
+    // Guarded delete: the WHERE re-checks every gateway orphan predicate in
+    // the same statement, so a channel attached (or a role/principal/
+    // threshold written) while the mirror probe was awaited keeps the
+    // contact instead of being cascade-deleted with it.
+    const deleted = gwDb
+      .delete(gwContacts)
+      .where(orphanPredicates)
+      .returning({ id: gwContacts.id })
+      .all();
+    if (deleted.length === 0) {
+      log.info(
+        { contactId },
+        "Keeping contact: stopped qualifying as an orphaned seed before the guarded delete",
+      );
+      return;
+    }
     log.info(
       { contactId },
       "Deleted orphaned seed contact after guardian channel claim",
