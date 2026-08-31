@@ -42,6 +42,15 @@ let failNextLink = false;
 // reaches the message insert.
 let failNextResolve = false;
 
+// Ids conversation scoping handed back, so a test can name the clone it made.
+// A clone is deleted by the failure path, so it cannot be read back after.
+const scopedAttachmentIds: string[] = [];
+
+// Armed for exactly one attachment byte read, which is how a throw is reached
+// while the reference block is being built: after the row was cloned and
+// before the prepared list records it.
+let failNextContentRead = false;
+
 mock.module("../../persistence/attachments-store.js", () => ({
   ...realStore,
   resolveAttachmentsForPersist: (ids: string[]) => {
@@ -62,18 +71,31 @@ mock.module("../../persistence/attachments-store.js", () => ({
     }
     return realStore.linkAttachmentToMessage(messageId, attachmentId, position);
   },
+  getAttachmentContent: (attachmentId: string) => {
+    if (failNextContentRead) {
+      failNextContentRead = false;
+      throw new Error("simulated attachment byte read failure");
+    }
+    return realStore.getAttachmentContent(attachmentId);
+  },
   scopeAttachmentToMessageConversation: (
     conversationId: string,
     conversationCreatedAt: number,
     attachmentId: string,
-  ) =>
-    unstorableAttachmentIds.has(attachmentId)
-      ? null
-      : realStore.scopeAttachmentToMessageConversation(
-          conversationId,
-          conversationCreatedAt,
-          attachmentId,
-        ),
+  ) => {
+    if (unstorableAttachmentIds.has(attachmentId)) {
+      return null;
+    }
+    const scoped = realStore.scopeAttachmentToMessageConversation(
+      conversationId,
+      conversationCreatedAt,
+      attachmentId,
+    );
+    if (scoped) {
+      scopedAttachmentIds.push(scoped.id);
+    }
+    return scoped;
+  },
 }));
 
 // The content rewrite the repair branch performs, which is the statement that
@@ -88,8 +110,28 @@ let failNextContentUpdate = false;
 // row landed" branch is reached.
 let failNextMessageLookup = false;
 
+// Armed for exactly one insert, which fails the persist after materialization
+// has already cloned but before any row exists.
+let failNextAddMessage = false;
+
 mock.module("../../persistence/conversation-crud.js", () => ({
   ...realCrud,
+  addMessage: (
+    conversationId: string,
+    role: string,
+    content: string,
+    options?: unknown,
+  ) => {
+    if (failNextAddMessage) {
+      failNextAddMessage = false;
+      throw new Error("simulated message insert failure");
+    }
+    return (
+      realCrud.addMessage as (
+        ...args: unknown[]
+      ) => ReturnType<typeof realCrud.addMessage>
+    )(conversationId, role, content, options);
+  },
   updateMessageContent: (messageId: string, content: string) => {
     if (failNextContentUpdate) {
       failNextContentUpdate = false;
@@ -122,7 +164,10 @@ import {
 import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversation-types.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
-import { persistLiveVoiceSightFrame } from "../live-voice-photo.js";
+import {
+  persistLiveVoicePhoto,
+  persistLiveVoiceSightFrame,
+} from "../live-voice-photo.js";
 
 await initializeDb();
 
@@ -368,6 +413,146 @@ describe("a camera frame whose persist throws", () => {
 
       expect(getMessages(live.id)).toHaveLength(0);
       expect(realStore.getAttachmentById(frame)).not.toBeNull();
+    } finally {
+      live.dispose();
+    }
+  });
+});
+
+describe("attachments a failed persist attempt cloned for itself", () => {
+  /** Link the upload under another conversation, so scoping has to clone it. */
+  async function attachmentLinkedElsewhere(
+    otherConversationId: string,
+    name: string,
+  ): Promise<string> {
+    const attachmentId = await uploadFrame(name);
+    const elsewhere = await addMessage(
+      otherConversationId,
+      "user",
+      "look at this",
+    );
+    realStore.linkAttachmentToMessage(elsewhere.id, attachmentId, 0);
+    return attachmentId;
+  }
+
+  test("the clone is given up when the insert never happened", async () => {
+    // Scoping clones before the row is written, and the caller only ever holds
+    // the id it sent, so a failure here strands the clone and its copied file
+    // where nothing can reach them.
+    const source = liveConversation("Live voice clone leak source");
+    const live = liveConversation("Live voice clone leak");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(
+        source.id,
+        "clone-leak.png",
+      );
+      scopedAttachmentIds.length = 0;
+
+      failNextAddMessage = true;
+      expect(await persistLiveVoiceSightFrame(live.id, arrivedAs)).toEqual({
+        ok: false,
+      });
+      expect(failNextAddMessage).toBe(false);
+
+      const cloned = scopedAttachmentIds.at(-1);
+      expect(cloned).toBeDefined();
+      expect(cloned).not.toBe(arrivedAs);
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(realStore.getAttachmentById(cloned!)).toBeNull();
+      // The caller's own upload is untouched, still held by its other
+      // conversation's message.
+      expect(realStore.getAttachmentById(arrivedAs)).not.toBeNull();
+    } finally {
+      live.dispose();
+      source.dispose();
+    }
+  });
+
+  test("the clone is kept when the row already references it", async () => {
+    // Past the insert the persisted content names the clone while no link
+    // protects it yet, so cleaning up here would strip the image out of a
+    // message the transcript still shows.
+    const source = liveConversation("Live voice clone kept source");
+    const live = liveConversation("Live voice clone kept");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(
+        source.id,
+        "clone-kept.png",
+      );
+      scopedAttachmentIds.length = 0;
+
+      failNextLink = true;
+      failNextContentUpdate = true;
+      expect(await persistLiveVoiceSightFrame(live.id, arrivedAs)).toEqual({
+        ok: false,
+      });
+      expect(failNextLink).toBe(false);
+      expect(failNextContentUpdate).toBe(false);
+
+      const cloned = scopedAttachmentIds.at(-1);
+      expect(cloned).toBeDefined();
+      expect(cloned).not.toBe(arrivedAs);
+
+      expect(getMessages(live.id)).toHaveLength(1);
+      expect(realStore.getAttachmentById(cloned!)).not.toBeNull();
+      expect(realStore.getAttachmentById(arrivedAs)).not.toBeNull();
+    } finally {
+      live.dispose();
+      source.dispose();
+    }
+  });
+
+  test("a clone is given up when materialization itself throws", async () => {
+    // The reference block is built between creating the row and recording it,
+    // so a throw there leaves a clone the returned list never mentions. Only
+    // the materialization step still knows about it, which is why it cleans up
+    // its own partial work rather than leaving that to the caller.
+    const source = liveConversation("Live voice partial clone source");
+    const live = liveConversation("Live voice partial clone");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(
+        source.id,
+        "partial-clone.png",
+      );
+      scopedAttachmentIds.length = 0;
+
+      failNextContentRead = true;
+      expect(await persistLiveVoiceSightFrame(live.id, arrivedAs)).toEqual({
+        ok: false,
+      });
+      expect(failNextContentRead).toBe(false);
+
+      const cloned = scopedAttachmentIds.at(-1);
+      expect(cloned).toBeDefined();
+      expect(cloned).not.toBe(arrivedAs);
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(realStore.getAttachmentById(cloned!)).toBeNull();
+      expect(realStore.getAttachmentById(arrivedAs)).not.toBeNull();
+    } finally {
+      live.dispose();
+      source.dispose();
+    }
+  });
+
+  test("an uncloned upload survives a failed attempt", async () => {
+    // Materialization stored this one under the id it arrived with, so the row
+    // IS the caller's upload and the retry they are about to make needs it.
+    // A photo rather than a keep, so the live-voice reclaim (keeps only) stays
+    // out of the way and the assertion isolates the persist's own cleanup.
+    const live = liveConversation("Live voice uncloned survives");
+    try {
+      const photo = await uploadFrame("uncloned.png");
+
+      failNextAddMessage = true;
+      expect(await persistLiveVoicePhoto(live.id, photo)).toEqual({
+        ok: false,
+      });
+      expect(failNextAddMessage).toBe(false);
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(realStore.getAttachmentById(photo)).not.toBeNull();
     } finally {
       live.dispose();
     }

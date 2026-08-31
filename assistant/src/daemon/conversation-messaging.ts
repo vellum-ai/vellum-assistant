@@ -37,6 +37,7 @@ import {
   attachmentExists,
   AttachmentUploadError,
   createInlineAttachment,
+  deleteOrphanAttachments,
   getAttachmentContent,
   getFilePathForAttachment,
   linkAttachmentToMessage,
@@ -435,37 +436,103 @@ async function prepareUserAttachmentReferences(
   attachments: MessageAttachmentInput[],
 ): Promise<PreparedUserAttachment[]> {
   const prepared: PreparedUserAttachment[] = [];
-  for (let i = 0; i < attachments.length; i++) {
-    const a = attachments[i];
-    const outcome = await materializeUserAttachment(
-      conversationId,
-      conversationCreatedAt,
-      a,
-    );
-    if (outcome.kind === "stored") {
-      prepared.push({
-        position: i,
-        block: await referenceBlockForAttachment(a, outcome.stored),
-        link: { attachmentId: outcome.stored.id },
-      });
-      continue;
-    }
-    if (outcome.kind === "rejected") {
-      continue;
-    }
-    // transient: keep the upload by inlining its bytes (dropped only when the
-    // recoverable failure left us with no bytes to inline).
-    const inline = await inlineBlockForAttachment(a);
-    if (inline) {
-      prepared.push({ position: i, block: inline });
-    } else {
-      log.warn(
-        { filename: a.filename },
-        "Dropping user attachment: store write failed and no inline bytes",
+  // Rows this call brought into being, tracked as they are made rather than
+  // read back off `prepared`: building a reference block is awaited between
+  // creating the row and recording it, so a throw there leaves a row nothing
+  // else knows about. The caller only ever sees a returned array, so a throw
+  // out of here makes this the one place that can still give them up.
+  const created: string[] = [];
+  try {
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      const outcome = await materializeUserAttachment(
+        conversationId,
+        conversationCreatedAt,
+        a,
       );
+      if (outcome.kind === "stored") {
+        if (outcome.stored.id !== a.id) {
+          created.push(outcome.stored.id);
+        }
+        prepared.push({
+          position: i,
+          block: await referenceBlockForAttachment(a, outcome.stored),
+          link: { attachmentId: outcome.stored.id },
+        });
+        continue;
+      }
+      if (outcome.kind === "rejected") {
+        continue;
+      }
+      // transient: keep the upload by inlining its bytes (dropped only when the
+      // recoverable failure left us with no bytes to inline).
+      const inline = await inlineBlockForAttachment(a);
+      if (inline) {
+        prepared.push({ position: i, block: inline });
+      } else {
+        log.warn(
+          { filename: a.filename },
+          "Dropping user attachment: store write failed and no inline bytes",
+        );
+      }
     }
+  } catch (err) {
+    discardAttemptAttachments(created);
+    throw err;
   }
   return prepared;
+}
+
+/**
+ * Give up attachment rows a failed persist attempt created for itself.
+ *
+ * Conversation scoping CLONES an attachment already linked to another
+ * conversation, and an inline upload creates a fresh row under an id of its
+ * own. Either way the row is an artifact of this attempt that nothing else can
+ * reach: no message names it, and the caller still holds the id it sent or the
+ * bytes behind it. An attempt that dies before its message row exists has to
+ * take those with it, or the row and its copied file stay for good.
+ *
+ * Never the id the caller handed in. When materialization stored the
+ * attachment under that same id, the row IS the caller's upload, and deleting
+ * it would break the retry they are about to make.
+ *
+ * Routed through {@link deleteOrphanAttachments} so link-awareness stays the
+ * backstop, and swallowed on failure: cleaning up must never mask the error
+ * that caused it.
+ */
+function discardAttemptAttachments(attachmentIds: string[]): void {
+  if (attachmentIds.length === 0) {
+    return;
+  }
+  try {
+    deleteOrphanAttachments(attachmentIds);
+  } catch (err) {
+    log.warn(
+      { err, attachmentIds },
+      "Could not discard the attachments of a failed persist attempt",
+    );
+  }
+}
+
+/**
+ * Materialized ids that differ from the id their input arrived with, which is
+ * what separates a row this attempt made from the caller's own upload.
+ */
+function attemptCreatedAttachmentIds(
+  attachmentInputs: MessageAttachmentInput[],
+  prepared: PreparedUserAttachment[],
+): string[] {
+  const created: string[] = [];
+  for (const p of prepared) {
+    if (!p.link) {
+      continue;
+    }
+    if (p.link.attachmentId !== attachmentInputs[p.position]?.id) {
+      created.push(p.link.attachmentId);
+    }
+  }
+  return created;
 }
 
 /** One requested camera frame: the id the caller held, and what was stored. */
@@ -1015,6 +1082,13 @@ export async function persistQueuedMessageBody(
     }),
   );
   let pushedToHistory = false;
+  // Hoisted so the failure path can tell which rows this attempt made, and
+  // whether its message ever landed. From the insert onward the persisted
+  // content references those rows while no link yet protects them, which is
+  // exactly the shape a link-aware delete reads as collectible, so the cleanup
+  // must stop at the insert.
+  let preparedAttachments: PreparedUserAttachment[] = [];
+  let messageInserted = false;
 
   try {
     const turnCtx =
@@ -1167,7 +1241,7 @@ export async function persistQueuedMessageBody(
     // once the message id exists.
     const conversationCreatedAt =
       getConversation(ctx.conversationId)?.createdAt ?? Date.now();
-    const preparedAttachments = await prepareUserAttachmentReferences(
+    preparedAttachments = await prepareUserAttachmentReferences(
       ctx.conversationId,
       conversationCreatedAt,
       attachmentInputs,
@@ -1220,6 +1294,7 @@ export async function persistQueuedMessageBody(
         ...(skipIndexing ? { skipIndexing: true } : {}),
       },
     );
+    messageInserted = true;
 
     if (persistedUserMessage.deduplicated) {
       return { id: persistedUserMessage.id, deduplicated: true };
@@ -1351,6 +1426,11 @@ export async function persistQueuedMessageBody(
   } catch (err) {
     if (pushedToHistory) {
       ctx.messages.pop();
+    }
+    if (!messageInserted) {
+      discardAttemptAttachments(
+        attemptCreatedAttachmentIds(attachmentInputs, preparedAttachments),
+      );
     }
     throw err;
   }
