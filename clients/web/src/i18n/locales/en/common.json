@@ -668,6 +668,7 @@
     "pluginsBodyMacos": "From a personal-finance copilot to a mode that lives in your MacBook notch.",
     "pluginsBodyWindows": "From a personal-finance copilot to a daily family briefing.",
     "quickInputBody": "Press {shortcut} to send me a quick message from any app.",
+    "quickInputBodyWithoutShortcut": "Send me a quick message from any app using Quick Input.",
     "previousTip": "Previous tip"
   },
   "ttsProviderForm": {

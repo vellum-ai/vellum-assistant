@@ -668,6 +668,7 @@
     "pluginsBodyMacos": "从个人理财副驾驶到常驻 MacBook 刘海区域的模式。",
     "pluginsBodyWindows": "从个人理财副驾驶到每日家庭简报。",
     "quickInputBody": "按 {shortcut} 即可从任何应用向我发送快捷消息。",
+    "quickInputBodyWithoutShortcut": "使用快捷输入即可从任何应用向我发送快捷消息。",
     "previousTip": "上一条提示"
   },
   "ttsProviderForm": {

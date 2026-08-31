@@ -668,6 +668,7 @@
     "pluginsBodyMacos": "Desde un copiloto de finanzas personales hasta un modo que vive en la muesca de tu MacBook.",
     "pluginsBodyWindows": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
     "quickInputBody": "Pulsa {shortcut} para enviarme un mensaje rápido desde cualquier aplicación.",
+    "quickInputBodyWithoutShortcut": "Envíame un mensaje rápido desde cualquier aplicación usando Entrada rápida.",
     "previousTip": "Consejo anterior"
   },
   "ttsProviderForm": {

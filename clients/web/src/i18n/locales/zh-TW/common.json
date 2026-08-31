@@ -668,6 +668,7 @@
     "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
     "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
     "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",
+    "quickInputBodyWithoutShortcut": "使用快速輸入，即可從任何應用程式向我傳送快速訊息。",
     "previousTip": "上一個提示"
   },
   "ttsProviderForm": {

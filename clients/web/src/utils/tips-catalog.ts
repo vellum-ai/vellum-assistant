@@ -33,6 +33,7 @@ export interface Tip {
   localizedCopy?: {
     title?: ParseKeys<"common">;
     body?: ParseKeys<"common">;
+    bodyWithoutShortcut?: ParseKeys<"common">;
   };
   desktopCopy?: Record<
     ElectronHostOS,
@@ -144,7 +145,10 @@ export const TIPS_CATALOG: readonly Tip[] = [
     eyebrow: "Desktop",
     title: "Message me anywhere",
     body: "Press Cmd+Shift+/ to send me a quick message from any app.",
-    localizedCopy: { body: "tipCard.quickInputBody" },
+    localizedCopy: {
+      body: "tipCard.quickInputBody",
+      bodyWithoutShortcut: "tipCard.quickInputBodyWithoutShortcut",
+    },
     gates: { requiresElectron: true, requiresClientFlag: "quickInput" },
   },
   {

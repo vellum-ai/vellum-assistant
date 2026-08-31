@@ -102,13 +102,15 @@ export function TipCard({
   const titleKey = desktopCopy?.title ?? tip.localizedCopy?.title;
   const bodyKey = desktopCopy?.body ?? tip.localizedCopy?.body;
   const title = titleKey ? t(titleKey) : tip.title;
-  const body = bodyKey
-    ? t(bodyKey, {
-        shortcut:
-          quickInputShortcut ??
-          (desktopHostOS === "windows" ? "Ctrl+Shift+/" : "Cmd+Shift+/"),
-      })
-    : tip.body;
+  const body =
+    quickInputShortcut === undefined &&
+    tip.localizedCopy?.bodyWithoutShortcut !== undefined
+      ? t(tip.localizedCopy.bodyWithoutShortcut)
+      : bodyKey
+        ? t(bodyKey, {
+            shortcut: quickInputShortcut,
+          })
+        : tip.body;
   return (
     <div
       data-slot="tip-card"
