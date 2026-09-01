@@ -32,11 +32,13 @@ export function useSightFrameReclaimer(): void {
     if (queued.length === 0) {
       return;
     }
-    // Cleared before the deletes rather than after: the store is the queue,
-    // and leaving entries in it across an await would re-issue every delete on
-    // the next refusal.
-    useLiveVoiceStore.getState().clearSightFramesToReclaim();
-    for (const { assistantId, attachmentId } of queued) {
+    // Taken rather than read-then-cleared, and the taken set is what gets
+    // deleted rather than the one this render captured. An entry queued
+    // between that render and this effect is inside the take, so it is
+    // deleted here instead of being cleared undeleted, and an entry queued
+    // after the take stays for the run the new queue triggers.
+    const taken = useLiveVoiceStore.getState().takeSightFramesToReclaim();
+    for (const { assistantId, attachmentId } of taken) {
       void deleteChatAttachment(assistantId, attachmentId).then((ok) => {
         if (!ok) {
           captureError(new Error("sight frame delete refused"), {

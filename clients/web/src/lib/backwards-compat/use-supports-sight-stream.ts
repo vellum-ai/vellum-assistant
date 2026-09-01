@@ -14,58 +14,48 @@
  * sampler would be sending a frame every few seconds into a void while the
  * room's thumbnail claimed the call could see each one.
  *
- * MIN_VERSION is `0.11.7-dev.202609010224.44cd29e`: the exact version string of
- * a build that exists, not a release and not a computed boundary. That is
- * unusual enough to be worth the paragraphs, and every tidier-looking constant
- * is wrong.
+ * MIN_VERSION is one published dev build's whole version string,
+ * `0.11.7-dev.202609010224.44cd29e`, rather than a release or a rounded
+ * boundary. Every tidier-looking constant admits or excludes the wrong builds,
+ * so the shape is load-bearing and worth stating.
  *
- * The floor has to be a dev build at all because `main` carries the version of
- * the last cut, so every build off it is named `0.11.7-dev.*` whether or not it
- * has the handler, and only the suffix tells them apart. `versionSupports`
- * compares two same-base dev builds through `comparePreRelease`, segment by
- * segment and numerically where both segments are digits, so the timestamp is
- * what does the separating.
+ * It is a dev version because `main` carries the version of the last cut, so
+ * every build off it is named `0.11.7-dev.*` whether or not it has the handler
+ * and only the suffix separates them. `versionSupports` compares two same-base
+ * dev builds through `comparePreRelease`, segment by segment and numerically
+ * where both segments are digits, so the timestamp is what does the
+ * separating, and a version carrying a segment where the floor has run out is
+ * the greater of the two.
  *
- * It has to be a PUBLISHED build rather than the minute after the daemon
- * change merged (3251f98402, committed 2026-09-01T01:34:30Z), because the
- * release workflow stamps `dev.YYYYMMDDHHMM.<sha>` when its compute-version
- * step RUNS, not when the run was dispatched. A run queued for a pre-merge sha
- * can therefore emerge stamped well past the merge minute, and against a floor
- * naming a bare minute it would clear on the extra-segment rule (a version with
- * a segment where the floor has run out is the greater) despite having no
- * handler. Predicting the boundary cannot rule that out; naming an artifact
- * can.
+ * It names a sha because a dev version's timestamp records when the release
+ * workflow computed it, not what the build contains: a run can be dispatched
+ * against any ref and stamps the minute it runs. A floor naming a bare minute
+ * therefore admits a later-stamped build whose commit is older than the
+ * handler.
  *
- * The artifact is dev-release run 33462421058, which succeeded on head
- * 44cd29e199 (the daemon merge is an ancestor of it) and stamped exactly
- * `0.11.7-dev.202609010224.44cd29e`. It is the first success after the merge:
- * the 01:34 run on the merge commit itself failed, so nothing published in
- * between, and no queued pre-merge run can sit above this floor.
- *
- * One residual ambiguity, stated rather than papered over: another run stamped
- * in this SAME minute would tie on the timestamp and fall through to a
+ * The format has one ambiguity, stated rather than papered over: a build
+ * stamped in this same minute ties on the timestamp and falls through to a
  * comparison of short shas, which are ordered lexically and mean nothing in
- * that order (an all-digit short sha sorts below any sha carrying a letter,
- * via the numeric-versus-not branch). No such run exists in the history around
- * the merge, which is the point: the floor names a real artifact, so the
- * ambiguity is hypothetical rather than something a build could fall into.
+ * that order (an all-digit short sha sorts below any sha carrying a letter, via
+ * the numeric-versus-not branch). Naming a build that exists is what keeps that
+ * hypothetical.
  *
- * Two constants that look tidier and are not:
+ * Three constants that look tidier and are not:
  *
- * - **`0.11.8`** (bare, or any 0.11.8 form) keeps handler-bearing builds dark.
- *   An assistant packaged from `main` today has the frame and reports
- *   `0.11.7-dev.*`, which sits below a 0.11.8 base until the next release cut,
- *   so the room would sample nothing on exactly the builds it was written for.
+ * - **`0.11.8`**, or any release floor, keeps handler-bearing builds dark. An
+ *   assistant packaged from `main` has the frame and reports `0.11.7-dev.*`,
+ *   which sits below a 0.11.8 base until the next cut, so the room would
+ *   sample nothing on exactly the builds this was written for.
  * - **`0.11.7-dev.0`** goes too far the other way. It reads as "any dev build
- *   of 0.11.7", which admits the whole window between the 2026-08-27 cut and
- *   the merge: builds with no handler, refusing every keep with the code the
- *   transport reads as an `update_config` rejection.
- * - **A bare minute** such as `0.11.7-dev.202609010135` admits the queued
- *   pre-merge run described above, which is the case this floor was moved to
- *   close.
+ *   of 0.11.7", which admits the dev builds of that base that have no handler,
+ *   and each of them refuses every keep with the code the transport reads as
+ *   an `update_config` rejection.
+ * - **A bare minute** such as `0.11.7-dev.202609010135` admits a build stamped
+ *   after that minute from a commit older than the handler, for the reason
+ *   above.
  *
- * Do NOT replace this with either. The stable 0.11.7 release is excluded by
- * the `dev` suffix alone (a dev build outranks its own base's release, see
+ * Do NOT replace this with any of them. The stable 0.11.7 release is excluded
+ * by the `dev` suffix alone (a dev build outranks its own base's release, see
  * `use-supports-voice-camera.ts` for that writeup), and each wrong constant
  * fails a row in this gate's test.
  *

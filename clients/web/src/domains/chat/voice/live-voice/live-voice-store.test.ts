@@ -40,7 +40,7 @@ beforeEach(() => {
   useLiveVoiceStore.getState().setStarter(null);
   // It preserves the reclaim queue for the same kind of reason (a cleanup duty
   // that must outlive the session), so that needs draining here too.
-  useLiveVoiceStore.getState().clearSightFramesToReclaim();
+  useLiveVoiceStore.getState().takeSightFramesToReclaim();
 });
 
 function makeStarter() {
@@ -797,14 +797,33 @@ describe("sight frame refusals", () => {
     expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(true);
   });
 
-  test("draining takes the whole queue at once", () => {
+  test("taking returns exactly what it removes", () => {
+    // The only way to empty the queue, so that nothing can leave it without
+    // reaching a deleter.
     const { generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
-    useLiveVoiceStore.getState().clearSightFramesToReclaim();
+    const taken = useLiveVoiceStore.getState().takeSightFramesToReclaim();
 
+    expect(taken).toEqual([
+      { assistantId: "asst_sight", attachmentId: "att-1" },
+    ]);
     expect(reclaimed()).toEqual([]);
+  });
+
+  test("a reclaim queued after a take is still there for the next one", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore.getState().takeSightFramesToReclaim();
+
+    useLiveVoiceStore.getState().noteSightFrameSent("att-2");
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    expect(useLiveVoiceStore.getState().takeSightFramesToReclaim()).toEqual([
+      { assistantId: "asst_sight", attachmentId: "att-2" },
+    ]);
   });
 });
 

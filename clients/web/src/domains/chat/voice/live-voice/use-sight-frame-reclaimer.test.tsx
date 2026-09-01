@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { useEffect } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 const deleteChatAttachment = mock(
@@ -36,7 +37,7 @@ function startSession() {
 beforeEach(() => {
   deleteChatAttachment.mockClear();
   useLiveVoiceStore.getState().reset();
-  useLiveVoiceStore.getState().clearSightFramesToReclaim();
+  useLiveVoiceStore.getState().takeSightFramesToReclaim();
 });
 
 afterEach(() => {
@@ -104,6 +105,40 @@ describe("useSightFrameReclaimer", () => {
       "asst_other",
       "att-1",
     );
+  });
+
+  test("an upload queued after the render is drained, not cleared undeleted", async () => {
+    // The window the take closes. This render captured the queue as it stood,
+    // and a refusal can land before the effect body runs; a drain that cleared
+    // the whole queue while deleting only what it captured would wipe that
+    // entry with nothing ever collecting it.
+    const generation = startSession();
+    useLiveVoiceStore.getState().noteSightFrameSent("att-1");
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    let queuedLate = false;
+    await act(async () => {
+      renderHook(() => {
+        // Declared first, so its effect runs before the reclaimer's in the
+        // same commit: exactly between the reclaimer's capture and its body.
+        useEffect(() => {
+          if (queuedLate) {
+            return;
+          }
+          queuedLate = true;
+          const store = useLiveVoiceStore.getState();
+          store.noteSightFrameSent("att-2");
+          store.noteSightFrameRefused(true);
+        });
+        useSightFrameReclaimer();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
+    expect(generation).toBe(useLiveVoiceStore.getState().sessionGeneration);
   });
 
   test("a routine refusal queues nothing to delete", async () => {

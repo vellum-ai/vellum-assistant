@@ -848,7 +848,7 @@ describe("camera-frame reclaim runs at session scope", () => {
       const store = useLiveVoiceStore.getState();
       // The queue is deliberately not session state, so an earlier case's
       // entries would otherwise still be sitting in it.
-      store.clearSightFramesToReclaim();
+      store.takeSightFramesToReclaim();
       store.setSessionContext("asst_sight", "conv_sight");
       store.noteSightFrameSent("att-1");
       store.noteSightFrameRefused(false);

@@ -594,8 +594,17 @@ export interface LiveVoiceActions {
     unsupported: boolean,
     attachmentId?: string | null,
   ) => void;
-  /** Drop the reclaims the session-lifetime reclaimer has issued deletes for. */
-  clearSightFramesToReclaim: () => void;
+  /**
+   * Remove every queued reclaim and hand it back, in one state transition.
+   *
+   * The only way to empty the queue, deliberately. A clear that did not return
+   * what it removed could drop an entry queued between a consumer reading the
+   * queue and acting on it, and that entry would be an upload nothing ever
+   * deletes. Taking makes the invariant structural: whatever leaves the queue
+   * is in the caller's hands, and whatever arrives after a take is still
+   * queued for the next one.
+   */
+  takeSightFramesToReclaim: () => readonly SightFrameReclaim[];
   /** Drop the retractions the room's sight surface has acted on. */
   clearSightFrameRetractions: () => void;
   /** Register (or clear) the owning controller's session controls. */
@@ -935,7 +944,16 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
             : s.sightFrameRetractions,
       };
     }),
-  clearSightFramesToReclaim: () => set({ sightFramesToReclaim: [] }),
+  takeSightFramesToReclaim: () => {
+    let taken: readonly SightFrameReclaim[] = [];
+    // Read and emptied inside one updater, so nothing can be appended between
+    // the two halves.
+    set((s) => {
+      taken = s.sightFramesToReclaim;
+      return { sightFramesToReclaim: [] };
+    });
+    return taken;
+  },
   clearSightFrameRetractions: () => set({ sightFrameRetractions: [] }),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
