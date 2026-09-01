@@ -139,6 +139,15 @@ export interface LiveVoiceTextTurnRejected {
  */
 export interface LiveVoiceSightFrameRejected {
   readonly unsupported: boolean;
+  /**
+   * The attachment the error named, when the assistant echoes one.
+   *
+   * Optional on the wire and absent from every assistant at the current
+   * version floor, so a consumer has to work without it. With it, a refusal
+   * can be matched to the keep it belongs to; without it, only the shape of
+   * what is outstanding can be reasoned about.
+   */
+  readonly attachmentId: string | null;
 }
 
 /**
@@ -676,6 +685,14 @@ export class LiveVoiceChannelClient {
           console.warn(`live-voice: camera frame not shared: ${frame.message}`);
           this.emit("sightFrameRejected", {
             unsupported: frame.code === "unknown_type",
+            // Read defensively: the field is optional, and absent from every
+            // assistant at the version floor this frame is gated on.
+            attachmentId:
+              "attachmentId" in frame &&
+              typeof frame.attachmentId === "string" &&
+              frame.attachmentId.length > 0
+                ? frame.attachmentId
+                : null,
           });
           return;
         }

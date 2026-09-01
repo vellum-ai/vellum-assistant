@@ -38,6 +38,9 @@ beforeEach(() => {
   // reset() deliberately preserves the starter (mount-scoped); clear it
   // explicitly so tests can't leak a registered starter into each other.
   useLiveVoiceStore.getState().setStarter(null);
+  // It preserves the reclaim queue for the same kind of reason (a cleanup duty
+  // that must outlive the session), so that needs draining here too.
+  useLiveVoiceStore.getState().clearSightFramesToReclaim();
 });
 
 function makeStarter() {
@@ -613,172 +616,176 @@ describe("sendLiveVoiceSightFrame", () => {
 });
 
 describe("sight frame refusals", () => {
-  test("an unsupported refusal latches the session and strands nothing", () => {
+  /** Seed a session bound to an assistant, so reclaims name one. */
+  function sightSession() {
     const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_sight");
     useLiveVoiceStore.getState().setControls(controls);
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+    return {
+      controls,
+      generation: useLiveVoiceStore.getState().sessionGeneration,
+    };
+  }
+
+  const reclaimed = () =>
+    useLiveVoiceStore
+      .getState()
+      .sightFramesToReclaim.map((r) => r.attachmentId);
+
+  test("an unsupported refusal latches the session and queues every id", () => {
+    const { controls, generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
 
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
     const state = useLiveVoiceStore.getState();
     expect(state.sightFramesUnsupported).toBe(true);
     // Every id in flight is the client's to give back: this assistant stored
-    // none of them and reclaims nothing.
-    expect(state.sightFrameRefusal).toEqual({
-      unsupported: true,
-      reclaim: ["att-1"],
-      retract: [],
-    });
+    // none of them and reclaims nothing. The queue names the assistant so a
+    // drain after the call still deletes against the right one.
+    expect(state.sightFramesToReclaim).toEqual([
+      { assistantId: "asst_sight", attachmentId: "att-1" },
+    ]);
     // And nothing further is sent, which is the orphan-per-keep this closes.
     controls.sightFrame.mockClear();
-    expect(sendLiveVoiceSightFrame("att-2", gen)).toBe(false);
+    expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(false);
     expect(controls.sightFrame).not.toHaveBeenCalled();
   });
 
-  test("a routine refusal does not latch", () => {
-    const controls = makeControlsSpies();
-    useLiveVoiceStore.getState().setControls(controls);
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+  test("a routine refusal does not latch or queue anything", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
 
     useLiveVoiceStore.getState().noteSightFrameRefused(false);
 
     expect(useLiveVoiceStore.getState().sightFramesUnsupported).toBe(false);
-    // The assistant reclaims what it could not persist, so nothing to give
-    // back here.
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.reclaim).toEqual([]);
-    expect(sendLiveVoiceSightFrame("att-2", gen)).toBe(true);
+    // The assistant reclaims what it could not persist, so deleting here would
+    // race it over a row this client no longer owns.
+    expect(reclaimed()).toEqual([]);
+    expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(true);
   });
 
   test("a lone outstanding keep's refusal retracts it", () => {
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
 
     useLiveVoiceStore.getState().noteSightFrameRefused(false);
 
-    // Nothing else it could be about: the surface would otherwise go on
-    // showing a view that never reached the transcript.
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toEqual([
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([
       "att-1",
     ]);
   });
 
   test("a refusal with a newer keep behind it retracts nothing", () => {
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
-    sendLiveVoiceSightFrame("att-2", gen);
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
 
     useLiveVoiceStore.getState().noteSightFrameRefused(false);
 
-    // The error carries no attachment id, so this could be either keep. The
-    // ordinary reading is the older one, and the surface already shows the
-    // newer, so leaving it alone is right.
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toEqual([]);
+    // Naming nothing, the refusal could be either keep, and the surface
+    // already shows the newer.
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([]);
   });
 
-  test("refusals nobody has consumed accumulate rather than replace", () => {
-    // Two errors landing before the room consumes the first: delayed
-    // responses arriving together, or a room not mounted to consume. A
-    // payload that replaced the one before it would strand the first
-    // refusal's uploads for good, since nothing else ever collects them.
-    const controls = makeControlsSpies();
-    useLiveVoiceStore.getState().setControls(controls);
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
-    sendLiveVoiceSightFrame("att-2", gen);
+  test("an echoed attachment id retracts exactly, past older sends", () => {
+    // What the fallback cannot do. Successful keeps are answered with nothing,
+    // so the ledger keeps filling and the positional rule goes quiet for the
+    // rest of the call; an id on the error frame is decidable whatever else is
+    // outstanding.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+    sendLiveVoiceSightFrame("att-3", generation);
 
-    useLiveVoiceStore.getState().noteSightFrameRefused(true);
-    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-3");
 
-    expect(useLiveVoiceStore.getState().sightFrameRefusal).toEqual({
-      unsupported: true,
-      reclaim: ["att-1", "att-2"],
-      retract: [],
-    });
+    const state = useLiveVoiceStore.getState();
+    expect(state.sightFrameRetractions).toEqual(["att-3"]);
+    // Retired exactly, wherever it sat, rather than by position.
+    expect(state.outstandingSightFrames).toEqual(["att-1", "att-2"]);
   });
 
-  test("a second refusal cannot drop the first one's retraction", () => {
-    // The count-of-one rule reads the outstanding ledger, which the first
-    // refusal already emptied, so the second computes an empty retraction.
-    // Overwriting with it would leave the surface showing a keep that never
-    // reached the transcript.
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+  test("retractions accumulate until the surface consumes them", () => {
+    // The fallback rule reads a ledger the first refusal already emptied, so a
+    // second refusal computes nothing; overwriting would erase the first
+    // answer.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
 
     useLiveVoiceStore.getState().noteSightFrameRefused(false);
     useLiveVoiceStore.getState().noteSightFrameRefused(false);
 
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toEqual([
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([
       "att-1",
     ]);
   });
 
-  test("an unsupported refusal outranks a routine one in the same batch", () => {
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
-    sendLiveVoiceSightFrame("att-2", gen);
+  test("reclaims accumulate across refusals nobody has drained", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
 
-    useLiveVoiceStore.getState().noteSightFrameRefused(false);
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true, "att-3");
 
-    const refusal = useLiveVoiceStore.getState().sightFrameRefusal;
-    expect(refusal?.unsupported).toBe(true);
-    // The routine refusal consumed the older id, and the unsupported one
-    // strands what was left.
-    expect(refusal?.reclaim).toEqual(["att-2"]);
+    expect(reclaimed()).toEqual(["att-1", "att-2", "att-3"]);
   });
 
-  test("consuming takes the whole merged set at once", () => {
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+  test("the outstanding ledger is capped, and pruned ids still get reclaimed", () => {
+    // The cap is memory hygiene: without it the ledger grows for the length of
+    // a call, since an accepted keep is answered with nothing. A pruned id is
+    // not forgotten, because an assistant that turns out to take nothing must
+    // still give every upload back.
+    const { generation } = sightSession();
+    for (let i = 1; i <= 11; i++) {
+      sendLiveVoiceSightFrame(`att-${i}`, generation);
+    }
+
+    expect(useLiveVoiceStore.getState().outstandingSightFrames).toEqual([
+      "att-4",
+      "att-5",
+      "att-6",
+      "att-7",
+      "att-8",
+      "att-9",
+      "att-10",
+      "att-11",
+    ]);
+
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
-    useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
-    useLiveVoiceStore.getState().clearSightFrameRefusal();
-
-    expect(useLiveVoiceStore.getState().sightFrameRefusal).toBeNull();
-  });
-
-  test("an unconsumed refusal survives a reconnect", () => {
-    // The room is still mounted on the same assistant across the gap, so it
-    // consumes on the other side and the uploads are given back.
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
-    useLiveVoiceStore.getState().noteSightFrameRefused(true);
-
-    useLiveVoiceStore.getState().reset({ sessionContinues: true });
-
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.reclaim).toEqual([
+    expect(reclaimed()).toEqual([
       "att-1",
+      "att-2",
+      "att-3",
+      "att-4",
+      "att-5",
+      "att-6",
+      "att-7",
+      "att-8",
+      "att-9",
+      "att-10",
+      "att-11",
     ]);
   });
 
-  test("an unconsumed refusal dies with the session", () => {
-    // Ending a call unmounts the room, so nothing would consume it anyway,
-    // and the next session can be bound to a different assistant, where
-    // consuming it would aim a delete at one that never held those rows.
-    useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+  test("the reclaim queue survives the session that filled it", () => {
+    // The case a room-owned drain cannot cover: minimized, the room is not
+    // mounted, so the refusal lands with nobody to act on it and the call then
+    // ends. A queue a teardown could discard would strand those uploads.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
     useLiveVoiceStore.getState().reset();
 
-    expect(useLiveVoiceStore.getState().sightFrameRefusal).toBeNull();
+    expect(reclaimed()).toEqual(["att-1"]);
   });
 
   test("a reconnect clears the latch, so an upgraded assistant is tried again", () => {
-    const controls = makeControlsSpies();
-    useLiveVoiceStore.getState().setControls(controls);
-    const gen = useLiveVoiceStore.getState().sessionGeneration;
-    sendLiveVoiceSightFrame("att-1", gen);
+    const { controls, generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
     // What the controller does when it re-enters its connect flow: the
@@ -787,7 +794,17 @@ describe("sight frame refusals", () => {
     useLiveVoiceStore.getState().setControls(controls);
 
     expect(useLiveVoiceStore.getState().sightFramesUnsupported).toBe(false);
-    expect(sendLiveVoiceSightFrame("att-2", gen)).toBe(true);
+    expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(true);
+  });
+
+  test("draining takes the whole queue at once", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().clearSightFramesToReclaim();
+
+    expect(reclaimed()).toEqual([]);
   });
 });
 

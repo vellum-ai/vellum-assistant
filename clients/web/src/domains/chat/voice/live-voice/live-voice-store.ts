@@ -343,21 +343,38 @@ export interface LiveVoiceState {
    */
   sightFramesUnsupported: boolean;
   /**
-   * Ids of kept frames sent to the assistant with no verdict yet, in send
-   * order.
+   * Ids of kept frames sent to the assistant with no verdict yet, newest last,
+   * capped at {@link SIGHT_FRAME_LEDGER_CAP}.
    *
-   * Only a refusal ever retires one: an accepted frame is answered with
-   * nothing at all. That makes the ledger deliberately narrow rather than
-   * exact, which is all the wire supports today (see
-   * {@link sightFrameRefusal}).
+   * An assistant that persisted a keep answers with nothing at all, so the
+   * only exact retirement is an error frame naming the attachment. Assistants
+   * that do not echo the id fall back to a positional rule that is right only
+   * when one send is outstanding, and this ledger is what both read.
    */
   outstandingSightFrames: readonly string[];
+  /** Ids the cap pushed off the ledger, newest last, capped the same way. */
+  prunedSightFrames: readonly string[];
   /**
-   * The last refusal, as the room's sight surface needs to act on it, or null
-   * once handled. A fresh object per refusal, so a consumer keyed on it sees
-   * consecutive refusals as separate events.
+   * Uploads to give back, accumulating until the session-lifetime reclaimer
+   * drains them.
+   *
+   * Deliberately NOT session state: it is not reset with a session, because
+   * the refusal that fills it can land while the room is minimized (so the
+   * room's hook is unmounted and cannot consume) and the call can then end
+   * before anything drains. A queue that a session teardown could discard
+   * would strand exactly the uploads it is meant to collect.
    */
-  sightFrameRefusal: LiveVoiceSightFrameRefusal | null;
+  sightFramesToReclaim: readonly SightFrameReclaim[];
+  /**
+   * Displayed keeps a refusal invalidated, accumulating until the room's sight
+   * surface consumes them.
+   *
+   * Session state, unlike the reclaim queue: a retraction is about a thumbnail
+   * on screen, and a session that ended took its thumbnail with it. Separate
+   * from the queue so each has exactly one consumer and neither can clear work
+   * belonging to the other.
+   */
+  sightFrameRetractions: readonly string[];
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
@@ -566,12 +583,21 @@ export interface LiveVoiceActions {
   /** Record a kept frame that reached the transport. */
   noteSightFrameSent: (attachmentId: string) => void;
   /**
-   * Record that the assistant refused a kept frame, and work out what the room
-   * has to do about it. See {@link LiveVoiceSightFrameRefusal}.
+   * Record that the assistant refused a kept frame, and work out what it costs.
+   *
+   * `attachmentId` is the id the error named, when the assistant echoes one.
+   * With it, retirement and retraction are exact. Without it (any assistant at
+   * the current version floor) the fallback is positional and can only speak
+   * when a single send is outstanding.
    */
-  noteSightFrameRefused: (unsupported: boolean) => void;
-  /** Drop a refusal the room has acted on. */
-  clearSightFrameRefusal: () => void;
+  noteSightFrameRefused: (
+    unsupported: boolean,
+    attachmentId?: string | null,
+  ) => void;
+  /** Drop the reclaims the session-lifetime reclaimer has issued deletes for. */
+  clearSightFramesToReclaim: () => void;
+  /** Drop the retractions the room's sight surface has acted on. */
+  clearSightFrameRetractions: () => void;
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -632,48 +658,30 @@ export interface LiveVoiceActions {
 }
 
 /**
- * What a refused camera frame leaves the room to clean up.
+ * An upload nothing will ever collect, paired with the assistant holding it.
  *
- * The daemon's `sight_frame` error names the frame type and carries a message,
- * but no attachment id, so a refusal cannot be matched to the keep it belongs
- * to. Correlating exactly wants the daemon to echo the `attachmentId` on the
- * error frame, which is a small daemon follow-up rather than something the web
- * side can do today. Until then the rule is deliberately narrow and errs
- * toward leaving the surface alone:
- *
- * - `reclaim` is only ever non-empty for an assistant that cannot take the
- *   frame at all. That assistant persisted none of the ids in flight and will
- *   never reclaim them, so all of them are the client's to give back. An
- *   assistant that understands the frame reclaims its own failures, so
- *   deleting after one of those would race it.
- * - `retract` names a keep only when the refusal cannot be about anything
- *   else: exactly one send was outstanding. A refused keep with a newer one
- *   behind it is the ordinary case and must NOT retract anything, since the
- *   surface already shows the newer frame. The case this exists for is the
- *   lone keep that fails with nothing behind it, where the surface would
- *   otherwise go on claiming a view that never reached the transcript.
- *
- * Refusals ACCUMULATE until one consumer takes them. Two errors can land
- * between renders (two delayed responses arriving together, or a room that is
- * not mounted to consume the first), and each field merges in the direction
- * that cannot lose work: `reclaim` and `retract` union, `unsupported` ORs. A
- * payload that replaced the one before it would strand exactly the uploads the
- * first refusal was reporting, permanently, since nothing else collects them.
- *
- * `retract` is a set for the same reason and not only for symmetry: the
- * count-of-one rule reads `outstandingSightFrames`, which the FIRST refusal
- * already emptied, so a second refusal arriving before a consume computes an
- * empty retraction. Overwriting with it would drop the retraction the first
- * one earned.
+ * The pair rather than the id alone because this queue outlives the session
+ * that produced it. Draining is a cleanup duty, not session state: it must
+ * survive a session ending (the room unmounts the moment a call ends, and a
+ * minimized room is not mounted at all), and it must never aim a delete at
+ * whichever assistant happens to be current when the drain runs.
  */
-export interface LiveVoiceSightFrameRefusal {
-  /** The assistant has no handler for the frame, so the session gives up. */
-  readonly unsupported: boolean;
-  /** Uploads nothing else will ever collect. */
-  readonly reclaim: readonly string[];
-  /** Displayed keeps these refusals provably invalidated. */
-  readonly retract: readonly string[];
+export interface SightFrameReclaim {
+  readonly assistantId: string;
+  readonly attachmentId: string;
 }
+
+/**
+ * How many kept frames the outstanding ledger remembers, and how many pruned
+ * ids it keeps behind it.
+ *
+ * A send is only ever retired by an error naming it, or by an error at all
+ * under the fallback rule, because an accepted keep is answered with nothing.
+ * Without a bound the ledger would grow for the length of a call. The cap is
+ * memory hygiene and nothing else: see `noteSightFrameSent` for why a pruned
+ * id cannot become a wrong deletion.
+ */
+const SIGHT_FRAME_LEDGER_CAP = 8;
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 
@@ -768,7 +776,7 @@ export function isLiveVoiceSessionOwnedBy(
  */
 const INITIAL_SESSION_STATE: Omit<
   LiveVoiceState,
-  "starter" | "sessionGeneration"
+  "starter" | "sessionGeneration" | "sightFramesToReclaim"
 > = {
   state: "idle",
   firstRunCardOpen: false,
@@ -785,7 +793,8 @@ const INITIAL_SESSION_STATE: Omit<
   photoRejectedReason: null,
   sightFramesUnsupported: false,
   outstandingSightFrames: [],
-  sightFrameRefusal: null,
+  prunedSightFrames: [],
+  sightFrameRetractions: [],
   controls: null,
   utteranceOpen: false,
   partialTranscript: "",
@@ -804,10 +813,23 @@ const INITIAL_SESSION_STATE: Omit<
   errorRecovery: null,
 };
 
+/** Append reclaims not already queued, so a repeated refusal cannot duplicate. */
+function mergeSightFrameReclaims(
+  queued: readonly SightFrameReclaim[],
+  next: readonly SightFrameReclaim[],
+): readonly SightFrameReclaim[] {
+  const seen = new Set(queued.map((r) => `${r.assistantId}/${r.attachmentId}`));
+  return [
+    ...queued,
+    ...next.filter((r) => !seen.has(`${r.assistantId}/${r.attachmentId}`)),
+  ];
+}
+
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
   sessionGeneration: 0,
+  sightFramesToReclaim: [],
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -832,50 +854,89 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       photoRejectedSeq: state.photoRejectedSeq + 1,
       photoRejectedReason: reason,
     })),
+  // The cap drops the OLDEST id, and a dropped id cannot become a wrong
+  // deletion. Overflow only happens against an assistant that is answering
+  // nothing, which is an assistant persisting the keeps; one that cannot take
+  // the frame refuses the very first send, long before eight are in flight.
+  // The pruned ids are kept anyway, and unioned into the reclaim queue if the
+  // latch does fire, so nothing is dropped silently. Reclaiming a pruned id is
+  // safe even when the assistant did persist it: the attachment delete is
+  // refused for a row a message links.
   noteSightFrameSent: (attachmentId) =>
-    set((s) => ({
-      outstandingSightFrames: [...s.outstandingSightFrames, attachmentId],
-    })),
-  noteSightFrameRefused: (unsupported) =>
+    set((s) => {
+      const appended = [...s.outstandingSightFrames, attachmentId];
+      if (appended.length <= SIGHT_FRAME_LEDGER_CAP) {
+        return { outstandingSightFrames: appended };
+      }
+      const overflow = appended.length - SIGHT_FRAME_LEDGER_CAP;
+      return {
+        outstandingSightFrames: appended.slice(overflow),
+        prunedSightFrames: [
+          ...s.prunedSightFrames,
+          ...appended.slice(0, overflow),
+        ].slice(-SIGHT_FRAME_LEDGER_CAP),
+      };
+    }),
+  noteSightFrameRefused: (unsupported, attachmentId = null) =>
     set((s) => {
       const outstanding = s.outstandingSightFrames;
-      const pending = s.sightFrameRefusal;
-      // Fold onto whatever is still waiting to be consumed rather than
-      // replacing it. See {@link LiveVoiceSightFrameRefusal}.
-      const fold = (
-        next: LiveVoiceSightFrameRefusal,
-      ): LiveVoiceSightFrameRefusal =>
-        pending === null
-          ? next
-          : {
-              unsupported: pending.unsupported || next.unsupported,
-              reclaim: [...new Set([...pending.reclaim, ...next.reclaim])],
-              retract: [...new Set([...pending.retract, ...next.retract])],
-            };
       if (unsupported) {
-        // Every id in flight is an orphan: this assistant stored none of them
-        // and reclaims nothing. The latch stops the next keep before it
-        // uploads, so this is the last cleanup the session needs.
+        // Nothing this assistant was sent was stored, and it reclaims nothing,
+        // so every id still accounted for is the client's to give back. The
+        // named id joins them: an assistant that echoes one may be naming a
+        // send the cap already pruned.
+        const orphans = [
+          ...new Set([
+            ...s.prunedSightFrames,
+            ...outstanding,
+            ...(attachmentId === null ? [] : [attachmentId]),
+          ]),
+        ];
+        const assistantId = s.assistantId;
         return {
           sightFramesUnsupported: true,
           outstandingSightFrames: [],
-          sightFrameRefusal: fold({
-            unsupported: true,
-            reclaim: outstanding,
-            retract: [],
-          }),
+          prunedSightFrames: [],
+          sightFramesToReclaim:
+            assistantId === null
+              ? s.sightFramesToReclaim
+              : mergeSightFrameReclaims(
+                  s.sightFramesToReclaim,
+                  orphans.map((id) => ({ assistantId, attachmentId: id })),
+                ),
         };
       }
+      if (attachmentId !== null) {
+        // Exact: the error names its own frame, so the ledger retires that
+        // entry wherever it sits and the retraction speaks for that keep alone,
+        // regardless of how many older sends are still unanswered.
+        return {
+          outstandingSightFrames: outstanding.filter(
+            (id) => id !== attachmentId,
+          ),
+          prunedSightFrames: s.prunedSightFrames.filter(
+            (id) => id !== attachmentId,
+          ),
+          sightFrameRetractions: [
+            ...new Set([...s.sightFrameRetractions, attachmentId]),
+          ],
+        };
+      }
+      // Fallback for an assistant that names nothing: the refusal is taken to
+      // be about the oldest unanswered send, and it can only speak for the
+      // surface when that is the only one. Accumulating retractions is what
+      // keeps a second refusal, computed against a ledger the first already
+      // emptied, from erasing the first one's answer.
       return {
         outstandingSightFrames: outstanding.slice(1),
-        sightFrameRefusal: fold({
-          unsupported: false,
-          reclaim: [],
-          retract: outstanding.length === 1 ? outstanding.slice(0, 1) : [],
-        }),
+        sightFrameRetractions:
+          outstanding.length === 1
+            ? [...new Set([...s.sightFrameRetractions, outstanding[0]!])]
+            : s.sightFrameRetractions,
       };
     }),
-  clearSightFrameRefusal: () => set({ sightFrameRefusal: null }),
+  clearSightFramesToReclaim: () => set({ sightFramesToReclaim: [] }),
+  clearSightFrameRetractions: () => set({ sightFrameRetractions: [] }),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
@@ -910,19 +971,11 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       sessionGeneration: opts?.sessionContinues
         ? s.sessionGeneration
         : s.sessionGeneration + 1,
-      // A refusal nobody has consumed survives a reconnect and dies with the
-      // session. Inside one session the room is still mounted on the same
-      // assistant, so it consumes on the other side of the gap and the
-      // uploads are given back. Across a session boundary the room has
-      // unmounted, so nothing would consume it anyway, and the next session
-      // can be bound to a DIFFERENT assistant, where consuming it would aim a
-      // delete at an assistant that never held those rows. Carrying it there
-      // risks a wrong delete to save a reclaim nobody was going to perform.
-      //
-      // `sightFramesUnsupported` deliberately does NOT carry either way: the
-      // latch is about the assistant that just answered, and a reconnect can
-      // land on an upgraded one.
-      sightFrameRefusal: opts?.sessionContinues ? s.sightFrameRefusal : null,
+      // `sightFramesToReclaim` is absent from INITIAL_SESSION_STATE on purpose
+      // and so survives this untouched: a queue a teardown could discard would
+      // strand the uploads it exists to collect. `sightFramesUnsupported` is
+      // the opposite and does reset, because the latch is about the assistant
+      // that just answered and a reconnect can land on an upgraded one.
     })),
 }));
 

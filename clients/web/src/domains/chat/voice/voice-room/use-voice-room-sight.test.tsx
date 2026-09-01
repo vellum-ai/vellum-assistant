@@ -475,10 +475,13 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
     expect(controls.sightFrame).not.toHaveBeenCalled();
     // Refused before the upload, not after, so there is nothing to give back.
     expect(uploadChatAttachment).not.toHaveBeenCalled();
+    // Nothing was shared, so the pulse has no honest version to keep showing.
     expect(view.result.current.heldFrame).toBeNull();
   });
 
-  test("gives back the upload the refusal stranded", async () => {
+  test("leaves the deleting to the session-lifetime reclaimer", async () => {
+    // A minimized room is not mounted, so cleanup cannot be this component's
+    // to perform. It queues on the store instead, naming the assistant.
     const { view } = renderSight();
     await keepFrame();
 
@@ -487,42 +490,10 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
-    // Nothing was shared, so the pulse has no honest version to keep showing.
-    expect(view.result.current.heldFrame).toBeNull();
-  });
-
-  test("gives back every upload when two refusals land before one consume", async () => {
-    // Both keeps are already sent when the assistant starts refusing, and the
-    // two errors arrive together. A payload that replaced the one before it
-    // would strand the first upload for good: this assistant stored neither
-    // and reclaims neither.
-    uploadsResolveImmediately = false;
-    const { view } = renderSight();
-    act(() => {
-      samplerOptions?.onDecision(KEEP, performance.now());
-    });
-    await flush();
-    act(() => {
-      samplerOptions?.onDecision(KEEP, performance.now());
-    });
-    await flush();
-    await act(async () => {
-      pendingUploads[0]!({ ok: true, id: "att-one" });
-      pendingUploads[1]!({ ok: true, id: "att-two" });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(controls.sightFrame.mock.calls).toEqual([["att-one"], ["att-two"]]);
-
-    await act(async () => {
-      const store = useLiveVoiceStore.getState();
-      store.noteSightFrameRefused(true);
-      store.noteSightFrameRefused(true);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-one");
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-two");
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([
+      { assistantId: ASSISTANT_ID, attachmentId: "att-1" },
+    ]);
     expect(view.result.current.heldFrame).toBeNull();
   });
 
@@ -582,9 +553,39 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
     revoke.mockRestore();
   });
 
+  test("retracts the displayed keep the error named, past older sends", async () => {
+    // What the positional fallback cannot reach: successful keeps are never
+    // acknowledged, so after the first one the ledger holds more than one send
+    // for the rest of the call and the fallback goes quiet.
+    const { view } = renderSight();
+    await keepFrame();
+    await keepFrame();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+
+    await act(async () => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-2");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.result.current.heldFrame).toBeNull();
+  });
+
+  test("leaves the pulse alone when the error named an older keep", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+    await keepFrame();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-1");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+  });
+
   test("leaves the pulse alone while a newer keep is outstanding", async () => {
-    // The error names no attachment, so this could be either keep, and the
-    // ordinary reading is the older one. The surface already shows the newer.
+    // The fallback, with no id to go on: the refusal could be either keep, and
+    // the surface already shows the newer.
     const { view } = renderSight();
     await keepFrame();
     await keepFrame();

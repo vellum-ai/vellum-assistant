@@ -606,7 +606,7 @@ describe("server frame dispatch", () => {
       frameType: "sight_frame",
     });
 
-    expect(refusals).toEqual([{ unsupported: true }]);
+    expect(refusals).toEqual([{ unsupported: true, attachmentId: null }]);
   });
 
   test("a recoverable sight_frame rejection is reported as a routine drop", async () => {
@@ -627,7 +627,28 @@ describe("server frame dispatch", () => {
       recoverable: true,
     });
 
-    expect(refusals).toEqual([{ unsupported: false }]);
+    expect(refusals).toEqual([{ unsupported: false, attachmentId: null }]);
+  });
+
+  test("a sight_frame rejection carries the attachment id when echoed", async () => {
+    // Optional on the wire and absent from every assistant at the version
+    // floor. When present it is what makes a refusal correlatable to its keep.
+    const { client, ws } = await ready();
+    const refusals: unknown[] = [];
+    client.on("sightFrameRejected", (r) => refusals.push(r));
+
+    client.sightFrame("att-7");
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "Could not attach that camera frame to the conversation.",
+      frameType: "sight_frame",
+      attachmentId: "att-7",
+      recoverable: true,
+    });
+
+    expect(refusals).toEqual([{ unsupported: false, attachmentId: "att-7" }]);
   });
 
   test("sendText refuses when the assistant did not echo textInput", async () => {

@@ -326,31 +326,33 @@ export function useVoiceRoomSight(
   // dropped: the generation survives the gap by design, so it can resolve
   // after the fresh session is ready with every other guard passing, and a
   // view from seconds before the gap would be persisted as the current one.
-  // What a refusal from the assistant costs this hook. Two different things,
-  // and the store has already worked out which (see
-  // `LiveVoiceSightFrameRefusal`): uploads nothing will ever collect, and the
-  // frame on screen when the surface can prove the refusal was about it.
-  //
-  // An assistant that cannot take the frame at all clears the pulse outright.
-  // Nothing it was sent was ever shared, so there is no honest version of the
-  // thumbnail to leave up.
-  const sightFrameRefusal = useLiveVoiceStore.use.sightFrameRefusal();
+  // A refusal the store could tie to a keep this surface is displaying. Taking
+  // the thumbnail down is all it costs here: giving the upload back belongs to
+  // the session-lifetime reclaimer, because a minimized room is not mounted
+  // and cleanup cannot wait on this component existing.
+  const sightFrameRetractions = useLiveVoiceStore.use.sightFrameRetractions();
   useEffect(() => {
-    if (!sightFrameRefusal) {
+    if (sightFrameRetractions.length === 0) {
       return;
     }
-    useLiveVoiceStore.getState().clearSightFrameRefusal();
-    for (const attachmentId of sightFrameRefusal.reclaim) {
-      reclaimUpload(attachmentId);
-    }
+    useLiveVoiceStore.getState().clearSightFrameRetractions();
     const displayed = heldRef.current?.attachmentId;
-    if (
-      sightFrameRefusal.unsupported ||
-      (displayed !== undefined && sightFrameRefusal.retract.includes(displayed))
-    ) {
+    if (displayed !== undefined && sightFrameRetractions.includes(displayed)) {
       hold(null);
     }
-  }, [hold, reclaimUpload, sightFrameRefusal]);
+  }, [hold, sightFrameRetractions]);
+
+  // An assistant that cannot take the frame at all is a different case, and a
+  // latch rather than an event: nothing it was sent was ever shared, so there
+  // is no honest version of the thumbnail to leave up, and no correlation to
+  // do to know that.
+  const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
+  useEffect(() => {
+    if (!sightFramesUnsupported) {
+      return;
+    }
+    hold(null);
+  }, [hold, sightFramesUnsupported]);
 
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   useEffect(() => {

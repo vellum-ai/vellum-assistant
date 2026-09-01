@@ -1240,7 +1240,7 @@ export function useLiveVoice(
           // which of the two the refusal calls for.
           useLiveVoiceStore
             .getState()
-            .noteSightFrameRefused(rejected.unsupported);
+            .noteSightFrameRefused(rejected.unsupported, rejected.attachmentId);
         }),
         client.on("busy", (frame) => {
           if (!live()) {
