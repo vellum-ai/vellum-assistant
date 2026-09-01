@@ -12,9 +12,10 @@ import { createElement } from "react";
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import type {
-  FeedItem,
-  FeedItemGuardianRequest,
+import {
+  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+  type FeedItem,
+  type FeedItemGuardianRequest,
 } from "@vellumai/assistant-api";
 
 import { feedItem } from "../feed-test-fixtures";
@@ -121,19 +122,25 @@ describe("HomeGuardianRequestCard", () => {
     ).toBeTruthy();
   });
 
-  test.each([
-    [{ status: "approved" } as const, "Request approved"],
-    [{ status: "denied" } as const, "Request rejected"],
-    [{ status: "expired" } as const, "Request expired"],
+  const TERMINAL_RECEIPTS: [Partial<FeedItemGuardianRequest>, string][] = [
+    [{ status: "approved" }, "Request approved"],
+    [{ status: "denied" }, "Request rejected"],
+    [{ status: "expired" }, "Request expired"],
+    [{ status: "cancelled" }, "Request cancelled"],
     [
-      { status: "denied", terminalReason: "superseded" } as const,
+      {
+        status: "denied",
+        terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+      },
       "Request superseded",
     ],
     [
-      { status: "denied", decidedAction: "leave_unverified" } as const,
+      { status: "denied", decidedAction: "leave_unverified" },
       "Left unverified",
     ],
-  ])(
+  ];
+
+  test.each(TERMINAL_RECEIPTS)(
     "a terminal projection renders its receipt and no buttons",
     (projection, expected) => {
       render(

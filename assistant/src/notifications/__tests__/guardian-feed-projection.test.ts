@@ -48,7 +48,7 @@ const {
 } = await import("../guardian-feed-projection.js");
 const { appendFeedItem, bulkSetFeedItemStatus, getHomeFeedPath, readHomeFeed } =
   await import("../../home/feed-writer.js");
-const { isPendingGuardianFeedItem } =
+const { GUARDIAN_TERMINAL_REASON_SUPERSEDED, isPendingGuardianFeedItem } =
   await import("../../api/responses/home.js");
 type FeedItem = import("../../api/responses/home.js").FeedItem;
 
@@ -264,12 +264,14 @@ describe("writeGuardianFeedReceipt", () => {
       requestId: "req-4",
       status: "denied",
       decidedAction: "reject",
-      terminalReason: "superseded",
+      terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
     });
     const item = readHomeFeed().items.find(
       (i) => i.id === guardianFeedItemId("req-4"),
     );
-    expect(item?.guardianRequest?.terminalReason).toBe("superseded");
+    expect(item?.guardianRequest?.terminalReason).toBe(
+      GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+    );
     expect(item?.guardianRequest?.status).toBe("denied");
   });
 
