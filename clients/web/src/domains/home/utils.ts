@@ -148,15 +148,17 @@ export type GuardianCategoryLabelKey =
   | "category.guardianQuestion";
 
 /**
- * Category label override for a guardian-request item. The wire
+ * Category label override for a pending guardian-request item. The wire
  * `category` stays `security` (older clients keep their chip), but a
- * guardian row names what it actually needs: an action or an answer.
- * Null for every other item, which keeps its category's own label.
+ * pending guardian row names what it actually needs: an action or an
+ * answer. Null once the request is terminal (a resolved request needs
+ * nothing, so its chip falls back to the category's own label) and for
+ * every other item.
  */
 export function guardianCategoryLabelKey(
   item: FeedItem,
 ): GuardianCategoryLabelKey | null {
-  if (!item.guardianRequest) {
+  if (!item.guardianRequest || !isPendingGuardianFeedItem(item)) {
     return null;
   }
   return item.guardianRequest.intent === "question"

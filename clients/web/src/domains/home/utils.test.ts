@@ -117,7 +117,7 @@ describe("resolveFeedItemTitle", () => {
 });
 
 function guardianItem(
-  status: "pending" | "approved",
+  status: NonNullable<FeedItem["guardianRequest"]>["status"],
   overrides: Partial<FeedItem> = {},
 ): FeedItem {
   return feedItem({
@@ -183,5 +183,16 @@ describe("guardian feed item derivations", () => {
       "category.guardianQuestion",
     );
     expect(guardianCategoryLabelKey(feedItem())).toBeNull();
+  });
+
+  test("terminal guardian rows drop the callout label", () => {
+    for (const status of [
+      "approved",
+      "denied",
+      "expired",
+      "cancelled",
+    ] as const) {
+      expect(guardianCategoryLabelKey(guardianItem(status))).toBeNull();
+    }
   });
 });

@@ -141,6 +141,9 @@ describe("HomeGuardianRequestCard", () => {
       );
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
+      // Resolved requests demand nothing: the chip drops the pending
+      // callout and falls back to the category's own label.
+      expect(screen.queryByText("Guardian action needed")).toBeNull();
     },
   );
 
