@@ -258,6 +258,10 @@
     "unsupported": "此设备无法打开相机。",
     "uploadFailed": "无法发送该照片。"
   },
+  "cameraShutterHint": {
+    "live": "实时 · 轻点停止",
+    "photo": "轻点拍照 · 长按开启实时"
+  },
   "cameraStatusPill": {
     "announceLive": "实时。{status}",
     "announceLiveMuted": "实时。已静音。{status}",
@@ -1652,6 +1656,7 @@
     "muteMicrophone": "静音麦克风",
     "mutedState": "已静音。{state}",
     "showCamera": "显示摄像头",
+    "stopLive": "停止实时",
     "takePhoto": "拍照",
     "unmuteAssistant": "取消静音助手",
     "unmuteMicrophone": "取消静音麦克风"

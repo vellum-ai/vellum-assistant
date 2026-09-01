@@ -258,6 +258,10 @@
     "unsupported": "此裝置無法開啟相機。",
     "uploadFailed": "無法傳送該相片。"
   },
+  "cameraShutterHint": {
+    "live": "即時 · 輕觸停止",
+    "photo": "輕觸拍照 · 長按開啟即時"
+  },
   "cameraStatusPill": {
     "announceLive": "即時。{status}",
     "announceLiveMuted": "即時。已靜音。{status}",
@@ -1652,6 +1656,7 @@
     "muteMicrophone": "將麥克風靜音",
     "mutedState": "已靜音。{state}",
     "showCamera": "顯示相機",
+    "stopLive": "停止即時",
     "takePhoto": "拍照",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"

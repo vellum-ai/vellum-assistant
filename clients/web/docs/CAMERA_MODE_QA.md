@@ -5,8 +5,8 @@ reader, or a real OS setting, so it runs by hand.
 
 Surface under test: the voice room with the viewfinder up, under
 `src/domains/chat/voice/voice-room/` (the camera paths of `voice-room.tsx`,
-`camera-status-pill.tsx`, `camera-flash-control.tsx`, and
-`voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
+`camera-status-pill.tsx`, `camera-shutter-hint.tsx`, `camera-flash-control.tsx`,
+and `voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
 outside that directory and are in scope with it: the shutter at
 `src/domains/chat/voice/camera-shutter.tsx`, which the room shares with the
 deep-link capture overlay, and that overlay itself in
@@ -60,6 +60,27 @@ scrim.
       nothing flashes the whole screen.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
+- [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
+      second the haptic fires, the ring goes crimson, the pill says Live and the
+      hint changes to "Live · Tap to stop". Letting go takes no photo, so
+      nothing joins the strip and nothing new lands in the transcript.
+- [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
+      small wobble still enters Live. Slide the thumb off the shutter, or more
+      than a finger's width across it, and nothing happens: no photo either.
+- [ ] iOS does not take the press. Holding never raises the text-selection
+      callout, the magnifier, or a share sheet over the viewfinder.
+- [ ] Flipping while live. Enter Live, flip the camera. The pill stays Live, the
+      thumbnail clears, and a new keep appears from the new camera within a few
+      seconds.
+- [ ] Stopping while flipping. Enter Live, flip, and tap the shutter while the
+      flip is still going. It stops: the shutter is never refused while live,
+      so a slow flip cannot strand the user in it.
+- [ ] Backgrounding while live. Background the app with Live running. The camera
+      indicator goes out. Foreground it: the viewfinder returns on photo, not
+      streaming, and nothing was sent while the app was away.
+- [ ] VoiceOver says the mode. With Live running, VoiceOver reads "Live.
+      Listening" on the next state change, and the shutter is named "Stop live".
+      Back on photo it reads "Photo. Listening" and "Take a photo".
 
 ## Android
 
@@ -91,6 +112,16 @@ scrim.
 - [ ] Keyboard walk. Tab from the top of the room: minimize, shutter, flip, mic,
       speaker, camera, end. Every focus ring is a white outline legible over the
       feed, including over a white frame.
+- [ ] A mouse can hold. Press and keep the button down on the shutter for half a
+      second: Live starts, and releasing takes no photo. Press and drag off the
+      button before the half second and nothing happens at all.
+- [ ] Space holds. Focus the shutter and hold Space: Live starts, and the
+      release takes no photo. Tap Space and one photo is taken, the same as a
+      click. The page never scrolls under either.
+- [ ] Leaving and re-entering Live quickly shows nothing for a few seconds. Stop
+      Live and start it again: the first keep can take up to five seconds. That
+      is the gate's rate floor, which survives the reset by design; it is not a
+      stall.
 - [ ] Escape minimizes the room from camera mode, and the camera releases.
 - [ ] Locale sweep. Switch the app to Spanish and then to Russian, open the
       camera, and deny the permission in the browser. The pill, every control

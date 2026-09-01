@@ -161,6 +161,7 @@ import {
   CAMERA_SCRIM_TOP,
   cameraModeStyle,
 } from "./camera-mode-paint";
+import { CameraShutterHint } from "./camera-shutter-hint";
 import {
   CameraStatusPill,
   useCameraStatusAnnouncement,
@@ -588,17 +589,31 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // as the status pill's word below.
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
-  // Sight rides the viewfinder the shutter already put on screen: while it is
-  // open the gate keeps the frames worth keeping and sends each one as it
+  // Sight rides the viewfinder the shutter already put on screen: while Live is
+  // running the gate keeps the frames worth keeping and sends each one as it
   // lands, and the daemon persists it as its own message, so the call can be
   // asked about what the camera is pointed at without anyone pressing
-  // anything. Inert unless the flag and the session's assistant
-  // both allow it, and it acquires no camera of its own, so the native shells
+  // anything further. Inert unless the flag and the session's assistant both
+  // allow it, and it acquires no camera of its own, so the native shells
   // (where this `<video>` never mounts) simply sample nothing.
-  const { heldFrame } = useVoiceRoomSight(assistantId, viewfinderRef, {
-    cameraOpen,
-    facing: camera.facing,
-  });
+  const { heldFrame, liveAvailable, live, setLive } = useVoiceRoomSight(
+    assistantId,
+    viewfinderRef,
+    { cameraOpen, facing: camera.facing },
+  );
+  // One value for what the camera is doing, read by the pill, the shutter, the
+  // hint and the announcement alike, so no two of them can disagree about it.
+  const cameraMode = live ? "live" : "photo";
+  // Whether the hold is on offer right now. The native shells put their preview
+  // behind the web view and never mount the `<video>` sight samples, so without
+  // the shell check a hold there would raise a pill claiming Live over a camera
+  // nothing is reading.
+  const liveOffered = cameraOpen && liveAvailable && !camera.native;
+  // The shutter's two acts, which are two different sentences rather than one
+  // with the mode pushed into it.
+  const shutterLabel = live
+    ? t("voiceRoom.stopLive")
+    : t("voiceRoom.takePhoto");
   // What every control in the room is sitting on. One value passed down rather
   // than a boolean per control, so the row cannot end up half in camera mode.
   const controlSurface: VoiceRoomControlSurface = cameraOpen
@@ -624,6 +639,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const cameraAnnouncement = useCameraStatusAnnouncement(
     cameraOpen
       ? {
+          mode: cameraMode,
           voiceState: cameraVoiceState,
           statusLabel: stateLabel,
           assistantName,
@@ -987,6 +1003,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           style={{ maxWidth: CAMERA_PILL_MAX_WIDTH }}
         >
           <CameraStatusPill
+            mode={cameraMode}
             voiceState={cameraVoiceState}
             statusLabel={stateLabel}
             assistantName={assistantName}
@@ -1224,6 +1241,15 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             </div>
           ) : null}
 
+          {/* What the shutter offers, above the shutter.
+
+              The hold is the only gesture in the room nothing else can
+              announce, and a viewfinder is where a user will not go looking
+              for a second act on a button they already know. Shown only where
+              Live is actually on offer: a caption for a gesture that would do
+              nothing is worse than none. */}
+          {liveOffered ? <CameraShutterHint mode={cameraMode} /> : null}
+
           {/* The shutter is centred on the room, with flip parked off to the
               side rather than sharing a row with it: a two-item row would put
               the shutter off-centre, and the shutter is the target the user
@@ -1257,17 +1283,27 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
               {/* The one control with no surface branch: the shutter exists
                   only while the viewfinder does, so it is never seen against
-                  anything but video. Photo is the only mode the capture path
-                  reaches. */}
-              <Tooltip content={t("voiceRoom.takePhoto")}>
+                  anything but video.
+
+                  A tap takes one photo; holding it enters Live, and the next
+                  tap leaves. The hold is offered only where Live can run, so
+                  the gesture never costs a press that does nothing. */}
+              <Tooltip content={shutterLabel}>
                 <CameraShutter
-                  onClick={() => void shutter()}
-                  ariaLabel={t("voiceRoom.takePhoto")}
+                  mode={cameraMode}
+                  onHold={
+                    liveOffered && !live ? () => setLive(true) : undefined
+                  }
+                  onClick={() => (live ? setLive(false) : void shutter())}
+                  ariaLabel={shutterLabel}
                   capturing={sending}
-                  // Also held off while a flip swaps the capture: the
-                  // viewfinder stays up with nothing behind it, and a press
-                  // there would report a failure for a working flip.
-                  disabled={sending || camera.flipping}
+                  // Held off while a photo goes and while a flip swaps the
+                  // capture: the viewfinder stays up with nothing behind it,
+                  // and a press there would report a failure for a working
+                  // flip. Never while live, because the press that stops the
+                  // stream must always land: a flip started mid-stream would
+                  // otherwise strand the user in Live with a dead shutter.
+                  disabled={!live && (sending || camera.flipping)}
                   testId="voice-room-shutter"
                 />
               </Tooltip>

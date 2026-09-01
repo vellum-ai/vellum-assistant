@@ -259,6 +259,10 @@
     "unsupported": "This device can't open a camera.",
     "uploadFailed": "Couldn't send that photo."
   },
+  "cameraShutterHint": {
+    "live": "Live · Tap to stop",
+    "photo": "Tap photo · Hold for live"
+  },
   "cameraStatusPill": {
     "announceLive": "Live. {status}",
     "announceLiveMuted": "Live. Muted. {status}",
@@ -1685,6 +1689,7 @@
     "muteMicrophone": "Mute microphone",
     "mutedState": "Muted. {state}",
     "showCamera": "Show the camera",
+    "stopLive": "Stop live",
     "takePhoto": "Take a photo",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"

@@ -143,8 +143,7 @@ export const LongAssistantName: Story = {
 /**
  * Streaming rather than sampling. Filled with the capture accent, because "this
  * is going out continuously" is the one thing about the surface that has to be
- * legible without reading. Not reachable from the app yet: the room opens the
- * photo mode only.
+ * legible without reading. What the room raises once the shutter has been held.
  */
 export const Live: Story = { args: { mode: "live" } };
 
