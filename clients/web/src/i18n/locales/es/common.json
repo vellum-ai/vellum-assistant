@@ -217,7 +217,9 @@
   },
   "detailPrimitives": {
     "copied": "Copiado",
-    "copy": "Copiar"
+    "copy": "Copiar",
+    "showLess": "Mostrar menos",
+    "showMore": "Mostrar más"
   },
   "dictationOverlayPage": {
     "stopRecording": "Detener grabación"

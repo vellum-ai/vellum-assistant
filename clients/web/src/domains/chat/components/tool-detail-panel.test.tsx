@@ -116,10 +116,10 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Activity renders in both the header title and the body.
+    // The header owns the activity sentence, and the body does not repeat it.
     expect(
-      getAllByText("Spawning subagent to research Toronto's location").length,
-    ).toBeGreaterThan(0);
+      getAllByText("Spawning subagent to research Toronto's location"),
+    ).toHaveLength(1);
     // Friendly tool name (title-cased from snake_case).
     expect(getByText("Subagent Spawn")).toBeDefined();
     // Input JSON + output appear inside <pre> blocks.
@@ -185,12 +185,55 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Create Trust Rule")).toBeNull();
   });
 
-  test("hides the Output section when result is empty", () => {
-    const { queryByText } = render(
+  test("reports an empty result rather than dropping the Output section", () => {
+    const { getByText, getByTestId } = render(
       <ToolDetailPanel detail={makeDetail({ result: "" })} onClose={noop} />,
     );
 
-    expect(queryByText("Output")).toBeNull();
+    expect(getByText("Output")).toBeDefined();
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "The tool returned no output.",
+    );
+  });
+
+  test("says a denied call did not run", () => {
+    const { getByText, getByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: undefined, status: "denied" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Output")).toBeDefined();
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+  });
+
+  test("clamps a long result behind Show more", () => {
+    const long = "a line of output\n".repeat(200);
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={makeDetail({ result: long })} onClose={noop} />,
+    );
+
+    const toggle = getByText("Show more");
+    expect(toggle).toBeDefined();
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(getByText("Show less")).toBeDefined();
+    expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("leaves a short result unclamped", () => {
+    const { queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: "two words" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(queryByText("Show more")).toBeNull();
   });
 
   test("hides the Output section when result is undefined", () => {

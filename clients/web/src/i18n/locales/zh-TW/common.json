@@ -217,7 +217,9 @@
   },
   "detailPrimitives": {
     "copied": "已複製",
-    "copy": "複製"
+    "copy": "複製",
+    "showLess": "顯示較少",
+    "showMore": "顯示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止錄音"

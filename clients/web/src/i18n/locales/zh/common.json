@@ -217,7 +217,9 @@
   },
   "detailPrimitives": {
     "copied": "已复制",
-    "copy": "复制"
+    "copy": "复制",
+    "showLess": "显示更少",
+    "showMore": "显示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止录音"

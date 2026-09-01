@@ -222,5 +222,9 @@
     "view": "Вид",
     "developer": "Разработчик",
     "help": "Справка"
+  },
+  "detailPrimitives": {
+    "showLess": "Показать меньше",
+    "showMore": "Показать больше"
   }
 }

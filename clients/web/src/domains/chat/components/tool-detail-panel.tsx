@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
@@ -139,11 +138,18 @@ export function ToolDetailBody({
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
-  const hasResult = result !== undefined && result !== "";
+  // An empty string is a result: the tool ran and returned nothing. Treating
+  // it as absent made an empty file indistinguishable from a call still in
+  // flight, and dropped the Output section entirely (LUM-3510).
+  const hasResult = result !== undefined;
+  const isEmptyResult = result === "";
   const isRunning = liveTc
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
   const isError = liveTc?.isError ?? detail.status === "error";
+  // `deriveToolStepStatus` folds a declined confirmation and one that timed out
+  // into the same status, so the copy has to be true of both.
+  const isDenied = detail.status === "denied";
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
@@ -203,15 +209,6 @@ export function ToolDetailBody({
           >
             {titleCaseToolName(detail.toolName)}
           </Typography>
-          {detail.activity && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="mt-0.5 text-[var(--content-secondary)]"
-            >
-              {detail.activity}
-            </Typography>
-          )}
           <div className="mt-2">
             <CodeBlock text={inputJson} />
           </div>
@@ -221,10 +218,10 @@ export function ToolDetailBody({
       {/* Output — the final result once present, else the live streamed tail
           while running, else a bare running placeholder. Suppressed for tools
           whose renderer already presents the result itself. */}
-      {!renderer?.ownsOutput && (hasResult || isRunning) && (
+      {!renderer?.ownsOutput && (hasResult || isRunning || isDenied) && (
         <div className="mt-5">
           <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          {hasResult ? (
+          {hasResult && !isEmptyResult ? (
             <CodeBlock text={result as string} />
           ) : hasStreamedOutput ? (
             <CodeBlock text={streamedOutput as string} />
@@ -233,14 +230,31 @@ export function ToolDetailBody({
               variant="body-small-default"
               as="p"
               className="text-[var(--content-tertiary)]"
+              data-testid="tool-output-notice"
             >
-              {t("toolDetailPanel.running")}
+              {isDenied && !hasResult
+                ? t("toolDetailPanel.denied")
+                : isEmptyResult
+                  ? t("toolDetailPanel.emptyOutput")
+                  : t("toolDetailPanel.running")}
             </Typography>
           )}
         </div>
       )}
     </>
   );
+}
+
+/**
+ * Title the panel hosting a tool detail shows for it: the activity sentence
+ * when the call carries one, else the phase title.
+ *
+ * Every host of `ToolDetailBody` renders its own header, and the body relies on
+ * all of them showing this, which is why the body itself does not repeat the
+ * activity underneath the tool name.
+ */
+export function toolDetailHeaderTitle(detail: ToolDetailPayload): string {
+  return detail.activity || detail.title;
 }
 
 export function ToolDetailPanel({
@@ -273,7 +287,7 @@ export function ToolDetailPanel({
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
-  const title = detail.activity || detail.title;
+  const title = toolDetailHeaderTitle(detail);
 
   return (
     <DetailShell
