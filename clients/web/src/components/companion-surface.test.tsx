@@ -1653,8 +1653,8 @@ describe("the avatar's resting collapse", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
     const shape = shapeOf(container);
-    expect(shape.style.width).toBe("28px");
-    expect(shape.style.height).toBe("10px");
+    expect(shape.style.width).toBe("32px");
+    expect(shape.style.height).toBe("14px");
   });
 
   /**
@@ -1671,9 +1671,10 @@ describe("the avatar's resting collapse", () => {
 
       const shape = shapeOf(container);
       // The lengths are the same on every setting, and the transform undoes
-      // the scale this node carries, which is the avatar's box over 44.
-      expect(shape.style.width).toBe("28px");
-      expect(shape.style.height).toBe("10px");
+      // the scale this node carries, which is the avatar's box over 44. The
+      // box is the accent core (28x10) plus the dark rim on every side.
+      expect(shape.style.width).toBe("32px");
+      expect(shape.style.height).toBe("14px");
       expect(shape.style.transform).toBe(
         `translate(-50%, -50%) scale(${44 / avatarBox})`,
       );
@@ -1725,6 +1726,24 @@ describe("the avatar's resting collapse", () => {
     );
 
     expect(ringOf(container)?.parentElement).toBe(shapeOf(container));
+  });
+
+  /**
+   * The rim is what keeps the working ring legible. Drawn in the assistant's
+   * colour immediately outside the shape, a ring around a capsule painted that
+   * same colour disappears, and a turn running while nobody is looking is the
+   * one thing at rest the ring has to carry on its own.
+   */
+  test("wears a dark rim inside the capsule, not an outline over it", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    const capsule = shapeOf(container).querySelector<HTMLElement>(
+      "[style*='background']",
+    );
+    expect(capsule?.style.borderWidth).toBe("2px");
+    expect(capsule?.style.borderStyle).toBe("solid");
+    // Inside the box, so the ring still owns the whole annulus outside it.
+    expect(capsule?.className).toContain("inset-0");
   });
 
   /**

@@ -234,6 +234,22 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 const RESTING_HEIGHT = 10;
 
 /**
+ * The dark hairline the capsule wears, and the reason it is not a detail.
+ *
+ * The working ring is drawn immediately outside whatever shape it rides, in the
+ * assistant's colour. Around a capsule painted that same colour it disappears:
+ * a turn running while nobody is looking is exactly the state the ring exists
+ * to carry, and at rest it is the only thing carrying it. The hairline is what
+ * puts a dark edge between the two so the ring reads as a ring.
+ *
+ * The box grows by it on every side rather than the colour shrinking into it,
+ * so the accent a user actually sees stays {@link AVATAR_IMAGE} by
+ * {@link RESTING_HEIGHT} and the separation is bought from the desktop instead
+ * of from the marker.
+ */
+const RESTING_RIM = 2;
+
+/**
  * The clearance every round thing inside the pill keeps from its edge.
  *
  * One number, because the geometry only works at one value. Nested rounded
@@ -1382,8 +1398,12 @@ function Avatar({
       <div
         className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,transform] duration-300"
         style={{
-          width: collapsed ? AVATAR_IMAGE : COMPANION_BASE_AVATAR_BOX,
-          height: collapsed ? RESTING_HEIGHT : COMPANION_BASE_AVATAR_BOX,
+          width: collapsed
+            ? AVATAR_IMAGE + 2 * RESTING_RIM
+            : COMPANION_BASE_AVATAR_BOX,
+          height: collapsed
+            ? RESTING_HEIGHT + 2 * RESTING_RIM
+            : COMPANION_BASE_AVATAR_BOX,
           // Centred on the anchor, then scaled about that centre. The scale is
           // stated on both sides rather than only the collapsed one, so the two
           // states are the same transform list and interpolate cleanly.
@@ -1398,25 +1418,32 @@ function Avatar({
         }}
       >
         {edge}
-        {/* The capsule itself, in the pill's own material: the same border,
-          ground and shadow the expanded body paints, so at rest and expanded
-          the user is looking at one surface rather than two. Drawn only while
-          collapsed, since the creature stands on the desktop unbacked.
+        {/* The capsule itself, drawn whole in the assistant's own colour.
 
-          The dot inside it is the assistant's colour, which is all that is
-          left of the creature at this size. Dark chrome alone would be a
-          lozenge the eye slides off on a busy desktop, and this shape has to
-          stay findable: it is the only thing saying the assistant is here. */}
+          The colour is all that is left of the creature at this size, so it is
+          the shape rather than a mark on it: a dark lozenge carrying a dot is
+          chrome with a light in it, and what this wants to be is the assistant,
+          small. It is also what keeps the marker findable on a busy desktop,
+          which matters more here than anywhere else on the surface: at rest
+          this is the only thing saying the assistant is there at all.
+
+          The pill's own material is deliberately not borrowed: a white rim over
+          a saturated colour reads as a highlight on it and muddies the one
+          thing the shape is for. The rim it does wear is dark and is not
+          decoration, it is what keeps the working ring legible; see
+          {@link RESTING_RIM}. The shadow stays, since it is what holds any of
+          this against a desktop the surface does not own. */}
         <div
-          className="absolute inset-0 grid place-items-center rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
-          style={{ opacity: collapsed ? 1 : 0 }}
+          className="absolute inset-0 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
+          style={{
+            background: accentHex,
+            // Drawn as a border rather than an outline so it is inside the
+            // box, which is what leaves the ring the whole annulus outside.
+            border: `${RESTING_RIM}px solid #17181b`,
+            opacity: collapsed ? 1 : 0,
+          }}
           aria-hidden
-        >
-          <span
-            className="size-1.5 rounded-full"
-            style={{ background: accentHex }}
-          />
-        </div>
+        />
       </div>
       {/* The creature, tucking into the capsule rather than blinking out of
         it. A wrapper of its own because the scale is a `transform` and the bob
