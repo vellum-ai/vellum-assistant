@@ -157,6 +157,8 @@
   "companionSurface": {
     "allow": "Allow",
     "deny": "Deny",
+    "dictating": "Listening",
+    "dictatingTranscribing": "Thinking",
     "endSession": "End session",
     "goBack": "Go back",
     "messagePlaceholder": "Message {name}",

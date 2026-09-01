@@ -21,30 +21,6 @@
     "guardianQuestion": "Guardian question",
     "guardianRequest": "Guardian request"
   },
-  "feedRemediation": {
-    "done": "Vellum-managed models are working again.",
-    "failed": "Could not restore it: {{reason}}",
-    "receipt": "Restored",
-    "running": "Restoring..."
-  },
-  "homeGuardianRequestCard": {
-    "approve": "Approve",
-    "reject": "Reject",
-    "answerHint": "Go to the conversation to answer this question.",
-    "decisionFailed": "The decision could not be submitted. Try again.",
-    "receipt": {
-      "approved": "Request approved",
-      "rejected": "Request rejected",
-      "expired": "Request expired",
-      "superseded": "Request superseded",
-      "leftUnverified": "Left unverified",
-      "cancelled": "Request cancelled",
-      "alreadyResolved": "Already resolved"
-    },
-    "viewSourceThread": "View source thread",
-    "toolRequested": "Requested to run <code>{toolName}</code>",
-    "toolRequesting": "Requesting to run <code>{toolName}</code>"
-  },
   "homeRecapRow": {
     "actionsTitle": "Update Actions"
   },
@@ -69,11 +45,35 @@
   "notificationsBellDetail": {
     "back": "Back to notifications"
   },
+  "homeGuardianRequestCard": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "answerHint": "Go to the conversation to answer this question.",
+    "decisionFailed": "The decision could not be submitted. Try again.",
+    "receipt": {
+      "approved": "Request approved",
+      "rejected": "Request rejected",
+      "expired": "Request expired",
+      "superseded": "Request superseded",
+      "leftUnverified": "Left unverified",
+      "cancelled": "Request cancelled",
+      "alreadyResolved": "Already resolved"
+    },
+    "viewSourceThread": "View source thread",
+    "toolRequested": "Requested to run <code>{toolName}</code>",
+    "toolRequesting": "Requesting to run <code>{toolName}</code>"
+  },
   "notificationsBellEmptyState": {
     "title": "Nothing yet.",
     "briefingRecipeTitle": "Set up a morning briefing",
     "briefingRecipeMeta": "Daily",
     "briefingRecipeDescription": "Your first notification, tomorrow morning.",
     "briefingRecipePrompt": "Help me set up a morning briefing. Before you create anything, check which of my accounts are connected, then give me a few options for what it could cover and when it should run. Once I pick, set it up."
+  },
+  "feedRemediation": {
+    "done": "Vellum-managed models are working again.",
+    "failed": "Could not restore it: {reason}",
+    "receipt": "Restored",
+    "running": "Restoring..."
   }
 }

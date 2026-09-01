@@ -30,16 +30,25 @@ export function sortFeedItems(items: FeedItem[]): FeedItem[] {
  * The items the notifications bell shows: dismissed items are hidden, and so
  * are high-urgency ones, which surface through their own channels instead.
  *
- * A pending guardian item is the exception to the urgency rule: the bell is
- * that item's canonical home (no separate channel renders it), so it stays
- * visible however loud it is. The bell's unread dot, its list, and its bulk
- * actions all read this one derivation, so they cannot disagree.
+ * An item whose canonical home is the bell is the exception to the urgency
+ * rule: no separate channel renders it, so it stays visible however loud it
+ * is. That covers a pending guardian request and any item carrying a repair.
+ *
+ * Deliberately not "is it waiting on the reader". A repair's button and the
+ * receipt that replaces it both live only here, so the row has to outlast the
+ * repair: an item that vanished the moment it was fixed would take the
+ * confirmation with it and leave the reader unsure whether it worked. It
+ * leaves when they dismiss it, like a settled guardian request.
+ *
+ * The bell's unread dot, its list, and its bulk actions all read this one
+ * derivation, so they cannot disagree.
  */
 export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
   return items.filter(
     (item) =>
       item.status !== "dismissed" &&
       (isPendingGuardianFeedItem(item) ||
+        item.remediation !== undefined ||
         (item.urgency !== "high" && item.urgency !== "critical")),
   );
 }

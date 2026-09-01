@@ -17,7 +17,10 @@
  * client shows the notification exactly as it does today.
  */
 import { recoverLocalAssistantPlatformCredential } from "@/lib/local-platform-identity";
-import type { FeedRemediationAction } from "@vellumai/assistant-api";
+import {
+  type FeedRemediationAction,
+  FeedRemediationActionSchema,
+} from "@vellumai/assistant-api";
 
 /**
  * Performs one fix. Receives the item's `params`, which name the instance to
@@ -40,9 +43,16 @@ const HANDLERS: Partial<Record<FeedRemediationAction, FeedRemediationHandler>> =
     },
   };
 
-/** The handler for `action`, or null when this build cannot perform it. */
+/**
+ * The handler for `action`, or null when this build cannot perform it.
+ *
+ * The action arrives as a wire string that may name a remediation added after
+ * this client shipped, so it is parsed against the schema that defines the
+ * set rather than asserted into it.
+ */
 export function resolveFeedRemediationHandler(
   action: string,
 ): FeedRemediationHandler | null {
-  return HANDLERS[action as FeedRemediationAction] ?? null;
+  const parsed = FeedRemediationActionSchema.safeParse(action);
+  return parsed.success ? (HANDLERS[parsed.data] ?? null) : null;
 }

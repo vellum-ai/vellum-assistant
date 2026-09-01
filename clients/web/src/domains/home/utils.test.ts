@@ -141,6 +141,40 @@ describe("guardian feed item derivations", () => {
     expect(visible.map((i) => i.id)).toEqual([pending.id]);
   });
 
+  // The credential health alert emits at high urgency, so without the
+  // awaiting-action exception the bell filters out the only surface carrying
+  // its repair and the button can never be reached.
+  test("an item carrying a repair stays visible despite high urgency", () => {
+    const repairable = feedItem({
+      id: "credential",
+      urgency: "high",
+      remediation: {
+        action: "reprovision_managed_credential",
+        label: "Restore access",
+      },
+    });
+    const plainHighUrgency = feedItem({ id: "urgent", urgency: "high" });
+    const visible = getVisibleFeedItems([repairable, plainHighUrgency]);
+    expect(visible.map((i) => i.id)).toEqual([repairable.id]);
+  });
+
+  // The row outlasts the repair. Its receipt lives only in the bell, so an
+  // item that vanished on being fixed would take the confirmation with it.
+  test("a repaired item stays visible so its receipt can be read", () => {
+    const repaired = feedItem({
+      id: "credential-done",
+      urgency: "high",
+      status: "acted_on",
+      remediation: {
+        action: "reprovision_managed_credential",
+        label: "Restore access",
+      },
+    });
+    expect(getVisibleFeedItems([repaired]).map((i) => i.id)).toEqual([
+      repaired.id,
+    ]);
+  });
+
   test("a pending guardian item sorts ahead of higher-priority items", () => {
     const pending = guardianItem("pending");
     const louder = feedItem({ id: "louder", priority: 90 });

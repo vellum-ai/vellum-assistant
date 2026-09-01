@@ -21,30 +21,6 @@
     "guardianQuestion": "Вопрос опекуну",
     "guardianRequest": "Запрос опекуна"
   },
-  "feedRemediation": {
-    "done": "Модели под управлением Vellum снова работают.",
-    "failed": "Не удалось восстановить: {{reason}}",
-    "receipt": "Восстановлено",
-    "running": "Восстановление..."
-  },
-  "homeGuardianRequestCard": {
-    "approve": "Одобрить",
-    "reject": "Отклонить",
-    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
-    "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
-    "receipt": {
-      "approved": "Запрос одобрен",
-      "rejected": "Запрос отклонён",
-      "expired": "Срок запроса истёк",
-      "superseded": "Запрос заменён",
-      "leftUnverified": "Осталось непроверенным",
-      "cancelled": "Запрос отменён",
-      "alreadyResolved": "Уже решено"
-    },
-    "viewSourceThread": "Открыть исходный тред",
-    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
-    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
-  },
   "homeRecapRow": {
     "actionsTitle": "Действия по обновлению"
   },
@@ -69,11 +45,35 @@
   "notificationsBellDetail": {
     "back": "Назад к уведомлениям"
   },
+  "homeGuardianRequestCard": {
+    "approve": "Одобрить",
+    "reject": "Отклонить",
+    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
+    "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
+    "receipt": {
+      "approved": "Запрос одобрен",
+      "rejected": "Запрос отклонён",
+      "expired": "Срок запроса истёк",
+      "superseded": "Запрос заменён",
+      "leftUnverified": "Осталось непроверенным",
+      "cancelled": "Запрос отменён",
+      "alreadyResolved": "Уже решено"
+    },
+    "viewSourceThread": "Открыть исходный тред",
+    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
+    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
+  },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",
     "briefingRecipeTitle": "Настроить утреннюю сводку",
     "briefingRecipeMeta": "Ежедневно",
     "briefingRecipeDescription": "Первое уведомление придёт завтра утром.",
     "briefingRecipePrompt": "Помоги настроить утреннюю сводку. Прежде чем что-то создавать, проверь, какие мои аккаунты подключены, а потом предложи несколько вариантов того, что в неё включить и в какое время её присылать. Когда я выберу, настрой её."
+  },
+  "feedRemediation": {
+    "done": "Модели под управлением Vellum снова работают.",
+    "failed": "Не удалось восстановить: {reason}",
+    "receipt": "Восстановлено",
+    "running": "Восстановление..."
   }
 }
