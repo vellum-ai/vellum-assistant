@@ -12,7 +12,10 @@ type TemplateItem = {
   type?: string;
   enabled?: boolean;
   accelerator?: string;
-  click?: () => void | Promise<void>;
+  checked?: boolean;
+  // Optional argument so the no-arg call sites below still typecheck: Electron
+  // passes the item, and only the checkbox items read it.
+  click?: (item?: { checked: boolean }) => void | Promise<void>;
   submenu?: TemplateItem[];
 };
 
@@ -79,8 +82,22 @@ mock.module("@vellumai/electron-desktop/settings", () => ({
   onSettingChange: () => () => {},
 }));
 
+let companionHidden = false;
+let companionHiddenListener: ((hidden: boolean) => void) | null = null;
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => companionHidden,
+  onCompanionHiddenChange: (callback: (hidden: boolean) => void) => {
+    companionHiddenListener = callback;
+    return () => {
+      companionHiddenListener = null;
+    };
+  },
+}));
+
+const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
+mock.module("./companion-window", () => ({
+  setCompanionSurfaceVisible: setCompanionSurfaceVisibleMock,
 }));
 
 const getCliPathInstallStateMock = mock(
@@ -167,6 +184,8 @@ beforeEach(async () => {
   isCliPathFlowInFlightMock.mockReset();
   isCliPathFlowInFlightMock.mockImplementation(() => false);
   callOrder.length = 0;
+  companionHidden = false;
+  setCompanionSurfaceVisibleMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -391,5 +410,59 @@ describe("refreshCliPathMenuState", () => {
     await refreshCliPathMenuState();
     expect(appMenuLabels()).toContain(INSTALL_LABEL);
     expect(setApplicationMenuMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Window menu companion toggle", () => {
+  const COMPANION_LABEL = "Show Companion";
+
+  const windowSubmenu = (): TemplateItem[] =>
+    lastTemplate().find((item) => item.label === "Window")?.submenu ?? [];
+
+  const companionItem = (): TemplateItem | undefined =>
+    windowSubmenu().find((item) => item.label === COMPANION_LABEL);
+
+  test("offers the companion toggle as a checkbox in the Window menu", async () => {
+    await refreshCliPathMenuState();
+    expect(companionItem()?.type).toBe("checkbox");
+  });
+
+  test("checks the item while the surface is shown", async () => {
+    companionHidden = false;
+    await refreshCliPathMenuState();
+    expect(companionItem()?.checked).toBe(true);
+  });
+
+  test("unchecks the item while the surface is hidden", async () => {
+    companionHidden = true;
+    await refreshCliPathMenuState();
+    expect(companionItem()?.checked).toBe(false);
+  });
+
+  test("shows the surface when the item is ticked", async () => {
+    companionHidden = true;
+    await refreshCliPathMenuState();
+    // Electron flips `checked` before `click`, so a tick arrives as `true`.
+    await companionItem()?.click?.({ checked: true });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenCalledWith(true);
+  });
+
+  test("hides the surface when the item is unticked", async () => {
+    companionHidden = false;
+    await refreshCliPathMenuState();
+    await companionItem()?.click?.({ checked: false });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenCalledWith(false);
+  });
+
+  test("rebuilds the menu when the surface is hidden from somewhere else", () => {
+    // The tray item and the surface's own right-click "Hide" both move the
+    // stored flag without going through this menu. Unlike the tray's, this
+    // menu is built once and kept, so the subscription is the only thing that
+    // brings its checkmark back in line.
+    expect(companionHiddenListener).not.toBeNull();
+    companionHidden = true;
+    companionHiddenListener?.(true);
+    expect(setApplicationMenuMock).toHaveBeenCalledTimes(1);
+    expect(companionItem()?.checked).toBe(false);
   });
 });

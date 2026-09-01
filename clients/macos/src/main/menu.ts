@@ -5,7 +5,11 @@ import {
   onSettingChange,
   readSetting,
 } from "@vellumai/electron-desktop/settings";
-import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
+import {
+  onCompanionHiddenChange,
+  readCompanionHidden,
+  readOnboardingActive,
+} from "@vellumai/electron-desktop/window-state";
 
 import { openAboutWindow } from "./about.client";
 import { checkForUpdates } from "./auto-update.client";
@@ -28,6 +32,7 @@ import {
   isCommandPaletteWindowFocused,
   openCommandPaletteWindow,
 } from "./command-palette.client";
+import { setCompanionSurfaceVisible } from "./companion-window";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";
@@ -248,6 +253,21 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         fileItem("Pop Out Conversation", { kind: "popOut" }),
         { type: "separator" },
+        {
+          // The same label and checkbox shape as the tray's item, because it
+          // is the same switch reached two ways rather than two switches. A
+          // checkbox because the surface can be hidden from three places (here,
+          // the tray, its own right-click) and the item has to say which state
+          // it is in. Electron flips `checked` before `click` runs, so the item
+          // carries the state being asked for.
+          label: "Show Companion",
+          type: "checkbox",
+          checked: !readCompanionHidden(),
+          click: (item) => {
+            setCompanionSurfaceVisible(item.checked);
+          },
+        },
+        { type: "separator" },
         { role: "front" },
       ],
     },
@@ -344,6 +364,14 @@ export const installApplicationMenu = (): void => {
   // Rebuild the menu when feature flags change so the Developer submenu
   // appears or disappears without requiring an app restart.
   onSettingChange("featureFlags", () => {
+    applyMenu();
+  });
+
+  // Rebuild the menu when the companion surface is shown or hidden, so this
+  // menu's checkbox agrees with the tray's. The tray builds its menu at pop
+  // time and reads the flag fresh every time; this one is built once and kept,
+  // so it is the surface that has to be told.
+  onCompanionHiddenChange(() => {
     applyMenu();
   });
 
