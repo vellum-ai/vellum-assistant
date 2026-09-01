@@ -633,6 +633,8 @@
   },
   "debugControlsPanel": {
     "backups": "Backups",
+    "cameraGateHudDescription": "Show live motion, novelty and detail scores over the camera, with sliders for the frame gate's thresholds.",
+    "cameraGateHudTitle": "Camera gate readout",
     "loadFailedToast": "Failed to load assistant info",
     "loading": "Loading assistant info...",
     "loginNotice": "Log in to the Vellum platform to manage backups.",

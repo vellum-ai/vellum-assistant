@@ -7,15 +7,18 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
+import { useCameraGateHudAvailable } from "@/hooks/use-camera-gate-hud";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { isVellumStaff } from "@/lib/auth/staff";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
+import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
 import { clearConsentForUser } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function DebugControlsPanel() {
   const { t } = useTranslation("settings");
@@ -23,6 +26,12 @@ export function DebugControlsPanel() {
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
   const showInternalControls = isVellumStaff(user);
+  // A wider audience than the staff rows above: the flag exists so a local
+  // gateway session, which carries no platform identity and is where the gate
+  // gets tuned, can reach the switch.
+  const showCameraGateHud = useCameraGateHudAvailable();
+  const cameraGateHudEnabled = useCameraGateDebugStore.use.hudEnabled();
+  const setCameraGateHudEnabled = useCameraGateDebugStore.use.setHudEnabled();
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,6 +137,26 @@ export function DebugControlsPanel() {
                 >
                   {t("debugControlsPanel.replay")}
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {showCameraGateHud && (
+            <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+              <div className="min-w-0">
+                <p className="text-body-medium-default text-[var(--content-default)]">
+                  {t("debugControlsPanel.cameraGateHudTitle")}
+                </p>
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  {t("debugControlsPanel.cameraGateHudDescription")}
+                </p>
+              </div>
+              <div className="ml-4 shrink-0">
+                <Toggle
+                  checked={cameraGateHudEnabled}
+                  onChange={setCameraGateHudEnabled}
+                  aria-label={t("debugControlsPanel.cameraGateHudTitle")}
+                />
               </div>
             </div>
           )}
