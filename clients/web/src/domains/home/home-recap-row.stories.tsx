@@ -108,10 +108,9 @@ export const ScheduledReminder: Story = {
 /**
  * A pending guardian request as it lands in the bell: the canonical
  * "Needs attention" item, carrying the `guardianRequest` projection that
- * pins it first and withholds the dismiss affordance until the request
- * resolves. In the bell the row sits under the "Needs attention" section
- * header (see `NotificationsBellList`), so the row itself stays plain:
- * the ask as its title, the source context as its second line.
+ * pins it first, withholds the dismiss affordance until the request
+ * resolves, and gives the row the attention hue so it reads as the one
+ * thing to act on among rows that only report.
  */
 export const GuardianRequestPending: Story = {
   args: {

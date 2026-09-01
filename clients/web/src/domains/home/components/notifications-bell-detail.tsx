@@ -5,8 +5,12 @@ import {
   formatCompactLocalDate,
   formatFullLocalDate,
 } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import {
+  isPendingGuardianFeedItem,
+  type FeedItem,
+  type FeedItemStatus,
+} from "@vellumai/assistant-api";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
@@ -105,6 +109,10 @@ export function NotificationsBellDetail({
   const panelTitle = guardianTitleKey
     ? t(guardianTitleKey)
     : resolveFeedItemTitle(item);
+  // While the request waits, its title is the callout, in the pill the bell's
+  // "Needs attention" section uses. A settled request needs nothing, so the
+  // same name reads as plain text.
+  const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
 
   // The lists start loading when this view opens, so validation has a pending
   // state a warm-cache surface would not have. Every
@@ -143,13 +151,26 @@ export function NotificationsBellDetail({
           onClick={onBack}
           aria-label={t("notificationsBellDetail.back")}
         />
-        <Typography
-          variant="body-medium-default"
-          as="h2"
-          className="min-w-0 flex-1 truncate text-[var(--content-default)]"
-        >
-          {panelTitle}
-        </Typography>
+        {isTitleAwaitingAction ? (
+          <h2 className="flex min-w-0 flex-1 items-center">
+            <Tag
+              tone="warning"
+              leftIcon={
+                <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />
+              }
+            >
+              {panelTitle}
+            </Tag>
+          </h2>
+        ) : (
+          <Typography
+            variant="body-medium-default"
+            as="h2"
+            className="min-w-0 flex-1 truncate text-[var(--content-default)]"
+          >
+            {panelTitle}
+          </Typography>
+        )}
 
         {/*
           Status actions ride in the header as icon-only buttons, the

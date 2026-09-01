@@ -501,7 +501,7 @@ describe("NotificationsBell panel", () => {
   });
 });
 
-describe("NotificationsBell guardian sections", () => {
+describe("NotificationsBell guardian rows", () => {
   function guardianBellItem(overrides: Partial<FeedItem> = {}): FeedItem {
     return bellItem({
       id: "guardian:req-1",
@@ -519,7 +519,7 @@ describe("NotificationsBell guardian sections", () => {
     });
   }
 
-  test("a pending guardian item splits the list into labelled sections", async () => {
+  test("a waiting request sorts above the notifications that only report", async () => {
     feedRef.items = [
       bellItem({ id: "update-1", title: "Watcher job failed" }),
       guardianBellItem(),
@@ -527,13 +527,6 @@ describe("NotificationsBell guardian sections", () => {
 
     await openBell();
 
-    expect(
-      screen.getByTestId("notifications-bell-section-attention"),
-    ).toBeTruthy();
-    expect(screen.getByText("Needs attention")).toBeTruthy();
-    expect(screen.getByText("Updates")).toBeTruthy();
-
-    // The guardian row sits in the attention section, above the update.
     const titles = screen
       .getAllByTestId("home-recap-row-title")
       .map((node) => node.textContent);
@@ -562,11 +555,8 @@ describe("NotificationsBell guardian sections", () => {
     expect(marked[0]?.textContent).toContain("Alice asked the assistant");
   });
 
-  test("without a pending guardian item the list stays unsectioned", async () => {
+  test("a settled request keeps no attention treatment", async () => {
     feedRef.items = [
-      bellItem({ id: "update-1", title: "Watcher job failed" }),
-      // A resolved request's receipt drops urgency with it, so the item
-      // files as an ordinary update.
       guardianBellItem({
         id: "guardian:req-2",
         urgency: "medium",
@@ -581,26 +571,10 @@ describe("NotificationsBell guardian sections", () => {
 
     await openBell();
 
-    expect(
-      screen.queryByTestId("notifications-bell-section-attention"),
-    ).toBeNull();
-    expect(screen.queryByText("Needs attention")).toBeNull();
-    expect(screen.queryByText("Updates")).toBeNull();
+    expect(document.querySelectorAll("[data-needs-attention]").length).toBe(0);
     expect(
       screen.getByText("Alice asked the assistant to look up an issue"),
     ).toBeTruthy();
-  });
-
-  test("Clear all reads Clear updates while a pending guardian item exists", async () => {
-    feedRef.items = [
-      bellItem({ id: "update-1", title: "Watcher job failed" }),
-      guardianBellItem(),
-    ];
-
-    await openBell();
-
-    expect(screen.getByRole("button", { name: "Clear updates" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Clear all" })).toBeNull();
   });
 });
 

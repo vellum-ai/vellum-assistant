@@ -9,8 +9,7 @@
     "viewSchedule": "查看日程",
     "viewSkill": "查看技能",
     "markAllAsRead": "全部标记为已读",
-    "clearAll": "全部清除",
-    "clearUpdates": "清除更新"
+    "clearAll": "全部清除"
   },
   "category": {
     "security": "安全",
@@ -19,7 +18,8 @@
     "background": "后台",
     "system": "系统",
     "guardianAction": "需要监护人操作",
-    "guardianQuestion": "监护人问题"
+    "guardianQuestion": "监护人问题",
+    "guardianRequest": "监护人请求"
   },
   "homeRecapRow": {
     "actionsTitle": "更新操作"
@@ -40,9 +40,7 @@
     "ariaLabelUnread": "通知 (未读)",
     "heading": "通知",
     "loadFailed": "无法加载通知。",
-    "actionFailed": "无法开始该对话。请重试。",
-    "needsAttention": "需要关注",
-    "updates": "更新"
+    "actionFailed": "无法开始该对话。请重试。"
   },
   "notificationsBellDetail": {
     "back": "返回通知"

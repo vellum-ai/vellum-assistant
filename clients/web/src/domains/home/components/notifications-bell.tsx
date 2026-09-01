@@ -13,11 +13,7 @@ import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-stat
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import {
-  isPendingGuardianFeedItem,
-  type FeedItem,
-  type FeedItemStatus,
-} from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
   BottomSheet,
   Button,
@@ -27,6 +23,7 @@ import {
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { HomeRecapRow } from "../home-recap-row";
 import { useBriefingRecipeCard } from "../hooks/use-briefing-recipe-card";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
@@ -41,7 +38,6 @@ import {
   NOTIFICATIONS_PANEL_HEADER_CLASS,
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
-import { NotificationsBellList } from "./notifications-bell-list";
 import { NotificationsBellEmptyState } from "./notifications-bell-empty-state";
 
 // The height budget the panel's content region is drawn against: five compact
@@ -359,16 +355,20 @@ export function NotificationsBell() {
         style={{ maxHeight: listMaxHeight }}
         className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
       >
-        <NotificationsBellList
-          items={visibleItems}
-          onSelect={handleSelectItem}
-          onDismiss={(itemId) =>
-            feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
-          }
-          onToggleRead={(itemId, status) =>
-            feedQuery.updateStatus.mutate({ itemId, status })
-          }
-        />
+        {visibleItems.map((item) => (
+          <HomeRecapRow
+            key={item.id}
+            item={item}
+            density="compact"
+            onSelect={handleSelectItem}
+            onDismiss={(itemId) =>
+              feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
+            }
+            onToggleRead={(itemId, status) =>
+              feedQuery.updateStatus.mutate({ itemId, status })
+            }
+          />
+        ))}
       </div>
     );
 
@@ -433,11 +433,7 @@ export function NotificationsBell() {
                 onClick={handleClearAll}
                 disabled={feedQuery.markAll.isPending}
               >
-                {/* While pending guardian items sit protected at the top,
-                    the label says what the button actually clears. */}
-                {visibleItems.some(isPendingGuardianFeedItem)
-                  ? t("actions.clearUpdates")
-                  : t("actions.clearAll")}
+                {t("actions.clearAll")}
               </Button>
             </div>
           ) : null}

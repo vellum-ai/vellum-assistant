@@ -9,8 +9,7 @@
     "viewSchedule": "View schedule",
     "viewSkill": "View skill",
     "markAllAsRead": "Mark all as read",
-    "clearAll": "Clear all",
-    "clearUpdates": "Clear updates"
+    "clearAll": "Clear all"
   },
   "category": {
     "security": "Security",
@@ -19,7 +18,8 @@
     "background": "Background",
     "system": "System",
     "guardianAction": "Guardian action needed",
-    "guardianQuestion": "Guardian question"
+    "guardianQuestion": "Guardian question",
+    "guardianRequest": "Guardian request"
   },
   "homeRecapRow": {
     "actionsTitle": "Update Actions"
@@ -40,9 +40,7 @@
     "ariaLabelUnread": "Notifications (unread)",
     "heading": "Notifications",
     "loadFailed": "Couldn't load notifications.",
-    "actionFailed": "Couldn't start that conversation. Try again.",
-    "needsAttention": "Needs attention",
-    "updates": "Updates"
+    "actionFailed": "Couldn't start that conversation. Try again."
   },
   "notificationsBellDetail": {
     "back": "Back to notifications"

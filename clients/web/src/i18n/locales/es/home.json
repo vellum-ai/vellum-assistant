@@ -9,8 +9,7 @@
     "viewSchedule": "Ver programación",
     "viewSkill": "Ver habilidad",
     "markAllAsRead": "Marcar todas como leídas",
-    "clearAll": "Borrar todas",
-    "clearUpdates": "Borrar actualizaciones"
+    "clearAll": "Borrar todas"
   },
   "category": {
     "security": "Seguridad",
@@ -19,7 +18,8 @@
     "background": "Segundo plano",
     "system": "Sistema",
     "guardianAction": "Acción del guardián requerida",
-    "guardianQuestion": "Pregunta del guardián"
+    "guardianQuestion": "Pregunta del guardián",
+    "guardianRequest": "Solicitud del guardián"
   },
   "homeRecapRow": {
     "actionsTitle": "Acciones de la actualización"
@@ -40,9 +40,7 @@
     "ariaLabelUnread": "Notificaciones (sin leer)",
     "heading": "Notificaciones",
     "loadFailed": "No se pudieron cargar las notificaciones.",
-    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo.",
-    "needsAttention": "Requiere atención",
-    "updates": "Actualizaciones"
+    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
   },
   "notificationsBellDetail": {
     "back": "Volver a las notificaciones"

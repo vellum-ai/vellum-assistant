@@ -142,10 +142,11 @@ export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
   };
 }
 
-/** Catalog keys a guardian row's category chip may carry. */
+/** Catalog keys a guardian row or panel title may carry. */
 export type GuardianCategoryLabelKey =
   | "category.guardianAction"
-  | "category.guardianQuestion";
+  | "category.guardianQuestion"
+  | "category.guardianRequest";
 
 /**
  * Category label override for a pending guardian-request item. The wire
@@ -165,10 +166,11 @@ export function guardianCategoryLabelKey(
 }
 
 /**
- * Panel title for a guardian-request item's detail: the kind of request,
- * whatever its status, so a resolved request's detail keeps its name and
- * the receipt below carries the outcome. Null for every other item, whose
- * detail is titled by the item's own title.
+ * Panel title for a guardian-request item's detail. A waiting approval
+ * asks for something ("Guardian action needed"); once it is settled
+ * nothing is needed of anyone, so it is named for what it was: a
+ * guardian request. A question is a question either way. Null for every
+ * other item, whose detail is titled by the item's own title.
  */
 export function guardianDetailTitleKey(
   item: FeedItem,
@@ -176,7 +178,10 @@ export function guardianDetailTitleKey(
   if (!item.guardianRequest) {
     return null;
   }
-  return item.guardianRequest.intent === "question"
-    ? "category.guardianQuestion"
-    : "category.guardianAction";
+  if (item.guardianRequest.intent === "question") {
+    return "category.guardianQuestion";
+  }
+  return isPendingGuardianFeedItem(item)
+    ? "category.guardianAction"
+    : "category.guardianRequest";
 }

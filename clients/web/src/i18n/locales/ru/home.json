@@ -9,8 +9,7 @@
     "viewSchedule": "Открыть расписание",
     "viewSkill": "Открыть навык",
     "markAllAsRead": "Отметить всё как прочитанное",
-    "clearAll": "Очистить всё",
-    "clearUpdates": "Очистить обновления"
+    "clearAll": "Очистить всё"
   },
   "category": {
     "security": "Безопасность",
@@ -19,7 +18,8 @@
     "background": "Фон",
     "system": "Система",
     "guardianAction": "Требуется действие опекуна",
-    "guardianQuestion": "Вопрос опекуну"
+    "guardianQuestion": "Вопрос опекуну",
+    "guardianRequest": "Запрос опекуна"
   },
   "homeRecapRow": {
     "actionsTitle": "Действия по обновлению"
@@ -40,9 +40,7 @@
     "ariaLabelUnread": "Уведомления (непрочитанные)",
     "heading": "Уведомления",
     "loadFailed": "Не удалось загрузить уведомления.",
-    "actionFailed": "Не удалось начать этот диалог. Повторите попытку.",
-    "needsAttention": "Требует внимания",
-    "updates": "Обновления"
+    "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
   },
   "notificationsBellDetail": {
     "back": "Назад к уведомлениям"
