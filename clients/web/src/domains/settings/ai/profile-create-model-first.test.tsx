@@ -468,7 +468,7 @@ describe("the model list", () => {
 
     // Three rows and the unfold row, whatever the section holds behind it.
     expect(sectionRowLabels("Anthropic")).toEqual([
-      "Claude Fable 5",
+      "Claude Fable 5.1",
       "Claude Opus 5",
       "Claude Sonnet 5",
       "See more",
