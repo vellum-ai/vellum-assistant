@@ -557,9 +557,15 @@ export function buildSlackMetaForPersistence(params: {
  * {@link buildSlackMetaForPersistence}. Returns `null` (do not include the
  * key) when the turn channel does not match the envelope's own `source`, so
  * a stale plumbing field can never tag a row with another channel's
- * identity. Slack turns also return `null`: Slack keeps writing `slackMeta`,
+ * identity. Slack turns also return `null`: Slack still writes `slackMeta`,
  * which `readProviderMetadata` maps onto the neutral shape on read, and a
  * `providerMeta` key on a Slack row would shadow that richer envelope.
+ *
+ * TRANSITIONAL: the Slack exclusion exists only while Slack writes its own
+ * envelope. The end state is Slack writing `providerMeta` like every other
+ * channel (its extra fields ride the schema's passthrough), at which point
+ * this guard reduces to the source match and `slackMeta` remains only as
+ * the read-compat arm for historical rows. Do not extend the exclusion.
  */
 export function buildProviderMetaForPersistence(params: {
   channelInbound: ProviderMessageMetadata | undefined;

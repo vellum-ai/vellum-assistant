@@ -5,7 +5,17 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  isNotNull,
+  like,
+  ne,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
@@ -57,14 +67,12 @@ const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
  * waits for its ack, and reactions land on recent messages, so a cap costs
  * almost no recall and keeps the cost flat as the database grows.
  *
- * Sized for the candidate density the `providerMeta`/`slackMeta` prefilter
- * admits: inbound user rows carry `providerMeta` too, so in a busy room
- * roughly half the candidates are inbound rows the primary
- * `findMessageBySourceId` path already resolves. The cap is doubled from the
- * 400 that sufficed when only assistant-authored and reaction rows matched,
- * keeping the same reachable window of assistant posts.
+ * The candidate set is provenance-bearing rows with no inbound-event link
+ * (the NOT EXISTS in the query): inbound user rows carry `providerMeta` too,
+ * but the inbound-event index already resolves them, so admitting them here
+ * would only shrink the window of assistant posts the cap can reach.
  */
-const OUTBOUND_MESSAGE_ID_MAX_SCAN = 800;
+const OUTBOUND_MESSAGE_ID_MAX_SCAN = 400;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -344,6 +352,17 @@ export function findConversationByProviderMessageId(
         or(
           like(messages.metadata, '%"providerMeta"%'),
           like(messages.metadata, '%"slackMeta"%'),
+        ),
+        // Rows the inbound-event index resolves are not candidates: this
+        // lookup exists for messages with no inbound event (the assistant's
+        // own posts, plus a crash-window inbound row whose link never
+        // landed), and admitting linked rows would burn the scan budget on
+        // messages `findMessageBySourceId` already answers.
+        notExists(
+          db
+            .select({ id: channelInboundEvents.id })
+            .from(channelInboundEvents)
+            .where(eq(channelInboundEvents.messageId, messages.id)),
         ),
       ),
     )

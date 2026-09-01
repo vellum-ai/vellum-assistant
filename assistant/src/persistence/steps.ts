@@ -481,6 +481,7 @@ import { migrateAcpSessionHistoryAuthErrorCode } from "./migrations/370-acp-sess
 import { migrateAcpSessionHistoryAuthErrorCredential } from "./migrations/371-acp-session-history-auth-error-credential.js";
 import { migrateCreateAcpRefusedCredentials } from "./migrations/372-create-acp-refused-credentials.js";
 import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-index.js";
+import { migrateChannelInboundMessageIdIndex } from "./migrations/374-channel-inbound-message-id-index.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1596,4 +1597,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateAcpSessionHistoryAuthErrorCredential,
   migrateCreateAcpRefusedCredentials,
   migrateAcpAuthMarkerIndex,
+  migrateChannelInboundMessageIdIndex,
 ];

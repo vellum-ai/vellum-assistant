@@ -170,6 +170,48 @@ describe("channel-delivery-store", () => {
     ).toBeNull();
   });
 
+  test("linked inbound rows are excluded from the provider-id scan; crash-window rows resolve", () => {
+    const chatId = "chat-scan-budget";
+    const minted = recordInbound("telegram", chatId, "evt-linked", {
+      sourceMessageId: "tg-linked-1",
+    });
+    const envelope = (messageId: string) =>
+      JSON.stringify({
+        providerMeta: JSON.stringify({
+          source: "telegram",
+          conversationExternalId: chatId,
+          messageId,
+          eventKind: "message",
+        }),
+      });
+
+    // A normally-ingested inbound row: linked to its event, so the
+    // inbound-event index owns its resolution and the fallback scan must
+    // not spend budget on it.
+    insertMessage("linked-user-row", minted.conversationId, {});
+    getDb()
+      .update(messages)
+      .set({ metadata: envelope("tg-linked-1") })
+      .where(eq(messages.id, "linked-user-row"))
+      .run();
+    linkMessage(minted.eventId, "linked-user-row");
+    expect(
+      findConversationByProviderMessageId("telegram", chatId, "tg-linked-1"),
+    ).toBeNull();
+
+    // A crash-window row: persisted with its envelope but its event link
+    // never landed. The fallback is the only path that can resolve it.
+    insertMessage("orphan-user-row", minted.conversationId, {});
+    getDb()
+      .update(messages)
+      .set({ metadata: envelope("tg-orphan-1") })
+      .where(eq(messages.id, "orphan-user-row"))
+      .run();
+    expect(
+      findConversationByProviderMessageId("telegram", chatId, "tg-orphan-1"),
+    ).toBe(minted.conversationId);
+  });
+
   test("same chat on same channel reuses the same conversation", () => {
     const r1 = recordInbound("telegram", "chat-1", "msg-1");
     const r2 = recordInbound("telegram", "chat-1", "msg-2");
