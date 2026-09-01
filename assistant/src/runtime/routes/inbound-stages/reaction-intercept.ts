@@ -45,6 +45,7 @@ import {
   buildReactionRowEnvelope,
   buildSlackReactionMeta,
 } from "../../../messaging/reaction-envelopes.js";
+import { readProviderMetadata } from "../../../messaging/read-provider-metadata.js";
 import {
   addMessage,
   getMessageById,
@@ -56,6 +57,7 @@ import {
   findMessageBySourceId,
   linkMessage,
   recordInbound,
+  storePayload,
 } from "../../../persistence/delivery-crud.js";
 import { markProcessed } from "../../../persistence/delivery-status.js";
 import { extractTextFromStoredMessageContent } from "../../../persistence/message-content.js";
@@ -313,13 +315,25 @@ export async function handleReactionIntercept(
         })
       : null;
   if (wakeTurn) {
-    wakeTurn();
-    return {
-      accepted: result.accepted,
-      duplicate: false,
-      eventId: result.eventId,
-      reaction: "wake_dispatched",
-    };
+    try {
+      wakeTurn();
+      return {
+        accepted: result.accepted,
+        duplicate: false,
+        eventId: result.eventId,
+        reaction: "wake_dispatched",
+      };
+    } catch (err) {
+      // Dispatch startup failed before the background turn owns the event
+      // (its own failures degrade through `onTurnLostToBusy`). The dedup
+      // record already exists, so a gateway retry would short-circuit and
+      // leave the reaction unrecorded entirely; fall through to the passive
+      // row, which is what this reaction would have been without the wake.
+      log.error(
+        { err, conversationId: result.conversationId, eventId: result.eventId },
+        "Reaction wake dispatch failed to start; recording the passive row",
+      );
+    }
   }
 
   try {
@@ -409,7 +423,24 @@ function buildReactionWakeTurn(params: {
         }
       : { channelInbound: neutralMeta };
 
+  const replyCallbackUrl = resolveWakeReplyCallbackUrl(
+    params.sourceChannel,
+    params.replyCallbackUrl,
+    targetRow.metadata,
+  );
+
   return () => {
+    // A delivery-only payload: the fields `channel-retry-sweep`'s delivery
+    // lane needs to re-post a generated reply whose first delivery failed
+    // transiently. It deliberately carries no `content` or `sourceChannel`,
+    // so it can never be replayed as a message turn even if this event
+    // somehow reached the processing lane; that replay is what the
+    // at-most-once design exists to prevent.
+    storePayload(params.result.eventId, {
+      replyCallbackUrl,
+      externalChatId: params.conversationExternalId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    });
     markProcessed(params.result.eventId);
     processChannelMessageInBackground({
       processMessage,
@@ -421,7 +452,7 @@ function buildReactionWakeTurn(params: {
       externalChatId: params.conversationExternalId,
       trustCtx: params.trustCtx,
       metadataHints: [],
-      replyCallbackUrl: params.replyCallbackUrl,
+      replyCallbackUrl,
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       approvalCopyGenerator: createApprovalCopyGenerator(),
       ...(params.chatType ? { chatType: params.chatType } : {}),
@@ -431,6 +462,46 @@ function buildReactionWakeTurn(params: {
       onTurnLostToBusy: params.persistPassively,
     });
   };
+}
+
+/**
+ * Where a wake turn's reply goes, which is the conversation the reacted
+ * message lives in rather than the reaction's own address.
+ *
+ * A reaction event names no thread of its own, so Slack's normalizer fills
+ * the callback's `threadTs` with the REACTED MESSAGE's ts. Delivering
+ * through it would root the reply at that message: a thread of its own off
+ * a channel post, or an invalid parent when the target is itself a threaded
+ * reply. Slack rows record the thread they live in, so the target row's
+ * stored `threadId` is the authoritative destination, and its absence means
+ * the target sits at the channel root, where the reply belongs too.
+ *
+ * Every other channel is already correct: a Discord thread IS a channel, so
+ * a reaction inside one carries that thread as its address.
+ */
+function resolveWakeReplyCallbackUrl(
+  sourceChannel: ChannelId,
+  reactionCallbackUrl: string,
+  targetMetadata: string | null,
+): string {
+  if (sourceChannel !== "slack") {
+    return reactionCallbackUrl;
+  }
+  let url: URL;
+  try {
+    url = new URL(reactionCallbackUrl);
+  } catch {
+    return reactionCallbackUrl;
+  }
+  const targetThreadTs = readProviderMetadata(targetMetadata, {
+    allowFlatLegacy: true,
+  })?.threadId;
+  if (targetThreadTs) {
+    url.searchParams.set("threadTs", targetThreadTs);
+  } else {
+    url.searchParams.delete("threadTs");
+  }
+  return url.toString();
 }
 
 /**

@@ -101,11 +101,22 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
   },
   findInboundEvent: () => recordedEvent,
   clearPayload: () => {},
+  storePayload: (eventId: string, payload: Record<string, unknown>) => {
+    storedPayloads.push({ eventId, payload });
+  },
   linkMessage: () => {},
 }));
+const storedPayloads: Array<{
+  eventId: string;
+  payload: Record<string, unknown>;
+}> = [];
 
 let addMessageCalls = 0;
-let targetRow: { role: string; content: unknown } | null = null;
+let targetRow: {
+  role: string;
+  content: unknown;
+  metadata?: string | null;
+} | null = null;
 mock.module("../../../persistence/conversation-crud.js", () => ({
   addMessage: async () => {
     addMessageCalls++;
@@ -122,8 +133,12 @@ mock.module("../../../persistence/delivery-status.js", () => ({
 }));
 
 let dispatchedTurns: Array<Record<string, unknown>> = [];
+let dispatchThrows = false;
 mock.module("./background-dispatch.js", () => ({
   processChannelMessageInBackground: (params: Record<string, unknown>) => {
+    if (dispatchThrows) {
+      throw new Error("dispatch setup exploded");
+    }
     dispatchedTurns.push(params);
   },
 }));
@@ -223,7 +238,10 @@ function buildParams(overrides: {
     canonicalSenderId: overrides.rawSenderId,
     actorDisplayName: "Reactor",
     actorUsername: undefined,
-    replyCallbackUrl: "http://localhost:7830/deliver/slack",
+    // The shape the gateway actually builds for a reaction: the reacted
+    // message's own ts stands in as `threadTs`, which is what the wake has
+    // to correct before delivering a reply.
+    replyCallbackUrl: `http://localhost:7830/deliver/slack?channel=${SLACK_CHANNEL_ID}&threadTs=1700000000.1`,
     sourceMetadata: {
       messageId: "1700000000.1",
       chatType: "channel",
@@ -265,6 +283,8 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
       content: [{ type: "text", text: "the reacted-to message" }],
     };
     dispatchedTurns = [];
+    dispatchThrows = false;
+    storedPayloads.length = 0;
     markProcessedCalls = 0;
   });
 
@@ -386,6 +406,124 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(channelInbound.eventKind).toBe("reaction");
     expect(channelInbound.source).toBe("discord");
     expect(dispatchedTurns[0].slackReactionRowMeta).toBeUndefined();
+  });
+
+  test("a Slack wake reply targets the thread the reacted message lives in", async () => {
+    // The reaction event's callback names the REACTED MESSAGE's ts as its
+    // thread (Slack gives a reaction no thread of its own), so delivering
+    // through it unchanged would root the reply at that message instead of
+    // in the conversation's own thread.
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+      metadata: JSON.stringify({
+        slackMeta: JSON.stringify({
+          source: "slack",
+          channelId: SLACK_CHANNEL_ID,
+          channelTs: "1700000000.1",
+          threadTs: "1699999999.9",
+          eventKind: "message",
+        }),
+      }),
+    };
+
+    await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    const url = new URL(dispatchedTurns[0].replyCallbackUrl as string);
+    // Replaced, not merely present: the event arrived naming 1700000000.1.
+    expect(url.searchParams.get("threadTs")).toBe("1699999999.9");
+    expect(url.searchParams.get("channel")).toBe(SLACK_CHANNEL_ID);
+    // The stored delivery payload names the same corrected destination.
+    expect(
+      new URL(
+        storedPayloads[0].payload.replyCallbackUrl as string,
+      ).searchParams.get("threadTs"),
+    ).toBe("1699999999.9");
+  });
+
+  test("a Slack wake reply on a channel-root post carries no thread", async () => {
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+      metadata: JSON.stringify({
+        slackMeta: JSON.stringify({
+          source: "slack",
+          channelId: SLACK_CHANNEL_ID,
+          channelTs: "1700000000.1",
+          eventKind: "message",
+        }),
+      }),
+    };
+
+    await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    const url = new URL(dispatchedTurns[0].replyCallbackUrl as string);
+    // The target sits at the channel root, so the reply belongs there too,
+    // never in a thread rooted at the reacted message.
+    expect(url.searchParams.get("threadTs")).toBeNull();
+    expect(url.searchParams.get("channel")).toBe(SLACK_CHANNEL_ID);
+  });
+
+  test("the wake stores a delivery-only payload, never a replayable turn", async () => {
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+    };
+
+    await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    expect(storedPayloads).toHaveLength(1);
+    const payload = storedPayloads[0].payload;
+    // Enough for the delivery lane to re-post a generated reply...
+    expect(typeof payload.replyCallbackUrl).toBe("string");
+    expect(payload.externalChatId).toBe(SLACK_CHANNEL_ID);
+    // ...and structurally incapable of being replayed as a message turn.
+    expect(payload.content).toBeUndefined();
+    expect(payload.sourceChannel).toBeUndefined();
+  });
+
+  test("a wake whose dispatch fails to start still records the passive row", async () => {
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+    };
+    dispatchThrows = true;
+
+    const result = await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    // The dedup record already exists, so a gateway retry would short-circuit;
+    // the reaction must not vanish because the turn could not start.
+    expect(addMessageCalls).toBe(1);
+    expect(result.reaction).toBeUndefined();
+    expect(result).toMatchObject({ accepted: true });
   });
 
   test("a reaction REMOVED from the assistant's post stays passive", async () => {
