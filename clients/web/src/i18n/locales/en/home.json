@@ -51,7 +51,6 @@
     "approve": "Approve",
     "reject": "Reject",
     "answerHint": "Go to the conversation to answer this question.",
-    "openInSlack": "Open in Slack",
     "alreadyResolved": "This request was already resolved on another surface.",
     "decisionFailed": "The decision could not be submitted. Try again.",
     "receipt": {
@@ -64,10 +63,9 @@
       "cancelled": "Cancelled",
       "leftUnverified": "Left unverified"
     },
-    "statusNeedsAttention": "Needs attention",
-    "statusResolved": "Resolved",
-    "tool": "Tool",
-    "viewSourceThread": "View source thread"
+    "viewSourceThread": "View source thread",
+    "toolRequested": "Requested to run",
+    "toolRequesting": "Requesting to run"
   },
   "notificationsBellEmptyState": {
     "title": "Nothing yet.",

@@ -9,9 +9,9 @@ import {
   type FeedItemGuardianRequest,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,
 } from "@vellumai/assistant-api";
-import { Button, Tag, Typography } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
-import { ExternalLink, MessageCircle } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { type ReactNode } from "react";
 
 import { resolveFeedItemTitle } from "../utils";
@@ -24,10 +24,9 @@ export interface HomeGuardianRequestCardProps {
  * Detail card for the canonical guardian-request feed item.
  *
  * Everything renders off the item's `guardianRequest` projection, which
- * the daemon keeps aligned with the gateway-owned request: a status pill
- * says whether the request still needs the user, the title and source
- * line say what and where, and the summary carries the plain-language
- * ask. A `pending` approval offers Approve/Reject through the canonical
+ * the daemon keeps aligned with the gateway-owned request: the title and
+ * source line say what and where, and the summary carries the
+ * plain-language ask. A `pending` approval offers Approve/Reject through the canonical
  * decision route, a `pending` question points at the source conversation
  * (the host panel's "Go to Conversation" link is the way there), and a
  * terminal status renders as a receipt in place of the buttons. A
@@ -97,32 +96,10 @@ export function HomeGuardianRequestCard({
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
-      <div>
-        {isPending ? (
-          <Tag
-            tone="warning"
-            className="uppercase tracking-wide"
-            leftIcon={
-              <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />
-            }
-          >
-            {t("homeGuardianRequestCard.statusNeedsAttention")}
-          </Tag>
-        ) : (
-          <Tag
-            tone={
-              (decidedLocally ?? guardianRequest.status) === "approved"
-                ? "positive"
-                : "neutral"
-            }
-            className="uppercase tracking-wide"
-            data-testid="guardian-request-status-resolved"
-          >
-            {t("homeGuardianRequestCard.statusResolved")}
-          </Tag>
-        )}
-      </div>
-
+      {/* No status pill here: the pill is the list's device for pulling a
+          waiting request out of a stack of rows. Someone reading the detail
+          has already answered that call, so the panel title names the
+          request and the receipt below states the outcome, both as text. */}
       <div className="flex flex-col gap-[var(--app-spacing-xxs)]">
         <Typography
           variant="title-small"
@@ -147,20 +124,23 @@ export function HomeGuardianRequestCard({
         {item.summary}
       </Typography>
 
+      {/* Names the decision rather than the thing: what a person approves
+          here is the assistant running this tool. The identifier has no
+          display name anywhere in the pipeline, so it renders as the code
+          it is, the way the in-conversation confirmation card renders one. */}
       {guardianRequest.toolName ? (
-        <div className="flex flex-col gap-[var(--app-spacing-xxs)]">
-          <Typography
-            variant="body-small-emphasised"
-            className="uppercase tracking-wide text-[var(--content-tertiary)]"
-          >
-            {t("homeGuardianRequestCard.tool")}
-          </Typography>
+        <div className="flex flex-wrap items-baseline gap-[var(--app-spacing-xs)]">
           <Typography
             variant="body-small-default"
-            className="break-all font-mono text-[var(--content-secondary)]"
+            className="text-[var(--content-tertiary)]"
           >
-            {guardianRequest.toolName}
+            {isPending
+              ? t("homeGuardianRequestCard.toolRequesting")
+              : t("homeGuardianRequestCard.toolRequested")}
           </Typography>
+          <code className="rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
+            {guardianRequest.toolName}
+          </code>
         </div>
       ) : null}
 
@@ -209,22 +189,16 @@ export function HomeGuardianRequestCard({
         </Typography>
       ) : null}
 
-      {guardianRequest.sourceUrl || guardianRequest.slackCardUrl ? (
-        <div className="flex flex-wrap items-center gap-[var(--app-spacing-md)]">
-          {guardianRequest.sourceUrl ? (
-            <ExternalTextLink
-              href={guardianRequest.sourceUrl}
-              icon={<ExternalLink className="size-4" />}
-              label={t("homeGuardianRequestCard.viewSourceThread")}
-            />
-          ) : null}
-          {guardianRequest.slackCardUrl ? (
-            <ExternalTextLink
-              href={guardianRequest.slackCardUrl}
-              icon={<MessageCircle className="size-4" />}
-              label={t("homeGuardianRequestCard.openInSlack")}
-            />
-          ) : null}
+      {/* One link out, to where the request came from. The Slack DM card is
+          a delivery of this same request, so linking it from here would
+          send a person to a copy of the surface they are already on. */}
+      {guardianRequest.sourceUrl ? (
+        <div className="flex flex-wrap items-center gap-[var(--app-spacing-sm)]">
+          <ExternalTextLink
+            href={guardianRequest.sourceUrl}
+            icon={<ExternalLink className="size-3.5" />}
+            label={t("homeGuardianRequestCard.viewSourceThread")}
+          />
         </div>
       ) : null}
     </div>
@@ -237,10 +211,16 @@ interface ExternalTextLinkProps {
   label: string;
 }
 
-/** Inline link opening an external target (a Slack thread, a permalink). */
+/**
+ * Low-chrome labelled action opening an external target (a Slack thread, a
+ * permalink). The `link` variant is for links set inside running text: it
+ * lays out `inline` and inherits its type from the paragraph around it, so
+ * it can neither space a leading icon nor size itself standing alone. A
+ * compact ghost button is the primitive for a standalone secondary action.
+ */
 function ExternalTextLink({ href, icon, label }: ExternalTextLinkProps) {
   return (
-    <Button asChild variant="link" leftIcon={icon}>
+    <Button asChild variant="ghost" size="compact" leftIcon={icon}>
       <a
         href={href}
         target="_blank"

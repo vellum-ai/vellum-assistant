@@ -85,11 +85,12 @@ describe("HomeGuardianRequestCard", () => {
       }),
     );
 
-    expect(screen.getByText("Needs attention")).toBeTruthy();
+    // The panel header names the request; the card carries no status pill.
+    expect(screen.queryByText("Needs attention")).toBeNull();
     // Source context and requester share the meta line under the title.
     expect(screen.getByText(/Slack #user-feedback · Alice/)).toBeTruthy();
-    // The tool renders by name in its own labelled row.
-    expect(screen.getByText("Tool")).toBeTruthy();
+    // A waiting request names the decision in the present tense.
+    expect(screen.getByText("Requesting to run")).toBeTruthy();
     expect(screen.getByText("linear_graphql")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Approve"));
@@ -142,10 +143,8 @@ describe("HomeGuardianRequestCard", () => {
       );
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
-      // Resolved requests demand nothing: the status pill reads Resolved
-      // in place of the pending callout.
-      expect(screen.queryByText("Needs attention")).toBeNull();
-      expect(screen.getByText("Resolved")).toBeTruthy();
+      // A settled request states the decision in the past tense.
+      expect(screen.queryByText("Requesting to run")).toBeNull();
     },
   );
 

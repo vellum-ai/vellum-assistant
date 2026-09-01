@@ -51,7 +51,6 @@
     "approve": "Aprobar",
     "reject": "Rechazar",
     "answerHint": "Ve a la conversación para responder esta pregunta.",
-    "openInSlack": "Abrir en Slack",
     "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
     "receipt": {
@@ -64,10 +63,9 @@
       "cancelled": "Cancelada",
       "leftUnverified": "Sin verificar"
     },
-    "statusNeedsAttention": "Requiere atención",
-    "statusResolved": "Resuelto",
-    "tool": "Herramienta",
-    "viewSourceThread": "Ver hilo de origen"
+    "viewSourceThread": "Ver hilo de origen",
+    "toolRequested": "Solicitó ejecutar",
+    "toolRequesting": "Solicita ejecutar"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",

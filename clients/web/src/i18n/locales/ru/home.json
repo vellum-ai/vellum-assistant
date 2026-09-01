@@ -51,7 +51,6 @@
     "approve": "Одобрить",
     "reject": "Отклонить",
     "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
-    "openInSlack": "Открыть в Slack",
     "alreadyResolved": "Этот запрос уже был решён на другой поверхности.",
     "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
     "receipt": {
@@ -64,10 +63,9 @@
       "cancelled": "Отменён",
       "leftUnverified": "Оставлен без проверки"
     },
-    "statusNeedsAttention": "Требует внимания",
-    "statusResolved": "Решено",
-    "tool": "Инструмент",
-    "viewSourceThread": "Открыть исходный тред"
+    "viewSourceThread": "Открыть исходный тред",
+    "toolRequested": "Запрошен запуск",
+    "toolRequesting": "Запрашивает запуск"
   },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",

@@ -549,6 +549,19 @@ describe("NotificationsBell guardian sections", () => {
     expect(screen.getByText("Slack #user-feedback")).toBeTruthy();
   });
 
+  test("only the waiting row carries the attention treatment", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const marked = document.querySelectorAll("[data-needs-attention]");
+    expect(marked.length).toBe(1);
+    expect(marked[0]?.textContent).toContain("Alice asked the assistant");
+  });
+
   test("without a pending guardian item the list stays unsectioned", async () => {
     feedRef.items = [
       bellItem({ id: "update-1", title: "Watcher job failed" }),

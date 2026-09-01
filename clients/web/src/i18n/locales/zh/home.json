@@ -51,7 +51,6 @@
     "approve": "批准",
     "reject": "拒绝",
     "answerHint": "前往对话回答这个问题。",
-    "openInSlack": "在 Slack 中打开",
     "alreadyResolved": "此请求已在其他界面解决。",
     "decisionFailed": "无法提交决定。请重试。",
     "receipt": {
@@ -64,9 +63,8 @@
       "cancelled": "已取消",
       "leftUnverified": "保持未验证"
     },
-    "statusNeedsAttention": "需要关注",
-    "statusResolved": "已解决",
-    "tool": "工具",
-    "viewSourceThread": "查看来源消息串"
+    "viewSourceThread": "查看来源消息串",
+    "toolRequested": "已请求运行",
+    "toolRequesting": "请求运行"
   }
 }

@@ -5,7 +5,11 @@ import { useHoverCapable } from "@/hooks/use-hover-affordance";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  isPendingGuardianFeedItem,
+  type FeedItem,
+  type FeedItemStatus,
+} from "@vellumai/assistant-api";
 import {
   cn,
   CrossfadeStack,
@@ -134,6 +138,7 @@ export function HomeRecapRow({
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
   const guardianLabelKey = guardianCategoryLabelKey(item) ?? undefined;
+  const needsAttention = isPendingGuardianFeedItem(item);
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
@@ -190,15 +195,24 @@ export function HomeRecapRow({
   const card = (
     <div
       data-reveal-row=""
+      data-needs-attention={needsAttention ? "" : undefined}
       className={cn(
         "group relative flex w-full items-start gap-[var(--app-spacing-sm)]",
-        "rounded-[var(--radius-lg)] border border-[var(--border-base)]",
+        "rounded-[var(--radius-lg)] border",
         "transition-[background-color,opacity] duration-150",
         densityStyle.card,
-        isActive
-          ? "bg-[var(--surface-active)]"
-          : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-hover)]",
-        !isUnread && !isActive && "opacity-70",
+        // A row waiting on the user carries the attention hue, so it reads as
+        // the one thing to act on among rows that only report. It never dims
+        // on read: the request is outstanding whether or not it has been seen.
+        needsAttention
+          ? "border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)]"
+          : cn(
+              "border-[var(--border-base)]",
+              isActive
+                ? "bg-[var(--surface-active)]"
+                : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-hover)]",
+              !isUnread && !isActive && "opacity-70",
+            ),
       )}
     >
       {/* Stretched link: the card's single click target. Everything else stacks

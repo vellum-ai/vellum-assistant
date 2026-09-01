@@ -5,7 +5,9 @@
  *
  * The decorator stands in for the popover the bell renders this into: the
  * same `w-96` box and padding as `notifications-bell.tsx`, so the footer's
- * links are seen at the width they actually have to fit. The bell itself owns
+ * links are seen at the width they actually have to fit. The width is a
+ * ceiling rather than a fixed size, so a narrow viewport shows the panel at
+ * the width the bottom sheet gives it on a phone. The bell itself owns
  * the queries, so the props here are what the real bell passes down after
  * `useFeedItemEntityLinks` has resolved.
  */
@@ -57,7 +59,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="w-96 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
+      <div className="w-full max-w-96 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
         <Story />
       </div>
     ),
@@ -200,8 +202,6 @@ export const GuardianApprovalPending: Story = {
         sourceChannel: "slack",
         sourceContextLabel: "Slack #user-feedback",
         sourceUrl: "https://slack.com/archives/C0123456789/p1725100000000100",
-        slackCardUrl:
-          "https://slack.com/archives/D0AAAAAAAAA/p1725100001000100",
       },
     }),
   },

@@ -4,7 +4,7 @@ import {
   type FeedItem,
   type FeedItemStatus,
 } from "@vellumai/assistant-api";
-import { cn, Typography } from "@vellumai/design-library";
+import { Tag, Typography } from "@vellumai/design-library";
 
 import { HomeRecapRow } from "../home-recap-row";
 
@@ -66,8 +66,10 @@ export function NotificationsBellList({
 
 interface SectionLabelProps {
   /**
-   * Marks the section that is waiting on the user: the label takes the
-   * attention hue and a pulsing dot, the same amber the unread markers use.
+   * Marks the section that is waiting on the user. That section takes the
+   * same pill the request's own detail leads with, so the callout looks
+   * the same wherever a person meets it; the section of things that only
+   * report is a plain text divider.
    */
   attention?: boolean;
   children: string;
@@ -75,32 +77,31 @@ interface SectionLabelProps {
 
 function SectionLabel({ attention = false, children }: SectionLabelProps) {
   return (
-    <div
+    <h3
       data-testid={
         attention
           ? "notifications-bell-section-attention"
           : "notifications-bell-section-updates"
       }
-      className="flex items-center gap-[var(--app-spacing-xs)] px-[var(--app-spacing-xs)] pt-[var(--app-spacing-xxs)]"
+      className="flex items-center px-[var(--app-spacing-xs)] pt-[var(--app-spacing-xxs)]"
     >
       {attention ? (
-        <span
-          aria-hidden="true"
-          className="h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse"
-        />
-      ) : null}
-      <Typography
-        variant="body-small-emphasised"
-        as="h3"
-        className={cn(
-          "uppercase tracking-wide",
-          attention
-            ? "text-[var(--system-mid-strong)]"
-            : "text-[var(--content-tertiary)]",
-        )}
-      >
-        {children}
-      </Typography>
-    </div>
+        <Tag
+          tone="warning"
+          leftIcon={
+            <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />
+          }
+        >
+          {children}
+        </Tag>
+      ) : (
+        <Typography
+          variant="body-small-emphasised"
+          className="text-[var(--content-tertiary)]"
+        >
+          {children}
+        </Typography>
+      )}
+    </h3>
   );
 }

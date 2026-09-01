@@ -68,7 +68,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="flex w-96 flex-col gap-[var(--app-spacing-sm)] rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
+      <div className="flex w-full max-w-96 flex-col gap-[var(--app-spacing-sm)] rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
         <Story />
       </div>
     ),
