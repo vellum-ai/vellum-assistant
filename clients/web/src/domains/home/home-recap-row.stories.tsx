@@ -1,6 +1,6 @@
 /**
- * `HomeRecapRow` is the row the Home activity feed renders for every
- * notification the daemon mirrors into it (`notifications/home-feed-side-effect.ts`).
+ * `HomeRecapRow` is the row the notifications bell renders for every
+ * notification the daemon mirrors into the feed (`notifications/home-feed-side-effect.ts`).
  * It is the only place background work becomes visible without opening a
  * conversation, so these stories cover the shapes it actually receives:
  * a failed background job, a completed one, a scheduled reminder, and a

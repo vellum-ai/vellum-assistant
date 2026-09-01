@@ -51,7 +51,6 @@ const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
   { key: "togglePinConversation", label: "Pin conversation", scope: "menu" },
   { key: "sidebarToggle", label: "Toggle sidebar", scope: "menu" },
   { key: "popOut", label: "Pop out conversation", scope: "menu" },
-  { key: "home", label: "Home", scope: "menu" },
   { key: "previousConversation", label: "Previous conversation", scope: "menu" },
   { key: "nextConversation", label: "Next conversation", scope: "menu" },
 ];

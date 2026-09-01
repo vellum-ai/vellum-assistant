@@ -8,7 +8,7 @@
  *   (for the same-route case), AND
  * - sets a one-shot pending flag that `chat-page` drains on its next
  *   mount (for the case where the caller navigated to the conversation
- *   route from elsewhere: `/assistant/home`, `/assistant/library`,
+ *   route from elsewhere: `/assistant/library`, `/assistant/identity`,
  *   etc., and the listener doesn't exist yet at dispatch time).
  *
  * Without the pending-flag drain, File > Current Conversation would no-op

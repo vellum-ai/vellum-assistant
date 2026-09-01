@@ -567,11 +567,6 @@
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
   },
-  "conversationActivityPill": {
-    "activity": "Activity",
-    "recent": "Recent",
-    "running": "Running"
-  },
   "conversationAssetActions": {
     "delete": "Delete",
     "downloadPdf": "Download PDF",
@@ -1236,6 +1231,14 @@
     "goToFile": "Go to file",
     "noPreviewForType": "No preview for this file type"
   },
+  "progressRail": {
+    "agentsLabel": "Agents",
+    "agentsToggleAria": "Agents: {running, plural, =0 {none running} one {# running} other {# running}}, {completed, plural, =0 {none finished} one {# finished} other {# finished}}",
+    "railAria": "Progress",
+    "stepCounter": "{current} of {total}",
+    "title": "Progress",
+    "titleFinished": "Finished"
+  },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
   },
@@ -1498,10 +1501,6 @@
   "storeCredentialDialog": {
     "successToast": "Stored securely. The key never entered the chat."
   },
-  "subagentAvatarRow": {
-    "details": "Details",
-    "showDetailsAria": "Show subagent details"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "Back to timeline",
     "backTooltip": "Back",
@@ -1523,8 +1522,6 @@
     "workedFor": "Worked for {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Collapse",
-    "collapseDetailsAria": "Collapse subagent details",
     "stopSubagentAria": "Stop subagent"
   },
   "suggestionCard": {

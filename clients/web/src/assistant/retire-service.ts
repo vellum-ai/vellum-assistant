@@ -12,6 +12,7 @@ import {
 } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
+import { forgetAssistantOnboarded } from "@/domains/onboarding/onboarded-assistant-record";
 import { clearResearchSnapshot } from "@/domains/onboarding/research-onboarding-persistence";
 import { removeLocalSetting } from "@/utils/local-settings";
 import { useAuthStore } from "@/stores/auth-store";
@@ -122,6 +123,8 @@ export async function retireAssistant(
     // form instead of resuming the retired assistant's run deep in the flow
     // (e.g. straight onto the wake gate).
     clearResearchSnapshot(useAuthStore.getState().user?.id ?? null);
+    // The completion record goes with it, so a reused id is never pre-marked.
+    forgetAssistantOnboarded(assistantId);
     // Drop the marketing nav's cached assistant name (same-origin localStorage,
     // written by the platform's `useNavbarAuth`). Otherwise the marketing site
     // keeps optimistically showing "My Assistant" after a retire until its own

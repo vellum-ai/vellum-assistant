@@ -271,3 +271,24 @@ describe("settings route compatibility", () => {
     expect(leaf?.Component).toBeUndefined();
   });
 });
+
+describe("Activity route compatibility", () => {
+  // Bookmarks, saved deep links, and the login `returnTo` round-trip all still
+  // name `/assistant/home`. Reaching the catch-all is the failure this guards:
+  // the URL has to resolve to something that forwards.
+  test("the legacy Activity URL matches a route rather than the catch-all", async () => {
+    const matches = matchRoutes(routeTree as never, "/assistant/home") ?? [];
+    const leaf = matches.at(-1)?.route as
+      | {
+          lazy?: { Component: () => Promise<unknown> };
+          Component?: { name?: string };
+        }
+      | undefined;
+
+    expect(leaf?.Component?.name).not.toBe("NotFound");
+    expect(await leaf?.lazy?.Component()).toBe(
+      (await import("@/domains/home/activity-redirect-page"))
+        .ActivityRedirectPage,
+    );
+  });
+});

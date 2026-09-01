@@ -26,7 +26,7 @@ export const NOTIFICATIONS_PANEL_HEADER_CLASS =
 /**
  * Notification bodies read as prose here, so paragraphs and list items take a
  * 1.5 ratio in place of the 18px line height the body token pairs with its
- * 14px text. Scoped to this panel, leaving the Activity page's detail on the
+ * 14px text. Scoped to this panel, leaving every other markdown surface on the
  * token default.
  */
 const BODY_LEADING_CLASS = "[&_p]:leading-normal [&_li]:leading-normal";
@@ -48,7 +48,7 @@ export interface NotificationsBellDetailProps {
   contentMaxHeight?: string;
   /**
    * Ids of the conversations that still exist, merged from the foreground,
-   * background, and scheduled lists exactly as the Activity page merges them.
+   * background, and scheduled lists.
    */
   validConversationIds: Set<string>;
   /** True while any of those lists has yet to resolve. */
@@ -74,8 +74,9 @@ export interface NotificationsBellDetailProps {
 
 /**
  * One notification's detail, rendered inside the bell in place of the list.
- * The body renderers and the panel-kind rule are the Activity page's, so a
- * notification reads the same wherever it is opened from.
+ * The body renderers live in `detail-panel/`, keyed off `item.detailPanel.kind`
+ * with a markdown fallback, so a notification reads the same whatever produced
+ * it.
  */
 export function NotificationsBellDetail({
   item,
@@ -97,8 +98,8 @@ export function NotificationsBellDetail({
   const conversationId = item.conversationId ?? null;
   const actions = item.actions ?? [];
 
-  // Same rule as the Activity page's detail panel, plus a pending case the
-  // page doesn't have: the lists start loading when this view opens. Every
+  // The lists start loading when this view opens, so validation has a pending
+  // state a warm-cache surface would not have. Every
   // list a candidate link depends on has to land before any link becomes
   // reachable, so the buttons settle together rather than one at a time and a
   // deleted target is never linked to.

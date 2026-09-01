@@ -59,9 +59,9 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
-  test("the managed Balanced profile routes GLM 5.2 through Fireworks", () => {
+  test("the managed Balanced profile routes GLM 5.3 Flash through Fireworks", () => {
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
-    expect(balanced.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(balanced.model).toBe("accounts/fireworks/models/glm-5p3-flash");
     expect(resolveRoutingIdentity(balanced.provider, balanced.model)).toEqual({
       connectionName: "vellum",
       expectedProvider: "fireworks",

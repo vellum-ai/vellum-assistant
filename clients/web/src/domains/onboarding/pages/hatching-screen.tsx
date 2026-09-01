@@ -32,6 +32,7 @@ import {
   NEW_ASSISTANT_PARAM,
   shouldSkipResearchAfterHatch,
 } from "@/domains/onboarding/onboarding-destination";
+import { stampAssistantOnboarded } from "@/domains/onboarding/stamp-assistant-onboarded";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import {
   awaitPurchasedProvisioning,
@@ -306,8 +307,11 @@ export function HatchingScreen() {
             return;
           }
           // Non-production skip-to-chat: the assistant is live, so drop into
-          // the workspace instead of the research/personality funnel.
+          // the workspace instead of the research/personality funnel. This
+          // bypasses the research route, so it is the terminal that has to
+          // record the completion itself.
           if (shouldSkipResearchAfterHatch(searchParams)) {
+            stampAssistantOnboarded(readyAssistantId);
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });
@@ -650,7 +654,7 @@ export function HatchingScreen() {
         return;
       }
 
-      handleHatchReady();
+      handleHatchReady(assistantId);
     };
 
     const runPoll = async () => {

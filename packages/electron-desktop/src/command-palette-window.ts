@@ -65,7 +65,6 @@ const payloadlessCommandKindSchema = z.enum([
   "logout",
   "rePair",
   "sidebarToggle",
-  "home",
   "popOut",
   "previousConversation",
   "nextConversation",

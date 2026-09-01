@@ -497,8 +497,8 @@ export interface ScheduleDetailPanelProps {
 
 /**
  * Inline schedule detail shown in the Schedules page's right pane (mirrors the
- * Activity page's `HomeDetailPanel` so schedule and feed-item details share
- * one consistent side-panel UX).
+ * notification bell's detail so schedule and feed-item details read the same
+ * way).
  */
 export function ScheduleDetailPanel({
   schedule,

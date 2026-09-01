@@ -6,6 +6,7 @@ import {
   isActiveAssistant,
   isPairedLockfileEntry,
   renameLockfileAssistantIfPresent,
+  stampLockfileAssistantOnboardedIfPresent,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   getLockfileData,
   getLocalAssistantStatus,
@@ -458,6 +459,28 @@ export const installLocalMode = (): void => {
       }
       // Refresh the watcher so lockfile-driven surfaces pick up the new name
       // in the same tick instead of after the next poll.
+      refreshLockfile();
+      return { ok: true, lockfile: result.lockfile };
+    },
+  );
+
+  // Update-only, like the rename above: the host decides against the on-disk
+  // registry so a completion racing a retire cannot resurrect the entry.
+  ipc(
+    "vellum:localMode:stampLockfileAssistantOnboarded",
+    z.tuple([z.string().optional(), z.string().optional()]),
+    ([assistantId, onboardedAt]): LockfileWriteResult => {
+      if (!assistantId || !onboardedAt) {
+        return { ok: false, error: "Missing assistantId or onboardedAt" };
+      }
+      const result = stampLockfileAssistantOnboardedIfPresent(
+        lockfilePaths,
+        assistantId,
+        onboardedAt,
+      );
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
       refreshLockfile();
       return { ok: true, lockfile: result.lockfile };
     },

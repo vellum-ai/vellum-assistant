@@ -567,11 +567,6 @@
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
   },
-  "conversationActivityPill": {
-    "activity": "Actividad",
-    "recent": "Recientes",
-    "running": "En ejecución"
-  },
   "conversationAssetActions": {
     "delete": "Eliminar",
     "downloadPdf": "Descargar PDF",
@@ -1236,6 +1231,14 @@
     "goToFile": "Ir al archivo",
     "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
+  "progressRail": {
+    "agentsLabel": "Agentes",
+    "agentsToggleAria": "Agentes: {running, plural, =0 {ninguno en curso} one {# en curso} other {# en curso}}, {completed, plural, =0 {ninguno terminado} one {# terminado} other {# terminados}}",
+    "railAria": "Progreso",
+    "stepCounter": "{current} de {total}",
+    "title": "Progreso",
+    "titleFinished": "Terminado"
+  },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
   },
@@ -1487,10 +1490,6 @@
   "storeCredentialDialog": {
     "successToast": "Guardado de forma segura. La clave nunca entró en el chat."
   },
-  "subagentAvatarRow": {
-    "details": "Detalles",
-    "showDetailsAria": "Mostrar detalles del subagente"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "Volver a la línea de tiempo",
     "backTooltip": "Atrás",
@@ -1512,8 +1511,6 @@
     "workedFor": "Trabajó durante {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Contraer",
-    "collapseDetailsAria": "Contraer detalles del subagente",
     "stopSubagentAria": "Detener subagente"
   },
   "suggestionCard": {

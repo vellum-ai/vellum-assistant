@@ -1707,6 +1707,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // preview it already showed, rather than filing this with the
           // transient transcriber and TTS blips that share `recoverable`.
           frameType: "sight_frame",
+          // Which keep, not just which stream: several can be outstanding
+          // while a persist waits out a turn.
+          attachmentId: frame.attachmentId,
           // The session is fine; only this frame failed.
           recoverable: true,
         });

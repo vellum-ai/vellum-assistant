@@ -9,7 +9,9 @@
  * The two neighbouring contracts are pinned by their own suites: a deliberate
  * snap persists standalone and untagged (`live-voice-attach-image.test.ts`), a
  * parked frame persists nothing and rides the next turn
- * (`live-voice-attach-frame.test.ts`).
+ * (`live-voice-attach-frame.test.ts`). One photo case does live here, because
+ * it pins the edge of something this suite owns: the refusal's attachment
+ * echo, which is the keep stream's alone.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -276,11 +278,78 @@ describe("live-voice camera frames kept mid-call", () => {
       ).toMatchObject({
         type: "error",
         frameType: "sight_frame",
+        // The id it refused, so the client retires that keep rather than
+        // guessing among the sends it has not heard back on.
+        attachmentId: "att-missing",
         recoverable: true,
       });
       // Nothing landed and the call carries on.
       expect(getMessages(harness.conversationId)).toHaveLength(0);
       expect(harness.startVoiceTurn).not.toHaveBeenCalled();
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  test("each refused keep names its own attachment", async () => {
+    // The point of the echo: keeps overlap, so a shared `frameType` cannot
+    // tell two outstanding sends apart.
+    const harness = createSessionHarness("Sight keep two refusals");
+    try {
+      await harness.session.start();
+      const before = harness.frames.length;
+
+      await harness.session.handleClientFrame({
+        type: "sight_frame",
+        attachmentId: "att-missing-1",
+      });
+      await harness.session.handleClientFrame({
+        type: "sight_frame",
+        attachmentId: "att-missing-2",
+      });
+      await waitFor(
+        () =>
+          harness.frames.slice(before).filter((frame) => frame.type === "error")
+            .length === 2,
+        { message: "Timed out waiting for both refusals" },
+      );
+
+      const refused = harness.frames
+        .slice(before)
+        .filter((frame) => frame.type === "error")
+        .map((frame) => frame.attachmentId);
+      expect(refused.sort()).toEqual(["att-missing-1", "att-missing-2"]);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  test("a photo that cannot be stored names no attachment", async () => {
+    // Scope pin: the echo is the keep stream's, where sends overlap. A photo
+    // is one deliberate snap at a time, and its receipt strip already knows
+    // which one it is waiting on.
+    const harness = createSessionHarness("Sight keep photo scope");
+    try {
+      await harness.session.start();
+      const before = harness.frames.length;
+
+      await harness.session.handleClientFrame({
+        type: "attach_image",
+        attachmentId: "att-missing",
+      });
+      await waitFor(() => harness.frames.length > before, {
+        message: "Timed out waiting for the rejected photo's error",
+      });
+
+      const error = harness.frames
+        .slice(before)
+        .find((frame) => frame.type === "error");
+      expect(error).toMatchObject({
+        type: "error",
+        frameType: "attach_image",
+        recoverable: true,
+      });
+      expect(error?.attachmentId).toBeUndefined();
     } finally {
       harness.dispose();
     }
