@@ -67,6 +67,17 @@ export function SlackSetupTokensStep({
     !appTokenError &&
     saveStatus !== "pending";
 
+  // A saved credential retires the form. The wizard empties both fields on
+  // success, so leaving them up would pair "Credentials saved" with blank
+  // boxes and a dead button, which reads as a save that did not take.
+  if (saveStatus === "success") {
+    return (
+      <Notice tone="success" title={t("slackSetupTokensStep.credentialsSaved")}>
+        {t("slackSetupTokensStep.verifyBody")}
+      </Notice>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <Typography
@@ -123,14 +134,6 @@ export function SlackSetupTokensStep({
           : t("slackSetupTokensStep.connectSlack")}
       </Button>
 
-      {saveStatus === "success" && (
-        <Notice
-          tone="success"
-          title={t("slackSetupTokensStep.credentialsSaved")}
-        >
-          {t("slackSetupTokensStep.verifyBody")}
-        </Notice>
-      )}
       {saveStatus === "error" && saveError && (
         <Notice tone="error">{saveError}</Notice>
       )}

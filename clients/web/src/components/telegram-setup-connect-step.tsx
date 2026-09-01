@@ -33,6 +33,17 @@ export function TelegramSetupConnectStep({
   const canSave =
     botToken.trim().length > 0 && !tokenError && saveStatus !== "pending";
 
+  // A saved credential retires the form. The wizard empties the field on
+  // success, so leaving it up would pair "Token saved" with a blank box and a
+  // dead button, which reads as a save that did not take.
+  if (saveStatus === "success") {
+    return (
+      <Notice tone="success" title={t("telegramSetupConnectStep.savedTitle")}>
+        {t("telegramSetupConnectStep.successNotice")}
+      </Notice>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <Typography
@@ -69,11 +80,6 @@ export function TelegramSetupConnectStep({
           : t("telegramSetupConnectStep.connectTelegram")}
       </Button>
 
-      {saveStatus === "success" && (
-        <Notice tone="success" title={t("telegramSetupConnectStep.savedTitle")}>
-          {t("telegramSetupConnectStep.successNotice")}
-        </Notice>
-      )}
       {saveStatus === "error" && saveError && (
         <Notice tone="error">{saveError}</Notice>
       )}

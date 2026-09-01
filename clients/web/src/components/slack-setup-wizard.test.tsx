@@ -293,10 +293,12 @@ describe("SlackSetupWizard step flow", () => {
     expect(onOpenStep()).toBe(false);
   });
 
-  test("clears both tokens once the save succeeds", () => {
+  test("retires the token form once the save succeeds", () => {
     // The Channels page keeps this wizard mounted after a successful save, so
-    // a retained secret sits in a live field. The chat drawer closes and
-    // unmounts, which hides the problem on the surface most people use.
+    // a retained secret would sit in a live field. The chat drawer closes and
+    // unmounts, which hides the problem on the surface most people use. The
+    // fields go away entirely rather than being blanked, which is both the
+    // stronger guarantee and the honest reading of a saved credential.
     function Harness() {
       const [status, setStatus] = useState<"idle" | "success">("idle");
       return (
@@ -319,12 +321,10 @@ describe("SlackSetupWizard step flow", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Connect Slack/i }));
 
-    expect(
-      (screen.getByLabelText(/Bot Token/i) as HTMLInputElement).value,
-    ).toBe("");
-    expect(
-      (screen.getByLabelText(/App Token/i) as HTMLInputElement).value,
-    ).toBe("");
+    expect(screen.queryByLabelText(/Bot Token/i)).toBeNull();
+    expect(screen.queryByLabelText(/App Token/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Connect Slack/i })).toBeNull();
+    expect(screen.queryByText(/Credentials saved/i)).not.toBeNull();
   });
 
   test("step 4 hands both tokens to onSave, trimmed", () => {
