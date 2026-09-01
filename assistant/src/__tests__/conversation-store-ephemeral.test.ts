@@ -187,6 +187,10 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
 }));
 
 import {
+  conversationCount,
+  findConversation,
+} from "../daemon/conversation-registry.js";
+import {
   clearAllActiveConversations,
   getConversationIfExists,
   getOrCreateConversation,
@@ -295,5 +299,40 @@ describe("getConversationIfExists", () => {
     expect(await observing).toBeNull();
     expect(mockEnsureConversationExists).not.toHaveBeenCalled();
     expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+});
+
+describe("acquisitions sharing one flight", () => {
+  test("creating callers behind a declined flight build one conversation", async () => {
+    // A flight that declines to create leaves everyone waiting on it with no
+    // answer, and each of them was asked to build. Building unconditionally
+    // from there gives one id two instances: the registry keeps whichever was
+    // written last, and the other one runs with its own processing flag and
+    // its own queue.
+    resetAcquireState();
+    conversationRowPresent = true;
+    let releaseSetup = () => {};
+    holdSetup = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    // Passes its up-front read, publishes the flight, then waits inside setup.
+    const observing = getConversationIfExists("herd-conversation");
+    // Both reach that flight and wait on it.
+    const firstCreating = getOrCreateConversation("herd-conversation");
+    const secondCreating = getOrCreateConversation("herd-conversation");
+
+    // The delete the observing acquire will refuse on when it wakes.
+    conversationRowPresent = false;
+    releaseSetup();
+
+    expect(await observing).toBeNull();
+    const first = await firstCreating;
+    const second = await secondCreating;
+
+    // One acquire built; the other joined the flight it published.
+    expect(first).toBe(second);
+    expect(findConversation("herd-conversation")).toBe(first);
+    expect(conversationCount()).toBe(1);
   });
 });
