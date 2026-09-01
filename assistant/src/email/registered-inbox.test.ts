@@ -12,26 +12,34 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockPlatformAssistantId: string | null;
 let mockResponse: { ok: boolean; status: number; body: unknown };
 let mockFetchThrows: boolean;
+let mockCreateThrows: boolean;
 let fetchCallCount: number;
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
-    create: async () => ({
-      platformAssistantId: mockPlatformAssistantId,
-      fetch: async (_path: string) => {
-        fetchCallCount += 1;
-        if (mockFetchThrows) {
-          throw new Error("platform unreachable");
-        }
-        return {
-          ok: mockResponse.ok,
-          status: mockResponse.status,
-          json: async () => mockResponse.body,
-        };
-      },
-    }),
+    create: async () => {
+      if (mockCreateThrows) {
+        throw new Error("credential store unavailable");
+      }
+      return clientStub();
+    },
   },
 }));
+
+const clientStub = () => ({
+  platformAssistantId: mockPlatformAssistantId,
+  fetch: async (_path: string) => {
+    fetchCallCount += 1;
+    if (mockFetchThrows) {
+      throw new Error("platform unreachable");
+    }
+    return {
+      ok: mockResponse.ok,
+      status: mockResponse.status,
+      json: async () => mockResponse.body,
+    };
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Import after mocks
@@ -61,8 +69,20 @@ describe("resolveRegisteredInbox", () => {
     mockPlatformAssistantId = "assistant-test-id";
     mockResponse = { ok: true, status: 200, body: { count: 0, results: [] } };
     mockFetchThrows = false;
+    mockCreateThrows = false;
     fetchCallCount = 0;
     invalidateRegisteredInboxCache();
+  });
+
+  test("unavailable when client creation itself throws", async () => {
+    mockCreateThrows = true;
+
+    const state = await resolveRegisteredInbox();
+
+    expect(state).toEqual({
+      status: "unavailable",
+      detail: "credential store unavailable",
+    });
   });
 
   test("registered when the platform lists an address", async () => {
@@ -188,7 +208,27 @@ describe("listEmailAddresses", () => {
     mockPlatformAssistantId = "assistant-test-id";
     mockResponse = { ok: true, status: 200, body: { count: 0, results: [] } };
     mockFetchThrows = false;
+    mockCreateThrows = false;
     fetchCallCount = 0;
+  });
+
+  test("a 200 without results is a failed listing, not an empty one", async () => {
+    mockResponse = { ok: true, status: 200, body: {} };
+
+    const list = await listEmailAddresses(await testClient());
+
+    expect(list).toEqual({ ok: false, detail: "unexpected response shape" });
+  });
+
+  test("a positive count with no rows is a failed listing", async () => {
+    mockResponse = { ok: true, status: 200, body: { count: 2, results: [] } };
+
+    const list = await listEmailAddresses(await testClient());
+
+    expect(list).toEqual({
+      ok: false,
+      detail: "listing reported 2 addresses but returned none",
+    });
   });
 
   test("returns the platform's rows with ids", async () => {

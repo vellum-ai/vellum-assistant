@@ -4,10 +4,11 @@
  * Managed email registration lives on the Vellum platform: the
  * `/v1/assistants/:id/email-addresses/` API is the only writer and the only
  * source of truth. Nothing about a registration lands in workspace config, so
- * any reader that wants the inbox address has to ask the platform. The three
- * consumers (the email readiness probe, the email invite adapter, and the
- * channel-availability route) all resolve through here so they cannot drift
- * onto different answers.
+ * any reader that wants the inbox address has to ask the platform. Every
+ * consumer of the listing (the email readiness probe, the email invite
+ * adapter, the channel-availability route, the email management routes, and
+ * verification email delivery) reads through this module so they cannot
+ * drift onto different answers.
  *
  * `unavailable` is distinct from `none` for the same reason the readiness
  * service separates "failed" from "indeterminate": an unreachable platform is
@@ -48,9 +49,10 @@ export type EmailAddressListResult =
  */
 const EmailAddressListSchema = z.object({
   count: z.number().optional(),
-  results: z
-    .array(z.object({ id: z.string(), address: z.string() }))
-    .optional(),
+  // Required: the platform's paginated listing always carries `results`, so
+  // a 200 without it is shape drift and must read as a failed listing, never
+  // as "no inbox".
+  results: z.array(z.object({ id: z.string(), address: z.string() })),
 });
 
 /**
@@ -90,7 +92,17 @@ export async function listEmailAddresses(
     return { ok: false, detail: "unexpected response shape" };
   }
 
-  return { ok: true, addresses: parsed.data.results ?? [] };
+  const { count, results: addresses } = parsed.data;
+  if (addresses.length === 0 && (count ?? 0) > 0) {
+    // A positive count with no rows is drift, not an empty listing: treating
+    // it as "no inbox" would recreate the false Not connected verdict.
+    return {
+      ok: false,
+      detail: `listing reported ${count} addresses but returned none`,
+    };
+  }
+
+  return { ok: true, addresses };
 }
 
 /**
@@ -130,7 +142,16 @@ export async function resolveRegisteredInbox(
 }
 
 async function fetchRegisteredInbox(): Promise<RegisteredInboxState> {
-  const client = await VellumPlatformClient.create();
+  // Creation resolves the managed-proxy context and the credential store,
+  // either of which can reject; a backend blip there is "could not ask",
+  // not an error the caller should surface as a failed request.
+  let client: VellumPlatformClient | null;
+  try {
+    client = await VellumPlatformClient.create();
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { status: "unavailable", detail };
+  }
   if (!client?.platformAssistantId) {
     return { status: "no_platform" };
   }
