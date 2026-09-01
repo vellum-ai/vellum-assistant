@@ -530,7 +530,8 @@
     "botTokenLabel": "機器人權杖",
     "connectSlack": "連接 Slack",
     "connecting": "正在連接…",
-    "credentialsSaved": "憑證已儲存。",
+    "credentialsSaved": "憑證已儲存",
+    "verifyBody": "您的助理還不知道哪個 Slack 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Slack 上驗證我」即可完成。",
     "instructions": "在 Slack 的確認畫面中，展開 <credentials>您的應用程式憑證</credentials> 並複製兩個權杖。",
     "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。"
   },
@@ -609,7 +610,8 @@
     "connectTelegram": "連接 Telegram",
     "instructions": "貼上 BotFather 回覆中的權杖。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之後的整行內容。",
     "saving": "正在儲存…",
-    "successNotice": "權杖已儲存。其餘部分將自動完成。您的助理會在您下次聊天時確認 Telegram 正在傳送訊息，並確保可以聯絡到您。"
+    "savedTitle": "權杖已儲存",
+    "successNotice": "您的助理還不知道哪個 Telegram 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Telegram 上驗證我」即可完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已複製！",

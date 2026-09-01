@@ -530,7 +530,8 @@
     "botTokenLabel": "Bot Token",
     "connectSlack": "Connect Slack",
     "connecting": "Connecting…",
-    "credentialsSaved": "Credentials saved.",
+    "credentialsSaved": "Credentials saved",
+    "verifyBody": "Your assistant doesn't know which Slack account is yours yet, so it won't answer you. Say \"verify me on Slack\" in chat to finish.",
     "instructions": "On Slack's confirmation screen, expand <credentials>Your app credentials</credentials> and copy both tokens.",
     "skipNotice": "That screen also offers a command-line walkthrough and a <download>Download app files</download> button. Skip both. They set up a separate local app, and this assistant needs only the two tokens."
   },
@@ -609,7 +610,8 @@
     "connectTelegram": "Connect Telegram",
     "instructions": "Paste the token from BotFather's reply. It is the whole line after <tokenLine>Use this token to access the HTTP API</tokenLine>.",
     "saving": "Saving…",
-    "successNotice": "Token saved. The rest finishes on its own. Your assistant will confirm Telegram is delivering the next time you chat, and make sure it can reach you."
+    "savedTitle": "Token saved",
+    "successNotice": "Your assistant doesn't know which Telegram account is yours yet, so it won't answer you. Say \"verify me on Telegram\" in chat to finish."
   },
   "telegramSetupCreateStep": {
     "copied": "Copied!",
