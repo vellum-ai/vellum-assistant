@@ -13,7 +13,11 @@ import {
   GMAIL_REQUIRED_SCOPES,
   listMessages,
 } from "../../messaging/providers/gmail/client.js";
-import type { GmailMessage } from "../../messaging/providers/gmail/types.js";
+import { extractHeader } from "../../messaging/providers/gmail/message-fields.js";
+import type {
+  GmailMessage,
+  GmailProfile,
+} from "../../messaging/providers/gmail/types.js";
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
 import { getLogger } from "../../util/logger.js";
@@ -42,18 +46,82 @@ interface HistoryListResponse {
   historyId?: string;
 }
 
-function extractHeader(msg: GmailMessage, name: string): string {
-  return (
-    msg.payload?.headers?.find(
-      (h) => h.name.toLowerCase() === name.toLowerCase(),
-    )?.value ?? ""
-  );
+/**
+ * Headers requested with `format=metadata`.
+ *
+ * More than the summary line needs: the notification normalizer categorizes a
+ * message from its recipients and from the reply and list headers, and a
+ * metadata fetch returns only what is asked for, so a header left out of this
+ * list is a categorization that silently degrades to `fyi`.
+ */
+export const METADATA_HEADERS = [
+  "From",
+  "Subject",
+  "Date",
+  "To",
+  "Cc",
+  "In-Reply-To",
+  "List-Unsubscribe",
+];
+
+/**
+ * The authenticated mailbox address, per credential service.
+ *
+ * It is a property of the credential rather than of the poll, so it is
+ * resolved once and reused. Without it the normalizer cannot tell a message
+ * addressed to the user from one addressed to a one-address list alias, and
+ * has to fall back rather than guess.
+ */
+const mailboxAddressByService = new Map<string, string>();
+
+function rememberMailboxAddress(
+  credentialService: string,
+  profile: GmailProfile,
+): void {
+  if (profile.emailAddress) {
+    mailboxAddressByService.set(credentialService, profile.emailAddress);
+  }
 }
 
-function messageToItem(msg: GmailMessage): WatcherItem {
-  const from = extractHeader(msg, "From");
-  const subject = extractHeader(msg, "Subject");
-  const date = extractHeader(msg, "Date");
+/**
+ * The mailbox address for this credential, from cache when a profile call has
+ * already happened this process. A failure is not fatal: categorization
+ * degrades, the poll does not.
+ */
+async function resolveMailboxAddress(
+  connection: OAuthConnection,
+  credentialService: string,
+): Promise<string | null> {
+  const cached = mailboxAddressByService.get(credentialService);
+  if (cached) {
+    return cached;
+  }
+  try {
+    const profile = await getProfile(connection);
+    rememberMailboxAddress(credentialService, profile);
+    return profile.emailAddress ?? null;
+  } catch (err) {
+    log.warn({ err }, "Gmail: could not resolve the mailbox address");
+    return null;
+  }
+}
+
+/** Exported for the test that pins the payload the normalizer reads. */
+export function messageToItem(
+  msg: GmailMessage,
+  mailboxAddress: string | null,
+  credentialService: string,
+): WatcherItem {
+  const headers: Record<string, string> = {};
+  for (const name of METADATA_HEADERS) {
+    const value = extractHeader(msg, name);
+    if (value) {
+      headers[name] = value;
+    }
+  }
+
+  const from = headers.From ?? "";
+  const subject = headers.Subject ?? "";
 
   return {
     externalId: msg.id,
@@ -62,9 +130,20 @@ function messageToItem(msg: GmailMessage): WatcherItem {
     payload: {
       id: msg.id,
       threadId: msg.threadId,
+      // Kept as top-level scalars alongside the record below: existing readers
+      // (`sequence/reply-matcher.ts`, stored rows written before this) index
+      // `payload.from` directly.
       from,
       subject,
-      date,
+      date: headers.Date ?? "",
+      headers,
+      // The normalizer carries this onto its record so a follow-up body fetch
+      // resolves the credential this poll read, not the default Gmail one.
+      credentialService,
+      // Serves two readers: the normalizer categorizes against it, and it is
+      // also the account identifier that pins a follow-up body fetch to this
+      // mailbox when several accounts share the credential service.
+      ...(mailboxAddress ? { mailboxAddress } : {}),
       snippet: msg.snippet ?? "",
       labelIds: msg.labelIds ?? [],
     },
@@ -126,6 +205,7 @@ export const gmailProvider: WatcherProvider = {
       requiredScopes: GMAIL_REQUIRED_SCOPES,
     });
     const profile = await getProfile(connection);
+    rememberMailboxAddress(credentialService, profile);
     if (!profile.historyId) {
       throw new Error("Gmail profile did not return a historyId");
     }
@@ -145,6 +225,7 @@ export const gmailProvider: WatcherProvider = {
     if (!watermark) {
       // No watermark — get initial position, return no items
       const profile = await getProfile(connection);
+      rememberMailboxAddress(credentialService, profile);
       return { items: [], watermark: profile.historyId ?? "0" };
     }
 
@@ -175,7 +256,7 @@ export const gmailProvider: WatcherProvider = {
         connection,
         Array.from(messageIds),
         "metadata",
-        ["From", "Subject", "Date"],
+        METADATA_HEADERS,
       );
 
       // Only include INBOX messages (skip sent, drafts, etc.)
@@ -183,7 +264,13 @@ export const gmailProvider: WatcherProvider = {
         m.labelIds?.includes("INBOX"),
       );
 
-      const items = inboxMessages.map(messageToItem);
+      const mailboxAddress =
+        inboxMessages.length > 0
+          ? await resolveMailboxAddress(connection, credentialService)
+          : null;
+      const items = inboxMessages.map((m) =>
+        messageToItem(m, mailboxAddress, credentialService),
+      );
       log.info(
         { count: items.length, watermark: newWatermark },
         "Gmail: fetched new messages",
@@ -195,7 +282,7 @@ export const gmailProvider: WatcherProvider = {
         log.warn(
           "Gmail historyId expired, falling back to recent unread messages",
         );
-        return fallbackFetch(connection);
+        return fallbackFetch(connection, credentialService);
       }
       throw err;
     }
@@ -207,6 +294,7 @@ export const gmailProvider: WatcherProvider = {
  */
 async function fallbackFetch(
   connection: OAuthConnection,
+  credentialService: string,
 ): Promise<FetchResult> {
   const listResp = await listMessages(
     connection,
@@ -218,6 +306,7 @@ async function fallbackFetch(
 
   if (!listResp.messages || listResp.messages.length === 0) {
     const profile = await getProfile(connection);
+    rememberMailboxAddress(credentialService, profile);
     return { items: [], watermark: profile.historyId ?? "0" };
   }
 
@@ -225,12 +314,18 @@ async function fallbackFetch(
     connection,
     listResp.messages.map((m) => m.id),
     "metadata",
-    ["From", "Subject", "Date"],
+    METADATA_HEADERS,
   );
 
-  const items = messages.map(messageToItem);
-
-  // Get fresh historyId for the new watermark
+  // Get fresh historyId for the new watermark. The same call carries the
+  // mailbox address, so categorization costs nothing extra on this path.
   const profile = await getProfile(connection);
+  rememberMailboxAddress(credentialService, profile);
+
+  const mailboxAddress = profile.emailAddress ?? null;
+  const items = messages.map((m) =>
+    messageToItem(m, mailboxAddress, credentialService),
+  );
+
   return { items, watermark: profile.historyId ?? "0" };
 }
