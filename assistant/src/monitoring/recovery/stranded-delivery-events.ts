@@ -37,30 +37,13 @@
  */
 
 import { getLogger } from "../../util/logger.js";
-import { readDaemonBootTime } from "../daemon-boot-time.js";
-import { openRecoveryDb } from "./db.js";
+import { withBootFencedRecoveryDb } from "./db.js";
 
 const log = getLogger("recovery-stranded-delivery-events");
 
 export function recoverStrandedDeliveryEvents(): void {
-  const bootTime = readDaemonBootTime();
-  if (bootTime == null) {
-    // Without the fence we cannot tell a dead process's orphan from a live
-    // daemon's in-flight delivery, so skip; the next restart reconciles.
-    log.warn(
-      "Skipping stranded-delivery-event recovery: daemon boot time unavailable",
-    );
-    return;
-  }
-
-  const db = openRecoveryDb();
-  if (db == null) {
-    return;
-  }
-  try {
+  withBootFencedRecoveryDb("stranded-delivery-events", (db, bootTime) => {
     const now = Date.now();
-    // Throws here (missing column) propagate to the orchestrator as "schema not
-    // ready yet" and retry on the next monitor run.
     const result = db
       .query(
         `UPDATE channel_inbound_events
@@ -81,7 +64,5 @@ export function recoverStrandedDeliveryEvents(): void {
         "Promoted stranded processed channel events onto the delivery-retry sweep",
       );
     }
-  } finally {
-    db.close();
-  }
+  });
 }

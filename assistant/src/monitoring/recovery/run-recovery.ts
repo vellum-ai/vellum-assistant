@@ -5,9 +5,11 @@
  * path runs here instead, in the resource-monitor process, off the daemon's
  * event loop. It lists a set of recovery steps and runs each ONCE, shortly
  * after the monitor starts — this is crash recovery, not a periodic sweep.
- * Each step owns the database file it needs and its own logging; the
+ * Each step owns its own reconciliation query and its own logging; the
  * orchestrator only sequences them and isolates one step's failure from the
- * next.
+ * next. The preconditions every step shares, a daemon boot time to fence
+ * against and an openable handle to close afterwards, live in
+ * `withBootFencedRecoveryDb`.
  *
  * Steps run in order; new reconciliations plug in by adding a
  * {@link RecoveryStep} to `RECOVERY_STEPS`. `clear-stale-processing` runs
