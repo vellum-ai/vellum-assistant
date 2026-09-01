@@ -22,7 +22,7 @@
     "guardianRequest": "监护人请求"
   },
   "feedRemediation": {
-    "done": "已恢复。托管推理重新可用。",
+    "done": "已恢复。由 Vellum 托管的模型重新可用。",
     "running": "正在恢复...",
     "failed": "无法恢复：{{reason}}"
   },

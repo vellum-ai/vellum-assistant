@@ -145,13 +145,13 @@ export const WithRejectedManagedCredential: Story = {
         status: "new",
         urgency: "high",
         category: "security",
-        title: "Vellum AI is paused",
+        title: "Vellum-managed models paused",
         summary:
-          "Vellum lost access to its AI models, so chat and background tasks are paused.",
+          "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused.",
         detailPanel: { kind: "toolPermission" },
         remediation: {
           action: "reprovision_managed_credential",
-          label: "Restore Vellum AI",
+          label: "Restore access",
         },
         timestamp: "2026-09-01T15:28:00.000Z",
         createdAt: "2026-09-01T15:28:00.000Z",

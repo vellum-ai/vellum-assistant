@@ -83,7 +83,7 @@ export async function vellumConnectionAvailability(): Promise<ConnectionAvailabi
     return {
       status: "vellum_credential_rejected",
       message:
-        "Vellum rejected the managed inference credential. Sign in to Vellum to provision a replacement.",
+        "Vellum's managed credentials stopped working. Restore access from the notification, or log in to the Vellum platform.",
     };
   }
 

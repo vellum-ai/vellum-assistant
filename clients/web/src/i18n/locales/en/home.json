@@ -22,7 +22,7 @@
     "guardianRequest": "Guardian request"
   },
   "feedRemediation": {
-    "done": "Restored. Managed inference is working again.",
+    "done": "Restored. Vellum-managed models are working again.",
     "running": "Restoring...",
     "failed": "Could not restore it: {{reason}}"
   },

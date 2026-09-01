@@ -22,7 +22,7 @@
     "guardianRequest": "Solicitud del guardián"
   },
   "feedRemediation": {
-    "done": "Restaurado. La inferencia gestionada vuelve a funcionar.",
+    "done": "Restaurado. Los modelos gestionados por Vellum vuelven a funcionar.",
     "running": "Restaurando...",
     "failed": "No se pudo restaurar: {{reason}}"
   },

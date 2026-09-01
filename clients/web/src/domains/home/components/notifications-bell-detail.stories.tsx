@@ -84,22 +84,22 @@ export const ManagedInferenceCredentialRejected: Story = {
     entityLinks: [],
     item: feedItem({
       id: "credential-health-vellum",
-      title: "Vellum AI is paused",
+      title: "Vellum-managed models paused",
       summary:
-        "Vellum lost access to its AI models, so chat and background tasks are paused.",
+        "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused.",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "toolPermission" },
       remediation: {
         action: "reprovision_managed_credential",
-        label: "Restore Vellum AI",
+        label: "Restore access",
       },
       metadata: {
         provider: "vellum",
-        providerLabel: "Vellum AI",
+        providerLabel: "Vellum-managed models",
         status: "revoked",
         details:
-          "Vellum lost access to its AI models, so chat and background tasks are paused. Restoring takes a moment and will not affect anything else.",
+          "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused. Restoring takes a moment and will not affect anything else.",
         missingScopes: [],
       },
     }),
@@ -111,6 +111,42 @@ export const ManagedInferenceCredentialRejected: Story = {
  * names the skill in its title but cannot show it, so the footer carries a
  * link to it next to the jump back to the conversation the change came from.
  */
+/**
+ * The same notification with a title longer than the header can seat.
+ *
+ * Authored titles should not need this, but a title can also be composed at
+ * runtime, so the header has to degrade rather than run under the status
+ * controls. The callout ellipsizes inside the space the back control and the
+ * status actions leave it.
+ */
+export const LongTitleTruncates: Story = {
+  args: {
+    entityLinks: [],
+    item: feedItem({
+      id: "credential-health-long-title",
+      title:
+        "Vellum-managed models are unavailable and background work is paused",
+      summary:
+        "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused.",
+      category: "security",
+      urgency: "high",
+      detailPanel: { kind: "toolPermission" },
+      remediation: {
+        action: "reprovision_managed_credential",
+        label: "Restore access",
+      },
+      metadata: {
+        provider: "vellum",
+        providerLabel: "Vellum-managed models",
+        status: "revoked",
+        details:
+          "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused.",
+        missingScopes: [],
+      },
+    }),
+  },
+};
+
 export const SkillUpdated: Story = {
   args: {
     entityLinks: [SKILL_LINK],

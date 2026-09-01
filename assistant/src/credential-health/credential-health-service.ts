@@ -648,7 +648,7 @@ export const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
  * vendor, not the capability that stops working, so every surface that names
  * it to a person reads this instead.
  */
-export const MANAGED_INFERENCE_DISPLAY_NAME = "Vellum AI";
+export const MANAGED_INFERENCE_DISPLAY_NAME = "Vellum-managed models";
 
 /**
  * Health of the platform-provisioned assistant API key, the credential that
@@ -693,7 +693,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       ...base,
       status: "unreachable",
       details:
-        "The credential store is unreachable, so the Vellum managed inference credential could not be checked.",
+        "The credential store is unreachable, so Vellum's managed credentials could not be checked.",
       canAutoRecover: false,
     };
   }
@@ -712,7 +712,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       ...base,
       status: "missing_token",
       details:
-        "Vellum has no access to its AI models yet. Sign in to Vellum to set it up.",
+        "No Vellum-managed credentials are stored yet. Log in to the Vellum platform to set them up.",
       canAutoRecover: true,
     };
   }
@@ -724,7 +724,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       ...base,
       status: "unreachable",
       details:
-        "The Vellum platform client could not be built, so the managed inference credential could not be checked.",
+        "The Vellum platform client could not be built, so Vellum's managed credentials could not be checked.",
       canAutoRecover: false,
     };
   }
@@ -743,7 +743,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       // reconnect something would describe work they do not do, and would go
       // stale the moment it succeeds.
       details:
-        "Vellum lost access to its AI models, so chat and background tasks are paused. Restoring takes a moment and will not affect anything else.",
+        "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused. Restoring takes a moment and will not affect anything else.",
       canAutoRecover: true,
     };
   }
@@ -752,7 +752,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       ...base,
       status: "unreachable",
       details:
-        "Vellum did not answer the managed inference credential check. Health is unknown until the next check.",
+        "Vellum did not answer the managed-credential check. Health is unknown until the next check.",
       canAutoRecover: false,
     };
   }
@@ -761,7 +761,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
     ...base,
     clientRecoveryAction: undefined,
     status: "healthy",
-    details: "The Vellum managed inference credential authenticates.",
+    details: "Vellum's managed credentials are working.",
     canAutoRecover: true,
   };
 }

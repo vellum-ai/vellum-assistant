@@ -828,7 +828,7 @@ describe("classifyConversationError", () => {
 
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.userMessage).toBe(
-        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+        "Vellum's managed credentials stopped working, so this turn could not run. This isn't a personal provider API key, so there is nothing to update in Settings; restore access from the notification instead.",
       );
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("managed_key_invalid");
@@ -848,7 +848,7 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.errorCategory).toBe("managed_key_invalid");
       expect(result.userMessage).toBe(
-        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+        "Vellum's managed credentials stopped working, so this turn could not run. This isn't a personal provider API key, so there is nothing to update in Settings; restore access from the notification instead.",
       );
     });
 
@@ -917,7 +917,7 @@ describe("classifyConversationError", () => {
 
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.userMessage).toBe(
-        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+        "Vellum's managed credentials stopped working, so this turn could not run. This isn't a personal provider API key, so there is nothing to update in Settings; restore access from the notification instead.",
       );
     });
 
@@ -1689,7 +1689,9 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain("qwen/qwen3-8b");
     expect(result.userMessage).toContain("Vellum GPU route");
     expect(result.userMessage).toContain('profile "steer"');
-    expect(result.userMessage).toContain("was not sent through another provider");
+    expect(result.userMessage).toContain(
+      "was not sent through another provider",
+    );
   });
 
   it("classifies missing_credential naming the connection and fix", () => {

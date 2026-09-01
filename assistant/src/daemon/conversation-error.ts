@@ -846,11 +846,14 @@ function managedUsageLimitClassification(): Omit<
 }
 
 /**
- * Deliberately instruction-free. The assistant API key is provisioned and
- * pushed by the platform — the assistant only ever reads it — so there is no
- * Settings affordance to re-provision it and no user action that would help.
- * The copy's job is to rule out the user's own provider key as the cause;
- * clients that can offer a real next step attach one (web renders Doctor).
+ * The assistant API key is provisioned by the platform and the assistant only
+ * ever reads it, so there is no Settings affordance to re-provision it and the
+ * copy's first job is to rule out the user's own provider key as the cause.
+ *
+ * It does point somewhere, because the credential notification carries a
+ * remediation that restores access (see `notifications/AGENTS.md`). Keep this
+ * wording in step with that button's copy: a reader who sees both should not
+ * have to work out that they describe the same thing.
  */
 function managedKeyInvalidClassification(): Omit<
   ClassifiedConversationError,
@@ -859,7 +862,7 @@ function managedKeyInvalidClassification(): Omit<
   return {
     code: "MANAGED_KEY_INVALID",
     userMessage:
-      "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+      "Vellum's managed credentials stopped working, so this turn could not run. This isn't a personal provider API key, so there is nothing to update in Settings; restore access from the notification instead.",
     retryable: false,
     errorCategory: "managed_key_invalid",
   };
