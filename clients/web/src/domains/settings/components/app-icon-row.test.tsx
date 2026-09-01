@@ -5,6 +5,9 @@
  * it through the real hook against a stand-in shell, so what they pin is the
  * round trip, from a press to a re-read of the home screen.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   act,
@@ -24,6 +27,51 @@ import type { AvatarState } from "@/types/avatar";
 
 const TRAITS = { bodyShape: "blob", eyeStyle: "goofy", color: "teal" };
 const AVATAR_ICON = "avatar-eyes-goofy-teal";
+
+/** Where the Icon Composer bundles the shells ship live. */
+const ICON_BUNDLE_DIR = join(import.meta.dir, "../../../../../ios/App/App");
+
+/** One entry of a bundle's root `fill-specializations` array. */
+interface FillSpecialization {
+  appearance?: string;
+  value?: { solid?: string };
+}
+
+/**
+ * The `color(display-p3 ...)` a bundle's own ground reads as, taken off the
+ * bundle rather than named here, so a fill edited in Icon Composer fails this
+ * file instead of leaving the thumbnail depicting a color no shell installs.
+ * The entry carrying no `appearance` is the default one; every appearance in
+ * these bundles pins the same fill.
+ */
+function bundleGroundP3(bundle: string): string {
+  const path = join(ICON_BUNDLE_DIR, bundle, "icon.json");
+  const specializations: FillSpecialization[] =
+    JSON.parse(readFileSync(path, "utf8"))["fill-specializations"] ?? [];
+  const solid = specializations.find(
+    (entry) => entry.appearance === undefined,
+  )?.value?.solid;
+  if (typeof solid !== "string") {
+    throw new Error(`${bundle} declares no default solid fill`);
+  }
+  const coordinates = solid.startsWith("display-p3:")
+    ? solid.slice("display-p3:".length).split(",")
+    : [];
+  if (coordinates.length !== 4) {
+    throw new Error(`${bundle} fill is not display-p3 R,G,B,A: ${solid}`);
+  }
+  const channels = coordinates.slice(0, 3).map((coordinate) => {
+    const channel = Number(coordinate);
+    if (!Number.isFinite(channel)) {
+      throw new Error(`${bundle} fill has a non-numeric channel: ${solid}`);
+    }
+    return channel;
+  });
+  return `color(display-p3 ${channels.join(" ")})`;
+}
+
+const DEV_GROUND_P3 = bundleGroundP3("AppIcon-Dev.icon");
+const STAGING_GROUND_P3 = bundleGroundP3("AppIcon-Staging.icon");
 
 const CHARACTER: AvatarState = {
   kind: "character",
@@ -200,6 +248,26 @@ function previewEyeWidth(): number {
 const buildEnv = import.meta.env as Record<string, string | undefined>;
 let previousBuildEnv: string | undefined;
 
+/**
+ * happy-dom answers every `CSS.supports` with true and hands back a fresh `CSS`
+ * on each read of the global, so a renderer with no `color(display-p3 ...)` is
+ * stood in for by swapping the whole global out.
+ */
+const cssDescriptor = Object.getOwnPropertyDescriptor(globalThis, "CSS");
+
+function dropDisplayP3Support() {
+  Object.defineProperty(globalThis, "CSS", {
+    configurable: true,
+    value: { supports: () => false },
+  });
+}
+
+function restoreDisplayP3Support() {
+  if (cssDescriptor) {
+    Object.defineProperty(globalThis, "CSS", cssDescriptor);
+  }
+}
+
 function catalogPaths(eyeStyleId: string): (string | null)[] {
   const eyeStyle = BUNDLED_COMPONENTS.eyeStyles.find(
     (entry) => entry.id === eyeStyleId,
@@ -232,6 +300,7 @@ beforeEach(() => {
 
 afterEach(() => {
   buildEnv.VITE_SENTRY_ENVIRONMENT = previousBuildEnv;
+  restoreDisplayP3Support();
   cleanup();
   getAppIconState.mockClear();
   setAppIcon.mockClear();
@@ -303,7 +372,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+        expect(previewFill()).toBe(DEV_GROUND_P3);
       });
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
@@ -314,7 +383,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+        expect(previewFill()).toBe(STAGING_GROUND_P3);
       });
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
@@ -325,7 +394,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+        expect(previewFill()).toBe(DEV_GROUND_P3);
       });
     });
 
@@ -347,7 +416,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+        expect(previewFill()).toBe(STAGING_GROUND_P3);
       });
     });
 
@@ -358,7 +427,33 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
+        expect(previewFill()).toBe(DEV_GROUND_P3);
+      });
+    });
+
+    // The two bundles hold sRGB channels in a display-p3 fill, so the readings
+    // are visibly different colors rather than rounding of each other. sRGB is
+    // the closest a renderer that cannot parse `color()` can get.
+    test("paints the sRGB ground where color() will not parse", async () => {
+      dropDisplayP3Support();
+      shellAppId = "ai.vocify-inc.vellum-assistant-ios.dev";
+
+      await renderRow();
+
+      await waitFor(() => {
         expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+      });
+    });
+
+    test("paints the sRGB ground off a build environment too", async () => {
+      dropDisplayP3Support();
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "staging";
+      shellAppId = "com.example.some-other-shell";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
       });
     });
 
