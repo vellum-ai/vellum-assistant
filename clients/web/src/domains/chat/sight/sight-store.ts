@@ -122,6 +122,20 @@ export interface SightActions {
    * beats sending nothing.
    */
   takeSendFrame: () => Promise<File | null>;
+  /**
+   * Drop the held keep if it is still `file`, and otherwise leave the store
+   * exactly as it is.
+   *
+   * For the caller that persists each keep as its own message: a frame already
+   * in the transcript must not also ride the next send as an attachment, and
+   * `takeSendFrame` then falls through to a live capture, which is the current
+   * view rather than a second copy of an old one.
+   *
+   * The file check is the whole of it. Keeps replace one another every few
+   * seconds, so a clear that did not compare would drop whatever the camera has
+   * seen since and cost the send its freshest frame.
+   */
+  consumeKeep: (file: File) => void;
 }
 
 export type SightStore = SightState & SightActions;
@@ -400,6 +414,13 @@ const useSightStoreBase = create<SightStore>()((set, get) => {
         return null;
       }
       return captureVideoFrame(video, nextCaptureFilename());
+    },
+
+    consumeKeep: (file) => {
+      if (get().latestKeep?.file !== file) {
+        return;
+      }
+      set({ latestKeep: null });
     },
   };
 });

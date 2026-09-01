@@ -273,6 +273,68 @@ describe("sight store", () => {
     expect(await useSightStore.getState().takeSendFrame()).toBe(second!.file);
   });
 
+  test("consumeKeep drops the frame it names", async () => {
+    // The caller that persists a keep as its own message calls this, so the
+    // next send falls through to a live capture rather than attaching a frame
+    // already sitting in the transcript.
+    const { stream } = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(stream));
+    await useSightStore.getState().start();
+    useSightStore
+      .getState()
+      .attachPreviewVideo(document.createElement("video"));
+    samplerOptions?.onDecision(
+      { keep: true, reason: "first", motion: null, novelty: null, detail: 40 },
+      0,
+    );
+    await flush();
+    const kept = useSightStore.getState().latestKeep;
+    expect(kept).not.toBeNull();
+
+    useSightStore.getState().consumeKeep(kept!.file);
+
+    expect(useSightStore.getState().latestKeep).toBeNull();
+  });
+
+  test("consumeKeep leaves a frame the camera made since alone", async () => {
+    // A persist spans an upload and a round trip, and the gate keeps a frame
+    // every few seconds, so the keep in hand when one finishes is routinely a
+    // newer one. Dropping it would cost the next send the current view.
+    const { stream } = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(stream));
+    await useSightStore.getState().start();
+    useSightStore
+      .getState()
+      .attachPreviewVideo(document.createElement("video"));
+    samplerOptions?.onDecision(
+      { keep: true, reason: "first", motion: null, novelty: null, detail: 40 },
+      0,
+    );
+    await flush();
+    const older = useSightStore.getState().latestKeep;
+    samplerOptions?.onDecision(
+      { keep: true, reason: "novel", motion: 0, novelty: 0.9, detail: 40 },
+      10,
+    );
+    await flush();
+    const newer = useSightStore.getState().latestKeep;
+    expect(newer!.file).not.toBe(older!.file);
+
+    useSightStore.getState().consumeKeep(older!.file);
+
+    expect(useSightStore.getState().latestKeep).toBe(newer);
+  });
+
+  test("consumeKeep with nothing held is inert", () => {
+    const stale = new File([new Uint8Array([1])], "sight-stale.jpg", {
+      type: "image/jpeg",
+    });
+
+    useSightStore.getState().consumeKeep(stale);
+
+    expect(useSightStore.getState().latestKeep).toBeNull();
+  });
+
   test("takeSendFrame answers null while the camera is off", async () => {
     expect(useSightStore.getState().status).toBe("off");
     expect(await useSightStore.getState().takeSendFrame()).toBeNull();
