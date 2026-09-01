@@ -67,7 +67,7 @@
     "title": "Nothing yet.",
     "briefingRecipeTitle": "Set up a morning briefing",
     "briefingRecipeMeta": "Daily",
-    "briefingRecipeDescription": "Your first notification, tomorrow at 8:00.",
-    "briefingRecipePrompt": "Set up a morning briefing for me: every weekday at 8:00, check my calendar, my inbox, and the news, then post a short summary to my notifications."
+    "briefingRecipeDescription": "Your first notification, tomorrow morning.",
+    "briefingRecipePrompt": "Help me set up a morning briefing. Before you create anything, check which of my accounts are connected, then give me a few options for what it could cover and when it should run. Once I pick, set it up."
   }
 }
