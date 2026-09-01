@@ -24842,8 +24842,8 @@ paths:
                               id:
                                 type: string
                                 description:
-                                  Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the daemon,
-                                  so a client never has to build it.
+                                  Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the
+                                  assistant, so a client never has to build it.
                               label:
                                 type: string
                                 description: Short control label the client draws.

@@ -93,6 +93,7 @@ import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { parsePluginManifest } from "../../plugins/external-plugin-loader.js";
+import { isInsidePluginRoot } from "../../plugins/installed-plugin-dirs.js";
 import {
   deactivatePluginForUpdate,
   reconcilePluginSourcesNow,
@@ -124,7 +125,7 @@ const pluginCompanionEntrypointSchema = z.object({
   id: z
     .string()
     .describe(
-      "Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the daemon, so a client never has to build it.",
+      "Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the assistant, so a client never has to build it.",
     ),
   label: z.string().describe("Short control label the client draws."),
   icon: z
@@ -850,13 +851,21 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
  * has to know the composition rule. A disabled plugin contributes nothing (its
  * prompts would submit into a surface the plugin cannot serve), and a plugin
  * declaring none keeps the field absent rather than carrying an empty array.
+ *
+ * A plugin directory the loader would refuse contributes nothing either. The
+ * listing follows a symlinked entry wherever it points, while boot discovery
+ * only activates a directory that resolves inside the plugins root, so the
+ * loader's own containment predicate ({@link isInsidePluginRoot}) runs here
+ * too: without it the companion could draw controls whose prompts have no
+ * plugin surface behind them.
  */
 async function attachCompanionEntrypoints(
   plugins: PluginView[],
 ): Promise<PluginView[]> {
+  const pluginsDir = getWorkspacePluginsDir();
   return Promise.all(
     plugins.map(async (plugin) => {
-      if (!plugin.enabled) {
+      if (!plugin.enabled || !isInsidePluginRoot(plugin.path, pluginsDir)) {
         return plugin;
       }
       // `quiet` because an unreadable or schema-invalid `package.json` is

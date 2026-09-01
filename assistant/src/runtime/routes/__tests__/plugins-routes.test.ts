@@ -14,7 +14,8 @@
  *   - A catalog fetch failure degrades `category` to null without erroring
  *   - `entrypoints` read from the plugin's `companionEntrypoints`, ids
  *     namespaced `<pluginId>:<entrypointId>`; omitted for a plugin declaring
- *     none and for a disabled plugin
+ *     none, for a disabled plugin, and for a plugin directory that resolves
+ *     outside the plugins root (the loader would refuse to activate it)
  *
  * GET /v1/plugins/search (catalog search):
  *   - Resolves the catalog for `?ref=` and filters it by `?q=`
@@ -59,7 +60,7 @@
  * here we mock them to isolate the route's wiring logic.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -1015,6 +1016,43 @@ describe("GET /v1/plugins", () => {
 
       const [entry] = (await invoke()).plugins;
       expect(entry?.enabled).toBe(false);
+      expect("entrypoints" in entry!).toBe(false);
+    });
+
+    test("contributes nothing for a directory resolving outside the plugin root", async () => {
+      // The listing follows a symlinked entry wherever it points, but boot
+      // discovery rejects a plugin directory that resolves outside `plugins/`.
+      // Such a plugin can never activate, so its declared controls would
+      // submit prompts into a surface nothing serves.
+      const pluginsDir = getWorkspacePluginsDir();
+      mkdirSync(pluginsDir, { recursive: true });
+      const outside = join(pluginsDir, "..", "outside-plugins");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(
+        join(outside, "package.json"),
+        JSON.stringify({
+          name: "escapee",
+          companionEntrypoints: [
+            { id: "go", label: "Go", prompt: "Do the thing" },
+          ],
+        }),
+      );
+      const link = join(pluginsDir, "escapee");
+      symlinkSync(outside, link, "dir");
+      // Remove the target before the link so neither cleanup follows it.
+      created.push(outside, link);
+
+      installedFixture = [
+        pluginEntry({
+          name: "escapee",
+          target: link,
+          packageJson: { name: "escapee", version: "1.0.0" },
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      // Still listed and enabled: only the entrypoints are withheld.
+      expect(entry?.enabled).toBe(true);
       expect("entrypoints" in entry!).toBe(false);
     });
   });
