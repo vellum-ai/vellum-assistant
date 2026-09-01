@@ -36,6 +36,7 @@ import {
 import {
   deferRetryUntilIdle,
   isDeduplicatedDeliveryOwnedBySibling,
+  markDeliveryDelivered,
   markProcessed,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
@@ -345,6 +346,12 @@ export function processChannelMessageInBackground(
           { conversationId, eventId },
           "Skipping channel reply delivery for deduplicated ingress event; a prior attempt owns delivery",
         );
+        // Settle this event's own delivery state: the sibling owns delivery,
+        // so this row must never read as "delivery still owed". Left
+        // `pending` it would be promoted by the stranded-delivery recovery
+        // step after a restart and re-post the sibling's already-delivered
+        // reply.
+        markDeliveryDelivered(eventId);
       } else if (replyCallbackUrl) {
         try {
           await finalizeEventDelivery({
