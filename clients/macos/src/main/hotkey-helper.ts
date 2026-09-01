@@ -11,6 +11,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
   DICTATION_PUSH_SAMPLE_RATE,
@@ -27,6 +28,8 @@ import type {
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
 
 import { handle } from "./ipc";
@@ -49,6 +52,8 @@ export type {
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
 };
 
 export type MacHelperPermissionKind =
@@ -63,7 +68,7 @@ export type MacHelperPermissionStatus =
   | "granted";
 
 const HOTKEY_EVENT_SCHEMA = z.object({
-  kind: z.literal("fnPushToTalk"),
+  kind: z.enum(["fnPushToTalk", "modifierHold"]),
   state: z.enum(["down", "up"]),
 });
 
@@ -116,6 +121,47 @@ const makeClient = (): MacHelperClient =>
   });
 
 let client = makeClient();
+
+/**
+ * Point the helper's hold detector at a modifier set, or clear it.
+ *
+ * The set crosses as names rather than a mask: the helper owns which bits a
+ * modifier is, left and right hand alike, and neither side should hold a second
+ * copy of that table.
+ */
+/**
+ * The binding the helper is currently holding, so a clear that has nothing to
+ * clear stays off the wire. Teardown runs on paths the hold was never used on,
+ * and the helper's stdin is shared with the Fn binding and dictation.
+ */
+let modifierHoldBinding: ModifierHold = { kind: "off" };
+
+const setModifierHold = async (
+  hold: ModifierHold,
+): Promise<ModifierHoldRegistrationResult> => {
+  if (hold.kind === "off" && modifierHoldBinding.kind === "off") {
+    return { ok: true, enabled: false };
+  }
+  modifierHoldBinding = hold;
+  try {
+    const result = await client.call(
+      "hotkey.modifierHold",
+      hold.kind === "off"
+        ? { enable: false }
+        : { enable: true, modifiers: hold.modifiers },
+    );
+    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      return { ok: false, reason: "mac helper returned invalid hotkey result" };
+    }
+    return { ok: true, enabled: parsed.data.enabled };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
 
 const fnPushToTalk = async (
   enable: boolean,
@@ -249,6 +295,40 @@ interface HotkeyOwner {
   cleanup: () => void;
 }
 
+/**
+ * Surface the Input Monitoring prompt if the grant is missing.
+ *
+ * Best effort and never blocking: the binding is registered either way, and it
+ * starts reporting the moment the grant arrives without anything re-registering
+ * it. A refusal leaves a hold that does nothing, which is the same thing the
+ * user gets by ignoring the prompt.
+ */
+const ensureInputMonitoringForHold = async (): Promise<void> => {
+  try {
+    const status = await queryFreshMacHelperPermission("inputMonitoring");
+    if (status === "granted") {
+      return;
+    }
+    await requestMacHelperInputMonitoringPermission();
+  } catch (err) {
+    log.warn(
+      `[mac-helper] could not ask for Input Monitoring: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+};
+
+const MODIFIER_HOLD_SCHEMA = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("off") }),
+  z.object({
+    kind: z.literal("modifierOnly"),
+    modifiers: z
+      .array(z.enum(["function", "control", "shift", "option", "command"]))
+      .min(1),
+  }),
+]);
+
 const dictationOwners = new DictationOwnerRouter();
 
 // The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
@@ -376,7 +456,12 @@ const disableFnPushToTalkForOwner = async (
 ): Promise<FnPushToTalkResult> => {
   removeHotkeyOwner(webContents.id);
 
-  if (hotkeyOwners.size === 0) restoreHotkeyAfterRestart = false;
+  if (hotkeyOwners.size === 0) {
+    restoreHotkeyAfterRestart = false;
+    // Nothing is left to receive the edges, so a hold still armed in the
+    // helper would open a microphone into a window that is gone.
+    void setModifierHold({ kind: "off" });
+  }
   return syncFnPushToTalkRegistration();
 };
 
@@ -613,6 +698,29 @@ export const installHotkeyHelper = (): void => {
       enable
         ? enableFnPushToTalkForOwner(event.sender)
         : disableFnPushToTalkForOwner(event.sender),
+  );
+
+  handle(
+    HELPER_HOTKEY_SET_MODIFIER_HOLD,
+    z.tuple([MODIFIER_HOLD_SCHEMA]),
+    ([hold], event) => {
+      // The edges reach whichever window asked for the binding, the way the
+      // Fn ones do: a microphone bracketed by them belongs to the window that
+      // opened it. Clearing the binding leaves the ownership alone, since Fn
+      // may still be riding it.
+      if (hold.kind === "off") {
+        return setModifierHold(hold);
+      }
+      addHotkeyOwner(event.sender);
+      // The helper cannot see a held modifier set without Input Monitoring,
+      // so the binding is inert until that grant exists. Ask at registration:
+      // a press cannot be the moment to ask, since noticing the press is the
+      // thing being asked for. The prompt comes from the helper's own bundle,
+      // which is what puts it in the Privacy list under a name that means
+      // something.
+      void ensureInputMonitoringForHold();
+      return setModifierHold(hold);
+    },
   );
 
   handle(

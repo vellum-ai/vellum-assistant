@@ -169,19 +169,39 @@ export interface ResolvedHotkey {
 
 export type HotkeyEventState = "down" | "up";
 
-export type VoiceModeChordModifier =
+/** A modifier key a binding can be built from, as the helpers name them. */
+export type KeyboardModifier =
   | "function"
   | "control"
   | "shift"
   | "option"
   | "command";
 
+export type VoiceModeChordModifier = KeyboardModifier;
+
 export type VoiceModeChord =
   | { kind: "off" }
   | { kind: "modifierOnly"; modifiers: VoiceModeChordModifier[] };
 
+/**
+ * Which binding an edge came from, and what a pair of them means.
+ *
+ * `fnPushToTalk` and `voiceModeChord` are completed taps, reported as a
+ * `down`/`up` pair once the keys are already back up: a tap is only known to be
+ * one after it ends, so the pair says "a tap happened" rather than bracketing
+ * anything. Consumers read the `down` and discard the `up`.
+ *
+ * `modifierHold` brackets a hold. `down` arrives while the keys are still down
+ * and `up` when they are not, so the two edges are a span, and something that
+ * has to run for exactly as long as the keys are held can run across it.
+ */
+export type HotkeyEventKind =
+  | "fnPushToTalk"
+  | "voiceModeChord"
+  | "modifierHold";
+
 export interface HotkeyEvent {
-  kind: "fnPushToTalk" | "voiceModeChord";
+  kind: HotkeyEventKind;
   state: HotkeyEventState;
 }
 
@@ -190,6 +210,16 @@ export type FnPushToTalkResult =
   | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
+
+/**
+ * The binding a hold is watched on: every modifier of the set down together,
+ * with nothing else. `off` is a binding the user has cleared.
+ */
+export type ModifierHold =
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+
+export type ModifierHoldRegistrationResult = FnPushToTalkResult;
 
 // ---------------------------------------------------------------------------
 // System permissions

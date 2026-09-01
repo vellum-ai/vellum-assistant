@@ -11,6 +11,7 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -95,6 +96,25 @@ export function GlobalPushToTalkBridge({
   // this bridge is mounted app-wide: voice is reachable from any route, the
   // same way dictation is.
   useVoiceModeHotkey({ enabled: supportsKeyboardActivation() });
+
+  // Hold to dictate, from whatever app the user is in. The same target the
+  // overlay's stop button drives, so a hold and a press are the same dictation
+  // and land the same way: through `handleTranscript` below, which cleans the
+  // transcript up and drops it at the cursor.
+  useHoldToDictate({
+    onHoldStart: () => {
+      if (useVoiceRecordingStore.getState().phase === "recording") {
+        return;
+      }
+      resolveTarget()?.start();
+    },
+    onHoldEnd: () => {
+      if (useVoiceRecordingStore.getState().phase !== "recording") {
+        return;
+      }
+      resolveTarget()?.stop();
+    },
+  });
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
