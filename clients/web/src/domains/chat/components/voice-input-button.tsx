@@ -36,8 +36,7 @@ import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 import { isHoldDictation } from "@/utils/hold-to-dictate";
 import { Button, cn } from "@vellumai/design-library";
 
-const RECORDING_GLYPH_CLASS =
-  "[&_svg]:size-5 touch-mobile:[&_svg]:size-5";
+const RECORDING_GLYPH_CLASS = "[&_svg]:size-5 touch-mobile:[&_svg]:size-5";
 
 // ---------------------------------------------------------------------------
 // MIME type selection
@@ -404,9 +403,17 @@ export const VoiceInputButton = forwardRef<
     }
   }, []);
 
-  const stopDictationStream = useCallback(() => {
-    dictationStreamRef.current?.stop();
+  /**
+   * Stop the stream and keep what it has left to say.
+   *
+   * The provider flushes its remaining finals after the stop, so the promise
+   * is the complete transcript of the recording, ready about as soon as the
+   * keys come up. `null` where there was no live stream to ask.
+   */
+  const stopDictationStream = useCallback((): Promise<string | null> => {
+    const handle = dictationStreamRef.current;
     dictationStreamRef.current = null;
+    return handle?.stop() ?? Promise.resolve(null);
   }, []);
 
   const stopNativePartials = useCallback(() => {
@@ -509,7 +516,7 @@ export const VoiceInputButton = forwardRef<
   const stopRecording = useCallback(() => {
     cancelledStartRef.current = true;
     stopSpeechRecognition();
-    stopDictationStream();
+    void stopDictationStream();
     stopNativePartials();
     const recorder = mediaRecorderRef.current;
     if (!recorder) {
@@ -542,7 +549,7 @@ export const VoiceInputButton = forwardRef<
     }
     discardedRef.current = true;
     stopSpeechRecognition();
-    stopDictationStream();
+    void stopDictationStream();
     stopNativePartials();
     if (recorder.state !== "inactive") {
       try {
@@ -609,7 +616,7 @@ export const VoiceInputButton = forwardRef<
     return () => {
       transcribeAbortRef.current?.abort();
       stopSpeechRecognition();
-      stopDictationStream();
+      void stopDictationStream();
       stopNativePartials();
       const recorder = mediaRecorderRef.current;
       if (recorder && recorder.state !== "inactive") {
@@ -640,15 +647,14 @@ export const VoiceInputButton = forwardRef<
     // whole session: no daemon stream, no batch upload — the helper's
     // recognizer (already running for every session) is the authority.
     const nativeSttForced = prefersMacosNativeStt();
-    // The same bargain, reached a different way. A hold is aimed at a cursor
-    // in another application and has been showing its words on the companion
-    // the whole time it ran, so what it owes is the sentence the user just
-    // read, the moment they stop. Waiting on a round trip to replace text they
-    // have already checked is a wait with nothing at the end of it.
+    // Whether this dictation was started from the keyboard. A hold is aimed
+    // at a cursor in another application, and the wait between the keys
+    // coming up and the words landing is the whole experience, so it takes
+    // the stream's flushed final instead of uploading the recording again.
     //
     // Captured at the start, like the provider choice above, so a session
     // cannot change what it owes halfway through.
-    const localTranscriptWins = nativeSttForced || isHoldDictation();
+    const holdSession = isHoldDictation();
 
     if (onBeforeStart) {
       let proceed: boolean;
@@ -791,7 +797,7 @@ export const VoiceInputButton = forwardRef<
       }
       releaseStream();
       stopSpeechRecognition();
-      stopDictationStream();
+      const pendingStreamFinal = stopDictationStream();
       const streamText = streamTranscriptRef.current;
       const nativePartialText = nativePartialsTextRef.current;
       stopNativePartials();
@@ -850,8 +856,42 @@ export const VoiceInputButton = forwardRef<
 
         let text = "";
         let daemonFailure: SttFailureReason | null = null;
+
+        // A dictation started from the keyboard takes the stream's own
+        // final. The audio was already with the provider while the user
+        // spoke, so the transcript is complete about as soon as they stop,
+        // and it is one transcript of the whole recording from a model that
+        // hears the whole recording. Uploading the recording again to get the
+        // same answer a second later is the wait this gesture exists to
+        // remove.
+        //
+        // The local recognizer is not the authority here even though it is
+        // faster still: it transcribes one utterance at a time and starts
+        // over at each pause, so a dictation with a breath in it comes back
+        // as its last sentence.
+        const finalizeStartedAt = Date.now();
+        if (holdSession) {
+          const streamFinal = (await pendingStreamFinal)?.trim() ?? "";
+          console.info(
+            `dictation: stream final chars=${streamFinal.length} waited=${Date.now() - finalizeStartedAt}ms`,
+          );
+          if (streamFinal) {
+            text = streamFinal;
+          }
+        }
+
+        // Never the upload for a hold. Where the stream produced nothing the
+        // local passes below are the fallback, not a second round trip: the
+        // upload is the wait this gesture exists to remove, and on a provider
+        // that fails slowly it is a wait with nothing at the end of it.
         try {
-          if (audioBlob && assistantId && !localTranscriptWins) {
+          if (
+            audioBlob &&
+            assistantId &&
+            !text &&
+            !nativeSttForced &&
+            !holdSession
+          ) {
             if (
               typeof navigator !== "undefined" &&
               navigator.onLine === false
@@ -861,10 +901,17 @@ export const VoiceInputButton = forwardRef<
               console.info("dictation: skipping batch STT (offline)");
               daemonFailure = "network";
             } else {
+              const batchStartedAt = Date.now();
               const result = await postSttTranscribe(
                 audioBlob,
                 assistantId,
                 abortCtrl.signal,
+              );
+              // The batch upload is the one leg of this with a network in it,
+              // and a provider that fails slowly reads exactly like one that
+              // succeeds slowly without this.
+              console.info(
+                `dictation: batch ${result.status} ${result.status === "ok" ? `chars=${result.text.length}` : `reason=${result.reason}${result.httpStatus ? ` http=${result.httpStatus}` : ""}`} took=${Date.now() - batchStartedAt}ms bytes=${audioBlob.size}`,
               );
               if (result.status === "ok") {
                 text = result.text.trim();
@@ -904,7 +951,7 @@ export const VoiceInputButton = forwardRef<
         // What the pill drew, when the pill is what the user was reading. The
         // whole-recording pass below is a second slower for a handful of
         // characters, and a second is most of the wait this gesture has left.
-        if (!text && localTranscriptWins && nativeText) {
+        if (!text && holdSession && nativeText) {
           text = nativeText;
         }
 
@@ -915,7 +962,7 @@ export const VoiceInputButton = forwardRef<
 
         // Character counts only — transcript content must never be logged.
         console.info(
-          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"} forcedNative=${nativeSttForced} localWins=${localTranscriptWins}`,
+          `dictation: finalize chars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"} forcedNative=${nativeSttForced} hold=${holdSession}`,
         );
 
         if (!text && blobText) {
@@ -982,7 +1029,7 @@ export const VoiceInputButton = forwardRef<
       mediaRecorderRef.current = null;
       releaseStream();
       stopSpeechRecognition();
-      stopDictationStream();
+      void stopDictationStream();
       stopNativePartials();
       onError?.("audio-capture");
       vsFail("audio-capture");
@@ -1017,10 +1064,13 @@ export const VoiceInputButton = forwardRef<
     // source; the recorder above is untouched either way. A forced-native
     // session never opens the stream: the helper recognizer below is its
     // only transcript source.
-    stopDictationStream();
+    void stopDictationStream();
     stopNativePartials();
-    if (!nativeSttForced) {
+    // No assistant is no session to mint a token against or an ingress to
+    // dial, so there is no stream; the recorder above is unaffected.
+    if (!nativeSttForced && assistantId) {
       dictationStreamRef.current = startDictationStream({
+        assistantId,
         onPartial: (text) => {
           streamTranscriptRef.current = text;
           publishInterim(text);
