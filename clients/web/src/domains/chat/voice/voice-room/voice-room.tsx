@@ -615,6 +615,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const shutterLabel = live
     ? t("voiceRoom.stopLive")
     : t("voiceRoom.takePhoto");
+  // Which gesture is the way into Live and which is the way out, for the
+  // readers the caption below the shutter is hidden from. Absent where Live
+  // cannot run, so nothing describes a second act the shutter is not taking.
+  const shutterDescription = !liveOffered
+    ? undefined
+    : live
+      ? t("cameraShutterHint.liveDescription")
+      : t("cameraShutterHint.photoDescription");
   // What every control in the room is sitting on. One value passed down rather
   // than a boolean per control, so the row cannot end up half in camera mode.
   const controlSurface: VoiceRoomControlSurface = cameraOpen
@@ -1297,6 +1305,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   }
                   onClick={() => (live ? setLive(false) : void shutter())}
                   ariaLabel={shutterLabel}
+                  description={shutterDescription}
                   capturing={sending}
                   // Held off while a photo goes and while a flip swaps the
                   // capture: the viewfinder stays up with nothing behind it,

@@ -260,7 +260,9 @@
   },
   "cameraShutterHint": {
     "live": "即時 · 輕觸停止",
-    "photo": "輕觸拍照 · 長按開啟即時"
+    "liveDescription": "輕觸停止即時視訊。",
+    "photo": "輕觸拍照 · 長按開啟即時",
+    "photoDescription": "長按開啟即時視訊。"
   },
   "cameraStatusPill": {
     "announceLive": "即時。{status}",

@@ -260,7 +260,9 @@
   },
   "cameraShutterHint": {
     "live": "实时 · 轻点停止",
-    "photo": "轻点拍照 · 长按开启实时"
+    "liveDescription": "轻点停止实时视频。",
+    "photo": "轻点拍照 · 长按开启实时",
+    "photoDescription": "长按开启实时视频。"
   },
   "cameraStatusPill": {
     "announceLive": "实时。{status}",

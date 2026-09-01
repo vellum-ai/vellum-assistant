@@ -24,7 +24,9 @@
  * one `onHold` that has already happened. The presses that end without a
  * release to end them (a wandering finger, a blurred window, a backgrounded
  * page, a hold the caller takes back) are the same job, and are given up on
- * here for the same reason.
+ * here for the same reason. What a hold is worth in time and travel is not
+ * this component's to decide: both numbers come from `use-long-press.ts`, so
+ * the app has one answer to "how long is held".
  *
  * Presentational, with one exception. The caller owns what a press does, what
  * counts as busy, and the label, so nothing here reaches for a store or the
@@ -40,31 +42,21 @@ import type {
   MouseEvent,
   PointerEvent,
 } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
 import { useReducedMotion } from "motion/react";
 
 import { cameraModeStyle } from "@/domains/chat/voice/voice-room/camera-mode-paint";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import {
+  LONG_PRESS_MOVE_TOLERANCE_PX,
+  LONG_PRESS_THRESHOLD_MS,
+} from "@/hooks/use-long-press";
 import { haptic } from "@/utils/haptics";
 
 /** Which sampling policy the press acts on. See the module docstring. */
 export type CameraShutterMode = "photo" | "live";
-
-/**
- * How long the shutter is held before it counts as a hold, and how far the
- * pointer may wander first.
- *
- * The platform's own long-press numbers, matching `use-long-press.ts` value for
- * value. That hook owns the touch-only surface gesture and cannot be reused
- * here (this arms on pointers, so a mouse can hold too, and it has a tap of its
- * own to suppress), so the constants are restated rather than shared: two
- * different thresholds for "held" in one app is a hold that feels wrong on
- * whichever surface lost the coin toss.
- */
-const HOLD_THRESHOLD_MS = 500;
-const HOLD_MOVE_TOLERANCE_PX = 10;
 
 export interface CameraShutterProps extends Omit<
   ComponentProps<"button">,
@@ -89,6 +81,18 @@ export interface CameraShutterProps extends Omit<
    * tap target it has always been.
    */
   onHold?: () => void;
+  /**
+   * One sentence naming what the label cannot: the gesture that starts the
+   * second act, or the one that ends it.
+   *
+   * Attached as the button's accessible description, which is the only route
+   * assistive tech has to it. The caption a caller draws above the shutter is
+   * `aria-hidden`, being a second voice for something already spoken, and
+   * `aria-keyshortcuts` names a key without naming what it does. Left out, the
+   * button is described by nothing, which is right for a shutter whose only
+   * act is the one its label already names.
+   */
+  description?: string;
   testId?: string;
 }
 
@@ -98,14 +102,17 @@ export function CameraShutter({
   capturing = false,
   disabled = false,
   onHold,
+  description,
   testId,
   className,
   onClick,
   style,
   // Composed rather than spread over, because `buttonProps` lands after these
   // on the element: a `Tooltip` wrapping this reaches it through Radix's slot
-  // and brings pointer handlers of its own, and letting either side win
-  // silently would cost the other one its behavior.
+  // and brings pointer handlers of its own, and a description of its own while
+  // it is open, and letting either side win silently would cost the other one
+  // its behavior.
+  "aria-describedby": callerDescribedBy,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -125,6 +132,14 @@ export function CameraShutter({
   // itself, because the callers build a new one every render and nothing here
   // is about which one is on offer.
   const holdOffered = onHold !== undefined;
+  // Joined rather than replaced: a `Tooltip` describes its trigger with its own
+  // content while it is open, and the gesture is the half a screen reader has
+  // no other way to learn.
+  const descriptionId = useId();
+  const describedBy =
+    [description ? descriptionId : null, callerDescribedBy]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdOriginRef = useRef<{ x: number; y: number } | null>(null);
@@ -209,7 +224,7 @@ export function CameraShutter({
       heldRef.current = true;
       void haptic.light();
       onHold?.();
-    }, HOLD_THRESHOLD_MS);
+    }, LONG_PRESS_THRESHOLD_MS);
   };
 
   // The press can outlive the button: the room can close the camera under a
@@ -322,7 +337,7 @@ export function CameraShutter({
     // button when it lifts.
     if (
       Math.hypot(event.clientX - origin.x, event.clientY - origin.y) >
-      HOLD_MOVE_TOLERANCE_PX
+      LONG_PRESS_MOVE_TOLERANCE_PX
     ) {
       abandonPress();
     }
@@ -372,6 +387,7 @@ export function CameraShutter({
       // screen reader, which has no hint above the shutter to read.
       // eslint-disable-next-line local/no-untranslated-strings -- ARIA key name, not copy: assistive tech speaks the key in the user's language from this token
       aria-keyshortcuts={holdOffered ? "Space" : undefined}
+      aria-describedby={describedBy}
       data-testid={testId}
       data-mode={mode}
       onClick={handleClick}
@@ -387,7 +403,10 @@ export function CameraShutter({
       }}
       onPointerLeave={(event) => {
         onPointerLeave?.(event);
-        cancelHold();
+        // The whole press, not just the threshold: a pointer that leaves can
+        // come back and lift over the button, and a click fires for a down and
+        // an up that both landed on it however far it went in between.
+        abandonPress();
       }}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
@@ -422,6 +441,16 @@ export function CameraShutter({
           data-testid="camera-shutter-pulse"
           className="camera-shutter-pulse pointer-events-none absolute -inset-[2.5px] rounded-full"
         />
+      ) : null}
+
+      {/* Inside the button, which is where a single-element component can put
+          it: `aria-label` names the button, so its own contents are never read
+          as the name, and this is reached by reference rather than by being
+          in it. */}
+      {description ? (
+        <span id={descriptionId} className="sr-only">
+          {description}
+        </span>
       ) : null}
 
       <span

@@ -261,7 +261,9 @@
   },
   "cameraShutterHint": {
     "live": "Live · Tap to stop",
-    "photo": "Tap photo · Hold for live"
+    "liveDescription": "Tap to stop live video.",
+    "photo": "Tap photo · Hold for live",
+    "photoDescription": "Hold to start live video."
   },
   "cameraStatusPill": {
     "announceLive": "Live. {status}",

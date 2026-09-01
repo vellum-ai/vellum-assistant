@@ -261,7 +261,9 @@
   },
   "cameraShutterHint": {
     "live": "En vivo · Toca para detener",
-    "photo": "Toca para foto · Mantén para en vivo"
+    "liveDescription": "Toca para detener el video en vivo.",
+    "photo": "Toca para foto · Mantén para en vivo",
+    "photoDescription": "Mantén pulsado para iniciar el video en vivo."
   },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",

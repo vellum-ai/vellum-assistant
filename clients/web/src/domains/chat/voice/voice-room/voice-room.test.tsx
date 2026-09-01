@@ -2363,6 +2363,25 @@ describe("VoiceRoom: camera", () => {
       expect(screen.queryByTestId("voice-room-photo-strip")).toBeNull();
     });
 
+    test("tells a screen reader what the hold does, and what ends it", async () => {
+      await openLiveCapableCamera();
+      const description = () => {
+        const id = shutter().getAttribute("aria-describedby");
+        return id ? document.getElementById(id)?.textContent : null;
+      };
+
+      // The caption below the shutter is the sighted half of this and is
+      // aria-hidden, and `aria-keyshortcuts` names a key without naming the
+      // act, so the description is the whole of what assistive tech gets.
+      expect(description()).toBe("Hold to start live video.");
+
+      await holdShutter();
+
+      // The way out is the other gesture, which is worth saying: the way in
+      // was a hold.
+      expect(description()).toBe("Tap to stop live video.");
+    });
+
     test("a tap while live goes back to photo", async () => {
       await openLiveCapableCamera();
       await holdShutter();
@@ -2407,10 +2426,12 @@ describe("VoiceRoom: camera", () => {
         fireEvent.click(cameraToggle()!);
       });
 
-      // No caption for a gesture that would do nothing, and the shutter is the
-      // plain tap target it has always been.
+      // No caption for a gesture that would do nothing, nothing describing one
+      // to a screen reader, and the shutter is the plain tap target it has
+      // always been.
       expect(hint()).toBeNull();
       expect(shutter().getAttribute("aria-keyshortcuts")).toBeNull();
+      expect(shutter().getAttribute("aria-describedby")).toBeNull();
 
       await holdShutter();
 

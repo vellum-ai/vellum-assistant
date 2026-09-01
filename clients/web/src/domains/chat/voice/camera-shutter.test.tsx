@@ -25,6 +25,10 @@ import {
 } from "@testing-library/react";
 import * as motionReact from "motion/react";
 
+import {
+  LONG_PRESS_MOVE_TOLERANCE_PX,
+  LONG_PRESS_THRESHOLD_MS,
+} from "@/hooks/use-long-press";
 import { publish, __resetForTesting } from "@/lib/event-bus";
 
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
@@ -50,7 +54,7 @@ const shutter = () => screen.getByTestId("s");
 const core = () => screen.getByTestId("camera-shutter-core");
 const pulse = () => screen.queryByTestId("camera-shutter-pulse");
 
-/** The component's own threshold, restated so a retune fails here first. */
+/** The threshold, written out so a retune fails here first. */
 const HOLD_MS = 500;
 
 /**
@@ -242,6 +246,15 @@ describe("CameraShutter", () => {
  * afterwards.
  */
 describe("CameraShutter: holding it", () => {
+  test("holds to the app's own long-press numbers, not to numbers of its own", () => {
+    // One definition for both gestures. A retune reaching only one of them
+    // would make "held" mean two different lengths in one app, on whichever
+    // surface the user happened to be.
+    expect(LONG_PRESS_THRESHOLD_MS).toBe(HOLD_MS);
+    // The wander cases below sit either side of this.
+    expect(LONG_PRESS_MOVE_TOLERANCE_PX).toBe(10);
+  });
+
   test("a held press fires onHold once, and never the tap", () => {
     withFakeTimers((advanceBy) => {
       let holds = 0;
@@ -436,6 +449,37 @@ describe("CameraShutter: holding it", () => {
         cleanup();
       });
     }
+  });
+
+  test("a press that left the button takes no photo when it comes back", () => {
+    withFakeTimers(() => {
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // Leaving gave the press up. The browser does not: a down and an up that
+      // both landed on the button fire a click however far the pointer went in
+      // between, so the release would otherwise take a photo the gesture had
+      // already been let go of.
+      press();
+      fireEvent.pointerLeave(shutter(), { pointerId: 1 });
+      fireEvent.pointerEnter(shutter(), { pointerId: 1 });
+      release();
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
+
+      press();
+      release();
+      expect(taps).toBe(1);
+    });
   });
 
   test("Space holds; a short Space is still a tap, and Enter always is", () => {
@@ -714,6 +758,67 @@ describe("CameraShutter: holding it", () => {
       <CameraShutter onClick={noop} ariaLabel="Take photo" testId="s" />,
     );
     expect(shutter().getAttribute("aria-keyshortcuts")).toBeNull();
+  });
+
+  test("describes the gesture, and describes it alongside a caller's own", () => {
+    const description = () => {
+      const ids = shutter().getAttribute("aria-describedby");
+      return ids
+        ? ids
+            .split(" ")
+            .map((id) => document.getElementById(id)?.textContent)
+            .join(" ")
+        : null;
+    };
+
+    const { rerender } = render(
+      <CameraShutter
+        onClick={noop}
+        onHold={noop}
+        ariaLabel="Take a photo"
+        description="Hold to start live video."
+        testId="s"
+      />,
+    );
+
+    // The name says what a press does; nothing but this says a hold does
+    // anything, since the caption that carries it for the eye is aria-hidden.
+    expect(description()).toBe("Hold to start live video.");
+    // And it is a description, not a name: the label still stands alone.
+    expect(shutter().getAttribute("aria-label")).toBe("Take a photo");
+
+    rerender(
+      <CameraShutter
+        onClick={noop}
+        ariaLabel="Stop live"
+        description="Tap to stop live video."
+        testId="s"
+        mode="live"
+      />,
+    );
+    expect(description()).toBe("Tap to stop live video.");
+
+    // A `Tooltip` describes its trigger while it is open. Joined rather than
+    // replaced, so opening one does not cost the gesture its only explanation.
+    render(<p id="tip">Take a photo</p>);
+    rerender(
+      <CameraShutter
+        onClick={noop}
+        onHold={noop}
+        ariaLabel="Take a photo"
+        description="Hold to start live video."
+        aria-describedby="tip"
+        testId="s"
+      />,
+    );
+    expect(description()).toBe("Hold to start live video. Take a photo");
+
+    // Nothing to describe on a shutter whose only act is the one it is named
+    // for, and no empty attribute left behind either.
+    rerender(
+      <CameraShutter onClick={noop} ariaLabel="Take a photo" testId="s" />,
+    );
+    expect(shutter().getAttribute("aria-describedby")).toBeNull();
   });
 
   test("a disabled shutter takes no hold", () => {
