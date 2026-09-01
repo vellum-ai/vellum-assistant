@@ -70,7 +70,10 @@ import {
 import { useSidebarSectionsQuery } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
-import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
+import {
+  ASSISTANT_SECTION_LABEL,
+  RECENTS_SECTION_LABEL,
+} from "@/domains/chat/utils/sidebar-section-icon";
 
 // ---------------------------------------------------------------------------
 // Public constants
@@ -118,6 +121,13 @@ interface SidebarSectionBase {
  */
 export type SidebarSection =
   | (SidebarSectionBase & { type: "pinned" })
+  /* The threads the assistant started on its own. Index-only: membership is
+     decided by a conversation's `source`, and the derived fallback below
+     cannot know it without the complete list a windowed list never drains.
+     An assistant too old to serve the index therefore shows no section, and
+     its threads stay in Chats — the same degradation as every other
+     index-only fact, and the safe direction. */
+  | (SidebarSectionBase & { type: "assistant" })
   /* `holdsChannels` is what the view switch means for this section: with
      channel grouping off there are no channel sections, so Chats holds those
      conversations too. Carried on the section rather than read from the view
@@ -284,6 +294,26 @@ export function useSidebarState({
       const rowsByChannelId = new Map(
         grouped.channelSections.map((s) => [s.channelId, s.conversations]),
       );
+      /* Leads the default order: it is the one section the assistant fills
+         by itself, so it is what the user should see first on opening the
+         app. The daemon emits the row only under the flag and only ever one
+         of it, so no gate is needed here beyond its presence. Unlike every
+         section but Chats it renders at zero, because its empty state is
+         what explains the section to someone who has no threads yet.
+
+         `all` is empty rather than derived: these rows are withheld from the
+         foreground list the fallback buckets are built from, so there is no
+         derived bucket to fall back to. The section's own query fills it. */
+      const assistantRow = indexSections.find((s) => s.kind === "assistant");
+      if (assistantRow) {
+        list.push({
+          type: "assistant",
+          key: "assistant",
+          label: ASSISTANT_SECTION_LABEL,
+          all: [],
+          unread: assistantRow.unread,
+        });
+      }
       const pinnedRow = indexSections.find((s) => s.kind === "pinned");
       if (pinnedRow) {
         list.push({

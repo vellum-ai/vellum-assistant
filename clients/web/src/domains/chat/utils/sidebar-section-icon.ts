@@ -11,7 +11,7 @@
  * icon a user picked for a custom group.
  */
 
-import { MessageSquare, Pin, type LucideIcon } from "lucide-react";
+import { MessageSquare, Pin, Sparkles, type LucideIcon } from "lucide-react";
 
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import {
@@ -29,10 +29,25 @@ import { getChannelIcon } from "@/utils/channel-presentation";
 export const RECENTS_SECTION_LABEL = "Chats";
 export const RECENTS_SECTION_ICON: LucideIcon = MessageSquare;
 
+/**
+ * Fallback header for the assistant-initiated section, used when the assistant
+ * has no name of its own. Named assistants render "From <name>" instead — the
+ * section is a person rather than a category, and "Your Assistant" (the
+ * unnamed placeholder the switcher pill shows) reads badly as a section
+ * header.
+ */
+export const ASSISTANT_SECTION_LABEL = "On My Mind";
+
 export function sectionIcon(section: SidebarSection): LucideIcon {
   switch (section.type) {
     case "pinned":
       return Pin;
+    case "assistant":
+      /* The section the assistant fills itself, so it carries the assistant's
+         own mark rather than a topic glyph. Sparkles is the app's established
+         "the model did this" signal (PromptLaunchButton, the empty-state
+         recipes); the avatar eyes take over in the tinted card. */
+      return Sparkles;
     case "recents":
       return RECENTS_SECTION_ICON;
     case "channel":
