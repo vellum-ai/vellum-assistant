@@ -147,8 +147,8 @@ export function PaymentMethodsCard() {
   return (
     <>
       {configPending ? (
-        // It carries the loading announcement: in the settled tree no outer
-        // region announces this wait.
+        // The skeleton carries the loading announcement: in the settled tree
+        // no outer region announces this wait.
         <PaymentMethodsCardSkeleton
           label={t("paymentMethodsCard.loadingLabel")}
         />

@@ -157,8 +157,8 @@ function FinishProSetupNotice({
  * Stand-in for the whole Billing tab while it cannot render yet: each card's
  * own exported skeleton, so the stack's geometry and its responsive stacking
  * cannot drift from the cards it stands in for. The stack carries the one
- * announcement and each card is hidden from assistive tech, so the live
- * region does not read out the real headings the card skeletons paint.
+ * announcement and hides the cards behind it, so the live region does not
+ * read out the real headings the card skeletons paint.
  */
 function BillingTabSkeleton() {
   const { t } = useTranslation("settings");
@@ -166,16 +166,11 @@ function BillingTabSkeleton() {
     <div
       role="status"
       aria-label={t("billingPage.loadingLabel")}
-      className="space-y-4"
       data-testid="billing-tab-skeleton"
     >
-      <div aria-hidden>
+      <div aria-hidden className="space-y-4">
         <PlanCardSkeleton />
-      </div>
-      <div aria-hidden>
         <PaymentMethodsCardSkeleton />
-      </div>
-      <div aria-hidden>
         <BillingPanelSkeleton />
       </div>
     </div>

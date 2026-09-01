@@ -591,12 +591,12 @@ describe("BillingTab lifecycle loading", () => {
     expect(stack.getAttribute("role")).toBe("status");
     expect(stack.querySelectorAll('[role="status"]').length).toBe(0);
     expect(stack.getAttribute("aria-label")).toBe("Loading billing");
-    // Each card is hidden from assistive tech: the card skeletons paint real
-    // heading text, which this live region would otherwise read out.
-    expect(stack.children.length).toBe(3);
-    for (const child of Array.from(stack.children)) {
-      expect(child.getAttribute("aria-hidden")).toBe("true");
-    }
+    // The cards sit behind one hidden wrapper: they paint real heading text,
+    // which this live region would otherwise read out.
+    expect(stack.children.length).toBe(1);
+    const hidden = stack.children[0];
+    expect(hidden?.getAttribute("aria-hidden")).toBe("true");
+    expect(hidden?.children.length).toBe(3);
     // The loading copy exists only as the aria-label above, never as visible text.
     expect(queryByText("Loading billing")).toBeNull();
     expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();

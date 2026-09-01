@@ -18,11 +18,13 @@ describe("BillingPanelSkeleton", () => {
     // body below it is ever stood in for.
     expect(container.textContent).toContain("Extra Usage Credits");
 
-    // Balance tile, then the auto-reload, daily-limit and low-balance rows,
-    // the last two behind the panel's own dividers.
-    const body = getByTestId("billing-panel-skeleton-body");
-    expect(body.children.length).toBe(4);
-    expect(body.querySelectorAll(".border-t").length).toBe(2);
+    // The header, then the balance tile and the auto-reload, daily-limit and
+    // low-balance rows, the last two behind the panel's own dividers. The
+    // card's own body is the only wrapper the skeleton sits inside.
+    const card = getByTestId("billing-panel-skeleton");
+    const body = card.querySelector('[data-slot="card-body"]');
+    expect(body?.children.length).toBe(5);
+    expect(card.querySelectorAll(".border-t").length).toBe(2);
   });
 
   test("stays silent so the stack around it announces once", () => {
