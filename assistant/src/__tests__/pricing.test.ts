@@ -450,6 +450,19 @@ describe("resolvePricingForUsage", () => {
     expect(result.estimatedCostUsd).toBeCloseTo(57.4, 10);
   });
 
+  test("bills Fable 5.1 cache reads at the catalog rate", () => {
+    const result = resolvePricingForUsage("anthropic", "claude-fable-5-1", {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    });
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.25, 10);
+  });
+
   test("returns unpriced with null cost for unknown provider", () => {
     const usage: PricingUsage = {
       directInputTokens: 10,
