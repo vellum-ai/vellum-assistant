@@ -202,22 +202,34 @@ export function CameraShutter({
   }, [cancelHold]);
 
   /**
+   * Nothing of the last press is left to answer for.
+   *
+   * Both flags exist for the click a release produces, so an end of press that
+   * produces none has to spend them itself: left raised they wait for a click
+   * that never comes and eat some later activation instead.
+   */
+  const settlePress = () => {
+    heldRef.current = false;
+    abandonedRef.current = false;
+  };
+
+  /**
    * A new press begins, so whatever the last one was is over.
    *
    * The backstop rather than the usual route. A press normally settles its own
-   * flags: a pointer release spends them on the click it produces, and a Space
-   * release clears the hold's on its way out. What is left is the press whose
-   * end reaches nothing here at all, a finger lifted somewhere off the button
-   * or a key released at whatever took focus, and a flag from one of those
-   * would sit raised waiting for a click to eat.
+   * flags: a pointer release spends them on the click it produces, a cancelled
+   * pointer spends them itself, and a Space release clears the hold's on its
+   * way out. What is left is the press whose end reaches nothing here at all, a
+   * finger lifted somewhere off the button or a key released at whatever took
+   * focus, and a flag from one of those would sit raised waiting for a click to
+   * eat.
    *
    * Cleared at the start of the next press rather than at the end of the last,
    * so a stray click belonging to the press that just ended still finds them
    * raised, while a press that comes after never does.
    */
   const beginPress = () => {
-    heldRef.current = false;
-    abandonedRef.current = false;
+    settlePress();
   };
 
   const armHold = () => {
@@ -424,12 +436,15 @@ export function CameraShutter({
         onPointerCancel?.(event);
         cancelHold();
         // The one end of a press this element hears that is certain to produce
-        // no click: a pointer the browser has taken back fires none. So a
-        // suppression this press raised has nothing left to be spent on, and
-        // left up it would be spent on some later activation, which for a
-        // screen reader or voice control is a bare click with no press in
-        // front of it to clear the flag first.
-        abandonedRef.current = false;
+        // no click: a pointer the browser has taken back fires none. Both
+        // flags, because both are raised by a pointer press and neither has
+        // anything left to be spent on, whether the press was given up on
+        // partway or ran all the way to a hold. Left up they are spent on some
+        // later activation instead, which for a screen reader or voice control
+        // is a bare click with no press in front of it to clear them first.
+        // `cancelHold` above leaves nothing armed, so the press is wholly over
+        // here.
+        settlePress();
       }}
       onPointerLeave={(event) => {
         onPointerLeave?.(event);

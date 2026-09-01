@@ -420,6 +420,66 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  test("a cancelled pointer leaves no fired hold behind it either", () => {
+    withFakeTimers((advanceBy) => {
+      let taps = 0;
+      let holds = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The hold runs all the way and enters Live, and the OS then takes the
+      // pointer: no click comes, so the suppression the hold raised has
+      // nothing of this press to be spent on.
+      press();
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(1);
+      fireEvent.pointerCancel(shutter(), { pointerId: 1 });
+
+      // The press that stops Live is the user's first attempt. A screen
+      // reader's is a bare click with no press in front of it.
+      fireEvent.click(shutter());
+      expect(taps).toBe(1);
+    });
+  });
+
+  test("a hold's own release is still the click that spends it", () => {
+    withFakeTimers((advanceBy) => {
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The ordinary ending, which settles nothing early: this release does
+      // produce a click, and that click is the one the hold suppresses.
+      press();
+      advanceBy(HOLD_MS);
+      release();
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
+
+      // Spent by it, so the bare activation after it lands.
+      fireEvent.click(shutter());
+      expect(taps).toBe(1);
+    });
+  });
+
   test("a cancelled pointer leaves no suppression behind it", () => {
     withFakeTimers(() => {
       let taps = 0;
