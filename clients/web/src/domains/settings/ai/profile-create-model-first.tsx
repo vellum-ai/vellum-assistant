@@ -43,14 +43,13 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
 
 /**
- * Prefix for the row that unfolds the rest of one section. Namespaced the
- * same way, and carrying the section it acts on, so picking it is told apart
- * from picking a model.
+ * Sentinel for the row that unfolds every section at once. Namespaced the
+ * same way, so picking it is told apart from picking a model.
  */
-const SEE_MORE_PREFIX = "__see-more__:";
+const SHOW_ALL_MODELS_OPTION_VALUE = "__show-all-models__";
 
 /**
- * Where one model row stands in its section's disclosure: one of the rows the
+ * Where one model row stands in the list's disclosure: one of the rows its
  * section offers, one still folded away, or one the unfold row has revealed.
  */
 type ModelRowState = "current" | "folded" | "disclosed";
@@ -157,10 +156,11 @@ export function ProfileCreateModelFirst({
     [groups],
   );
 
-  // Sections the user has unfolded. The control that unfolds one sits on its
-  // heading rather than under its rows, so folding it back is a deliberate
-  // second press on the same control and never moves what is under the hand.
-  const [unfoldedGroups, setUnfoldedGroups] = useState<readonly string[]>([]);
+  // Whether the list is showing everything it holds. One answer for the whole
+  // list rather than one per section: a reader looking for a model they know
+  // the name of should not have to unfold each vendor in turn to find out
+  // which one has it.
+  const [showAllModels, setShowAllModels] = useState(false);
 
   // "Save As New" opens create mode on a profile that already has a provider
   // and a model, so the flow starts on whichever answer that model is: a
@@ -282,14 +282,9 @@ export function ProfileCreateModelFirst({
       openCandidatesFor({ kind: "custom", modelId: "" });
       return;
     }
-    if (value.startsWith(SEE_MORE_PREFIX)) {
+    if (value === SHOW_ALL_MODELS_OPTION_VALUE) {
       // Acts on the list rather than answering it, so the draft is untouched.
-      const group = value.slice(SEE_MORE_PREFIX.length);
-      setUnfoldedGroups((previous) =>
-        previous.includes(group)
-          ? previous.filter((key) => key !== group)
-          : [...previous, group],
-      );
+      setShowAllModels((previous) => !previous);
       return;
     }
     openCandidatesFor({ kind: "catalog", displayName: value });
@@ -334,30 +329,33 @@ export function ProfileCreateModelFirst({
       folded: state === "folded",
       disclosed: state === "disclosed",
     });
+    let anyHidden = false;
     for (const group of groups) {
       const { shown, hidden } = collapseSectionRows(group.options);
-      const unfolded = unfoldedGroups.includes(group.key);
       for (const option of shown) {
         rows.push(modelRow(option, group.label, "current"));
       }
+      anyHidden = anyHidden || hidden.length > 0;
       for (const option of hidden) {
         // Folded away while the list is being browsed, but never hidden from
         // a query: someone who types a model's name means that model.
         rows.push(
-          modelRow(option, group.label, unfolded ? "disclosed" : "folded"),
+          modelRow(option, group.label, showAllModels ? "disclosed" : "folded"),
         );
       }
-      if (hidden.length > 0) {
-        rows.push({
-          value: `${SEE_MORE_PREFIX}${group.key}`,
-          label: unfolded
-            ? t("profileCreateModelFirst.seeLess")
-            : t("profileCreateModelFirst.seeMore"),
-          group: group.label,
-          listAction: true,
-          expanded: unfolded,
-        });
-      }
+    }
+    if (anyHidden) {
+      // Ungrouped, so it lands at the foot of the sections it acts on rather
+      // than inside any one of them. It is left out when the sections already
+      // show everything, since there would be nothing for it to do.
+      rows.push({
+        value: SHOW_ALL_MODELS_OPTION_VALUE,
+        label: showAllModels
+          ? t("profileCreateModelFirst.showFewerModels")
+          : t("profileCreateModelFirst.showAllModels"),
+        listAction: true,
+        expanded: showAllModels,
+      });
     }
     rows.push({
       value: CUSTOM_MODEL_OPTION_VALUE,
@@ -367,7 +365,7 @@ export function ProfileCreateModelFirst({
       sticky: true,
     });
     return rows;
-  }, [groups, unfoldedGroups, t]);
+  }, [groups, showAllModels, t]);
 
   const fieldLabelClass =
     "block text-body-small-default text-[var(--content-tertiary)]";

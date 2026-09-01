@@ -254,23 +254,22 @@ export const CreateModelFirstCustomId: Story = {
 };
 
 /**
- * A section with the rest of its models revealed: the block its heading's own
- * disclosure opened is set off by a hairline, and the list stays where the
- * user left it.
+ * The whole list with everything it holds revealed: one control under the
+ * sections opens all of them at once, the block it opened in each is set off
+ * by a hairline, and the list stays where the user left it.
  */
-export const CreateModelFirstSeeMore: Story = {
+export const CreateModelFirstShowAllModels: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
   play: async () => {
     await userEvent.click(
       await screen.findByRole("combobox", { name: "Model" }),
     );
-    // Scoped to the section: every section that folds anything offers a row
-    // of the same shape, spelled the same way.
-    const anthropic = await screen.findByRole("group", { name: "Anthropic" });
+    // Outside every section, because it acts on all of them.
     await userEvent.click(
-      within(anthropic).getByRole("option", { name: "See more" }),
+      await screen.findByRole("option", { name: "Show all models" }),
     );
+    const anthropic = await screen.findByRole("group", { name: "Anthropic" });
     await waitFor(() =>
       expect(
         within(anthropic).getByRole("option", { name: /Claude Opus 4\.8/ }),

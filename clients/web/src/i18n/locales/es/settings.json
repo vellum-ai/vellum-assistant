@@ -1461,9 +1461,9 @@
     "modelResultsAnnouncement": "{count, plural, one {# modelo disponible} other {# modelos disponibles}}. Usa las flechas arriba y abajo para recorrerlos y Intro para elegir uno.",
     "providerLabel": "Proveedor",
     "recommendedMeta": "Recomendado",
-    "seeLess": "Ver menos",
-    "seeMore": "Ver más",
     "setUpTag": "Configurar",
+    "showAllModels": "Mostrar todos los modelos",
+    "showFewerModels": "Mostrar menos modelos",
     "signInTag": "Iniciar sesión",
     "soleProviderHint": "Solo {name} ofrece este modelo."
   },

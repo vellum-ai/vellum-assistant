@@ -465,13 +465,6 @@ export interface ComboboxGroupProps extends ComponentProps<"div"> {
   label: ReactNode;
   labelClassName?: string;
   /**
-   * A control on the heading row, set against the name at the far end: the
-   * section's own disclosure, which acts on the section rather than being one
-   * more of its rows. It is left out of the group's name, which stays the
-   * heading's own text.
-   */
-  action?: ReactNode;
-  /**
    * Pin the heading to the top of the scrolling list while its own rows are
    * still on screen. Worth it once the list is long enough that a section
    * scrolls past its own heading, which is when a reader loses track of which
@@ -485,7 +478,6 @@ export interface ComboboxGroupProps extends ComponentProps<"div"> {
 function Group({
   label,
   labelClassName,
-  action,
   stickyLabel = false,
   children,
   ...rest
@@ -499,10 +491,10 @@ function Group({
       data-slot="combobox-group"
     >
       <div
+        id={labelId}
         role="presentation"
         data-slot="combobox-group-label"
         className={cn(
-          "flex items-center justify-between gap-2",
           "px-3 pb-1 pt-2 text-label-small-default text-[var(--content-tertiary)]",
           // The rows scroll under the heading, so it needs a ground of its
           // own and a place above them in the stack.
@@ -510,14 +502,7 @@ function Group({
           labelClassName,
         )}
       >
-        <span
-          id={labelId}
-          data-slot="combobox-group-name"
-          className="min-w-0 truncate"
-        >
-          {label}
-        </span>
-        {action}
+        {label}
       </div>
       {children}
     </div>
