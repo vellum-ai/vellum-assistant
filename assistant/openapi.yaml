@@ -4115,7 +4115,9 @@ paths:
                   expiresAt:
                     type: number
                   nextResendAt:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   sendCount:
                     type: number
                   pendingBootstrap:

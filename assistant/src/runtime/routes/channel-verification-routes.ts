@@ -23,11 +23,13 @@
 import { z } from "zod";
 
 import { revokePendingSessions } from "../../channels/gateway-verification-sessions.js";
-import { CHANNEL_IDS, type ChannelId } from "../../channels/types.js";
+import type { ChannelId } from "../../channels/types.js";
 import {
   createInboundChallenge,
   getVerificationStatus,
   revokeVerificationForChannel,
+  type VerificationStatusResponse,
+  verificationStatusResponseSchema,
   verifyTrustedContact,
 } from "../../daemon/handlers/config-channels.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
@@ -177,35 +179,12 @@ export async function handleCreateVerificationSession({
 }
 
 /**
- * What {@link getVerificationStatus} returns, published so clients read the
- * guardian binding from a generated type rather than narrowing an unknown.
- * The optional fields are the ones that only exist once there is a binding or
- * an active outbound session.
- */
-const verificationStatusResponseSchema = z.object({
-  success: z.boolean(),
-  bound: z.boolean(),
-  channel: z.enum(CHANNEL_IDS),
-  assistantId: z.string(),
-  hasPendingChallenge: z.boolean(),
-  guardianExternalUserId: z.string().optional(),
-  guardianDeliveryChatId: z.string().optional(),
-  guardianUsername: z.string().optional(),
-  guardianDisplayName: z.string().optional(),
-  verificationSessionId: z.string().optional(),
-  expiresAt: z.number().optional(),
-  nextResendAt: z.number().optional(),
-  sendCount: z.number().optional(),
-  pendingBootstrap: z.boolean().optional(),
-});
-
-/**
  * GET /v1/channel-verification-sessions/status
  */
 async function handleGetVerificationStatus({
   queryParams = {},
   body = {},
-}: RouteHandlerArgs) {
+}: RouteHandlerArgs): Promise<VerificationStatusResponse> {
   const channel = (queryParams.channel ??
     (body as Record<string, unknown>).channel) as ChannelId | undefined;
   return await getVerificationStatus(channel);
