@@ -384,6 +384,32 @@ describe("useVoiceRoomSight: when it samples", () => {
     expect(samplerStop).toHaveBeenCalled();
   });
 
+  test("a setter held from an earlier render is refused against availability now", () => {
+    const { view } = renderSight({ live: false });
+    // What the room hands the shutter: a handler built around the setter of
+    // the render that offered the hold. The shutter's own threshold fires it
+    // half a second later, which is long enough for availability to go.
+    const askFromBefore = view.result.current.setLive;
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "environment",
+        nativePreview: true,
+      });
+    });
+    act(() => {
+      askFromBefore(true);
+    });
+
+    // The effect that holds the mode to availability has already run for the
+    // change and does not re-run for this write, so a setter answering from
+    // what it captured would leave Live raised for good.
+    expect(view.result.current.liveAvailable).toBe(false);
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStart).not.toHaveBeenCalled();
+  });
+
   test("a flip that stays on the room's own preview leaves Live running", () => {
     const { view } = renderSight({ live: true });
 

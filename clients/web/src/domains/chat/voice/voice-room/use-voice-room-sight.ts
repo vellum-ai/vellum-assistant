@@ -51,7 +51,13 @@
  * start again rather than resuming on the gesture that came before it.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   deleteChatAttachment,
@@ -231,6 +237,25 @@ export function useVoiceRoomSight(
   const active = cameraOpen && liveAvailable && live;
 
   /**
+   * What an ask to enter Live is refused against, read when the ask arrives
+   * rather than closed over by whoever holds the setter.
+   *
+   * An ask can outlive the render that handed out the setter: the room builds
+   * the shutter's hold handler around one, and the shutter's own threshold
+   * fires that handler half a second after it was given. Availability can go
+   * inside that half second, and a setter answering from what it captured
+   * would raise Live past the effect below, which has already run for the
+   * change and does not re-run for the write.
+   *
+   * Written in a commit-phase effect rather than during render, so the answer
+   * always describes UI that was actually shown.
+   */
+  const liveAllowedRef = useRef(false);
+  useLayoutEffect(() => {
+    liveAllowedRef.current = cameraOpen && liveAvailable;
+  });
+
+  /**
    * Enter or leave Live, where entering is refused unless it is available.
    *
    * The effect below cannot answer this one: its deps are the availability it
@@ -238,12 +263,9 @@ export function useVoiceRoomSight(
    * nothing it re-runs on and would leave the flag raised until the next real
    * transition. The refusal belongs at the ask.
    */
-  const setLive = useCallback(
-    (next: boolean) => {
-      setLiveState(next && cameraOpen && liveAvailable);
-    },
-    [cameraOpen, liveAvailable],
-  );
+  const setLive = useCallback((next: boolean) => {
+    setLiveState(next && liveAllowedRef.current);
+  }, []);
 
   // Live never outlives what makes it honest. The viewfinder closing takes the
   // consent away, and availability going (a flag, an assistant, the latch, or
