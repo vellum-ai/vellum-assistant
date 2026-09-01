@@ -210,6 +210,60 @@ describe("ToolDetailPanel", () => {
     );
   });
 
+  test("picks up a denial that lands while the drawer is open", () => {
+    // The payload was captured before the guardian answered, so the snapshot
+    // still says the call was running. The live tool call carries the decision.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tc-1",
+            name: "subagent_spawn",
+            confirmationDecision: "denied",
+          },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: undefined, status: "running" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+  });
+
+  test("treats a timed-out confirmation as not approved", () => {
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tc-1",
+            name: "subagent_spawn",
+            confirmationDecision: "timed_out",
+          },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ result: undefined, status: "running" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+  });
+
   test("clamps a long result behind Show more", () => {
     const long = "a line of output\n".repeat(200);
     const { getByText, queryByText } = render(

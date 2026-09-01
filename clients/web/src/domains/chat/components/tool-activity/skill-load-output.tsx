@@ -78,13 +78,7 @@ export function SkillLoadOutput({
       </div>
 
       <div className="relative rounded-xl bg-[var(--surface-overlay)] p-3">
-        <ClampedContent
-          // Re-keyed per mode so switching Clean/Raw re-evaluates the clamp
-          // against the body actually on screen instead of keeping the
-          // expansion the other view was in.
-          key={activeMode}
-          length={body.length}
-        >
+        <ClampedContent length={body.length}>
           {activeMode === "clean" ? (
             <ChatMarkdownMessage
               content={instructions}

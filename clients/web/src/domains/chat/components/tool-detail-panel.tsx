@@ -46,7 +46,10 @@ import {
   getRiskNoticeTone,
   getRiskToleranceHint,
 } from "@/domains/chat/utils/risk";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import {
+  isToolCallDenied,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -147,9 +150,13 @@ export function ToolDetailBody({
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
   const isError = liveTc?.isError ?? detail.status === "error";
-  // `deriveToolStepStatus` folds a declined confirmation and one that timed out
-  // into the same status, so the copy has to be true of both.
-  const isDenied = detail.status === "denied";
+  // Read live like the two flags above: a confirmation declined while the
+  // drawer is open has to reach it, not wait for a reopen. `isToolCallDenied`
+  // covers a prompt that expired as well as one refused, so the copy below has
+  // to be true of both.
+  const isDenied = liveTc
+    ? isToolCallDenied(liveTc)
+    : detail.status === "denied";
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
@@ -159,6 +166,15 @@ export function ToolDetailBody({
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
   const riskHint = getRiskToleranceHint(riskLevel);
   const riskStyle = getRiskBadgeWeakStyle(riskLevel);
+
+  // What the Output section says when it has no text to show: the call was
+  // refused, it returned nothing, or it has not finished yet.
+  const outputNoticeKey =
+    isDenied && !hasResult
+      ? "toolDetailPanel.denied"
+      : isEmptyResult
+        ? "toolDetailPanel.emptyOutput"
+        : "toolDetailPanel.running";
 
   // Tools with purpose-built activity UI replace the generic name/activity/JSON
   // block; those that also own their output suppress the shared Output section.
@@ -232,11 +248,7 @@ export function ToolDetailBody({
               className="text-[var(--content-tertiary)]"
               data-testid="tool-output-notice"
             >
-              {isDenied && !hasResult
-                ? t("toolDetailPanel.denied")
-                : isEmptyResult
-                  ? t("toolDetailPanel.emptyOutput")
-                  : t("toolDetailPanel.running")}
+              {t(outputNoticeKey)}
             </Typography>
           )}
         </div>
