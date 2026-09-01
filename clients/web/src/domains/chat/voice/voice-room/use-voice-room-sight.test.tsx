@@ -90,8 +90,8 @@ const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 
 const ASSISTANT_ID = "asst_sight";
-/** 0.11.8 is the first base that carries the `sight_frame` handler. */
-const SUPPORTING_VERSION = "0.11.8-dev.202609011412.b432fb7";
+/** A dev build off `main` from after the `sight_frame` handler merged. */
+const SUPPORTING_VERSION = "0.11.7-dev.202609010200.b432fb7";
 
 const KEEP = {
   keep: true,
@@ -229,9 +229,9 @@ describe("useVoiceRoomSight: when it samples", () => {
     expect(samplerStart).not.toHaveBeenCalled();
   });
 
-  test("samples nothing against an assistant that predates the frame", () => {
-    // No 0.11.7 build has a `sight_frame` handler, so every keep would come
-    // back as the error the transport reads as a settings rejection.
+  test("samples nothing against the release that predates the frame", () => {
+    // 0.11.7 was cut before the handler existed, so every keep would come back
+    // as the error the transport reads as a settings rejection.
     useAssistantIdentityStore
       .getState()
       .setIdentity("assistant", "0.11.7", ASSISTANT_ID);
@@ -241,7 +241,9 @@ describe("useVoiceRoomSight: when it samples", () => {
     expect(samplerStart).not.toHaveBeenCalled();
   });
 
-  test("samples nothing against a dev build of the base before it", () => {
+  test("samples nothing against a dev build from before the handler merged", () => {
+    // Same base as a supported build, and only the timestamp tells them apart,
+    // which is the whole reason the gate pins one.
     useAssistantIdentityStore
       .getState()
       .setIdentity(

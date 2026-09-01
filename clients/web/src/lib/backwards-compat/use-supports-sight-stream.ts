@@ -14,35 +14,46 @@
  * sampler would be sending a frame every few seconds into a void while the
  * room's thumbnail claimed the call could see each one.
  *
- * MIN_VERSION is `0.11.8`: a base AHEAD of the release this was written
- * against, and bare where the sibling camera gates carry a `-dev.0` suffix.
- * Both halves are deliberate.
+ * MIN_VERSION is `0.11.7-dev.202609010135`: a pinned dev-build timestamp, not
+ * a release. That is unusual enough to be worth the paragraph, and both of the
+ * tidier-looking constants are wrong.
  *
- * - **Why 0.11.8 and not 0.11.7.** 0.11.7 was cut on 2026-08-27, before the
- *   daemon learned the frame, and `main` carries the version of the last cut,
- *   so a build that HAS the frame and a build that predates it are both named
- *   `0.11.7-dev.*`. No 0.11.7 floor separates them without pinning a build
- *   timestamp, which is a constant nobody can reason about a month later.
- *   0.11.8 is the first base that provably contains the frame: the change
- *   landed on `main` before that cut, so both 0.11.8 itself and every
- *   `0.11.8-dev.*` build off `main` carry it.
- * - **Why no `-dev.0`.** The suffix on `use-supports-voice-camera.ts` and
- *   `use-supports-sight-frames.ts` exists to exclude the STABLE release of the
- *   base they name, which shipped before the feature. Here the base is already
- *   one past that release, so the suffix would exclude nothing but 0.11.8
- *   itself: a dev build counts as newer than its own base's release, so
- *   `0.11.8-dev.0` would gate the feature off on the release it ships in and
- *   only light up on 0.11.9. Bare `0.11.8` admits the release and its dev
- *   builds alike.
+ * The floor is the first dev build that can carry the handler. `main` carries
+ * the version of the last cut, so every build off it is named `0.11.7-dev.*`
+ * whether or not it has the frame, and only the timestamp in the suffix tells
+ * them apart. `versionSupports` compares two same-base dev builds by that
+ * suffix (`comparePreRelease`, numeric segment by segment), so a timestamp is
+ * the one thing that can separate them.
  *
- * The cost is deliberate: until `main`'s base bumps, an assistant built from
- * source sits below this floor and the room samples nothing. Do NOT "fix" the
- * constant downward to light it up locally. A 0.11.7 floor lets a daemon with
- * no handler through, and every keep it refuses is a view the room told the
- * user it had shared.
+ * The anchor is the daemon change's squash merge, commit 3251f98402, committed
+ * at 2026-09-01T01:34:30Z. Dev versions stamp `dev.YYYYMMDDHHMM.<sha>` at the
+ * moment the release workflow computes them, so a build stamped `...0134` may
+ * have been computed in the seconds BEFORE the merge landed and carry a
+ * pre-merge sha. Rounding up to the next whole minute, `...0135`, removes the
+ * ambiguity. It costs at most one build: one computed in the last 29 seconds
+ * of the merge minute has the handler and is refused until the next dev
+ * release. That is the safe direction to be wrong in.
  *
- * See `use-supports-voice-camera.ts` for the full writeup of how a `dev`
- * suffix compares against the stable release with the same base.
+ * The floor names no sha, and does not need one. `comparePreRelease` walks
+ * segments and treats a version that still has segments where the floor has
+ * run out as the greater of the two, so `dev.202609010135.abcdef01` clears
+ * `dev.202609010135` rather than tying with it.
+ *
+ * Two constants that look tidier and are not:
+ *
+ * - **`0.11.8`** (bare, or any 0.11.8 form) keeps handler-bearing builds dark.
+ *   An assistant packaged from `main` today has the frame and reports
+ *   `0.11.7-dev.*`, which sits below a 0.11.8 base until the next release cut,
+ *   so the room would sample nothing on exactly the builds it was written for.
+ * - **`0.11.7-dev.0`** goes too far the other way. It reads as "any dev build
+ *   of 0.11.7", which admits the whole window between the 2026-08-27 cut and
+ *   the merge: builds with no handler, refusing every keep with the code the
+ *   transport reads as an `update_config` rejection.
+ *
+ * Do NOT replace this with either. The stable 0.11.7 release is excluded by
+ * the `dev` suffix alone (a dev build outranks its own base's release, see
+ * `use-supports-voice-camera.ts` for that writeup), and each wrong constant
+ * fails a row in this gate's test.
  *
  * Scoped to the assistant that owns the live voice session, so a version held
  * for the outgoing assistant cannot authorize a frame against the incoming one.
@@ -52,7 +63,7 @@
  */
 import { useAssistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.8";
+export const MIN_VERSION = "0.11.7-dev.202609010135";
 
 /**
  * Returns `true` when the assistant that owns the live voice session
