@@ -355,6 +355,16 @@ export interface LiveVoiceState {
   /** Ids the cap pushed off the ledger, newest last, capped the same way. */
   prunedSightFrames: readonly string[];
   /**
+   * Photos sent to the assistant with no verdict yet.
+   *
+   * A count rather than ids: nothing here needs to know WHICH photo, only how
+   * many standalone persists can be queued ahead of a keep, since the daemon
+   * runs them one at a time and never supersedes a photo. Only a refusal
+   * retires one, so this over-counts the ones that quietly persisted, which
+   * only ever lengthens a wait. See `queueUnacknowledgedSightFrames`.
+   */
+  outstandingPhotoSends: number;
+  /**
    * Uploads to give back, accumulating until the session-lifetime reclaimer
    * drains them.
    *
@@ -580,6 +590,8 @@ export interface LiveVoiceActions {
   setConversationId: (conversationId: string) => void;
   /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
   notePhotoRejected: (reason: "unsupported" | "failed") => void;
+  /** Record a photo that reached the transport. */
+  notePhotoSent: () => void;
   /** Record a kept frame that reached the transport. */
   noteSightFrameSent: (attachmentId: string) => void;
   /**
@@ -692,36 +704,30 @@ export interface SightFrameReclaim {
   readonly attachmentId: string;
   /**
    * Epoch milliseconds before which this must not be deleted, when it has to
-   * wait at all. See {@link RECLAIM_SETTLE_DELAY_MS}.
+   * wait at all. See {@link PER_JOB_CEILING_MS}.
    */
   readonly notBefore?: number;
 }
 
 /**
- * How long a reset-routed reclaim waits before the delete goes out.
+ * The longest one standalone-image persist can take on the daemon.
  *
- * A refusal-routed reclaim needs no wait: the assistant answered, so it is
- * done with the frame. A reset-routed one is the opposite, an id nobody
- * answered for, and the assistant may still be about to persist it. Its
- * persists run one at a time per conversation, and a job that has not started
- * has not yet read the attachment, so deleting immediately would make the
- * daemon find nothing and drop a frame that was going to land, with no open
- * socket left to say so.
- *
- * Waiting instead lets the daemon finish and hands the decision to the
- * link-aware delete it already has: a frame that persisted in the meantime is
- * refused, and one that was genuinely lost is collected. The ceiling to cover
- * is the job ahead burning its own lock wait (`PROCESSING_WAIT_MS`, 30s in
- * `assistant/src/live-voice/live-voice-photo.ts`) plus this job's, plus the
- * persist itself. 90s covers that with margin.
- *
- * Accepted residue: an app quit before the wait elapses leaves those uploads
- * unreclaimed, which is exactly where they stood before any of this, bounded
- * by the ledger cap, and a later session cannot take them on because the
- * queue names the assistant and session that held them, so they age out with
- * the conversation.
+ * Each of them waits up to `PROCESSING_WAIT_MS` (30s in
+ * `assistant/src/live-voice/live-voice-photo.ts`) for the conversation's
+ * processing lock before giving up, and then writes. 35s covers that wait plus
+ * the write.
  */
-export const RECLAIM_SETTLE_DELAY_MS = 90_000;
+export const PER_JOB_CEILING_MS = 35_000;
+
+/**
+ * The longest a reset-routed reclaim is ever made to wait.
+ *
+ * The derived deadline scales with how many jobs can be queued ahead, and a
+ * long call with many photos would otherwise push it hours out. Ten minutes is
+ * far past any real drain and keeps a genuinely orphaned upload from waiting
+ * indefinitely for a delete nobody is coming to make.
+ */
+export const MAX_RECLAIM_SETTLE_MS = 600_000;
 
 /**
  * How many kept frames the outstanding ledger remembers, and how many pruned
@@ -846,6 +852,7 @@ const INITIAL_SESSION_STATE: Omit<
   sightFramesUnsupported: false,
   outstandingSightFrames: [],
   prunedSightFrames: [],
+  outstandingPhotoSends: 0,
   sightFrameRetractions: [],
   controls: null,
   utteranceOpen: false,
@@ -875,6 +882,32 @@ function mergeSightFrameReclaims(
     ...queued,
     ...next.filter((r) => !seen.has(`${r.assistantId}/${r.attachmentId}`)),
   ];
+}
+
+/**
+ * Push every waiting reclaim out by one job's worth of time.
+ *
+ * A send that goes out while reset-routed entries are still waiting lands
+ * BEHIND the jobs they are waiting on, in the same conversation queue, so it
+ * moves their deadline by exactly what it adds. Event-driven and bounded: the
+ * absolute cap still applies, and an entry with no deadline (a refusal routed
+ * it) is never given one.
+ */
+function extendPendingSightFrameReclaims(
+  queued: readonly SightFrameReclaim[],
+): readonly SightFrameReclaim[] {
+  if (!queued.some((entry) => entry.notBefore !== undefined)) {
+    return queued;
+  }
+  const ceiling = Date.now() + MAX_RECLAIM_SETTLE_MS;
+  return queued.map((entry) =>
+    entry.notBefore === undefined
+      ? entry
+      : {
+          ...entry,
+          notBefore: Math.min(entry.notBefore + PER_JOB_CEILING_MS, ceiling),
+        },
+  );
 }
 
 /**
@@ -909,9 +942,28 @@ function queueUnacknowledgedSightFrames(
   if (assistantId === null || unacknowledged.length === 0) {
     return state.sightFramesToReclaim;
   }
-  // Not before the daemon has had time to finish whatever it still had queued
-  // for this conversation. See {@link RECLAIM_SETTLE_DELAY_MS}.
-  const notBefore = Date.now() + RECLAIM_SETTLE_DELAY_MS;
+  // Not before the daemon has had time to finish whatever it still had queued.
+  //
+  // The daemon runs standalone-image persists one at a time and never
+  // supersedes a photo, so a keep can sit behind an arbitrary number of them,
+  // and a fixed wait would be a guess. It does not have to be: this client is
+  // the SOLE producer of that queue. Only `attach_image` and `sight_frame`
+  // feed it (`live-voice-session.ts` dispatches them to `persistPhoto` and
+  // `persistSightFrame`, the only two callers of the queue), both arrive on
+  // one session's socket, and the daemon runs a single live-voice session at a
+  // time. So the ledgers below enumerate everything that can possibly be
+  // queued ahead, and the ceiling is that count plus this job, each at
+  // `PER_JOB_CEILING_MS`.
+  //
+  // It over-counts on purpose: a photo that already persisted is still
+  // counted, because nothing acknowledges one. Over-counting only ever waits
+  // longer, which is the safe direction, and the cap bounds it. The cleaner
+  // signal is the daemon echoing an ack per persist, which is a later daemon
+  // change and not this one.
+  const queuedAhead = state.outstandingPhotoSends + unacknowledged.length;
+  const notBefore =
+    Date.now() +
+    Math.min(MAX_RECLAIM_SETTLE_MS, (queuedAhead + 1) * PER_JOB_CEILING_MS);
   return mergeSightFrameReclaims(
     state.sightFramesToReclaim,
     unacknowledged.map((attachmentId) => ({
@@ -950,6 +1002,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set((state) => ({
       photoRejectedSeq: state.photoRejectedSeq + 1,
       photoRejectedReason: reason,
+      // Answered for, so it can no longer be queued ahead of anything.
+      outstandingPhotoSends: Math.max(0, state.outstandingPhotoSends - 1),
     })),
   // The cap drops the OLDEST id, and a dropped id cannot become a wrong
   // deletion. Overflow only happens against an assistant that is answering
@@ -959,11 +1013,23 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   // latch does fire, so nothing is dropped silently. Reclaiming a pruned id is
   // safe even when the assistant did persist it: the attachment delete is
   // refused for a row a message links.
+  notePhotoSent: () =>
+    set((s) => ({
+      outstandingPhotoSends: s.outstandingPhotoSends + 1,
+      sightFramesToReclaim: extendPendingSightFrameReclaims(
+        s.sightFramesToReclaim,
+      ),
+    })),
   noteSightFrameSent: (attachmentId) =>
     set((s) => {
+      // This send joins the same conversation queue the waiting reclaims are
+      // waiting on, so it moves their deadline with it.
+      const sightFramesToReclaim = extendPendingSightFrameReclaims(
+        s.sightFramesToReclaim,
+      );
       const appended = [...s.outstandingSightFrames, attachmentId];
       if (appended.length <= SIGHT_FRAME_LEDGER_CAP) {
-        return { outstandingSightFrames: appended };
+        return { outstandingSightFrames: appended, sightFramesToReclaim };
       }
       const overflow = appended.length - SIGHT_FRAME_LEDGER_CAP;
       return {
@@ -972,6 +1038,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
           ...s.prunedSightFrames,
           ...appended.slice(0, overflow),
         ].slice(-SIGHT_FRAME_LEDGER_CAP),
+        sightFramesToReclaim,
       };
     }),
   noteSightFrameRefused: (unsupported, attachmentId = null) =>
@@ -1309,7 +1376,11 @@ export function attachLiveVoiceImage(
   if (state.sessionGeneration !== sessionGeneration) {
     return false;
   }
-  return state.controls?.attachImage(attachmentId) ?? false;
+  const sent = state.controls?.attachImage(attachmentId) ?? false;
+  if (sent) {
+    state.notePhotoSent();
+  }
+  return sent;
 }
 
 /**

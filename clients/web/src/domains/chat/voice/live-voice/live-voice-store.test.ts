@@ -21,7 +21,8 @@ import {
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
-  RECLAIM_SETTLE_DELAY_MS,
+  MAX_RECLAIM_SETTLE_MS,
+  PER_JOB_CEILING_MS,
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
   setLiveVoiceMuted,
@@ -808,6 +809,116 @@ describe("sight frame refusals", () => {
     ).toBeGreaterThan(Date.now());
   });
 
+  test("the deadline scales with what can be queued ahead", () => {
+    // The daemon runs standalone persists one at a time and never supersedes a
+    // photo, so a keep can sit behind any number of them. This client is the
+    // only producer of that queue, so its own ledgers are the count.
+    const { generation } = sightSession();
+    attachLiveVoiceImage("photo-1", generation);
+    attachLiveVoiceImage("photo-2", generation);
+    attachLiveVoiceImage("photo-3", generation);
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    // Three photos and one keep ahead, plus the job itself.
+    const entry = useLiveVoiceStore.getState().sightFramesToReclaim[0];
+    expect(entry?.notBefore).toBe(at + 5 * PER_JOB_CEILING_MS);
+  });
+
+  test("a shorter queue yields a shorter deadline", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(at + 2 * PER_JOB_CEILING_MS);
+  });
+
+  test("the deadline is capped however long the queue got", () => {
+    const { generation } = sightSession();
+    for (let i = 0; i < 400; i++) {
+      attachLiveVoiceImage(`photo-${i}`, generation);
+    }
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(at + MAX_RECLAIM_SETTLE_MS);
+  });
+
+  test("a send after the reset pushes the waiting reclaims out", () => {
+    // A reconnect's new photo lands BEHIND the jobs those reclaims are waiting
+    // on, in the same conversation queue, so it moves their deadline with it.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const before =
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
+
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    attachLiveVoiceImage(
+      "photo-after",
+      useLiveVoiceStore.getState().sessionGeneration,
+    );
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(before + PER_JOB_CEILING_MS);
+  });
+
+  test("a keep sent after the reset pushes them out too", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const before =
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
+
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    sendLiveVoiceSightFrame(
+      "att-after",
+      useLiveVoiceStore.getState().sessionGeneration,
+    );
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(before + PER_JOB_CEILING_MS);
+  });
+
+  test("a send never gives a refusal-routed reclaim a deadline", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().notePhotoSent();
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBeUndefined();
+  });
+
+  test("a refused photo stops counting toward the deadline", () => {
+    const { generation } = sightSession();
+    attachLiveVoiceImage("photo-1", generation);
+    useLiveVoiceStore.getState().notePhotoRejected("failed");
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    // The assistant answered for the photo, so only the keep is ahead.
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(at + 2 * PER_JOB_CEILING_MS);
+  });
+
   test("taking leaves behind what is not due yet", () => {
     const { generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);
@@ -822,7 +933,7 @@ describe("sight frame refusals", () => {
 
     const takenLate = useLiveVoiceStore
       .getState()
-      .takeDueSightFrameReclaims(Date.now() + RECLAIM_SETTLE_DELAY_MS + 1);
+      .takeDueSightFrameReclaims(Date.now() + MAX_RECLAIM_SETTLE_MS + 1);
 
     expect(takenLate.map((e) => e.attachmentId)).toEqual(["att-1"]);
     expect(reclaimed()).toEqual([]);

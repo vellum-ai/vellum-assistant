@@ -25,7 +25,7 @@ const deleteChatAttachment = mock(
 mock.module("@/domains/chat/api/messages", () => ({ deleteChatAttachment }));
 
 const { useSightFrameReclaimer } = await import("./use-sight-frame-reclaimer");
-const { useLiveVoiceStore, sendLiveVoiceSightFrame, RECLAIM_SETTLE_DELAY_MS } =
+const { useLiveVoiceStore, sendLiveVoiceSightFrame, MAX_RECLAIM_SETTLE_MS } =
   await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
   await import("./live-voice-fakes.test-helper");
@@ -203,7 +203,7 @@ describe("useSightFrameReclaimer", () => {
       // frame that persisted meanwhile is refused, one that was lost is
       // collected.
       await act(async () => {
-        advanceBy(RECLAIM_SETTLE_DELAY_MS + 1_000);
+        advanceBy(MAX_RECLAIM_SETTLE_MS + 1_000);
         await Promise.resolve();
       });
 
@@ -226,7 +226,7 @@ describe("useSightFrameReclaimer", () => {
       expect(deleteChatAttachment).not.toHaveBeenCalled();
 
       await act(async () => {
-        advanceBy(RECLAIM_SETTLE_DELAY_MS + 1_000);
+        advanceBy(MAX_RECLAIM_SETTLE_MS + 1_000);
         await Promise.resolve();
       });
 
@@ -245,7 +245,7 @@ describe("useSightFrameReclaimer", () => {
       });
 
       await act(async () => {
-        advanceBy(RECLAIM_SETTLE_DELAY_MS + 1_000);
+        advanceBy(MAX_RECLAIM_SETTLE_MS + 1_000);
         await Promise.resolve();
       });
       expect(deleteChatAttachment).toHaveBeenCalledTimes(1);
@@ -253,7 +253,7 @@ describe("useSightFrameReclaimer", () => {
       // Nothing is queued, so nothing is waiting to fire: running the clock on
       // must not re-issue the delete this already made.
       await act(async () => {
-        advanceBy(RECLAIM_SETTLE_DELAY_MS * 4);
+        advanceBy(MAX_RECLAIM_SETTLE_MS * 4);
         await Promise.resolve();
       });
 

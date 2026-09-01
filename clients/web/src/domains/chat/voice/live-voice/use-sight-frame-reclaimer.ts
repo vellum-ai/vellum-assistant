@@ -15,9 +15,11 @@
  * assistant.
  *
  * Some entries carry a `notBefore` and are not the drain's to touch until then
- * (see `RECLAIM_SETTLE_DELAY_MS`), so this runs on a timer as well as on new
- * work. The timer is armed for the earliest waiting entry, re-armed by the
- * drain it triggers, and left unarmed once nothing is queued.
+ * (see `PER_JOB_CEILING_MS`, and `queueUnacknowledgedSightFrames` for how the
+ * deadline is derived from what can still be queued on the daemon), so this
+ * runs on a timer as well as on new work. The timer is armed for the earliest
+ * waiting entry, re-armed by the drain it triggers, and left unarmed once
+ * nothing is queued.
  *
  * Deletion failures are logged and dropped. Nobody asked for these uploads and
  * nothing downstream depends on the row being gone, so a failed cleanup is
