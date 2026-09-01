@@ -16,11 +16,7 @@
  * included.
  */
 import type { ChannelId } from "../channels/types.js";
-import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
-import {
-  buildNeutralReactionMeta,
-  buildSlackReactionMeta,
-} from "../messaging/reaction-envelopes.js";
+import { buildReactionRowEnvelope } from "../messaging/reaction-envelopes.js";
 import {
   addMessage,
   REACTION_MESSAGE_KIND,
@@ -58,10 +54,7 @@ export async function persistReactionRecords(
         emoji: record.emoji,
         op: record.op,
       };
-      const envelope =
-        record.channel === "slack"
-          ? { slackMeta: writeSlackMetadata(buildSlackReactionMeta(facts)) }
-          : { providerMeta: JSON.stringify(buildNeutralReactionMeta(facts)) };
+      const envelope = buildReactionRowEnvelope(facts);
       await addMessage(conversationId, "assistant", "[reaction]", {
         metadata: {
           messageKind: REACTION_MESSAGE_KIND,

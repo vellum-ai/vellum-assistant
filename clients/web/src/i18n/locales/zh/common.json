@@ -103,6 +103,14 @@
   "byoVoiceNote": {
     "body": "您的助手通过您自己配置的提供商进行语音交互。请在<settingsLink>模型与服务</settingsLink>中设置其语音。"
   },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "最后一步：确认您的身份",
+    "verifyAction": "验证我",
+    "verifyBody": "您的助手还不知道哪个 {channel} 账号是您的，所以暂时不会回复您。在聊天中说“在 {channel} 上验证我”即可完成。",
+    "verifyActionBody": "您的助手还不知道哪个 {channel} 账号是您的，所以暂时不会回复您。它会在聊天中陪您完成。",
+    "verifiedTitle": "身份已验证",
+    "verifiedBody": "您的助手已识别您的 {channel} 账号，会回复您。一切就绪。"
+  },
   "chatAvatar": {
     "alt": "助手头像",
     "fallbackLetter": "V"
@@ -245,13 +253,7 @@
   },
   "discordSetupFinishStep": {
     "connectedTitle": "机器人已添加",
-    "connectedBody": "令牌已保存，机器人已加入您的服务器。Discord 这边已完成。",
-    "verifyTitle": "最后一步：确认您的身份",
-    "verifyAction": "验证我",
-    "verifyActionBody": "机器人还不知道哪个 Discord 账号是您的，所以暂时不会回复您。您的助手会在聊天中陪您完成。",
-    "verifyBody": "机器人还不知道哪个 Discord 账号是您的，所以暂时不会回复您。在聊天中说“在 Discord 上验证我”，您的助手会陪您完成设置。",
-    "verifiedTitle": "身份已验证",
-    "verifiedBody": "机器人已识别您的 Discord 账号，会回复您的提及。一切就绪。"
+    "connectedBody": "令牌已保存，机器人已加入您的服务器。Discord 这边已完成。"
   },
   "discordSetupInviteStep": {
     "instructions": "机器人加入服务器前什么都看不到、也无法回复。打开链接，选择您的服务器并批准。",
@@ -531,9 +533,9 @@
     "connectSlack": "连接 Slack",
     "connecting": "正在连接…",
     "credentialsSaved": "凭据已保存",
-    "verifyBody": "您的助手还不知道哪个 Slack 账号是您的，所以暂时不会回复您。在聊天中说“在 Slack 上验证我”即可完成。",
     "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个令牌。",
-    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个令牌。"
+    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个令牌。",
+    "savedBody": "两个令牌都已保存。Slack 这边已完成。"
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -611,7 +613,7 @@
     "instructions": "粘贴 BotFather 回复中的令牌。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之后的整行内容。",
     "saving": "正在保存…",
     "savedTitle": "令牌已保存",
-    "successNotice": "您的助手还不知道哪个 Telegram 账号是您的，所以暂时不会回复您。在聊天中说“在 Telegram 上验证我”即可完成。"
+    "savedBody": "机器人令牌已保存。Telegram 这边已完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已复制！",

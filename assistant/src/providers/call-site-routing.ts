@@ -358,17 +358,18 @@ export class CallSiteRoutingProvider implements Provider {
       }
       // Soft credential failure: the routed connection yielded no usable
       // adapter and dispatch is landing on the default transport, which may
-      // be the platform-billed route — keep every such degradation
-      // observable.
+      // be the platform-billed route. Keep every such degradation
+      // observable. The reason is "no adapter", not a proven credential miss:
+      // adapter construction can also fail for dispatch bugs.
       log.warn(
         {
           callSite,
           connectionName,
           provider: resolved.provider,
           model: resolved.model,
-          reason: "credential_unavailable",
+          reason: "adapter_unavailable",
         },
-        "Routed connection yielded no adapter — falling back to the default transport",
+        "Routed connection yielded no adapter: falling back to the default transport",
       );
       return this.defaultRoute(profileName);
     }

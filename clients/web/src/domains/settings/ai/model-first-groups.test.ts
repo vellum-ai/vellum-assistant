@@ -144,9 +144,9 @@ describe("resolveModelFirstGroups", () => {
 
   test("keeps a section in its owner's catalog order", () => {
     expect(namesOf([], "anthropic").slice(0, 3)).toEqual([
+      "Claude Fable 5.1",
       "Claude Fable 5",
       "Claude Opus 5",
-      "Claude Opus 4.8",
     ]);
   });
 
@@ -174,7 +174,8 @@ describe("resolveModelFirstGroups", () => {
     );
     expect(byName.get("Claude Opus 5")).toBe("claude-opus");
     expect(byName.get("Claude Opus 4.8")).toBe("claude-opus");
-    expect(byName.get("Claude Fable 5")).toBeNull();
+    expect(byName.get("Claude Fable 5.1")).toBe("claude-fable");
+    expect(byName.get("Claude Fable 5")).toBe("claude-fable");
   });
 
   test("files a custom endpoint's own models under that endpoint", () => {
@@ -201,13 +202,14 @@ describe("collapseSectionRows", () => {
     const options = optionsFor("anthropic");
     const { shown, hidden } = collapseSectionRows(options);
     expect(shown.map((option) => option.displayName)).toEqual([
-      "Claude Fable 5",
+      "Claude Fable 5.1",
       "Claude Opus 5",
       "Claude Sonnet 5",
     ]);
     // The rest follows in catalog order, so revealing it reads as the section
     // carrying on rather than as a second list.
     expect(hidden.map((option) => option.displayName)).toEqual([
+      "Claude Fable 5",
       "Claude Opus 4.8",
       "Claude Opus 4.7",
       "Claude Opus 4.6",

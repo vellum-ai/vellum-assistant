@@ -1625,7 +1625,7 @@
     "customTag": "自訂",
     "customTagTitle": "您建立的供應商，由相容於 OpenAI 的端點提供服務。",
     "defaultTag": "預設",
-    "defaultTagTitle": "內建設定檔（平衡、品質、成本、速度）使用此供應商。",
+    "defaultTagTitle": "內建設定檔（平衡、品質、預算、快速）使用此供應商。",
     "delete": "刪除",
     "edit": "編輯",
     "localTag": "本機",

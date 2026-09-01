@@ -127,6 +127,12 @@ describe("skill_load tool", () => {
     );
   });
 
+  test("routes recurring monitoring and reminders to the schedule skill", () => {
+    const description = skillLoadTool.description;
+    expect(description).toContain('skill: "schedule"');
+    expect(description.toLowerCase()).toContain("recurring monitoring");
+  });
+
   test("loads a skill by exact id", async () => {
     writeSkill(
       "release-checklist",

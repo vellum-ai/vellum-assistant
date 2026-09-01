@@ -12,9 +12,10 @@ import { createElement } from "react";
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import type {
-  FeedItem,
-  FeedItemGuardianRequest,
+import {
+  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+  type FeedItem,
+  type FeedItemGuardianRequest,
 } from "@vellumai/assistant-api";
 
 import { feedItem } from "../feed-test-fixtures";
@@ -85,10 +86,13 @@ describe("HomeGuardianRequestCard", () => {
       }),
     );
 
-    expect(screen.getByText("Alice")).toBeTruthy();
-    expect(
-      screen.getByText("linear_graphql · Slack #user-feedback"),
-    ).toBeTruthy();
+    // The panel header names the request; the card leads with the ask.
+    expect(screen.queryByText("Guardian action needed")).toBeNull();
+    // Source context and requester share the meta line under the title.
+    expect(screen.getByText(/Slack #user-feedback · Alice/)).toBeTruthy();
+    // A waiting request names the decision in the present tense.
+    expect(screen.getByText("Requesting to run")).toBeTruthy();
+    expect(screen.getByText("linear_graphql")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Approve"));
     expect(mutateCalls).toEqual([
@@ -114,20 +118,29 @@ describe("HomeGuardianRequestCard", () => {
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
     expect(
-      screen.getByText("Answer this question from the source conversation."),
+      screen.getByText("Go to the conversation to answer this question."),
     ).toBeTruthy();
   });
 
-  test.each([
-    [{ status: "approved", decidedByLabel: "Bob" } as const, "Approved by Bob"],
-    [{ status: "denied", decidedByLabel: "Bob" } as const, "Rejected by Bob"],
-    [{ status: "expired" } as const, "Expired"],
-    [{ status: "denied", terminalReason: "superseded" } as const, "Superseded"],
+  const TERMINAL_RECEIPTS: [Partial<FeedItemGuardianRequest>, string][] = [
+    [{ status: "approved", toolName: "linear_graphql" }, "Request approved"],
+    [{ status: "denied" }, "Request rejected"],
+    [{ status: "expired" }, "Request expired"],
+    [{ status: "cancelled" }, "Request cancelled"],
     [
-      { status: "denied", decidedAction: "leave_unverified" } as const,
+      {
+        status: "denied",
+        terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+      },
+      "Request superseded",
+    ],
+    [
+      { status: "denied", decidedAction: "leave_unverified" },
       "Left unverified",
     ],
-  ])(
+  ];
+
+  test.each(TERMINAL_RECEIPTS)(
     "a terminal projection renders its receipt and no buttons",
     (projection, expected) => {
       render(
@@ -135,11 +148,17 @@ describe("HomeGuardianRequestCard", () => {
           item: guardianItem(projection),
         }),
       );
-      expect(screen.getByTestId("guardian-request-receipt").textContent).toBe(
-        expected,
-      );
+      expect(
+        screen.getByTestId("guardian-request-receipt").textContent,
+      ).toContain(expected);
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
+      // A settled request states the decision in the past tense. Only the
+      // approved case carries a tool, so the tense is asserted there.
+      if (projection.toolName) {
+        expect(screen.getByText(/Requested to run/)).toBeTruthy();
+        expect(screen.queryByText(/Requesting to run/)).toBeNull();
+      }
     },
   );
 

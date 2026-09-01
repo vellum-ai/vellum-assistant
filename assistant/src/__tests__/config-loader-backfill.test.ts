@@ -1564,7 +1564,7 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     );
     expect(effective.balanced?.label).toBe("Balanced");
     expect(effective["quality-optimized"]?.label).toBe("Quality");
-    expect(effective["cost-optimized"]?.label).toBe("Cost");
+    expect(effective["cost-optimized"]?.label).toBe("Budget");
     expect("status" in (effective.balanced ?? {})).toBe(false);
     expect("status" in (effective["quality-optimized"] ?? {})).toBe(false);
     expect("status" in (effective["cost-optimized"] ?? {})).toBe(false);
@@ -1834,7 +1834,7 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     const effective = getEffectiveProfiles(raw.llm.profiles);
     expect(effective.balanced?.label).toBe("Balanced");
     expect(effective["quality-optimized"]?.label).toBe("Quality");
-    expect(effective["cost-optimized"]?.label).toBe("Cost");
+    expect(effective["cost-optimized"]?.label).toBe("Budget");
   });
 
   test("a managed key missing from profileOrder lands beside its siblings", () => {

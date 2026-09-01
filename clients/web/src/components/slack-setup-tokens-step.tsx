@@ -8,6 +8,7 @@ import {
 } from "@/utils/slack-token-validation";
 
 import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
+import { ChannelSetupCompleteNotice } from "@/components/channel-setup-complete-notice";
 export interface SlackSetupTokensStepProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
@@ -72,9 +73,12 @@ export function SlackSetupTokensStep({
   // boxes and a dead button, which reads as a save that did not take.
   if (saveStatus === "success") {
     return (
-      <Notice tone="success" title={t("slackSetupTokensStep.credentialsSaved")}>
-        {t("slackSetupTokensStep.verifyBody")}
-      </Notice>
+      <ChannelSetupCompleteNotice
+        assistantId={assistantId}
+        channel="slack"
+        savedTitle={t("slackSetupTokensStep.credentialsSaved")}
+        savedBody={t("slackSetupTokensStep.savedBody")}
+      />
     );
   }
 

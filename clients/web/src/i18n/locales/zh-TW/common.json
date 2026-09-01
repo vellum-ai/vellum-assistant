@@ -103,6 +103,14 @@
   "byoVoiceNote": {
     "body": "您的助理透過您自行設定的供應商發聲。請在<settingsLink>模型與服務</settingsLink>中設定其語音。"
   },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "最後一步：確認您的身分",
+    "verifyAction": "驗證我",
+    "verifyBody": "您的助理還不知道哪個 {channel} 帳號是您的，所以暫時不會回覆您。在聊天中說「在 {channel} 上驗證我」即可完成。",
+    "verifyActionBody": "您的助理還不知道哪個 {channel} 帳號是您的，所以暫時不會回覆您。它會在聊天中陪您完成。",
+    "verifiedTitle": "身分已驗證",
+    "verifiedBody": "您的助理已識別您的 {channel} 帳號，會回覆您。一切就緒。"
+  },
   "chatAvatar": {
     "alt": "助理頭像",
     "fallbackLetter": "V"
@@ -245,13 +253,7 @@
   },
   "discordSetupFinishStep": {
     "connectedTitle": "機器人已新增",
-    "connectedBody": "金鑰已儲存，機器人已加入您的伺服器。Discord 這邊已完成。",
-    "verifyTitle": "最後一步：確認您的身分",
-    "verifyAction": "驗證我",
-    "verifyActionBody": "機器人還不知道哪個 Discord 帳號是您的，所以暫時不會回覆您。您的助理會在聊天中陪您完成。",
-    "verifyBody": "機器人還不知道哪個 Discord 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Discord 上驗證我」，您的助理會陪您完成設定。",
-    "verifiedTitle": "身分已驗證",
-    "verifiedBody": "機器人已識別您的 Discord 帳號，會回覆您的提及。一切就緒。"
+    "connectedBody": "金鑰已儲存，機器人已加入您的伺服器。Discord 這邊已完成。"
   },
   "discordSetupInviteStep": {
     "instructions": "機器人加入伺服器前什麼都看不到、也無法回覆。開啟連結，選擇您的伺服器並核准。",
@@ -531,9 +533,9 @@
     "connectSlack": "連接 Slack",
     "connecting": "正在連接…",
     "credentialsSaved": "憑證已儲存",
-    "verifyBody": "您的助理還不知道哪個 Slack 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Slack 上驗證我」即可完成。",
     "instructions": "在 Slack 的確認畫面中，展開 <credentials>您的應用程式憑證</credentials> 並複製兩個權杖。",
-    "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。"
+    "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。",
+    "savedBody": "兩個金鑰都已儲存。Slack 這邊已完成。"
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -611,7 +613,7 @@
     "instructions": "貼上 BotFather 回覆中的權杖。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之後的整行內容。",
     "saving": "正在儲存…",
     "savedTitle": "權杖已儲存",
-    "successNotice": "您的助理還不知道哪個 Telegram 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Telegram 上驗證我」即可完成。"
+    "savedBody": "機器人金鑰已儲存。Telegram 這邊已完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已複製！",

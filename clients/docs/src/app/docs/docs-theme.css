@@ -232,15 +232,78 @@ html:has(.docs-shell) {
   color: var(--docs-text);
 }
 
+/* One code-block surface for the whole site. Pages carry a mix of legacy
+   utility classes (bg-zinc-900 p-4 rounded-lg) and bare <pre>, so normalize
+   padding and radius here rather than in 70-odd call sites. Two classes plus
+   the element out-specify any single Tailwind utility, so this wins without
+   !important. */
 .docs-shell .docs-main pre {
   border: 1px solid var(--docs-border) !important;
   background: var(--docs-surface) !important;
+  padding: 1rem;
+  border-radius: 0.75rem;
 }
 
-/* Suppress double border when pre is inside an already-bordered container */
+/* Suppress double border and padding when pre is inside an already-bordered,
+   already-padded container. */
 .docs-shell .docs-main div[class*="border"] > pre {
   border: 0 !important;
   background: transparent !important;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Copy-to-clipboard button, injected by CodeBlockCopy. The wrapper sits
+   around the scroll container so the button stays put on wide blocks. */
+.docs-shell .docs-codeblock {
+  position: relative;
+}
+
+.docs-shell .docs-codeblock-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--docs-border);
+  border-radius: 0.375rem;
+  background: var(--docs-surface);
+  color: var(--docs-text-muted, var(--docs-text));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.docs-shell .docs-codeblock:hover .docs-codeblock-copy,
+.docs-shell .docs-codeblock-copy:focus-visible,
+.docs-shell .docs-codeblock-copy.is-copied {
+  opacity: 1;
+}
+
+.docs-shell .docs-codeblock-copy:hover {
+  color: var(--docs-text);
+  border-color: var(--docs-text-muted, var(--docs-border));
+}
+
+.docs-shell .docs-codeblock-copy.is-copied {
+  color: #059669;
+  border-color: #059669;
+}
+
+/* Touch devices have no hover, so keep the button visible there. */
+@media (hover: none) {
+  .docs-shell .docs-codeblock-copy {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-shell .docs-codeblock-copy {
+    transition: none;
+  }
 }
 
 .docs-shell .docs-main pre code {

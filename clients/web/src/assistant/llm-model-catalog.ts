@@ -43,8 +43,20 @@ export interface LlmCatalogModel {
 export const MODELS_BY_PROVIDER = {
   anthropic: [
     {
+      id: "claude-fable-5-1",
+      displayName: "Claude Fable 5.1",
+      family: "claude-fable",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "claude-fable-5",
       displayName: "Claude Fable 5",
+      family: "claude-fable",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -459,8 +471,20 @@ export const MODELS_BY_PROVIDER = {
   ],
   openrouter: [
     {
+      id: "anthropic/claude-fable-5.1",
+      displayName: "Claude Fable 5.1",
+      family: "claude-fable",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "anthropic/claude-fable-5",
       displayName: "Claude Fable 5",
+      family: "claude-fable",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -900,8 +924,20 @@ export const MODELS_BY_PROVIDER = {
   ],
   "vercel-ai-gateway": [
     {
+      id: "anthropic/claude-fable-5.1",
+      displayName: "Claude Fable 5.1",
+      family: "claude-fable",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "anthropic/claude-fable-5",
       displayName: "Claude Fable 5",
+      family: "claude-fable",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,

@@ -18,7 +18,8 @@
     "background": "后台",
     "system": "系统",
     "guardianAction": "需要监护人操作",
-    "guardianQuestion": "监护人问题"
+    "guardianQuestion": "监护人问题",
+    "guardianRequest": "监护人请求"
   },
   "homeRecapRow": {
     "actionsTitle": "更新操作"
@@ -45,24 +46,21 @@
     "back": "返回通知"
   },
   "homeGuardianRequestCard": {
-    "requester": "请求人",
-    "source": "来源",
     "approve": "批准",
     "reject": "拒绝",
-    "answerHint": "请在来源对话中回答这个问题。",
-    "viewSourceMessage": "查看消息",
-    "openInSlack": "在 Slack 中打开",
-    "alreadyResolved": "此请求已在其他界面解决。",
+    "answerHint": "前往对话回答这个问题。",
     "decisionFailed": "无法提交决定。请重试。",
     "receipt": {
-      "approved": "已批准",
-      "approvedBy": "由 {name} 批准",
-      "rejected": "已拒绝",
-      "rejectedBy": "由 {name} 拒绝",
-      "expired": "已过期",
-      "superseded": "已被取代",
-      "cancelled": "已取消",
-      "leftUnverified": "保持未验证"
-    }
+      "approved": "请求已批准",
+      "rejected": "请求已拒绝",
+      "expired": "请求已过期",
+      "superseded": "请求已被取代",
+      "leftUnverified": "未验证",
+      "cancelled": "请求已取消",
+      "alreadyResolved": "已处理"
+    },
+    "viewSourceThread": "查看来源消息串",
+    "toolRequested": "已请求运行 <code>{toolName}</code>",
+    "toolRequesting": "请求运行 <code>{toolName}</code>"
   }
 }

@@ -103,6 +103,14 @@
   "byoVoiceNote": {
     "body": "Tu asistente habla a través de un proveedor que configuraste tú. Define su voz en <settingsLink>Modelos y servicios</settingsLink>."
   },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "Último paso: confirma que eres tú",
+    "verifyAction": "Verificarme",
+    "verifyBody": "Tu asistente aún no sabe cuál cuenta de {channel} es la tuya, así que no te responderá. Di \"verifícame en {channel}\" en el chat para terminar.",
+    "verifyActionBody": "Tu asistente aún no sabe cuál cuenta de {channel} es la tuya, así que no te responderá. Lo termina contigo en el chat.",
+    "verifiedTitle": "Identidad verificada",
+    "verifiedBody": "Tu asistente conoce tu cuenta de {channel} y te responderá. Todo listo."
+  },
   "chatAvatar": {
     "alt": "Avatar del asistente",
     "fallbackLetter": "V"
@@ -245,13 +253,7 @@
   },
   "discordSetupFinishStep": {
     "connectedTitle": "Bot añadido",
-    "connectedBody": "El token está guardado y el bot ya está en tu servidor. La parte de Discord está lista.",
-    "verifyTitle": "Último paso: confirma que eres tú",
-    "verifyAction": "Verificarme",
-    "verifyActionBody": "El bot aún no sabe cuál cuenta de Discord es la tuya, así que no te responderá. Tu asistente lo termina contigo en el chat.",
-    "verifyBody": "El bot aún no sabe cuál cuenta de Discord es la tuya, así que no te responderá. Di \"verifícame en Discord\" en el chat y tu asistente terminará la configuración contigo.",
-    "verifiedTitle": "Identidad verificada",
-    "verifiedBody": "El bot conoce tu cuenta de Discord y responderá a tus menciones. Todo listo."
+    "connectedBody": "El token está guardado y el bot ya está en tu servidor. La parte de Discord está lista."
   },
   "discordSetupInviteStep": {
     "instructions": "Tu bot no puede ver ni responder nada hasta que entre en un servidor. Abre el enlace, elige tu servidor y aprueba.",
@@ -531,9 +533,9 @@
     "connectSlack": "Conectar Slack",
     "connecting": "Conectando…",
     "credentialsSaved": "Credenciales guardadas",
-    "verifyBody": "Tu asistente aún no sabe cuál cuenta de Slack es la tuya, así que no te responderá. Di \"verifícame en Slack\" en el chat para terminar.",
     "instructions": "En la pantalla de confirmación de Slack, expande <credentials>Your app credentials</credentials> y copia ambos tokens.",
-    "skipNotice": "Esa pantalla también ofrece una guía por línea de comandos y un botón <download>Download app files</download>. Omite ambos. Configuran una app local aparte, y este asistente solo necesita los dos tokens."
+    "skipNotice": "Esa pantalla también ofrece una guía por línea de comandos y un botón <download>Download app files</download>. Omite ambos. Configuran una app local aparte, y este asistente solo necesita los dos tokens.",
+    "savedBody": "Ambos tokens están guardados. La parte de Slack está lista."
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -611,7 +613,7 @@
     "instructions": "Pega el token de la respuesta de BotFather. Es la línea completa después de <tokenLine>Use this token to access the HTTP API</tokenLine>.",
     "saving": "Guardando…",
     "savedTitle": "Token guardado",
-    "successNotice": "Tu asistente aún no sabe cuál cuenta de Telegram es la tuya, así que no te responderá. Di \"verifícame en Telegram\" en el chat para terminar."
+    "savedBody": "El token del bot está guardado. La parte de Telegram está lista."
   },
   "telegramSetupCreateStep": {
     "copied": "¡Copiado!",

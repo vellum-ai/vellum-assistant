@@ -20,7 +20,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     balanced: "claude-sonnet-4-6",
     "cost-optimized": "claude-haiku-4-5-20251001",
     "latency-optimized": "claude-haiku-4-5-20251001",
-    "quality-optimized": "claude-fable-5",
+    "quality-optimized": "claude-fable-5-1",
     "vision-optimized": "claude-opus-4-6",
   },
   openai: {
@@ -55,14 +55,14 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     balanced: "anthropic/claude-sonnet-4.6",
     "cost-optimized": "deepseek/deepseek-v4-flash",
     "latency-optimized": "anthropic/claude-haiku-4.5",
-    "quality-optimized": "anthropic/claude-fable-5",
+    "quality-optimized": "anthropic/claude-fable-5.1",
     "vision-optimized": "anthropic/claude-opus-4.6",
   },
   "vercel-ai-gateway": {
     balanced: "anthropic/claude-sonnet-4.6",
     "cost-optimized": "deepseek/deepseek-v4-flash",
     "latency-optimized": "anthropic/claude-haiku-4.5",
-    "quality-optimized": "anthropic/claude-fable-5",
+    "quality-optimized": "anthropic/claude-fable-5.1",
     "vision-optimized": "anthropic/claude-opus-4.6",
   },
 };
