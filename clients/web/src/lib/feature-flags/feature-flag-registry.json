@@ -399,6 +399,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "android-avatar-app-icon",
+      "scope": "client",
+      "key": "android-avatar-app-icon",
+      "label": "Android Avatar App Icon",
+      "description": "Shows the App icon picker in Settings -> General on Android, where any user chooses an eyes-on-color launcher icon, seeds the picker from their assistant's character avatar, or resets to the default. Android applies the change when the app goes to the background, and switching icons can reset a pinned home-screen shortcut. Off hides the picker and leaves the default icon in place.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",
