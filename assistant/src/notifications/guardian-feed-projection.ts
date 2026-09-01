@@ -42,10 +42,12 @@ import {
 import { getLogger } from "../util/logger.js";
 import {
   buildToolApprovalSourceView,
+  describeSlackChatLabel,
   type GuardianQuestionRequestKind,
   LenientToolApprovalPayloadSchema,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
+  type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationDeliveryResult } from "./types.js";
@@ -177,27 +179,14 @@ function intentFromInstructionMode(
 }
 
 /**
- * Display label for the originating chat. A named Slack channel renders
- * as the bare `#name` (the bell's context line joins it with the tool,
- * so the channel word would be noise); unnamed chats keep the id-based
- * wording the in-app card's source row uses (`sourceMetadataRow` in
- * `approval-card-data.ts`), and other channels fall back to the channel
- * id.
+ * Display label for the originating chat: the bare chat label from the
+ * shared derivation (the bell's context line joins it with the tool, so
+ * the channel word would be noise), or the channel id for channels the
+ * view carries no chat facts for.
  */
-function describeApprovalSourceContext(view: {
-  channel: string;
-  chatId?: string | null;
-  chatName?: string | null;
-  isSlackDm: boolean;
-}): string {
-  if (view.channel === "slack" && view.isSlackDm) {
-    return "Slack direct message";
-  }
-  if (view.channel === "slack" && view.chatName) {
-    return `#${view.chatName}`;
-  }
-  if (view.channel === "slack" && view.chatId) {
-    return `Slack #${view.chatId}`;
+function describeApprovalSourceContext(view: ToolApprovalSourceView): string {
+  if (view.channel === "slack") {
+    return describeSlackChatLabel(view) || view.channel;
   }
   return view.channel;
 }

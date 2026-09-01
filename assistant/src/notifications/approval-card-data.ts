@@ -31,6 +31,7 @@ import {
   buildGuardianRequestCodeInstruction,
   buildQuestionDeliveryText,
   buildToolApprovalSourceView,
+  describeSlackChatLabel,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
   LenientToolApprovalPayloadSchema,
@@ -153,14 +154,15 @@ function sourceMetadataRow(
   isSlackDm: boolean,
   chatName?: string,
 ): { label: string; value: string } | undefined {
-  if (channel === "slack" && !isSlackDm && chatName) {
-    return { label: "Source", value: `Slack · #${chatName}` };
-  }
-  if (channel === "slack" && slackChatId) {
-    return {
-      label: "Source",
-      value: isSlackDm ? "Slack — Direct message" : `Slack — #${slackChatId}`,
-    };
+  if (channel === "slack") {
+    const chat = describeSlackChatLabel({
+      chatId: slackChatId,
+      chatName,
+      isSlackDm,
+    });
+    if (chat) {
+      return { label: "Source", value: `Slack · ${chat}` };
+    }
   }
   if (channel) {
     return { label: "Source", value: channel };

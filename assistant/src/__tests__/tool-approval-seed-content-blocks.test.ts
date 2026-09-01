@@ -214,7 +214,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     );
     expect(surface.data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — Direct message",
+      value: "Slack · Direct message",
     });
   });
 
@@ -232,7 +232,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     );
     expect(surface.data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — #C01ABC",
+      value: "Slack · #C01ABC",
     });
   });
 
@@ -258,7 +258,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.data.body).not.toContain("[View message]");
     expect(surface.data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — Direct message",
+      value: "Slack · Direct message",
     });
   });
 

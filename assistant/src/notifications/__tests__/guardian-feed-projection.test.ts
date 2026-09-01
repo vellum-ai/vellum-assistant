@@ -115,7 +115,7 @@ describe("buildPendingGuardianProjection", () => {
       requesterLabel: "Alice",
       toolName: "linear_graphql",
       sourceChannel: "slack",
-      sourceContextLabel: "Slack #C0123456789",
+      sourceContextLabel: "#C0123456789",
     });
   });
 

@@ -210,6 +210,28 @@ export type ToolApprovalSourceView = z.infer<
  * facts. Returns `undefined` when the payload names no chat and carries no
  * link — renderers then fall back to the plain channel label.
  */
+/**
+ * Bare display label for the source chat, derived once for every
+ * renderer: `Direct message` for a DM, `#name` for a named channel,
+ * `#<id>` when only the id is known, empty when the view names no chat.
+ * Slack-scoped like the facts it reads; surfaces add their own framing
+ * (the card prefixes the channel word, the bell uses it bare).
+ */
+export function describeSlackChatLabel(
+  view: Pick<ToolApprovalSourceView, "chatId" | "chatName" | "isSlackDm">,
+): string {
+  if (view.isSlackDm) {
+    return "Direct message";
+  }
+  if (view.chatName) {
+    return `#${view.chatName}`;
+  }
+  if (view.chatId) {
+    return `#${view.chatId}`;
+  }
+  return "";
+}
+
 export function buildToolApprovalSourceView(
   p: Pick<
     LenientToolApprovalPayload,
