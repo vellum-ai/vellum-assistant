@@ -3,9 +3,9 @@
  * chat's camera tile persists a kept frame through.
  *
  * Exercises the guards the handler owns (an id that names no conversation, a
- * body with no attachment) and the persist behaviour it inherits from the
- * live-voice path, including the one difference: a keep taken beside the
- * composer is not a voice session turn.
+ * body with no attachment), the actor the row is attributed to, and the
+ * persist behaviour it inherits from the live-voice path, including the one
+ * difference: a keep taken beside the composer is not a voice session turn.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -23,6 +23,7 @@ import {
   deleteConversation,
   setConversation,
 } from "../../../daemon/conversation-registry.js";
+import { destroyActiveConversation } from "../../../daemon/conversation-store.js";
 import { _setProcessingWaitMsForTests } from "../../../live-voice/live-voice-photo.js";
 import {
   getAttachmentById,
@@ -30,6 +31,8 @@ import {
 } from "../../../persistence/attachments-store.js";
 import {
   createConversation,
+  deleteConversation as deleteConversationRows,
+  getConversation,
   getMessages,
   type MessageRow,
 } from "../../../persistence/conversation-crud.js";
@@ -67,11 +70,19 @@ interface SightFrameResponse {
 function persist(
   id: string,
   body: Record<string, unknown>,
+  headers?: Record<string, string>,
 ): Promise<SightFrameResponse> {
   return sightFrameHandler({
     pathParams: { id },
     body,
+    ...(headers ? { headers } : {}),
   }) as Promise<SightFrameResponse>;
+}
+
+/** Tear the conversation down the way DELETE /v1/conversations/:id does. */
+function deleteEverywhere(id: string): void {
+  destroyActiveConversation(id, { keepSubagentRecords: true });
+  deleteConversationRows(id);
 }
 
 /** A registered conversation the persist path can reach, plus its teardown. */
@@ -175,6 +186,51 @@ describe("POST /v1/conversations/:id/sight-frame", () => {
     }
   });
 
+  test("attributes the row to the verified actor, not the conversation's trust", async () => {
+    // The conversation rests on the trust of whoever used it last, so a row
+    // stamped from the slot names that actor rather than the one this request
+    // was verified as. Actor-scoped history reads the stamp, so the wrong one
+    // either hides the frame from its owner or lends guardian standing to
+    // content that has none.
+    const live = liveConversation("Chat keep actor attribution");
+    try {
+      const attachmentId = await uploadFrame("frame.png");
+      // A principal no guardian binding names, which the vellum-channel
+      // resolver fails closed to `unknown`.
+      const headers = { "x-vellum-actor-principal-id": "actor-not-bound" };
+      expect(live.activeConversation.trustContext?.trustClass).toBe("guardian");
+
+      expect(await persist(live.id, { attachmentId }, headers)).toMatchObject({
+        persisted: true,
+      });
+
+      const metadata = metadataOf(getMessages(live.id)[0]);
+      expect(metadata.provenanceTrustClass).toBe("unknown");
+      expect(metadata.provenanceSourceChannel).toBe("vellum");
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("attributes a caller with no actor header to the guardian", async () => {
+    // A local or IPC caller carries no actor header and is the guardian by
+    // construction, the same reading canonical ingress gives it.
+    const live = liveConversation("Chat keep local caller");
+    try {
+      const attachmentId = await uploadFrame("frame.png");
+
+      expect(await persist(live.id, { attachmentId })).toMatchObject({
+        persisted: true,
+      });
+
+      const metadata = metadataOf(getMessages(live.id)[0]);
+      expect(metadata.provenanceTrustClass).toBe("guardian");
+      expect(metadata.provenanceSourceChannel).toBe("vellum");
+    } finally {
+      live.dispose();
+    }
+  });
+
   test("does not mark a composer keep as a voice session turn", async () => {
     // The mark says a reply reaches the user over a session that is still
     // open. Nothing is open here, so a reply that follows this row has to be
@@ -261,6 +317,40 @@ describe("POST /v1/conversations/:id/sight-frame", () => {
       expect(frameStored(newest)).toBe(true);
     } finally {
       live.dispose();
+    }
+  });
+
+  test("a deletion is final for a keep still queued behind another", async () => {
+    // The route's 404 speaks only for the moment it ran. A keep queued behind
+    // another one starts later, so the job re-reads the conversation before it
+    // touches anything: the persist reaches it through
+    // `getOrCreateConversation`, which writes the row back for an id it finds
+    // missing, and a deleted conversation must not return carrying nothing but
+    // camera frames.
+    const restoreWait = _setProcessingWaitMsForTests(150);
+    const live = liveConversation("Chat keep deleted mid-queue");
+    const holder = await uploadFrame("holder.png");
+    const queued = await uploadFrame("queued.png");
+    try {
+      // The first keep holds the chain by waiting out a turn that never ends,
+      // so the second is still queued and has touched nothing.
+      live.activeConversation.setProcessing(true);
+      const holderKeep = persist(live.id, { attachmentId: holder });
+      await sleep(30);
+      const queuedKeep = persist(live.id, { attachmentId: queued });
+
+      deleteEverywhere(live.id);
+      const countAfterDelete = conversationCount();
+
+      expect(await holderKeep).toEqual({ persisted: false });
+      expect(await queuedKeep).toEqual({ persisted: false });
+
+      expect(getConversation(live.id)).toBeNull();
+      expect(conversationCount()).toBe(countAfterDelete);
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(queued)).toBe(false);
+    } finally {
+      _setProcessingWaitMsForTests(restoreWait);
     }
   });
 

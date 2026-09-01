@@ -16,6 +16,7 @@ import {
   setConversation,
 } from "../../daemon/conversation-registry.js";
 import { applySightFrameRetention } from "../../daemon/conversation-runtime-assembly.js";
+import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   getAttachmentById,
   getAttachmentsForMessage,
@@ -25,12 +26,16 @@ import {
 import {
   addMessage,
   createConversation,
+  deleteConversation as deleteConversationRows,
+  getConversation,
   getMessages,
   type MessageRow,
   selectSightFrameCaptureTimes,
 } from "../../persistence/conversation-crud.js";
 import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversation-types.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { conversations } from "../../persistence/schema/index.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
@@ -110,6 +115,11 @@ async function uploadFrame(name: string): Promise<string> {
 /** True while the attachment's row is still in the store. */
 function frameStored(attachmentId: string): boolean {
   return getAttachmentById(attachmentId) !== null;
+}
+
+function conversationCount(): number {
+  return getDb().select({ id: conversations.id }).from(conversations).all()
+    .length;
 }
 
 /**
@@ -742,6 +752,38 @@ describe("standalone image persists are serialized per conversation", () => {
     } finally {
       live.activeConversation.setProcessing(false);
       live.dispose();
+      _setProcessingWaitMsForTests(restoreWait);
+    }
+  });
+
+  test("a deletion is final for a keep still queued behind another", async () => {
+    // The persist reaches its conversation through `getOrCreateConversation`,
+    // which writes the row back for an id it finds missing. A keep that was
+    // queued when the delete landed would therefore bring the conversation
+    // back holding nothing but camera frames, so the job re-reads before it
+    // touches anything.
+    const restoreWait = _setProcessingWaitMsForTests(150);
+    const live = liveConversation("Live voice keep deleted mid-queue");
+    const holder = await uploadFrame("voice-holder.png");
+    const queued = await uploadFrame("voice-queued.png");
+    try {
+      live.activeConversation.setProcessing(true);
+      const holderKeep = persistAmbientSightFrame(live.id, holder, "voice");
+      await sleep(30);
+      const queuedKeep = persistAmbientSightFrame(live.id, queued, "voice");
+
+      destroyActiveConversation(live.id, { keepSubagentRecords: true });
+      deleteConversationRows(live.id);
+      const countAfterDelete = conversationCount();
+
+      expect(await holderKeep).toEqual({ ok: false });
+      expect(await queuedKeep).toEqual({ ok: false });
+
+      expect(getConversation(live.id)).toBeNull();
+      expect(conversationCount()).toBe(countAfterDelete);
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(queued)).toBe(false);
+    } finally {
       _setProcessingWaitMsForTests(restoreWait);
     }
   });

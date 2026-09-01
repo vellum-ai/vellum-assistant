@@ -77,11 +77,13 @@ import {
 } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   deleteOrphanAttachments,
   resolveAttachmentsForPersist,
 } from "../persistence/attachments-store.js";
 import {
+  getConversation,
   getMessageById,
   recordConversationPersistedSeq,
 } from "../persistence/conversation-crud.js";
@@ -339,6 +341,23 @@ async function writeStandaloneImage(
       return { ok: false };
     }
 
+    // A queued job starts long after its caller checked, and
+    // `getOrCreateConversation` inserts a row for an id it finds missing, so a
+    // keep waiting behind another one would bring a deleted conversation back.
+    // The read below creates nothing, which is what restores the invariant
+    // that a delete is final for everything already queued. A delete that
+    // lands after this read is out of scope.
+    if (!getConversation(conversationId)) {
+      log.warn(
+        { conversationId, attachmentId, kind },
+        "Standalone image dropped: its conversation was deleted while it waited",
+      );
+      if (kind === "sight_frame") {
+        reclaimDroppedFrame(attachmentId);
+      }
+      return { ok: false };
+    }
+
     const conversation = await getOrCreateConversation(conversationId);
 
     // A turn holds the lock for its whole run. Waiting rather than queueing:
@@ -510,15 +529,24 @@ export type SightFrameSurface = "voice" | "chat";
  * reply to this row is spoken back over a session that is still open, which is
  * true of a keep taken on a call and false of one taken beside the composer,
  * so only the voice caller stamps it.
+ *
+ * `trustContext` is the requester's own trust, for a caller that resolved one
+ * from the actor it verified. The row's provenance is stamped from it, so a
+ * conversation whose resting trust names an earlier actor cannot claim this
+ * frame. A caller that holds no per-request actor omits it and the persist
+ * attributes the row to the conversation, which is the right answer for a
+ * session that owns the conversation's trust for its whole life.
  */
 export async function persistAmbientSightFrame(
   conversationId: string,
   attachmentId: string,
   surface: SightFrameSurface,
+  trustContext?: TrustContext,
 ): Promise<LiveVoicePhotoResult> {
   return persistStandaloneImage(conversationId, attachmentId, "sight_frame", {
     content: SIGHT_FRAME_MESSAGE_CONTENT,
     metadata: surface === "voice" ? { voiceSessionTurn: true } : {},
+    ...(trustContext ? { trustContext } : {}),
     scripted: true,
     // The camera sampled this, nobody sent it. Indexing it would feed
     // extraction a frame every few seconds of whatever the room happens to

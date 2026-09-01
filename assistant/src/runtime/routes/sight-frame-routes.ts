@@ -21,6 +21,7 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { resolveOrThrow } from "./conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -41,6 +42,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 async function handleConversationSightFrame({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   const rawId = pathParams.id!;
   const conversationId = resolveOrThrow(rawId);
@@ -53,6 +55,15 @@ async function handleConversationSightFrame({
     throw new BadRequestError("Missing attachmentId");
   }
 
+  // The row is attributed to the actor this request was verified as, resolved
+  // the way every other vellum-channel route resolves it. Left to the
+  // conversation's resting trust, a frame would be stamped for whoever used
+  // the conversation last.
+  const trustContext = await resolveVellumActorTrustContext(
+    headers?.["x-vellum-actor-principal-id"],
+    { healResetDrift: true },
+  );
+
   // Every non-fatal outcome the persist folds into `ok` is reported as a
   // refusal rather than an error status: the frame is gone either way, the
   // client's only move is to keep sampling, and the persist reclaims the
@@ -61,6 +72,7 @@ async function handleConversationSightFrame({
     conversationId,
     attachmentId,
     "chat",
+    trustContext,
   );
   return {
     persisted: result.ok,
