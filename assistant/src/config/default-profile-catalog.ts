@@ -117,7 +117,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     model: "accounts/fireworks/models/deepseek-v4-flash-0731",
     provider: "vellum",
     source: "managed",
-    label: "Cost",
+    label: "Budget",
     // Tier intent only - never name the concrete model here. Clients
     // surface the live model beside the description, so a model name in
     // this copy would go stale the moment the pin moves.
@@ -211,10 +211,10 @@ const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
     model: "gemini-3.1-flash-lite",
     provider: "vellum",
     source: "managed",
-    label: "Cost Backup",
-    description: "Automatic backup for the Cost profile",
+    label: "Budget Backup",
+    description: "Automatic backup for the Budget profile",
     maxTokens: 8192,
-    // Explicit reasoning opt-out, matching the primary Cost profile: OpenAI-
+    // Explicit reasoning opt-out, matching the primary Budget profile: OpenAI-
     // compat APIs default reasoning to "medium" when the field is omitted,
     // and effort-driven providers encode disabled thinking through this same
     // knob (see DISABLED_THINKING_USES_EFFORT_PROVIDERS in
@@ -286,7 +286,7 @@ function managedProfileImpl(key: DefaultProfileKey): DefaultProfileTemplate {
  * `chatgpt-subscription` row via `resolveRoutingIdentity` with no pinned
  * connection. Models are pinned (never intents): the intent tables are
  * keyed by concrete dispatch providers, and the Codex endpoint serves only
- * `CODEX_SUBSCRIPTION_MODEL_IDS`. Cost and Fast are identical
+ * `CODEX_SUBSCRIPTION_MODEL_IDS`. Budget and Fast are identical
  * implementations here: the subscription serves no tier cheaper or faster
  * than luna, and both profiles advertise reasoning off.
  */
@@ -319,7 +319,7 @@ const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
     model: "gpt-5.6-luna",
     provider: "chatgpt",
     source: "managed",
-    label: "Cost",
+    label: "Budget",
     description: "Cheapest responses, for high-volume work",
     maxTokens: 8192,
     effort: "none",
@@ -381,7 +381,7 @@ const BYOK_PROFILE_IMPLS: Record<
   "cost-optimized": {
     intent: "cost-optimized",
     source: "user",
-    label: "Cost",
+    label: "Budget",
     description: "Cheapest responses, for high-volume work",
     maxTokens: 8192,
     effort: "none",
