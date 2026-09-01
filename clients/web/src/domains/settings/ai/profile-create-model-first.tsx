@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
+import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 import {
   SearchableSelect,
   SEARCHABLE_SELECT_MENU_MIN_REACH,
@@ -390,13 +391,34 @@ export function ProfileCreateModelFirst({
         ? MODEL_LIST_ROOM
         : MODEL_LIST_MIN_ROOM;
 
+  // The list opens on the field's own focus, and the room above is held for
+  // it, so a field nothing focused opens the dialog on an empty box. The
+  // dialog's own opening focus does land here, but the surface that opened it
+  // takes the focus back: the composer's profile menu restores focus to its
+  // trigger as it closes, on a timer queued before this effect runs. Claiming
+  // the field on a later turn is what outlasts that restore. Only where the
+  // room is reserved, which is the dialog; the sidepanel is full height and
+  // reserves none.
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuBoundary) {
+      return;
+    }
+    const claim = setTimeout(() => {
+      modelFieldRef.current?.querySelector("input")?.focus();
+    }, 0);
+    return () => {
+      clearTimeout(claim);
+    };
+  }, [menuBoundary]);
+
   return (
     <div
       className="space-y-4"
       data-testid="model-first-fields"
       style={roomForList === null ? undefined : { minHeight: roomForList }}
     >
-      <div className="space-y-1">
+      <div className="space-y-1" ref={modelFieldRef}>
         <label className={fieldLabelClass}>
           {t("profileCreateModelFirst.modelLabel")}
         </label>
@@ -583,44 +605,53 @@ function ProviderStep({
           {connectSection}
         </div>
       ) : (
-        <RadioGroup
-          value={selectedCandidate?.value ?? ""}
-          onValueChange={onSelect}
-          aria-labelledby="profile-create-provider-label"
-        >
-          {candidates.map((candidate) => {
-            const selected = candidate.value === selectedCandidate?.value;
-            return (
-              <div
-                key={candidate.value}
-                data-testid="provider-candidate"
-                data-candidate={candidate.value}
-                className={`space-y-3 rounded-lg border px-3 py-2 ${
-                  selected
-                    ? "border-[var(--border-active)]"
-                    : "border-[var(--border-element)]"
-                }`}
-              >
-                <div className="flex min-h-9 items-center justify-between gap-2">
-                  <Radio
-                    value={candidate.value}
-                    label={
-                      <span className="flex items-center gap-2">
-                        <span>{candidate.label}</span>
-                        {candidate.meta ? (
-                          <PickerMeta text={candidate.meta} />
-                        ) : null}
-                      </span>
-                    }
-                  />
-                  {candidateTag(candidate)}
+        // A custom model id is served by every route there is, and a card
+        // apiece grew the dialog to the ceiling its own body already sets,
+        // leaving the footer flush against the window edge. The cards scroll
+        // here instead, so what the dialog asks for stays a fraction of the
+        // window whatever the list costs, and the fade says there is more
+        // below. Inert for the handful of routes a catalog model has, which
+        // never reach the cap.
+        <ScrollShadow className="max-h-[40vh]" size={16}>
+          <RadioGroup
+            value={selectedCandidate?.value ?? ""}
+            onValueChange={onSelect}
+            aria-labelledby="profile-create-provider-label"
+          >
+            {candidates.map((candidate) => {
+              const selected = candidate.value === selectedCandidate?.value;
+              return (
+                <div
+                  key={candidate.value}
+                  data-testid="provider-candidate"
+                  data-candidate={candidate.value}
+                  className={`space-y-3 rounded-lg border px-3 py-2 ${
+                    selected
+                      ? "border-[var(--border-active)]"
+                      : "border-[var(--border-element)]"
+                  }`}
+                >
+                  <div className="flex min-h-9 items-center justify-between gap-2">
+                    <Radio
+                      value={candidate.value}
+                      label={
+                        <span className="flex items-center gap-2">
+                          <span>{candidate.label}</span>
+                          {candidate.meta ? (
+                            <PickerMeta text={candidate.meta} />
+                          ) : null}
+                        </span>
+                      }
+                    />
+                    {candidateTag(candidate)}
+                  </div>
+                  {selected ? setupAction(candidate) : null}
+                  {selected ? connectSection : null}
                 </div>
-                {selected ? setupAction(candidate) : null}
-                {selected ? connectSection : null}
-              </div>
-            );
-          })}
-        </RadioGroup>
+              );
+            })}
+          </RadioGroup>
+        </ScrollShadow>
       )}
 
       {editor.newProviderNote ? (

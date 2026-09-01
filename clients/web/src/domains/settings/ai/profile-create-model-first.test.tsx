@@ -524,6 +524,17 @@ describe("the room the dialog keeps for the open list", () => {
     ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_REACH);
   });
 
+  test("opens with the field that fills it focused", async () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    // The list opens on the field's own focus, so a focused field is what
+    // puts the list in the room above rather than leaving it blank.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(modelField());
+    });
+    expect(modelField().getAttribute("aria-expanded")).toBe("true");
+  });
+
   test("still stands once a model answers the question", () => {
     renderCreate([makeConnection("gemini-key", "gemini")]);
 
