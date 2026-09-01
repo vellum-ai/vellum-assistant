@@ -10,10 +10,10 @@
  * pre-cutover v2 blocks both ride the cached prefix); the old whole-layer
  * strip is gone.
  *
- * The ephemeral `<memory_spotlight>` block is strip-and-replaced every turn:
- * stale spotlights are removed from every user message unconditionally (a
- * scoped, single-id strip), and the spotlight injector's `append-user-tail`
- * block lands at the tail.
+ * Leftover `<memory_spotlight>` blocks are stripped from every user message
+ * (a scoped, single-id strip). The spotlight injector's
+ * `outbound-append-turn-start` block is captured on `blocks` and is not
+ * spliced into assembled messages.
  *
  * v2 suppression stays keyed off whether v3 produced a block, NOT off the
  * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
@@ -128,7 +128,7 @@ function v3Injector(inner: string | null, commit?: () => void): Injector {
   };
 }
 
-/** A fake v3 spotlight injector mirroring the real id + tail placement. */
+/** A fake v3 spotlight injector mirroring the real id + outbound placement. */
 function spotlightInjector(inner: string): Injector {
   return {
     name: "memory-v3-spotlight",
@@ -137,7 +137,7 @@ function spotlightInjector(inner: string): Injector {
       return {
         id: "memory-v3-spotlight",
         text: wrapMemorySpotlightBlock(inner),
-        placement: "append-user-tail",
+        placement: "outbound-append-turn-start",
       };
     },
   };
@@ -242,7 +242,7 @@ describe("memory-v3-live v2 suppression", () => {
     expect(result.blocks.memoryV3Active).toBe(true);
   });
 
-  test("stale spotlight blocks are stripped from EVERY user message; the new spotlight lands at the tail", async () => {
+  test("stale spotlight blocks are stripped from EVERY user message; the fresh spotlight is outbound-only", async () => {
     memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
 
@@ -266,16 +266,16 @@ describe("memory-v3-live v2 suppression", () => {
       ...makeTurnContext(),
     });
 
-    // The stale spotlight is gone from the historical turn…
+    // The leftover spotlight is gone from the historical turn.
     expect(result.messages[0].content).toEqual([
       { type: "text", text: "earlier question" },
     ]);
-    // …and exactly one fresh spotlight sits at the tail.
+    // The fresh spotlight is captured, not spliced into assembled messages.
     const texts = tailTexts(result.messages);
-    expect(texts).toEqual([
-      "current question",
+    expect(texts).toEqual(["current question"]);
+    expect(result.blocks.memoryV3SpotlightBlock).toBe(
       wrapMemorySpotlightBlock("fresh sections"),
-    ]);
+    );
   });
 
   test("convergence re-entry: a tail leading with this turn's frozen v3 cards (and <info>) is NOT stripped", async () => {

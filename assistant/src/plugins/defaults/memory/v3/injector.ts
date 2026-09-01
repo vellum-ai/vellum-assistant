@@ -30,15 +30,16 @@
  *    frozen cards still ride history).
  *
  *  - {@link memoryV3SpotlightInjector} (id `memory-v3-spotlight`,
- *    `after-memory-prefix`): the EPHEMERAL layer. Renders the top `spotlight.n`
- *    selected finder hits' matched sections, plus the previous
+ *    `outbound-append-turn-start`): the EPHEMERAL layer. Renders the top
+ *    `spotlight.n` selected finder hits' matched sections, plus the previous
  *    `spotlight.windowTurns` turns' entries from an in-memory per-conversation
  *    ring (a daemon restart simply re-warms it), as a `<memory_spotlight>`
- *    block spliced immediately after the `<memory>` cards block (so the two
- *    memory layers sit adjacent in the prefix, ahead of the user's message
- *    text). Assembly strip-and-replaces this block every turn (scoped to this
- *    block id only); it is never persisted to metadata, so the frozen card
- *    prefix it follows stays byte-stable and cached regardless.
+ *    block. Runtime assembly captures the text and does not splice it into
+ *    stored messages. The agent loop attaches it as the last content block of
+ *    the turn-start user message on the outbound request only, so historical
+ *    user messages stay byte-identical and the provider prefix through the
+ *    user's text remains cacheable. Assembly still strips leftover spotlight
+ *    blocks from stored history.
  *
  * Gating: `memory.v3.live` (config) runs orchestration and attaches blocks;
  * with it off, no orchestration runs and nothing is attached.
@@ -442,14 +443,10 @@ export const memoryV3SpotlightInjector: Injector = {
       return {
         id: MEMORY_V3_SPOTLIGHT_BLOCK_ID,
         text: wrapMemorySpotlightBlock(renderSpotlightInner(window)),
-        // Splices right after the `<memory>` cards block (this injector's
-        // order 1001 runs after the cards' 1000, and `countMemoryPrefixBlocks`
-        // counts the cards `<memory>` block but not `<memory_spotlight>`, so the
-        // spotlight lands immediately after the cards rather than at the user
-        // tail). Cache-neutral: the block is strip-and-replaced from prior
-        // messages by block id every turn regardless of placement, so the
-        // frozen card prefix stays byte-stable and cached.
-        placement: "after-memory-prefix",
+        // Outbound-only: assembly captures this text and does not splice it
+        // into stored messages. The agent loop appends it after the user's
+        // text on the request sent to the provider.
+        placement: "outbound-append-turn-start",
       };
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {

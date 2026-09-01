@@ -14,9 +14,10 @@
  *     → the real injectors (`memoryV3Injector` net-new cards + recordInjected
  *       + schedulePruneValve; `memoryV3SpotlightInjector` ephemeral window)
  *     → simulated runtime assembly (splice the card block onto the current
- *       user message; scoped spotlight strip-and-replace via the real
- *       `stripSpotlightInjections`) and metadata persistence (the
- *       user-prompt-submit hook's `memoryV3InjectedBlock` write)
+ *       user message; strip leftover spotlight via the real
+ *       `stripSpotlightInjections`; fresh spotlight stays outbound-only)
+ *       and metadata persistence (the user-prompt-submit hook's
+ *       `memoryV3InjectedBlock` write)
  *     → the real prune valve against the live history (conversation-registry
  *       stubbed to the simulated message arrays)
  *     → rehydration from the temp DB (mirroring `daemon/conversation.ts`'s
@@ -658,18 +659,12 @@ async function runTurn(
       );
   }
 
-  // Spotlight: scoped strip of the stale block (real assembly helper), then
-  // re-attach the fresh one. Real assembly splices it after the memory cards
-  // (after-memory-prefix); this sim appends to the tail because only the
-  // block's presence, content, placement value, and strip-and-replace are
-  // asserted here — not its exact position within the message.
+  // Spotlight: strip leftover blocks from stored history (real assembly
+  // helper). Fresh spotlight is outbound-only and is not spliced into the
+  // live history; the record captures the produced text and placement.
   const spotlight = await memoryV3SpotlightInjector.produce(ctx);
   const stripped = stripSpotlightInjections(history);
   history.splice(0, history.length, ...stripped);
-  if (spotlight) {
-    const tail = history[history.length - 1]!;
-    tail.content = [...tail.content, { type: "text", text: spotlight.text }];
-  }
 
   const replyContent: ContentBlock[] = [
     { type: "text", text: `reply ${turnIndex}` },
@@ -1014,13 +1009,13 @@ describe("memory-v3 carry integration — cache contract", () => {
 });
 
 describe("memory-v3 carry integration — spotlight contract", () => {
-  test("spotlight is present every turn, after the memory cards, bounded by n × (window + 1)", () => {
+  test("spotlight is produced every turn, outbound-only, bounded by n × (window + 1)", () => {
     for (const record of records) {
       expect(record.spotlightText.startsWith("<memory_spotlight>\n")).toBe(
         true,
       );
       expect(record.spotlightText.endsWith("\n</memory_spotlight>")).toBe(true);
-      expect(record.spotlightPlacement).toBe("after-memory-prefix");
+      expect(record.spotlightPlacement).toBe("outbound-append-turn-start");
       expect(record.spotlightEntries).toBeGreaterThanOrEqual(1);
       expect(record.spotlightEntries).toBeLessThanOrEqual(
         SPOTLIGHT_N * (SPOTLIGHT_WINDOW_TURNS + 1),
@@ -1043,9 +1038,6 @@ describe("memory-v3 carry integration — spotlight contract", () => {
   test("the spotlight never reaches the persistent layer (blocks, metadata, history)", () => {
     for (const record of records) {
       expect(record.blockText).not.toContain("<memory_spotlight>");
-      // The persistent-layer snapshot is spotlight-stripped by construction;
-      // the raw live history must carry exactly ONE spotlight block (the
-      // current turn's).
     }
     const metadataRows = testSqlite
       .query(
@@ -1066,7 +1058,7 @@ describe("memory-v3 carry integration — spotlight contract", () => {
         (b): b is { type: "text"; text: string } =>
           b.type === "text" && b.text.startsWith("<memory_spotlight>\n"),
       );
-    expect(liveSpotlights).toHaveLength(1);
+    expect(liveSpotlights).toHaveLength(0);
   });
 });
 

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { isMemorySpotlightText } from "../../plugins/defaults/memory/memory-marker.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
@@ -826,10 +827,20 @@ export class OpenAIResponsesProvider implements Provider {
       if (!Array.isArray(content) || content.length === 0) {
         return undefined;
       }
-      const last = content[content.length - 1];
-      return last && STAMPABLE_PART_TYPES.has(last.type as string)
-        ? last
-        : undefined;
+      for (let j = content.length - 1; j >= 0; j--) {
+        const part = content[j] as Record<string, unknown> | undefined;
+        if (
+          part?.type === "input_text" &&
+          typeof part.text === "string" &&
+          isMemorySpotlightText(part.text)
+        ) {
+          continue;
+        }
+        return part && STAMPABLE_PART_TYPES.has(part.type as string)
+          ? part
+          : undefined;
+      }
+      return undefined;
     };
 
     // A user item anchors when its trailing part is markable: a non-empty text

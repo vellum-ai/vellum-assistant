@@ -64,6 +64,7 @@ import {
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_SPOTLIGHT_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -1877,6 +1878,14 @@ export interface RuntimeInjectionBlocks {
    */
   memoryV3InjectedBlock?: string;
   /**
+   * Rendered `<memory_spotlight>` body for this turn. Not spliced into
+   * assembled messages and not persisted. The agent loop attaches it as the
+   * last content block of the turn-start user message on the outbound
+   * request only, so historical user messages stay byte-stable for prompt
+   * cache.
+   */
+  memoryV3SpotlightBlock?: string;
+  /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
    * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
@@ -2010,6 +2019,8 @@ function countMemoryPrefixBlocksOnContent(content: ContentBlock[]): number {
  *    prefix blocks.
  *  - `"replace-run-messages"` — replace `runMessages` wholesale with
  *    `block.messagesOverride`.
+ *  - `"outbound-append-turn-start"` — captured for the outbound request;
+ *    not spliced into assembled messages.
  *
  * Blocks with empty `text` on non-replace placements are no-ops.
  */
@@ -2064,7 +2075,10 @@ function applyInjectionBlock(
         },
       ];
     }
+    case "outbound-append-turn-start":
+      return runMessages;
   }
+  return runMessages;
 }
 
 /**
@@ -2294,11 +2308,13 @@ function fallbackTurnTrust(
  *  6. Finally, apply the chain's remaining blocks by placement:
  *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
  *     in descending `order` so the lowest-`order` prepend lands topmost in
- *     the user tail content.
+ *     the user tail content. `"outbound-append-turn-start"` blocks are
+ *     captured on `blocks` and are not spliced into the assembled messages.
  *
  * Returns the final message array plus a `blocks` object holding the exact
  * injected text for each captured block — callers persist those bytes to
- * message metadata for later byte-exact rehydration.
+ * message metadata for later byte-exact rehydration. Spotlight text is
+ * captured but not persisted.
  */
 export async function applyRuntimeInjections(
   runMessages: Message[],
@@ -2494,6 +2510,9 @@ export async function applyRuntimeInjections(
       case "append-user-tail":
         appends.push(block);
         break;
+      case "outbound-append-turn-start":
+        // Captured below; not spliced into assembled messages.
+        break;
     }
   }
 
@@ -2511,6 +2530,7 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let memoryV3SpotlightCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2560,6 +2580,11 @@ export async function applyRuntimeInjections(
           }
           break;
         }
+        case MEMORY_V3_SPOTLIGHT_BLOCK_ID:
+          if (block.text.length > 0) {
+            memoryV3SpotlightCaptured = block.text;
+          }
+          break;
       }
     }
   }
@@ -2578,12 +2603,12 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: memory-v3 ephemeral-spotlight strip + v2 tail suppression ──
+  // ── Step 0: leftover spotlight strip + v2 tail suppression ──
   //
-  // Spotlight strip (unconditional): the `<memory_spotlight>` block is
-  // ephemeral by contract — re-rendered at the current tail each turn — so any
-  // spotlight riding history from a previous turn is stale and is removed
-  // here. This is a SCOPED strip of only that block id: the frozen `<memory>`
+  // Spotlight strip (unconditional): `<memory_spotlight>` is outbound-only
+  // and is not spliced into assembled messages. Any leftover copy riding
+  // stored history is removed here so it cannot mutate the cached prefix.
+  // This is a SCOPED strip of only that block id: the frozen `<memory>`
   // card blocks on historical messages are untouched (the cache contract).
   // With the v3 flag off no spotlight blocks exist and this is a content
   // no-op, keeping the v2 path bit-for-bit identical.
@@ -2794,6 +2819,7 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3SpotlightBlock: memoryV3SpotlightCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

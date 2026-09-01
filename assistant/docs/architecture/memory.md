@@ -173,7 +173,10 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 - **v3 (live)**: per-turn lane selection over concept pages — dense/sparse
   retrieval (`substrate/sim.ts` over the concept-page collection),
   learned edges, entity/hot/fresh/core sets — rendered as the `<memory>`
-  card by `v3/injector.ts`. The static `<info>` block
+  card by `v3/injector.ts`. Frozen cards stay on historical user messages
+  so the provider prefix stays cacheable. The `<memory_spotlight>` block
+  is attached only on the outbound request (after the user's text) and is
+  never persisted. The static `<info>` block
   (`substrate/static-context.ts`: essentials/threads/recent/buffer) also
   injects whenever the substrate is active.
 - **v2 (transitional)**: activation/router engine in `v2/`

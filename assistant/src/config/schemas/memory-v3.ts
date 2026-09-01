@@ -147,7 +147,7 @@ export const MemoryV3LearnedEdgesSchema = z
  * Ephemeral section-spotlight tuning: how many of the current turn's selected
  * finder hits render their matched section into the `<memory_spotlight>`
  * block, and how many previous turns' spotlight entries are carried along
- * before they age out. The block is strip-and-replaced every turn, so its
+ * before they age out. The block is outbound-only (not persisted), so its
  * size is bounded by `n × (windowTurns + 1)` entries.
  */
 export const MemoryV3SpotlightSchema = z

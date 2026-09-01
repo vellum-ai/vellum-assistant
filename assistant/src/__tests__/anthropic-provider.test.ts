@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Anthropic } from "@anthropic-ai/sdk";
 
+import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type {
   ContentBlock,
   Message,
@@ -1109,6 +1110,33 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       type: "ephemeral",
       ttl: "1h",
     });
+  });
+
+  test("outbound spotlight suffix: 1h lands on the last stable block, not the spotlight", async () => {
+    const spotlightUser: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "What did we decide?" },
+        { type: "text", text: wrapMemorySpotlightBlock("recalled plan") },
+      ],
+    };
+    await provider.sendMessage([spotlightUser]);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const user = sent[0];
+    expect(user.content).toHaveLength(2);
+    expect(user.content[0].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+    expect(user.content[1].cache_control).toBeUndefined();
   });
 
   test("workspace + multi-block single user message: cache on last block only", async () => {

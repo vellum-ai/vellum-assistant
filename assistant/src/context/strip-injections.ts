@@ -14,6 +14,7 @@
 import {
   MEMORY_SPOTLIGHT_PREFIX,
   MEMORY_SPOTLIGHT_SUFFIX,
+  isMemorySpotlightText,
 } from "../plugins/defaults/memory/memory-marker.js";
 import type { Message } from "../providers/types.js";
 
@@ -125,57 +126,96 @@ const MEMORY_SPOTLIGHT_MATCHER: InjectionMatcher = {
 };
 
 /**
- * Remove memory-v3 `<memory_spotlight>` blocks from every user message — and
- * ONLY those blocks. The spotlight is ephemeral by contract: runtime assembly
- * strip-and-replaces it each turn (the previous turn's spotlight is stale),
- * while the frozen `<memory>` card blocks stay byte-identical in history for
- * prompt caching. This is deliberately a scoped, single-id strip — the old
- * whole-layer `stripAllMemoryInjections` replace is gone.
+ * Remove leftover `<memory_spotlight>` blocks from every user message, and
+ * only those blocks. Spotlight is attached on the outbound provider request
+ * and is not persisted, so any copy found in stored history must not ride
+ * the cached prefix. Frozen `<memory>` card blocks stay byte-identical.
  */
 export function stripSpotlightInjections(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [MEMORY_SPOTLIGHT_MATCHER]);
 }
 
 /**
- * Whether the TURN-STARTING user message carries a memory-v3
- * `<memory_spotlight>` block.
- *
- * The spotlight is the only injected block that is strip-and-replaced from
- * every user message each turn, so its presence is exactly what makes that
- * message volatile across turns. Every other injected block (turn context,
- * workspace, `<info>`, `<memory>` cards, NOW.md) is frozen into history and
- * re-renders byte-identically, so a message without a spotlight is a stable
- * cache anchor. Providers consume this through the `mutableLatestUserMessage`
- * config field when placing cache breakpoints.
- *
- * The turn start is the most recent user message carrying TEXT content, which
- * is the same message the Anthropic client anchors on. Tool-result messages
- * are skipped: they are user-role but carry no injected blocks, and letting
- * them answer this question would flip the signal to `false` partway through a
- * tool loop. The provider would then mark the very same turn-start block at a
- * different TTL than it did on the turn's first request, billing a second
- * write for one reusable prefix. Anchoring on the turn start keeps the signal
- * constant for every request in the turn.
- *
- * Detection uses {@link MEMORY_SPOTLIGHT_MATCHER}, the same full-wrapper
- * matcher {@link stripSpotlightInjections} strips with, so the two can never
- * disagree about which blocks are ephemeral.
+ * Index of the turn-starting user message: the most recent user message that
+ * carries text content. Tool-result messages are skipped so a mid-turn tool
+ * loop still resolves the same opening message.
  */
-export function turnStartUserMessageHasSpotlight(messages: Message[]): boolean {
+function findTurnStartUserMessageIndex(messages: Message[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "user") {
       continue;
     }
-    const textBlocks = message.content.filter((block) => block.type === "text");
-    if (textBlocks.length === 0) {
-      continue;
+    if (message.content.some((block) => block.type === "text")) {
+      return i;
     }
-    return textBlocks.some((block) =>
-      textBlockMatchesInjection(block.text, [MEMORY_SPOTLIGHT_MATCHER]),
-    );
   }
-  return false;
+  return -1;
+}
+
+/**
+ * Append `text` as the last content block of the turn-start user message.
+ * Used to attach a memory-v3 spotlight on the outbound provider request
+ * without writing it into stored history. Returns `messages` unchanged when
+ * `text` is empty, there is no turn-start user message, or that message
+ * already carries a spotlight.
+ */
+export function attachOutboundSpotlight(
+  messages: Message[],
+  text: string,
+): Message[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return messages;
+  }
+  const start = findTurnStartUserMessageIndex(messages);
+  if (start < 0) {
+    return messages;
+  }
+  const message = messages[start];
+  if (
+    message.content.some(
+      (block) => block.type === "text" && isMemorySpotlightText(block.text),
+    )
+  ) {
+    return messages;
+  }
+  return [
+    ...messages.slice(0, start),
+    {
+      ...message,
+      content: [...message.content, { type: "text", text: trimmed }],
+    },
+    ...messages.slice(start + 1),
+  ];
+}
+
+/**
+ * Whether the TURN-STARTING user message carries a memory-v3
+ * `<memory_spotlight>` block.
+ *
+ * Spotlight is an outbound-only suffix on that message. Providers use this
+ * to place the long-TTL cache breakpoint on the last stable block (the
+ * user's text) rather than on the spotlight itself.
+ *
+ * The turn start is the most recent user message carrying TEXT content, which
+ * is the same message the Anthropic client anchors on. Tool-result messages
+ * are skipped: they are user-role but carry no injected blocks, and letting
+ * them answer this question would flip the signal to `false` partway through a
+ * tool loop.
+ *
+ * Detection uses {@link isMemorySpotlightText}, the same full-wrapper
+ * matcher {@link stripSpotlightInjections} strips with, so the two can never
+ * disagree about which blocks are ephemeral.
+ */
+export function turnStartUserMessageHasSpotlight(messages: Message[]): boolean {
+  const start = findTurnStartUserMessageIndex(messages);
+  if (start < 0) {
+    return false;
+  }
+  return messages[start].content.some(
+    (block) => block.type === "text" && isMemorySpotlightText(block.text),
+  );
 }
 
 /** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */
@@ -217,10 +257,10 @@ export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // matches the full-wrapper requirement in `countMemoryPrefixBlocks`.
   { prefix: "<memory>\n", suffix: "\n</memory>" },
   { prefix: "<info>\n", suffix: "\n</info>" },
-  // The memory-v3 ephemeral spotlight block. Normally strip-and-replaced every
-  // turn by `stripSpotlightInjections`, but registered here too so compaction
-  // and overflow recovery remove a stale spotlight along with the rest of the
-  // runtime injections. Full-wrapper shape for the same reason as `<memory>`.
+  // Leftover memory-v3 spotlight blocks. Fresh spotlights are outbound-only
+  // and never persist; this matcher still removes any copy found in stored
+  // history during compaction and overflow recovery. Full-wrapper shape for
+  // the same reason as `<memory>`.
   MEMORY_SPOTLIGHT_MATCHER,
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks

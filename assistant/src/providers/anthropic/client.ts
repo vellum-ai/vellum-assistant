@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { isMemorySpotlightText } from "../../plugins/defaults/memory/memory-marker.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
@@ -1192,6 +1193,20 @@ export class AnthropicProvider implements Provider {
         }
         return -1;
       };
+      const isSpotlightContentBlock = (block: unknown): boolean => {
+        if (typeof block === "string") {
+          return isMemorySpotlightText(block);
+        }
+        if (
+          block &&
+          typeof block === "object" &&
+          (block as { type?: string }).type === "text" &&
+          typeof (block as { text?: unknown }).text === "string"
+        ) {
+          return isMemorySpotlightText((block as { text: string }).text);
+        }
+        return false;
+      };
       const applyCacheControlToLastBlock = (
         msgIdx: number,
         control: typeof cacheControl | typeof tailCacheControl = cacheControl,
@@ -1204,6 +1219,30 @@ export class AnthropicProvider implements Provider {
         if (typeof lastBlock !== "string") {
           (lastBlock as unknown as Record<string, unknown>).cache_control =
             control;
+        }
+      };
+      // Long-TTL anchors skip a trailing `<memory_spotlight>` suffix so the
+      // breakpoint lands on the last stable block (usually the user's text).
+      // Spotlight is outbound-only and changes every turn; marking it would
+      // write a prefix that can never be read back.
+      const applyCacheControlToLastStableBlock = (
+        msgIdx: number,
+        control: typeof cacheControl | typeof tailCacheControl = cacheControl,
+      ): void => {
+        const content = msgs[msgIdx].content;
+        if (!Array.isArray(content) || content.length === 0) {
+          return;
+        }
+        for (let j = content.length - 1; j >= 0; j--) {
+          const block = content[j];
+          if (isSpotlightContentBlock(block)) {
+            continue;
+          }
+          if (typeof block !== "string") {
+            (block as unknown as Record<string, unknown>).cache_control =
+              control;
+          }
+          return;
         }
       };
       const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
@@ -1223,7 +1262,7 @@ export class AnthropicProvider implements Provider {
       // `disableTurnStartCache` is independent: it expresses a different
       // intent (one-shot callers with no future hit).
       if (turnStartIdx >= 0 && !disableCache && !disableTurnStartCache) {
-        applyCacheControlToLastBlock(
+        applyCacheControlToLastStableBlock(
           turnStartIdx,
           mutableLatestUserMessage ? tailCacheControl : cacheControl,
         );
@@ -1246,7 +1285,7 @@ export class AnthropicProvider implements Provider {
       ) {
         const prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
         if (prevTurnAnchorIdx >= 0) {
-          applyCacheControlToLastBlock(prevTurnAnchorIdx);
+          applyCacheControlToLastStableBlock(prevTurnAnchorIdx);
         }
       }
 

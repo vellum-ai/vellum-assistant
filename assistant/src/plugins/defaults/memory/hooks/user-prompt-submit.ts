@@ -423,6 +423,10 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     conversationId: ctx.conversationId,
   });
   ctx.latestMessages = injection.messages;
+  if (conversation) {
+    conversation.currentTurnOutboundSpotlight =
+      injection.blocks.memoryV3SpotlightBlock;
+  }
   await persistInjectionBlocks(injection.blocks, ctx, v2BlockPersisted);
 };
 

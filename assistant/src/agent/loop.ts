@@ -2,7 +2,7 @@ import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
-import { turnStartUserMessageHasSpotlight } from "../context/strip-injections.js";
+import { attachOutboundSpotlight } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -637,6 +637,12 @@ interface AgentLoopRunOptionsBase {
     mark(name: string): void;
     markFirstToken(kind: "thinking" | "text"): void;
   };
+  /**
+   * Memory-v3 `<memory_spotlight>` text for this turn. Attached as the last
+   * content block of the turn-start user message on each outbound provider
+   * request. Not written into the loop's stored history.
+   */
+  outboundSpotlight?: string;
 }
 
 interface AgentLoopRunOptionsWithContextWindow extends AgentLoopRunOptionsBase {
@@ -1116,6 +1122,7 @@ export class AgentLoop {
       isNonInteractive = false,
       model: runModel,
       latencyTracker,
+      outboundSpotlight,
     } = options;
     // Snapshot the system prompt once per run. The instance field is mutable
     // (the conversation may update it between turns), but a single run must
@@ -1551,21 +1558,6 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for turns whose opening message is volatile. The
-        // memory-v3 `<memory_spotlight>` block is the only injected block that
-        // is strip-and-replaced from every user message each turn, so when it
-        // is present that message's bytes do not recur next turn and a
-        // long-TTL breakpoint on it could never be read back. The provider
-        // marks it at the short TTL instead. Derived from the history actually
-        // being sent rather than from configuration, so turns where memory
-        // contributed no spotlight keep a normal anchor. Read off the
-        // turn-starting message, so the signal holds for every request in the
-        // turn rather than flipping once tool results arrive. Only set when
-        // true so the wire/config stays byte-identical when absent.
-        if (turnStartUserMessageHasSpotlight(history)) {
-          providerConfig.mutableLatestUserMessage = true;
-        }
-
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
         // can route through `resolveCallSiteConfig` against
@@ -1652,11 +1644,14 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = timeSyncSection(
+        const sanitizedHistory = timeSyncSection(
           "agent-loop:pre-model-call-sanitize",
           () => preModelCallSanitize(history),
           (sanitized) => ({ messageCount: sanitized.length }),
         );
+        const providerHistory = outboundSpotlight
+          ? attachOutboundSpotlight(sanitizedHistory, outboundSpotlight)
+          : sanitizedHistory;
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an

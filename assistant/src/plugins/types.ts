@@ -272,12 +272,17 @@ export interface TurnContext {
  *   block's `messagesOverride`. Used by the Slack chronological-transcript
  *   injector (the transcript is a whole new message list rendered from the
  *   persisted rows, not a tail-block mutation).
+ * - `"outbound-append-turn-start"` — do not splice into assembled or
+ *   persisted messages. Capture the text so the agent loop can append it
+ *   as the last content block of the turn-start user message on the
+ *   outbound provider request only. Used by the memory-v3 spotlight.
  */
 export type InjectionPlacement =
   | "prepend-user-tail"
   | "append-user-tail"
   | "after-memory-prefix"
-  | "replace-run-messages";
+  | "replace-run-messages"
+  | "outbound-append-turn-start";
 
 /**
  * A structured fragment contributed by an {@link Injector}.

@@ -24,7 +24,7 @@ export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
 
 /**
  * Injection-block id for the v3 ephemeral `<memory_spotlight>` block (the
- * current window's matched sections, re-rendered at the user tail each turn).
+ * current window's matched sections, attached on the outbound request only).
  * Distinct from {@link MEMORY_V3_BLOCK_ID}: the spotlight never participates
  * in v2 suppression and is never persisted to message metadata.
  */

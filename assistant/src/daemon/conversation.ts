@@ -536,6 +536,13 @@ export class Conversation {
    */
   currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /**
+   * Rendered memory-v3 `<memory_spotlight>` for the in-flight turn. Set by
+   * runtime assembly after injection; the agent loop attaches it on the
+   * outbound provider request only. Not persisted.
+   * @internal
+   */
+  currentTurnOutboundSpotlight?: string;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
