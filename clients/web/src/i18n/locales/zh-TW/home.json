@@ -67,8 +67,7 @@
     "title": "尚無內容。",
     "briefingRecipeTitle": "設定晨間簡報",
     "briefingRecipeMeta": "每日",
-    "briefingRecipeDescription": "你的第一則通知，明天 8:00 送達。",
-    "briefingRecipePrompt": "為我設定晨間簡報：每個工作日 8:00 查看我的日曆、收件匣和新聞，然後將簡短的摘要發送到我的通知。",
-    "dismissBriefingRecipe": "忽略晨間簡報建議"
+    "briefingRecipeDescription": "你的第一則通知，明天早上送達。",
+    "briefingRecipePrompt": "幫我設定晨間簡報。在建立任何內容之前，先看看我的哪些帳戶已連接，然後給我幾個選項，說明簡報可以包含哪些內容、在什麼時間發送。等我選好之後再進行設定。"
   }
 }

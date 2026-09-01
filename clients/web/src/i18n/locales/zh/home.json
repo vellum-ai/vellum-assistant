@@ -67,8 +67,7 @@
     "title": "暂无内容。",
     "briefingRecipeTitle": "设置晨间简报",
     "briefingRecipeMeta": "每日",
-    "briefingRecipeDescription": "你的第一条通知，明天 8:00 送达。",
-    "briefingRecipePrompt": "为我设置晨间简报：每个工作日 8:00 查看我的日历、收件箱和新闻，然后把简短的摘要发送到我的通知。",
-    "dismissBriefingRecipe": "忽略晨间简报建议"
+    "briefingRecipeDescription": "你的第一条通知，明天早上送达。",
+    "briefingRecipePrompt": "帮我设置晨间简报。在创建任何内容之前，先看看我的哪些账户已连接，然后给我几个选项，说明简报可以包含哪些内容、在什么时间发送。等我选好之后再进行设置。"
   }
 }
