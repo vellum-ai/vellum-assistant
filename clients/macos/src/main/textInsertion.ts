@@ -9,6 +9,8 @@ import { z } from "zod";
 
 import type { TextInsertionResult } from "@vellumai/ipc-contract";
 
+import { listFloatingWindows } from "@vellumai/electron-desktop/floating-window";
+
 import { runAppleScript } from "./appleScriptExecutor";
 import { handle } from "./ipc";
 import log from "./logger";
@@ -43,6 +45,17 @@ export type TextInsertionDeps = {
   writeClipboardText: (text: string) => void;
   hideApp: () => void;
   showApp: () => void;
+  /**
+   * Put the floating surfaces back after the app is hidden.
+   *
+   * `app.hide()` hides every window Vellum owns, and the companion is one of
+   * them: it is a panel over other people's applications, so hiding the app to
+   * hand focus back takes the surface off the screen with it, and nothing
+   * brings it home until the user activates Vellum again. Shown without
+   * activating, so the application the text just went into keeps the focus it
+   * was handed.
+   */
+  showFloatingSurfaces: () => void;
   runAppleScript: (script: string) => Promise<unknown>;
   warn: (...args: unknown[]) => void;
   setTimeout: (callback: () => void, ms: number) => unknown;
@@ -133,6 +146,13 @@ const defaultDeps: TextInsertionDeps = {
   writeClipboardText: (text) => clipboard.writeText(text),
   hideApp: () => app.hide(),
   showApp: () => app.show(),
+  showFloatingSurfaces: () => {
+    for (const win of listFloatingWindows()) {
+      if (!win.isVisible()) {
+        win.showInactive();
+      }
+    }
+  },
   runAppleScript,
   warn: (...args) => log.warn(...args),
   setTimeout,
@@ -196,6 +216,11 @@ export const typeIntoFrontAppWithDeps = async (
       result = { status: "blocked" };
     }
   }
+
+  // After the paste rather than before it: the hide is what hands focus back,
+  // and a window arriving in that gap would be competing with the thing it is
+  // being handed to.
+  deps.showFloatingSurfaces();
 
   scheduleClipboardRestore(deps, previousClipboard, text);
   return result;

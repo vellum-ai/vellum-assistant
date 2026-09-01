@@ -16,6 +16,7 @@ type Harness = {
   restoredSnapshots: ClipboardSnapshot[];
   hideApp: ReturnType<typeof mock>;
   showApp: ReturnType<typeof mock>;
+  showFloatingSurfaces: ReturnType<typeof mock>;
   runAppleScript: ReturnType<typeof mock>;
   warn: ReturnType<typeof mock>;
 };
@@ -46,6 +47,7 @@ const createHarness = ({
   const restoredSnapshots: ClipboardSnapshot[] = [];
   const hideApp = mock(() => undefined);
   const showApp = mock(() => undefined);
+  const showFloatingSurfaces = mock(() => undefined);
   const runAppleScriptMock = mock((_script: string) => runAppleScript());
   const warn = mock(() => undefined);
 
@@ -66,6 +68,7 @@ const createHarness = ({
       },
       hideApp,
       showApp,
+      showFloatingSurfaces,
       runAppleScript: runAppleScriptMock,
       warn,
       setTimeout: (callback: () => void) => {
@@ -86,6 +89,7 @@ const createHarness = ({
     restoredSnapshots,
     hideApp,
     showApp,
+    showFloatingSurfaces,
     runAppleScript: runAppleScriptMock,
     warn,
   };
@@ -163,4 +167,39 @@ describe("typeIntoFrontApp", () => {
     expect(harness.showApp).toHaveBeenCalledTimes(1);
     expect(harness.warn).toHaveBeenCalledTimes(1);
   });
+});
+
+/**
+ * Hiding the app to hand focus back takes the companion with it: it is a panel
+ * over other people's applications, and nothing brings it home until Vellum is
+ * activated again. The surface is the only thing on screen saying a dictation
+ * happened, so it has to come back on its own.
+ */
+test("puts the floating surfaces back after pasting", async () => {
+  const harness = createHarness();
+
+  await typeIntoFrontAppWithDeps("hello", harness.deps);
+
+  expect(harness.hideApp).toHaveBeenCalled();
+  expect(harness.showFloatingSurfaces).toHaveBeenCalled();
+});
+
+test("puts them back even when the paste fails", async () => {
+  const harness = createHarness({
+    runAppleScript: () => Promise.reject(new Error("nope")),
+  });
+
+  await typeIntoFrontAppWithDeps("hello", harness.deps);
+
+  expect(harness.showFloatingSurfaces).toHaveBeenCalled();
+});
+
+/** Nothing was hidden, so nothing needs putting back. */
+test("leaves them alone when Vellum itself has the focus", async () => {
+  const harness = createHarness({ focused: true });
+
+  await typeIntoFrontAppWithDeps("hello", harness.deps);
+
+  expect(harness.hideApp).not.toHaveBeenCalled();
+  expect(harness.showFloatingSurfaces).not.toHaveBeenCalled();
 });

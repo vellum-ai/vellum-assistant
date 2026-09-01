@@ -287,6 +287,7 @@ final class MacHelper: @unchecked Sendable {
         let targetUnion = modifierHoldMasks.reduce(UInt32(0)) { $0 | $1 }
         let edges = modifierHoldDetector.flagsChanged(
             targetHeld: modifierHoldMasks.allSatisfy { (modifiers & $0) != 0 },
+            anyTargetHeld: (modifiers & targetUnion) != 0,
             extraModifiersHeld: (modifiers & Self.everyModifierMask & ~targetUnion) != 0,
             ordinaryKeyHeld: { self.anyOrdinaryKeyIsDown() }
         )
