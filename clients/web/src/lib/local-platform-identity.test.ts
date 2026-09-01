@@ -29,6 +29,8 @@ let browserDeviceId: string | null = null;
 let statusBody: unknown;
 let ensureRegistrationBody: unknown;
 let reprovisionApiKeyBody: unknown;
+/** What `POST /v1/platform/verify-credential` reports about the stored key. */
+let verifyCredentialStatus: "valid" | "rejected" | "unknown" = "valid";
 let requests: RecordedRequest[] = [];
 let secretsUnavailable = false;
 let storedSecrets: string[] = [];
@@ -173,6 +175,7 @@ beforeEach(() => {
   reprovisionApiKeyBody = {
     provisioning: { assistant_api_key: "reprovisioned-key" },
   };
+  verifyCredentialStatus = "valid";
   requests = [];
   secretsUnavailable = false;
   storedSecrets = [];
@@ -216,6 +219,9 @@ beforeEach(() => {
         url.pathname === "/v1/assistants/self-hosted-local/reprovision-api-key/"
       ) {
         return jsonResponse(reprovisionApiKeyBody);
+      }
+      if (url.pathname.endsWith("/v1/platform/verify-credential")) {
+        return jsonResponse({ status: verifyCredentialStatus });
       }
       if (url.pathname.endsWith("/v1/secrets")) {
         if (secretsUnavailable) {
@@ -330,6 +336,27 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
 
     expect(requestNames()).toContain("reprovision-api-key");
+  });
+
+  // Storing a credential proves the write landed, not that it works. A
+  // replacement rejected in turn has to surface as a failure, or the
+  // notification reports a repair that repaired nothing.
+  test("a replacement the platform rejects fails the repair", async () => {
+    seedRejectedCredential();
+    verifyCredentialStatus = "rejected";
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toThrow(/rejected the replacement credential/i);
+  });
+
+  test("an unconfirmed replacement fails rather than claiming success", async () => {
+    seedRejectedCredential();
+    verifyCredentialStatus = "unknown";
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toThrow(/could not confirm/i);
   });
 
   // Resolving returns the id untouched for anything it does not provision for,

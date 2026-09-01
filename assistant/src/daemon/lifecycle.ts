@@ -329,6 +329,28 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
+  // Establish what the stored Vellum-managed credential is worth, once.
+  //
+  // The verdict every credential surface reads lives in this process, so a
+  // restart starts it at "unknown" and the surfaces report a dead credential
+  // as merely unestablished until the first heartbeat credential pass, which
+  // is an hour out by default. A credential that was dead before the restart
+  // is still dead after it, and that hour is exactly when someone restarts to
+  // fix the problem and is told nothing is wrong.
+  //
+  // Detached and failure-tolerant, per the startup rule that no subsystem
+  // blocks the daemon coming up: it is one request, it records nothing when it
+  // cannot reach the platform, and the heartbeat re-derives regardless.
+  void (async () => {
+    try {
+      const { checkAssistantApiKey } =
+        await import("../credential-health/credential-health-service.js");
+      await checkAssistantApiKey();
+    } catch (err) {
+      log.debug({ err }, "Startup managed-credential check did not complete");
+    }
+  })();
+
   // Seed well-known OAuth provider configurations (insert-if-not-exists).
   // Runs in its own try/catch so a seeding error doesn't force degraded mode
   // when the DB itself initialized successfully.

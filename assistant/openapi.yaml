@@ -24790,6 +24790,32 @@ paths:
                   - package
                   - entitlements
                 additionalProperties: false
+  /v1/platform/verify-credential:
+    post:
+      operationId: platform_verifycredential_post
+      summary: Verify the Vellum-managed credential against the platform
+      description:
+        Asks the platform whether the stored assistant API key authenticates, and records the result. POST because
+        it performs the check rather than reading a cached one.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - valid
+                      - rejected
+                      - unknown
+                required:
+                  - status
+                additionalProperties: false
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post

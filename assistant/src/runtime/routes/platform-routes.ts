@@ -95,6 +95,18 @@ const PlatformConnectResponseSchema = z.object({
 });
 type PlatformConnectResponse = z.infer<typeof PlatformConnectResponseSchema>;
 
+/**
+ * Result of asking the platform, right now, whether the stored managed
+ * credential authenticates. Distinct from the status route's cached verdict:
+ * this performs the check rather than reporting the last one.
+ */
+const PlatformVerifyCredentialResponseSchema = z.object({
+  status: z.enum(["valid", "rejected", "unknown"]),
+});
+type PlatformVerifyCredentialResponse = z.infer<
+  typeof PlatformVerifyCredentialResponseSchema
+>;
+
 const PlatformDisconnectResponseSchema = z.object({
   disconnected: z.literal(true),
   previousBaseUrl: z.string().nullable(),
@@ -280,6 +292,35 @@ async function handlePlatformConnect(
   broadcastMessage({ type: "show_platform_login" });
 
   return { showPlatformLogin: true };
+}
+
+/**
+ * Check the stored managed credential against the platform and report what it
+ * found, recording the verdict on the way through.
+ *
+ * Exists so a client that has just written a replacement can confirm it works
+ * before telling the reader it does. Storing a credential proves only that the
+ * write landed; a replacement can be rejected in turn, and a repair reported
+ * as successful on the strength of the write alone would be a receipt for
+ * something that never happened.
+ */
+async function handlePlatformVerifyCredential(
+  _args: RouteHandlerArgs,
+): Promise<PlatformVerifyCredentialResponse> {
+  const { checkAssistantApiKey } =
+    await import("../../credential-health/credential-health-service.js");
+  const result = await checkAssistantApiKey();
+  if (result === null) {
+    // No platform identity at all, so there is nothing to verify.
+    return { status: "unknown" };
+  }
+  if (result.status === "healthy") {
+    return { status: "valid" };
+  }
+  if (result.status === "revoked" || result.status === "missing_token") {
+    return { status: "rejected" };
+  }
+  return { status: "unknown" };
 }
 
 async function handlePlatformDisconnect(
@@ -739,6 +780,21 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["platform"],
     handler: handlePlatformConnect,
     responseBody: PlatformConnectResponseSchema,
+  },
+  {
+    operationId: "platform_verify_credential",
+    endpoint: "platform/verify-credential",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
+    summary: "Verify the Vellum-managed credential against the platform",
+    description:
+      "Asks the platform whether the stored assistant API key authenticates, and records the result. POST because it performs the check rather than reading a cached one.",
+    tags: ["platform"],
+    handler: handlePlatformVerifyCredential,
+    responseBody: PlatformVerifyCredentialResponseSchema,
   },
   {
     operationId: "platform_disconnect",

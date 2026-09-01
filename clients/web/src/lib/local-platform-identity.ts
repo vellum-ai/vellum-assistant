@@ -203,6 +203,57 @@ export async function recoverLocalAssistantPlatformCredential(
     allowGatewayRepair: true,
     rotateRejectedCredential: true,
   });
+
+  // Storing a credential proves the write landed, not that it authenticates: a
+  // replacement can be rejected in turn. Confirm before the caller reports
+  // success, so a repair that did not repair anything reads as a failure the
+  // reader can see rather than a receipt for something that never happened.
+  const verified = await verifyPlatformCredential(assistant);
+  if (verified === "rejected") {
+    throw new Error(
+      "Vellum rejected the replacement credential. Try signing in to Vellum again.",
+    );
+  }
+  if (verified !== "valid") {
+    throw new Error(
+      "Could not confirm the new credential with Vellum. It may start working shortly; check again in a moment.",
+    );
+  }
+}
+
+/**
+ * Ask the assistant to check its stored managed credential against the
+ * platform. Returns `"unknown"` when the check itself could not be run, which
+ * is not evidence either way.
+ */
+async function verifyPlatformCredential(
+  assistant: LockfileAssistant,
+): Promise<"valid" | "rejected" | "unknown"> {
+  try {
+    const gateway = await ensureGatewayAccess(assistant, {
+      allowGatewayRepair: false,
+    });
+    const response = await fetch(
+      gatewayUrl(gateway.gatewayUrl, "/v1/platform/verify-credential"),
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${gateway.actorToken}`,
+        },
+        credentials: "omit",
+      },
+    );
+    if (!response.ok) {
+      return "unknown";
+    }
+    const body = (await response.json()) as { status?: unknown };
+    return body.status === "valid" || body.status === "rejected"
+      ? body.status
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 export function bootstrapLocalAssistantPlatformIdentity(
