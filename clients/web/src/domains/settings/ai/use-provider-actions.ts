@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellumai/design-library/components/toast";
@@ -6,6 +8,7 @@ import { isDefaultProviderId } from "@/domains/settings/ai/provider-row-meta";
 import { t } from "@/i18n";
 import {
   configGetQueryKey,
+  configLlmCallsitesGetQueryKey,
   configLlmDefaultproviderGetQueryKey,
   configLlmDefaultproviderPutMutation,
   inferenceProviderconnectionsGetQueryKey,
@@ -18,6 +21,13 @@ import { captureError } from "@/lib/sentry/capture-error";
 export interface ProviderActions {
   /** Point the default provider at this connection. No-op when ineligible. */
   setDefault: (conn: ProviderConnection) => void;
+  /**
+   * `setDefault` for callers that must know when the write landed: resolves
+   * once the config carries the new default, rejects if it did not (the
+   * failure toast is raised either way). Stable across renders, so an effect
+   * can depend on it.
+   */
+  setDefaultAsync: (conn: ProviderConnection) => Promise<void>;
   /** True while the set-default mutation targets `name`. */
   isSettingDefault: (name: string) => boolean;
   deleteConnection: (name: string) => Promise<void>;
@@ -25,9 +35,9 @@ export interface ProviderActions {
 
 /**
  * Row mutations for the Providers section. Set-default refreshes the
- * default-provider status, the config, and the effective profile catalog
- * (managed tiers resolve their model through the default provider); delete
- * refreshes the connection list. Errors surface as toasts.
+ * default-provider status, the config, and the effective profile and
+ * call-site catalogs (managed tiers resolve their model through the default
+ * provider); delete refreshes the connection list. Errors surface as toasts.
  */
 export function useProviderActions(
   assistantId: string,
@@ -48,6 +58,12 @@ export function useProviderActions(
       void queryClient.invalidateQueries({
         queryKey: inferenceProfilesGetQueryKey(pathOpts),
       });
+      // The call-site catalog reports each action's winning profile, resolved
+      // through the default provider, so the same write moves it. The sync
+      // handler refreshes it for other clients; this covers the tab that wrote.
+      void queryClient.invalidateQueries({
+        queryKey: configLlmCallsitesGetQueryKey(pathOpts),
+      });
     },
     onError: (error) => {
       captureError(error, { context: "settings-ai-set-default-provider" });
@@ -55,14 +71,24 @@ export function useProviderActions(
     },
   });
 
+  const { mutateAsync } = setDefaultMutation;
+
+  const setDefaultAsync = useCallback(
+    async (conn: ProviderConnection) => {
+      if (!isDefaultProviderId(conn.provider)) {
+        return;
+      }
+      await mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { provider: conn.provider, connectionName: conn.name },
+      });
+    },
+    [assistantId, mutateAsync],
+  );
+
   function setDefault(conn: ProviderConnection) {
-    if (!isDefaultProviderId(conn.provider)) {
-      return;
-    }
-    setDefaultMutation.mutate({
-      path: { assistant_id: assistantId },
-      body: { provider: conn.provider, connectionName: conn.name },
-    });
+    // Fire and forget: `onError` already reports the failure as a toast.
+    void setDefaultAsync(conn).catch(() => {});
   }
 
   function isSettingDefault(name: string): boolean {
@@ -94,5 +120,5 @@ export function useProviderActions(
     }
   }
 
-  return { setDefault, isSettingDefault, deleteConnection };
+  return { setDefault, setDefaultAsync, isSettingDefault, deleteConnection };
 }

@@ -8,10 +8,39 @@
  * the status query entirely — the modal behaves exactly as it did
  * before the feature.
  */
-import { useAssistantSupports } from "@/lib/backwards-compat/utils";
+import {
+  useAssistantScopedSupports,
+  useAssistantSupports,
+  useAssistantVersionKnownFor,
+} from "@/lib/backwards-compat/utils";
 
 const MIN_VERSION = "0.10.8";
 
 export function useSupportsDefaultProviderSettings(): boolean {
   return useAssistantSupports(MIN_VERSION);
+}
+
+export interface DefaultProviderSettingsSupport {
+  /** The gate itself, scoped to `assistantId`. */
+  supported: boolean;
+  /** False while no version has hydrated for `assistantId`. */
+  versionKnown: boolean;
+}
+
+/**
+ * The gate for a caller that reads it once and latches the branch.
+ *
+ * `useSupportsDefaultProviderSettings` answers `false` while the identity
+ * store is still hydrating, which a surface that re-renders when the version
+ * lands can act on. A one-shot decision cannot: it would take the "no such
+ * routes" path and never look again. Such callers wait for `versionKnown`
+ * before reading `supported`.
+ */
+export function useDefaultProviderSettingsSupport(
+  assistantId: string | null | undefined,
+): DefaultProviderSettingsSupport {
+  return {
+    supported: useAssistantScopedSupports(MIN_VERSION, assistantId),
+    versionKnown: useAssistantVersionKnownFor(assistantId),
+  };
 }

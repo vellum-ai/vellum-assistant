@@ -37,6 +37,7 @@ import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalida
 import {
   configGetQueryKey,
   configLlmCallsitesGetQueryKey,
+  configLlmDefaultproviderGetQueryKey,
   identityGetQueryKey,
   inferenceProfilesGetQueryKey,
   schedulesGetQueryKey,
@@ -134,6 +135,12 @@ export function useAssistantResourceSync(
               // change it. Surfaces treat that winner as authoritative.
               void queryClient.invalidateQueries({
                 queryKey: configLlmCallsitesGetQueryKey(pathOpts),
+              });
+              // The default provider and its availability live in config too,
+              // so the Providers list's Default badge and the "no API key"
+              // notice both go stale on a config write from any client.
+              void queryClient.invalidateQueries({
+                queryKey: configLlmDefaultproviderGetQueryKey(pathOpts),
               });
               // Memory availability is derived from config (`memory.enabled`,
               // `memory.v3.live`), so a config write on any client can change
@@ -298,6 +305,10 @@ function refreshAssistantResources(
   });
   void queryClient.invalidateQueries({
     queryKey: configGetQueryKey(pathOpts),
+    refetchType,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: configLlmDefaultproviderGetQueryKey(pathOpts),
     refetchType,
   });
   invalidateAvatarQueries(queryClient, assistantId, refetchType);

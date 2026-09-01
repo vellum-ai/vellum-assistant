@@ -385,6 +385,13 @@
     "providerLabel": "Провайдер",
     "unavailableOption": "{name} (недоступно)"
   },
+  "chatgptDefaultProviderStep": {
+    "applied": "Теперь ChatGPT используется в чате по умолчанию.",
+    "applying": "ChatGPT назначается провайдером по умолчанию...",
+    "done": "Готово",
+    "offerHint": "Чат по-прежнему использует текущего провайдера по умолчанию.",
+    "useForChat": "Использовать ChatGPT для чата"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Вам или администратору команды может потребоваться включить авторизацию по коду устройства <settingsLink>в настройках ChatGPT</settingsLink>.",
     "connected": "Подписка ChatGPT успешно подключена.",

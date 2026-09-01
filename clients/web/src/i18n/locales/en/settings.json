@@ -397,6 +397,13 @@
     "providerLabel": "Provider",
     "unavailableOption": "{name} (unavailable)"
   },
+  "chatgptDefaultProviderStep": {
+    "applied": "ChatGPT is now your default provider for chat.",
+    "applying": "Making ChatGPT your default provider...",
+    "done": "Done",
+    "offerHint": "Chat still uses your current default provider.",
+    "useForChat": "Use ChatGPT for chat"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "You or your team administrator may need to enable device code authorization <settingsLink>in ChatGPT settings</settingsLink>.",
     "connected": "ChatGPT subscription connected successfully.",
