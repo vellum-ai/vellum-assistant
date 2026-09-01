@@ -13,5 +13,6 @@ await runIsolatedTests({
     "../../packages/electron-desktop/src/native-auth.test.ts",
     "../../packages/electron-desktop/src/session-token-store.test.ts",
     "../../packages/electron-desktop/src/workos-pkce.test.ts",
+    "../../packages/ipc-contract/src/schemas.test.ts",
   ],
 });
