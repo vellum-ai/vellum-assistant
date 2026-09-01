@@ -68,6 +68,12 @@ export interface AppIconPreviewProps {
    * leave this off and take their own entry in the span table.
    */
   primary?: boolean;
+  /**
+   * Paint the field this exact color rather than the one `color` resolves to,
+   * for a depiction whose field is not a catalog color at all. The shells that
+   * ship a primary icon on their own field use it; alternates leave it off.
+   */
+  fieldColorHex?: string;
   /** Rendered width and height in px. */
   size?: number;
   className?: string;
@@ -125,6 +131,7 @@ export function AppIconPreview({
   eyeStyle,
   color,
   primary = false,
+  fieldColorHex,
   size = DEFAULT_SIZE,
   className,
 }: AppIconPreviewProps) {
@@ -132,7 +139,10 @@ export function AppIconPreview({
     () => resolveEyeArt(components, eyeStyle, size, primary),
     [components, eyeStyle, size, primary],
   );
-  const fieldHex = components?.colors.find((entry) => entry.id === color)?.hex;
+  const catalogHex = components?.colors.find(
+    (entry) => entry.id === color,
+  )?.hex;
+  const fieldHex = fieldColorHex ?? catalogHex;
   const radius = size * CORNER_RADIUS_FRACTION;
 
   return (

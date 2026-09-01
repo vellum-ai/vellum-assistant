@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import { createElement } from "react";
 
+import { APP_ICON_GROUNDS } from "@/components/ios-widget-previews/vellum-app-icon-mark";
 import { appIconNameForTraits } from "@/utils/avatar-app-icon";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { tightPathBBox, unionBBox } from "@/utils/eye-bbox";
@@ -173,6 +174,13 @@ function previewEyeWidth(): number {
   return bounds.w * scale;
 }
 
+/**
+ * Build environment the row reads its primary icon's ground from. Readonly at
+ * the type level only; the underlying object is writable at runtime.
+ */
+const buildEnv = import.meta.env as Record<string, string | undefined>;
+let previousBuildEnv: string | undefined;
+
 function catalogPaths(eyeStyleId: string): (string | null)[] {
   const eyeStyle = BUNDLED_COMPONENTS.eyeStyles.find(
     (entry) => entry.id === eyeStyleId,
@@ -189,6 +197,10 @@ async function renderRow() {
 }
 
 beforeEach(() => {
+  // The default thumbnail follows the shell it runs in, so every test that is
+  // not about that has to name one.
+  previousBuildEnv = buildEnv.VITE_SENTRY_ENVIRONMENT;
+  buildEnv.VITE_SENTRY_ENVIRONMENT = "production";
   avatarState = CHARACTER;
   nativeIOS = true;
   swapSucceeds = true;
@@ -199,6 +211,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  buildEnv.VITE_SENTRY_ENVIRONMENT = previousBuildEnv;
   cleanup();
   getAppIconState.mockClear();
   setAppIcon.mockClear();
@@ -256,6 +269,62 @@ describe("AppIconRow", () => {
     });
     expect(previewFill()).toBe(hexFor("teal"));
     expect(previewEyePaths()).toEqual(catalogPaths("goofy"));
+  });
+
+  // Every shell ships its own primary icon and they do not share a field, so
+  // the thumbnail standing in for one has to name the shell it is running in
+  // rather than the color the production bundle happens to use.
+  describe("the default thumbnail follows the shell", () => {
+    test("draws the Dev shell's pink field", async () => {
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "dev";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+      expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+      expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
+    });
+
+    test("draws the Staging shell's yellow field", async () => {
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "staging";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+      expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+      expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
+    });
+
+    test("draws the Dev field for a local build, which runs App Dev", async () => {
+      delete buildEnv.VITE_SENTRY_ENVIRONMENT;
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+      expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+    });
+
+    test("leaves an applied alternate in its own color off production", async () => {
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "dev";
+      iconState = {
+        supported: true,
+        current: AVATAR_ICON,
+        available: ALL_ICONS,
+      };
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+      expect(previewFill()).toBe(hexFor("teal"));
+    });
   });
 
   test("frames the default icon the way the primary asset frames it", async () => {

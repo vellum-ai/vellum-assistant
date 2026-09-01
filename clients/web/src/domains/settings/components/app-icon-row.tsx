@@ -13,6 +13,7 @@
 import { useState } from "react";
 
 import { AppIconPreview } from "@/components/avatar/app-icon-preview";
+import { APP_ICON_GROUNDS } from "@/components/ios-widget-previews/vellum-app-icon-mark";
 import { AppIconModal } from "@/domains/settings/components/app-icon-modal";
 import { useAppIconSync, type AppIconSync } from "@/hooks/use-app-icon-sync";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -27,6 +28,34 @@ import { Button } from "@vellumai/design-library/components/button";
 
 /** Size of the row's thumbnail, sitting beside a single-line control. */
 const ROW_PREVIEW_SIZE = 32;
+
+/**
+ * Ground the primary icon is drawn on in the shells that do not ship the
+ * production one, keyed by `VITE_SENTRY_ENVIRONMENT`.
+ *
+ * Vellum Dev draws its icon on pink and Vellum Staging on yellow
+ * (`clients/ios/App/App/AppIcon-Dev.icon` and `AppIcon-Staging.icon`), so a
+ * thumbnail standing in for "no alternate applied" follows the shell it is
+ * running in or it depicts an icon that is on nobody's home screen. The
+ * grounds themselves are the ones {@link APP_ICON_GROUNDS} already carries for
+ * the widget previews, which is where the Icon Composer fills are converted.
+ *
+ * An unset value is a local build, which `clients/ios/README.md` runs on the
+ * App Dev scheme, so it takes the same pink. Production is absent: the catalog
+ * green {@link DEFAULT_APP_ICON_TRAITS} names is already that shell's ground.
+ */
+const PRIMARY_ICON_GROUND: Record<string, string> = {
+  local: APP_ICON_GROUNDS.dev,
+  dev: APP_ICON_GROUNDS.dev,
+  staging: APP_ICON_GROUNDS.staging,
+};
+
+/** Ground the running shell's primary icon carries, undefined on production. */
+function primaryIconGround(): string | undefined {
+  return PRIMARY_ICON_GROUND[
+    import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local"
+  ];
+}
 
 export function AppIconRow() {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -62,6 +91,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
   // icon, which frames its pair on the default span whatever style it draws.
   const appliedTraits = traitsForAppIconName(sync.currentIcon);
   const traits = appliedTraits ?? DEFAULT_APP_ICON_TRAITS;
+  const isPrimary = appliedTraits === null;
 
   return (
     <>
@@ -79,7 +109,8 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
             components={catalog}
             eyeStyle={traits.eyeStyle}
             color={traits.color}
-            primary={appliedTraits === null}
+            primary={isPrimary}
+            fieldColorHex={isPrimary ? primaryIconGround() : undefined}
             size={ROW_PREVIEW_SIZE}
           />
           <Button variant="outlined" onClick={() => setOpen(true)}>
