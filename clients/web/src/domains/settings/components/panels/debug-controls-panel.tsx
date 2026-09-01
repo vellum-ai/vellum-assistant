@@ -92,7 +92,7 @@ export function DebugControlsPanel() {
               <p className="text-body-medium-default text-[var(--content-default)]">
                 {t("debugControlsPanel.restartTitle")}
               </p>
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                 {t("debugControlsPanel.restartDescription")}
               </p>
             </div>
@@ -116,7 +116,7 @@ export function DebugControlsPanel() {
                 <p className="text-body-medium-default text-[var(--content-default)]">
                   {t("debugControlsPanel.replayTitle")}
                 </p>
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                   {t("debugControlsPanel.replayDescription")}
                 </p>
               </div>

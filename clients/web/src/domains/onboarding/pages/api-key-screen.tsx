@@ -186,7 +186,7 @@ export function ApiKeyScreen() {
                   onChange={(e) => setCustomModels(e.target.value)}
                   fullWidth
                 />
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                   {t("apiKeyScreen.modelsHelp")}
                 </p>
               </div>

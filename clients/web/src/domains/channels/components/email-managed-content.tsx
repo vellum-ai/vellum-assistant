@@ -413,7 +413,7 @@ export function EmailManagedContent({
           )}
           error={subdomainError}
         />
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
+        <p className="text-body-small-lighter text-[var(--content-tertiary)]">
           {t("emailManagedContent.subdomainHint")}
         </p>
         <Button

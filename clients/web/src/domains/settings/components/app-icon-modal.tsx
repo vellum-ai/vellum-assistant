@@ -207,13 +207,13 @@ export function AppIconModal({
             </Button>
           ) : null}
 
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
+          <p className="text-body-small-lighter text-[var(--content-tertiary)]">
             {t("appIcon.note")}
           </p>
           {failed ? (
             <p
               role="alert"
-              className="text-body-small-default text-[color:var(--content-negative)]"
+              className="text-body-small-lighter text-[color:var(--content-negative)]"
             >
               {t("appIcon.error")}
             </p>

@@ -239,7 +239,7 @@ function SpeechServicesBanner() {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
+    <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-lighter text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
       <span>{t("voicePage.speechServicesBannerPrompt")}</span>
       <Link
@@ -746,7 +746,7 @@ function VoiceModeShortcutCard() {
               recommended binding, so saying nothing would leave the user
               pressing a key that cannot fire. */}
           {isFnVoiceModeActivator(activator) && fnRefused && (
-            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
+            <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--system-negative-strong)]">
               <Info className="mt-0.5 h-3 w-3 shrink-0" />
               <span>{t("voicePage.fnRefusedNote")}</span>
             </div>
@@ -830,14 +830,14 @@ function VoiceModeShortcutCard() {
             </div>
 
             {showChordHint && (
-              <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
+              <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{t("voicePage.shortcutChordHint")}</span>
               </div>
             )}
 
             {shortcutEnabled && (
-              <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
+              <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{t("voicePage.focusedTabNote")}</span>
               </div>

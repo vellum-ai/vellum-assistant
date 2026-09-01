@@ -172,7 +172,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
           <div className="text-body-medium-lighter text-[var(--content-default)]">
             {t("appIcon.title")}
           </div>
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
+          <p className="text-body-small-lighter text-[var(--content-tertiary)]">
             {t("appIcon.description")}
           </p>
         </div>

@@ -45,7 +45,7 @@ export function ConceptGraphIntroBanner({
           {t("conceptGraphIntroBanner.title")}
         </p>
         <p
-          className="mt-0.5 text-body-small-default"
+          className="mt-0.5 text-body-small-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
           {t("conceptGraphIntroBanner.description")}
