@@ -1461,6 +1461,7 @@
     "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
     "providerCountMeta": "{count, plural, one {# provider} other {# providers}}",
     "providerLabel": "Provider",
+    "recommendedMeta": "Recommended",
     "seeMore": "See more",
     "setUpTag": "Set up",
     "signInTag": "Sign in",

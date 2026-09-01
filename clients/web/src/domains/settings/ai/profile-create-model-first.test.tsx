@@ -883,3 +883,46 @@ describe("the custom model id path", () => {
     expect(getSaveBtn().disabled).toBe(true);
   });
 });
+
+/** The provider-first flow's dropdown trigger, which the flag hides. */
+function providerFirstTrigger(): HTMLButtonElement {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
+  );
+  if (!trigger) {
+    throw new Error("expected the provider-first Provider dropdown");
+  }
+  return trigger;
+}
+
+describe("the managed route's annotation", () => {
+  test("reads Recommended here, and stays Managed in the provider-first picker", () => {
+    renderCreate([
+      makeConnection("vellum-managed", "vellum"),
+      makeConnection("anthropic-personal"),
+    ]);
+
+    // A custom id is served by every route, which is where the managed route
+    // stands beside another and the annotation is drawn at all.
+    selectModel("Enter a custom model ID…");
+    fireEvent.change(getInputByPlaceholder("provider/model-id"), {
+      target: { value: "someone/new-model" },
+    });
+
+    const vellum = candidateCard("vellum");
+    expect(vellum.textContent).toContain("Recommended");
+    expect(vellum.textContent).not.toContain("Managed");
+
+    // The shared encoding keeps its own word wherever the provider is the
+    // question, so the two flows cannot be quietly unified.
+    cleanup();
+    setModelFirstFlag(false);
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    fireEvent.click(providerFirstTrigger());
+
+    const managed = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => optionLabel(option) === "Vellum");
+    expect(managed?.textContent).toContain("Managed");
+  });
+});

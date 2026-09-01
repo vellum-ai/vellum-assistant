@@ -15,7 +15,10 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import { CHATGPT_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
+import {
+  CHATGPT_CONNECTION_PROVIDER,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
 import {
   collapseSectionRows,
   customModelProviderCandidates,
@@ -634,6 +637,7 @@ function ProviderStep({
           >
             {candidates.map((candidate) => {
               const selected = candidate.value === selectedCandidate?.value;
+              const meta = candidateMeta(candidate, t);
               return (
                 <div
                   key={candidate.value}
@@ -651,9 +655,7 @@ function ProviderStep({
                       label={
                         <span className="flex items-center gap-2">
                           <span>{candidate.label}</span>
-                          {candidate.meta ? (
-                            <PickerMeta text={candidate.meta} />
-                          ) : null}
+                          {meta ? <PickerMeta text={meta} /> : null}
                         </span>
                       }
                     />
@@ -679,6 +681,23 @@ function ProviderStep({
       ) : null}
     </div>
   );
+}
+
+/**
+ * The row's annotation as this flow says it. The shared picker encoding calls
+ * the Vellum route "Managed", which is what the provider-first picker and the
+ * Providers section keep saying; a person choosing a model first is being
+ * pointed at a route rather than told how it is run, so here the same row
+ * reads "Recommended". Every other annotation passes through untouched.
+ */
+function candidateMeta(
+  candidate: ProviderCandidate,
+  t: TFunction<"settings">,
+): string | undefined {
+  if (candidate.meta && candidate.provider === VELLUM_CONNECTION_PROVIDER) {
+    return t("profileCreateModelFirst.recommendedMeta");
+  }
+  return candidate.meta;
 }
 
 /** What an unconnected route still needs, as the tag and the action say it. */
