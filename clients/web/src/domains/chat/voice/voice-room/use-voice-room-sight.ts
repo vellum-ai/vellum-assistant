@@ -74,11 +74,12 @@ import {
   useVisionModeVariant,
 } from "@/hooks/use-vision-mode-flag";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
+import { type FrameGate, createFrameGate } from "@/lib/camera/frame-gate";
 import {
-  DEFAULT_FRAME_GATE_OPTIONS,
-  type FrameGate,
-  createFrameGate,
-} from "@/lib/camera/frame-gate";
+  FRAME_GATE_LIVE_OPTIONS,
+  recordFrameGateDecision,
+  recordFrameGateKeep,
+} from "@/lib/camera/frame-gate-debug";
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -550,6 +551,7 @@ export function useVoiceRoomSight(
         if (!frame) {
           return;
         }
+        recordFrameGateKeep("voice", frame);
 
         // The same preparation a pasted image gets, for the same reason the
         // shutter does it: a high-resolution track behaves like every other
@@ -637,12 +639,17 @@ export function useVoiceRoomSight(
     // `active`, which a capture in a torn-down loop still reads as the value of
     // the render it started in.
     captureConsentedRef.current = true;
-    const gate = createFrameGate(DEFAULT_FRAME_GATE_OPTIONS);
+    // The live options record rather than the defaults, so the tuning readout
+    // can move a threshold without this effect rebuilding the gate. A rebuild
+    // would clear the last-keep clock and fire an immediate keep, which on
+    // this surface is an upload and a persisted transcript message.
+    const gate = createFrameGate(FRAME_GATE_LIVE_OPTIONS);
     gate.reset(performance.now());
     gateRef.current = gate;
     const sampler = createFrameSampler({
       gate,
-      onDecision: (decision) => {
+      onDecision: (decision, nowMs) => {
+        recordFrameGateDecision("voice", decision, nowMs);
         if (!decision.keep) {
           return;
         }
