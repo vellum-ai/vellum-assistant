@@ -580,15 +580,15 @@ export function AssistantSideMenu({
           ref={setBodyElement}
           className={
             variant === "overlay"
-              ? /* pb-24 is a coarse floating-column reserve until the measured
-                 inline padding below is applied. The native-mobile reserve is
+              ? /* mb-24 is a coarse floating-column reserve until the measured
+                 inline margin below is applied. The native-mobile reserve is
                  the glyph row's own extent: it floats 1rem below the sheet's
                  top and stands 2.5rem tall. An icon-only Button carries a
                  40px touch target on a coarse pointer, not the 32px box the
                  mock draws. This scrollport starts one overlay inset down, so
                  2.75rem reaches the row's bottom edge, and the assistant
                  cluster's own top padding supplies the 1rem gap beneath it. */
-                `-mx-3 ${SIDEBAR_STACK_GAP} px-3 pb-24 native-mobile:pt-11 ${NATIVE_MOBILE_LIST_TOP_FADE}`
+                `-mx-3 ${SIDEBAR_STACK_GAP} mb-24 px-3 native-mobile:pt-11 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The top inset is the same stack gap: the header closes
                    with no rule, so without it the first card (or the
                    collapsed rail's first group icon) butts against the
@@ -602,9 +602,17 @@ export function AssistantSideMenu({
                      body's own box stops one overlay inset short of that same
                      edge. Reserving the column's height plus both 1rem steps,
                      less the inset the body already has, leaves exactly the
-                     second step as clearance under the last row. */
+                     second step as clearance under the last row.
+
+                     A margin rather than padding: the reserve has to end the
+                     scrollport, not sit inside it. Padding is part of the
+                     scrollable box, so a card taller than the drawer drew its
+                     rows through the column and the pills read as floating on
+                     the Chats card instead of on the sheet. Ending the
+                     scrollport above the column clips those rows at the band
+                     instead, and the last one still scrolls into view. */
                   "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
-                  paddingBottom:
+                  marginBottom:
                     "calc(var(--overlay-bottom-column-h) + 2rem - var(--side-menu-inset) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
                 } as CSSProperties)
               : undefined

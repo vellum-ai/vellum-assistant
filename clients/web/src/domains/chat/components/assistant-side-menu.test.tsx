@@ -712,11 +712,23 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     return html.slice(open, close + 1);
   };
 
-  test("rail body reserves no bottom padding", () => {
+  test("rail body reserves nothing under its list", () => {
     const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
 
+    expect(tag).not.toContain("mb-24");
+    expect(tag).not.toContain("margin-bottom");
+  });
+
+  test("the overlay reserve ends the scrollport rather than padding it", () => {
+    // A margin, not padding: padding belongs to the scrollable box, so a
+    // card taller than the drawer drew its rows through the floating
+    // column instead of being clipped above it.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("mb-24");
     expect(tag).not.toContain("pb-24");
-    expect(tag).not.toContain("padding-bottom");
   });
 
   test("reserves the measured floating-column height once mounted", async () => {
