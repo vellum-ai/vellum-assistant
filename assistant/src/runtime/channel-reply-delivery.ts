@@ -12,6 +12,7 @@ import {
   getMessages,
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { recordOutboundPost } from "../persistence/delivery-crud.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
@@ -393,8 +394,8 @@ async function deliverPersistedAssistantMessageViaCallback(
   // The assistant row is written BEFORE the gateway POST, so its pre-send
   // envelope names no id of its own: a Slack row's partial `slackMeta` lacks
   // `channelTs` and reads as null through `readSlackMetadata`, and a
-  // neutral-envelope row lacks the `messageId` a later reaction
-  // naming it resolves by. A reply split into several segments reports one
+  // neutral-envelope row lacks the `messageId` a later reaction or
+  // delete naming it resolves by. A reply split into several segments reports one
   // id per posted provider message, all reconciled onto this one row; see
   // `makeSentMessageIdReconciler` for the per-envelope rules.
   const reconcileOnMessageTs = makeSentMessageIdReconciler(msg.id);
@@ -501,33 +502,30 @@ export async function deliverReplyViaCallback(
  * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` plus
  * `additionalMessageIds` for a row carrying the neutral envelope (Discord
  * today, any transport whose delivery result reports the sent id). The
- * back-filled ids are what let a later reaction naming the
+ * back-filled ids are what let a later reaction or delete naming the
  * assistant's own post resolve back to this row.
  *
  * Behavior:
- * - A Slack row records the first ts that reaches a durable write:
- *   `channelTs` is the one id its envelope names, and once it is present the
- *   strict-reader check below makes every later invocation a no-op, so
- *   later split segments (independent Slack messages the row cannot carry)
- *   never overwrite it, while a failed first write leaves the next
- *   invocation free to stamp instead of forfeiting the field forever.
+ * - A Slack row keeps the first ts that reaches a durable write. `channelTs`
+ *   is the one id its envelope names, so once it is present the strict-reader
+ *   check below makes every later invocation a no-op and the split reply's
+ *   later segments, which are independent Slack messages, cannot overwrite it.
  * - A neutral-envelope row records every reported id: the first as
  *   `messageId`, the rest under `additionalMessageIds`, all naming this
  *   same row. An id already recorded (a redelivery) is skipped.
  * - No-op when the row was persisted with neither envelope (e.g. vellum
  *   outbound).
- * - The metadata write retries transient SQLite contention
- *   (`withSqliteRetry`): this is the only durable record of the sent
- *   message's id, with no later sweep to heal a miss once the event is
- *   marked delivered. Remaining failures are logged and swallowed so a DB
- *   error cannot break the outbound delivery itself.
+ * - Every write retries transient SQLite contention (`withSqliteRetry`),
+ *   because this is the only durable record of the sent message's id and
+ *   nothing revisits it once the event is marked delivered. Remaining
+ *   failures are logged and swallowed so a DB error cannot break the
+ *   outbound delivery itself.
  */
 function makeSentMessageIdReconciler(
   messageId: string,
 ): (ts: string) => Promise<void> {
-  // Set only once a Slack stamp has actually committed, never on merely
-  // having attempted one. A latch raised before the write is what turns a
-  // single lost write into a permanently unstamped row.
+  // Rises only once a Slack stamp has committed, so a write that fails
+  // leaves the next segment's ts free to stamp the row.
   let slackStamped = false;
   return async (ts: string): Promise<void> => {
     if (!ts) {
@@ -554,7 +552,12 @@ function makeSentMessageIdReconciler(
       const slackMetaRaw =
         typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
       if (slackMetaRaw === null) {
-        await reconcileProviderMessageId(messageId, envelope, ts);
+        await reconcileProviderMessageId(
+          messageId,
+          row.conversationId,
+          envelope,
+          ts,
+        );
         return;
       }
       // A Slack row names one id, so a stamp this delivery already committed
@@ -617,6 +620,7 @@ function makeSentMessageIdReconciler(
  */
 async function reconcileProviderMessageId(
   messageId: string,
+  conversationId: string,
   envelope: Record<string, unknown>,
   ts: string,
 ): Promise<void> {
@@ -624,6 +628,24 @@ async function reconcileProviderMessageId(
   if (providerMeta === null) {
     return;
   }
+  // Every reported id lands in the `channel_outbound_posts` index (the
+  // resolution contract) as well as on the envelope (the row's
+  // self-description). One writer for both, so they cannot drift; the
+  // insert is conflict-ignoring, so a redelivered id is a no-op there too.
+  // It retries contention on the same grounds as the envelope writes below:
+  // the index is the only record a later reaction or delete resolves
+  // through, and nothing revisits this id once delivery settles.
+  await withSqliteRetry(
+    () =>
+      recordOutboundPost({
+        sourceChannel: providerMeta.source,
+        externalChatId: providerMeta.conversationExternalId,
+        providerMessageId: ts,
+        messageId,
+        conversationId,
+      }),
+    { op: "record_outbound_post", context: { messageId } },
+  );
   if (providerMeta.messageId === undefined) {
     await withSqliteRetry(
       () =>

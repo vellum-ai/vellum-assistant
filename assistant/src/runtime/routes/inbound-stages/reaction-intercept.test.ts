@@ -90,9 +90,14 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     };
   },
   findMessageBySourceId: () => storedTarget,
-  findConversationByProviderMessageId: (sourceChannel: string) => {
+  findMessageByProviderMessageId: (sourceChannel: string) => {
     outboundLookupChannels.push(sourceChannel);
-    return outboundTargetConversationId;
+    return outboundTargetConversationId
+      ? {
+          messageId: "outbound-row-1",
+          conversationId: outboundTargetConversationId,
+        }
+      : null;
   },
   findInboundEvent: () => recordedEvent,
   clearPayload: () => {},
