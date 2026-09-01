@@ -1,9 +1,7 @@
 /**
  * ChatAvatar matches ChooserAvatarChip on unknown trait ids: a sidecar that
  * names a body, eyes, or color the served palette does not carry is not a
- * character. The identity page and chat transcript both render this component,
- * so an uncaught compositor throw becomes the full-page "Something went wrong"
- * boundary.
+ * character. The identity page and chat transcript both render this component.
  *
  * bun test src/components/avatar/chat-avatar.test.tsx
  */
@@ -55,6 +53,23 @@ describe("ChatAvatar", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
       "https://example.test/a.png",
     );
+  });
+
+  test("retired body shape stout-pour falls through instead of throwing", () => {
+    const { container } = render(
+      <ChatAvatar
+        components={BUNDLED_COMPONENTS}
+        traits={{
+          bodyShape: "stout-pour",
+          eyeStyle: TRAITS.eyeStyle,
+          color: TRAITS.color,
+        }}
+        customImageUrl={null}
+        size={56}
+      />,
+    );
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.textContent).toBe("V");
   });
 
   test("unknown trait ids with no image render the letter fallback", () => {

@@ -54,7 +54,7 @@ const DEMO_CALL: VoiceActivityState = {
  * is a pure function of constants.
  */
 const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
-  composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128),
+  composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128) ?? "",
 )}`;
 
 /**

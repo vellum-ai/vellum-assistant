@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { CharacterComponents } from "@/types/avatar";
-import { composeSvg } from "@/utils/avatar-svg-compositor";
+import { composeSvg, resolveDefinitions } from "@/utils/avatar-svg-compositor";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -66,9 +66,20 @@ describe("composeSvg eye style handling", () => {
     expect(withEyes).toContain(bodyPath);
   });
 
-  test("still throws for a present-but-unknown eye style id", () => {
-    expect(() => composeSvg(components, "blob", "nope", "green", 64)).toThrow(
-      'Unknown eye style: "nope"',
-    );
+  test("returns null for a present-but-unknown eye style id", () => {
+    expect(composeSvg(components, "blob", "nope", "green", 64)).toBeNull();
+  });
+
+  test("returns null for an unknown body shape id", () => {
+    expect(
+      composeSvg(components, "stout-pour", "grumpy", "green", 64),
+    ).toBeNull();
+    expect(
+      resolveDefinitions(components, "stout-pour", "grumpy", "green"),
+    ).toBeNull();
+  });
+
+  test("returns null for an unknown color id", () => {
+    expect(composeSvg(components, "blob", "grumpy", "nope", 64)).toBeNull();
   });
 });

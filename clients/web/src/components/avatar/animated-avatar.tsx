@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
 import {
-  canResolveDefinitions,
   computeTransforms,
   resolveDefinitions,
 } from "@/utils/avatar-svg-compositor";
 import type {
+  BodyShapeDefinition,
   CharacterComponents,
   CharacterTraits,
+  ColorDefinition,
   EyePathDefinition,
+  EyeStyleDefinition,
 } from "@/types/avatar";
 
 interface AnimatedAvatarProps {
@@ -130,41 +132,47 @@ function precomputeWobbledPaths(
  *
  * All animations respect `prefers-reduced-motion`.
  *
- * Trait ids missing from `components` render nothing. The compositor throws
- * on unknown ids, and this page-level avatar is mounted on identity and
- * chat, so an uncaught throw is a full-route crash.
+ * Trait ids missing from `components` render nothing. Unknown ids are a
+ * fallback, not an exception: this avatar is mounted on identity and chat.
  */
 export function AnimatedAvatar(props: AnimatedAvatarProps) {
   const { components, traits } = props;
-  if (
-    !canResolveDefinitions(
-      components,
-      traits.bodyShape,
-      traits.eyeStyle,
-      traits.color,
-    )
-  ) {
-    return null;
-  }
-  return <AnimatedAvatarResolved {...props} />;
-}
-
-function AnimatedAvatarResolved({
-  components,
-  traits,
-  size,
-  isAssistantBusy = false,
-  attentive = false,
-  breathe = true,
-}: AnimatedAvatarProps) {
-  const reduce = useReducedMotion();
-
-  const { bodyShape, eyeStyle, color } = resolveDefinitions(
+  const resolved = resolveDefinitions(
     components,
     traits.bodyShape,
     traits.eyeStyle,
     traits.color,
   );
+  if (!resolved || !resolved.eyeStyle) {
+    return null;
+  }
+  return (
+    <AnimatedAvatarResolved
+      {...props}
+      bodyShape={resolved.bodyShape}
+      eyeStyle={resolved.eyeStyle}
+      color={resolved.color}
+    />
+  );
+}
+
+interface AnimatedAvatarResolvedProps extends AnimatedAvatarProps {
+  bodyShape: BodyShapeDefinition;
+  eyeStyle: EyeStyleDefinition;
+  color: ColorDefinition;
+}
+
+function AnimatedAvatarResolved({
+  components,
+  size,
+  isAssistantBusy = false,
+  attentive = false,
+  breathe = true,
+  bodyShape,
+  eyeStyle,
+  color,
+}: AnimatedAvatarResolvedProps) {
+  const reduce = useReducedMotion();
   const { bodyTransform, eyeTransform } = computeTransforms(
     bodyShape,
     eyeStyle,

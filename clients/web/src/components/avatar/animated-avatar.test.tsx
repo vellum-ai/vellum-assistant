@@ -186,4 +186,21 @@ describe("AnimatedAvatar streaming morph", () => {
     expect(container.querySelector("svg")).toBeNull();
     expect(container.innerHTML).toBe("");
   });
+
+  test("retired body shape stout-pour renders nothing instead of throwing", () => {
+    const { container } = render(
+      <AnimatedAvatar
+        components={BUNDLED_COMPONENTS}
+        traits={{
+          bodyShape: "stout-pour",
+          eyeStyle: "grumpy",
+          color: "green",
+        }}
+        size={56}
+      />,
+    );
+
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.innerHTML).toBe("");
+  });
 });
