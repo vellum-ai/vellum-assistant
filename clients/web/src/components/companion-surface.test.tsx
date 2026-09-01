@@ -1785,6 +1785,80 @@ describe("the avatar's resting collapse", () => {
     expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
   });
 
+  /**
+   * The words are the point of the state. A speaker dictating into another
+   * application cannot see what landed there yet, and this is the only surface
+   * telling them anything.
+   */
+  test("draws the words once there are any", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="dictating"
+        dictating="listening"
+        dictationText="the quick brown fox"
+      />,
+    );
+
+    expect(container.textContent).toContain("the quick brown fox");
+  });
+
+  /** Until then the status word stands in, rather than an empty line. */
+  test("falls back to the status word with nothing recognised yet", () => {
+    const { container } = render(
+      <CompanionSurface phase="dictating" dictating="listening" />,
+    );
+
+    expect(container.textContent).toContain("Listening");
+  });
+
+  test("says it is thinking once the keys are up", () => {
+    const { container } = render(
+      <CompanionSurface phase="dictating" dictating="transcribing" />,
+    );
+
+    expect(container.textContent).toContain("Thinking");
+  });
+
+  /**
+   * A line that filled from the left would freeze on the opening words and
+   * leave the speaker watching the part they are least unsure of. Laid out
+   * right to left so the overflow is at the beginning, with the run isolated
+   * so the words keep their own order.
+   */
+  test("clips the words from the front, not the end", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="dictating"
+        dictating="listening"
+        dictationText="a sentence long enough to run past the end of the pill"
+      />,
+    );
+
+    const words = container.querySelector<HTMLElement>("bdi");
+    expect(words).not.toBeNull();
+    const box = words?.parentElement;
+    expect(box?.style.direction).toBe("rtl");
+    expect(box?.className).toContain("overflow-hidden");
+  });
+
+  /**
+   * Every other body here is as wide as its content, and a sentence has no
+   * width to be as wide as. A stated ceiling is what keeps the pill inside the
+   * canvas main sized for it.
+   */
+  test("bounds the words rather than measuring them", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="dictating"
+        dictating="listening"
+        dictationText={"x".repeat(400)}
+      />,
+    );
+
+    const box = container.querySelector<HTMLElement>("bdi")?.parentElement;
+    expect(box?.style.maxWidth).toBe("244px");
+  });
+
   /** The creature fades with it rather than being cut, and comes back whole. */
   test("fades the creature out at rest and back in expanded", () => {
     const { container: resting } = render(<CompanionSurface phase="resting" />);

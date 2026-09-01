@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import {
   ASSISTANT_STATUSES,
+  COMPANION_DICTATION_TAIL,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
@@ -126,6 +127,11 @@ export const companionContextSchema = z.object({
   // claim a microphone is doing something, and absence is the only way to say
   // none is.
   dictating: z.enum(["listening", "transcribing"]).optional(),
+  // Defaulted rather than optional: a publisher with nothing recognised yet is
+  // reporting no words, and empty is the truthful reading of that. Bounded at
+  // the boundary as well as at the publisher, since the surface draws one line
+  // and the length is the only part of this a sender controls.
+  dictationText: z.string().max(COMPANION_DICTATION_TAIL).catch("").default(""),
 });
 
 // ---------------------------------------------------------------------------

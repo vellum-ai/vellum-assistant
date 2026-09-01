@@ -379,6 +379,9 @@ const currentState = (): CompanionSurfaceState => {
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
+    // Passed through as it arrived. Bounded by the publisher and again by the
+    // schema, so nothing here has to decide how much of it is too much.
+    dictationText: context.dictationText,
     // Read on every rebuild rather than captured once, because the evaluation
     // lands after launch: the app's window has to sign in and fetch it first,
     // and a targeting change can move it again while the app runs.

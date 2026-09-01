@@ -286,6 +286,21 @@ const RESTING_BOX = {
 export const INNER_GAP = 8;
 
 /**
+ * How wide the running dictation's words are allowed to draw.
+ *
+ * Stated rather than measured, unlike every other body on this surface. Those
+ * are rows of controls with a natural width; a sentence has none, and one
+ * allowed to ask for what it wants would run past the canvas main sized for
+ * the pill. What does not fit is clipped from the front, so the line stays
+ * full of the most recent words.
+ *
+ * Sized so the row it sits in lands inside
+ * {@link COMPANION_BASE_MAX_PILL_WIDTH}: the icon and its gap take 24, and the
+ * row's own clearance takes {@link INNER_GAP} at either end.
+ */
+const TRANSCRIPT_WIDTH = 244;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -326,9 +341,10 @@ export const FALLBACK_WIDTHS: Record<
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
   summary: 220,
-  // One status word beside the creature, which is all this state has to say:
-  // the gesture is the control, and it is already under the user's hand.
-  dictating: 132,
+  // The transcript at its widest, beside the icon and the row's own clearance.
+  // The words are drawn in a box of a stated width rather than measured, so
+  // this is the state's actual width rather than a guess at one.
+  dictating: TRANSCRIPT_WIDTH + 32,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
   call: 288,
@@ -648,6 +664,11 @@ export interface CompanionSurfaceProps {
    * {@link CompanionDictating}.
    */
   dictating?: CompanionDictating;
+  /**
+   * The words recognised so far in that dictation. See
+   * {@link CompanionContext.dictationText}.
+   */
+  dictationText?: string;
 }
 
 /**
@@ -726,6 +747,7 @@ export function CompanionSurface({
   captureCount = 0,
   watchEnabled = false,
   dictating,
+  dictationText = "",
   call,
   onControl,
   intro,
@@ -1005,7 +1027,10 @@ export function CompanionSurface({
                   onWatch={onWatch}
                 />
               ) : phase === "dictating" && dictating !== undefined ? (
-                <DictatingBody dictating={dictating} />
+                <DictatingBody
+                  dictating={dictating}
+                  dictationText={dictationText}
+                />
               ) : phase === "summary" && watchRetro !== undefined ? (
                 <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
               ) : (
@@ -1584,16 +1609,45 @@ function Avatar({
  * microphone open for dictation and one open for a conversation do not read as
  * different machines.
  */
-function DictatingBody({ dictating }: { dictating: CompanionDictating }) {
+function DictatingBody({
+  dictating,
+  dictationText,
+}: {
+  dictating: CompanionDictating;
+  dictationText: string;
+}) {
   const { t } = useTranslation();
+  const words = dictationText.trim();
   return (
     <div className="flex h-7 shrink-0 items-center gap-2 px-1">
       <AudioLines className="size-4 shrink-0" aria-hidden />
-      <span className="truncate text-[12px] text-white/85">
-        {dictating === "listening"
-          ? t("companionSurface.dictating")
-          : t("companionSurface.dictatingTranscribing")}
-      </span>
+      {words ? (
+        /* The end of the sentence, not the start of it.
+ 
+           A line that filled from the left would freeze on the opening words
+           and leave the speaker watching the part they are least unsure of. So
+           the box is laid out right to left, which puts the overflow at the
+           beginning, and the run inside is isolated so the words themselves
+           keep their own order and their punctuation stays where it was said.
+ 
+           Bounded rather than measured: every other state on this surface is
+           as wide as its content, and a sentence has no width to be as wide
+           as. The ceiling is what keeps the pill inside the canvas main sized
+           for it. */
+        <span
+          className="overflow-hidden text-left text-[12px] whitespace-nowrap text-white/85"
+          style={{ maxWidth: TRANSCRIPT_WIDTH, direction: "rtl" }}
+          aria-live="polite"
+        >
+          <bdi>{words}</bdi>
+        </span>
+      ) : (
+        <span className="truncate text-[12px] text-white/85">
+          {dictating === "listening"
+            ? t("companionSurface.dictating")
+            : t("companionSurface.dictatingTranscribing")}
+        </span>
+      )}
     </div>
   );
 }

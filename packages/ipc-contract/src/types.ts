@@ -1197,7 +1197,29 @@ export interface CompanionContext {
    * reading of a publisher that never mentions it.
    */
   dictating?: CompanionDictating;
+  /**
+   * The words recognised so far in that dictation, or empty before any are.
+   *
+   * The tail of them rather than all of them: this crosses a process boundary
+   * on every recognition result, and the surface draws one line of it, so the
+   * end is the part worth sending. {@link COMPANION_DICTATION_TAIL} is where
+   * that is cut.
+   *
+   * Revised as it arrives, since a recogniser rewrites its own guesses, which
+   * is why it is shown and not what gets inserted anywhere.
+   */
+  dictationText?: string;
 }
+
+/**
+ * How much of a running dictation the surface is given, in characters.
+ *
+ * The pill draws one line and clips what will not fit, so this is a bound on
+ * what crosses rather than on what is seen: enough that the line is always
+ * full, little enough that a long dictation does not grow the payload with
+ * every word.
+ */
+export const COMPANION_DICTATION_TAIL = 120;
 
 /**
  * How far a keyboard dictation has got, in the two states the user can act on.
@@ -1270,6 +1292,8 @@ export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 export interface CompanionSurfaceState {
   /** See {@link CompanionContext.dictating}. */
   dictating?: CompanionDictating;
+  /** See {@link CompanionContext.dictationText}. */
+  dictationText?: string;
   growth: CompanionGrowth;
   /**
    * Which way the typing card unfurls, and with it where the avatar sits inside
