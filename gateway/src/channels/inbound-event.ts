@@ -49,11 +49,10 @@ interface InboundEventBase<C extends InboundChannelId> {
      * Prefer the provider's own per-event id, which is what most channels
      * have: Telegram `update_id`, Slack `event_id`, a Discord message or
      * interaction snowflake, an email `Message-ID`. Where the provider names
-     * only the thing acted on and not the act, addressing fields alone
-     * (room, target message, actor, verb) repeat byte for byte on the second
-     * occurrence and silently dedup it away. Reactions are that case on both
-     * Slack and Discord: each carries a per-event component for exactly this
-     * reason.
+     * only the thing acted on and not the act, addressing fields alone (room,
+     * target message, actor, verb) repeat byte for byte on the second
+     * occurrence and dedup it away, so the normalizer supplies a per-event
+     * component of its own. Both reaction families are that case.
      */
     externalMessageId: string;
     /** The named event family. Producers stamp it on every event; the

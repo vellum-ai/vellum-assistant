@@ -631,11 +631,8 @@ describe("normalizeSlackReactionRemoved", () => {
   });
 
   it("add, remove and re-add are three events, not two", () => {
-    // The bug this shape exists to catch: the addressing parts repeat byte
-    // for byte on the re-add, so without Slack's `event_id` the daemon reads
-    // it as a redelivery of the first add and records nothing. The removal
-    // then stays the last recorded state forever and the reaction is
-    // invisible in the transcript from then on, permanently.
+    // Three acts, three ids. The addressing parts are identical across all
+    // three, so `event_id` is the only thing separating them.
     const config = makeConfig();
     const ids = [
       normalizeSlackReactionAdded(makeReactionAddedEvent(), "Ev001", config),
@@ -651,9 +648,8 @@ describe("normalizeSlackReactionRemoved", () => {
   });
 
   it("a redelivered event keeps its id, so redelivery still dedups", () => {
-    // The other half of the contract. Slack re-sends the same event payload,
-    // `event_id` and all, so the two normalize to one id and the daemon
-    // collapses them, which is what the dedup id is for.
+    // The other half of the contract: Slack re-sends the same event payload,
+    // `event_id` and all, so the two normalize to one id.
     const config = makeConfig();
     const first = normalizeSlackReactionAdded(
       makeReactionAddedEvent(),

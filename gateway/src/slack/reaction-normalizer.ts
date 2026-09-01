@@ -37,17 +37,11 @@ function normalizeSlackReaction(
   const routing = resolveAssistant(config, channel, event.user);
   if (isRejection(routing)) return null;
 
-  // Slack's `event_id` is what makes this id name one event rather than one
-  // kind of event. The addressing parts (channel, message ts, emoji, reactor,
-  // op) are stable across every occurrence of the same person re-adding the
-  // same emoji, so on their own they collapse a re-add into the first add:
-  // `recordInbound` answers `duplicate`, the intercept returns before writing
-  // a transcript row, and the removal stays the last recorded state forever.
-  // The event id is the one component that differs per occurrence while still
-  // repeating on a genuine redelivery. Slack calls it "a unique identifier
-  // for this specific event, globally unique across all workspaces", and a
-  // re-sent envelope carries the same one, which is why `socket-mode.ts`
-  // already keys its own in-process dedup on it.
+  // The addressing parts (channel, message ts, emoji, reactor, op) name a
+  // reaction, not one occurrence of one: they repeat byte for byte each time
+  // the same person re-adds the same emoji. `event_id` is the component that
+  // separates the occurrences and still repeats on a redelivery, which is why
+  // `socket-mode.ts` keys its own dedup on it too.
   const externalMessageId =
     op === "added"
       ? `${channel}:${event.item.ts}:${event.reaction}:${event.user}:${eventId}`

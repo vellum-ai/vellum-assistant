@@ -713,11 +713,10 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
 /**
  * Add, remove, re-add: the sequence whose third event must survive dedup.
  *
- * The dedup id is what decides whether the third event exists at all: the
- * intercept returns before `persistPassively` on a duplicate, so a re-add
- * that collides with the first add writes no transcript row, leaving the
- * removal as the last recorded state. The ids here are the shapes the
- * gateway normalizers build (`slack/reaction-normalizer.ts`,
+ * The intercept returns before `persistPassively` on a duplicate, so an id
+ * that repeats across occurrences costs the re-add its transcript row and
+ * leaves the removal as the last recorded state. The ids here are the shapes
+ * the gateway normalizers build (`slack/reaction-normalizer.ts`,
  * `discord/normalize.ts`), whose per-event component is the trailing segment.
  */
 describe("a re-added reaction records again", () => {
@@ -785,9 +784,8 @@ describe("a re-added reaction records again", () => {
   });
 
   test("a genuine redelivery of one event still collapses to one", async () => {
-    // What the dedup id is for, and what the fix must not cost: the gateway
-    // retries a forward with the same payload, so the same id arrives twice
-    // and the second arrival must write nothing.
+    // What the dedup id is for: the gateway retries a forward with the same
+    // payload, so the same id arrives twice and the second writes nothing.
     const [first, second] = await replay(
       [SLACK_IDS[0]!, SLACK_IDS[0]!],
       ["added", "added"],

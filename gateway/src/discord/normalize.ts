@@ -196,9 +196,7 @@ export function normalizeDiscordMessageReaction(
     op: "added" | "removed";
     /**
      * Identity of the dispatch that carried this reaction, minted by the
-     * caller at receipt. Discord assigns reactions no id of their own, so the
-     * caller is the only place that can tell one occurrence from the next;
-     * see the `externalMessageId` note below.
+     * caller at receipt. See the `externalMessageId` note below.
      */
     ingestId: string;
     parentChannelId?: string;
@@ -227,28 +225,18 @@ export function normalizeDiscordMessageReaction(
   const inThread = options.parentChannelId !== undefined;
   const isDirectMessage = reaction.guild_id === undefined;
   // The addressing parts (message, emoji, reactor, op) name a reaction, not
-  // an occurrence of one: they repeat byte for byte every time the same person
-  // re-adds the same emoji, so on their own a re-add after a removal dedups
-  // into the original add and never reaches a transcript row. `ingestId` is
-  // what separates the occurrences.
+  // one occurrence of one: they repeat byte for byte each time the same person
+  // re-adds the same emoji. `ingestId` separates the occurrences.
   //
-  // It has to be minted rather than read off the wire. Discord models a
+  // It is minted rather than read off the wire because Discord models a
   // reaction as membership in a set on the message, not as a document: the
   // MESSAGE_REACTION_ADD / _REMOVE dispatch carries user_id, channel_id,
   // message_id, guild_id, emoji, burst and type, with no event id and no
-  // timestamp (`GatewayMessageReactionAddDispatchData` in
-  // `discord-api-types`, cross-checked in `message-schemas.ts`). The gateway
-  // dispatch sequence is no substitute: it is session-scoped and restarts at a
-  // fresh IDENTIFY, so it collides across sessions.
-  //
-  // Minting is still correct for what dedup defends against here. The id is
-  // stamped once per received dispatch and travels inside the forwarded
-  // payload, so every retry of that forward (`runtime/client.ts` retries the
-  // same body) repeats it and still collapses to one event. The other
-  // direction, Discord sending a dispatch twice, is not a case Discord
-  // creates: a RESUME replays only the events after the sequence the client
-  // recorded, and `gateway-socket.ts` records it on receipt of every frame,
-  // before dispatching.
+  // timestamp (`GatewayMessageReactionAddDispatchData` in `discord-api-types`,
+  // cross-checked in `message-schemas.ts`). The dispatch sequence is no
+  // substitute: it is session-scoped and restarts at a fresh IDENTIFY. Minting
+  // once per received dispatch, into the forwarded payload, is what keeps a
+  // retried forward on one id.
   const externalMessageId =
     options.op === "added"
       ? `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}:${options.ingestId}`

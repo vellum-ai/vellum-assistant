@@ -607,10 +607,8 @@ describe("normalizeDiscordMessageReaction", () => {
   });
 
   test("add, remove and re-add are three events, not two", () => {
-    // The bug this shape exists to catch: with no per-dispatch component the
-    // re-add is byte-identical to the first add, `recordInbound` calls it a
-    // duplicate, and the removal stays the last recorded state forever: the
-    // reaction is invisible in the transcript from then on, permanently.
+    // Three acts, three ids. The dispatch payload is byte-identical across
+    // all three, so `ingestId` is the only thing separating them.
     const ids = (["added", "removed", "added"] as const).map(
       (op, index) =>
         normalizeDiscordMessageReaction(thumbsUp(), {
@@ -625,8 +623,8 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("one dispatch forwarded twice keeps its id, so redelivery still dedups", () => {
     // The other half of the contract: the id is stamped once per received
-    // dispatch and rides inside the forwarded payload, so a forward the
-    // gateway retries against the daemon must present the same id.
+    // dispatch and rides in the forwarded payload, so a retried forward
+    // presents the same id.
     const first = normalizeDiscordMessageReaction(thumbsUp(), {
       op: "added",
       ingestId: "dispatch-0",

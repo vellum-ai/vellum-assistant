@@ -513,11 +513,9 @@ describe("reaction dispatch", () => {
   });
 
   test("add, remove and re-add forward as three distinct events", async () => {
-    // End to end through the socket: the same person reacting, un-reacting
-    // and re-reacting sends three byte-identical dispatch payloads. The id
-    // the socket stamps at receipt is the only thing keeping the third one
-    // from reading as a redelivery of the first, which the daemon would
-    // discard, leaving the removal as the last recorded state forever.
+    // End to end through the socket: three byte-identical dispatch payloads,
+    // three distinct ids. The socket's stamp at receipt is what separates
+    // them, so this covers the minting the pure normalizer tests cannot.
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message(reactionAdd());
