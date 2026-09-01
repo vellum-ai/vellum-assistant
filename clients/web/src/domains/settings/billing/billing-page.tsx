@@ -20,6 +20,7 @@ import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/b
 import { ContentReveal } from "@/components/content-reveal";
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
+import { InvoicesTableSkeleton } from "@/domains/settings/components/invoices-table-skeleton";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
 import { PaymentMethodsCardSkeleton } from "@/domains/settings/components/payment-methods-card-skeleton";
 import { PlanCard } from "@/domains/settings/components/plan-card";
@@ -172,6 +173,7 @@ function BillingTabSkeleton() {
         <PlanCardSkeleton />
         <PaymentMethodsCardSkeleton />
         <BillingPanelSkeleton />
+        <InvoicesTableSkeleton />
       </div>
     </div>
   );

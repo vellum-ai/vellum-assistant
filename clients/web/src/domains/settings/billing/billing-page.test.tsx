@@ -586,6 +586,11 @@ describe("BillingTab lifecycle loading", () => {
     expect(
       stack.querySelector('[data-testid="billing-panel-skeleton"]'),
     ).toBeTruthy();
+    // The invoices card sits below the credits card in the resolved tab, so
+    // the stack reserves its collapsed height too.
+    expect(
+      stack.querySelector('[data-testid="invoices-table-skeleton"]'),
+    ).toBeTruthy();
     // The stack is the one announced region: the cards it composes are
     // mounted without labels, so none of them nests a second one inside it.
     expect(stack.getAttribute("role")).toBe("status");
@@ -596,7 +601,7 @@ describe("BillingTab lifecycle loading", () => {
     expect(stack.children.length).toBe(1);
     const hidden = stack.children[0];
     expect(hidden?.getAttribute("aria-hidden")).toBe("true");
-    expect(hidden?.children.length).toBe(3);
+    expect(hidden?.children.length).toBe(4);
     // The loading copy exists only as the aria-label above, never as visible text.
     expect(queryByText("Loading billing")).toBeNull();
     expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();

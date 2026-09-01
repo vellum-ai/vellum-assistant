@@ -1,7 +1,7 @@
 /**
  * The label contract every card skeleton shares: labelled when the card
  * mounts it on its own, silent when the billing tab's stack composes it and
- * announces all three at once.
+ * announces the whole stack at once.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";

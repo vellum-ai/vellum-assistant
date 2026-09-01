@@ -10,7 +10,7 @@ import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
  * Stand-in for `BillingPanel` in the billing tab's skeleton stack, which is
  * the only place the whole card is stood in for: the panel itself keeps its
  * chrome mounted and swaps only its balance body. The stack announces the wait
- * once for all three cards, so nothing here is labeled.
+ * once for every card in it, so nothing here is labeled.
  */
 export function BillingPanelSkeleton() {
   return (
