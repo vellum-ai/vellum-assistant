@@ -92,6 +92,7 @@ import {
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
+import { parsePluginManifest } from "../../plugins/external-plugin-loader.js";
 import {
   deactivatePluginForUpdate,
   reconcilePluginSourcesNow,
@@ -118,6 +119,24 @@ import { RouteResponse } from "./types.js";
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
+
+const pluginCompanionEntrypointSchema = z.object({
+  id: z
+    .string()
+    .describe(
+      "Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the daemon, so a client never has to build it.",
+    ),
+  label: z.string().describe("Short control label the client draws."),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Author-declared icon name; absent when the plugin declares none.",
+    ),
+  prompt: z
+    .string()
+    .describe("Message text to submit when the control is pressed."),
+});
 
 const pluginInfoSchema = z.object({
   id: z
@@ -173,6 +192,12 @@ const pluginInfoSchema = z.object({
     .optional()
     .describe(
       "Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for the bundled-icon endpoint.",
+    ),
+  entrypoints: z
+    .array(pluginCompanionEntrypointSchema)
+    .optional()
+    .describe(
+      "Companion-surface controls the plugin contributes, from its `package.json` `companionEntrypoints`. Omitted entirely when the plugin declares none, and never returned for a disabled plugin.",
     ),
 });
 
@@ -766,6 +791,14 @@ function logPluginCatalogUnavailable(
   );
 }
 
+/** Wire shape for one contributed control. Mirrors {@link pluginCompanionEntrypointSchema}. */
+interface PluginCompanionEntrypointView {
+  id: string;
+  label: string;
+  icon?: string;
+  prompt: string;
+}
+
 interface PluginView {
   id: string;
   name: string;
@@ -778,6 +811,7 @@ interface PluginView {
   icon?: string;
   hasIcon: boolean;
   iconVersion?: string;
+  entrypoints?: PluginCompanionEntrypointView[];
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -804,6 +838,45 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
     view.iconVersion = entry.iconVersion;
   }
   return view;
+}
+
+/**
+ * Attach each plugin's contributed companion entrypoints, read from its
+ * `package.json` through the loader's own validated parser so the route and
+ * the running plugin agree on what a well-formed declaration is.
+ *
+ * Ids are namespaced as `<pluginId>:<entrypointId>` here rather than by the
+ * client: it makes them unique across plugins by construction, and no consumer
+ * has to know the composition rule. A disabled plugin contributes nothing (its
+ * prompts would submit into a surface the plugin cannot serve), and a plugin
+ * declaring none keeps the field absent rather than carrying an empty array.
+ */
+async function attachCompanionEntrypoints(
+  plugins: PluginView[],
+): Promise<PluginView[]> {
+  return Promise.all(
+    plugins.map(async (plugin) => {
+      if (!plugin.enabled) {
+        return plugin;
+      }
+      // `quiet` because an unreadable or schema-invalid `package.json` is
+      // already surfaced on this entry's `issues`; the list must not error.
+      const manifest = await parsePluginManifest(plugin.path, { quiet: true });
+      const declared = manifest?.companionEntrypoints;
+      if (declared === undefined || declared.length === 0) {
+        return plugin;
+      }
+      return {
+        ...plugin,
+        entrypoints: declared.map((entry) => ({
+          id: `${plugin.id}:${entry.id}`,
+          label: entry.label,
+          prompt: entry.prompt,
+          ...(entry.icon !== undefined ? { icon: entry.icon } : {}),
+        })),
+      };
+    }),
+  );
 }
 
 /**
@@ -1032,7 +1105,13 @@ async function handleListPlugins({
     list = list.filter((p) => (p.category ?? UNCATEGORIZED) === category);
   }
 
-  return { plugins: list, categoryCounts, totalCount };
+  // Read the contributed entrypoints last, over the filtered list only, so a
+  // narrow query never pays a manifest read for a plugin it drops.
+  return {
+    plugins: await attachCompanionEntrypoints(list),
+    categoryCounts,
+    totalCount,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1748,7 +1827,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List installed plugins",
     description:
-      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.",
+      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list. An enabled plugin that declares `companionEntrypoints` in its `package.json` also carries `entrypoints`, each id already namespaced as `<pluginId>:<entrypointId>`; the field is omitted for a plugin that declares none and for a disabled plugin.",
     tags: ["plugins"],
     queryParams: [
       {

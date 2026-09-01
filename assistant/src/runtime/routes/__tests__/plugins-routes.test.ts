@@ -12,6 +12,9 @@
  *   - `categoryCounts` / `totalCount` computed before the `?category=` filter
  *   - `?category=` filters the list while counts stay unfiltered
  *   - A catalog fetch failure degrades `category` to null without erroring
+ *   - `entrypoints` read from the plugin's `companionEntrypoints`, ids
+ *     namespaced `<pluginId>:<entrypointId>`; omitted for a plugin declaring
+ *     none and for a disabled plugin
  *
  * GET /v1/plugins/search (catalog search):
  *   - Resolves the catalog for `?ref=` and filters it by `?q=`
@@ -925,6 +928,95 @@ describe("GET /v1/plugins", () => {
     // The plugin is still counted (under "system"), just not reachable as
     // "memory" — counts match visible rows.
     expect(result.categoryCounts).toEqual({ system: 1 });
+  });
+
+  describe("companion entrypoints", () => {
+    const created: string[] = [];
+
+    afterEach(() => {
+      for (const dir of created.splice(0)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    /**
+     * Materialize `<workspacePlugins>/<name>/package.json` and return an
+     * `InstalledPluginInfo` pointing at it, so the route's real
+     * `parsePluginManifest` read is exercised rather than mocked.
+     */
+    function pluginWithManifest(
+      name: string,
+      pkg: Record<string, unknown>,
+    ): InstalledPluginInfo {
+      const dir = join(getWorkspacePluginsDir(), name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name, ...pkg }),
+      );
+      created.push(dir);
+      return pluginEntry({
+        name,
+        target: dir,
+        packageJson: { name, version: "1.0.0" },
+      });
+    }
+
+    test("returns declared entrypoints with ids namespaced by plugin id", async () => {
+      installedFixture = [
+        pluginWithManifest("notes", {
+          companionEntrypoints: [
+            {
+              id: "new-note",
+              label: "New note",
+              icon: "pencil",
+              prompt: "Start a new note",
+            },
+            { id: "daily", label: "Daily", prompt: "Show me today's notes" },
+          ],
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      expect(entry?.entrypoints).toEqual([
+        {
+          id: "notes:new-note",
+          label: "New note",
+          icon: "pencil",
+          prompt: "Start a new note",
+        },
+        // No `icon` declared → omitted from the wire object, not null.
+        { id: "notes:daily", label: "Daily", prompt: "Show me today's notes" },
+      ]);
+    });
+
+    test("omits the field for a plugin that declares none", async () => {
+      installedFixture = [
+        pluginWithManifest("plain", {}),
+        // An explicitly empty declaration is "none contributed" too: absence is
+        // the contract, so no plugin ever carries an empty array.
+        pluginWithManifest("empty", { companionEntrypoints: [] }),
+      ];
+
+      const byId = new Map((await invoke()).plugins.map((p) => [p.id, p]));
+      expect("entrypoints" in byId.get("plain")!).toBe(false);
+      expect("entrypoints" in byId.get("empty")!).toBe(false);
+    });
+
+    test("contributes nothing for a disabled plugin", async () => {
+      installedFixture = [
+        pluginWithManifest("notes", {
+          companionEntrypoints: [
+            { id: "new-note", label: "New note", prompt: "Start a new note" },
+          ],
+        }),
+      ];
+      disabledFixture.add("notes");
+
+      const [entry] = (await invoke()).plugins;
+      expect(entry?.enabled).toBe(false);
+      expect("entrypoints" in entry!).toBe(false);
+    });
   });
 });
 
@@ -2759,7 +2851,9 @@ describe("POST /v1/plugins/:name/disable", () => {
       toggleResult(name, "disable"),
     );
 
-    const result = await invokeDisable({ pathParams: { name: "simple-memory" } });
+    const result = await invokeDisable({
+      pathParams: { name: "simple-memory" },
+    });
 
     expect(result).toEqual({ ok: true });
     expect(disablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");
