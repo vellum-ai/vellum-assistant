@@ -313,16 +313,19 @@ export async function resolveProviderFromConnection(
   // For every other connection this is `undefined` and the effective provider
   // is the connection's own — no behavior change.
   const effectiveProvider = opts.providerOverride ?? connection.provider;
-  // Routing identities must be translated to a real upstream before this
-  // point (resolveRoutingIdentity in connection-resolution) — an identity
-  // reaching adapter construction would silently yield no adapter and the
-  // retry wire-normalization keys off real adapter provider names.
-  if (ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider)) {
+  const model = opts.model ?? resolveModel(config, effectiveProvider);
+  // Routing identities must already be translated to a factory id
+  // (`resolveRoutingIdentity`). `chatgpt` has no factory and must not
+  // reach adapter construction. `vellum` is a catalog factory, so it is
+  // a valid effectiveProvider after that translation.
+  if (
+    ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider) &&
+    !PROVIDER_CATALOG.some((entry) => entry.id === effectiveProvider)
+  ) {
     throw new Error(
-      `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}" — translate to a real upstream before adapter construction`,
+      `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}": translate to a real upstream before adapter construction`,
     );
   }
-  const model = opts.model ?? resolveModel(config, effectiveProvider);
   const cacheKey = getConnectionProviderCacheKey(
     connection,
     model,

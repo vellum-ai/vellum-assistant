@@ -34,7 +34,10 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
-const feedRef: { items: FeedItem[] } = { items: [] };
+const feedRef: { items: FeedItem[]; isError: boolean } = {
+  items: [],
+  isError: false,
+};
 
 interface UpdateStatusVars {
   itemId: string;
@@ -71,7 +74,7 @@ mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
   useHomeFeedQuery: () => ({
     data: { items: feedRef.items },
     isLoading: false,
-    isError: false,
+    isError: feedRef.isError,
     updateStatus: {
       mutate: (vars: UpdateStatusVars) => {
         updateStatusCalls.push(vars);
@@ -111,13 +114,16 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
 }));
 
-// Mocked at the boundary the bell calls, so "Go to Conversation" can be
-// asserted without dragging the conversation stores, haptics, and sound
-// manager that the real helper drives into a popover test.
+// Mocked at the boundary the bell calls, so "Go to Conversation" and the
+// empty state's recipe can be asserted without dragging the conversation
+// stores, haptics, and sound manager that the real helpers drive into a
+// popover test.
 const navigateToConversationMock = mock((..._args: unknown[]) => {});
+const navigateToNewConversationMock = mock((..._args: unknown[]) => "draft-1");
 
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: navigateToConversationMock,
+  navigateToNewConversation: navigateToNewConversationMock,
 }));
 
 /**
@@ -177,9 +183,21 @@ function conversation(conversationId: string): Conversation {
  * lazy-loading property: the bell must not fetch either list to render its
  * list view.
  */
-const schedulesRef: { list: { id: string }[]; isPending: boolean } = {
+interface ScheduleStub {
+  id: string;
+  status?: string;
+  sourceKey?: string | null;
+  enabled?: boolean;
+}
+
+const schedulesRef: {
+  list: ScheduleStub[];
+  isPending: boolean;
+  isError: boolean;
+} = {
   list: [],
   isPending: false,
+  isError: false,
 };
 
 const skillsRef: { list: { id: string }[]; isPending: boolean } = {
@@ -187,7 +205,12 @@ const skillsRef: { list: { id: string }[]; isPending: boolean } = {
   isPending: false,
 };
 
-const entityLinkEnabledCalls: boolean[] = [];
+// The `enabled` flag every read of each list was called with, recorded per
+// query key. Two call sites read the schedules list (the entity-link resolver
+// and the empty state's recipe gate) and they enable it under different
+// conditions, so the flags are asserted as a set rather than by position.
+const schedulesEnabledCalls: boolean[] = [];
+const skillsEnabledCalls: boolean[] = [];
 
 mock.module("@/utils/schedules", () => ({
   schedulesListQueryOptions: (assistantId: string | undefined) => ({
@@ -211,29 +234,46 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 // identically could not tell a present skill from a present schedule.
 mock.module("@tanstack/react-query", () => ({
   useQuery: (options: { enabled?: boolean; queryKey: unknown[] }) => {
-    entityLinkEnabledCalls.push(options.enabled === true);
+    const enabled = options.enabled === true;
     if (options.queryKey[0] === "skills") {
+      skillsEnabledCalls.push(enabled);
       return {
         data: { skills: skillsRef.list },
         isPending: skillsRef.isPending,
+        isError: false,
       };
     }
-    return { data: schedulesRef.list, isPending: schedulesRef.isPending };
+    schedulesEnabledCalls.push(enabled);
+    return {
+      // A failed load carries no list, the way TanStack reports one.
+      data: schedulesRef.isError ? undefined : schedulesRef.list,
+      isPending: schedulesRef.isPending,
+      isError: schedulesRef.isError,
+    };
   },
 }));
 
-function schedule(id: string): { id: string } {
-  return { id };
+/**
+ * A schedule as the list endpoint returns one. `status` and `sourceKey` are
+ * what separate a schedule the user set up from a spent one-shot or a row a
+ * plugin declared, so both default to the user-created case.
+ */
+function schedule(id: string, overrides: Partial<ScheduleStub> = {}) {
+  return { id, status: "active", sourceKey: null, ...overrides };
 }
 
 function skill(id: string): { id: string } {
   return { id };
 }
 
+// The active assistant resolves asynchronously, so it is null for the first
+// frames after a load. Held in a ref so a test can render that window.
+const activeAssistantIdRef: { value: string | null } = { value: "assistant-1" };
+
 mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
   store.use = {
-    activeAssistantId: () => "assistant-1",
+    activeAssistantId: () => activeAssistantIdRef.value,
   };
   return { useResolvedAssistantsStore: store };
 });
@@ -247,6 +287,9 @@ import { NotificationsBell } from "@/domains/home/components/notifications-bell"
 const UNREAD_DOT = 'data-testid="notifications-bell-unread-dot"';
 const UNREAD_LABEL = 'aria-label="Notifications (unread)"';
 const READ_LABEL = 'aria-label="Notifications"';
+
+/** The recipe card, matched by the title it leads with. */
+const RECIPE_LABEL = /^Set up a morning briefing/;
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
@@ -308,6 +351,7 @@ function detailFooter(): HTMLElement {
 beforeEach(() => {
   isTouchMobileRef.value = false;
   feedRef.items = [];
+  feedRef.isError = false;
   conversationListsRef.foreground = [];
   conversationListsRef.background = [];
   conversationListsRef.scheduled = [];
@@ -317,14 +361,19 @@ beforeEach(() => {
   enabledCalls.scheduled = [];
   schedulesRef.list = [];
   schedulesRef.isPending = false;
+  schedulesRef.isError = false;
   skillsRef.list = [];
   skillsRef.isPending = false;
-  entityLinkEnabledCalls.length = 0;
+  schedulesEnabledCalls.length = 0;
+  skillsEnabledCalls.length = 0;
+  activeAssistantIdRef.value = "assistant-1";
+  localStorage.clear();
   updateStatusCalls.length = 0;
   triggerActionCalls.length = 0;
   triggerActionRef.outcome = "pending";
   navigateMock.mockClear();
   navigateToConversationMock.mockClear();
+  navigateToNewConversationMock.mockClear();
 });
 
 afterEach(async () => {
@@ -438,12 +487,257 @@ describe("NotificationsBell panel", () => {
     expect(screen.getByRole("button", { name: "Clear all" })).toBeTruthy();
   });
 
-  test("offers no route out to the Activity page", async () => {
+  test("offers no route out to a full-page feed", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
     expect(screen.queryByRole("button", { name: "View all" })).toBeNull();
+  });
+});
+
+describe("NotificationsBell guardian rows", () => {
+  function guardianBellItem(overrides: Partial<FeedItem> = {}): FeedItem {
+    return bellItem({
+      id: "guardian:req-1",
+      status: "new",
+      urgency: "high",
+      // Production shape: the daemon's title is the generic kind of request
+      // and the ask itself arrives in the body.
+      title: "Guardian Question",
+      summary: "Alice asked the assistant to look up an issue",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+        sourceContextLabel: "Slack #user-feedback",
+      },
+      ...overrides,
+    });
+  }
+
+  test("a waiting request sorts above the notifications that only report", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const titles = screen
+      .getAllByTestId("home-recap-row-title")
+      .map((node) => node.textContent);
+    // Named by what it asks of the user, never by the daemon's generic
+    // "Guardian Question", with the ask itself on the line below.
+    expect(titles[0]).toBe("Guardian action needed");
+    expect(titles[1]).toBe("Watcher job failed");
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("the guardian row's second line carries the ask", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("only the waiting row carries the attention treatment", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const marked = document.querySelectorAll("[data-needs-attention]");
+    expect(marked.length).toBe(1);
+    expect(marked[0]?.textContent).toContain("Alice asked the assistant");
+  });
+
+  test("a settled request keeps no attention treatment", async () => {
+    feedRef.items = [
+      guardianBellItem({
+        id: "guardian:req-2",
+        urgency: "medium",
+        guardianRequest: {
+          requestId: "req-2",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "approved",
+          // Receipts keep the context the pending item carried.
+          sourceContextLabel: "Slack #user-feedback",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(document.querySelectorAll("[data-needs-attention]").length).toBe(0);
+    // A settled receipt keeps its source context, and reads by its own
+    // title and summary like any other notification.
+    expect(screen.getByText("Guardian Question")).toBeTruthy();
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+});
+
+describe("NotificationsBell empty state", () => {
+  test("offers the schedule that produces the first notification", async () => {
+    await openBell();
+
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
+  });
+
+  test("carries no second call to action beside the recipe", async () => {
+    // The bell trigger and the recipe. Nothing else: a second call to action
+    // would compete with the one thing this scene is asking for.
+    await openBell();
+
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
+  });
+
+  test("the recipe closes the panel and seeds a conversation", async () => {
+    await openBell();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: RECIPE_LABEL }));
+      // The close runs off a frame, so it has to settle inside the act scope
+      // that owns the click.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(navigateToNewConversationMock).toHaveBeenCalledTimes(1);
+    const [, options] = navigateToNewConversationMock.mock.calls[0] as [
+      unknown,
+      { prompt?: string },
+    ];
+    expect(options.prompt).toContain("morning briefing");
+    // The panel dismisses itself, so the conversation it opened is not left
+    // behind a popover.
+    expect(screen.queryByText("Nothing yet.")).toBeNull();
+  });
+
+  test("a failed load keeps its own message instead of the scene", async () => {
+    feedRef.isError = true;
+
+    await openBell();
+
+    expect(screen.getByText("Couldn't load notifications.")).toBeTruthy();
+    expect(screen.queryByText("Nothing yet.")).toBeNull();
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+  });
+});
+
+/**
+ * The recipe is an advertisement for schedules, so it is aimed at the people
+ * who have not adopted them and it goes away for good when waved off. The
+ * scene around it does not: the icon well and the title stand on their own.
+ *
+ * Every case that is not a settled, empty list hides the card. An offer shown
+ * while the list is still arriving would have to be withdrawn the moment a
+ * schedule landed, and a failed load knows nothing about whether the user has
+ * schedules, so neither may advertise.
+ */
+describe("NotificationsBell briefing recipe gating", () => {
+  test("offers the recipe when the user has no schedules", async () => {
+    schedulesRef.list = [];
+
+    await openBell();
+
+    expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
+  });
+
+  test("hides the recipe once the user has a schedule", async () => {
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+    // The scene still has to hold together with nothing under the title.
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+  });
+
+  test("hides the recipe while the schedules list is loading", async () => {
+    schedulesRef.isPending = true;
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+  });
+
+  test("hides the recipe when the schedules list fails to load", async () => {
+    schedulesRef.isError = true;
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+  });
+
+  test("counts a spent one-shot as no schedule at all", async () => {
+    // `fired` and `cancelled` are terminal: neither will produce another
+    // notification, so neither is a reason to stop offering the recipe.
+    schedulesRef.list = [
+      schedule("fired-1", { status: "fired" }),
+      schedule("cancelled-1", { status: "cancelled" }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
+  });
+
+  test("counts a plugin-declared schedule as no schedule at all", async () => {
+    // Installed with the plugin rather than set up by anyone, so it is no
+    // evidence the user has ever made a schedule.
+    schedulesRef.list = [
+      schedule("plugin-1", { sourceKey: "plugin:gmail/poll-inbox" }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
+  });
+
+  test("hides the recipe for a schedule that is merely paused", async () => {
+    // A paused schedule is still one the user set up, and it fires again the
+    // moment it is switched back on, so it is not someone to advertise to.
+    schedulesRef.list = [schedule("paused-1", { enabled: false })];
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+  });
+
+  test("hides the recipe before the active assistant resolves", async () => {
+    // No assistant means no list to judge by, and a recipe launched here would
+    // seed a conversation with nothing to open it against.
+    activeAssistantIdRef.value = null;
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+    expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(false);
+  });
+
+  test("the recipe gate does not fetch schedules for a feed that has items", async () => {
+    feedRef.items = [bellItem({ status: "seen" })];
+
+    await openBell();
+
+    expect(schedulesEnabledCalls.length).toBeGreaterThan(0);
+    expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(false);
   });
 });
 
@@ -916,8 +1210,12 @@ describe("NotificationsBell detail", () => {
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
-    expect(entityLinkEnabledCalls.length).toBeGreaterThan(0);
-    expect(entityLinkEnabledCalls.some((enabled) => enabled)).toBe(false);
+    expect(skillsEnabledCalls.length).toBeGreaterThan(0);
+    expect(skillsEnabledCalls.some((enabled) => enabled)).toBe(false);
+    // The recipe gate reads the same list, but only for an empty feed, and
+    // this one has an item in it.
+    expect(schedulesEnabledCalls.length).toBeGreaterThan(0);
+    expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
@@ -925,7 +1223,8 @@ describe("NotificationsBell detail", () => {
     expect(enabledCalls.foreground.at(-1)).toBe(true);
     expect(enabledCalls.background.at(-1)).toBe(true);
     expect(enabledCalls.scheduled.at(-1)).toBe(true);
-    expect(entityLinkEnabledCalls.at(-1)).toBe(true);
+    expect(skillsEnabledCalls.at(-1)).toBe(true);
+    expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(true);
   });
 
   test("reopening the bell lands back on the list", async () => {

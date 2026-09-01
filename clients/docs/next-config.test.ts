@@ -206,6 +206,11 @@ describe("next config redirects", () => {
         destination: "/docs",
         permanent: true,
       },
+      {
+        source: "/docs/hosting-options/advanced-options",
+        destination: "/docs/hosting-options",
+        permanent: true,
+      },
     ]);
   });
 });

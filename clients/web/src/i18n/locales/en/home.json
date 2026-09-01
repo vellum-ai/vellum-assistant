@@ -6,43 +6,23 @@
     "dismiss": "Dismiss",
     "goToThread": "Go to thread",
     "goToConversation": "Go to Conversation",
-    "goToConvo": "Go to Convo",
     "viewSchedule": "View schedule",
     "viewSkill": "View skill",
     "markAllAsRead": "Mark all as read",
     "clearAll": "Clear all"
   },
   "category": {
-    "all": "All",
     "security": "Security",
     "email": "Email",
     "scheduling": "Scheduling",
     "background": "Background",
-    "system": "System"
+    "system": "System",
+    "guardianAction": "Guardian action needed",
+    "guardianQuestion": "Guardian question",
+    "guardianRequest": "Guardian request"
   },
-  "homeRecapRow": { "actionsTitle": "Update Actions" },
-  "homeTopHeader": { "title": "Activity" },
-  "homeFeedFilterBar": { "ariaLabel": "Filter notifications" },
-  "homeFeedList": {
-    "today": "Today",
-    "yesterday": "Yesterday",
-    "older": "Older",
-    "noMatches": "No items match the selected filter.",
-    "emptyTitle": "No notifications yet",
-    "emptyBody": "Updates and activity from your assistant will appear here.",
-    "earlier": "Earlier ({count, number})",
-    "dismissed": "Dismissed ({count, number})"
-  },
-  "homePage": {
-    "loadFailed": "Couldn't load home feed.",
-    "loadFailedDetail": "Couldn't load home feed: {message}"
-  },
-  "homeDetailPanel": {
-    "back": "Back",
-    "heading": "Details",
-    "close": "Close",
-    "closeAriaLabel": "Close detail panel",
-    "untitled": "Notification"
+  "homeRecapRow": {
+    "actionsTitle": "Update Actions"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Missing scopes",
@@ -60,8 +40,34 @@
     "ariaLabelUnread": "Notifications (unread)",
     "heading": "Notifications",
     "loadFailed": "Couldn't load notifications.",
-    "empty": "No notifications yet.",
     "actionFailed": "Couldn't start that conversation. Try again."
   },
-  "notificationsBellDetail": { "back": "Back to notifications" }
+  "notificationsBellDetail": {
+    "back": "Back to notifications"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "answerHint": "Go to the conversation to answer this question.",
+    "decisionFailed": "The decision could not be submitted. Try again.",
+    "receipt": {
+      "approved": "Request approved",
+      "rejected": "Request rejected",
+      "expired": "Request expired",
+      "superseded": "Request superseded",
+      "leftUnverified": "Left unverified",
+      "cancelled": "Request cancelled",
+      "alreadyResolved": "Already resolved"
+    },
+    "viewSourceThread": "View source thread",
+    "toolRequested": "Requested to run <code>{toolName}</code>",
+    "toolRequesting": "Requesting to run <code>{toolName}</code>"
+  },
+  "notificationsBellEmptyState": {
+    "title": "Nothing yet.",
+    "briefingRecipeTitle": "Set up a morning briefing",
+    "briefingRecipeMeta": "Daily",
+    "briefingRecipeDescription": "Your first notification, tomorrow morning.",
+    "briefingRecipePrompt": "Help me set up a morning briefing. Before you create anything, check which of my accounts are connected, then give me a few options for what it could cover and when it should run. Once I pick, set it up."
+  }
 }

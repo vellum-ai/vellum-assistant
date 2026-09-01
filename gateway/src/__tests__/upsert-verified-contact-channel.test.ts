@@ -860,7 +860,9 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 describe("upsertVerifiedContactChannel — invite target-contact binding", () => {
   test("reassigns an existing channel to the supplied target contact", async () => {
     // The redeemer's channel currently lives under a different contact (the
-    // guardian); the invite binds it to the target contact "mom".
+    // guardian); the invite binds it to the target contact "mom". The gateway
+    // row exists too: the re-parent primitive only issues an UPDATE for a row
+    // it actually found under another owner.
     queryRows = [
       {
         channelId: "ch-redeemer",
@@ -868,6 +870,7 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
         channelStatus: "active",
       },
     ];
+    gwSelectStatus = "active";
 
     await upsertVerifiedContactChannel({
       sourceChannel: "telegram",

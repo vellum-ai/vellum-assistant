@@ -17,6 +17,7 @@ import { PendingContactRecordRequestRow } from "@/domains/chat/transcript/pendin
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { NoResponseRow } from "@/domains/chat/transcript/no-response-row";
+import { ReactionLineRow } from "@/domains/chat/transcript/reaction-line-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -234,6 +235,20 @@ export const TranscriptRow = memo(function TranscriptRow({
       // A deliberate-silence turn renders as a quiet marker with fixed copy
       // inside the standard message shell, so deep links, scrolling, and
       // Inspect still address the row; its stored content never shows.
+      // A reaction row renders as a quiet line from its projected fact,
+      // never the stored sentinel text. Slack-shaped rows keep their richer
+      // Slack transcript line inside the ordinary body path.
+      if (item.message.reaction && !item.message.slackMessage) {
+        return (
+          <SubstitutedMessageShell
+            message={item.message}
+            conversationId={conversationId}
+            onInspectMessage={onInspectMessage}
+          >
+            <ReactionLineRow message={item.message} />
+          </SubstitutedMessageShell>
+        );
+      }
       if (item.message.isNoResponse) {
         return (
           <SubstitutedMessageShell

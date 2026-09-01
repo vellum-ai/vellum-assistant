@@ -441,6 +441,19 @@ export function createGuardianGatewaySim() {
       .map((d) => ({ ...d }));
   }
 
+  async function listGuardianRequestDeliveriesByChat(
+    channel: string,
+    chatId: string,
+  ): Promise<SimGuardianDelivery[]> {
+    throwIfReadError();
+    return deliveries
+      .filter(
+        (d) =>
+          d.destinationChannel === channel && d.destinationChatId === chatId,
+      )
+      .map((d) => ({ ...d }));
+  }
+
   async function getPendingRequestByDestinationMessage(
     channel: string,
     chatId: string,
@@ -596,6 +609,7 @@ export function createGuardianGatewaySim() {
     getGuardianRequest,
     getGuardianRequestOrNull: degrade(getGuardianRequest, null),
     getGuardianRequestByCodeOrNull: degrade(getGuardianRequestByCode, null),
+    listGuardianRequests,
     listGuardianRequestsOrEmpty: degrade(listGuardianRequests, []),
     updateGuardianRequest,
     decideGuardianRequest,
@@ -605,6 +619,7 @@ export function createGuardianGatewaySim() {
     createGuardianRequestDelivery,
     updateGuardianRequestDelivery,
     listGuardianRequestDeliveries,
+    listGuardianRequestDeliveriesByChat,
     listGuardianRequestDeliveriesOrEmpty: degrade(
       listGuardianRequestDeliveries,
       [],

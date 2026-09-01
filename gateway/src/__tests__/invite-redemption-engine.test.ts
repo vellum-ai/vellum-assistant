@@ -9,7 +9,15 @@
  * mocked out — it is a best-effort info mirror and not under test here.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { sql } from "drizzle-orm";
 
@@ -32,11 +40,17 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 // actual module so the real IpcHandlerError/IpcTransportError classes (and
 // untouched exports) stay importable by later-loaded files.
 let ipcCallAssistantCalls: Array<{ method: string; body: unknown }> = [];
+// When true, the identity-mirror channel upsert fails (a down daemon mid-bind)
+// while every other IPC still acks; the invite path tolerates this softly.
+let mirrorUpsertThrows = false;
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
   ...actualAssistantClient,
   ipcCallAssistant: async (method: string, opts?: { body?: unknown }) => {
     ipcCallAssistantCalls.push({ method, body: opts?.body });
+    if (mirrorUpsertThrows && method === "contacts_mirror_upsert_channel") {
+      throw new Error("mirror upsert down");
+    }
     return {};
   },
 }));
@@ -59,22 +73,18 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   lookupContactChannelIdentity: () => identityLookupImpl(),
 }));
 
-
 await import("./test-preload.js");
 
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
-const { contacts, contactChannels, ingressInvites } = await import(
-  "../db/schema.js"
-);
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
+const { contacts, contactChannels, ingressInvites } =
+  await import("../db/schema.js");
 const { ContactStore } = await import("../db/contact-store.js");
-const { redeemInviteByCode, redeemInviteByToken } = await import(
-  "../verification/invite-redemption.js"
-);
-const { inviteRow, seedInvite } = await import(
-  "./helpers/contact-fixtures.js"
-);
+const { redeemInviteByCode, redeemInviteByToken } =
+  await import("../verification/invite-redemption.js");
+const { upsertVerifiedContactChannel } =
+  await import("../verification/contact-helpers.js");
+const { inviteRow, seedInvite } = await import("./helpers/contact-fixtures.js");
 
 const CHANNEL = "telegram";
 const CODE = "123456";
@@ -93,6 +103,7 @@ beforeEach(() => {
   assistantDbRunImpl = async () => {};
   identityLookupImpl = async () => null;
   ipcCallAssistantCalls = [];
+  mirrorUpsertThrows = false;
 });
 
 function inviteRedeemedEvents() {
@@ -107,7 +118,13 @@ function seedContact(id: string, displayName = `name-${id}`): void {
   const now = Date.now();
   getGatewayDb()
     .insert(contacts)
-    .values({ id, displayName, role: "contact", createdAt: now, updatedAt: now })
+    .values({
+      id,
+      displayName,
+      role: "contact",
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
 }
 
@@ -367,6 +384,111 @@ describe("redeemInviteByCode", () => {
     if (result.status !== "redeemed") throw new Error("unreachable");
     expect(result.outcome.contactId).toBe("c1");
     expect(inviteRow(inviteId).useCount).toBe(1);
+    // The bind stripped c2's only channel: the orphan GC riding the mirror
+    // plan reclaims it, so no channel-less duplicate lingers in the pane.
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(["c1"]);
+  });
+
+  test("a soft mirror failure defers donor cleanup; the next bind heals it", async () => {
+    // Bind 1: the gateway re-parent commits but the mirror upsert fails
+    // (tolerated softly by the invite path), so the donor GC cannot run yet
+    // and the seed contact lingers.
+    seedContact("c1");
+    seedContact("c2");
+    seedChannel({
+      id: "ch-1",
+      contactId: "c2",
+      address: "U_SENDER",
+      status: "active",
+    });
+    seedInvite(); // targets c1
+    mirrorUpsertThrows = true;
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+    expect(result.status).toBe("redeemed");
+    expect(gwChannel("U_SENDER")!.contactId).toBe("c1");
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(["c1", "c2"]);
+
+    // Bind 2 (a later verification of the same identity): the mirror is
+    // reachable again but still records the pre-move owner. The gateway
+    // reassign reports no donor (the row already belongs to the target), so
+    // the plan must carry the mirror's recorded owner as the GC candidate,
+    // finishing the cleanup bind 1 could not run.
+    mirrorUpsertThrows = false;
+    identityLookupImpl = async () => ({
+      id: "ch-1",
+      contactId: "c2",
+      type: CHANNEL,
+      address: "U_SENDER",
+      externalChatId: "chat-1",
+      displayName: null,
+    });
+
+    const { verified } = await upsertVerifiedContactChannel({
+      sourceChannel: CHANNEL,
+      externalUserId: "U_SENDER",
+      externalChatId: "chat-sender",
+      verifiedVia: "invite",
+      contactId: "c1",
+      allowRevokedReactivation: true,
+      softMirrorFailures: true,
+    });
+    expect(verified).toBe(true);
+
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .map((c) => c.id),
+    ).toEqual(["c1"]);
+  });
+
+  test("a donor keeping another channel survives the re-parent GC", async () => {
+    seedContact("c1");
+    seedContact("c2");
+    seedChannel({
+      id: "ch-1",
+      contactId: "c2",
+      address: "U_SENDER",
+      status: "active",
+    });
+    seedChannel({
+      id: "ch-2",
+      contactId: "c2",
+      address: "U_OTHER",
+      status: "active",
+    });
+    seedInvite(); // targets c1
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+    expect(result.status).toBe("redeemed");
+
+    // c2 still parents ch-2, so it is a real contact, not an orphaned seed.
+    expect(gwChannel("U_SENDER")!.contactId).toBe("c1");
+    expect(gwChannel("U_OTHER")!.contactId).toBe("c2");
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(["c1", "c2"]);
   });
 
   test("blocked gateway channel is NEVER reactivated: generic failure, no use consumed", async () => {

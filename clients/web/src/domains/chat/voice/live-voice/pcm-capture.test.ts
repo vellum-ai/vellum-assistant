@@ -81,13 +81,19 @@ class FakeAudioContext {
 
 let getUserMediaImpl: () => Promise<FakeMediaStream> = () =>
   Promise.resolve(new FakeMediaStream());
+// Constraints handed to the last getUserMedia call, so tests can assert what
+// the capture actually asked the browser for.
+let lastGetUserMediaConstraints: MediaStreamConstraints | null = null;
 
 function installAudioGlobals(): void {
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
       mediaDevices: {
-        getUserMedia: () => getUserMediaImpl(),
+        getUserMedia: (constraints?: MediaStreamConstraints) => {
+          lastGetUserMediaConstraints = constraints ?? null;
+          return getUserMediaImpl();
+        },
       },
     },
   });
@@ -109,6 +115,7 @@ function installAudioGlobals(): void {
 beforeEach(() => {
   lastWorklet = null;
   FakeAudioContext.lastInstance = null;
+  lastGetUserMediaConstraints = null;
   getUserMediaImpl = () => Promise.resolve(new FakeMediaStream());
   installAudioGlobals();
 });
@@ -216,6 +223,37 @@ describe("isSupported", () => {
       value: { mediaDevices: {} },
     });
     expect(isSupported()).toBe(false);
+  });
+});
+
+describe("gain control", () => {
+  test("requests auto gain by default (half-duplex consumers)", async () => {
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+
+    await capture.start();
+
+    expect(lastGetUserMediaConstraints).not.toBeNull();
+    const audio = lastGetUserMediaConstraints?.audio as MediaTrackConstraints;
+    expect(audio.autoGainControl).toBe(true);
+    await capture.shutdown();
+  });
+
+  test("drops auto gain when asked, keeping echo cancellation on", async () => {
+    const capture = new LiveVoiceAudioCapture({
+      onChunk: () => {},
+      autoGainControl: false,
+    });
+
+    await capture.start();
+
+    const audio = lastGetUserMediaConstraints?.audio as MediaTrackConstraints;
+    // A moving input gain in front of the daemon's fixed absolute barge-in
+    // threshold is what lets room noise cancel a reply (JARVIS-1694). Echo
+    // cancellation is unrelated and must survive the opt-out.
+    expect(audio.autoGainControl).toBe(false);
+    expect(audio.echoCancellation).toBe(true);
+    expect(audio.noiseSuppression).toBe(true);
+    await capture.shutdown();
   });
 });
 

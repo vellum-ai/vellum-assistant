@@ -325,6 +325,14 @@ export interface VellumBridge {
       assistantId: string,
       name: string,
     ): Promise<LockfileWriteResult>;
+    /**
+     * Stamp `onboardedAt` on an existing lockfile entry. Update-only on the
+     * same terms as `renameLockfileAssistant`, and keeps an existing stamp.
+     */
+    stampLockfileAssistantOnboarded(
+      assistantId: string,
+      onboardedAt: string,
+    ): Promise<LockfileWriteResult>;
     replacePlatformAssistants(
       platformAssistants: Array<Record<string, unknown>>,
       organizationId?: string,

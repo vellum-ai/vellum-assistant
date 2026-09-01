@@ -112,6 +112,27 @@ describe("SidebarListContextMenu", () => {
     }
   });
 
+  test("the target forwards the scrollport's bounded height", () => {
+    // `flex-1` alone leaves the wrapper an `auto` minimum, so it sizes to its
+    // content and the last section's flex-fill has nothing left to fill: the
+    // list then runs past the overlay drawer's floating action pills.
+    const { container } = render(
+      createElement(SidebarListContextMenu, {
+        onCreateGroup: () => {},
+        children: createElement("div", { "data-testid": "sections" }, "sections"),
+      }),
+    );
+    try {
+      const target = container.querySelector(
+        '[data-slot="sidebar-list-context-target"]',
+      );
+      expect(target?.className).toContain("min-h-0");
+      expect(target?.className).toContain("flex-1");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("renders children unwrapped when group creation isn't available", () => {
     const { container } = render(
       createElement(SidebarListContextMenu, {

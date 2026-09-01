@@ -7,18 +7,12 @@ import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 
 /**
- * A credit bundle change as monthly dollar amounts. Both sides always carry a
- * number: "No extra credits" is $0, not an absent side.
- *
- * Each side also carries the bundle's catalog label ("Mighty Usage", the
- * Stripe product name, so it matches the invoice line), which the
- * `obscure-credits` rendering shows in place of the dollar rate. `null` marks
- * the explicit no-bundle side, worded by the caller; `undefined` a bundle the
- * catalog can't label, which the obscured chip leaves unstated.
+ * A credit bundle change, each side named by the bundle's catalog label
+ * ("Mighty Usage", the Stripe product name, so it matches the invoice line).
+ * `null` marks the explicit no-bundle side, worded by the caller; `undefined`
+ * a bundle the catalog can't label, which the chip leaves unstated.
  */
 export interface CreditsChange {
-  fromUsd: number;
-  toUsd: number;
   fromLabel: string | null | undefined;
   toLabel: string | null | undefined;
 }
@@ -85,10 +79,10 @@ function creditTierLabel(
 }
 
 /**
- * The credits a post-Stripe checkout buys, as a from-to dollar pair. The base
- * plan bundles none, so the from-side is $0. Returns null while the catalog
- * loads, when the intent carries no credits, or when the amount can't be
- * resolved, and the chip is omitted. Display-only.
+ * The credits a post-Stripe checkout buys. The base plan bundles none, so the
+ * from-side is the explicit no-bundle choice. Returns null while the catalog
+ * loads, when the intent carries no credits, or when the bundled amount can't
+ * be resolved, and the chip is omitted. Display-only.
  */
 export function useProvisioningCredits(
   intent: CheckoutIntent | null,
@@ -106,8 +100,8 @@ export function useProvisioningCredits(
     const tier = findCreditTier(proPlan, pkg?.credit_tier);
     toUsd = pkg?.credits_usd ?? tier?.credits_usd;
     // The package's customer-facing usage_label is preferred: a tier label
-    // can be dollar-denominated ("$50 credits/mo"), which the obscured chip
-    // must never render. The tier label covers a package without one.
+    // can be dollar-denominated ("$50 credits/mo"), which the chip must
+    // never render. The tier label covers a package without one.
     toLabel = pkg?.usage_label ?? tier?.label ?? undefined;
   } else {
     const tier = findCreditTier(proPlan, intent.creditTier);
@@ -116,15 +110,17 @@ export function useProvisioningCredits(
   }
 
   // The base plan bundles no credits, so the from-side is the explicit
-  // no-bundle choice, not an unlabelled one.
-  return toUsd != null ? { fromUsd: 0, toUsd, fromLabel: null, toLabel } : null;
+  // no-bundle choice, not an unlabelled one. An unpriced bundle stays
+  // unresolved and drops the chip rather than asserting a change the catalog
+  // cannot back.
+  return toUsd != null ? { fromLabel: null, toLabel } : null;
 }
 
 /**
- * The credits an in-place plan change moves between, as a from-to dollar pair.
- * Both endpoints come from the tiers the plans page captured before the change
- * landed, so the chip states the move rather than the outcome. Returns null when
- * no credit change is threaded or when either side can't be resolved, and the
+ * The credits an in-place plan change moves between. Both endpoints come from
+ * the tiers the plans page captured before the change landed, so the chip
+ * states the move rather than the outcome. Returns null when no credit change
+ * is threaded or when either side's bundled amount can't be resolved, and the
  * chip is omitted. Display-only.
  */
 export function useResizeCreditsChange(
@@ -135,14 +131,13 @@ export function useResizeCreditsChange(
   if (change == null) {
     return null;
   }
-  const fromUsd = creditTierUsd(proPlan, change.fromTier);
-  const toUsd = creditTierUsd(proPlan, change.toTier);
-  if (fromUsd == null || toUsd == null) {
+  if (
+    creditTierUsd(proPlan, change.fromTier) == null ||
+    creditTierUsd(proPlan, change.toTier) == null
+  ) {
     return null;
   }
   return {
-    fromUsd,
-    toUsd,
     fromLabel: creditTierLabel(proPlan, change.fromTier),
     toLabel: creditTierLabel(proPlan, change.toTier),
   };

@@ -656,6 +656,31 @@ export function listDeliveries(requestId: string): GuardianRequestDelivery[] {
     .map(rowToDelivery);
 }
 
+/**
+ * Every delivery row addressed to one channel-native chat, across all
+ * requests. Serves transcript importers deciding whether a channel
+ * message is a guardian card (a delivery projection) rather than
+ * conversation content, so no status filter: a withdrawn card is still
+ * a card.
+ */
+export function listDeliveriesByChat(
+  channel: string,
+  chatId: string,
+): GuardianRequestDelivery[] {
+  const db = getGatewayDb();
+  return db
+    .select()
+    .from(guardianRequestDeliveries)
+    .where(
+      and(
+        eq(guardianRequestDeliveries.destinationChannel, channel),
+        eq(guardianRequestDeliveries.destinationChatId, chatId),
+      ),
+    )
+    .all()
+    .map(rowToDelivery);
+}
+
 export interface UpdateDeliveryParams {
   status?: string;
   destinationMessageId?: string;

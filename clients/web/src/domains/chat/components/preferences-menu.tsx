@@ -27,7 +27,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
@@ -57,24 +56,20 @@ const AddCreditsModal = lazy(() =>
 /**
  * Whether the credits row belongs below the usage panel.
  *
- * Under `obscure-credits` the dollar balance stays hidden whenever there is a
- * usage reading to stand in for it. While the included bundle has room the
- * bar is the reading that matters, and a second number beside it only invites
- * the arithmetic the flag exists to avoid. Once the bundle is spent the panel
+ * The dollar balance stays hidden whenever there is a usage reading to stand
+ * in for it. While the included bundle has room the bar is the reading that
+ * matters, and a second number beside it only invites the arithmetic the
+ * usage-relative view exists to avoid. Once the bundle is spent the panel
  * itself says the next turn draws on extra usage credits, and once the wallet
  * is empty too its add-credits strip takes over, so the row never earns its
  * place.
  *
  * With no reading to hide behind, the row stays: the panel renders nothing
  * without one, and hiding the row too would leave the menu with no balance and
- * no way to buy more. With the flag off the row is whatever it has always
- * been.
+ * no way to buy more.
  */
-export function showsMenuCredits(
-  obscureCredits: boolean,
-  usage: PreferencesUsage | null,
-): boolean {
-  return !obscureCredits || usage == null;
+export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
+  return usage == null;
 }
 
 export interface PreferencesMenuProps {
@@ -274,9 +269,8 @@ function PreferencesMenuContent({
   } = useBillingBalanceStatus();
   /* The same reading the usage panel below draws, composed once so the row and
      the bar can never disagree about how much of the bundle is left. */
-  const obscureCredits = useObscureCredits();
   const usage = usePreferencesUsage({ conversationId: activeConversationId });
-  const showCredits = showsMenuCredits(obscureCredits, usage);
+  const showCredits = showsMenuCredits(usage);
 
   return (
     <>
@@ -300,11 +294,7 @@ function PreferencesMenuContent({
         <div className="my-2">
           <CreditsCard
             balance={formatWholeCredits(
-              displayedCreditsUsd(
-                obscureCredits,
-                effectiveBalance,
-                availableUsageBalance,
-              ),
+              displayedCreditsUsd(effectiveBalance, availableUsageBalance),
             )}
             onAddCredits={() => {
               onClose();

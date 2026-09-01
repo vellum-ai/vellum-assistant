@@ -10,9 +10,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the service
 // ---------------------------------------------------------------------------
+import type { RegisteredInboxState } from "../email/registered-inbox.js";
 
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
+let mockRegisteredInbox: RegisteredInboxState;
 
 mock.module("../calls/twilio-rest.js", () => ({
   hasTwilioCredentials: () => mockHasTwilioCredentials,
@@ -23,6 +25,11 @@ mock.module("../config/env.js", () => ({}));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
+}));
+
+mock.module("../email/registered-inbox.js", () => ({
+  resolveRegisteredInbox: async () => mockRegisteredInbox,
+  invalidateRegisteredInboxCache: () => {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -45,6 +52,7 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     setConfig("email", {});
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
+    mockRegisteredInbox = { status: "none" };
   });
 
   // -------------------------------------------------------------------------
@@ -102,12 +110,15 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       expect(ingressCheck!.passed).toBe(false);
     });
 
-    test("ready when all prerequisites are met (including inbox)", async () => {
+    test("ready when the platform reports a registered inbox", async () => {
       setConfig("ingress", {
         publicBaseUrl: "https://example.com",
         enabled: true,
       });
-      setConfig("email", { address: "user@example.com" });
+      mockRegisteredInbox = {
+        status: "registered",
+        address: "assistant@example.com",
+      };
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
@@ -115,7 +126,26 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       expect(snapshot.reasons).toHaveLength(0);
     });
 
-    test("not ready when inbox is missing (remote check)", async () => {
+    test("platform registration decides the check; local config cannot", async () => {
+      // Registration lives on the platform. A stray local `email.address`
+      // config value (a key nothing writes) must not make an unregistered
+      // inbox pass.
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      setConfig("email", { address: "stale@example.com" });
+      mockRegisteredInbox = { status: "none" };
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      expect(snapshot.ready).toBe(false);
+      expect(snapshot.reasons.some((r) => r.code === "inbox_configured")).toBe(
+        true,
+      );
+    });
+
+    test("not ready when the platform reports no inbox (remote check)", async () => {
       setConfig("ingress", {
         publicBaseUrl: "https://example.com",
         enabled: true,
@@ -127,6 +157,69 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       expect(snapshot.reasons.some((r) => r.code === "inbox_configured")).toBe(
         true,
       );
+    });
+
+    test("missing platform credentials fail the inbox check", async () => {
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      mockRegisteredInbox = { status: "no_platform" };
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      expect(snapshot.ready).toBe(false);
+      expect(snapshot.reasons.some((r) => r.code === "inbox_configured")).toBe(
+        true,
+      );
+    });
+
+    test("a your-own provider credential passes the inbox check", async () => {
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      mockRegisteredInbox = { status: "none" };
+      mockSecureKeys[credentialKey("resend", "api_key")] = "stored";
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      expect(snapshot.ready).toBe(true);
+      expect(snapshot.reasons).toHaveLength(0);
+    });
+
+    test("a your-own credential decides even when the platform is unreachable", async () => {
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      mockRegisteredInbox = { status: "unavailable", detail: "HTTP 503" };
+      mockSecureKeys[credentialKey("mailgun", "api_key")] = "stored";
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      expect(snapshot.ready).toBe(true);
+    });
+
+    test("unreachable platform is indeterminate, not a fault", async () => {
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      mockRegisteredInbox = { status: "unavailable", detail: "HTTP 503" };
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      // No positive confirmation, so the channel cannot report ready, but an
+      // unanswerable question is not a fault and must not be listed as one.
+      expect(snapshot.ready).toBe(false);
+      expect(snapshot.reasons.some((r) => r.code === "inbox_configured")).toBe(
+        false,
+      );
+      const remoteCheck = snapshot.remoteChecks?.find(
+        (c) => c.name === "inbox_configured",
+      );
+      expect(remoteCheck?.indeterminate).toBe(true);
     });
 
     test("local-only readiness still passes without inbox check", async () => {

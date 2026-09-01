@@ -22,6 +22,7 @@ import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import {
   formatSlackTimezoneLabel,
   isSlackTs,
@@ -1398,6 +1399,22 @@ function buildAssistantChannelMetadata(
       metadata.slackMeta = writeSlackMetadata(
         partialSlackMeta as SlackMessageMetadata,
       );
+    }
+  } else if (deps.turnChannelContext.assistantMessageChannel !== "vellum") {
+    // Every other channel row describes itself in the neutral envelope
+    // `readProviderMetadata` serves, the shape a plugin channel writes too.
+    // `messageId` stays absent here and is back-filled by the post-send
+    // reconciliation once the transport returns the sent message's id, which
+    // is what lets a later reaction on this row resolve back to it. No
+    // `threadId`: a value there asserts a thread exists, and the reply's
+    // routing thread is delivery state, not a fact about this row.
+    const chatId = turnOrRestingTrust(deps.ctx)?.requesterChatId;
+    if (chatId) {
+      metadata.providerMeta = JSON.stringify({
+        source: deps.turnChannelContext.assistantMessageChannel,
+        conversationExternalId: chatId,
+        eventKind: "message",
+      } satisfies ProviderMessageMetadata);
     }
   }
 

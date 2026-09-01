@@ -90,7 +90,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     });
     expect(data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — #C01ABC",
+      value: "Slack · #C01ABC",
     });
   });
 
@@ -101,7 +101,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     });
     expect(surfaceOf(blocks).data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — Direct message",
+      value: "Slack · Direct message",
     });
   });
 

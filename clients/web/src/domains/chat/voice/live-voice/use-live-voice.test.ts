@@ -71,6 +71,7 @@ function renderController(
   extraOptions: {
     observeAudioState?: boolean;
     reconnectBackoffMs?: number[];
+    heldPlaybackTimeoutMs?: number;
     /**
      * Configure each FakeCapture at creation — before the controller calls
      * `capture.start()`, which happens synchronously at connect time (so
@@ -3548,5 +3549,266 @@ describe("speak first (seed turn)", () => {
     await emitReady(h, "s2");
 
     expect(h.client.sentText).toEqual([SEED, SEED]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reversible barge-in (JARVIS-1694)
+// ---------------------------------------------------------------------------
+
+describe("reversible barge-in", () => {
+  /**
+   * Drive a hands-free session to `speaking`, i.e. the assistant mid-reply
+   * with audio queued, which is the state a barge-in interrupts.
+   */
+  async function speakingSession(options?: { heldPlaybackTimeoutMs?: number }) {
+    const h = renderController(options);
+    await startListening(h, { handsFree: true });
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: 4, text: "hello" });
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 6,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    return h;
+  }
+
+  /** A noise onset: server VAD fires, the client flushes and holds. */
+  function bargeIn(h: ReturnType<typeof renderController>, seq: number) {
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq });
+    });
+  }
+
+  test("a discarded utterance puts the flushed reply back", async () => {
+    const h = await speakingSession();
+
+    bargeIn(h, 10);
+    // The flush is what today's bug is: the reply's audio is gone and the
+    // room is listening to a noise that was never speech.
+    expect(h.player.stopCount).toBeGreaterThan(0);
+    expect(h.player.hasHeldPlayback()).toBe(true);
+    expect(h.view.result.current.state).toBe("listening");
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 11,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 12,
+      });
+      await Promise.resolve();
+    });
+
+    expect(h.player.resumeHeldCount).toBe(1);
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+  });
+
+  test("control: an utterance that transcribes keeps the reply destroyed", async () => {
+    const h = await speakingSession();
+
+    // Same barge-in, same flush. The only difference is that this utterance
+    // carried real speech, so the daemon starts a turn instead of retracting.
+    bargeIn(h, 10);
+    expect(h.player.hasHeldPlayback()).toBe(true);
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 11,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 12,
+        text: "actually wait",
+      });
+      h.client.emit("thinking", { type: "thinking", seq: 13, turnId: "t2" });
+    });
+
+    expect(h.player.hasHeldPlayback()).toBe(false);
+    expect(h.player.resumeHeldCount).toBe(0);
+    expect(h.view.result.current.state).toBe("thinking");
+  });
+
+  test("a second speech onset drops the audio the first one held", async () => {
+    const h = await speakingSession();
+
+    bargeIn(h, 10);
+    expect(h.player.hasHeldPlayback()).toBe(true);
+
+    // The user really is talking over the reply. Even if this utterance is
+    // itself discarded, the reply is a whole speech onset stale by now.
+    bargeIn(h, 11);
+    expect(h.player.hasHeldPlayback()).toBe(false);
+
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 12,
+      });
+      await Promise.resolve();
+    });
+
+    expect(h.player.resumeHeldCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("the hold expires on its deadline", async () => {
+    const h = await speakingSession({ heldPlaybackTimeoutMs: 20 });
+
+    bargeIn(h, 10);
+    expect(h.player.hasHeldPlayback()).toBe(true);
+
+    await act(async () => {
+      await sleep(40);
+    });
+
+    // A reply resumed long after the room went quiet is a non-sequitur, so
+    // the deadline drops it and a late retraction finds nothing to restore.
+    expect(h.player.hasHeldPlayback()).toBe(false);
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 11,
+      });
+      await Promise.resolve();
+    });
+    expect(h.player.resumeHeldCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("control: the same wait inside the deadline still resumes", async () => {
+    const h = await speakingSession({ heldPlaybackTimeoutMs: 400 });
+
+    bargeIn(h, 10);
+    await act(async () => {
+      await sleep(40);
+    });
+
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 11,
+      });
+      await Promise.resolve();
+    });
+
+    expect(h.player.resumeHeldCount).toBe(1);
+    expect(h.view.result.current.state).toBe("speaking");
+  });
+
+  test("turn_cancelled behind the onset keeps the hold rather than clearing it", async () => {
+    const h = await speakingSession();
+
+    // The daemon cancels a still-generating turn on barge-in, so the client
+    // sees a second flush a frame later with the queue already empty.
+    bargeIn(h, 10);
+    act(() => {
+      h.client.emit("turnCancelled", {
+        type: "turn_cancelled",
+        seq: 11,
+        turnId: "t1",
+      });
+    });
+    expect(h.player.hasHeldPlayback()).toBe(true);
+
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 12,
+      });
+      await Promise.resolve();
+    });
+
+    expect(h.player.resumeHeldCount).toBe(1);
+  });
+
+  test("the user's own interrupt is not recoverable", async () => {
+    const h = await speakingSession();
+
+    act(() => {
+      useLiveVoiceStore.getState().controls?.interrupt();
+    });
+
+    // Stopping the assistant deliberately means it stays stopped, whatever
+    // the daemon later says about the utterance.
+    expect(h.client.interruptCount).toBe(1);
+    expect(h.player.hasHeldPlayback()).toBe(false);
+    expect(h.view.result.current.state).toBe("listening");
+
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 11,
+      });
+      await Promise.resolve();
+    });
+    expect(h.player.resumeHeldCount).toBe(0);
+  });
+
+  test("a resumed turn still ends when its audio drains", async () => {
+    const h = await speakingSession();
+
+    // The turn's own drain waiter resolved when the flush emptied the queue,
+    // so without a fresh one the session would sit in `speaking` for good.
+    await act(async () => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: 10, turnId: "t1" });
+      await Promise.resolve();
+    });
+    bargeIn(h, 11);
+    await act(async () => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 12,
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(false);
+  });
+
+  test("teardown drops the hold and its deadline", async () => {
+    const h = await speakingSession({ heldPlaybackTimeoutMs: 20 });
+
+    bargeIn(h, 10);
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    // The player is disposed with the session, so nothing survives to be
+    // resumed onto a later one, and the expiry timer has nothing to fire at.
+    expect(h.player.hasHeldPlayback()).toBe(false);
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(h.view.result.current.state).toBe("idle");
   });
 });

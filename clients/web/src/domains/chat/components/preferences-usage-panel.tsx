@@ -17,12 +17,12 @@ export interface PreferencesUsagePanelProps {
 }
 
 /**
- * The preferences menu's usage reading while `obscure-credits` is on: the same
- * usage-balance reading the billing Plan tile draws, close to where the work
- * is being done. `usePreferencesUsage` decides whether there is anything
- * honest to say, and returns nothing when the flag is off, when the org has no
- * managed billing to read, or before a real number lands, so the menu is
- * otherwise exactly what it has always been.
+ * The preferences menu's usage reading: the same usage-balance reading the
+ * billing Plan tile draws, close to where the work is being done.
+ * `usePreferencesUsage` decides whether there is anything honest to say, and
+ * returns nothing when the org has no managed billing to read or before a
+ * real number lands, so the menu is otherwise exactly what it has always
+ * been.
  */
 export function PreferencesUsagePanel({
   onOpenBilling,

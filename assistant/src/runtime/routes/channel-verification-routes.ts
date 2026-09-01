@@ -28,6 +28,8 @@ import {
   createInboundChallenge,
   getVerificationStatus,
   revokeVerificationForChannel,
+  type VerificationStatusResponse,
+  verificationStatusResponseSchema,
   verifyTrustedContact,
 } from "../../daemon/handlers/config-channels.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
@@ -182,7 +184,7 @@ export async function handleCreateVerificationSession({
 async function handleGetVerificationStatus({
   queryParams = {},
   body = {},
-}: RouteHandlerArgs) {
+}: RouteHandlerArgs): Promise<VerificationStatusResponse> {
   const channel = (queryParams.channel ??
     (body as Record<string, unknown>).channel) as ChannelId | undefined;
   return await getVerificationStatus(channel);
@@ -356,6 +358,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Optional channel ID filter",
       },
     ],
+    responseBody: verificationStatusResponseSchema,
     handler: handleGetVerificationStatus,
   },
 ];

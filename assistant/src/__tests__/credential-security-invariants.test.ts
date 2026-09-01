@@ -238,6 +238,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
       "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential: reveal-equivalent plaintext read, scoped to the in-context plugin's own service
       "tools/credentials/store.ts", // shared credential write path (setSecureKeyAsync only; no reads) behind credentials/set and plugin-facing storeCredential
+      "email/byo-email-credential.ts", // BYO email provider configuration check (credential presence only; value never leaves the helper)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -485,7 +486,6 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
     expect(result.reason).toContain("No tools are currently allowed");
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // Invariant 6 — oauth2ClientSecret never in plaintext metadata

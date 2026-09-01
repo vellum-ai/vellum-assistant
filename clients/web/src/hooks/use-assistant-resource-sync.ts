@@ -198,14 +198,14 @@ export function useAssistantResourceSync(
         });
         return;
 
+      // No web surface reads the relationship snapshot, so this event is kept
+      // only as a second staleness signal for the feed: the daemon rewrites
+      // the snapshot at a turn boundary, which is also when the feed can have
+      // gained an item.
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
           predicate: (query) =>
             isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
-        });
-        void queryClient.invalidateQueries({
-          predicate: (query) =>
-            isGeneratedQueryKey(query.queryKey, "homeStateGet"),
         });
         return;
 
@@ -337,10 +337,6 @@ function refreshAssistantResources(
   invalidatePluginQueries(queryClient, assistantId, undefined, refetchType);
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
-    refetchType,
-  });
-  void queryClient.invalidateQueries({
-    predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
     refetchType,
   });
 }

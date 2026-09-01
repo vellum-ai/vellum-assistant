@@ -25,7 +25,6 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommand["kind"], string> = {
   logout: "",
   rePair: "",
   sidebarToggle: "CmdOrCtrl+\\",
-  home: "CmdOrCtrl+Shift+H",
   popOut: "CmdOrCtrl+P",
   previousConversation: "CmdOrCtrl+Up",
   nextConversation: "CmdOrCtrl+Down",

@@ -801,16 +801,20 @@ describe("mobile pill triggers", () => {
   const PILL_FILL_CLASS = "bg-[var(--border-subtle)]";
 
   /**
-   * The pill's glyph sits at the design's 20px (Figma 7840-8818), so it rides
-   * as a child of the button rather than in the Button's own narrower icon
-   * box. Both classes matter: the box holds the space, the `svg` rule sizes
-   * the icon, which would otherwise render at its own default.
+   * The pill's glyph rides as a child of the button rather than in the Button's
+   * own icon box, so the button's `gap` sets the space between glyph and label.
+   * Both classes matter: the box holds the space, the `svg` rule sizes the
+   * icon, which would otherwise render at its own default.
+   *
+   * 16px, matching the status controls sharing this row. The desktop variants
+   * of these same two triggers sit at 14px, so a larger glyph here reads as a
+   * size out of step with everything around it.
    */
   function expectGlyphSizedForPill(pill: HTMLElement) {
     const glyph = pill.querySelector('span[aria-hidden="true"]');
     const glyphClass = glyph?.getAttribute("class") ?? "";
-    expect(glyphClass).toContain("size-5");
-    expect(glyphClass).toContain("[&_svg]:size-5");
+    expect(glyphClass).toContain("size-4");
+    expect(glyphClass).toContain("[&_svg]:size-4");
   }
 
   beforeEach(() => {
@@ -837,7 +841,7 @@ describe("mobile pill triggers", () => {
     expect(profileTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
   });
 
-  test("renders both pill glyphs at the design's 20px", async () => {
+  test("renders both pill glyphs at 16px", async () => {
     renderMenu();
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);

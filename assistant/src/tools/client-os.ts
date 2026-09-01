@@ -13,6 +13,15 @@ interface HostClientContext {
   sourceActorPrincipalId?: string;
 }
 
+export function desktopClientName(
+  context: HostClientContext,
+): "Windows" | "macOS" {
+  return context.clientOs === "windows" ||
+    context.transportInterface === "windows"
+    ? "Windows"
+    : "macOS";
+}
+
 export function supportsClientOs(
   supportedClientOs: readonly ClientOs[] | undefined,
   clientOs: ClientOs | undefined,

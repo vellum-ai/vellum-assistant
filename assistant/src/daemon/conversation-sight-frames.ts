@@ -2,11 +2,11 @@
  * Retention for ambient camera frames, the images a call samples on its own
  * while the camera is up.
  *
- * A frame arrives about once per spoken turn and history resends every inline
- * image on every later request, so a long call grows its own context until the
- * provider rejects it. {@link stripAgedSightFrames} keeps only the newest few
- * frames as real images and replaces the rest with text stubs, on the copy of
- * the history a turn is about to send.
+ * Frames arrive every few seconds for as long as the camera is up, and history
+ * resends every inline image on every later request, so a long call grows its
+ * own context until the provider rejects it. {@link stripAgedSightFrames} keeps
+ * only the newest `sight.keepLatestFrames` as real images and replaces the rest
+ * with text stubs, on the copy of the history a turn is about to send.
  *
  * This is the proactive counterpart to `stripMediaPayloadsForRetry`
  * (`conversation-media-retry.ts`), which fires only after a provider has
@@ -21,6 +21,12 @@
  * without either module importing the other.
  */
 
+import { getConfig } from "../config/loader.js";
+import {
+  KEEP_LATEST_SIGHT_FRAMES,
+  MAX_SIGHT_KEEP_LATEST_FRAMES,
+  MIN_SIGHT_KEEP_LATEST_FRAMES,
+} from "../config/schemas/sight.js";
 import { mediaSourceDescriptor } from "../providers/media-resolve.js";
 import {
   type ContentBlock,
@@ -29,19 +35,25 @@ import {
 } from "../providers/types.js";
 
 /**
- * How many camera frames stay in the context as real images, counted
- * newest-first across the whole conversation so the frames on the most recent
- * turns are the ones that survive.
+ * The workspace's `sight.keepLatestFrames`, clamped to
+ * [{@link MIN_SIGHT_KEEP_LATEST_FRAMES}, {@link MAX_SIGHT_KEEP_LATEST_FRAMES}].
  *
- * Smaller than `RETRY_KEEP_LATEST_MEDIA_BLOCKS` (3, in
- * `conversation-media-retry.ts`) because the two budgets answer different
- * questions. That one is reactive and spends a rejected request's remaining
- * room across every kind of media, including files the user deliberately sent.
- * This one is proactive, applied to every assembly, and governs only frames the
- * camera sampled by itself: background the model glances at, not something
- * anyone chose to attach.
+ * Clamped at read rather than rejected by the schema because an out-of-range
+ * value states an intent the guardrail can honor part of the way: capping it
+ * shows the most frames the budget allows, while failing validation would fall
+ * back to the default and show a number neither the config nor the guardrail
+ * asked for.
  */
-export const KEEP_LATEST_SIGHT_FRAMES = 2;
+export function resolveSightKeepLatestFrames(): number {
+  const configured = getConfig().sight.keepLatestFrames;
+  if (!Number.isFinite(configured)) {
+    return KEEP_LATEST_SIGHT_FRAMES;
+  }
+  return Math.min(
+    MAX_SIGHT_KEEP_LATEST_FRAMES,
+    Math.max(MIN_SIGHT_KEEP_LATEST_FRAMES, Math.trunc(configured)),
+  );
+}
 
 /**
  * True when any image in the history can be traced back to an attachment row.
@@ -63,7 +75,11 @@ export function hasAttributableImages(messages: Message[]): boolean {
 
 /**
  * Replace every camera frame in `messages` except the newest
- * {@link KEEP_LATEST_SIGHT_FRAMES} with a text stub.
+ * `keepLatestFrames` with a text stub.
+ *
+ * `keepLatestFrames` defaults to {@link KEEP_LATEST_SIGHT_FRAMES}, the config
+ * default. The assembly path passes {@link resolveSightKeepLatestFrames}
+ * instead, so what a turn sends follows the workspace's own setting.
  *
  * `frameCaptureTimes` maps an attachment id the conversation tagged as a camera
  * frame to when the row carrying it was written; an image block counts as a
@@ -84,6 +100,7 @@ export function hasAttributableImages(messages: Message[]): boolean {
 export function stripAgedSightFrames(
   messages: Message[],
   frameCaptureTimes: ReadonlyMap<string, number>,
+  keepLatestFrames: number = KEEP_LATEST_SIGHT_FRAMES,
 ): { messages: Message[]; modified: boolean; replacedBlocks: number } {
   if (frameCaptureTimes.size === 0) {
     return { messages, modified: false, replacedBlocks: 0 };
@@ -110,7 +127,7 @@ export function stripAgedSightFrames(
       frames.push({ messageIndex, blockIndex, capturedAt });
     }
   }
-  if (frames.length <= KEEP_LATEST_SIGHT_FRAMES) {
+  if (frames.length <= keepLatestFrames) {
     return { messages, modified: false, replacedBlocks: 0 };
   }
 
@@ -121,7 +138,7 @@ export function stripAgedSightFrames(
   const aged = new Map<number, Map<number, number>>();
   for (const frame of byCaptureTime.slice(
     0,
-    byCaptureTime.length - KEEP_LATEST_SIGHT_FRAMES,
+    byCaptureTime.length - keepLatestFrames,
   )) {
     const blocks = aged.get(frame.messageIndex) ?? new Map<number, number>();
     blocks.set(frame.blockIndex, frame.capturedAt);

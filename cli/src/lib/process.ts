@@ -76,13 +76,22 @@ export function windowsCommandLineLookupArgs(pid: number): string[] {
   ];
 }
 
-function readWindowsCommandLine(pid: number): string {
-  return execFileSync("powershell.exe", windowsCommandLineLookupArgs(pid), {
+/** Read a process command line using the platform's process inspection tool. */
+export function readProcessCommandLine(
+  pid: number,
+  hostPlatform: NodeJS.Platform = platform(),
+): string {
+  const command = hostPlatform === "win32" ? "powershell.exe" : "ps";
+  const args =
+    hostPlatform === "win32"
+      ? windowsCommandLineLookupArgs(pid)
+      : ["-p", String(pid), "-o", "command="];
+  return execFileSync(command, args, {
     windowsHide: true,
     encoding: "utf8",
     timeout: 3000,
     stdio: ["ignore", "pipe", "ignore"],
-  });
+  }).trim();
 }
 
 export function isVellumWindowsProcess(
@@ -111,12 +120,7 @@ export function isVellumWindowsProcess(
  */
 export function readPosixCommandLine(pid: number): string | null {
   try {
-    return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    }).trim();
+    return readProcessCommandLine(pid, platform());
   } catch {
     return null;
   }
@@ -130,16 +134,11 @@ export function isVellumProcess(
     if (hostPlatform === "win32") {
       const imageName = readWindowsProcesses(pid)[0]?.imageName ?? "";
       const commandLine = /^(?:bun|qdrant)\.exe$/i.test(imageName)
-        ? readWindowsCommandLine(pid)
+        ? readProcessCommandLine(pid, hostPlatform)
         : "";
       return isVellumWindowsProcess(imageName, commandLine);
     }
-    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    }).trim();
+    const output = readProcessCommandLine(pid, hostPlatform);
     return isVellumCommandLine(output);
   } catch {
     return false;
@@ -490,7 +489,7 @@ export async function stopOrphanedDaemonProcesses(
               (/^vellum-daemon\.exe$/i.test(imageName) ||
                 (/^bun\.exe$/i.test(imageName) &&
                   /vellum-daemon|[\\/]assistant[\\/]src[\\/](?:index|daemon[\\/]main)\.ts/i.test(
-                    readWindowsCommandLine(pid),
+                    readProcessCommandLine(pid, hostPlatform),
                   ))),
           )
           .map(({ pid }) =>

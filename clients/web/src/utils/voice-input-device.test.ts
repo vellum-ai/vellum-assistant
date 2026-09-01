@@ -31,4 +31,22 @@ describe("voiceInputAudioConstraints", () => {
       deviceId: { exact: "mic-42" },
     });
   });
+
+  test("drops auto gain on request, keeping the rest of the processing", () => {
+    expect(voiceInputAudioConstraints({ autoGainControl: false })).toEqual({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: false,
+    });
+  });
+
+  test("still honors the pinned device with auto gain off", () => {
+    localStorage.setItem(LS_VOICE_INPUT_DEVICE, "mic-42");
+    expect(voiceInputAudioConstraints({ autoGainControl: false })).toEqual({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: false,
+      deviceId: { exact: "mic-42" },
+    });
+  });
 });

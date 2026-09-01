@@ -1085,7 +1085,8 @@
                         "address": { "type": "string" },
                         "isPrimary": { "type": "boolean" },
                         "externalChatId": {
-                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          "description": "Delivery chat id. Omit to preserve the stored value. A legacy explicit null is accepted for compatibility and treated as omitted; clearing is not supported (a stored null is indistinguishable from never-learned, so no consumer could tell a clear from a gap).",
+                          "type": "string"
                         },
                         "status": { "type": "string" },
                         "policy": { "type": "string" }
@@ -1870,6 +1871,9 @@
                           },
                           "userModified": { "type": "boolean" },
                           "deleted": { "type": "boolean" },
+                          "scope": {
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
                           "createdAt": { "type": "string" },
                           "updatedAt": { "type": "string" }
                         },
@@ -1882,6 +1886,7 @@
                           "origin",
                           "userModified",
                           "deleted",
+                          "scope",
                           "createdAt",
                           "updatedAt"
                         ],
@@ -1951,6 +1956,9 @@
                         },
                         "userModified": { "type": "boolean" },
                         "deleted": { "type": "boolean" },
+                        "scope": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
                         "createdAt": { "type": "string" },
                         "updatedAt": { "type": "string" }
                       },
@@ -1963,6 +1971,7 @@
                         "origin",
                         "userModified",
                         "deleted",
+                        "scope",
                         "createdAt",
                         "updatedAt"
                       ],
@@ -2172,6 +2181,9 @@
                         },
                         "userModified": { "type": "boolean" },
                         "deleted": { "type": "boolean" },
+                        "scope": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
                         "createdAt": { "type": "string" },
                         "updatedAt": { "type": "string" }
                       },
@@ -2184,6 +2196,7 @@
                         "origin",
                         "userModified",
                         "deleted",
+                        "scope",
                         "createdAt",
                         "updatedAt"
                       ],
@@ -2269,6 +2282,9 @@
                         },
                         "userModified": { "type": "boolean" },
                         "deleted": { "type": "boolean" },
+                        "scope": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
                         "createdAt": { "type": "string" },
                         "updatedAt": { "type": "string" }
                       },
@@ -2281,6 +2297,7 @@
                         "origin",
                         "userModified",
                         "deleted",
+                        "scope",
                         "createdAt",
                         "updatedAt"
                       ],

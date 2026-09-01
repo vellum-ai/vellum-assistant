@@ -1302,4 +1302,58 @@ describe("pairDeliveryWithConversation", () => {
       expect(result.conversationId).toBeNull();
     }
   });
+  // ── Guardian delivery projections (channel cards pair nothing) ────
+
+  test.each(["slack", "telegram", "discord"])(
+    "a guardian card delivered to a channel pairs no conversation",
+    async (channel) => {
+      const signal = makeSignal({
+        sourceEventName: "guardian.question",
+        contextPayload: { requestKind: "tool_approval", requestId: "req-1" },
+      });
+
+      const result = await pairDeliveryWithConversation(
+        signal,
+        channel as NotificationChannel,
+        makeCopy(),
+      );
+
+      expect(result.conversationId).toBeNull();
+      expect(result.messageId).toBeNull();
+      expect(createConversationMock).not.toHaveBeenCalled();
+      expect(addMessageMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test("an access-request card delivered to a channel pairs no conversation", async () => {
+    const signal = makeSignal({
+      sourceEventName: "ingress.access_request",
+      contextPayload: { requestId: "req-a" },
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      makeCopy(),
+    );
+
+    expect(result.conversationId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+  });
+
+  test("the vellum delivery of a guardian card still pairs its conversation", async () => {
+    const signal = makeSignal({
+      sourceEventName: "guardian.question",
+      contextPayload: { requestKind: "tool_approval", requestId: "req-1" },
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy(),
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.messageId).toBe("msg-001");
+  });
 });

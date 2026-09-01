@@ -177,6 +177,7 @@ function createHarness(options: {
   archiveAudio?: LiveVoiceSessionAudioArchiver;
   turnDetectorConfig?: TurnDetectorConfig;
   speechEnergyThreshold?: number;
+  noiseFloorMargin?: number;
   bargeInMinSpeechMs?: number;
   echoBargeInMargin?: number;
   echoEmaHalfLifeMs?: number;
@@ -257,6 +258,11 @@ function createHarness(options: {
       options.turnDetectorConfig ??
       (options.viaFactory ? undefined : { silenceThresholdMs: 40 }),
     speechEnergyThreshold: options.speechEnergyThreshold,
+    // Like echoBargeInMargin below: a directly-constructed session gets the
+    // fixed gate unless a test asks for the adaptation, so a case about
+    // something else cannot drift once it feeds ten seconds of audio.
+    noiseFloorMargin:
+      options.noiseFloorMargin ?? (options.viaFactory ? undefined : 0),
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
     echoBargeInMargin:
       options.echoBargeInMargin ?? (options.viaFactory ? undefined : 1),
@@ -3227,11 +3233,114 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
     expect(countType(raisedGate.frames, "speech_started")).toBe(0);
   });
 
+  // One second of steady room tone at 24kHz, i.e. exactly one noise-floor
+  // block. Ten of these fill the estimator's window.
+  const roomSecond = (amplitude: number): Uint8Array =>
+    pcm(amplitude, SAMPLE_RATE);
+
+  async function listenToRoom(
+    session: LiveVoiceSession,
+    amplitude: number,
+    seconds = 10,
+  ): Promise<void> {
+    for (let second = 0; second < seconds; second += 1) {
+      await session.handleBinaryAudio(roomSecond(amplitude));
+    }
+  }
+
+  test("a noisy room raises the gate over a chunk that would be speech in a quiet one", async () => {
+    const { frames, session } = createHarness({ noiseFloorMargin: 3 });
+    await session.start();
+
+    // Ten seconds of a 500-level room: below the 800 gate, so none of it is
+    // speech, but loud enough that 3x it lands above the gate.
+    await listenToRoom(session, 500);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(0);
+
+    // 1000 clears the fixed 800 gate and would be speech today. Against a
+    // measured floor of 500 the gate is now 1500, so this is still the room.
+    await session.handleBinaryAudio(pcm(1_000));
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(0);
+
+    // Someone actually speaking still gets through.
+    await session.handleBinaryAudio(pcm(1_600));
+    await waitFor(() => countType(frames, "speech_started") === 1);
+  });
+
+  test("the same room and chunk stay speech with the adaptation disabled", async () => {
+    // Control for the case above: nothing but noiseFloorMargin differs, so a
+    // failure here means the room audio moved the gate some other way.
+    const { frames, session } = createHarness({ noiseFloorMargin: 0 });
+    await session.start();
+
+    await listenToRoom(session, 500);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(0);
+
+    await session.handleBinaryAudio(pcm(1_000));
+    await waitFor(() => countType(frames, "speech_started") === 1);
+  });
+
+  test("a quiet room leaves the configured gate exactly where it was", async () => {
+    // The adaptation is one-directional: it may raise the gate, never lower it.
+    // A room quieter than the constant must not make barge-in easier than the
+    // configured threshold, or the change could invent self-interruption.
+    const { frames, session } = createHarness({ noiseFloorMargin: 3 });
+    await session.start();
+
+    await listenToRoom(session, 20);
+    await flushAsyncCallbacks();
+
+    await session.handleBinaryAudio(pcm(800));
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(0);
+
+    await session.handleBinaryAudio(pcm(801));
+    await waitFor(() => countType(frames, "speech_started") === 1);
+  });
+
+  test("the raised gate is capped at 4x the configured threshold", async () => {
+    // An absurd margin stands in for a pathological room: whatever the floor
+    // says, the gate must stay somewhere a person can still be heard over.
+    const { frames, session } = createHarness({
+      speechEnergyThreshold: 800,
+      noiseFloorMargin: 100,
+    });
+    await session.start();
+
+    await listenToRoom(session, 300);
+    await flushAsyncCallbacks();
+
+    // Uncapped this would be 30_000, past anything 16-bit audio can reach.
+    await session.handleBinaryAudio(pcm(3_100));
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(0);
+
+    await session.handleBinaryAudio(pcm(3_300));
+    await waitFor(() => countType(frames, "speech_started") === 1);
+  });
+
+  test("a partial window has no opinion, so the gate stays configured", async () => {
+    const { frames, session } = createHarness({ noiseFloorMargin: 3 });
+    await session.start();
+
+    // Nine seconds is not yet a window, and a partial window must not report
+    // the loudest thing it has heard as the room.
+    await listenToRoom(session, 500, 9);
+    await flushAsyncCallbacks();
+
+    await session.handleBinaryAudio(pcm(1_000));
+    await waitFor(() => countType(frames, "speech_started") === 1);
+  });
+
   test("with no config set the factory defaults to 800 energy / 1200 ms silence / 30 s max turn / 250 ms barge-in", async () => {
     // The test workspace has no liveVoice config, so the factory reads the
     // schema defaults.
     expect(getConfig().liveVoice.vad).toEqual({
       speechEnergyThreshold: 800,
+      noiseFloorMargin: 3,
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,

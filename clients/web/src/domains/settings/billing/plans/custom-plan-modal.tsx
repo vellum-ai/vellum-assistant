@@ -20,7 +20,6 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTranslation } from "@/i18n";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { Button } from "@vellumai/design-library/components/button";
@@ -37,7 +36,6 @@ import {
   type CustomPlanSeed,
   type MachineChoice,
   computeCustomPlanDiff,
-  NO_CREDITS_LABEL,
   NO_EXTRA_CREDITS,
 } from "./custom-plan-diff";
 import {
@@ -148,26 +146,10 @@ export function CustomPlanModal({
   onContinue,
 }: CustomPlanModalProps) {
   const { t } = useTranslation("settings");
-  // Under `obscure-credits` the bundle picker's chrome (label, placeholder,
-  // sentinel row) never names credits. The options themselves need no swap:
-  // the catalog labels are already the usage bundles' Stripe product names.
-  const obscureCredits = useObscureCredits();
-  const noBundleLabel = obscureCredits
-    ? t("customPlanModal.noExtraUsage")
-    : NO_CREDITS_LABEL;
-  const bundlePickerCopy = obscureCredits
-    ? {
-        label: t("customPlanModal.usageBundleLabel"),
-        docsLabel: t("customPlanModal.usageBundleDocsAriaLabel"),
-        ariaLabel: t("customPlanModal.usageBundleAriaLabel"),
-        placeholder: t("customPlanModal.usageBundlePlaceholder"),
-      }
-    : {
-        label: t("customPlanModal.creditsLabel"),
-        docsLabel: t("customPlanModal.creditsDocsAriaLabel"),
-        ariaLabel: t("customPlanModal.creditBundleAriaLabel"),
-        placeholder: t("customPlanModal.creditBundlePlaceholder"),
-      };
+  // The bundle picker's chrome (label, placeholder, sentinel row) never names
+  // credits. The options themselves need no swap: the catalog labels are
+  // already the usage bundles' Stripe product names.
+  const noBundleLabel = t("customPlanModal.noExtraUsage");
 
   // A Pro reconfigure seeds the current tiers so the default is a no-op; base
   // checkout passes none and leaves every dimension empty. A baseline machine
@@ -448,14 +430,14 @@ export function CustomPlanModal({
 
               <div className="flex flex-col gap-1">
                 <PickerLabel
-                  label={bundlePickerCopy.label}
+                  label={t("customPlanModal.usageBundleLabel")}
                   docsUrl={CREDIT_DOCS_URL}
-                  docsLabel={bundlePickerCopy.docsLabel}
+                  docsLabel={t("customPlanModal.usageBundleDocsAriaLabel")}
                   learnMore={t("customPlanModal.learnMore")}
                 />
                 <Select<CreditChoice>
-                  aria-label={bundlePickerCopy.ariaLabel}
-                  placeholder={bundlePickerCopy.placeholder}
+                  aria-label={t("customPlanModal.usageBundleAriaLabel")}
+                  placeholder={t("customPlanModal.usageBundlePlaceholder")}
                   value={creditChoice}
                   onChange={setCreditChoice}
                   options={creditOptions}

@@ -32,9 +32,8 @@ mock.module("@/lib/telemetry/client-perf", () => ({
   __resetClientPerfForTests: () => {},
 }));
 
-const { publish, subscribe, __resetForTesting } = await import(
-  "@/lib/event-bus"
-);
+const { publish, subscribe, __resetForTesting } =
+  await import("@/lib/event-bus");
 const {
   __resetResumeRequestCounterForTests,
   installResumeRequestCounter,
@@ -130,6 +129,25 @@ describe("installResumeRequestCounter", () => {
     expect(detail.observed_window_ms).toBe(10_000);
     expect(detail.signal).toBe("visibility");
     expect(lastDelay).toBe(10_000);
+  });
+
+  test("does not count the observer's own telemetry requests", () => {
+    // The `client_resume.*` reports this window produces are daemon requests
+    // too (the relay in `client-perf.ts` posts to the telemetry routes), so
+    // counting them would add a synthetic request to exactly the resumes
+    // being measured.
+    installResumeRequestCounter();
+    publish("app.resume", { signal: "visibility" });
+
+    noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
+    noteDaemonApiRequest("https://api.test/v1/assistants/a1/telemetry/ingest");
+    noteDaemonApiRequest("https://api.test/v1/telemetry/flush");
+    nowMs = 10_000;
+    fireTimers();
+
+    const { value, detail } = lastEmit();
+    expect(value).toBe(1);
+    expect(detail.by_group).not.toHaveProperty("other");
   });
 
   test("reports the span a mildly thawed window actually covered", () => {
