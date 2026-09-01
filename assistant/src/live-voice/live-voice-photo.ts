@@ -76,14 +76,13 @@ import {
   persistQueuedMessageBody,
 } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { getConversationIfExists } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   deleteOrphanAttachments,
   resolveAttachmentsForPersist,
 } from "../persistence/attachments-store.js";
 import {
-  getConversation,
   getMessageById,
   recordConversationPersistedSeq,
 } from "../persistence/conversation-crud.js";
@@ -341,13 +340,15 @@ async function writeStandaloneImage(
       return { ok: false };
     }
 
-    // A queued job starts long after its caller checked, and
-    // `getOrCreateConversation` inserts a row for an id it finds missing, so a
-    // keep waiting behind another one would bring a deleted conversation back.
-    // The read below creates nothing, which is what restores the invariant
-    // that a delete is final for everything already queued. A delete that
-    // lands after this read is out of scope.
-    if (!getConversation(conversationId)) {
+    // A queued job starts long after its caller checked, so the conversation
+    // can be gone by now. The acquire creates nothing, which is what keeps a
+    // delete final for everything already queued: the creating acquire would
+    // write the row back and bring the conversation home carrying nothing but
+    // camera frames. A delete that lands after the acquire is fenced by the
+    // messages foreign key instead, and the failure path below reclaims the
+    // upload once it reads that no row was inserted.
+    const conversation = await getConversationIfExists(conversationId);
+    if (!conversation) {
       log.warn(
         { conversationId, attachmentId, kind },
         "Standalone image dropped: its conversation was deleted while it waited",
@@ -357,8 +358,6 @@ async function writeStandaloneImage(
       }
       return { ok: false };
     }
-
-    const conversation = await getOrCreateConversation(conversationId);
 
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
