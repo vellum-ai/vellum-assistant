@@ -23,7 +23,7 @@ import {
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { useBriefingRecipeCard } from "../hooks/use-briefing-recipe-card";
+import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
@@ -131,7 +131,7 @@ export function NotificationsBell() {
   // entity-link resolver fill, so it is at most one request between them.
   const isEmptyStateVisible =
     isOpen && !isDetailOpen && !feedQuery.isError && visibleItems.length === 0;
-  const briefingRecipe = useBriefingRecipeCard(
+  const showBriefingRecipe = useShouldOfferBriefingRecipe(
     assistantId,
     isEmptyStateVisible,
   );
@@ -342,8 +342,7 @@ export function NotificationsBell() {
       ) : (
         <NotificationsBellEmptyState
           onLaunchRecipe={closePanel}
-          showBriefingRecipe={briefingRecipe.isVisible}
-          onDismissBriefingRecipe={briefingRecipe.dismiss}
+          showBriefingRecipe={showBriefingRecipe}
         />
       )
     ) : (
