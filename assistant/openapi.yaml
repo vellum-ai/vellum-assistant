@@ -13815,6 +13815,19 @@ paths:
                           required:
                             - kind
                           additionalProperties: false
+                        remediation:
+                          type: object
+                          properties:
+                            action:
+                              type: string
+                              enum:
+                                - reprovision_managed_credential
+                            label:
+                              type: string
+                          required:
+                            - action
+                            - label
+                          additionalProperties: false
                         guardianRequest:
                           type: object
                           properties:
@@ -14049,6 +14062,19 @@ paths:
                           - updatesList
                     required:
                       - kind
+                    additionalProperties: false
+                  remediation:
+                    type: object
+                    properties:
+                      action:
+                        type: string
+                        enum:
+                          - reprovision_managed_credential
+                      label:
+                        type: string
+                    required:
+                      - action
+                      - label
                     additionalProperties: false
                   guardianRequest:
                     type: object
@@ -14378,6 +14404,19 @@ paths:
                                 - updatesList
                           required:
                             - kind
+                          additionalProperties: false
+                        remediation:
+                          type: object
+                          properties:
+                            action:
+                              type: string
+                              enum:
+                                - reprovision_managed_credential
+                            label:
+                              type: string
+                          required:
+                            - action
+                            - label
                           additionalProperties: false
                         guardianRequest:
                           type: object
@@ -23009,6 +23048,19 @@ paths:
                               - updatesList
                         required:
                           - kind
+                        additionalProperties: false
+                      remediation:
+                        type: object
+                        properties:
+                          action:
+                            type: string
+                            enum:
+                              - reprovision_managed_credential
+                          label:
+                            type: string
+                        required:
+                          - action
+                          - label
                         additionalProperties: false
                       guardianRequest:
                         type: object

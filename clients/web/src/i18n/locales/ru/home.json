@@ -21,6 +21,29 @@
     "guardianQuestion": "Вопрос опекуну",
     "guardianRequest": "Запрос опекуна"
   },
+  "feedRemediation": {
+    "done": "Восстановлено. Управляемый вывод снова работает.",
+    "running": "Восстановление...",
+    "failed": "Не удалось восстановить: {{reason}}"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "Одобрить",
+    "reject": "Отклонить",
+    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
+    "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
+    "receipt": {
+      "approved": "Запрос одобрен",
+      "rejected": "Запрос отклонён",
+      "expired": "Срок запроса истёк",
+      "superseded": "Запрос заменён",
+      "leftUnverified": "Осталось непроверенным",
+      "cancelled": "Запрос отменён",
+      "alreadyResolved": "Уже решено"
+    },
+    "viewSourceThread": "Открыть исходный тред",
+    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
+    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
+  },
   "homeRecapRow": {
     "actionsTitle": "Действия по обновлению"
   },
@@ -44,24 +67,6 @@
   },
   "notificationsBellDetail": {
     "back": "Назад к уведомлениям"
-  },
-  "homeGuardianRequestCard": {
-    "approve": "Одобрить",
-    "reject": "Отклонить",
-    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
-    "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
-    "receipt": {
-      "approved": "Запрос одобрен",
-      "rejected": "Запрос отклонён",
-      "expired": "Срок запроса истёк",
-      "superseded": "Запрос заменён",
-      "leftUnverified": "Осталось непроверенным",
-      "cancelled": "Запрос отменён",
-      "alreadyResolved": "Уже решено"
-    },
-    "viewSourceThread": "Открыть исходный тред",
-    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
-    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",

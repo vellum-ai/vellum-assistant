@@ -116,6 +116,7 @@ const {
   bootstrapLocalAssistantPlatformIdentity,
   resetLocalPlatformIdentityCacheForTesting,
   setBootstrapRetryDelaysForTesting,
+  recoverLocalAssistantPlatformCredential,
   resolveLocalAssistantPlatformIdentity,
 } = await import("@/lib/local-platform-identity");
 
@@ -274,9 +275,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     });
   });
 
-  test("rotates a stored API key the platform has rejected", async () => {
-    // The incident shape: a key IS stored, so every presence check reads
-    // healthy, but the platform rejects it on every managed call.
+  /** The incident shape: a key IS stored, so every presence check reads
+   * healthy, but the platform rejects it on every managed call. An existing
+   * registration hands back no key, so only an explicit rotation can produce
+   * a replacement. */
+  function seedRejectedCredential() {
     statusBody = {
       assistant_id: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
@@ -285,14 +288,16 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       assistantApiKeyStatus: "rejected",
       client_installation_id: HOST_INSTALLATION_ID,
     };
-    // An existing registration hands back no key, so only the explicit
-    // rotation can produce a replacement.
     ensureRegistrationBody = {
       assistant: { id: PLATFORM_ASSISTANT_ID },
       assistant_api_key: null,
     };
+  }
 
-    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+  test("the user's repair rotates a stored key the platform has rejected", async () => {
+    seedRejectedCredential();
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
 
     expect(requestNames()).toContain("reprovision-api-key");
     const injectedSecrets = requests
@@ -303,6 +308,17 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       name: "vellum:assistant_api_key",
       value: "reprovisioned-key",
     });
+  });
+
+  // Rotation replaces a credential, so it happens when the user asks for it
+  // and at no other time. The routine identity resolution sees the same
+  // rejected key and leaves it alone.
+  test("resolution alone never rotates a rejected key", async () => {
+    seedRejectedCredential();
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).not.toContain("reprovision-api-key");
   });
 
   // The anti-churn invariant. Only a settled rejection may rotate a key;

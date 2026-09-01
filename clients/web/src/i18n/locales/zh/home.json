@@ -21,6 +21,29 @@
     "guardianQuestion": "监护人问题",
     "guardianRequest": "监护人请求"
   },
+  "feedRemediation": {
+    "done": "已恢复。托管推理重新可用。",
+    "running": "正在恢复...",
+    "failed": "无法恢复：{{reason}}"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "批准",
+    "reject": "拒绝",
+    "answerHint": "前往对话回答这个问题。",
+    "decisionFailed": "无法提交决定。请重试。",
+    "receipt": {
+      "approved": "请求已批准",
+      "rejected": "请求已拒绝",
+      "expired": "请求已过期",
+      "superseded": "请求已被取代",
+      "leftUnverified": "未验证",
+      "cancelled": "请求已取消",
+      "alreadyResolved": "已处理"
+    },
+    "viewSourceThread": "查看来源消息串",
+    "toolRequested": "已请求运行 <code>{toolName}</code>",
+    "toolRequesting": "请求运行 <code>{toolName}</code>"
+  },
   "homeRecapRow": {
     "actionsTitle": "更新操作"
   },
@@ -44,24 +67,6 @@
   },
   "notificationsBellDetail": {
     "back": "返回通知"
-  },
-  "homeGuardianRequestCard": {
-    "approve": "批准",
-    "reject": "拒绝",
-    "answerHint": "前往对话回答这个问题。",
-    "decisionFailed": "无法提交决定。请重试。",
-    "receipt": {
-      "approved": "请求已批准",
-      "rejected": "请求已拒绝",
-      "expired": "请求已过期",
-      "superseded": "请求已被取代",
-      "leftUnverified": "未验证",
-      "cancelled": "请求已取消",
-      "alreadyResolved": "已处理"
-    },
-    "viewSourceThread": "查看来源消息串",
-    "toolRequested": "已请求运行 <code>{toolName}</code>",
-    "toolRequesting": "请求运行 <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "暂无内容。",

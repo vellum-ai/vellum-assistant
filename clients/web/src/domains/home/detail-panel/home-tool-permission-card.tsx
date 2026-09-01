@@ -113,23 +113,33 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
         </Typography>
       ) : null}
 
-      <div className="flex items-center gap-[var(--app-spacing-sm)]">
-        <span
-          className="inline-block shrink-0 rounded-full"
-          style={{
-            width: 8,
-            height: 8,
-            backgroundColor: statusDotColor(status),
-          }}
-          aria-hidden="true"
-        />
-        <Typography
-          variant="body-medium-default"
-          className="text-[var(--content-default)]"
-        >
-          {statusKey ? t(statusKey) : capitalizeStatus(status)}
-        </Typography>
-      </div>
+      {/*
+        The raw health status is what an OAuth connection's fix turns on:
+        "Missing scopes" and "Revoked" send the reader to different places. An
+        item carrying a remediation has one button that covers every one of
+        them, so the status label stops being the actionable thing and starts
+        being jargon. It also reads as blame for a credential the user never
+        connected: nothing was taken away from them.
+      */}
+      {item.remediation ? null : (
+        <div className="flex items-center gap-[var(--app-spacing-sm)]">
+          <span
+            className="inline-block shrink-0 rounded-full"
+            style={{
+              width: 8,
+              height: 8,
+              backgroundColor: statusDotColor(status),
+            }}
+            aria-hidden="true"
+          />
+          <Typography
+            variant="body-medium-default"
+            className="text-[var(--content-default)]"
+          >
+            {statusKey ? t(statusKey) : capitalizeStatus(status)}
+          </Typography>
+        </div>
+      )}
 
       {details ? (
         <Typography

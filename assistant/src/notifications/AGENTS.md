@@ -11,3 +11,24 @@ Guardian-request producers (access requests, tool approvals, tool-grant escalati
 Approval-card **source references** (the link back to the channel message that triggered a request) resolve only through `resolveApprovalSourceReference()` in `runtime/approval-source-link.ts` -- producers spread the result into the `guardian.question` context payload and never hand-build links. Channel-format knowledge (id shapes, permalinks, mrkdwn) lives only in `messaging/providers/<channel>/` and `notifications/adapters/<channel>`; the four-layer ownership map is documented at the top of `approval-source-link.ts`. Exception: access-request cards predate the registry and still derive their Slack permalink from payload `messageTs` in `access-request-copy.ts` -- converge them onto the registry rather than adding a third resolution path.
 
 Guardian-request card rows are **not conversation history**. Only the vellum delivery persists a message row (`pairDeliveryWithConversation` pins it to the conversation the request is _about_, via `buildVellumCardAffinity`); channel guardian cards are delivery projections and pair no conversation at all, with the gateway delivery row (chat id + channel-native message id) as their only persisted envelope. `isGuardianCardRow` in `approval-card-data.ts` is the single definition of which rows are guardian cards (including rows channel deliveries paired before the projection-only policy), derived from the card's own `ui_surface` id rather than a stored marker so old rows need no backfill. **Both** history assemblers must consult it -- `Conversation.loadFromDb` and `loadSlackChronologicalContext`, which re-reads rows rather than using `this.messages` -- or the unfiltered one replays the card between a parked turn's `tool_use` and its `tool_result` and history repair destroys the real result. Surface state is exempt on purpose: the card's buttons must still route after a restart. Full rationale in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md).
+
+## Notifications that carry a fix
+
+A notification reporting something broken **MUST** offer the repair as a `remediation` on its feed item, never as a card built for that one condition. `FeedRemediationSchema` (`api/responses/home.ts`) is the contract: the producer names a fix and authors its label, and renderers look the name up and render. Same ownership split as guardian card actions -- built once, centrally; renderers render -- extended to conditions that are not requests.
+
+A remediation is work the **client** performs, with no turn and no model in the loop. That is what separates it from `actions[]`, which seeds a conversation. Use a remediation when the client can just fix the thing (re-provision a credential, restart a service, reconnect a transport); use an action when the right next step is asking the assistant.
+
+The attach point is `deriveRemediation()` in `home-feed-side-effect.ts`, beside `deriveCategory` / `deriveDetailPanelKind`. Adding one is three edits and no new component:
+
+1. a value on `FeedRemediationActionSchema`,
+2. a branch in `deriveRemediation()`,
+3. a handler in the client's remediation registry (`domains/home/detail-panel/feed-remediation-registry.ts` in the web client).
+
+Rules that keep this from decaying into per-condition cards:
+
+- **Producers declare, renderers never infer.** `deriveRemediation()` reads a field the producer already publishes saying its condition is client-repairable (e.g. the credential health check's `clientRecoveryAction`). A renderer that pattern-matches payload fields to decide which button to draw is the thing this replaces.
+- **An unknown action renders nothing.** Clients ship on their own cadence, so a remediation named by a newer daemon must degrade to the notification exactly as it reads today. Never throw, and never render a disabled button for a fix this build cannot perform.
+- **The producer owns the label**, because it is the side that knows what the fix does. Renderers compose only the states the button itself has (running, done, failed).
+- **A handler reports failure by throwing**, and its message is shown to the reader, so it names what the reader must resolve ("sign in to Vellum") rather than an internal cause.
+- **An item carrying a remediation is awaiting the user.** `feedItemAwaitsUserAction()` covers both it and a pending guardian request, so both take the same callout. Do not add a second attention treatment.
+- **Withhold diagnostic status labels when a remediation is present.** Raw status vocabulary is actionable only when the reader picks the fix from it; once one button covers every status, the label is jargon at best and misattributed blame at worst (a credential the user never connected reading "Revoked").

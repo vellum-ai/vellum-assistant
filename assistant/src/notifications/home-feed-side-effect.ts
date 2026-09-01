@@ -15,6 +15,7 @@ import {
   type FeedItemCategory,
   type FeedItemDetailPanelKind,
   feedItemSchema,
+  type FeedRemediation,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
 import {
@@ -143,6 +144,7 @@ export async function writeHomeFeedItemForSignal(
 
   const category = deriveCategory(signal);
   const panelKind = deriveDetailPanelKind(signal);
+  const remediation = deriveRemediation(signal);
 
   const baseMetadata =
     signal.contextPayload &&
@@ -201,6 +203,7 @@ export async function writeHomeFeedItemForSignal(
     ...(urgency ? { urgency } : {}),
     ...(sourceConversationId ? { conversationId: sourceConversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
+    ...(remediation ? { remediation } : {}),
     ...(metadata ? { metadata } : {}),
   };
 
@@ -450,6 +453,38 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
 
 function deriveCategory(signal: NotificationSignal): FeedItemCategory {
   return EVENT_CATEGORY_MAP[signal.sourceEventName] ?? "system";
+}
+
+/**
+ * The fix a client can run for what this signal reports, when there is one.
+ *
+ * The single place a remediation is attached, so a renderer never infers one
+ * from payload fields and a second surface cannot disagree with the first
+ * about whether something is repairable. A new remediation is a branch here
+ * plus a handler in the client registry.
+ *
+ * Producers say whether their condition is client-repairable rather than
+ * having this function pattern-match their payload: the credential health
+ * check names `clientRecoveryAction` on the result it already publishes, and
+ * this maps it onto the wire shape.
+ */
+function deriveRemediation(
+  signal: NotificationSignal,
+): FeedRemediation | undefined {
+  if (signal.sourceEventName !== "credential.health_alert") {
+    return undefined;
+  }
+  const action = signal.contextPayload?.clientRecoveryAction;
+  if (action !== "reprovision_managed_credential") {
+    return undefined;
+  }
+  return {
+    action,
+    // Names the outcome, not the mechanism. "Reprovision the credential"
+    // describes what the platform does; the reader cares that inference works
+    // again.
+    label: "Restore Vellum inference",
+  };
 }
 
 function deriveDetailPanelKind(

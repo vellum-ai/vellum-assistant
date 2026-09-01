@@ -147,8 +147,12 @@ export const WithRejectedManagedCredential: Story = {
         category: "security",
         title: "Vellum inference interrupted",
         summary:
-          "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+          "Vellum's managed inference credential stopped working, so chat and background work that use it are paused.",
         detailPanel: { kind: "toolPermission" },
+        remediation: {
+          action: "reprovision_managed_credential",
+          label: "Restore Vellum inference",
+        },
         timestamp: "2026-09-01T15:28:00.000Z",
         createdAt: "2026-09-01T15:28:00.000Z",
       }),

@@ -81,6 +81,16 @@ type BootstrapLocalAssistantPlatformIdentityOptions = {
 
 type ResolveLocalAssistantPlatformIdentityOptions = {
   allowGatewayRepair?: boolean;
+  /**
+   * Whether a stored credential the platform has rejected may be rotated.
+   *
+   * Off by default, so the routine bootstrap never replaces a credential
+   * unattended. Rotation is a credential mutation and the user is the one who
+   * asks for it, from the repair action on the credential notification or by
+   * signing in from the CLI. The bootstrap's job is to provision what is
+   * missing, not to repair what is broken.
+   */
+  rotateRejectedCredential?: boolean;
 };
 
 const platformAssistantIdCache = new Map<string, Promise<string>>();
@@ -134,6 +144,7 @@ export async function resolveLocalAssistantPlatformIdentity(
 
   const promise = ensureLocalAssistantPlatformIdentity(assistant, {
     allowGatewayRepair: options.allowGatewayRepair ?? true,
+    rotateRejectedCredential: options.rotateRejectedCredential ?? false,
   });
   platformAssistantIdCache.set(assistant.assistantId, promise);
   try {
@@ -142,6 +153,38 @@ export async function resolveLocalAssistantPlatformIdentity(
     platformAssistantIdCache.delete(assistant.assistantId);
     throw error;
   }
+}
+
+/**
+ * Re-resolve this assistant's platform identity from scratch, rotating a
+ * rejected managed credential in the process.
+ *
+ * The ordinary bootstrap cannot serve an in-session recovery. It runs when a
+ * platform session is confirmed and when the assistant changes, so nothing
+ * re-runs it when a credential is rejected mid-session, and its per-assistant
+ * promise cache would return the already-settled result if anything did. Both
+ * are right for a bootstrap and wrong for a repair, so this drops the cache
+ * entry and resolves again.
+ *
+ * Rejects with the underlying reason (no platform session, unreachable
+ * gateway, rotation refused) so a caller can show it rather than reporting a
+ * failure it cannot explain.
+ */
+export async function recoverLocalAssistantPlatformCredential(
+  assistantId?: string,
+): Promise<void> {
+  const target = assistantId ?? getSelectedAssistant()?.assistantId;
+  if (!target) {
+    throw new Error("No local assistant is selected.");
+  }
+
+  const assistant = resolveLocalAssistant(target);
+  platformAssistantIdCache.delete(assistant?.assistantId ?? target);
+
+  await resolveLocalAssistantPlatformIdentity(target, {
+    allowGatewayRepair: true,
+    rotateRejectedCredential: true,
+  });
 }
 
 export function bootstrapLocalAssistantPlatformIdentity(
@@ -216,7 +259,7 @@ function resolveLocalAssistant(assistantId: string): LockfileAssistant | null {
 
 async function ensureLocalAssistantPlatformIdentity(
   assistant: LockfileAssistant,
-  options: { allowGatewayRepair: boolean },
+  options: { allowGatewayRepair: boolean; rotateRejectedCredential: boolean },
 ): Promise<string> {
   const gateway = await ensureGatewayAccess(assistant, options);
   const status = await fetchPlatformStatus(gateway, assistant.assistantId);
@@ -235,7 +278,9 @@ async function ensureLocalAssistantPlatformIdentity(
   // 401/403 and drops it the moment any new key is stored, so a "rejected"
   // verdict always describes the value sitting in the credential store right
   // now, and rotating on it cannot replace a working key.
-  const credentialRejected = status?.assistantApiKeyStatus === "rejected";
+  const credentialRejected =
+    options.rotateRejectedCredential &&
+    status?.assistantApiKeyStatus === "rejected";
 
   if (
     statusPlatformAssistantId &&

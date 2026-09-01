@@ -30,6 +30,7 @@ import { FeedItemSchema } from "../api/responses/home.js";
 export {
   type FeedAction,
   type FeedItem,
+  feedItemAwaitsUserAction,
   type FeedItemCategory,
   type FeedItemDetailPanel,
   type FeedItemDetailPanelKind,
@@ -40,6 +41,8 @@ export {
   type FeedItemStatus,
   type FeedItemType,
   type FeedItemUrgency,
+  type FeedRemediation,
+  type FeedRemediationAction,
   isPendingGuardianFeedItem,
   type SuggestedPrompt,
   SuggestedPromptSchema as suggestedPromptSchema,

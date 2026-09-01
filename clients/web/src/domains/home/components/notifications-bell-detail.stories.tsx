@@ -70,9 +70,12 @@ type Story = StoryObj<typeof meta>;
 /**
  * A rejected Vellum-managed inference credential, opened.
  *
- * The credential card is what the panel renders for `credential.health_alert`:
- * the credential's name, a status dot in the negative tone for a revoked
- * credential, and the health check's own sentence about what happens next.
+ * The item declares a remediation, so it takes the awaiting-action callout in
+ * the header and the shared remediation button below the card, exactly as a
+ * pending guardian request does. The raw health status is withheld: with one
+ * button covering every status, the label stops being the actionable thing,
+ * and "Revoked" reads as blame for a credential the user never connected.
+ *
  * The heading reads the producer-supplied name rather than the provider id,
  * which for this credential is the vendor and not the thing that stopped.
  */
@@ -83,16 +86,20 @@ export const ManagedInferenceCredentialRejected: Story = {
       id: "credential-health-vellum",
       title: "Vellum inference interrupted",
       summary:
-        "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+        "Vellum's managed inference credential stopped working, so chat and background work that use it are paused.",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "toolPermission" },
+      remediation: {
+        action: "reprovision_managed_credential",
+        label: "Restore Vellum inference",
+      },
       metadata: {
         provider: "vellum",
         providerLabel: "Vellum managed inference",
         status: "revoked",
         details:
-          "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+          "Vellum's managed inference credential stopped working, so chat and background work that use it are paused. Restoring it takes a moment and changes nothing else.",
         missingScopes: [],
       },
     }),

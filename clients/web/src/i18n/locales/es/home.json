@@ -21,6 +21,29 @@
     "guardianQuestion": "Pregunta del guardián",
     "guardianRequest": "Solicitud del guardián"
   },
+  "feedRemediation": {
+    "done": "Restaurado. La inferencia gestionada vuelve a funcionar.",
+    "running": "Restaurando...",
+    "failed": "No se pudo restaurar: {{reason}}"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "answerHint": "Ve a la conversación para responder esta pregunta.",
+    "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
+    "receipt": {
+      "approved": "Solicitud aprobada",
+      "rejected": "Solicitud rechazada",
+      "expired": "Solicitud vencida",
+      "superseded": "Solicitud reemplazada",
+      "leftUnverified": "Sin verificar",
+      "cancelled": "Solicitud cancelada",
+      "alreadyResolved": "Ya resuelta"
+    },
+    "viewSourceThread": "Ver hilo de origen",
+    "toolRequested": "Solicitó ejecutar <code>{toolName}</code>",
+    "toolRequesting": "Solicita ejecutar <code>{toolName}</code>"
+  },
   "homeRecapRow": {
     "actionsTitle": "Acciones de la actualización"
   },
@@ -44,24 +67,6 @@
   },
   "notificationsBellDetail": {
     "back": "Volver a las notificaciones"
-  },
-  "homeGuardianRequestCard": {
-    "approve": "Aprobar",
-    "reject": "Rechazar",
-    "answerHint": "Ve a la conversación para responder esta pregunta.",
-    "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
-    "receipt": {
-      "approved": "Solicitud aprobada",
-      "rejected": "Solicitud rechazada",
-      "expired": "Solicitud vencida",
-      "superseded": "Solicitud reemplazada",
-      "leftUnverified": "Sin verificar",
-      "cancelled": "Solicitud cancelada",
-      "alreadyResolved": "Ya resuelta"
-    },
-    "viewSourceThread": "Ver hilo de origen",
-    "toolRequested": "Solicitó ejecutar <code>{toolName}</code>",
-    "toolRequesting": "Solicita ejecutar <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",

@@ -88,6 +88,47 @@ export const FeedActionSchema = z.object({
 });
 export type FeedAction = z.infer<typeof FeedActionSchema>;
 
+/**
+ * Fixes a client can perform for the condition a notification reports.
+ *
+ * Distinct from {@link FeedActionSchema}, which seeds a conversation: a
+ * remediation is work the client does itself, with no turn and no model in
+ * the loop. It exists because a notification that reports a broken thing and
+ * offers no way to repair it is a dead end, and every such condition would
+ * otherwise grow its own card with its own button.
+ *
+ * The producer names the fix; renderers look it up and render. A client that
+ * does not know an action renders nothing rather than guessing, so adding one
+ * never breaks an older client.
+ *
+ * Adding a remediation is two edits: a value here plus the branch that
+ * attaches it in `notifications/home-feed-side-effect.ts`, and a handler in
+ * the client's remediation registry. Never a new card, and never a renderer
+ * inferring a fix from payload fields.
+ */
+export const FeedRemediationActionSchema = z.enum([
+  /**
+   * Ask the platform for a replacement Vellum-managed inference credential.
+   * The assistant cannot mint this credential, so the repair belongs to a
+   * signed-in client.
+   */
+  "reprovision_managed_credential",
+]);
+export type FeedRemediationAction = z.infer<typeof FeedRemediationActionSchema>;
+
+/**
+ * A remediation offered on a feed item.
+ *
+ * `label` is authored by the producer, which is the side that knows what the
+ * fix does. Clients render it rather than composing their own, so the button
+ * cannot drift from the condition it repairs.
+ */
+export const FeedRemediationSchema = z.object({
+  action: FeedRemediationActionSchema,
+  label: z.string(),
+});
+export type FeedRemediation = z.infer<typeof FeedRemediationSchema>;
+
 /** Which detail panel the client should open for this feed item. */
 export const FeedItemDetailPanelKindSchema = z.enum([
   "emailDraft",
@@ -206,6 +247,11 @@ export const FeedItemSchema = z.object({
   urgency: FeedItemUrgencySchema.optional(),
   conversationId: z.string().optional(),
   detailPanel: FeedItemDetailPanelSchema.optional(),
+  // A fix the client can run for the condition this item reports; see
+  // FeedRemediationSchema. Independent of `detailPanel`: which card renders
+  // the item and whether the item can be repaired are separate questions, so
+  // any panel kind can carry one.
+  remediation: FeedRemediationSchema.optional(),
   // Present only on the canonical "Needs attention" item projecting a
   // guardian request; see FeedItemGuardianRequestSchema.
   guardianRequest: FeedItemGuardianRequestSchema.optional(),
@@ -243,6 +289,24 @@ export function isPendingGuardianFeedItem(
   item: Pick<FeedItem, "guardianRequest">,
 ): boolean {
   return item.guardianRequest?.status === "pending";
+}
+
+/**
+ * Whether this item is waiting on the person reading it.
+ *
+ * Two shapes qualify: a guardian request nobody has answered, and an item
+ * carrying a repair nobody has run. Both mean the same thing to a reader
+ * scanning the bell, so both take the same callout rather than the callout
+ * being a guardian-only decoration.
+ *
+ * An item merely reporting something bad does not qualify. The callout says
+ * "this is blocked on you", so attaching it to a notification with nothing to
+ * do would teach readers to ignore it.
+ */
+export function feedItemAwaitsUserAction(
+  item: Pick<FeedItem, "guardianRequest" | "remediation">,
+): boolean {
+  return isPendingGuardianFeedItem(item) || item.remediation !== undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -85,6 +85,12 @@ export interface CredentialHealthResult {
    * source instead of each keeping a literal.
    */
   displayName?: string;
+  /**
+   * Repair a client can perform for this credential, named rather than
+   * inferred so a surface offering the button never has to guess from a
+   * provider id which credentials it can actually fix.
+   */
+  clientRecoveryAction?: "reprovision_managed_credential";
   accountInfo: string | null;
   status: CredentialHealthStatus;
   details: string;
@@ -674,6 +680,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
     provider: "vellum",
     displayName: MANAGED_INFERENCE_DISPLAY_NAME,
     accountInfo: null,
+    clientRecoveryAction: "reprovision_managed_credential",
     missingScopes: [],
   };
 
@@ -736,7 +743,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       // reconnect something would describe work they do not do, and would go
       // stale the moment it succeeds.
       details:
-        "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+        "Vellum's managed inference credential stopped working, so chat and background work that use it are paused. Restoring it takes a moment and changes nothing else.",
       canAutoRecover: true,
     };
   }
@@ -752,6 +759,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
 
   return {
     ...base,
+    clientRecoveryAction: undefined,
     status: "healthy",
     details: "The Vellum managed inference credential authenticates.",
     canAutoRecover: true,

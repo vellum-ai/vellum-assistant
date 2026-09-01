@@ -6,12 +6,13 @@ import {
   formatFullLocalDate,
 } from "@/utils/format-date";
 import {
-  isPendingGuardianFeedItem,
+  feedItemAwaitsUserAction,
   type FeedItem,
   type FeedItemStatus,
 } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 
+import { FeedItemRemediation } from "../detail-panel/feed-item-remediation";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
@@ -111,7 +112,7 @@ export function NotificationsBellDetail({
     : resolveFeedItemTitle(item);
   // While the request waits its title is the callout, as a pill. A settled
   // request needs nothing of anyone, so the same name reads as plain text.
-  const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
+  const isTitleAwaitingAction = feedItemAwaitsUserAction(item);
 
   // The lists start loading when this view opens, so validation has a pending
   // state a warm-cache surface would not have. Every
@@ -208,6 +209,15 @@ export function NotificationsBellDetail({
         ) : (
           <HomeGenericDetail item={item} className={BODY_LEADING_CLASS} />
         )}
+
+        {/*
+          The repair the item carries, if any. Rendered here rather than
+          inside a card so every panel kind can offer one: whether a condition
+          is fixable is independent of which card describes it.
+        */}
+        <div className="mt-[var(--app-spacing-md)]">
+          <FeedItemRemediation item={item} />
+        </div>
 
         {/*
           The assistant's own offers on this notification, so they sit with the

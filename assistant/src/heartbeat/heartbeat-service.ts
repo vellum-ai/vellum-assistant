@@ -746,6 +746,8 @@ export class HeartbeatService {
       status: string;
       details: string;
       missingScopes: string[];
+      canAutoRecover?: boolean;
+      clientRecoveryAction?: string;
     }>,
   ): Promise<void> {
     let emitNotificationSignal: typeof import("../notifications/emit-signal.js").emitNotificationSignal;
@@ -790,6 +792,16 @@ export class HeartbeatService {
             status: result.status,
             details: result.details,
             missingScopes: result.missingScopes,
+            // Whether a client can restore this credential without the user
+            // re-authorizing anything. The detail card offers its repair
+            // action from this, so a credential needing a real reconnect
+            // never renders a button that cannot fix it.
+            ...(result.canAutoRecover !== undefined
+              ? { canAutoRecover: result.canAutoRecover }
+              : {}),
+            ...(result.clientRecoveryAction !== undefined
+              ? { clientRecoveryAction: result.clientRecoveryAction }
+              : {}),
           },
           routingIntent: "single_channel",
           conversationMetadata: {

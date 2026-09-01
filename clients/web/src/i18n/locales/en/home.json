@@ -21,6 +21,29 @@
     "guardianQuestion": "Guardian question",
     "guardianRequest": "Guardian request"
   },
+  "feedRemediation": {
+    "done": "Restored. Managed inference is working again.",
+    "running": "Restoring...",
+    "failed": "Could not restore it: {{reason}}"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "answerHint": "Go to the conversation to answer this question.",
+    "decisionFailed": "The decision could not be submitted. Try again.",
+    "receipt": {
+      "approved": "Request approved",
+      "rejected": "Request rejected",
+      "expired": "Request expired",
+      "superseded": "Request superseded",
+      "leftUnverified": "Left unverified",
+      "cancelled": "Request cancelled",
+      "alreadyResolved": "Already resolved"
+    },
+    "viewSourceThread": "View source thread",
+    "toolRequested": "Requested to run <code>{toolName}</code>",
+    "toolRequesting": "Requesting to run <code>{toolName}</code>"
+  },
   "homeRecapRow": {
     "actionsTitle": "Update Actions"
   },
@@ -44,24 +67,6 @@
   },
   "notificationsBellDetail": {
     "back": "Back to notifications"
-  },
-  "homeGuardianRequestCard": {
-    "approve": "Approve",
-    "reject": "Reject",
-    "answerHint": "Go to the conversation to answer this question.",
-    "decisionFailed": "The decision could not be submitted. Try again.",
-    "receipt": {
-      "approved": "Request approved",
-      "rejected": "Request rejected",
-      "expired": "Request expired",
-      "superseded": "Request superseded",
-      "leftUnverified": "Left unverified",
-      "cancelled": "Request cancelled",
-      "alreadyResolved": "Already resolved"
-    },
-    "viewSourceThread": "View source thread",
-    "toolRequested": "Requested to run <code>{toolName}</code>",
-    "toolRequesting": "Requesting to run <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Nothing yet.",
