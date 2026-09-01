@@ -20,11 +20,14 @@ await initializeDb();
 const MAILBOX = "owner@example.com";
 const CREDENTIAL_SERVICE = "google";
 
-function gmailMessage(headers: Record<string, string>): GmailMessage {
+function gmailMessage(
+  headers: Record<string, string>,
+  labelIds: string[] = ["INBOX"],
+): GmailMessage {
   return {
     id: "msg-1",
     threadId: "thread-1",
-    labelIds: ["INBOX"],
+    labelIds,
     snippet: "Just checking in",
     internalDate: "1700000000000",
     payload: {
@@ -186,5 +189,23 @@ describe("the payload the normalizer categorizes", () => {
     expect(gmailNormalizer.normalize(item)?.credentialService).toBe(
       "google-work",
     );
+  });
+
+  test("the polled mailbox reaches the record as the credential account", () => {
+    const item = messageToItem(
+      gmailMessage({ From: FROM, To: MAILBOX }),
+      MAILBOX,
+      "google-work",
+    );
+    expect(gmailNormalizer.normalize(item)?.credentialAccount).toBe(MAILBOX);
+  });
+
+  test("an updates-labelled receipt still reaches its own category", () => {
+    const item = messageToItem(
+      gmailMessage({ From: FROM, To: MAILBOX }, ["INBOX", "CATEGORY_UPDATES"]),
+      MAILBOX,
+      CREDENTIAL_SERVICE,
+    );
+    expect(gmailNormalizer.normalize(item)?.content.category).toBe("dm");
   });
 });

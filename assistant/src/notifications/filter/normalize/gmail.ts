@@ -32,8 +32,18 @@ const log = getLogger("notification-filter:gmail");
  */
 const DEFAULT_GMAIL_CREDENTIAL_SERVICE = "google";
 
-/** Gmail labels that mark bulk mail regardless of who it is addressed to. */
-const BROADCAST_LABEL_IDS = ["CATEGORY_PROMOTIONS", "CATEGORY_UPDATES"];
+/**
+ * Gmail labels that mark bulk mail regardless of who it is addressed to.
+ *
+ * `CATEGORY_PROMOTIONS` is Gmail's own marketing bucket, so reading it as bulk
+ * is mechanical. `CATEGORY_UPDATES` deliberately stays off this list: it holds
+ * receipts, shipping notices, account changes and security alerts alongside
+ * genuine bulk mail, so mapping it here would tier a fraud alert down as bulk
+ * on a label alone. Those messages take the ordinary determination below and
+ * the judgment layer weighs their content, which is where a call that broad
+ * belongs.
+ */
+const BROADCAST_LABEL_IDS = ["CATEGORY_PROMOTIONS"];
 
 /** Header keys the watcher payload hoists to top-level scalars. */
 const HOISTED_HEADER_KEYS = ["from", "subject", "date", "to", "cc"];
@@ -140,7 +150,9 @@ function readLabelIds(payload: Record<string, unknown>): string[] {
  * Categorize from headers the watcher already carries, with no network I/O on
  * a path that runs for every polled message.
  *
- * Bulk mail wins over everything else. `dm` then means the mailbox is the sole
+ * Bulk mail wins over everything else, and only on the two mechanical signals
+ * that say so outright: the RFC 2369 `List-Unsubscribe` header, and Gmail's
+ * own marketing label. `dm` then means the mailbox is the sole
  * address in `To`: the message was written to the user and to nobody else,
  * whoever else was copied on it. That is a comparison against the authenticated
  * mailbox address, not an inference from how many recipients a message names,
@@ -189,6 +201,28 @@ function readMailboxAddress(payload: Record<string, unknown>): string | null {
   return address ?? null;
 }
 
+/**
+ * The account the poll read this message from, as the connection resolver's
+ * `account` option expects it.
+ *
+ * That option is an account identifier, and the authenticated mailbox address
+ * is the one the resolver can match on both paths: it is the account label
+ * stored on a BYO connection row and the `account_identifier` the platform
+ * lists managed connections by. A connection id would pin only the BYO path,
+ * since a managed connection reports the provider key as its id. The value is
+ * carried verbatim so it matches a stored label exactly.
+ */
+function readCredentialAccount(
+  payload: Record<string, unknown>,
+): string | null {
+  const value = payload.mailboxAddress;
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export const gmailNormalizer: NotificationNormalizer = {
   source: "gmail",
 
@@ -215,6 +249,7 @@ export const gmailNormalizer: NotificationNormalizer = {
       source: "gmail",
       externalId: item.externalId,
       credentialService: readCredentialService(payload),
+      credentialAccount: readCredentialAccount(payload),
       sender: parsedFrom
         ? attachContactId(
             {
@@ -248,13 +283,17 @@ export const gmailNormalizer: NotificationNormalizer = {
 
   async fetchFull(item: NormalizedNotification): Promise<string | null> {
     try {
-      // The same connection the poll read the message over: a workspace can
-      // hold more than one Gmail credential, and the default service would be
-      // a different account.
+      // The same connection the poll read the message over. A workspace can
+      // hold more than one Gmail credential, so the default service would be a
+      // different account; and several accounts can sit behind one service, so
+      // the service alone resolves to whichever connection is newest at this
+      // moment. The mailbox the poll authenticated as pins both. A message ID
+      // is scoped to its mailbox, so resolving any other one reads nothing.
       const connection = await resolveOAuthConnection(
         item.credentialService ?? DEFAULT_GMAIL_CREDENTIAL_SERVICE,
         {
           requiredScopes: GMAIL_REQUIRED_SCOPES,
+          account: item.credentialAccount ?? undefined,
         },
       );
       const [message] = await batchGetMessages(

@@ -61,6 +61,7 @@ export const linearNormalizer: NotificationNormalizer = {
       // Linear's poll returns the body, so nothing here resolves a connection
       // a second time.
       credentialService: null,
+      credentialAccount: null,
       sender: null,
       container: issueId
         ? {

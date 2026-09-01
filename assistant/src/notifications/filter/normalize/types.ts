@@ -87,6 +87,15 @@ export const NormalizedNotificationSchema = z.object({
    * stamps none, and a normalizer that needs one falls back to its default.
    */
   credentialService: z.string().nullable().default(null),
+  /**
+   * The account within that credential service the item was polled from, as
+   * the account identifier the OAuth connection resolver matches on. Several
+   * accounts can share one service, and resolution without a pinned account
+   * takes the most-recently-created connection, so the service alone leaves a
+   * `fetchFull` free to read a different mailbox than the poll did. Null when
+   * the source stamps none, which leaves resolution to the service.
+   */
+  credentialAccount: z.string().nullable().default(null),
   sender: NotificationSenderSchema.nullable(),
   container: NotificationContainerSchema.nullable(),
   content: NotificationContentSchema,

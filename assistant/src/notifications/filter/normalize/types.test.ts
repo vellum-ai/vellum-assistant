@@ -15,6 +15,7 @@ const LINEAR_RECORD: NormalizedNotification = {
   source: "linear",
   externalId: "notif-1",
   credentialService: null,
+  credentialAccount: null,
   sender: null,
   container: { type: "project", id: "issue-1", displayName: "Team One" },
   content: {
@@ -77,6 +78,20 @@ describe("NormalizedNotificationSchema", () => {
       credentialService: "google-work",
     });
     expect(parsed.credentialService).toBe("google-work");
+  });
+
+  test("defaults a record with no credential account to null", () => {
+    const { credentialAccount: _omitted, ...withoutAccount } = LINEAR_RECORD;
+    const parsed = NormalizedNotificationSchema.parse(withoutAccount);
+    expect(parsed.credentialAccount).toBeNull();
+  });
+
+  test("keeps the credential account a record carries", () => {
+    const parsed = NormalizedNotificationSchema.parse({
+      ...LINEAR_RECORD,
+      credentialAccount: "owner@example.com",
+    });
+    expect(parsed.credentialAccount).toBe("owner@example.com");
   });
 
   test("accepts a null container", () => {

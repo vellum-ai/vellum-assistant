@@ -138,8 +138,11 @@ export function messageToItem(
       date: headers.Date ?? "",
       headers,
       // The normalizer carries this onto its record so a follow-up body fetch
-      // resolves the account this poll read, not the default Gmail credential.
+      // resolves the credential this poll read, not the default Gmail one.
       credentialService,
+      // Serves two readers: the normalizer categorizes against it, and it is
+      // also the account identifier that pins a follow-up body fetch to this
+      // mailbox when several accounts share the credential service.
       ...(mailboxAddress ? { mailboxAddress } : {}),
       snippet: msg.snippet ?? "",
       labelIds: msg.labelIds ?? [],

@@ -156,6 +156,20 @@ describe("gmailNormalizer.normalize", () => {
     expect(result!.credentialService).toBeNull();
   });
 
+  test("carries the mailbox the watcher polled as the credential account", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ mailboxAddress: "second@example.com" }),
+    );
+    expect(result!.credentialAccount).toBe("second@example.com");
+  });
+
+  test("leaves the credential account null when the payload has none", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ mailboxAddress: undefined }),
+    );
+    expect(result!.credentialAccount).toBeNull();
+  });
+
   test("leaves contactId null when the sender is unknown", () => {
     expect(
       gmailNormalizer.normalize(gmailItem())!.sender?.contactId,
@@ -181,9 +195,53 @@ describe("gmailNormalizer category mapping", () => {
     expect(result!.content.category).toBe("broadcast");
   });
 
-  test("an updates label marks a broadcast", () => {
+  test("an updates label alone does not mark a broadcast", () => {
     const result = gmailNormalizer.normalize(
-      gmailItem({ labelIds: ["INBOX", "CATEGORY_UPDATES"] }),
+      gmailItem({
+        labelIds: ["INBOX", "CATEGORY_UPDATES"],
+        to: "owner@example.com",
+      }),
+    );
+    expect(result!.content.category).toBe("dm");
+  });
+
+  test("an updates label leaves the rest of the determination alone", () => {
+    expect(
+      gmailNormalizer.normalize(
+        gmailItem({
+          labelIds: ["INBOX", "CATEGORY_UPDATES"],
+          to: "owner@example.com, other@example.com",
+        }),
+      )!.content.category,
+    ).toBe("fyi");
+    expect(
+      gmailNormalizer.normalize(
+        gmailItem({
+          labelIds: ["INBOX", "CATEGORY_UPDATES"],
+          to: "owner@example.com, other@example.com",
+          headers: { "In-Reply-To": "<parent@example.com>" },
+        }),
+      )!.content.category,
+    ).toBe("reply");
+  });
+
+  test("an updates label with an unsubscribe header is still a broadcast", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        labelIds: ["INBOX", "CATEGORY_UPDATES"],
+        to: "owner@example.com",
+        headers: { "List-Unsubscribe": "<mailto:unsub@example.com>" },
+      }),
+    );
+    expect(result!.content.category).toBe("broadcast");
+  });
+
+  test("an updates label alongside promotions is still a broadcast", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        labelIds: ["INBOX", "CATEGORY_UPDATES", "CATEGORY_PROMOTIONS"],
+        to: "owner@example.com",
+      }),
     );
     expect(result!.content.category).toBe("broadcast");
   });
@@ -391,6 +449,69 @@ describe("gmailNormalizer.fetchFull", () => {
     await gmailNormalizer.fetchFull!(record);
 
     expect(resolveOAuthConnectionMock.mock.calls[0]![0]).toBe("google");
+  });
+
+  test("pins the account to the mailbox the poll read", async () => {
+    batchGetMessagesImpl = async () => [FULL_MESSAGE];
+    const record = gmailNormalizer.normalize(
+      gmailItem({ mailboxAddress: "second@example.com" }),
+    )!;
+
+    await gmailNormalizer.fetchFull!(record);
+
+    expect(resolveOAuthConnectionMock.mock.calls[0]![1]?.account).toBe(
+      "second@example.com",
+    );
+  });
+
+  test("reads the polled mailbox when two accounts share a service", async () => {
+    const bodyByAccount: Record<string, string> = {
+      "first@example.com": "First mailbox",
+      "second@example.com": "Second mailbox",
+    };
+    // Stands in for the resolver's own selection: without a pinned account it
+    // hands back whichever connection is newest, which is the other mailbox.
+    resolveOAuthConnectionImpl = (async (
+      _service: string,
+      options?: { account?: string },
+    ) => ({
+      account: options?.account ?? "first@example.com",
+    })) as never;
+    batchGetMessagesImpl = (async (connection: unknown) => [
+      {
+        ...FULL_MESSAGE,
+        payload: {
+          mimeType: "text/plain",
+          body: {
+            data: Buffer.from(
+              bodyByAccount[(connection as { account: string }).account]!,
+            ).toString("base64url"),
+          },
+        },
+      },
+    ]) as never;
+
+    const record = gmailNormalizer.normalize(
+      gmailItem({ mailboxAddress: "second@example.com" }),
+    )!;
+
+    await expect(gmailNormalizer.fetchFull!(record)).resolves.toBe(
+      "Second mailbox",
+    );
+  });
+
+  test("leaves the account unpinned when the record carries none", async () => {
+    batchGetMessagesImpl = async () => [FULL_MESSAGE];
+    const record = gmailNormalizer.normalize(
+      gmailItem({ mailboxAddress: undefined }),
+    )!;
+
+    await expect(gmailNormalizer.fetchFull!(record)).resolves.toBe(
+      "The whole body",
+    );
+    expect(
+      resolveOAuthConnectionMock.mock.calls[0]![1]?.account,
+    ).toBeUndefined();
   });
 
   test("returns null when the fetch fails", async () => {
