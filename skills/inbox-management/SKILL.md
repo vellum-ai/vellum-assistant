@@ -24,7 +24,7 @@ metadata:
 
 Companion to `inbox-cleanup`. Cleanup drains the backlog once. **Management keeps the inbox clean on a schedule**: archiving noise, flagging urgents, drafting replies, and catching stale follow-ups.
 
-Runs as a **script-mode schedule**. Each fire polls Gmail deterministically. An empty poll (no new inbox or sent mail) exits without waking the assistant, so leftover Stage 0 mail is not re-judged every few hours. The assistant runs only when the poll attaches a digest of new messages.
+Runs as a **script-mode schedule**. Each fire polls Gmail deterministically. An empty poll (no new inbox mail and no due follow-up) exits without waking the assistant, so leftover Stage 0 mail is not re-judged every few hours. The assistant runs only when the poll attaches a digest.
 
 > **Default posture:** high recall on noise archiving, high precision on user interruption. Archive aggressively on known-safe patterns. Ping sparingly. Never auto-send a reply. When unsure, flag instead of archiving.
 
@@ -99,10 +99,9 @@ Store threshold level via `gmail-prefs.ts --action set-management-config --inter
 
 ### 4. Schedule
 
-Do not create an execute-mode job. Empty inbox fires must not start an agent turn.
+Do not create an execute-mode job. Empty inbox fires must not start an agent turn. This skill only sets up new script-mode schedules. Do not convert or rewrite leftover execute-mode jobs.
 
-1. If a leftover execute-mode job still uses the stock pipeline message, convert it (see **Migrate leftover execute jobs** below) instead of creating a second schedule.
-2. Otherwise create a recurring **script-mode** schedule:
+1. Create a recurring **script-mode** schedule:
 
 - Name: `Inbox Management`
 - Default cadence: `0 */3 * * 1-5` (every 3 hours on weekdays)
@@ -117,7 +116,7 @@ If `assistant oauth status google` shows more than one active connection, ask wh
 
 By default the first poll baselines at now and does not escalate pre-existing mail (that is what stops the leftover Stage 0 pile from being re-billed). If the user wants the first sync to include recent mail, append `--lookback <duration>` (`90m`/`4h`/`2d`/`1w`).
 
-3. Copy the shipped poll script into the schedule's directory. Read the id from the create result:
+2. Copy the shipped poll script into the schedule's directory. Read the id from the create result:
 
 ```bash
 mkdir -p "$VELLUM_WORKSPACE_DIR/schedules/<id>"
@@ -126,9 +125,9 @@ cp "$VELLUM_WORKSPACE_DIR/skills/inbox-management/scripts/poll.ts" \
    "$VELLUM_WORKSPACE_DIR/schedules/<id>/"
 ```
 
-The schedule owns this copy. `poll.ts` self-provisions state on first run.
+The schedule owns this copy. `poll.ts` self-provisions JSON state on first run (`schedules/<id>/state/state.json`).
 
-4. Verify with `assistant schedules execute <id>`. The first run records `{"ok":true,"new":0,...,"baselined":true}`. Later empty polls record `"new":0` without waking the assistant.
+3. Verify with `assistant schedules execute <id>`. The first run records `{"ok":true,"new":0,...,"baselined":true}`. Later empty polls record `"new":0` without waking the assistant.
 
 Confirm cadence with the user. Overnight wakes (when the digest is non-empty): urgent-scan only.
 
@@ -139,35 +138,6 @@ Run `messaging_analyze_style` on the user's recent sent mail. Store the style pr
 ### 6. Draft preference
 
 Confirm the user wants drafts generated. Some prefer flag-only forever.
-
-### Migrate leftover execute jobs
-
-An already-enabled execute-mode job keeps burning model tokens on every fire, including empty inboxes. Convert it the next time this skill is loaded in that conversation, or during setup if one exists. Idempotent: no-op when no matching execute job remains.
-
-```sh
-STOCK='Load the inbox-management skill and run the inbox management pipeline.'
-assistant schedules list --json | jq -r --arg stock "$STOCK" '
-  .schedules[]
-  | select(.mode == "execute")
-  | select(.message == $stock)
-  | .id
-' | while read -r id; do
-  [ -z "$id" ] && continue
-  mkdir -p "$VELLUM_WORKSPACE_DIR/schedules/$id"
-  cp "$VELLUM_WORKSPACE_DIR/skills/inbox-management/scripts/poll.ts" \
-     "$VELLUM_WORKSPACE_DIR/skills/inbox-management/scripts/poll-lib.ts" \
-     "$VELLUM_WORKSPACE_DIR/schedules/$id/"
-  assistant schedules update "$id" \
-    --mode script \
-    --script 'bun "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID/poll.ts"' \
-    --timeout-ms 900000 \
-    --profile cost-optimized \
-    --no-reuse-conversation \
-    --quiet
-done
-```
-
-After converting, **stop**. Do not run the inbox pipeline on this turn. The leftover pile is why the job was converted; the next script fire baselines it.
 
 ---
 
@@ -180,8 +150,6 @@ Each step is silent unless something qualifies for interrupt.
 ### Step 0: Missed-run check & resume
 
 **Resume interrupted runs first.** Before starting a new pipeline pass, check `bun run scripts/gmail-runs.ts list`. If the most recent run has `status: "interrupted"`, resume it via `bun run scripts/gmail-archive.ts archive --resume "<run-id>"` before proceeding. Also run `bun run scripts/gmail-runs.ts prune` to clean up logs older than 30 days.
-
-If this conversation is still an execute-mode leftover (stock pipeline message, no digest), run **Migrate leftover execute jobs** and stop.
 
 Read the last-run timestamp via `gmail-prefs.ts --action get-management-config`. If `last-run` is more than 2x the scheduled interval ago (e.g. >6 hours for a 3-hour schedule), notify the user:
 
@@ -249,7 +217,9 @@ After the pass, send one summary:
 
 ### Step 5: Follow-up scanner (all stages)
 
-Look only at digest **sent** messages. For each thread where the user sent the last message and no reply has arrived:
+The poll script ages sent mail in JSON state and only includes a follow-up in the digest when it is 2 to 14 days old and the thread still has no later message. Look only at digest `followups` (and any digest sent items the script already judged due). Do not search `in:sent newer_than:14d` yourself.
+
+For each of those threads:
 
 Ask: did this email **clearly expect a response**? Only flag if **2+ signals** are present:
 
@@ -266,10 +236,10 @@ If yes, alert with: recipient, subject, date sent, and a ready-to-send follow-up
 
 ## Stage 0 Summary
 
-At Stage 0, send one summary for **this digest** (not the historical leftover pile). On the last working-hours wake of the day, include the day's digest items:
+At Stage 0, send one summary for **this digest** only. This wake is a new conversation and only sees the current digest, so do not claim a full-day rollup. Skip the recap when the digest is a single obvious item.
 
 ```
-📬 Today's inbox (flag-only mode):
+📬 Inbox digest (flag-only mode):
 
 Would archive ([N]):
 • [category]: [count] ([sample sender/subject])
@@ -296,11 +266,15 @@ Capture every correction: add protected senders to safe-list immediately.
 
 ## How the poll works
 
-- **Deterministic poll, LLM only on new mail.** `poll.ts` syncs incrementally with Gmail's History API via `assistant oauth request --provider google`. New INBOX or SENT messages wake the assistant. Drafts, spam, and other non-inbox/non-sent additions are ignored. No model call on an empty poll.
+Cursor state is JSON at `schedules/<id>/state/state.json` (same idea as the gmail skill's `data/gmail-preferences.json`). There is no SQLite database.
+
+- **Deterministic poll, LLM only on new inbox work or a due follow-up.** `poll.ts` syncs incrementally with Gmail's History API via `assistant oauth request --provider google`. New INBOX mail is judged now. New SENT mail is stored as a follow-up candidate and does not wake the model by itself. Drafts, spam, and other non-inbox/non-sent additions are ignored. No model call when history is empty and no follow-up is due.
+- **Aged follow-ups.** A stored sent message becomes due when it is 2 to 14 days old and Gmail still shows that message as the latest in the thread. Younger sent mail stays in JSON with no model call. Older than 14 days is dropped.
 - **Baseline skips the leftover pile.** The first run stores the current `historyId` and reports `new: 0` unless `--lookback` was set. Mail already sitting in the inbox is not attached to a digest.
-- **At-most-once escalation.** Watermark and reported-id ledger commit before the wake, so a retried run never escalates the same message twice.
-- **Fenced escalation.** New mail wakes a fresh conversation. The digest goes through `--external-content` (untrusted data). The pipeline hint is the trusted framing.
-- **Expiry recovery.** If a stored `historyId` has expired, the account re-baselines and catches up with a one-day inbox+sent search; the ledger absorbs the overlap.
+- **Digest cap and pending overflow.** The digest is capped at 50 items (due follow-ups first, then inbox). Overflow inbox ids stay in `pending` and are retried on the next poll. The History API will not resend them after `historyId` advances, so pending is the retry queue. Overflow is never marked reported.
+- **Commit after a successful wake.** The script writes pending + watermark before wake. After a successful wake it marks only the delivered ids reported. A failed wake retries the same pending ids.
+- **Fenced escalation.** New work wakes a fresh conversation. The digest goes through `--external-content` (untrusted data). The pipeline hint is the trusted framing. The prompt is this digest only, not a day-wide journal.
+- **Expiry recovery.** If a stored `historyId` has expired, the account re-baselines and catches up with a one-day inbox+sent search; the reported-id ledger absorbs the overlap.
 
 ## Managing it
 
