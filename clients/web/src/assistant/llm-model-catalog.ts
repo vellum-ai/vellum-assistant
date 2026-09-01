@@ -377,18 +377,10 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/glm-5p2",
-      displayName: "GLM 5.2",
-      vendor: "zhipu",
-      contextWindowTokens: 1_040_000,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 131_072,
-      supportsThinking: true,
-    },
-    {
       id: "accounts/fireworks/models/glm-5p3",
       displayName: "GLM 5.3",
       vendor: "zhipu",
+      family: "glm",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -404,6 +396,16 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 131_072,
       supportsThinking: true,
       adaptiveThinkingOnly: true,
+    },
+    {
+      id: "accounts/fireworks/models/glm-5p2",
+      displayName: "GLM 5.2",
+      vendor: "zhipu",
+      family: "glm",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
     },
     // Kimi K2.5 (kimi-k2p5) is intentionally absent: Fireworks serves it
     // on-demand/dedicated only, so serverless calls 404.
@@ -830,7 +832,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.3",
-      displayName: "GLM-5.3",
+      displayName: "GLM 5.3",
       vendor: "zhipu",
       family: "glm",
       contextWindowTokens: 1_048_576,
@@ -840,7 +842,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.3-flash",
-      displayName: "GLM-5.3 Flash",
+      displayName: "GLM 5.3 Flash",
       vendor: "zhipu",
       contextWindowTokens: 1_310_720,
       defaultContextWindowTokens: 200_000,
@@ -849,7 +851,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.2",
-      displayName: "GLM-5.2",
+      displayName: "GLM 5.2",
       vendor: "zhipu",
       family: "glm",
       contextWindowTokens: 1_048_576,

@@ -911,23 +911,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
-        id: "accounts/fireworks/models/glm-5p2",
-        displayName: "GLM 5.2",
-        // Fireworks serves GLM 5.2 with a 1,040K input window.
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 1.4,
-          outputPer1mTokens: 4.4,
-          cacheReadPer1mTokens: 0.26,
-        },
-      },
-      {
         id: "accounts/fireworks/models/glm-5p3",
         displayName: "GLM 5.3",
         contextWindowTokens: 1040000,
@@ -964,6 +947,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 0.15,
           outputPer1mTokens: 0.5,
           cacheReadPer1mTokens: 0.029,
+        },
+      },
+      {
+        id: "accounts/fireworks/models/glm-5p2",
+        displayName: "GLM 5.2",
+        // Fireworks serves GLM 5.2 with a 1,040K input window.
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
         },
       },
       // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) is intentionally
@@ -1798,7 +1798,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // Z.ai
       {
         id: "z-ai/glm-5.3",
-        displayName: "GLM-5.3",
+        displayName: "GLM 5.3",
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1813,7 +1813,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       {
         id: "z-ai/glm-5.3-flash",
-        displayName: "GLM-5.3 Flash",
+        displayName: "GLM 5.3 Flash",
         contextWindowTokens: 1310720,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1828,7 +1828,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       {
         id: "z-ai/glm-5.2",
-        displayName: "GLM-5.2",
+        displayName: "GLM 5.2",
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
