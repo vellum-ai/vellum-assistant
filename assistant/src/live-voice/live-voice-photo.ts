@@ -76,13 +76,17 @@ import {
   persistQueuedMessageBody,
 } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import { getConversationIfExists } from "../daemon/conversation-store.js";
+import {
+  getConversationIfExists,
+  isSameIncarnation,
+} from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   deleteOrphanAttachments,
   resolveAttachmentsForPersist,
 } from "../persistence/attachments-store.js";
 import {
+  getConversation,
   getMessageById,
   recordConversationPersistedSeq,
 } from "../persistence/conversation-crud.js";
@@ -359,6 +363,10 @@ async function writeStandaloneImage(
       return { ok: false };
     }
 
+    // The conversation the acquire just validated. Nothing awaits between its
+    // own last read and this one, so this is that same incarnation.
+    const incarnation = getConversation(conversationId)?.createdAt ?? null;
+
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
@@ -374,6 +382,25 @@ async function writeStandaloneImage(
     }
 
     try {
+      // The wait can outlast the conversation, and this job holds an instance
+      // rather than re-reading, so a delete alone would be caught only by the
+      // messages foreign key. A delete followed by a recreate under the same
+      // id restores that foreign key's target, and the row would land in a
+      // conversation created after the deletion. Both kinds check: a photo
+      // persisted into a stranger that inherited the name is the same wrong.
+      // A delete and recreate landing inside the persist below is out of
+      // scope, fenced only where the row is absent.
+      if (!isSameIncarnation(conversationId, incarnation)) {
+        log.warn(
+          { conversationId, attachmentId, kind },
+          "Standalone image dropped: its conversation was replaced while it waited",
+        );
+        if (kind === "sight_frame") {
+          reclaimDroppedFrame(attachmentId);
+        }
+        return { ok: false };
+      }
+
       const persisted = await persistQueuedMessageBody(conversation, {
         ...persistOptions,
         attachments,

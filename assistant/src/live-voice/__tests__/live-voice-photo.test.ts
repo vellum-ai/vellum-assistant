@@ -788,6 +788,35 @@ describe("standalone image persists are serialized per conversation", () => {
     }
   });
 
+  test("a keep does not land in a conversation recreated under its id", async () => {
+    // The job holds its instance across the idle wait rather than re-reading,
+    // so a delete alone is caught only by the messages foreign key. A recreate
+    // under the same id restores that foreign key's target, and the frame
+    // would land in a conversation made after the deletion.
+    const live = liveConversation("Live voice keep recreated id");
+    try {
+      const frame = await uploadFrame("recreated.png");
+
+      // A turn the keep has to wait out, which is the window the delete and
+      // the recreate land in.
+      live.activeConversation.setProcessing(true);
+      const keep = persistAmbientSightFrame(live.id, frame, "voice");
+      await sleep(30);
+
+      // The same id, naming a conversation the keep was never taken in.
+      deleteConversationRows(live.id);
+      createConversation({ id: live.id, title: "Recreated" });
+      live.activeConversation.setProcessing(false);
+
+      expect(await keep).toEqual({ ok: false });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(frame)).toBe(false);
+    } finally {
+      live.dispose();
+    }
+  });
+
   test("the conversation's chain is dropped once it drains", async () => {
     const live = liveConversation("Live voice chain cleanup");
     try {

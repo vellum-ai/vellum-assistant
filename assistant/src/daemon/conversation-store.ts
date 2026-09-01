@@ -194,16 +194,18 @@ export function getConversationIfExists(
 }
 
 /**
- * Whether the conversation is still the incarnation a non-creating acquire was
- * asked about.
+ * Whether the conversation is still the incarnation the caller was asked about.
  *
  * `created_at` is stamped at insert and nothing else rewrites it, so a row
  * deleted and written back under the same id carries a different one. Bare
- * existence cannot answer this: an acquire sharing flight with a creating
- * caller can find a row that caller wrote moments ago and read it as the one
- * it was asked about.
+ * existence cannot answer this: a caller sharing flight with a creating acquire
+ * can find a row that acquire wrote moments ago and read it as the one it was
+ * asked about, and so can one that held an instance across a wait.
+ *
+ * Exported for callers that keep working after their acquire returns: holding
+ * the instance says nothing about the row still being the one behind it.
  */
-function isSameIncarnation(
+export function isSameIncarnation(
   conversationId: string,
   createdAt: number | null,
 ): boolean {
