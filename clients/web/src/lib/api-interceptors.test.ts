@@ -946,6 +946,25 @@ describe("api-interceptors / remote gateway direct requests", () => {
     expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
     expect(platformFeaturesGate(output).signal.aborted).toBe(false);
   });
+
+  test("relocates an origin-root push-token upsert under a path-prefixed remote ingress", async () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/${SELF_HOSTED_ID}/push-tokens/`,
+      { method: "POST" },
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(new URL(output.url).pathname).toBe(
+      `/assistant-123/v1/assistants/${SELF_HOSTED_ID}/push-tokens/`,
+    );
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

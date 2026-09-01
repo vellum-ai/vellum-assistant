@@ -133,7 +133,7 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // {@link authorizeRemoteGatewayRequest} so the features gate does not
   // abort them. The contact family (`contacts`, `contact-channels`) is
   // forwarded via {@link FLATTENED_FIRST_SEGMENTS} with the assistant
-  // prefix stripped — it does not belong in this allowlist.
+  // prefix stripped; it does not belong in this allowlist.
   "config",
 ]);
 
@@ -149,6 +149,13 @@ const PLATFORM_PUSH_FIRST_SEGMENTS = new Set<string>([
 ]);
 
 const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+
+/**
+ * Same resource match as {@link ASSISTANT_PATH_RE}, but allows an ingress
+ * path prefix (`/assistant-123/v1/assistants/...`).
+ */
+const ASSISTANT_RESOURCE_RE =
+  /\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
 
 /**
  * First segments whose `/v1/assistants/{id}/` prefix is stripped before
@@ -209,8 +216,44 @@ function isDaemonBoundPath(url: string): boolean {
 }
 
 function isPlatformPushPath(url: string): boolean {
-  const match = ASSISTANT_PATH_RE.exec(new URL(url).pathname);
+  const match = ASSISTANT_RESOURCE_RE.exec(new URL(url).pathname);
   return match !== null && PLATFORM_PUSH_FIRST_SEGMENTS.has(match[2]);
+}
+
+/**
+ * Platform clients emit `/v1/assistants/...` against the page origin. A
+ * path-prefixed remote ingress only serves `/assistant-123/v1/...`, so
+ * relocate the resource under that prefix before authorizing.
+ */
+function relocateRemoteGatewayPushRequest(request: Request): Request {
+  if (!isRemoteGatewayMode()) {
+    return request;
+  }
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) {
+    return request;
+  }
+
+  const url = new URL(request.url);
+  const ingress = new URL(ingressUrl);
+  if (url.origin !== ingress.origin) {
+    return request;
+  }
+
+  const resource = ASSISTANT_RESOURCE_RE.exec(url.pathname);
+  if (!resource || !PLATFORM_PUSH_FIRST_SEGMENTS.has(resource[2])) {
+    return request;
+  }
+
+  const prefix = ingress.pathname.replace(/\/$/, "");
+  const relocatedPath = `${prefix}${resource[0]}`;
+  if (url.pathname === relocatedPath) {
+    return request;
+  }
+
+  const relocated = new URL(request.url);
+  relocated.pathname = relocatedPath;
+  return new Request(relocated.toString(), request);
 }
 
 /**
@@ -431,7 +474,8 @@ function createInterceptor({
     }
 
     if (!isDaemonClient && isPlatformPushPath(newRequest.url)) {
-      const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
+      const relocated = relocateRemoteGatewayPushRequest(newRequest);
+      const remoteGateway = authorizeRemoteGatewayRequest(relocated);
       if (remoteGateway) {
         return remoteGateway;
       }
