@@ -510,16 +510,11 @@ describe("normalizeDiscordMessageReaction", () => {
     });
 
   test("a unicode reaction carries the structured payload", () => {
-    const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: null, name: "\u{1F44D}" },
-      }),
-      { op: "added", ingestId: INGEST_ID, raw: {} },
-    );
+    const event = normalizeDiscordMessageReaction(thumbsUp(), {
+      op: "added",
+      ingestId: INGEST_ID,
+      raw: {},
+    });
 
     expect(event).not.toBeNull();
     expect(event!.message.eventKind).toBe("reaction");
@@ -538,16 +533,11 @@ describe("normalizeDiscordMessageReaction", () => {
   });
 
   test("a removal appends the op suffix so it never dedups against the add", () => {
-    const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: null, name: "\u{1F44D}" },
-      }),
-      { op: "removed", ingestId: INGEST_ID, raw: {} },
-    );
+    const event = normalizeDiscordMessageReaction(thumbsUp(), {
+      op: "removed",
+      ingestId: INGEST_ID,
+      raw: {},
+    });
 
     expect(event!.message.reaction!.op).toBe("removed");
     expect(event!.message.externalMessageId).toBe(
@@ -557,13 +547,7 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("a custom emoji forwards its mention form, never its bare name", () => {
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: "111222333", name: "party_blob" },
-      }),
+      thumbsUp({ emoji: { id: "111222333", name: "party_blob" } }),
       { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
@@ -574,13 +558,7 @@ describe("normalizeDiscordMessageReaction", () => {
     // A guild can name a custom emoji anything, including a Slack decision
     // name. The mention form is what keeps it out of the approval map.
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: "999888777", name: "white_check_mark" },
-      }),
+      thumbsUp({ emoji: { id: "999888777", name: "white_check_mark" } }),
       { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
@@ -591,13 +569,7 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("an emoji with no name cannot be expressed and drops", () => {
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: "111222333", name: null },
-      }),
+      thumbsUp({ emoji: { id: "111222333", name: null } }),
       { op: "removed", ingestId: INGEST_ID, raw: {} },
     );
 
@@ -621,13 +593,7 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("a thread reaction addresses the parent conversation and names the thread", () => {
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "thread-1",
-        message_id: "msg-3",
-        guild_id: "guild-1",
-        emoji: { id: null, name: "\u{1F44D}" },
-      }),
+      thumbsUp({ channel_id: "thread-1", message_id: "msg-3" }),
       {
         op: "added",
         ingestId: INGEST_ID,

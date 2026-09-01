@@ -70,7 +70,6 @@ mock.module("../../../contacts/contact-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 let recordInboundCalls: Array<{ conversationId?: string }> = [];
-let recordedEvent: { eventId: string; conversationId: string } | null = null;
 // Keyed the way the real `channel_inbound_events` row is keyed, so a test can
 // replay a sequence of events and see which of them the daemon treats as new.
 const inboundStore = new Map<
@@ -79,6 +78,13 @@ const inboundStore = new Map<
 >();
 const inboundKey = (channel: string, chat: string, id: string) =>
   `${channel}\u0000${chat}\u0000${id}`;
+/** Seed a row so the next delivery of `externalMessageId` reads as a redelivery. */
+function seedRecordedEvent(externalMessageId: string, eventId: string): void {
+  inboundStore.set(inboundKey("slack", SLACK_CHANNEL_ID, externalMessageId), {
+    eventId,
+    conversationId: "conv-target",
+  });
+}
 let outboundTargetConversationId: string | null = null;
 let outboundLookupChannels: string[] = [];
 let storedTarget: { messageId: string; conversationId: string } | null = null;
@@ -116,10 +122,7 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     channel: string,
     chat: string,
     externalMessageId: string,
-  ) =>
-    recordedEvent ??
-    inboundStore.get(inboundKey(channel, chat, externalMessageId)) ??
-    null,
+  ) => inboundStore.get(inboundKey(channel, chat, externalMessageId)) ?? null,
   clearPayload: () => {},
   storePayload: (eventId: string, payload: Record<string, unknown>) => {
     storedPayloads.push({ eventId, payload });
@@ -287,32 +290,33 @@ function expectDropped(result: Record<string, unknown>): void {
   expect(guardianReplyCalls.length).toBe(0);
 }
 
+function resetHarness(): void {
+  ipcCalls = [];
+  guardianDeliveryReads = 0;
+  setMemberVerdictCalls = 0;
+  contactLookups = 0;
+  recordInboundCalls = [];
+  inboundStore.clear();
+  outboundTargetConversationId = null;
+  outboundLookupChannels = [];
+  addMessageCalls = 0;
+  guardianReplyCalls = [];
+  guardianReplyResponse = undefined;
+  storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
+  // Default target: a user-authored row, so reactions stay passive unless
+  // a test makes the target the assistant's own post.
+  targetRow = {
+    role: "user",
+    content: [{ type: "text", text: "the reacted-to message" }],
+  };
+  dispatchedTurns = [];
+  dispatchThrows = false;
+  storedPayloads.length = 0;
+  markProcessedCalls = 0;
+}
+
 describe("reaction intercept consumes the stamped verdict directly", () => {
-  beforeEach(() => {
-    ipcCalls = [];
-    guardianDeliveryReads = 0;
-    setMemberVerdictCalls = 0;
-    contactLookups = 0;
-    recordInboundCalls = [];
-    recordedEvent = null;
-    inboundStore.clear();
-    outboundTargetConversationId = null;
-    outboundLookupChannels = [];
-    addMessageCalls = 0;
-    guardianReplyCalls = [];
-    guardianReplyResponse = undefined;
-    storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
-    // Default target: a user-authored row, so reactions stay passive unless
-    // a test makes the target the assistant's own post.
-    targetRow = {
-      role: "user",
-      content: [{ type: "text", text: "the reacted-to message" }],
-    };
-    dispatchedTurns = [];
-    dispatchThrows = false;
-    storedPayloads.length = 0;
-    markProcessedCalls = 0;
-  });
+  beforeEach(resetHarness);
 
   test("guardian verdict routes the reaction into the approval decision pipeline", async () => {
     guardianReplyResponse = { accepted: true, canonicalRouter: "applied" };
@@ -610,12 +614,14 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   });
 
   test("a redelivered reaction never reaches the guardian rail twice", async () => {
-    recordedEvent = { eventId: "evt-1", conversationId: "conv-target" };
+    const externalMessageId = `${SLACK_CHANNEL_ID}:1700000000.1:redelivered`;
+    seedRecordedEvent(externalMessageId, "evt-1");
 
     const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: GUARDIAN_VERDICT,
+        externalMessageId,
       }),
     );
 
@@ -726,24 +732,7 @@ describe("a re-added reaction records again", () => {
     `1700000000.1:reaction:\u2705:${MEMBER_USER_ID}:dispatch-2`,
   ];
 
-  beforeEach(() => {
-    recordInboundCalls = [];
-    recordedEvent = null;
-    inboundStore.clear();
-    outboundTargetConversationId = null;
-    addMessageCalls = 0;
-    guardianReplyCalls = [];
-    guardianReplyResponse = undefined;
-    storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
-    targetRow = {
-      role: "user",
-      content: [{ type: "text", text: "the reacted-to message" }],
-    };
-    dispatchedTurns = [];
-    dispatchThrows = false;
-    storedPayloads.length = 0;
-    markProcessedCalls = 0;
-  });
+  beforeEach(resetHarness);
 
   async function replay(
     externalMessageIds: string[],

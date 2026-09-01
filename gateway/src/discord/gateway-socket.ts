@@ -895,13 +895,10 @@ export class DiscordGatewayClient {
     // event still rides the full forward path, where the kill switch and
     // per-family stages apply.
     const parentChannelId = this.threadParents.parentOf(reaction.channel_id);
-    // Stamped here, once per received dispatch, because Discord names the
-    // reaction and not the act of reacting: the same person re-adding the
-    // same emoji sends a byte-identical payload, and without a per-dispatch
-    // component the daemon reads the second one as a redelivery of the first.
-    // Receipt is the only place that can tell them apart, and the id it mints
-    // rides inside the forwarded event, so a forward retried against the
-    // daemon still carries the one id and still dedups.
+    // Receipt is the only place that can tell one occurrence of a reaction
+    // from the next, because Discord's payload cannot (see the dedup id in
+    // `normalize.ts`). Minting per dispatch is what makes the ids differ;
+    // minting outside the retry path is what keeps a redelivery's identical.
     const normalized = normalizeDiscordMessageReaction(reaction, {
       op,
       ingestId: crypto.randomUUID(),
