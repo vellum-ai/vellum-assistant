@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Phone, Send } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+
+import { notifyChannelSetupVerifyRequested } from "@/domains/chat/channel-setup-close-notify";
 
 import { Trans, useTranslation } from "@/i18n";
 
@@ -71,13 +73,24 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
-  // Discord does NOT close on save: its wizard has a third step after the
-  // token, adding the bot to a server, and closing here would unmount the
-  // only surface that shows the invite link. The user closes when done,
-  // which still emits the wizard-closed notification the skill waits on.
+  // Discord does NOT close on save: its wizard has more steps after the
+  // token, adding the bot to a server and the verification handoff, and
+  // closing here would unmount the only surface that shows the invite link.
+  // The user finishes or closes, which emits the notifications the skill
+  // waits on.
   const saveDiscord = useSaveDiscordConfig({
     assistantId: payload.assistantId,
   });
+
+  // The finish step's "Verify me": signal the originating conversation, then
+  // close so the assistant carries verification forward in chat. Offered only
+  // when a conversation exists to signal; the wizard otherwise falls back to
+  // telling the user what to say.
+  const canSignalConversation = Boolean(payload.conversationId);
+  const handleVerifyRequest = useCallback(() => {
+    void notifyChannelSetupVerifyRequested(payload);
+    onClose();
+  }, [payload, onClose]);
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,
   });
@@ -172,6 +185,9 @@ export function ChannelSetupPanel({
           onSave={(botToken) => saveDiscord.mutate(botToken)}
           {...(saveDiscord.data?.data?.inviteUrl
             ? { inviteUrl: saveDiscord.data.data.inviteUrl }
+            : {})}
+          {...(canSignalConversation
+            ? { onVerifyRequest: handleVerifyRequest }
             : {})}
         />
       ) : payload.channel === "phone" ? (

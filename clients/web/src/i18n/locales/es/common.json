@@ -237,7 +237,7 @@
     "stepResetToken": "En la pagina <strong>Bot</strong>, pulsa <strong>Reset Token</strong> y copia el token de inmediato. Discord solo lo muestra una vez.",
     "stepIntentsOff": "Deja apagados los tres interruptores de <strong>Privileged Gateway Intents</strong>. Tu asistente no los necesita: solo lee mensajes directos y mensajes que lo mencionan.",
     "verificationNoticeTitle": "Ignora la pagina \"Verify your App\"",
-    "verificationNoticeBody": "Discord muestra a cada app nueva una lista de verificacion llena de avisos. Solo importa para bots en mas de 100 servidores, asi que el tuyo no la necesita.",
+    "verificationNoticeBody": "Discord la muestra a cada app nueva. Solo importa a partir de 100 servidores.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"
   },
@@ -245,6 +245,8 @@
     "connectedTitle": "Bot anadido",
     "connectedBody": "El token esta guardado y el bot ya esta en tu servidor. La parte de Discord esta lista.",
     "verifyTitle": "Ultimo paso: confirma que eres tu",
+    "verifyAction": "Verificarme",
+    "verifyActionBody": "El bot aun no sabe cual cuenta de Discord es la tuya, asi que no te respondera. Tu asistente lo termina contigo en el chat.",
     "verifyBody": "El bot aun no sabe cual cuenta de Discord es la tuya, asi que no te respondera. Di \"verificame en Discord\" en el chat y tu asistente terminara la configuracion contigo.",
     "verifiedTitle": "Identidad verificada",
     "verifiedBody": "El bot conoce tu cuenta de Discord y respondera a tus menciones. Todo listo."

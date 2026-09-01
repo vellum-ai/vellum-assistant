@@ -237,7 +237,7 @@
     "stepResetToken": "在<strong>機器人</strong>頁面點擊<strong>重設金鑰</strong>並立即複製金鑰。Discord 只會顯示一次。",
     "stepIntentsOff": "保持三個<strong>特權閘道意圖</strong>開關全部關閉。您的助理不需要它們：它只會讀取私訊和提及它的訊息。",
     "verificationNoticeTitle": "請忽略「驗證您的應用程式」頁面",
-    "verificationNoticeBody": "Discord 會向每個新應用程式顯示帶警告的驗證清單。它只對超過 100 個伺服器的機器人才有意義，您的機器人不需要。",
+    "verificationNoticeBody": "Discord 對每個新應用程式都會顯示它。只有超過 100 個伺服器時才有意義。",
     "openPortal": "開啟 Discord 入口網站",
     "continue": "我已擁有金鑰"
   },
@@ -245,6 +245,8 @@
     "connectedTitle": "機器人已新增",
     "connectedBody": "金鑰已儲存，機器人已加入您的伺服器。Discord 這邊已完成。",
     "verifyTitle": "最後一步：確認您的身分",
+    "verifyAction": "驗證我",
+    "verifyActionBody": "機器人還不知道哪個 Discord 帳號是您的，所以暫時不會回覆您。您的助理會在聊天中陪您完成。",
     "verifyBody": "機器人還不知道哪個 Discord 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Discord 上驗證我」，您的助理會陪您完成設定。",
     "verifiedTitle": "身分已驗證",
     "verifiedBody": "機器人已識別您的 Discord 帳號，會回覆您的提及。一切就緒。"

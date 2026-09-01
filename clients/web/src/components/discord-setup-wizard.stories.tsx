@@ -89,6 +89,24 @@ export const InviteMissingUrl: Story = {
  * make the bot answer its owner under the default trusted-contacts policy.
  */
 export const Finish: Story = {
+  args: {
+    saveStatus: "success",
+    inviteUrl: INVITE_URL,
+    onVerifyRequest: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /I've added the bot/i }),
+    );
+  },
+};
+
+/**
+ * Step 4 on a surface with no conversation to signal (the Channels tab):
+ * no Verify me button, so the copy says what to type in chat instead.
+ */
+export const FinishWithoutChat: Story = {
   args: { saveStatus: "success", inviteUrl: INVITE_URL },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

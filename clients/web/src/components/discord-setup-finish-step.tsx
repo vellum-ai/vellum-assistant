@@ -1,12 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { Notice } from "@vellumai/design-library";
+import { Button, Notice } from "@vellumai/design-library";
 import { channelverificationsessionsStatusGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
 
 export interface DiscordSetupFinishStepProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
+  /**
+   * Hands verification to the assistant: the chat drawer signals the
+   * originating conversation and closes. Absent on surfaces with no
+   * conversation to signal (the Channels tab), where the copy falls back to
+   * telling the user what to say in chat.
+   */
+  onVerifyRequest?: () => void;
 }
 
 /**
@@ -28,6 +35,7 @@ export interface DiscordSetupFinishStepProps {
  */
 export function DiscordSetupFinishStep({
   assistantId,
+  onVerifyRequest,
 }: DiscordSetupFinishStepProps) {
   const { t } = useTranslation();
 
@@ -58,8 +66,20 @@ export function DiscordSetupFinishStep({
         >
           {t("discordSetupFinishStep.verifiedBody")}
         </Notice>
+      ) : onVerifyRequest ? (
+        <Notice
+          tone="info"
+          title={t("discordSetupFinishStep.verifyTitle")}
+          actions={
+            <Button type="button" size="compact" onClick={onVerifyRequest}>
+              {t("discordSetupFinishStep.verifyAction")}
+            </Button>
+          }
+        >
+          {t("discordSetupFinishStep.verifyActionBody")}
+        </Notice>
       ) : (
-        <Notice tone="warning" title={t("discordSetupFinishStep.verifyTitle")}>
+        <Notice tone="info" title={t("discordSetupFinishStep.verifyTitle")}>
           {t("discordSetupFinishStep.verifyBody")}
         </Notice>
       )}

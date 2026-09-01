@@ -237,7 +237,7 @@
     "stepResetToken": "在<strong>机器人</strong>页面点击<strong>重置令牌</strong>并立即复制令牌。Discord 只显示一次。",
     "stepIntentsOff": "保持三个<strong>特权网关意图</strong>开关全部关闭。您的助手不需要它们：它只读取私信和提及它的消息。",
     "verificationNoticeTitle": "请忽略“验证您的应用”页面",
-    "verificationNoticeBody": "Discord 会向每个新应用显示带警告的验证清单。它只对超过 100 个服务器的机器人才有意义，您的机器人不需要。",
+    "verificationNoticeBody": "Discord 对每个新应用都会显示它。只有超过 100 个服务器时才有意义。",
     "openPortal": "打开 Discord 门户",
     "continue": "我已拥有令牌"
   },
@@ -245,6 +245,8 @@
     "connectedTitle": "机器人已添加",
     "connectedBody": "令牌已保存，机器人已加入您的服务器。Discord 这边已完成。",
     "verifyTitle": "最后一步：确认您的身份",
+    "verifyAction": "验证我",
+    "verifyActionBody": "机器人还不知道哪个 Discord 账号是您的，所以暂时不会回复您。您的助手会在聊天中陪您完成。",
     "verifyBody": "机器人还不知道哪个 Discord 账号是您的，所以暂时不会回复您。在聊天中说“在 Discord 上验证我”，您的助手会陪您完成设置。",
     "verifiedTitle": "身份已验证",
     "verifiedBody": "机器人已识别您的 Discord 账号，会回复您的提及。一切就绪。"

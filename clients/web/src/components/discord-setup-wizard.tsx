@@ -27,6 +27,12 @@ export interface DiscordSetupWizardProps {
   saveError?: string | null;
   /** The install link, read back from the daemon once the token validates. */
   inviteUrl?: string;
+  /**
+   * Hands identity verification to the assistant from the finish step. Only
+   * the chat drawer can offer it (it signals the originating conversation);
+   * without it the finish step tells the user what to say in chat instead.
+   */
+  onVerifyRequest?: () => void;
 }
 
 /**
@@ -46,6 +52,7 @@ export function DiscordSetupWizard({
   saveStatus = "idle",
   saveError = null,
   inviteUrl,
+  onVerifyRequest,
 }: DiscordSetupWizardProps) {
   const { t } = useTranslation();
   const WIZARD_STEPS: StepperStep[] = useMemo(
@@ -122,7 +129,10 @@ export function DiscordSetupWizard({
       )}
 
       {stepId === "finish" && (
-        <DiscordSetupFinishStep assistantId={assistantId} />
+        <DiscordSetupFinishStep
+          assistantId={assistantId}
+          {...(onVerifyRequest ? { onVerifyRequest } : {})}
+        />
       )}
     </ChannelSetupWizard>
   );

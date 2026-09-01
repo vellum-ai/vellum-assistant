@@ -165,7 +165,11 @@ describe("guardian-verify-setup skill: Discord DM code wording", () => {
       expect(bullets.length).toBeGreaterThanOrEqual(1);
       for (const bullet of bullets) {
         expect(bullet).toContain("send that 6-digit code in this DM");
-        expect(bullet.toLowerCase()).not.toContain("reply");
+        // The instruction forms are what misled: "reply with the code" /
+        // "reply to the DM". Prose *about* the reply feature ("reply feature
+        // is not required") is the clarification and stays.
+        expect(bullet.toLowerCase()).not.toContain("reply with");
+        expect(bullet.toLowerCase()).not.toContain("reply to the dm");
       }
     });
   }

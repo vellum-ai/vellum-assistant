@@ -68,7 +68,7 @@ export function DiscordSetupCreateStep({
       </ol>
 
       <Notice
-        tone="info"
+        tone="warning"
         title={t("discordSetupCreateStep.verificationNoticeTitle")}
       >
         {t("discordSetupCreateStep.verificationNoticeBody")}

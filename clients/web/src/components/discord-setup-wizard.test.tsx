@@ -158,6 +158,28 @@ describe("DiscordSetupWizard completion handoff", () => {
     expect(verifyHandoffShown()).toBe(false);
   });
 
+  test("Verify me hands verification to the assistant", () => {
+    // The chat drawer offers the handoff button; the typed-phrase fallback
+    // only appears on surfaces with no conversation to signal.
+    let verifyRequests = 0;
+    renderWizard(
+      <DiscordSetupWizard
+        assistantId="asst-test"
+        saveStatus="success"
+        inviteUrl={INVITE_URL}
+        onVerifyRequest={() => {
+          verifyRequests += 1;
+        }}
+      />,
+    );
+
+    fireEvent.click(confirmJoinedButton());
+    expect(verifyHandoffShown()).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /Verify me/i }));
+    expect(verifyRequests).toBe(1);
+  });
+
   test("without an invite URL there is nothing to confirm", () => {
     renderWizard(
       <DiscordSetupWizard assistantId="asst-test" saveStatus="success" />,

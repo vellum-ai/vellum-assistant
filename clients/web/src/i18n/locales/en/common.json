@@ -237,7 +237,7 @@
     "stepResetToken": "On the <strong>Bot</strong> page, click <strong>Reset Token</strong> and copy the token right away. Discord only shows it once.",
     "stepIntentsOff": "Leave all three <strong>Privileged Gateway Intents</strong> switches off. Your assistant doesn't need them: it only reads direct messages and messages that mention it.",
     "verificationNoticeTitle": "Ignore the \"Verify your App\" page",
-    "verificationNoticeBody": "Discord shows every new app a verification checklist full of warnings. It only matters for bots in more than 100 servers, so yours doesn't need it.",
+    "verificationNoticeBody": "Discord shows it for every new app. It only matters past 100 servers.",
     "openPortal": "Open Discord portal",
     "continue": "I have my token"
   },
@@ -245,6 +245,8 @@
     "connectedTitle": "Bot added",
     "connectedBody": "The token is saved and the bot is in your server. The Discord side is done.",
     "verifyTitle": "One last step: verify it's you",
+    "verifyAction": "Verify me",
+    "verifyActionBody": "The bot doesn't know which Discord account is yours yet, so it won't answer you. Your assistant finishes this with you in chat.",
     "verifyBody": "The bot doesn't know which Discord account is yours yet, so it won't answer you. Say \"verify me on Discord\" in chat and your assistant will finish setup with you.",
     "verifiedTitle": "You're verified",
     "verifiedBody": "The bot knows your Discord account, so it will answer your mentions. You're all set."

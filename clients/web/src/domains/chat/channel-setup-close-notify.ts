@@ -41,6 +41,33 @@ export function buildChannelSetupHandedOffMessage(channel: string): string {
 }
 
 /**
+ * LLM-visible marker for a wizard the user finished with an explicit request
+ * to verify their identity on the channel. Richer than the plain close: the
+ * assistant can proceed straight to identity verification instead of asking
+ * whether setup completed.
+ */
+export function buildChannelSetupVerifyRequestedMessage(
+  channel: string,
+): string {
+  return `[User action on channel_setup surface: completed the ${channel} setup wizard and asked to verify their identity]`;
+}
+
+/**
+ * Signal that the user finished the wizard and asked to verify their
+ * identity. Same delivery contract as {@link notifyChannelSetupClosed}. The
+ * drawer close that follows still fires the generic closed signal; the two
+ * arrive together and read as one action.
+ */
+export async function notifyChannelSetupVerifyRequested(
+  payload: ChannelSetupPayload,
+): Promise<void> {
+  await sendChannelSetupSignal(
+    payload,
+    buildChannelSetupVerifyRequestedMessage(payload.channel),
+  );
+}
+
+/**
  * Signal that the user dismissed the channel-setup drawer.
  *
  * Best-effort: failures are captured, never surfaced — the setup skills keep

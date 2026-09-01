@@ -50,7 +50,9 @@ If an interactive client is connected, call `ui_show` with `surface_type: "chann
 
 > I've opened the Discord setup wizard in the side panel. It walks you through creating the app, connecting its bot token, and adding the bot to a server. It will notify me when you close it; ask me here if you hit a snag.
 
-When the wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored. A stored token completes Steps 1 through 4; the invite (Step 5) happens on the wizard's last step, and closing the panel does not prove it happened. Ask the user directly:
+When a notification saying the user **completed the wizard and asked to verify their identity** arrives, the wizard's finish step was reached: the user confirmed the bot joined a server and pressed its Verify me action. Re-run the Step 0 check script to confirm a token was stored, then skip the invite question below and go straight to Step 6 (identity verification) without re-asking which channel.
+
+When a plain wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored. A stored token completes Steps 1 through 4; the invite (Step 5) happens on the wizard's last step, and closing the panel does not prove it happened. Ask the user directly:
 
 > Did you add the bot to a server on the wizard's last step? If not, I can give you the install link again.
 
