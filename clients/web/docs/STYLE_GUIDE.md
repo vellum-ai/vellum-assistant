@@ -249,27 +249,24 @@ If the color is a UI surface, text, or border that users see across themes — u
 ### Use a real variant name
 
 The typography utilities are the `@utility text-*` blocks in
-`packages/design-library/src/tokens.css`. That file is the list — don't keep a
+`packages/design-library/src/tokens.css`. That file is the list. Don't keep a
 copy of it anywhere, including in your head.
 
 The `--text-*` variables sit in a plain `:root`, not `@theme`, so Tailwind
 generates **nothing else**. A plausible-looking name that isn't defined there
 matches no CSS at all, and the element silently falls back to the inherited
-16px/400 rather than failing. This is not hypothetical: it reached 193 call
-sites in the platform admin tree before anyone noticed, and 92 here.
+16px/400 rather than failing. This is not hypothetical.
 
 ### `<Typography>` is the preferred form; the class is the fallback
 
-Reach for `<Typography variant="…">` first, and `asChild` when the element is
-outside its `as` union (`<th>`, `<td>`, `<a href>`). The variant prop is a
-typed union, so a wrong name is a compile error in your editor. A class string
-is just a string: nothing checks it at the point of use, which is how 92 dead
-classes accumulated here and 193 in the platform admin tree.
+Reach for `<Typography variant="...">` first. The variant prop is a typed
+union, so a wrong name is a compile error in your editor. A class string
+is just a string: nothing checks it at the point of use.
 
-The class form stays available for the case a prop genuinely can't express —
-variant-prefixing for responsive or state changes,
-`max-md:text-body-large-default`. That is currently **7 of ~1,430** class-string
-usages in this app, so treat it as the exception it is rather than the default.
+The class form stays available for the case a prop genuinely can't express:
+variant-prefixing for responsive or state changes, such as
+`max-md:text-body-large-default`. That is a small minority of class-string
+usage, so treat it as the exception rather than the default.
 
 `no-restricted-syntax` errors on any `text-{title,body,label,chat}-*` class
 that isn't a real variant, parsing `tokens.css` at lint time so it tracks the
@@ -282,7 +279,8 @@ should not need it.
 The split is by line-height, not by the `-lighter` / `-default` suffix. Read
 the `line-height` on the variant in `tokens.css`: some carry real leading and
 wrap safely, while the tighter rungs are `line-height: 1` and are single-line
-only — on text that wraps, those collapse the line boxes onto each other.
+only. On text that wraps, those collapse the line boxes onto each other.
+`line-clamp-2` and above count as wrapping.
 
 ### Rebinding one facet of a variant
 

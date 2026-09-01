@@ -1,9 +1,8 @@
 /**
  * The typography lint rule is what stands between an invented variant name
- * and an element that silently renders at the inherited 16px/400 — a bug
- * that reached 193 call sites in the platform admin tree and 92 here before
- * anyone noticed. These cover the two edges the pattern has already been
- * wrong on once each, so a later tweak cannot quietly reopen either.
+ * and an element that silently renders at the inherited 16px/400. These
+ * cover the edges the pattern is easy to get wrong on, so a later tweak
+ * cannot quietly reopen any of them.
  */
 /* eslint-disable no-restricted-syntax -- This file's fixtures are deliberately
    invalid variant names; they are the subject under test. Disabling here rather
@@ -31,11 +30,16 @@ describe("unknownTypographyPattern", () => {
 
   test("flags names merely prefixed by a real variant", () => {
     // The exemption must end where the variant ends. `\b` matches before a
-    // hyphen, which let all of these through.
+    // hyphen, which let the hyphenated cases through; a boundary of
+    // `[a-z-]` alone still let the digit and underscore cases through.
     for (const c of [
       "text-chat-foo",
       "text-body-small-default-typo",
       "text-title-small-ish",
+      "text-title-small2",
+      "text-chat_extra",
+      "text-body-small-default9",
+      "text-label-small-default_alt",
     ]) {
       expect(matches(c)).toBe(true);
     }

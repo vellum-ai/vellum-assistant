@@ -209,7 +209,7 @@ function CallRow({
       </div>
       <Tooltip content={subtitle}>
         <div
-          className="line-clamp-2 text-label-medium-default"
+          className="line-clamp-2 text-body-small-lighter"
           style={{
             color: isSynthetic
               ? "var(--system-negative-strong)"

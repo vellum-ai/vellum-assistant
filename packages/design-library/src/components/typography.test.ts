@@ -5,8 +5,7 @@
  * `tokens.css` declares the matching `@utility`. A variant added to the union
  * without the utility renders nothing; a utility added without the union is
  * unreachable through the component and gets hand-written as a class string
- * instead — which is how 193 dead classes accumulated in the platform admin
- * tree and 92 in clients/web.
+ * instead, which is the shape that lets dead classes accumulate.
  *
  * Like `tokens.test.ts`, this parses `tokens.css` rather than restating it,
  * so the assertion tracks the real source of truth.
