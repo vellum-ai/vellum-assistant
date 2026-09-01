@@ -295,30 +295,6 @@ interface HotkeyOwner {
   cleanup: () => void;
 }
 
-/**
- * Surface the Input Monitoring prompt if the grant is missing.
- *
- * Best effort and never blocking: the binding is registered either way, and it
- * starts reporting the moment the grant arrives without anything re-registering
- * it. A refusal leaves a hold that does nothing, which is the same thing the
- * user gets by ignoring the prompt.
- */
-const ensureInputMonitoringForHold = async (): Promise<void> => {
-  try {
-    const status = await queryFreshMacHelperPermission("inputMonitoring");
-    if (status === "granted") {
-      return;
-    }
-    await requestMacHelperInputMonitoringPermission();
-  } catch (err) {
-    log.warn(
-      `[mac-helper] could not ask for Input Monitoring: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-};
-
 const MODIFIER_HOLD_SCHEMA = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("off") }),
   z.object({
@@ -711,14 +687,12 @@ export const installHotkeyHelper = (): void => {
       if (hold.kind === "off") {
         return setModifierHold(hold);
       }
+      // The binding is inert without Input Monitoring, and the grant is asked
+      // for where the user turns the feature on rather than here: a press
+      // cannot be the moment to ask, since noticing the press is the thing
+      // being asked for, and asking on registration would prompt at launch for
+      // something they may not have switched on.
       addHotkeyOwner(event.sender);
-      // The helper cannot see a held modifier set without Input Monitoring,
-      // so the binding is inert until that grant exists. Ask at registration:
-      // a press cannot be the moment to ask, since noticing the press is the
-      // thing being asked for. The prompt comes from the helper's own bundle,
-      // which is what puts it in the Privacy list under a name that means
-      // something.
-      void ensureInputMonitoringForHold();
       return setModifierHold(hold);
     },
   );

@@ -12,6 +12,7 @@ import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
+import { useHoldToDictateEnabled } from "@/utils/hold-to-dictate";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -61,6 +62,7 @@ export function GlobalPushToTalkBridge({
     stream: voiceStream,
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
+  const holdToDictateEnabled = useHoldToDictateEnabled();
 
   useEffect(() => {
     if (!voiceStream) {
@@ -102,6 +104,7 @@ export function GlobalPushToTalkBridge({
   // and land the same way: through `handleTranscript` below, which cleans the
   // transcript up and drops it at the cursor.
   useHoldToDictate({
+    enabled: holdToDictateEnabled,
     onHoldStart: () => {
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
