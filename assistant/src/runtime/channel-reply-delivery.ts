@@ -13,6 +13,7 @@ import {
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
@@ -48,8 +49,10 @@ type DeliverRenderedReplyParams = {
    *  identified by this ts instead of posting a new one (Slack-specific). */
   messageTs?: string;
   /** Called with the ts of the delivered/updated message so callers
-   *  can use it for subsequent updates. */
-  onMessageTs?: (ts: string) => void;
+   *  can use it for subsequent updates. Awaited when it returns a promise,
+   *  so an async handler (the sent-message-id reconciler) completes its
+   *  durable write before the next segment posts. */
+  onMessageTs?: (ts: string) => void | Promise<void>;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -172,7 +175,7 @@ export async function deliverRenderedReplyViaCallback(
         },
       );
       if (result.ts) {
-        onMessageTs?.(result.ts);
+        await onMessageTs?.(result.ts);
       }
     }
     return;
@@ -191,10 +194,10 @@ export async function deliverRenderedReplyViaCallback(
       );
       const deliveredTs = result.ts ?? messageTs;
       if (deliveredTs) {
-        onMessageTs?.(deliveredTs);
+        await onMessageTs?.(deliveredTs);
       }
     } else if (messageTs) {
-      onMessageTs?.(messageTs);
+      await onMessageTs?.(messageTs);
     }
     return;
   }
@@ -255,7 +258,7 @@ export async function deliverRenderedReplyViaCallback(
 
     if (result.ts) {
       currentMessageTs = result.ts;
-      onMessageTs?.(result.ts);
+      await onMessageTs?.(result.ts);
     }
 
     onSegmentDelivered?.(i + 1);
@@ -282,8 +285,9 @@ export type DeliverReplyOptions = {
   audience?: MessageAudience;
   /** Update an existing message instead of posting a new one. */
   messageTs?: string;
-  /** Called with the ts of the delivered/updated message. */
-  onMessageTs?: (ts: string) => void;
+  /** Called with the ts of the delivered/updated message. Awaited when it
+   *  returns a promise. */
+  onMessageTs?: (ts: string) => void | Promise<void>;
 };
 
 type PersistedMessage = ReturnType<typeof getMessages>[number];
@@ -395,9 +399,9 @@ async function deliverPersistedAssistantMessageViaCallback(
   // `makeSentMessageIdReconciler` for the per-envelope rules.
   const reconcileOnMessageTs = makeSentMessageIdReconciler(msg.id);
   const callerOnMessageTs = options?.onMessageTs;
-  const composedOnMessageTs = (ts: string): void => {
-    reconcileOnMessageTs(ts);
-    callerOnMessageTs?.(ts);
+  const composedOnMessageTs = async (ts: string): Promise<void> => {
+    await reconcileOnMessageTs(ts);
+    await callerOnMessageTs?.(ts);
   };
 
   await deliverRenderedReplyViaCallback({
@@ -501,20 +505,31 @@ export async function deliverReplyViaCallback(
  * assistant's own post resolve back to this row.
  *
  * Behavior:
- * - A Slack row acts on the first invocation only: `channelTs` is the one
- *   id its envelope names, and later split segments are independent Slack
- *   messages it cannot carry.
+ * - A Slack row records the first ts that reaches a durable write:
+ *   `channelTs` is the one id its envelope names, and once it is present the
+ *   strict-reader check below makes every later invocation a no-op, so
+ *   later split segments (independent Slack messages the row cannot carry)
+ *   never overwrite it, while a failed first write leaves the next
+ *   invocation free to stamp instead of forfeiting the field forever.
  * - A neutral-envelope row records every reported id: the first as
  *   `messageId`, the rest under `additionalMessageIds`, all naming this
  *   same row. An id already recorded (a redelivery) is skipped.
  * - No-op when the row was persisted with neither envelope (e.g. vellum
  *   outbound).
- * - Failures are logged and swallowed so a transient DB error cannot break
- *   the outbound delivery itself.
+ * - The metadata write retries transient SQLite contention
+ *   (`withSqliteRetry`): this is the only durable record of the sent
+ *   message's id, with no later sweep to heal a miss once the event is
+ *   marked delivered. Remaining failures are logged and swallowed so a DB
+ *   error cannot break the outbound delivery itself.
  */
-function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
-  let slackApplied = false;
-  return (ts: string): void => {
+function makeSentMessageIdReconciler(
+  messageId: string,
+): (ts: string) => Promise<void> {
+  // Set only once a Slack stamp has actually committed, never on merely
+  // having attempted one. A latch raised before the write is what turns a
+  // single lost write into a permanently unstamped row.
+  let slackStamped = false;
+  return async (ts: string): Promise<void> => {
     if (!ts) {
       return;
     }
@@ -539,13 +554,14 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
       const slackMetaRaw =
         typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
       if (slackMetaRaw === null) {
-        reconcileProviderMessageId(messageId, envelope, ts);
+        await reconcileProviderMessageId(messageId, envelope, ts);
         return;
       }
-      if (slackApplied) {
+      // A Slack row names one id, so a stamp this delivery already committed
+      // stands: later split segments are independent Slack messages.
+      if (slackStamped) {
         return;
       }
-      slackApplied = true;
       // If the existing slackMeta already parses cleanly via the strict
       // reader, channelTs is already present (a prior reconciliation ran,
       // or backfill stamped the field) — nothing to do.
@@ -577,7 +593,11 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
         // reconciled row to slip through with a stale source.
         source: "slack",
       });
-      updateMessageMetadata(messageId, { slackMeta: mergedSlackMeta });
+      await withSqliteRetry(
+        () => updateMessageMetadata(messageId, { slackMeta: mergedSlackMeta }),
+        { op: "reconcile_slack_channel_ts", context: { messageId } },
+      );
+      slackStamped = true;
     } catch (err) {
       log.warn(
         { err, messageId },
@@ -595,19 +615,23 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
  * the envelope already names is a redelivery and is skipped, and a row
  * carrying no valid neutral envelope is left untouched.
  */
-function reconcileProviderMessageId(
+async function reconcileProviderMessageId(
   messageId: string,
   envelope: Record<string, unknown>,
   ts: string,
-): void {
+): Promise<void> {
   const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
   if (providerMeta === null) {
     return;
   }
   if (providerMeta.messageId === undefined) {
-    updateMessageMetadata(messageId, {
-      providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),
-    });
+    await withSqliteRetry(
+      () =>
+        updateMessageMetadata(messageId, {
+          providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),
+        }),
+      { op: "reconcile_provider_message_id", context: { messageId } },
+    );
     return;
   }
   if (
@@ -616,10 +640,17 @@ function reconcileProviderMessageId(
   ) {
     return;
   }
-  updateMessageMetadata(messageId, {
-    providerMeta: JSON.stringify({
-      ...providerMeta,
-      additionalMessageIds: [...(providerMeta.additionalMessageIds ?? []), ts],
-    }),
-  });
+  await withSqliteRetry(
+    () =>
+      updateMessageMetadata(messageId, {
+        providerMeta: JSON.stringify({
+          ...providerMeta,
+          additionalMessageIds: [
+            ...(providerMeta.additionalMessageIds ?? []),
+            ts,
+          ],
+        }),
+      }),
+    { op: "reconcile_provider_message_id", context: { messageId } },
+  );
 }
