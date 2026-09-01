@@ -703,6 +703,13 @@ export interface SightFrameReclaim {
   readonly assistantId: string;
   readonly attachmentId: string;
   /**
+   * The conversation whose serialized persist queue the deadline waits out.
+   * Carried so a later send can tell whether it joined this queue or an
+   * unrelated conversation's; absent on refusal-routed entries, which carry
+   * no deadline to move.
+   */
+  readonly conversationId?: string;
+  /**
    * Epoch milliseconds before which this must not be deleted, when it has to
    * wait at all. See {@link PER_JOB_CEILING_MS}.
    */
@@ -878,19 +885,33 @@ function mergeSightFrameReclaims(
  * Push every waiting reclaim out by one job's worth of time.
  *
  * A send that goes out while reset-routed entries are still waiting lands
- * BEHIND the jobs they are waiting on, in the same conversation queue, so it
- * moves their deadline by exactly what it adds. Event-driven and bounded: one
- * job's worth per send that actually happened, and an entry with no deadline
- * (a refusal routed it) is never given one.
+ * BEHIND the jobs they are waiting on, when it joins the same conversation
+ * queue, so it moves their deadline by exactly what it adds. The daemon
+ * serializes standalone persists per conversation, so a send in a different
+ * conversation joins a different queue and moves nothing: extending across
+ * conversations would let an active call's steady keeps hold an unrelated
+ * orphan's deadline open for as long as the call runs. Event-driven and
+ * bounded: one job's worth per send that actually happened, and an entry with
+ * no deadline (a refusal routed it) is never given one.
  */
 function extendPendingSightFrameReclaims(
   queued: readonly SightFrameReclaim[],
+  conversationId: string | null,
 ): readonly SightFrameReclaim[] {
-  if (!queued.some((entry) => entry.notBefore !== undefined)) {
+  if (conversationId === null) {
+    return queued;
+  }
+  if (
+    !queued.some(
+      (entry) =>
+        entry.notBefore !== undefined &&
+        entry.conversationId === conversationId,
+    )
+  ) {
     return queued;
   }
   return queued.map((entry) =>
-    entry.notBefore === undefined
+    entry.notBefore === undefined || entry.conversationId !== conversationId
       ? entry
       : {
           ...entry,
@@ -955,11 +976,13 @@ function queueUnacknowledgedSightFrames(
   // and not this one.
   const queuedAhead = state.outstandingPhotoSends + unacknowledged.length;
   const notBefore = Date.now() + (queuedAhead + 1) * PER_JOB_CEILING_MS;
+  const conversationId = state.conversationId ?? undefined;
   return mergeSightFrameReclaims(
     state.sightFramesToReclaim,
     unacknowledged.map((attachmentId) => ({
       assistantId,
       attachmentId,
+      conversationId,
       notBefore,
     })),
   );
@@ -1009,14 +1032,16 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       outstandingPhotoSends: s.outstandingPhotoSends + 1,
       sightFramesToReclaim: extendPendingSightFrameReclaims(
         s.sightFramesToReclaim,
+        s.conversationId,
       ),
     })),
   noteSightFrameSent: (attachmentId) =>
     set((s) => {
-      // This send joins the same conversation queue the waiting reclaims are
-      // waiting on, so it moves their deadline with it.
+      // This send joins its conversation's queue, so it moves the deadline of
+      // exactly the reclaims waiting on that queue.
       const sightFramesToReclaim = extendPendingSightFrameReclaims(
         s.sightFramesToReclaim,
+        s.conversationId,
       );
       const appended = [...s.outstandingSightFrames, attachmentId];
       if (appended.length <= SIGHT_FRAME_LEDGER_CAP) {

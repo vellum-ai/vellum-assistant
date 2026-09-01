@@ -865,6 +865,7 @@ describe("sight frame refusals", () => {
     const before =
       useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
 
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_sight");
     useLiveVoiceStore.getState().setControls(makeControlsSpies());
     attachLiveVoiceImage(
       "photo-after",
@@ -883,6 +884,7 @@ describe("sight frame refusals", () => {
     const before =
       useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
 
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_sight");
     useLiveVoiceStore.getState().setControls(makeControlsSpies());
     sendLiveVoiceSightFrame(
       "att-after",
@@ -892,6 +894,29 @@ describe("sight frame refusals", () => {
     expect(
       useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
     ).toBe(before + PER_JOB_CEILING_MS);
+  });
+
+  test("a send in another conversation moves no deadline", () => {
+    // The daemon serializes persists per conversation, so a keep sent on a
+    // later call in a different conversation lands behind nothing these
+    // reclaims wait on. Steady keeps there must not hold this orphan's
+    // deadline open for the length of that call.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const before =
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
+
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_other");
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    sendLiveVoiceSightFrame(
+      "att-other",
+      useLiveVoiceStore.getState().sessionGeneration,
+    );
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(before);
   });
 
   test("a send never gives a refusal-routed reclaim a deadline", () => {
