@@ -79,6 +79,12 @@ describe("emitNativeAppNudgeEvent", () => {
     expect(eventFromCall(0).screen).toBe("banner:macos");
   });
 
+  it("carries the Windows target", () => {
+    emitNativeAppNudgeEvent("impression", "banner", "windows");
+
+    expect(eventFromCall(0).screen).toBe("banner:windows");
+  });
+
   it("emits nothing when the user has opted out of analytics", () => {
     useOnboardingStore.setState({ shareAnalytics: false });
 

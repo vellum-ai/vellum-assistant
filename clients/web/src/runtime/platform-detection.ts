@@ -2,6 +2,11 @@ import { Capacitor } from "@capacitor/core";
 import type { ElectronHostOS } from "@vellumai/ipc-contract";
 import { useSyncExternalStore } from "react";
 
+import {
+  detectDesktopAppPlatform,
+  getBrowserPlatform,
+  isKnownUnsupportedDesktopBrowser,
+} from "@/runtime/desktop-app-platform";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 
@@ -31,14 +36,7 @@ export function isIOSBrowser(): boolean {
   }
 
   // iPadOS 13+ in desktop mode: reports as Mac but has multitouch
-  const uaData = (
-    navigator as Navigator & {
-      userAgentData?: { platform?: string };
-    }
-  ).userAgentData;
-  const isMacPlatform = uaData?.platform
-    ? uaData.platform.toLowerCase().includes("mac")
-    : navigator.platform.toLowerCase().includes("mac");
+  const isMacPlatform = getBrowserPlatform().toLowerCase().includes("mac");
 
   return isMacPlatform && navigator.maxTouchPoints > 1;
 }
@@ -82,15 +80,7 @@ export function isMacOSBrowser(): boolean {
   if (isIOSBrowser()) {
     return false;
   }
-  const uaData = (
-    navigator as Navigator & {
-      userAgentData?: { platform?: string };
-    }
-  ).userAgentData;
-  if (uaData?.platform) {
-    return uaData.platform.toLowerCase().includes("mac");
-  }
-  return navigator.platform.toLowerCase().includes("mac");
+  return getBrowserPlatform().toLowerCase().includes("mac");
 }
 
 /**
@@ -193,10 +183,7 @@ export function detectElectronHostOS(): ElectronHostOS | null {
   if (!isElectron()) {
     return null;
   }
-  if (window.vellum?.hostOS) {
-    return window.vellum.hostOS;
-  }
-  return navigator.platform.toLowerCase().includes("win") ? "windows" : "macos";
+  return detectDesktopAppPlatform();
 }
 
 /** Resolve desktop copy to macOS unless the Windows client is detected. */
@@ -422,18 +409,15 @@ export function useIsMobileWeb(): boolean {
   );
 }
 
-/**
- * macOS web user who should see custom nudge surfaces.
- *
- * Excludes Electron because the user is already inside the macOS desktop
- * app — showing a "download the macOS app" nudge would be nonsensical.
- * Also excludes Capacitor (via `isNativePlatform()`) for symmetry with
- * the iOS hook above.
- */
-export function useIsMacOSWeb(): boolean {
+/** Desktop browser user who may be offered the detected desktop app. */
+export function useIsDesktopAppWeb(): boolean {
   return useSyncExternalStore(
     noop,
-    () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
+    () =>
+      !isMobileBrowser() &&
+      !isNativePlatform() &&
+      !isElectron() &&
+      !isKnownUnsupportedDesktopBrowser(),
     () => false,
   );
 }
@@ -449,7 +433,7 @@ export function useIsMacOSWeb(): boolean {
  * renders client-only through `createRoot` (no SSR, no hydration).
  *
  * Prefer it over the bare function in JSX (docs/CAPACITOR.md): it keeps the
- * shape consistent with `useIsIOSWeb` / `useIsMacOSWeb` and stays correct if a
+ * shape consistent with `useIsIOSWeb` / `useIsDesktopAppWeb` and stays correct if a
  * prerender step is ever added. There is no first-paint flicker to avoid.
  */
 export function useIsNativeIOS(): boolean {

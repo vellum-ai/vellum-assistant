@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "Build",
-    "tagline": "AI assistant for your Mac",
+    "taglineMacOS": "AI assistant for your Mac",
+    "taglineWindows": "AI assistant for your PC",
     "version": "Version"
   },
   "activeAssistantGate": {
@@ -295,12 +296,15 @@
   "lazyBoundary": {
     "loadError": "This section couldn't load. Reload the page to try again."
   },
-  "macosAppBanner": {
-    "ariaLabel": "Download the macOS app",
-    "ctaAriaLabel": "Download macOS app",
+  "desktopAppBanner": {
+    "ariaLabelMacOS": "Download the macOS app",
+    "ariaLabelWindows": "Download the Windows app",
+    "ctaAriaLabelMacOS": "Download macOS app",
+    "ctaAriaLabelWindows": "Download Windows app",
     "ctaLabel": "Download",
     "subtitle": "Computer use · terminal access · native automation",
-    "title": "Get the macOS app"
+    "titleMacOS": "Get the macOS app",
+    "titleWindows": "Get the Windows app"
   },
   "nativeAppBanner": {
     "bannerAria": "Download the {appName} app",

@@ -13,7 +13,8 @@
     "logIn": "Войти",
     "logOut": "Выйти",
     "loginToUse": "Войти, чтобы пользоваться",
-    "downloadMacApp": "Скачать приложение для macOS",
+    "downloadMacOSApp": "Скачать приложение для macOS",
+    "downloadWindowsApp": "Скачать приложение для Windows",
     "claim": "Забрать",
     "skipForNow": "Пока пропустить",
     "starting": "Запускаем…"

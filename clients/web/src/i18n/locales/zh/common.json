@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "构建",
-    "tagline": "您的 Mac AI 助手",
+    "taglineMacOS": "您的 Mac AI 助手",
+    "taglineWindows": "您的 Windows PC AI 助手",
     "version": "版本"
   },
   "activeAssistantGate": {
@@ -295,12 +296,15 @@
   "lazyBoundary": {
     "loadError": "此部分无法加载。请重新加载页面重试。"
   },
-  "macosAppBanner": {
-    "ariaLabel": "下载 macOS 应用",
-    "ctaAriaLabel": "下载 macOS 应用",
+  "desktopAppBanner": {
+    "ariaLabelMacOS": "下载 macOS 应用",
+    "ariaLabelWindows": "下载 Windows 应用",
+    "ctaAriaLabelMacOS": "下载 macOS 应用",
+    "ctaAriaLabelWindows": "下载 Windows 应用",
     "ctaLabel": "下载",
     "subtitle": "电脑使用 · 终端访问 · 原生自动化",
-    "title": "获取 macOS 应用"
+    "titleMacOS": "获取 macOS 应用",
+    "titleWindows": "获取 Windows 应用"
   },
   "nativeAppBanner": {
     "bannerAria": "下载 {appName} 应用",
