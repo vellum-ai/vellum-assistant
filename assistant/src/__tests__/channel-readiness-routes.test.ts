@@ -128,8 +128,8 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("platform registration decides the check; local config cannot", async () => {
       // Registration lives on the platform. A stray local `email.address`
-      // (the key the probe used to read, which nothing writes) must not make
-      // an unregistered inbox pass.
+      // config value (a key nothing writes) must not make an unregistered
+      // inbox pass.
       setConfig("ingress", {
         publicBaseUrl: "https://example.com",
         enabled: true,
