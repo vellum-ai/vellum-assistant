@@ -102,6 +102,7 @@ import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pi
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { SightTile } from "@/domains/chat/sight/sight-tile";
+import { useSightKeeps } from "@/domains/chat/sight/use-sight-keeps";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
@@ -664,6 +665,16 @@ export function ChatLayout({
   useSwipeDownDismissKeyboard({ enabled: useSoftKeyboardOpen() });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
+
+  // The Eyes camera's ambient keep stream: while the viewfinder is up, every
+  // frame its gate keeps is uploaded and persisted into the open conversation
+  // as its own message. Called from the layout body rather than beside
+  // `<SightTile />` below, since a hook cannot sit inside a render branch. The
+  // branch is not what confines it in any case: the stream requires the camera
+  // to report `on`, the tile owns that camera, and nothing is sampled while no
+  // tile is up, so a keep cannot exist on a surface the tile is absent from.
+  useSightKeeps();
+
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
   const attentionConversationIds =
