@@ -52,7 +52,8 @@ interface InboundEventBase<C extends InboundChannelId> {
      * only the thing acted on and not the act, addressing fields alone
      * (room, target message, actor, verb) repeat byte for byte on the second
      * occurrence and silently dedup it away. Reactions are that case on both
-     * Slack and Discord, and were exactly that bug.
+     * Slack and Discord: each carries a per-event component for exactly this
+     * reason.
      */
     externalMessageId: string;
     /** The named event family. Producers stamp it on every event; the

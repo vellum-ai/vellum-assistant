@@ -705,8 +705,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
 });
 
 /**
- * Add, remove, re-add: the sequence that used to end with the reaction
- * permanently invisible.
+ * Add, remove, re-add: the sequence whose third event must survive dedup.
  *
  * The dedup id is what decides whether the third event exists at all: the
  * intercept returns before `persistPassively` on a duplicate, so a re-add
