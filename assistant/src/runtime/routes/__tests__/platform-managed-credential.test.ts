@@ -72,6 +72,22 @@ describe("managed credential verdict", () => {
     expect(getManagedCredentialVerdict().observedAt).toBe(0);
   });
 
+  // An unsettled observation is a failed look, not evidence of recovery. If it
+  // overwrote a rejection, the first unreachable platform would make a dead
+  // credential read as merely unestablished and every surface would stop
+  // treating it as broken.
+  test("an unsettled observation does not erase a settled rejection", () => {
+    recordManagedCredentialVerdict("rejected");
+    recordManagedCredentialVerdict("unknown");
+    expect(getManagedCredentialVerdict().verdict).toBe("rejected");
+  });
+
+  test("a settled observation replaces a rejection", () => {
+    recordManagedCredentialVerdict("rejected");
+    recordManagedCredentialVerdict("valid");
+    expect(getManagedCredentialVerdict().verdict).toBe("valid");
+  });
+
   test("clearing drops a recorded rejection", () => {
     recordManagedCredentialVerdict("rejected");
     expect(getManagedCredentialVerdict().verdict).toBe("rejected");

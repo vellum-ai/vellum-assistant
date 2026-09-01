@@ -44,6 +44,15 @@ let state: ManagedCredentialState = { verdict: "unknown", observedAt: 0 };
 export function recordManagedCredentialVerdict(
   verdict: ManagedCredentialVerdict,
 ): void {
+  // `unknown` is a failed observation, not evidence that a rejected
+  // credential recovered. Letting it overwrite a settled rejection would
+  // report a dead credential as merely unestablished the first time the
+  // platform is unreachable, and every surface reading this would stop
+  // treating it as broken. A settled answer replaces anything; an unsettled
+  // one only fills a slot nothing has answered yet.
+  if (verdict === "unknown" && state.verdict !== "unknown") {
+    return;
+  }
   state = { verdict, observedAt: Date.now() };
 }
 

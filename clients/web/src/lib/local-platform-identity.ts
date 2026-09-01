@@ -175,11 +175,29 @@ export async function recoverLocalAssistantPlatformCredential(
 ): Promise<void> {
   const target = assistantId ?? getSelectedAssistant()?.assistantId;
   if (!target) {
-    throw new Error("No local assistant is selected.");
+    throw new Error("No assistant is selected.");
   }
 
+  // `resolveLocalAssistantPlatformIdentity` returns the id untouched for
+  // anything it does not provision for, so without this the repair would
+  // resolve successfully having done nothing, and the notification would
+  // report itself fixed. Say why instead. A platform-hosted assistant is not
+  // a gap: the platform re-provisions its own key, so the repair belongs to
+  // nobody here.
   const assistant = resolveLocalAssistant(target);
-  platformAssistantIdCache.delete(assistant?.assistantId ?? target);
+  if (
+    !isLocalClient() ||
+    isRemoteGatewayMode() ||
+    isPlatformDisabled() ||
+    isUuid(target) ||
+    !assistant
+  ) {
+    throw new Error(
+      "This client cannot restore the credential for this assistant. Open the assistant on the machine that runs it.",
+    );
+  }
+
+  platformAssistantIdCache.delete(assistant.assistantId);
 
   await resolveLocalAssistantPlatformIdentity(target, {
     allowGatewayRepair: true,
@@ -267,25 +285,26 @@ async function ensureLocalAssistantPlatformIdentity(
     status?.assistantId && isUuid(status.assistantId)
       ? status.assistantId
       : null;
-  // A stored key the platform has rejected is worse than no key: managed
-  // inference fails on every call and the assistant cannot mint a replacement
-  // for itself. The platform leaves self-hosted and local registrations to
-  // their client on purpose (`recover_expired_assistant_api_key` excludes
-  // them), so this bootstrap is the thing that has to rotate it. Treating a
-  // rejection like an absence is what lets it reach the reprovision below.
+  // A stored key the platform has rejected is worse than no key: every call
+  // fails and the assistant cannot mint a replacement for itself. The platform
+  // leaves self-hosted and local registrations to their client on purpose
+  // (`recover_expired_assistant_api_key` excludes them), so a repair here is
+  // the only thing that rotates one.
+  // A repair rotates because it was asked for, not because the daemon agrees
+  // the credential is dead. The verdict is in-process and resets to `unknown`
+  // when the daemon restarts, while the notification offering the repair
+  // persists, so requiring a reported rejection would leave the button inert
+  // in exactly the case it exists for: a dead credential surviving a restart.
   //
-  // Only a settled rejection counts. The daemon records one from a platform
-  // 401/403 and drops it the moment any new key is stored, so a "rejected"
-  // verdict always describes the value sitting in the credential store right
-  // now, and rotating on it cannot replace a working key.
-  const credentialRejected =
-    options.rotateRejectedCredential &&
-    status?.assistantApiKeyStatus === "rejected";
+  // Rotating on request is safe. The platform keeps the outgoing key valid for
+  // a grace period, so a repair the credential did not need costs a rotation
+  // and nothing else. Routine resolution never sets this and never rotates.
+  const repairRequested = options.rotateRejectedCredential;
 
   if (
     statusPlatformAssistantId &&
     status?.hasAssistantApiKey !== false &&
-    !credentialRejected
+    !repairRequested
   ) {
     const statusOrganizationId =
       status?.organizationId ?? assistant.platformOrganizationId ?? null;
@@ -336,14 +355,13 @@ async function ensureLocalAssistantPlatformIdentity(
   }
 
   // `ensureRegistration` hands back a key only for a registration that had
-  // none, so a rejected key needs the explicit rotation. Rotation is not
-  // destructive: the platform keeps the outgoing key valid for a grace period
-  // rather than revoking it on the spot, so a rotation whose injection fails
-  // leaves the install no worse off than it already was.
+  // none, so a repair needs the explicit rotation. The platform keeps the
+  // outgoing key valid for a grace period rather than revoking it on the spot,
+  // so a rotation whose injection fails leaves the install no worse off.
   let assistantApiKey = stringValue(registration.assistant_api_key);
   if (
     !assistantApiKey &&
-    (status?.hasAssistantApiKey !== true || credentialRejected)
+    (status?.hasAssistantApiKey !== true || repairRequested)
   ) {
     assistantApiKey = await reprovisionApiKey(
       assistant,

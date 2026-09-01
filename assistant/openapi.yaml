@@ -13824,6 +13824,12 @@ paths:
                                 - reprovision_managed_credential
                             label:
                               type: string
+                            params:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: string
                           required:
                             - action
                             - label
@@ -14072,6 +14078,12 @@ paths:
                           - reprovision_managed_credential
                       label:
                         type: string
+                      params:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          type: string
                     required:
                       - action
                       - label
@@ -14414,6 +14426,12 @@ paths:
                                 - reprovision_managed_credential
                             label:
                               type: string
+                            params:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: string
                           required:
                             - action
                             - label
@@ -23058,6 +23076,12 @@ paths:
                               - reprovision_managed_credential
                           label:
                             type: string
+                          params:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties:
+                              type: string
                         required:
                           - action
                           - label

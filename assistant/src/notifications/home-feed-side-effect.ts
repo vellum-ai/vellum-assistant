@@ -10,6 +10,7 @@
  * mirrors the high-signal subset of that traffic into the home feed so
  * the macOS Home page surfaces them alongside other activity.
  */
+import { isPlatformRemote } from "../config/env-registry.js";
 import {
   type FeedItem,
   type FeedItemCategory,
@@ -476,6 +477,13 @@ function deriveRemediation(
   }
   const action = signal.contextPayload?.clientRecoveryAction;
   if (action !== "reprovision_managed_credential") {
+    return undefined;
+  }
+  // A platform-hosted assistant re-provisions its own key, so no client owns
+  // this repair and offering the button would present a control that cannot
+  // act. The split is the platform's: it self-heals a managed assistant and
+  // leaves a self-hosted or local registration to its client.
+  if (isPlatformRemote()) {
     return undefined;
   }
   return {

@@ -310,6 +310,40 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     });
   });
 
+  // The verdict lives in the daemon's memory and resets when it restarts,
+  // while the notification offering the repair persists. Requiring a reported
+  // rejection would leave the button inert in exactly the case it exists for.
+  test("the user's repair rotates even when the daemon reports no verdict", async () => {
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: true,
+      assistantApiKeyStatus: "unknown",
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+    ensureRegistrationBody = {
+      assistant: { id: PLATFORM_ASSISTANT_ID },
+      assistant_api_key: null,
+    };
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+  });
+
+  // Resolving returns the id untouched for anything it does not provision for,
+  // so a repair that cannot act has to say so rather than resolving as though
+  // it fixed something.
+  test("a repair this client cannot perform reports why", async () => {
+    isLocalClientValue = false;
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toThrow(/cannot restore the credential/i);
+    expect(requestNames()).not.toContain("reprovision-api-key");
+  });
+
   // Rotation replaces a credential, so it happens when the user asks for it
   // and at no other time. The routine identity resolution sees the same
   // rejected key and leaves it alone.

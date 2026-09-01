@@ -31,7 +31,10 @@ import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
-import { getManagedCredentialVerdict } from "../../platform/managed-credential-state.js";
+import {
+  clearManagedCredentialVerdict,
+  getManagedCredentialVerdict,
+} from "../../platform/managed-credential-state.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -261,9 +264,8 @@ async function handlePlatformConnect(
 
   // Stored credentials only count as a connection while they still
   // authenticate. Answering "already connected" for a key the platform has
-  // rejected is what leaves disconnect-then-connect as the only way back:
-  // connect reports nothing to do, and the client that could rotate the key
-  // never gets the signal to.
+  // rejected would report nothing to do about the one thing that needs doing,
+  // and no client would get the signal to rotate it.
   const credentialRejected =
     getManagedCredentialVerdict().verdict === "rejected";
 
@@ -337,6 +339,10 @@ async function handlePlatformDisconnect(
       `Failed to delete credentials: ${failedKeys.join("; ")}`,
     );
   }
+
+  // The credentials are gone, so any verdict about them is too. Without this
+  // a reconnect would inherit the disconnected credential's rejection.
+  clearManagedCredentialVerdict();
 
   // Notify connected clients
   broadcastMessage({ type: "platform_disconnected" });

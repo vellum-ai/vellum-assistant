@@ -656,6 +656,12 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         );
       }
       deleteCredentialMetadata(service, field);
+      if (service === "vellum" && field === "assistant_api_key") {
+        // The verdict described the value just removed. Left in place it would
+        // report a rejection for a credential that no longer exists, which
+        // reads as broken rather than absent.
+        clearManagedCredentialVerdict();
+      }
       if (service === "vellum" && field === "platform_base_url") {
         setPlatformBaseUrl(undefined);
       }

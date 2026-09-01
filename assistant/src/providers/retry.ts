@@ -1190,6 +1190,25 @@ export class RetryProvider implements Provider {
     }
   }
 
+  /**
+   * Record what a managed route's failure says about the stored credential.
+   *
+   * Separate from the one-shot refresh gate on purpose. A request that already
+   * spent its refresh still learns something from a second 401/403, and it is
+   * the case that matters most: a replacement credential rejected in turn.
+   * Recording only alongside the refresh would leave that replacement looking
+   * unestablished rather than dead.
+   */
+  private noteManagedAuthOutcome(error: unknown): void {
+    if (
+      this.options.credentialSource === "vellum-managed" &&
+      error instanceof ProviderError &&
+      (error.statusCode === 401 || error.statusCode === 403)
+    ) {
+      recordManagedCredentialVerdict("rejected");
+    }
+  }
+
   private shouldRefreshManagedCredential(error: unknown): boolean {
     return (
       this.options.credentialSource === "vellum-managed" &&
@@ -1210,12 +1229,6 @@ export class RetryProvider implements Provider {
    * leaves the original error to surface.
    */
   private async refreshManagedCredential(): Promise<boolean> {
-    // Reached only from `shouldRefreshManagedCredential`, so the platform has
-    // just answered 401/403 on a managed route: a settled rejection of the
-    // stored credential. Recording it here is what lets the recovery surfaces
-    // see a dead key between health checks, instead of reporting the key
-    // healthy until the next one runs.
-    recordManagedCredentialVerdict("rejected");
     try {
       const refreshed = await this.options.refreshCredentialProvider?.();
       if (refreshed) {
@@ -1375,6 +1388,7 @@ export class RetryProvider implements Provider {
               this.attributeCredential(error);
               throw error;
             }
+            this.noteManagedAuthOutcome(error);
             if (
               !credentialRefreshAttempted &&
               this.shouldRefreshManagedCredential(error)
@@ -1508,6 +1522,7 @@ export class RetryProvider implements Provider {
         }
         return result;
       } catch (error) {
+        this.noteManagedAuthOutcome(error);
         if (
           !credentialRefreshAttempted &&
           this.shouldRefreshManagedCredential(error)

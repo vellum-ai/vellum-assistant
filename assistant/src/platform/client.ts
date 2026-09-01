@@ -106,6 +106,9 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
 // credential backend must answer from cache instead of stalling the banner.
 const CONFIGURED_PROBE_DEADLINE_MS = 500;
 
+/** Bound for the credential check; the heartbeat waits on it. */
+const CREDENTIAL_VERIFY_TIMEOUT_MS = 5_000;
+
 let lastKnownConfigured: boolean | null = null;
 // Single-flight slot with rotation: concurrent probes share one resolution,
 // while a flight some caller already gave up on is replaced so a hung
@@ -334,6 +337,9 @@ export class VellumPlatformClient {
     try {
       const res = await this.fetch(
         `/v1/assistants/${this.assistantId}/owner-consent/`,
+        // The heartbeat awaits this check, so an unanswered request must
+        // settle as unknown rather than hold the credential pass open.
+        { signal: AbortSignal.timeout(CREDENTIAL_VERIFY_TIMEOUT_MS) },
       );
       if (res.ok) {
         return "valid";
