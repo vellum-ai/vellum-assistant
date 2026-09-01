@@ -269,6 +269,12 @@ describe("useVoiceRoomSight: parking a keep", () => {
   });
 
   test("the newest keep replaces the one before it, and gives its preview back", async () => {
+    // Real keeps sit a rate floor apart; these two can land in the same
+    // `Date.now()` millisecond, where latest-wins reads the second as a tie
+    // and refuses it. Step the clock so capture order is visible to it.
+    const base = Date.now();
+    let tick = 0;
+    const clock = spyOn(Date, "now").mockImplementation(() => base + ++tick);
     const revoke = spyOn(URL, "revokeObjectURL");
     const { view } = renderSight();
 
@@ -281,6 +287,7 @@ describe("useVoiceRoomSight: parking a keep", () => {
     expect(controls.attachFrame).toHaveBeenNthCalledWith(2, "att-2");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
     expect(revoke).toHaveBeenCalledWith(first!.previewUrl);
+    clock.mockRestore();
     revoke.mockRestore();
   });
 
