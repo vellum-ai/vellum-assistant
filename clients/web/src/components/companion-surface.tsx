@@ -2,7 +2,6 @@ import {
   ArrowUp,
   AudioLines,
   Check,
-  Eye,
   EyeOff,
   Keyboard,
   Mic,
@@ -307,14 +306,14 @@ export const FALLBACK_WIDTHS: Record<
   Exclude<CompanionSurfacePhase, "resting" | "typing">,
   number
 > = {
-  // Three icon-only controls, which is the row as it is first drawn: the labels
+  // Two icon-only controls, which is the row as it is first drawn: the labels
   // are revealed one at a time under the pointer, and on the first frame there
-  // is no pointer on any of them yet.
-  hover: 112,
-  // The same row of controls hover draws, since the session is run from it
-  // rather than from a row of its own, plus the one word the running session
-  // pins open on the control holding it.
-  watching: 151,
+  // is no pointer on either of them yet.
+  hover: 76,
+  // The idle row plus the stop a running session puts on it, which is a third
+  // icon-only control: the stop carries its name to a reader and a tooltip to
+  // a pointer, and takes no room on the row for either.
+  watching: 112,
   // Two labelled controls, both drawn: this row is a question waiting on an
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
@@ -591,17 +590,16 @@ export interface CompanionSurfaceProps {
    * Whether Watch is offered at all, which is the feature flag rather than any
    * fact about a session.
    *
-   * Separate from {@link CompanionSurfaceProps.watching} because the two answer
-   * questions that can disagree in the one direction that matters: a session
-   * left running when the flag is turned off still has to draw its indicator
-   * and its stop control, since a capture the user cannot see or end is the
-   * failure this surface exists to prevent. So this hides the way in and
-   * nothing else.
+   * It gates no control this surface draws. The idle row is Talk and Type, and
+   * everything the surface says about a session, its indicator and the stop
+   * that ends it, is drawn from {@link CompanionSurfaceProps.watching} alone,
+   * since a capture the user can neither see nor end is the failure this
+   * surface exists to prevent. What the flag answers is whether a session may
+   * be started at all, which is settled where the session is owned.
    *
-   * Absence is not permission. Defaulted off rather than on for the reason
-   * `CompanionSurfaceState.watchEnabled` is read that way: every caller with no
-   * evaluation in hand is a caller that does not know, and a control that reads
-   * the user's screen is not offered on a guess.
+   * Absence is not permission, the way `CompanionSurfaceState.watchEnabled` is
+   * read: every caller with no evaluation in hand is a caller that does not
+   * know, and screen reading is not offered on a guess.
    */
   watchEnabled?: boolean;
   /**
@@ -709,7 +707,6 @@ export function CompanionSurface({
   watchRetro,
   onWatchRetro,
   captureCount = 0,
-  watchEnabled = false,
   call,
   onControl,
   intro,
@@ -994,7 +991,6 @@ export function CompanionSurface({
                 <IdleBody
                   spotlight={spotlight}
                   watching={watching}
-                  watchEnabled={watchEnabled}
                   onTalk={onTalk}
                   onType={onType}
                   onWatch={onWatch}
@@ -1551,8 +1547,6 @@ type IdleRowItem = {
   label: string;
   /** Drawn as though the pointer were on it. A look, not a state. See PillButton. */
   active?: boolean;
-  /** Pins the label open and reports on/off to a reader. See PillButton. */
-  pressed?: boolean;
   onClick?: () => void;
 };
 
@@ -1562,10 +1556,8 @@ type IdleRowItem = {
  */
 type IdleRowInputs = {
   spotlight?: "talk" | "type";
-  /** Whether the session Watch starts is already running. */
+  /** Whether a session is reading the screen, which is what puts a stop in the row. */
   watching?: boolean;
-  /** Whether Watch is offered at all. See `CompanionSurfaceProps`. */
-  watchEnabled?: boolean;
   onTalk?: () => void;
   onType?: () => void;
   onWatch?: () => void;
@@ -1582,13 +1574,10 @@ type IdleRowInputs = {
 export function buildIdleRowItems({
   t,
   spotlight,
-  watching = false,
-  watchEnabled = false,
   onTalk,
   onType,
-  onWatch,
 }: IdleRowInputs & { t: TFunction<"common"> }): IdleRowItem[] {
-  const items: IdleRowItem[] = [
+  return [
     {
       key: "talk",
       icon: <AudioLines className="size-4" />,
@@ -1604,32 +1593,6 @@ export function buildIdleRowItems({
       onClick: onType,
     },
   ];
-  // Held down for as long as the session runs, so the row says which control
-  // is holding the pill open and which press ends it. `pressed` rather than
-  // `active`, because this one is a state and not a look: a reader is told a
-  // session is running, where everything else this surface does about it is a
-  // colour they never receive.
-  //
-  // It is also what keeps this control's word on the surface while the rest of
-  // the row is icons: a running session is the one thing here the user has to
-  // be able to find without hunting, and a name revealed only under the
-  // pointer is one they would have to go looking for. `pressed` pins it open,
-  // so the session names itself for as long as it runs.
-  //
-  // Absent entirely when Watch is not offered, rather than disabled: a user
-  // who cannot have the feature is not owed a control that explains itself by
-  // refusing them. The pill measures its own contents, so the row simply comes
-  // out narrower.
-  if (watchEnabled) {
-    items.push({
-      key: "teach",
-      icon: <Eye className="size-4" />,
-      label: t("companionSurface.teach"),
-      pressed: watching,
-      onClick: onWatch,
-    });
-  }
-  return items;
 }
 
 /**
@@ -1637,27 +1600,24 @@ export function buildIdleRowItems({
  *
  * Verbs throughout. "Talk" and "Type" rather than "Talk" and "Ask", because
  * they are two halves of one choice about how to say something, and a verb pair
- * reads as that where a verb and a question word do not. "Teach" is the third,
- * and the one where the assistant does the looking rather than the user the
- * saying. It is also the one that comes and goes: it is behind a flag of its
- * own, so the row is Talk and Type alone for anyone who does not have it.
+ * reads as that where a verb and a question word do not. Both are input
+ * modalities and nothing more: pressing either says how the user is about to
+ * speak, never what the assistant is to do with it.
  *
  * **The words are drawn one at a time, under the pointer** (`revealLabel`).
  * This is the row a user meets by resting a hand near the mascot, so it is
- * drawn far more often than it is acted on, and three verbs spelled out at once
- * read as a sentence aimed at someone doing something else. Teach is the
- * loudest of the three for being the least wanted: the flagged, occasional way
- * in, at the same weight as the two the row exists for.
+ * drawn far more often than it is acted on, and a row of verbs spelled out at
+ * once reads as a sentence aimed at someone doing something else.
  *
  * Resting as icons keeps the pill to a third of the width its labels want, and
  * revealing one at a time is what keeps the reveal legible: exactly one word is
  * ever on the surface, and it is the one the hand is on.
  *
- * `aria-label` carries the name in every state, so a reader gets all three
+ * `aria-label` carries the name in every state, so a reader gets every control
  * regardless of where the pointer is.
  */
 function IdleBody(props: IdleRowInputs) {
-  const { watching = false, watchEnabled = false, onWatch } = props;
+  const { watching = false, onWatch } = props;
   const { t } = useTranslation();
   return (
     <>
@@ -1668,17 +1628,16 @@ function IdleBody(props: IdleRowInputs) {
           label={item.label}
           revealLabel
           active={item.active}
-          pressed={item.pressed}
           onClick={item.onClick}
         />
       ))}
-      {/* **The exit outlives the door.** A session running under a flag that
-          has since been turned off still reads the screen, so the row that
-          would have carried Watch carries the stop instead, the same control
-          the card and the call row draw. Hiding the way in is the whole of what
-          the flag does; leaving a capture with nothing that ends it is not
-          something a flag is allowed to cause. */}
-      {!watchEnabled && watching && <StopWatchingButton onWatch={onWatch} />}
+      {/* **The door is gone, the exit is not.** The row offers no way into a
+          watch session, and a session is started elsewhere, but one that is
+          running is reading the screen right now. So the row carries the stop
+          for as long as it runs, the same control the card and the call row
+          draw: leaving a capture with nothing that ends it is not something
+          this surface is allowed to cause. */}
+      {watching && <StopWatchingButton onWatch={onWatch} />}
     </>
   );
 }
@@ -1946,15 +1905,11 @@ function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
  * room for words, which is why the call's controls are icon-only without being
  * unlabelled.
  *
- * **`active` and `pressed` are two props because they are two different
- * claims.** `active` is a look: the demo reel draws a control as though a
- * pointer were on it, and a highlight staged for a recording is not a state the
- * control is in. `pressed` is the control's own on or off, which is a state,
- * and reporting a highlight as one would tell a reader that Talk is switched on
- * because a clip wanted it lit.
- *
- * `pressed` draws the same held-down look, so the state a looking user reads
- * off the background and the state a reader is told cannot come apart.
+ * **Nothing here claims a pressed state.** Every control on this surface goes
+ * one way when it is pressed, so none of them carries `aria-pressed`: a button
+ * reporting an on or off it does not have is one assistive technology describes
+ * wrongly. `active` is a look rather than such a state, which is why it draws
+ * the held-down background and says nothing to a reader.
  */
 function PillButton({
   icon,
@@ -1963,7 +1918,6 @@ function PillButton({
   showLabel = false,
   revealLabel = false,
   active = false,
-  pressed,
   onClick,
 }: {
   icon: ReactNode;
@@ -1988,36 +1942,21 @@ function PillButton({
    * wide the word is.
    */
   revealLabel?: boolean;
-  /** Drawn as though the pointer were on it. A look, not a state. */
-  active?: boolean;
   /**
-   * On or off, for a control that genuinely toggles.
+   * Drawn as though the pointer were on it, label and all.
    *
-   * Undefined for everything that does not, which is most of this surface: a
-   * button reporting a state it does not have is one assistive technology
-   * describes wrongly. Where it is set it carries the whole of that state to a
-   * reader, since the ring and the held-down background are both things only a
-   * looking user gets.
+   * A look and not a state, so it says nothing to a reader. It is the demo reel
+   * pointing at a control, and a control pointed at in a recording nobody can
+   * hover is one whose name has to be on the surface rather than under a hand
+   * that is never coming.
    */
-  pressed?: boolean;
+  active?: boolean;
   onClick?: () => void;
 }) {
-  /**
-   * A revealed label held open with no pointer in the room.
-   *
-   * Both cases are ones where the word has to be readable without a hand on the
-   * control. `active` is the demo reel pointing at a control, and a control
-   * pointed at in a recording nobody can hover is one whose name has to be
-   * drawn. `pressed` is a control holding a session open, and the row's job
-   * then is to say which press ends it, which it cannot do as an icon the user
-   * would have to go looking under.
-   */
-  const pinned = active || pressed === true;
   return (
     <button
       type="button"
       aria-label={label}
-      aria-pressed={pressed}
       // Only where the word is nowhere else. A tooltip over a control that
       // reveals its own label on the same hover is the same word twice, a
       // second later and a few pixels away.
@@ -2029,7 +1968,7 @@ function PillButton({
         event.stopPropagation();
       }}
       className={`group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        pinned ? "bg-white/15" : ""
+        active ? "bg-white/15" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"
@@ -2046,8 +1985,8 @@ function PillButton({
         // sees a span either way, so the attribute is the only honest way to
         // hold that this word is hidden until the pointer arrives.
         <span
-          data-label={pinned ? "pinned" : "hover"}
-          className={pinned ? "" : "hidden group-hover:inline"}
+          data-label={active ? "pinned" : "hover"}
+          className={active ? "" : "hidden group-hover:inline"}
         >
           {label}
         </span>
