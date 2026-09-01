@@ -41,6 +41,20 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
   }),
 }));
 
+let holdHandlers: {
+  onHoldStart: () => void;
+  onHoldEnd: () => void;
+} | null = null;
+mock.module("@/domains/chat/voice/use-hold-to-dictate", () => ({
+  HOLD_ARMING_MS: 220,
+  useHoldToDictate: (options: {
+    onHoldStart: () => void;
+    onHoldEnd: () => void;
+  }) => {
+    holdHandlers = options;
+  },
+}));
+
 mock.module("@/domains/chat/hooks/use-dictation-overlay-sync", () => ({
   useDictationOverlaySync: () => undefined,
 }));
@@ -248,4 +262,39 @@ describe("GlobalPushToTalkBridge", () => {
 
     expect(voiceStopMock).not.toHaveBeenCalled();
   });
+});
+
+/**
+ * A hold is aimed at a cursor in another application, and its words belong
+ * there. The composer's microphone registers itself as the global dictation
+ * target whenever a chat route is mounted, and routing a hold through that one
+ * splices the transcript into the composer and sends it as a turn: the words
+ * never reach the cursor, and a turn is spent that nobody asked for.
+ */
+test("drives its own recorder, not whatever claimed dictation last", async () => {
+  const { registerPushToTalkTarget } = await import(
+    "@/domains/chat/voice/push-to-talk-target"
+  );
+  const composerStart = mock(() => undefined);
+  const composerStop = mock(() => undefined);
+  const release = registerPushToTalkTarget({
+    start: composerStart,
+    stop: composerStop,
+  });
+
+  renderBridge("a1");
+
+  act(() => {
+    holdHandlers?.onHoldStart();
+  });
+  useVoiceRecordingStore.setState({ phase: "recording" });
+  act(() => {
+    holdHandlers?.onHoldEnd();
+  });
+
+  expect(composerStart).not.toHaveBeenCalled();
+  expect(composerStop).not.toHaveBeenCalled();
+  expect(voiceStopMock).toHaveBeenCalled();
+
+  release();
 });

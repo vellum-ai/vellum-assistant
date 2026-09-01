@@ -90,6 +90,24 @@ export function GlobalPushToTalkBridge({
   // saying it separately.
   useDictationOverlaySync({ suppressed: holdToDictateEnabled });
 
+  /**
+   * The recorder a held key drives, which is always this bridge's own.
+   *
+   * Never {@link resolveTarget}. That answers with whatever most recently
+   * claimed dictation, and on a chat route that is the composer's microphone,
+   * whose transcript is spliced into the composer and sent as a turn. A hold
+   * is aimed at a cursor in another application: its words belong there, and
+   * routing them into a conversation instead both loses them and spends a turn
+   * the user did not ask for.
+   *
+   * The composer's own microphone is unaffected; this only decides where the
+   * keys go.
+   */
+  const holdTarget = useCallback(
+    () => (assistantId ? fallbackVoiceInputRef.current : null),
+    [assistantId],
+  );
+
   const resolveTarget = useCallback(
     () =>
       getPushToTalkTarget() ??
@@ -125,7 +143,7 @@ export function GlobalPushToTalkBridge({
       // Read by the recording session as it starts, which decides there
       // whether the local transcript is the authority.
       markHoldDictation(true);
-      resolveTarget()?.start();
+      holdTarget()?.start();
     },
     onHoldEnd: () => {
       markHoldDictation(false);
@@ -133,7 +151,7 @@ export function GlobalPushToTalkBridge({
         holdRef.current = false;
         return;
       }
-      resolveTarget()?.stop();
+      holdTarget()?.stop();
     },
   });
 
