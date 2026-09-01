@@ -73,14 +73,11 @@ describe("resolveModelFirstOptions", () => {
       (option) => option.displayName === "Claude Opus 4.8",
     );
     expect(opus).toHaveLength(1);
-    expect(opus[0].providerCount).toBe(3);
-    expect(opus[0].soleProviderLabel).toBeNull();
+    expect(new Set(providersOf(opus[0].candidates)).size).toBe(3);
   });
 
-  test("names the single serving provider when only one hosts the model", () => {
+  test("keeps a model only one provider hosts on that one route", () => {
     const option = optionFor([], "Gemini 3.6 Flash");
-    expect(option.providerCount).toBe(1);
-    expect(option.soleProviderLabel).toBe("Google Gemini");
     expect(providersOf(option.candidates)).toEqual(["gemini"]);
   });
 
@@ -142,7 +139,7 @@ describe("resolveModelFirstOptions", () => {
     expect(anthropic[2].connectionName).toBe("anthropic-personal");
   });
 
-  test("counts provider kinds, not the keys a kind holds", () => {
+  test("offers every key a kind holds as its own route", () => {
     const option = optionFor(
       [
         connection("gemini-work", "gemini"),
@@ -151,8 +148,7 @@ describe("resolveModelFirstOptions", () => {
       "Gemini 3.6 Flash",
     );
     expect(option.candidates).toHaveLength(3);
-    expect(option.providerCount).toBe(1);
-    expect(option.soleProviderLabel).toBe("Google Gemini");
+    expect(new Set(providersOf(option.candidates)).size).toBe(1);
   });
 
   test("drops a route the active assistant cannot reach, and with it a model nothing else serves", () => {
@@ -187,7 +183,6 @@ describe("resolveModelFirstOptions", () => {
       modelId: "local-mixtral",
       connected: true,
     });
-    expect(custom?.soleProviderLabel).toBe("LM Studio");
 
     const opus = options.find(
       (option) => option.displayName === "Claude Opus 4.8",

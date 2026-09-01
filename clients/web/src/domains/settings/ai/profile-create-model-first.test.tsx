@@ -11,7 +11,7 @@
  *
  * Coverage:
  *  - flag off leaves the provider-first flow exactly as it was,
- *  - one model row per model, annotated with who serves it,
+ *  - one model row per model, and only the model's name on it,
  *  - a single connected route is stated rather than offered,
  *  - several routes become cards, connected ones first and pre-selected,
  *  - an unconnected route blocks Save and expands its own connect form,
@@ -277,6 +277,18 @@ function candidateCard(value: string): HTMLElement {
   return card;
 }
 
+/**
+ * The card's own row, which is the label the whole card's dead space belongs
+ * to. Clicking it is what a click beside the name or the tag amounts to.
+ */
+function candidateRow(value: string): HTMLLabelElement {
+  const row = candidateCard(value).firstElementChild;
+  if (!(row instanceof HTMLLabelElement)) {
+    throw new Error(`expected the "${value}" card's row to be a label`);
+  }
+  return row;
+}
+
 function selectedCandidateValue(): string | null {
   const checked = candidateCards().find(
     (card) =>
@@ -417,16 +429,16 @@ describe("the flag", () => {
 });
 
 describe("the model list", () => {
-  test("offers each model once, annotated with who serves it", () => {
+  test("offers each model once, and says nothing else on the row", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
     const rows = modelRows();
     const opus = rows.filter((row) => row.label === "Claude Opus 5");
     expect(opus).toHaveLength(1);
-    expect(opus[0].meta).toBe("3 providers");
+    expect(opus[0].meta).toBe("");
 
     const gemini = rows.find((row) => row.label === "Gemini 3.6 Flash");
-    expect(gemini?.meta).toBe("Google Gemini");
+    expect(gemini?.meta).toBe("");
   });
 
   test("keeps the custom model id escape hatch at the bottom", () => {
@@ -598,6 +610,8 @@ describe("the provider step", () => {
       "Only Google Gemini serves this model.",
     );
     expect(document.querySelectorAll('[role="radio"]')).toHaveLength(0);
+    // A statement, so nothing in it is a hit area either.
+    expect(candidateCard("gemini").querySelector("label")).toBeNull();
 
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
@@ -628,6 +642,20 @@ describe("the provider step", () => {
     expect(candidateCard("vercel-ai-gateway").textContent).toContain(
       "Add API key",
     );
+  });
+
+  test("takes a click anywhere in the card, not only on the name", () => {
+    renderCreate([
+      makeConnection("anthropic-personal"),
+      makeConnection("openrouter-key", "openrouter"),
+    ]);
+
+    selectModel("Claude Opus 5");
+    expect(selectedCandidateValue()).toBe("anthropic");
+
+    fireEvent.click(candidateRow("openrouter"));
+
+    expect(selectedCandidateValue()).toBe("openrouter");
   });
 
   test("switching routes rewrites the model id for the new one", async () => {

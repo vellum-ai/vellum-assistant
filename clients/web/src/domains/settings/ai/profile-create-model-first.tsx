@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -331,16 +331,6 @@ export function ProfileCreateModelFirst({
       group,
       folded: state === "folded",
       disclosed: state === "disclosed",
-      suffix: (
-        <PickerMeta
-          text={
-            option.soleProviderLabel ??
-            t("profileCreateModelFirst.providerCountMeta", {
-              count: option.providerCount,
-            })
-          }
-        />
-      ),
     });
     for (const group of groups) {
       const { shown, hidden } = collapseSectionRows(group.options);
@@ -537,6 +527,8 @@ function ProviderStep({
 }: ProviderStepProps) {
   const { t } = useTranslation("settings");
   const soleCandidate = candidates.length === 1 ? candidates[0] : null;
+  // Namespaces this group's radio ids, which the card's own label points at.
+  const radioIdPrefix = useId();
 
   // Keyed by the route it connects: the create form reads its provider,
   // label, name, and credential from props once, at mount, so a section
@@ -638,31 +630,57 @@ function ProviderStep({
             {candidates.map((candidate) => {
               const selected = candidate.value === selectedCandidate?.value;
               const meta = candidateMeta(candidate, t);
+              const radioId = `${radioIdPrefix}-${candidate.value}`;
+              const setup = selected ? setupAction(candidate) : null;
+              const connect = selected ? connectSection : null;
               return (
                 <div
                   key={candidate.value}
                   data-testid="provider-candidate"
                   data-candidate={candidate.value}
-                  className={`space-y-3 rounded-lg border px-3 py-2 ${
+                  className={`rounded-lg border ${
                     selected
                       ? "border-[var(--border-active)]"
                       : "border-[var(--border-element)]"
                   }`}
                 >
-                  <div className="flex min-h-9 items-center justify-between gap-2">
-                    <Radio
-                      value={candidate.value}
-                      label={
-                        <span className="flex items-center gap-2">
-                          <span>{candidate.label}</span>
-                          {meta ? <PickerMeta text={meta} /> : null}
-                        </span>
-                      }
-                    />
+                  {/* The whole row is the radio's label, so its padding and
+                      the space between the name and the tag select the route
+                      too. It stops at the row: a browser ignores a label
+                      click that lands on interactive content, but the connect
+                      form below carries labels of its own, which cannot nest
+                      inside this one. */}
+                  <label
+                    htmlFor={radioId}
+                    className={`flex min-h-9 cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 ${
+                      selected ? "" : "hover:bg-[var(--surface-hover)]"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Radio
+                        id={radioId}
+                        value={candidate.value}
+                        // The label element names the whole row, tag
+                        // included, so the route says its own name.
+                        aria-label={
+                          meta ? `${candidate.label} ${meta}` : candidate.label
+                        }
+                      />
+                      <Typography variant="body-medium-lighter" as="span">
+                        {candidate.label}
+                      </Typography>
+                      {meta ? <PickerMeta text={meta} /> : null}
+                    </span>
                     {candidateTag(candidate)}
-                  </div>
-                  {selected ? setupAction(candidate) : null}
-                  {selected ? connectSection : null}
+                  </label>
+                  {/* `pt-1` over the row's own `pb-2` is the gap the card
+                      keeps between the route and what it expands into. */}
+                  {setup || connect ? (
+                    <div className="space-y-3 px-3 pt-1 pb-2">
+                      {setup}
+                      {connect}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
