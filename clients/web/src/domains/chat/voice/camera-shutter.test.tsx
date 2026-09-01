@@ -4,18 +4,24 @@
  *
  * Load-bearing contracts: the design's outer geometry (an 84px ring measured
  * border-in, around a 64px core), which is what makes the shutter the one
- * target on the surface a thumb finds without looking; both capture modes,
- * including the live one the app does not reach; the capture pulse, which is
- * the ONLY thing that distinguishes a taken photo from a dead button, since a
- * viewfinder looks identical either side of a press; and the button surviving a
- * `Tooltip` wrapper, which reaches it through Radix's `asChild` slot rather
- * than rendering its own element.
+ * target on the surface a thumb finds without looking; both capture modes; the
+ * capture pulse, which is the ONLY thing that distinguishes a taken photo from
+ * a dead button, since a viewfinder looks identical either side of a press; the
+ * hold, whose whole job is to be told apart from the tap it ends with; and the
+ * button surviving a `Tooltip` wrapper, which reaches it through Radix's
+ * `asChild` slot rather than rendering its own element.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 import { Tooltip } from "@vellumai/design-library";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import * as motionReact from "motion/react";
 
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
@@ -40,6 +46,47 @@ const shutter = () => screen.getByTestId("s");
 const core = () => screen.getByTestId("camera-shutter-core");
 const pulse = () => screen.queryByTestId("camera-shutter-pulse");
 
+/** The component's own threshold, restated so a retune fails here first. */
+const HOLD_MS = 500;
+
+/**
+ * Run a case on fake timers, so the threshold is crossed by advancing rather
+ * than by waiting half a second per press.
+ */
+function withFakeTimers(body: (advanceBy: (ms: number) => void) => void): void {
+  jest.useFakeTimers();
+  try {
+    body((ms) => {
+      act(() => {
+        jest.advanceTimersByTime(ms);
+      });
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+}
+
+/** Press the shutter, which is a pointer down and nothing else yet. */
+function press(at: { x: number; y: number } = { x: 0, y: 0 }): void {
+  fireEvent.pointerDown(shutter(), {
+    button: 0,
+    pointerId: 1,
+    clientX: at.x,
+    clientY: at.y,
+  });
+}
+
+/**
+ * Let go: the pointer comes up and the browser's click follows.
+ *
+ * Both halves, because the two are one act to the user and the suppression
+ * under test lives between them.
+ */
+function release(): void {
+  fireEvent.pointerUp(shutter(), { button: 0, pointerId: 1 });
+  fireEvent.click(shutter());
+}
+
 describe("CameraShutter", () => {
   test("wears the design's outer geometry, ring measured border-in", () => {
     render(<CameraShutter onClick={noop} ariaLabel="Take photo" testId="s" />);
@@ -62,10 +109,8 @@ describe("CameraShutter", () => {
     expect(core().className).toContain("bg-white");
     expect(core().className).toContain("scale-100");
 
-    // Unreachable in the app (the capture path is photo-only), and part of the
-    // component's contract regardless: the core shrinking to a crimson dot is
-    // the record-button language, and it belongs to the component rather than
-    // to whichever caller reaches it first.
+    // The core shrinking to a crimson dot is the record-button language, and
+    // it is what the room raises once the shutter has been held.
     rerender(
       <CameraShutter
         onClick={noop}
@@ -180,5 +225,324 @@ describe("CameraShutter", () => {
 
     fireEvent.click(button);
     expect(presses).toBe(1);
+  });
+});
+
+/**
+ * The hold, which is the half of the gesture no caller can own.
+ *
+ * A hold and the tap it ends with are one press to the browser, and the click
+ * arrives in the same task as the release, so only the element taking the press
+ * can tell them apart in time. Every case here is about that separation: what
+ * counts as a hold, what cancels one, and what the release is allowed to do
+ * afterwards.
+ */
+describe("CameraShutter: holding it", () => {
+  test("a held press fires onHold once, and never the tap", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      press();
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(1);
+      expect(taps).toBe(0);
+
+      // The release is the same press. It must not also be read as a tap, and
+      // holding past the threshold must not fire a second time.
+      advanceBy(HOLD_MS);
+      release();
+      expect(holds).toBe(1);
+      expect(taps).toBe(0);
+    });
+  });
+
+  test("a hold fires no capture pulse", () => {
+    withFakeTimers((advanceBy) => {
+      render(
+        <CameraShutter
+          onClick={noop}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      press();
+      advanceBy(HOLD_MS);
+      release();
+
+      // The pulse means "a frame just went". A hold takes none, so a ring
+      // leaving the shutter here would report a photo nobody has.
+      expect(pulse()).toBeNull();
+    });
+  });
+
+  test("a press let go before the threshold is a tap", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      press();
+      advanceBy(HOLD_MS - 1);
+      release();
+
+      expect(holds).toBe(0);
+      expect(taps).toBe(1);
+      expect(pulse()).not.toBeNull();
+    });
+  });
+
+  test("a press that wanders past the tolerance never becomes a hold", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      render(
+        <CameraShutter
+          onClick={noop}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      press();
+      // Inside the tolerance: a phone held at arm's length drifts, and that is
+      // not the user aiming somewhere else.
+      fireEvent.pointerMove(shutter(), {
+        pointerId: 1,
+        clientX: 6,
+        clientY: 6,
+      });
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(1);
+
+      cleanup();
+      holds = 0;
+      render(
+        <CameraShutter
+          onClick={noop}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      press();
+      fireEvent.pointerMove(shutter(), {
+        pointerId: 1,
+        clientX: 12,
+        clientY: 0,
+      });
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(0);
+    });
+  });
+
+  test("the pointer being taken away or leaving cancels the hold", () => {
+    for (const end of ["cancel", "leave"] as const) {
+      withFakeTimers((advanceBy) => {
+        let holds = 0;
+        render(
+          <CameraShutter
+            onClick={noop}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        press();
+        // A scroll or a system gesture claiming the touch, and a finger slid
+        // off the button. Neither is a press the user is still making.
+        if (end === "cancel") {
+          fireEvent.pointerCancel(shutter(), { pointerId: 1 });
+        } else {
+          fireEvent.pointerLeave(shutter(), { pointerId: 1 });
+        }
+        advanceBy(HOLD_MS);
+
+        expect(holds).toBe(0);
+        cleanup();
+      });
+    }
+  });
+
+  test("Space holds; a short Space is still a tap, and Enter always is", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // Held. The button's own activation is suspended on the way down, so
+      // the release adds no tap of its own.
+      fireEvent.keyDown(shutter(), { key: " " });
+      advanceBy(HOLD_MS);
+      fireEvent.keyUp(shutter(), { key: " " });
+      expect(holds).toBe(1);
+      expect(taps).toBe(0);
+
+      // Let go early: the press was a tap, and it is re-dispatched rather
+      // than lost with the activation that was suspended for it.
+      fireEvent.keyDown(shutter(), { key: " " });
+      advanceBy(HOLD_MS - 1);
+      fireEvent.keyUp(shutter(), { key: " " });
+      expect(holds).toBe(1);
+      expect(taps).toBe(1);
+
+      // Enter fires its click on the way down, so there is no press to hold
+      // and nothing here touches it.
+      fireEvent.click(shutter());
+      expect(holds).toBe(1);
+      expect(taps).toBe(2);
+    });
+  });
+
+  test("the tap after a keyboard hold still lands once the hold is withdrawn", () => {
+    withFakeTimers((advanceBy) => {
+      let taps = 0;
+      const { rerender } = render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The room's shape: the hold enters Live, and Live has no second hold to
+      // offer, so `onHold` goes away with the mode change.
+      fireEvent.keyDown(shutter(), { key: " " });
+      advanceBy(HOLD_MS);
+      fireEvent.keyUp(shutter(), { key: " " });
+      rerender(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          ariaLabel="Stop live"
+          testId="s"
+          mode="live"
+        />,
+      );
+
+      // The press that leaves Live is a new press, so the suppression the
+      // hold armed is spent rather than waiting to eat it: the keyboard path
+      // produces no click of its own to spend it on.
+      press();
+      release();
+      expect(taps).toBe(1);
+    });
+  });
+
+  test("advertises the hold to a screen reader, and only when offered", () => {
+    const { rerender } = render(
+      <CameraShutter
+        onClick={noop}
+        onHold={noop}
+        ariaLabel="Take photo"
+        testId="s"
+      />,
+    );
+    // A hold is invisible: there is no drawn affordance on the button itself.
+    expect(shutter().getAttribute("aria-keyshortcuts")).toBe("Space");
+
+    rerender(
+      <CameraShutter onClick={noop} ariaLabel="Take photo" testId="s" />,
+    );
+    expect(shutter().getAttribute("aria-keyshortcuts")).toBeNull();
+  });
+
+  test("a disabled shutter takes no hold", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      render(
+        <CameraShutter
+          onClick={noop}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+          disabled
+        />,
+      );
+
+      press();
+      advanceBy(HOLD_MS);
+      fireEvent.keyDown(shutter(), { key: " " });
+      advanceBy(HOLD_MS);
+
+      // A shutter refusing presses refuses this one too: entering a streaming
+      // mode from a control that cannot take a photo is the surface acting on
+      // a press it just said it would not.
+      expect(holds).toBe(0);
+    });
+  });
+
+  test("with no hold on offer, presses behave exactly as before", () => {
+    withFakeTimers((advanceBy) => {
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The gesture layer is inert, so a long press is a press: the deep-link
+      // overlay's shutter offers no second act and must not lose a slow one.
+      press();
+      advanceBy(HOLD_MS * 2);
+      release();
+
+      expect(taps).toBe(1);
+      expect(pulse()).not.toBeNull();
+    });
   });
 });
