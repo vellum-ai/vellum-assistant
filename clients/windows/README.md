@@ -3,7 +3,7 @@
 The Windows desktop client. Like `clients/macos`, this is an Electron shell
 around the `clients/web` renderer: in dev it loads the Vite dev server (or
 vel's edge proxy when `vel up` is running), and in packaged builds it serves a
-bundled `resources/web-dist` over a privileged `app://` protocol.
+bundled `resources/cli-runtime/web-dist` over a privileged `app://` protocol.
 
 ## Layout
 
