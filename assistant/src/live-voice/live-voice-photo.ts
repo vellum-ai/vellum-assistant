@@ -1,12 +1,13 @@
 /**
- * Persisting an image that arrives during a live-voice call, on its own.
+ * Persisting a camera image on its own, outside any turn.
  *
  * Two kinds arrive this way and both take the same route: a photo the user
- * snapped with the shutter, and an ambient camera frame the client's gate kept.
+ * snapped with the shutter on a call, and an ambient camera frame the client's
+ * gate kept, which arrives from a call and from the text-chat composer alike.
  * Each lands in the conversation as its own user message, the moment it
  * arrives, and **runs no turn**. That single choice is what makes the order of
- * image and speech irrelevant: whatever the user says next, before or after,
- * is answered by a model whose history already contains the picture.
+ * image and message irrelevant: whatever the user says or types next, before
+ * or after, is answered by a model whose history already contains the picture.
  *
  * A kept frame carries the sight tag as well, which is what lets retention age
  * it out of the model's context while the transcript keeps it. A shutter photo
@@ -247,16 +248,13 @@ async function enqueueStandaloneImagePersist(
  * and one that failed to persist is theirs to retry, not the daemon's to
  * delete.
  *
- * Best effort. Losing a row's bytes is not worth failing a call over.
+ * Best effort. Losing a row's bytes is not worth failing the persist over.
  */
 function reclaimDroppedFrame(attachmentId: string): void {
   try {
     deleteOrphanAttachments([attachmentId]);
   } catch (err) {
-    log.warn(
-      { err, attachmentId },
-      "Could not reclaim a dropped live-voice camera frame",
-    );
+    log.warn({ err, attachmentId }, "Could not reclaim a dropped camera frame");
   }
 }
 
@@ -336,7 +334,7 @@ async function writeStandaloneImage(
     if (attachments.length === 0) {
       log.warn(
         { attachmentId, kind },
-        "Live-voice image attachment did not resolve",
+        "Standalone image attachment did not resolve",
       );
       return { ok: false };
     }
@@ -349,7 +347,7 @@ async function writeStandaloneImage(
     if (!(await acquireProcessingFlag(conversation))) {
       log.warn(
         { conversationId, attachmentId, kind },
-        "Live-voice image timed out waiting for the conversation to go idle",
+        "Standalone image timed out waiting for the conversation to go idle",
       );
       if (kind === "sight_frame") {
         reclaimDroppedFrame(attachmentId);
@@ -372,12 +370,12 @@ async function writeStandaloneImage(
       // Anything queued behind the lock we just held still has to run. Without
       // this a message queued during the image's write sits until the next
       // turn ends.
-      void conversation.kickDrainQueue("loop_complete", `live_voice_${kind}`);
+      void conversation.kickDrainQueue("loop_complete", `standalone_${kind}`);
     }
   } catch (err) {
     log.warn(
       { err, conversationId, attachmentId, kind },
-      "Failed to persist a live-voice image",
+      "Failed to persist a standalone image",
     );
     const inserted = insertedMessageState(conversationId, requestId);
     if (inserted === "exists") {
@@ -397,7 +395,7 @@ async function writeStandaloneImage(
       } catch (announceErr) {
         log.warn(
           { err: announceErr, conversationId, messageId: requestId },
-          "Persisted a live-voice image but could not announce it",
+          "Persisted a standalone image but could not announce it",
         );
       }
       return { ok: true, messageId: requestId };
@@ -461,7 +459,7 @@ function insertedMessageState(
   } catch (err) {
     log.warn(
       { err, conversationId, messageId },
-      "Could not tell whether a live-voice image persisted; keeping its attachment and reporting failure",
+      "Could not tell whether a standalone image persisted; keeping its attachment and reporting failure",
     );
     return "unknown";
   }
@@ -489,6 +487,9 @@ export async function persistLiveVoicePhoto(
   });
 }
 
+/** Which client surface the camera's gate was running on. */
+export type SightFrameSurface = "voice" | "chat";
+
 /**
  * Persist an ambient camera frame the client's gate kept.
  *
@@ -501,15 +502,23 @@ export async function persistLiveVoicePhoto(
  *
  * `scripted` because the camera's gate sent this, not the user: a keep every
  * few seconds would otherwise read downstream as that many turns the user
- * took, and activation counts turns that claim they were typed.
+ * took, and activation counts turns that claim they were typed. The pair of
+ * `scripted` and the tag is also the signature the memory-privacy guard
+ * (`messageMetadataIsAmbientSightKeep`) reads, so both surfaces stamp both.
+ *
+ * The surface decides one key and nothing else. `voiceSessionTurn` says a
+ * reply to this row is spoken back over a session that is still open, which is
+ * true of a keep taken on a call and false of one taken beside the composer,
+ * so only the voice caller stamps it.
  */
-export async function persistLiveVoiceSightFrame(
+export async function persistAmbientSightFrame(
   conversationId: string,
   attachmentId: string,
+  surface: SightFrameSurface,
 ): Promise<LiveVoicePhotoResult> {
   return persistStandaloneImage(conversationId, attachmentId, "sight_frame", {
     content: SIGHT_FRAME_MESSAGE_CONTENT,
-    metadata: { voiceSessionTurn: true },
+    metadata: surface === "voice" ? { voiceSessionTurn: true } : {},
     scripted: true,
     // The camera sampled this, nobody sent it. Indexing it would feed
     // extraction a frame every few seconds of whatever the room happens to

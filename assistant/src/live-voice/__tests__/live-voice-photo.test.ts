@@ -36,8 +36,8 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
   _setProcessingWaitMsForTests,
   _standaloneImageQueueSizeForTests,
+  persistAmbientSightFrame,
   persistLiveVoicePhoto,
-  persistLiveVoiceSightFrame,
 } from "../live-voice-photo.js";
 
 await initializeDb();
@@ -300,7 +300,7 @@ describe("persistLiveVoicePhoto", () => {
   });
 });
 
-describe("persistLiveVoiceSightFrame", () => {
+describe("persistAmbientSightFrame", () => {
   test("tags the row with the attachment it carries", async () => {
     const live = liveConversation("Live voice sight frame");
     try {
@@ -310,7 +310,11 @@ describe("persistLiveVoiceSightFrame", () => {
         IMAGE_BASE64,
       );
 
-      const result = await persistLiveVoiceSightFrame(live.id, attachment.id);
+      const result = await persistAmbientSightFrame(
+        live.id,
+        attachment.id,
+        "voice",
+      );
       expect(result.ok).toBe(true);
 
       const [message] = getMessages(live.id);
@@ -340,10 +344,32 @@ describe("persistLiveVoiceSightFrame", () => {
       );
 
       expect(
-        (await persistLiveVoiceSightFrame(live.id, attachment.id)).ok,
+        (await persistAmbientSightFrame(live.id, attachment.id, "voice")).ok,
       ).toBe(true);
 
       expect(metadataOf(getMessages(live.id)[0]).scripted).toBe(true);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("marks a keep taken on a call as a voice session turn", async () => {
+    // The mark says a reply to this row is spoken back over a session that is
+    // still open, which decides whether a finished reply raises a push. Only
+    // the voice surface may claim it, and it has to keep claiming it.
+    const live = liveConversation("Live voice sight frame voice mark");
+    try {
+      const attachment = await uploadAttachment(
+        "frame.png",
+        "image/png",
+        IMAGE_BASE64,
+      );
+
+      expect(
+        (await persistAmbientSightFrame(live.id, attachment.id, "voice")).ok,
+      ).toBe(true);
+
+      expect(metadataOf(getMessages(live.id)[0]).voiceSessionTurn).toBe(true);
     } finally {
       live.dispose();
     }
@@ -358,9 +384,9 @@ describe("persistLiveVoiceSightFrame", () => {
     try {
       const arrivedAs = await attachmentLinkedElsewhere(source.id);
 
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
 
       const [row] = getMessages(live.id);
       const stored = storedImageId(row);
@@ -388,9 +414,9 @@ describe("persistLiveVoiceSightFrame", () => {
     try {
       const arrivedAs = await attachmentLinkedElsewhere(source.id);
 
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
 
       const stored = storedImageId(getMessages(live.id)[0]);
       expect(stored).toBeDefined();
@@ -410,14 +436,14 @@ describe("persistLiveVoiceSightFrame", () => {
     const live = liveConversation("Live voice live retention");
     try {
       const arrivedAs = await attachmentLinkedElsewhere(source.id);
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
       for (const name of ["live-fresh-a.png", "live-fresh-b.png"]) {
         const fresh = await uploadFrame(name);
-        expect((await persistLiveVoiceSightFrame(live.id, fresh)).ok).toBe(
-          true,
-        );
+        expect(
+          (await persistAmbientSightFrame(live.id, fresh, "voice")).ok,
+        ).toBe(true);
       }
 
       const live_ = live.activeConversation;
@@ -442,14 +468,14 @@ describe("persistLiveVoiceSightFrame", () => {
     const live = liveConversation("Live voice cloned retention");
     try {
       const arrivedAs = await attachmentLinkedElsewhere(source.id);
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
       for (const name of ["later-a.png", "later-b.png"]) {
         const fresh = await uploadAttachment(name, "image/png", IMAGE_BASE64);
-        expect((await persistLiveVoiceSightFrame(live.id, fresh.id)).ok).toBe(
-          true,
-        );
+        expect(
+          (await persistAmbientSightFrame(live.id, fresh.id, "voice")).ok,
+        ).toBe(true);
       }
 
       const assembled: Message[] = getMessages(live.id).map((row) => ({
@@ -471,7 +497,9 @@ describe("persistLiveVoiceSightFrame", () => {
   test("reports a frame whose attachment does not resolve", async () => {
     const live = liveConversation("Live voice sight frame missing");
     try {
-      expect(await persistLiveVoiceSightFrame(live.id, "att-missing")).toEqual({
+      expect(
+        await persistAmbientSightFrame(live.id, "att-missing", "voice"),
+      ).toEqual({
         ok: false,
       });
       expect(getMessages(live.id)).toHaveLength(0);
@@ -493,7 +521,7 @@ describe("persistLiveVoiceSightFrame", () => {
       );
 
       live.activeConversation.setProcessing(true);
-      const pending = persistLiveVoiceSightFrame(live.id, attachment.id);
+      const pending = persistAmbientSightFrame(live.id, attachment.id, "voice");
       await new Promise((resolve) => setTimeout(resolve, 150));
       expect(getMessages(live.id)).toHaveLength(0);
 
@@ -526,7 +554,7 @@ describe("standalone image persists are serialized per conversation", () => {
       const frame = await uploadFrame("ambient.png");
 
       const photoWrite = persistLiveVoicePhoto(live.id, photo);
-      const frameWrite = persistLiveVoiceSightFrame(live.id, frame);
+      const frameWrite = persistAmbientSightFrame(live.id, frame, "voice");
 
       expect(await photoWrite).toMatchObject({ ok: true });
       expect(await frameWrite).toMatchObject({ ok: true });
@@ -553,11 +581,11 @@ describe("standalone image persists are serialized per conversation", () => {
       const second = await uploadFrame("second.png");
 
       live.activeConversation.setProcessing(true);
-      const firstKeep = persistLiveVoiceSightFrame(live.id, first);
+      const firstKeep = persistAmbientSightFrame(live.id, first, "voice");
       // Long enough for the first keep to reach the idle wait, so the second
       // queues behind a job that has already begun rather than replacing it.
       await sleep(30);
-      const secondKeep = persistLiveVoiceSightFrame(live.id, second);
+      const secondKeep = persistAmbientSightFrame(live.id, second, "voice");
       await sleep(30);
       live.activeConversation.setProcessing(false);
 
@@ -583,7 +611,7 @@ describe("standalone image persists are serialized per conversation", () => {
 
       // A turn is running, so the keep goes into the wait.
       live.activeConversation.setProcessing(true);
-      const keep = persistLiveVoiceSightFrame(live.id, frame);
+      const keep = persistAmbientSightFrame(live.id, frame, "voice");
       await sleep(150);
 
       // From here, the next observation of a free flag lets a turn try to
@@ -614,10 +642,10 @@ describe("standalone image persists are serialized per conversation", () => {
       const newest = await uploadFrame("newest.png");
 
       live.activeConversation.setProcessing(true);
-      const runningKeep = persistLiveVoiceSightFrame(live.id, running);
+      const runningKeep = persistAmbientSightFrame(live.id, running, "voice");
       await sleep(30);
-      const staleKeep = persistLiveVoiceSightFrame(live.id, stale);
-      const newestKeep = persistLiveVoiceSightFrame(live.id, newest);
+      const staleKeep = persistAmbientSightFrame(live.id, stale, "voice");
+      const newestKeep = persistAmbientSightFrame(live.id, newest, "voice");
       await sleep(30);
       live.activeConversation.setProcessing(false);
 
@@ -683,7 +711,7 @@ describe("standalone image persists are serialized per conversation", () => {
 
       // A turn that outlasts the wait.
       live.activeConversation.setProcessing(true);
-      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
         ok: false,
       });
 
@@ -723,7 +751,7 @@ describe("standalone image persists are serialized per conversation", () => {
     try {
       const frame = await uploadFrame("cleanup.png");
 
-      const pending = persistLiveVoiceSightFrame(live.id, frame);
+      const pending = persistAmbientSightFrame(live.id, frame, "voice");
       expect(_standaloneImageQueueSizeForTests()).toBe(1);
       expect(await pending).toMatchObject({ ok: true });
 

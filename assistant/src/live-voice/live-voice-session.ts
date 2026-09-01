@@ -112,8 +112,8 @@ import {
   type VoiceEndpointSource,
 } from "./live-voice-metrics.js";
 import {
+  persistAmbientSightFrame,
   persistLiveVoicePhoto,
-  persistLiveVoiceSightFrame,
 } from "./live-voice-photo.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
@@ -1694,9 +1694,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * same fact.
    */
   private persistSightFrame(frame: LiveVoiceClientSightFrameFrame): void {
-    void persistLiveVoiceSightFrame(
+    void persistAmbientSightFrame(
       this.conversationId,
       frame.attachmentId,
+      "voice",
     ).then((result) => {
       if (!result.ok && !this.isClosed) {
         void this.sendFrame({
