@@ -379,10 +379,12 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Ask the Doctor",
-    "copyCliFix": "Copy CLI fix",
     "goToDoctor": "Go to Doctor",
     "openPage": "Open page",
-    "suggestionFallback": "Suggestion"
+    "suggestionFallback": "Suggestion",
+    "restoreCredential": "Restore access",
+    "restoringCredential": "Restoring...",
+    "restoreCredentialSuccess": "Restored. Vellum-managed models are working again."
   },
   "chatRuleEditorModal": {
     "applyTo": "Apply to",

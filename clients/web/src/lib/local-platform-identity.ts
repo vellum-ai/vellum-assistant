@@ -73,6 +73,16 @@ type BootstrapLocalAssistantPlatformIdentityOptions = {
 
 type ResolveLocalAssistantPlatformIdentityOptions = {
   allowGatewayRepair?: boolean;
+  /**
+   * Whether a stored credential the platform has rejected may be rotated.
+   *
+   * Off by default, so the routine bootstrap never replaces a credential
+   * unattended. Rotation is a credential mutation and the user is the one who
+   * asks for it, from the repair action on the credential notification or by
+   * signing in from the CLI. The bootstrap's job is to provision what is
+   * missing, not to repair what is broken.
+   */
+  rotateRejectedCredential?: boolean;
 };
 
 const platformAssistantIdCache = new Map<string, Promise<string>>();
@@ -126,6 +136,7 @@ export async function resolveLocalAssistantPlatformIdentity(
 
   const promise = ensureLocalAssistantPlatformIdentity(assistant, {
     allowGatewayRepair: options.allowGatewayRepair ?? true,
+    rotateRejectedCredential: options.rotateRejectedCredential ?? false,
   });
   platformAssistantIdCache.set(assistant.assistantId, promise);
   try {
@@ -133,6 +144,107 @@ export async function resolveLocalAssistantPlatformIdentity(
   } catch (error) {
     platformAssistantIdCache.delete(assistant.assistantId);
     throw error;
+  }
+}
+
+/**
+ * Re-resolve this assistant's platform identity from scratch, rotating a
+ * rejected managed credential in the process.
+ *
+ * The ordinary bootstrap cannot serve an in-session recovery. It runs when a
+ * platform session is confirmed and when the assistant changes, so nothing
+ * re-runs it when a credential is rejected mid-session, and its per-assistant
+ * promise cache would return the already-settled result if anything did. Both
+ * are right for a bootstrap and wrong for a repair, so this drops the cache
+ * entry and resolves again.
+ *
+ * Rejects with the underlying reason (no platform session, unreachable
+ * gateway, rotation refused) so a caller can show it rather than reporting a
+ * failure it cannot explain.
+ */
+export async function recoverLocalAssistantPlatformCredential(
+  assistantId?: string,
+): Promise<void> {
+  const target = assistantId ?? getSelectedAssistant()?.assistantId;
+  if (!target) {
+    throw new Error("No assistant is selected.");
+  }
+
+  // `resolveLocalAssistantPlatformIdentity` returns the id untouched for
+  // anything it does not provision for, so without this the repair would
+  // resolve successfully having done nothing, and the notification would
+  // report itself fixed. Say why instead. A platform-hosted assistant is not
+  // a gap: the platform re-provisions its own key, so the repair belongs to
+  // nobody here.
+  const assistant = resolveLocalAssistant(target);
+  if (
+    !isLocalClient() ||
+    isRemoteGatewayMode() ||
+    isPlatformDisabled() ||
+    isUuid(target) ||
+    !assistant
+  ) {
+    throw new Error(
+      "This client cannot restore the credential for this assistant. Open the assistant on the machine that runs it.",
+    );
+  }
+
+  platformAssistantIdCache.delete(assistant.assistantId);
+
+  await resolveLocalAssistantPlatformIdentity(target, {
+    allowGatewayRepair: true,
+    rotateRejectedCredential: true,
+  });
+
+  // Storing a credential proves the write landed, not that it authenticates: a
+  // replacement can be rejected in turn. Confirm before the caller reports
+  // success, so a repair that did not repair anything reads as a failure the
+  // reader can see rather than a receipt for something that never happened.
+  const verified = await verifyPlatformCredential(assistant);
+  if (verified === "rejected") {
+    throw new Error(
+      "Vellum rejected the replacement credential. Try signing in to Vellum again.",
+    );
+  }
+  if (verified !== "valid") {
+    throw new Error(
+      "Could not confirm the new credential with Vellum. It may start working shortly; check again in a moment.",
+    );
+  }
+}
+
+/**
+ * Ask the assistant to check its stored managed credential against the
+ * platform. Returns `"unknown"` when the check itself could not be run, which
+ * is not evidence either way.
+ */
+async function verifyPlatformCredential(
+  assistant: LockfileAssistant,
+): Promise<"valid" | "rejected" | "unknown"> {
+  try {
+    const gateway = await ensureGatewayAccess(assistant, {
+      allowGatewayRepair: false,
+    });
+    const response = await fetch(
+      gatewayUrl(gateway.gatewayUrl, "/v1/platform/verify-credential"),
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${gateway.actorToken}`,
+        },
+        credentials: "omit",
+      },
+    );
+    if (!response.ok) {
+      return "unknown";
+    }
+    const body = (await response.json()) as { status?: unknown };
+    return body.status === "valid" || body.status === "rejected"
+      ? body.status
+      : "unknown";
+  } catch {
+    return "unknown";
   }
 }
 
@@ -208,7 +320,7 @@ function resolveLocalAssistant(assistantId: string): LockfileAssistant | null {
 
 async function ensureLocalAssistantPlatformIdentity(
   assistant: LockfileAssistant,
-  options: { allowGatewayRepair: boolean },
+  options: { allowGatewayRepair: boolean; rotateRejectedCredential: boolean },
 ): Promise<string> {
   const gateway = await ensureGatewayAccess(assistant, options);
   const status = await fetchPlatformStatus(gateway, assistant.assistantId);
@@ -216,7 +328,27 @@ async function ensureLocalAssistantPlatformIdentity(
     status?.assistantId && isUuid(status.assistantId)
       ? status.assistantId
       : null;
-  if (statusPlatformAssistantId && status?.hasAssistantApiKey !== false) {
+  // A stored key the platform has rejected is worse than no key: every call
+  // fails and the assistant cannot mint a replacement for itself. The platform
+  // leaves self-hosted and local registrations to their client on purpose
+  // (`recover_expired_assistant_api_key` excludes them), so a repair here is
+  // the only thing that rotates one.
+  // A repair rotates because it was asked for, not because the daemon agrees
+  // the credential is dead. The verdict is in-process and resets to `unknown`
+  // when the daemon restarts, while the notification offering the repair
+  // persists, so requiring a reported rejection would leave the button inert
+  // in exactly the case it exists for: a dead credential surviving a restart.
+  //
+  // Rotating on request is safe. The platform keeps the outgoing key valid for
+  // a grace period, so a repair the credential did not need costs a rotation
+  // and nothing else. Routine resolution never sets this and never rotates.
+  const repairRequested = options.rotateRejectedCredential;
+
+  if (
+    statusPlatformAssistantId &&
+    status?.hasAssistantApiKey !== false &&
+    !repairRequested
+  ) {
     const statusOrganizationId =
       status?.organizationId ?? assistant.platformOrganizationId ?? null;
     if (statusOrganizationId) {
@@ -265,8 +397,15 @@ async function ensureLocalAssistantPlatformIdentity(
     );
   }
 
+  // `ensureRegistration` hands back a key only for a registration that had
+  // none, so a repair needs the explicit rotation. The platform keeps the
+  // outgoing key valid for a grace period rather than revoking it on the spot,
+  // so a rotation whose injection fails leaves the install no worse off.
   let assistantApiKey = stringValue(registration.assistant_api_key);
-  if (!assistantApiKey && status?.hasAssistantApiKey !== true) {
+  if (
+    !assistantApiKey &&
+    (status?.hasAssistantApiKey !== true || repairRequested)
+  ) {
     assistantApiKey = await reprovisionApiKey(
       assistant,
       organizationId,

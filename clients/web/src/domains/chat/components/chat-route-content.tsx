@@ -67,7 +67,6 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
@@ -172,15 +171,9 @@ import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
-import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
-/**
- * Self-hosted recovery for a rejected assistant API key. Mirrors the hint the
- * daemon returns from its own auth route (`runtime/routes/auth-routes.ts`) —
- * keep the two in step.
- */
-const REPROVISION_ASSISTANT_KEY_COMMAND =
-  "assistant keys set credential/vellum/assistant_api_key <key>";
+import { RestoreManagedCredentialButton } from "./restore-managed-credential-button";
+import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -212,7 +205,6 @@ export interface ChatMainPanelProps {
 
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
-
 
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
@@ -834,9 +826,8 @@ export function ChatMainPanel({
   //   platform-hosted → the Doctor, which can re-issue the key. The request is
   //     parked in the same one-shot store `/doctor <message>` uses, so the
   //     panel auto-starts a session already on topic, not on a blank prompt.
-  //   self-hosted → the Doctor tab doesn't exist (it is platform-hosted only),
-  //     but `assistant keys set` does. Copying the command is the whole fix, so
-  //     the banner hands it over rather than leaving the user with no action.
+  //   self-hosted -> the client owns the reprovision flow (the platform's own
+  //     recovery excludes these registrations), so the banner performs it.
   const reprovisionAssistantKeyAction = showDoctorAction ? (
     <Button asChild variant="outlined" size="compact">
       <Link
@@ -851,18 +842,7 @@ export function ChatMainPanel({
       </Link>
     </Button>
   ) : assistantState.kind === "active" ? (
-    <Button
-      variant="outlined"
-      size="compact"
-      onClick={() =>
-        copyToClipboard(REPROVISION_ASSISTANT_KEY_COMMAND, {
-          successMessage: "Command copied. Run it where the assistant runs.",
-          errorMessage: "Couldn't copy the command.",
-        })
-      }
-    >
-      {t("chatRouteContent.copyCliFix")}
-    </Button>
+    <RestoreManagedCredentialButton />
   ) : undefined;
 
   // Blocked automatic opens (see `handleOpenUrl`) carry the URL in

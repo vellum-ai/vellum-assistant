@@ -350,6 +350,52 @@ export interface GatewayCredentialResult {
 }
 
 /**
+ * Ask a running assistant whether its stored managed credential still
+ * authenticates, via the gateway-proxied `GET /v1/platform/status`.
+ *
+ * Returns `"rejected"` only when the daemon has settled that verdict. Every
+ * other case, including a daemon too old to report the field and any failure
+ * to reach one, returns null: the answer gates a key rotation, so an absent
+ * answer must never be read as a rejection.
+ *
+ * Never throws.
+ */
+export async function readGatewayAssistantApiKeyStatus(
+  gatewayUrl: string,
+  bearerToken?: string,
+): Promise<"valid" | "rejected" | "unknown" | null> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (bearerToken) {
+      headers["Authorization"] = `Bearer ${bearerToken}`;
+    }
+
+    const response = await loopbackSafeFetch(
+      `${gatewayUrl}/v1/platform/status`,
+      {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+
+    const json = (await response.json()) as {
+      assistantApiKeyStatus?: unknown;
+    };
+    const status = json.assistantApiKeyStatus;
+    if (status === "valid" || status === "rejected" || status === "unknown") {
+      return status;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read an existing credential from the assistant's secret store via the
  * gateway-proxied `POST /v1/secrets/read` endpoint (with `reveal: true`).
  *

@@ -29,6 +29,8 @@ let browserDeviceId: string | null = null;
 let statusBody: unknown;
 let ensureRegistrationBody: unknown;
 let reprovisionApiKeyBody: unknown;
+/** What `POST /v1/platform/verify-credential` reports about the stored key. */
+let verifyCredentialStatus: "valid" | "rejected" | "unknown" = "valid";
 let requests: RecordedRequest[] = [];
 let secretsUnavailable = false;
 let storedSecrets: string[] = [];
@@ -116,6 +118,7 @@ const {
   bootstrapLocalAssistantPlatformIdentity,
   resetLocalPlatformIdentityCacheForTesting,
   setBootstrapRetryDelaysForTesting,
+  recoverLocalAssistantPlatformCredential,
   resolveLocalAssistantPlatformIdentity,
 } = await import("@/lib/local-platform-identity");
 
@@ -172,6 +175,7 @@ beforeEach(() => {
   reprovisionApiKeyBody = {
     provisioning: { assistant_api_key: "reprovisioned-key" },
   };
+  verifyCredentialStatus = "valid";
   requests = [];
   secretsUnavailable = false;
   storedSecrets = [];
@@ -215,6 +219,9 @@ beforeEach(() => {
         url.pathname === "/v1/assistants/self-hosted-local/reprovision-api-key/"
       ) {
         return jsonResponse(reprovisionApiKeyBody);
+      }
+      if (url.pathname.endsWith("/v1/platform/verify-credential")) {
+        return jsonResponse({ status: verifyCredentialStatus });
       }
       if (url.pathname.endsWith("/v1/secrets")) {
         if (secretsUnavailable) {
@@ -272,6 +279,90 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       platformBaseUrl: CONFIG_PLATFORM_BASE_URL,
       platformOrganizationId: ORGANIZATION_ID,
     });
+  });
+
+  /** The incident shape: a key IS stored, so every presence check reads
+   * healthy, but the platform rejects it on every managed call. An existing
+   * registration hands back no key, so only an explicit rotation can produce
+   * a replacement. */
+  function seedRejectedCredential() {
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: true,
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+    ensureRegistrationBody = {
+      assistant: { id: PLATFORM_ASSISTANT_ID },
+      assistant_api_key: null,
+    };
+  }
+
+  test("the user's repair rotates a stored key the platform has rejected", async () => {
+    seedRejectedCredential();
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    const injectedSecrets = requests
+      .filter((request) => request.pathname.endsWith("/v1/secrets"))
+      .map((request) => request.body);
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:assistant_api_key",
+      value: "reprovisioned-key",
+    });
+  });
+
+  // Storing a credential proves the write landed, not that it works. A
+  // replacement rejected in turn has to surface as a failure, or the
+  // notification reports a repair that repaired nothing.
+  test("a replacement the platform rejects fails the repair", async () => {
+    seedRejectedCredential();
+    verifyCredentialStatus = "rejected";
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toThrow(/rejected the replacement credential/i);
+  });
+
+  test("an unconfirmed replacement fails rather than claiming success", async () => {
+    seedRejectedCredential();
+    verifyCredentialStatus = "unknown";
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toThrow(/could not confirm/i);
+  });
+
+  // Resolving returns the id untouched for anything it does not provision for,
+  // so a repair that cannot act has to say so rather than resolving as though
+  // it fixed something.
+  test("a repair this client cannot perform reports why", async () => {
+    isLocalClientValue = false;
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toThrow(/cannot restore the credential/i);
+    expect(requestNames()).not.toContain("reprovision-api-key");
+  });
+
+  // Rotation replaces a credential, so it happens because someone asked and at
+  // no other time. Routine identity resolution sees the same stored key and
+  // leaves it alone, whatever state it is in.
+  test("resolution alone never rotates a stored key", async () => {
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: true,
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).not.toContain("reprovision-api-key");
   });
 
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {

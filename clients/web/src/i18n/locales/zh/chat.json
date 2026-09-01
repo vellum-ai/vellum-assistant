@@ -378,10 +378,12 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "询问 Doctor",
-    "copyCliFix": "复制 CLI 修复命令",
     "goToDoctor": "前往 Doctor",
     "openPage": "打开页面",
-    "suggestionFallback": "建议"
+    "suggestionFallback": "建议",
+    "restoreCredential": "恢复访问",
+    "restoringCredential": "正在恢复...",
+    "restoreCredentialSuccess": "已恢复。由 Vellum 托管的模型重新可用。"
   },
   "chatRuleEditorModal": {
     "applyTo": "应用于",

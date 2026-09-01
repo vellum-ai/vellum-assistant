@@ -815,5 +815,10 @@
     "reactionAdded": "{name} отреагировал(а) {emoji}",
     "reactionRemoved": "{name} убрал(а) свою реакцию {emoji}",
     "reactionSomeone": "Кто-то"
+  },
+  "chatRouteContent": {
+    "restoreCredential": "Восстановить доступ",
+    "restoringCredential": "Восстановление...",
+    "restoreCredentialSuccess": "Восстановлено. Модели под управлением Vellum снова работают."
   }
 }
