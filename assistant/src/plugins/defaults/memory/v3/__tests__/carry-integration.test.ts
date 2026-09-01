@@ -1113,15 +1113,21 @@ describe("memory-v3 carry integration — restart contract", () => {
 
   test("pruned sections are absent from the rehydrated history (metadata stays intact)", () => {
     const rehydrated = JSON.parse(restartRehydratedJson) as Message[];
-    const allText = rehydrated
+    const cardText = rehydrated
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .filter(
+        (b) =>
+          b.text.startsWith("<memory>\n") && b.text.endsWith("\n</memory>"),
+      )
       .map((b) => b.text)
       .join("\n");
-    expect(allText).not.toContain("# memory/concepts/page-a.md");
-    expect(allText).not.toContain("# memory/concepts/page-b.md");
-    // Resident cards survive the round trip…
-    expect(allText).toContain(card("page-c"));
+    // Prune filters card sections on rehydrate. Historical spotlights stay
+    // as sent, so a pruned slug can still appear under `##` in those blocks.
+    expect(cardText).not.toContain("# memory/concepts/page-a.md");
+    expect(cardText).not.toContain("# memory/concepts/page-b.md");
+    // Resident cards survive the round trip.
+    expect(cardText).toContain(card("page-c"));
     // …and the persisted metadata still carries the pruned cards (the filter
     // is rehydration-time, never a metadata rewrite).
     const metadata = testSqlite
