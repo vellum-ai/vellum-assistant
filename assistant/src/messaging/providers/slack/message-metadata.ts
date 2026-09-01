@@ -315,7 +315,6 @@ export function slackMetadataAsProviderMetadata(
       : {}),
     ...(meta.threadTs ? { threadId: meta.threadTs } : {}),
     ...(meta.displayName ? { displayName: meta.displayName } : {}),
-    ...(meta.channelName ? { conversationName: meta.channelName } : {}),
     eventKind: meta.eventKind,
     ...(meta.reaction
       ? {
