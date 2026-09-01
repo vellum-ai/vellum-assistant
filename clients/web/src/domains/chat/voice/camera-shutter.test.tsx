@@ -479,6 +479,120 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  test("a hold withdrawn mid-press takes the press with it", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      const onClick = () => {
+        taps += 1;
+      };
+      const { rerender } = render(
+        <CameraShutter
+          onClick={onClick}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The room withdraws the hold the moment Live stops being available to
+      // enter. The armed timer holds the callback from the render that armed
+      // it, so left running it would fire a hold the surface has already
+      // decided against.
+      press();
+      advanceBy(HOLD_MS - 1);
+      rerender(
+        <CameraShutter onClick={onClick} ariaLabel="Take photo" testId="s" />,
+      );
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(0);
+
+      // The release is not a photo either: the press was made for a second act
+      // that no longer exists, not for the shutter.
+      release();
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
+
+      // And the suppression is spent, so the tap after it is an ordinary one.
+      press();
+      release();
+      expect(taps).toBe(1);
+    });
+  });
+
+  test("a re-render that still offers a hold leaves the press armed", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      const onHold = () => {
+        holds += 1;
+      };
+      const { rerender } = render(
+        <CameraShutter
+          onClick={noop}
+          onHold={onHold}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // A new function for the same offer, which is every render: the room
+      // builds the handler inline. Reading the offer as an identity rather
+      // than as presence would abandon every press the first time anything
+      // else in the room changed.
+      press();
+      advanceBy(HOLD_MS - 1);
+      rerender(
+        <CameraShutter
+          onClick={noop}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+      advanceBy(1);
+
+      expect(holds).toBe(1);
+    });
+  });
+
+  test("a shutter disabled mid-press takes no hold from it", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      const onHold = () => {
+        holds += 1;
+      };
+      const { rerender } = render(
+        <CameraShutter
+          onClick={noop}
+          onHold={onHold}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The room holds the shutter off while a flip swaps the capture. A
+      // button that has stopped taking presses has stopped taking this one.
+      press();
+      advanceBy(HOLD_MS - 1);
+      rerender(
+        <CameraShutter
+          onClick={noop}
+          onHold={onHold}
+          ariaLabel="Take photo"
+          testId="s"
+          disabled
+        />,
+      );
+      advanceBy(HOLD_MS);
+
+      expect(holds).toBe(0);
+    });
+  });
+
   test("a window losing focus ends the Space press, its release included", () => {
     withFakeTimers((advanceBy) => {
       let holds = 0;

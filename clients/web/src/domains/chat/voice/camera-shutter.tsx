@@ -23,7 +23,8 @@
  * of the tap a fired hold ends with all live here, and the caller is handed
  * one `onHold` that has already happened. The presses that end without a
  * release to end them (a wandering finger, a blurred window, a backgrounded
- * page) are the same job, and are given up on here for the same reason.
+ * page, a hold the caller takes back) are the same job, and are given up on
+ * here for the same reason.
  *
  * Presentational, with one exception. The caller owns what a press does, what
  * counts as busy, and the label, so nothing here reaches for a store or the
@@ -120,6 +121,10 @@ export function CameraShutter({
   // presses this has to answer come as fast as a thumb can tap.
   const [pulses, setPulses] = useState(0);
   const live = mode === "live";
+  // Whether a press can become a hold at all. Presence rather than the function
+  // itself, because the callers build a new one every render and nothing here
+  // is about which one is on offer.
+  const holdOffered = onHold !== undefined;
 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdOriginRef = useRef<{ x: number; y: number } | null>(null);
@@ -247,6 +252,24 @@ export function CameraShutter({
     };
   }, [abandonPress]);
 
+  /**
+   * The press was made for a hold the caller no longer offers, or on a button
+   * that has stopped taking presses.
+   *
+   * Both arrive mid-press: the room withdraws the hold the moment Live stops
+   * being available to enter, and holds the shutter off while a flip swaps the
+   * capture underneath it. The armed timer carries the callback from the render
+   * that armed it, so left running it fires a hold at a surface that has
+   * already decided there is none to give, and the release behind it falls back
+   * to a photo pressed for something else.
+   */
+  useEffect(() => {
+    if (holdOffered && !disabled) {
+      return;
+    }
+    abandonPress();
+  }, [abandonPress, disabled, holdOffered]);
+
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // A press that is already over, arriving as its click. Either the hold
     // fired and acted on this press, or the press was abandoned partway
@@ -269,7 +292,7 @@ export function CameraShutter({
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     onPointerDown?.(event);
     beginPress();
-    if (!onHold || disabled) {
+    if (!holdOffered || disabled) {
       return;
     }
     // A right-click is a menu, not a hold, and its button is never released
@@ -311,7 +334,7 @@ export function CameraShutter({
       return;
     }
     beginPress();
-    if (!onHold || disabled) {
+    if (!holdOffered || disabled) {
       return;
     }
     // Enter stays a plain tap: the browser fires its click on the way down, so
@@ -329,7 +352,7 @@ export function CameraShutter({
 
   const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
     onKeyUp?.(event);
-    if (!onHold || event.key !== " ") {
+    if (!holdOffered || event.key !== " ") {
       return;
     }
     const tapped = holdTimerRef.current !== null;
@@ -348,7 +371,7 @@ export function CameraShutter({
       // Advertised rather than left to be discovered: a hold is invisible to a
       // screen reader, which has no hint above the shutter to read.
       // eslint-disable-next-line local/no-untranslated-strings -- ARIA key name, not copy: assistive tech speaks the key in the user's language from this token
-      aria-keyshortcuts={onHold ? "Space" : undefined}
+      aria-keyshortcuts={holdOffered ? "Space" : undefined}
       data-testid={testId}
       data-mode={mode}
       onClick={handleClick}
