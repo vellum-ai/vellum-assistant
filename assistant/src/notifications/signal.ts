@@ -67,6 +67,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Scheduled notification triggered (one-shot or recurring)",
   },
   {
+    id: "schedule.result",
+    description:
+      "Execute-mode schedule run finished with user-facing output it did not notify about itself",
+  },
+  {
     id: "schedule.definition_error",
     description: "Plugin schedule declaration failed to parse or validate",
   },

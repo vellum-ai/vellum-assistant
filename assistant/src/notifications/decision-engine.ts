@@ -95,6 +95,20 @@ const ASSISTANT_REPLY_CHANNELS = [
   "platform",
 ] as const satisfies readonly NotificationChannel[];
 
+/**
+ * Delivery scope for `schedule.result` signals. Wider than
+ * {@link ASSISTANT_REPLY_CHANNELS} by one channel, and the difference is the
+ * point: an unseen chat reply is already sitting in a conversation the user
+ * opened, so a push is the only thing it can add. A scheduled run's output has
+ * no such home — nobody is looking at the run's conversation — so `vellum`
+ * carries it into the notification center where it persists, and `platform`
+ * pushes it.
+ */
+const SCHEDULE_RESULT_CHANNELS = [
+  "vellum",
+  "platform",
+] as const satisfies readonly NotificationChannel[];
+
 // ── System prompt ──────────────────────────────────────────────────────
 
 function buildSystemPrompt(
@@ -1080,6 +1094,24 @@ export async function evaluateSignal(
       ),
       body: requestedBody,
       reasoningSummary: "assistant_reply pass-through",
+    });
+  }
+
+  // Schedule-result pass-through: the body is the run's own reply, which is
+  // the whole point of the notification — a briefing, a digest, a report. The
+  // classifier rewrites bodies into short alerts, which would throw away the
+  // content the user set the schedule up to receive. Routing has nothing to
+  // decide either: the user asked for this cadence, so it goes to the inbox
+  // and to push, and `enforceRoutingIntent` still narrows it afterwards.
+  if (signal.sourceEventName === "schedule.result" && requestedBody) {
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: SCHEDULE_RESULT_CHANNELS.filter((ch) =>
+        availableChannels.includes(ch),
+      ),
+      body: requestedBody,
+      reasoningSummary: "schedule_result pass-through",
     });
   }
 

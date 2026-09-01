@@ -446,6 +446,7 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "activity.complete": "background",
   "watcher.notification": "system",
   "schedule.notify": "scheduling",
+  "schedule.result": "scheduling",
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",

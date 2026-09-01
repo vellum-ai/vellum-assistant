@@ -224,7 +224,15 @@ If any required capability is missing:
 
 ## Delivering Results
 
-Scheduled messages run without user interaction. If the task produces output that the user should see (e.g. a digest, summary, or report), the scheduled message **must** include an explicit instruction to deliver the results. Without this, the output only lives in the conversation log and never reaches the user.
+Scheduled messages run without user interaction, in a conversation nobody has open. If the task produces output the user should see (a digest, summary, report, or a check whose answer is "nothing changed"), the scheduled message **must** end with an explicit instruction to deliver it. Without one, the output lives in a conversation log the user never opens.
+
+Write the delivery step into the `message` when you create the schedule — not as a vague "let me know", but as the actual call, with a real title:
+
+> "…then send the summary with `assistant notifications send --title \"Inbox digest\" --message \"<the summary>\"`."
+
+A schedule whose message has no delivery step is not finished. Before calling `schedule_create` in `execute` mode, read your own message back and check that it says where the output goes.
+
+There is a safety net, and it is not a substitute for the above. When an execute-mode run finishes with user-facing output and emitted no notification of its own, the assistant sends one carrying the run's final reply, so a schedule can no longer run and leave no trace. It fires on the raw reply — whatever the run happened to end on, at whatever length. An authored delivery step gets a title and body you chose, sent at the moment you chose. Rely on the net and you get the machine's guess instead.
 
 Choose the right delivery tool based on the content:
 

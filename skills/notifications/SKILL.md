@@ -11,6 +11,10 @@ metadata:
 
 Call this when something happened that the user would want to know about — a completed task with a notable outcome, an interesting observation, a positive trend you noticed in monitored data, useful research worth surfacing, a workflow that got blocked, a credential or token failure, etc. Do not call it for routine task completions where nothing notable happened. When in doubt and you have a real observation to share, share it.
 
+**Exception — you are running a schedule.** The "was this notable?" test does not apply to a scheduled run. The user picked the cadence; the run happening at all is what they asked to see. A scheduled run that produces any user-facing output — a briefing, a digest, a report, a check whose answer is "nothing changed" — ends by sending that output as a notification. Writing it into the conversation and stopping does not reach the user: nobody is looking at a scheduled run's conversation.
+
+That does not license noise. Judgment moves from _whether_ to notify to _what to say_: a run with a genuinely empty result says so in one line rather than padding it, and a run that only did silent housekeeping (rotating a cache, syncing a file) with nothing to report stays quiet.
+
 ## Sending Notifications
 
 Always pass `--title`. Skipping it triggers a fallback that just truncates `--message` to 60 chars and shows it as the title — the user sees the same text twice with no scannability gained.

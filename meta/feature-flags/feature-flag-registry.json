@@ -350,6 +350,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "schedule-result-notify",
+      "scope": "assistant",
+      "key": "schedule-result-notify",
+      "label": "Schedule Result Notify",
+      "description": "Gates the `schedule.result` fallback notification the assistant sends when an execute-mode schedule run produces user-facing output but never notifies about it itself. On by default; turn it off to return to notify-only-if-the-run-said-so, where a scheduled briefing can run and leave no trace outside its own conversation.",
+      "defaultEnabled": true
+    },
+    {
       "id": "assistant-reply-push",
       "scope": "assistant",
       "key": "assistant-reply-push",
