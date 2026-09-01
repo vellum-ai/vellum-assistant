@@ -67,12 +67,22 @@ let conversationRowPresent = false;
  */
 let deleteDuringSetup = false;
 
+/**
+ * Set to hold an acquire inside its setup work until the test resolves it,
+ * which is what lets a second acquire join the first one's flight and lets a
+ * delete land while both are waiting on it.
+ */
+let holdSetup: Promise<void> | null = null;
+
 mock.module("../prompts/system-prompt.js", () => ({
-  buildSystemPrompt: () => {
+  buildSystemPrompt: async () => {
     // Awaited by the acquire between its first read of the row and the insert,
     // so this is the window a delete has to land in.
     if (deleteDuringSetup) {
       conversationRowPresent = false;
+    }
+    if (holdSetup) {
+      await holdSetup;
     }
     return "system prompt";
   },
@@ -108,8 +118,16 @@ mock.module("../workspace/git-service.js", () => ({
 // The row-creation spies. `getConversation` answers from
 // `conversationRowPresent`, which starts false so the conversation reads as
 // brand-new: the branch that would create a row.
-const mockCreateConversation = mock((_opts?: unknown) => ({ id: "conv-x" }));
-const mockEnsureConversationExists = mock((_id: string) => true);
+// Both write the row, so both leave it readable, which is what lets a test
+// tell an acquire that re-created a conversation from one that did not.
+const mockCreateConversation = mock((_opts?: unknown) => {
+  conversationRowPresent = true;
+  return { id: "conv-x" };
+});
+const mockEnsureConversationExists = mock((_id: string) => {
+  conversationRowPresent = true;
+  return true;
+});
 
 mock.module("../persistence/conversation-crud.js", () => ({
   ADOPTABLE_CONVERSATION_ID_RE: /^[A-Za-z0-9_-]{1,128}$/,
@@ -180,6 +198,7 @@ function resetAcquireState(): void {
   mockEnsureConversationExists.mockClear();
   conversationRowPresent = false;
   deleteDuringSetup = false;
+  holdSetup = null;
 }
 
 describe("getOrCreateConversation ephemeral flag", () => {
@@ -244,6 +263,36 @@ describe("getConversationIfExists", () => {
 
     expect(conversation).not.toBeNull();
     // The row was there all along, so nothing had to write one.
+    expect(mockEnsureConversationExists).not.toHaveBeenCalled();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  test("does not inherit an instance from the acquire it joined", async () => {
+    // Both acquires share one flight, and they do not share a contract. The
+    // creating caller builds its conversation whatever became of the row,
+    // which is its own business; an observer that took the same instance
+    // would be answering someone else's question.
+    resetAcquireState();
+    conversationRowPresent = true;
+    let releaseSetup = () => {};
+    holdSetup = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    // Ephemeral, so the creating acquire never writes the row back and the
+    // delete below stands.
+    const creating = getOrCreateConversation("joined-conversation", {
+      ephemeral: true,
+    });
+    // Reaches the flight the creating acquire registered before its first
+    // await, and waits on it.
+    const observing = getConversationIfExists("joined-conversation");
+
+    conversationRowPresent = false;
+    releaseSetup();
+
+    expect(await creating).not.toBeNull();
+    expect(await observing).toBeNull();
     expect(mockEnsureConversationExists).not.toHaveBeenCalled();
     expect(mockCreateConversation).not.toHaveBeenCalled();
   });

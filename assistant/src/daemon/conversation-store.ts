@@ -244,7 +244,17 @@ async function acquireConversation(
     const pending = conversationCreating.get(conversationId);
     if (pending) {
       const joined = await pending;
-      if (joined || !createIfMissing) {
+      if (!createIfMissing) {
+        // A non-creating acquire answers for the row as it stands when it
+        // answers, never for what an acquire it happened to share flight with
+        // decided to write. The shared flight can belong to a creating caller,
+        // whose own contract is to build the conversation whatever became of
+        // the row, so inheriting its instance would hand back a conversation
+        // that no longer exists. A row that reads present here was written
+        // under that caller's contract, which is not this one's to overrule.
+        return joined && getConversation(conversationId) ? joined : null;
+      }
+      if (joined) {
         return joined;
       }
       // The acquisition already in flight declined to create. A caller that
