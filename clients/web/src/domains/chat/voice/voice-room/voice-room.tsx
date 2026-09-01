@@ -594,21 +594,22 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // lands, and the daemon persists it as its own message, so the call can be
   // asked about what the camera is pointed at without anyone pressing
   // anything further. Inert unless the flag and the session's assistant both
-  // allow it, and it acquires no camera of its own, so the native shells
-  // (where this `<video>` never mounts) simply sample nothing.
+  // allow it, and it acquires no camera of its own: the native shells put their
+  // preview behind the web view and mount no `<video>` for it to read, so it is
+  // handed which preview is up and withdraws Live there rather than sampling
+  // nothing.
   const { heldFrame, liveAvailable, live, setLive } = useVoiceRoomSight(
     assistantId,
     viewfinderRef,
-    { cameraOpen, facing: camera.facing },
+    { cameraOpen, facing: camera.facing, nativePreview: camera.native },
   );
   // One value for what the camera is doing, read by the pill, the shutter, the
   // hint and the announcement alike, so no two of them can disagree about it.
   const cameraMode = live ? "live" : "photo";
-  // Whether the hold is on offer right now. The native shells put their preview
-  // behind the web view and never mount the `<video>` sight samples, so without
-  // the shell check a hold there would raise a pill claiming Live over a camera
-  // nothing is reading.
-  const liveOffered = cameraOpen && liveAvailable && !camera.native;
+  // Whether the hold is on offer right now. Availability carries the preview
+  // the room is on, so the offer and the mode answer to one value: a shutter
+  // that takes the hold is a shutter whose Live has somewhere to read from.
+  const liveOffered = cameraOpen && liveAvailable;
   // The shutter's two acts, which are two different sentences rather than one
   // with the mode pushed into it.
   const shutterLabel = live

@@ -123,10 +123,11 @@ export interface VoiceRoomSight {
   readonly heldFrame: VoiceRoomSightFrame | null;
   /**
    * Whether Live can be entered at all: the flag, an assistant, that
-   * assistant understanding the frame, and a session that has not latched the
-   * frame as unsupported. The room reads it to decide whether to offer the
-   * hold and the hint, so an unavailable Live is a shutter that only takes
-   * photos rather than one that takes a hold and does nothing with it.
+   * assistant understanding the frame, a session that has not latched the
+   * frame as unsupported, and a viewfinder this can read. The room reads it to
+   * decide whether to offer the hold and the hint, so an unavailable Live is a
+   * shutter that only takes photos rather than one that takes a hold and does
+   * nothing with it.
    */
   readonly liveAvailable: boolean;
   /** Whether the viewfinder is streaming. Only then is anything sampled. */
@@ -145,13 +146,22 @@ export interface VoiceRoomSightOptions {
   readonly cameraOpen: boolean;
   /** Which way the camera points, so a flip can invalidate the gate. */
   readonly facing: VoiceCameraFacing;
+  /**
+   * Whether the viewfinder on screen is the native shells' preview layer.
+   *
+   * It sits behind the web view and mounts no `<video>`, so there is nothing
+   * here to sample. Which preview is up is decided per acquire and can change
+   * mid-viewfinder: a shell whose native start failed runs the browser
+   * fallback, and a later flip retries the native one.
+   */
+  readonly nativePreview: boolean;
 }
 
 export function useVoiceRoomSight(
   assistantId: string | null,
   /** The room's own ref for the viewfinder `<video>`. */
   videoRef: React.RefObject<HTMLVideoElement | null>,
-  { cameraOpen, facing }: VoiceRoomSightOptions,
+  { cameraOpen, facing, nativePreview }: VoiceRoomSightOptions,
 ): VoiceRoomSight {
   const visionMode = useVisionModeVariant();
   const supportsFrames = useSupportsSightStream(assistantId);
@@ -199,19 +209,23 @@ export function useVoiceRoomSight(
    */
   const captureEpochRef = useRef(0);
 
-  // All four, so the feature is absent rather than half-present: a flag off is
+  // All five, so the feature is absent rather than half-present: a flag off is
   // not shipped, an assistant that predates `sight_frame` answers every keep
   // with the error code the transport reads as a settings rejection, without an
-  // assistant there is nothing to upload against, and a session that has
-  // latched the frame as unsupported drops every keep at the capture guard
-  // below. The latch belongs in the offer and not only in the state: taking
-  // Live down while leaving the hold on the shutter is a gesture that raises a
-  // pill saying Live over a camera whose frames all end in the same drop.
+  // assistant there is nothing to upload against, a session that has latched
+  // the frame as unsupported drops every keep at the capture guard below, and
+  // the native preview leaves the sampler no `<video>` to read. Each belongs in
+  // the offer and not only in the state: taking Live down while leaving the
+  // hold on the shutter is a gesture that raises a pill saying Live over a
+  // camera nothing is reading. Availability is also what the mode is held to,
+  // by the effect below, so a term going false mid-viewfinder ends a Live that
+  // is already running rather than stranding it.
   const liveAvailable =
     isVisionModeOn(visionMode) &&
     supportsFrames &&
     !!assistantId &&
-    !sightFramesUnsupported;
+    !sightFramesUnsupported &&
+    !nativePreview;
   // The camera on screen is the consent, and Live is the ask. Nothing samples
   // without both.
   const active = cameraOpen && liveAvailable && live;
@@ -232,9 +246,10 @@ export function useVoiceRoomSight(
   );
 
   // Live never outlives what makes it honest. The viewfinder closing takes the
-  // consent away, and availability going (a flag, an assistant, or the latch)
-  // takes the destination away, so in either case the mode goes back to photo
-  // rather than staying raised over a camera that is sampling nothing.
+  // consent away, and availability going (a flag, an assistant, the latch, or
+  // the preview swapping to the native layer) takes the destination away, so in
+  // either case the mode goes back to photo rather than staying raised over a
+  // camera that is sampling nothing.
   useEffect(() => {
     if (cameraOpen && liveAvailable) {
       return;

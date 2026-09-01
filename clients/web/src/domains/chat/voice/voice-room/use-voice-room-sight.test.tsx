@@ -28,6 +28,8 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
 import type { FrameSamplerOptions } from "@/lib/camera/frame-sampler";
 
+import type { VoiceRoomSight } from "./use-voice-room-sight";
+
 let samplerOptions: FrameSamplerOptions | null = null;
 const samplerStart = mock((_video: HTMLVideoElement) => {});
 const samplerStop = mock(() => {});
@@ -114,6 +116,19 @@ async function flush(): Promise<void> {
 }
 
 /**
+ * What a case can change between renders.
+ *
+ * `nativePreview` is optional, and left out by every case that is not about
+ * which preview is up: the room's own `<video>` is what they sample, which is
+ * what leaving it out means.
+ */
+interface SightProps {
+  cameraOpen: boolean;
+  facing: "environment" | "user";
+  nativePreview?: boolean;
+}
+
+/**
  * Mount the hook, in Live unless a case says otherwise.
  *
  * Live is the only mode that samples, so it is the premise of every case about
@@ -131,27 +146,23 @@ function renderSight(
     assistantId?: string | null;
     facing?: "environment" | "user";
     live?: boolean;
+    nativePreview?: boolean;
   } = {},
 ) {
   const video = document.createElement("video");
   const videoRef = { current: video };
-  const view = renderHook(
-    ({
-      cameraOpen,
-      facing,
-    }: {
-      cameraOpen: boolean;
-      facing: "environment" | "user";
-    }) =>
+  const view = renderHook<VoiceRoomSight, SightProps>(
+    ({ cameraOpen, facing, nativePreview }) =>
       useVoiceRoomSight(
         options.assistantId === undefined ? ASSISTANT_ID : options.assistantId,
         videoRef,
-        { cameraOpen, facing },
+        { cameraOpen, facing, nativePreview: nativePreview ?? false },
       ),
     {
       initialProps: {
         cameraOpen: options.cameraOpen ?? true,
         facing: options.facing ?? ("environment" as const),
+        nativePreview: options.nativePreview ?? false,
       },
     },
   );
@@ -338,6 +349,57 @@ describe("useVoiceRoomSight: when it samples", () => {
       view.result.current.setLive(true);
     });
     expect(view.result.current.live).toBe(false);
+  });
+
+  test("offers no Live behind the native preview", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    // The native shells put their preview behind the web view, so the `<video>`
+    // this reads is not on screen and never receives the stream.
+    expect(view.result.current.liveAvailable).toBe(false);
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStart).not.toHaveBeenCalled();
+  });
+
+  test("a preview that turns native mid-viewfinder ends the Live it was in", () => {
+    const { view } = renderSight({ live: true });
+    expect(view.result.current.live).toBe(true);
+    expect(samplerStart).toHaveBeenCalledTimes(1);
+
+    // A shell whose native start failed runs the browser fallback, where Live
+    // is on offer. A later flip retries the native start, and the retry
+    // succeeding swaps the preview under a mode that is already running.
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: true,
+      });
+    });
+
+    // Mode and offer together. Left raised, the pill and the shutter would go
+    // on claiming Live over a preview the sampler cannot reach.
+    expect(view.result.current.liveAvailable).toBe(false);
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStop).toHaveBeenCalled();
+  });
+
+  test("a flip that stays on the room's own preview leaves Live running", () => {
+    const { view } = renderSight({ live: true });
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: false,
+      });
+    });
+
+    // The ordinary flip, which is a camera change and not a preview change: the
+    // gate is rebased for the new view (covered below) and the mode stands.
+    expect(view.result.current.liveAvailable).toBe(true);
+    expect(view.result.current.live).toBe(true);
+    expect(samplerStop).not.toHaveBeenCalled();
   });
 
   test("backgrounding ends Live, and coming back does not resume it", async () => {
@@ -895,6 +957,7 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
         return useVoiceRoomSight(ASSISTANT_ID, videoRef, {
           cameraOpen: true,
           facing: "environment",
+          nativePreview: false,
         });
       },
     );
