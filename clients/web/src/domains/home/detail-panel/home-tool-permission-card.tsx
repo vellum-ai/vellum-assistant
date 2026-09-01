@@ -1,6 +1,9 @@
 import { useTranslation } from "@/i18n";
+import { formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem } from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
+
+import { SUMMARY_BLOCK_CLASS } from "./detail-panel-styles";
 
 type CredentialStatus =
   | "revoked"
@@ -98,20 +101,26 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
     ? (metadata.missingScopes as string[])
     : [];
 
+  // The panel header already names the notification, so the credential is
+  // identified on the meta line rather than in a heading of its own. A second
+  // title under the first reads as two headers for one thing, which is why the
+  // guardian card renders none either.
+  const metaLine = [
+    providerLabel,
+    accountInfo,
+    formatRelativeDate(item.timestamp),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
-      <Typography variant="title-small" as="h3">
-        {providerLabel}
+      <Typography
+        variant="body-small-default"
+        className="text-[var(--content-tertiary)]"
+      >
+        {metaLine}
       </Typography>
-
-      {accountInfo ? (
-        <Typography
-          variant="body-medium-lighter"
-          className="text-[var(--content-secondary)]"
-        >
-          {accountInfo}
-        </Typography>
-      ) : null}
 
       {/*
         The raw health status is what an OAuth connection's fix turns on:
@@ -143,8 +152,8 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
 
       {details ? (
         <Typography
-          variant="body-medium-lighter"
-          className="text-[var(--content-secondary)]"
+          variant="body-medium-default"
+          className={SUMMARY_BLOCK_CLASS}
         >
           {details}
         </Typography>

@@ -14,6 +14,8 @@ import { Trans, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { formatRelativeDate } from "@/utils/format-date";
+
+import { SUMMARY_BLOCK_CLASS } from "./detail-panel-styles";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import {
   type FeedItem,
@@ -23,12 +25,6 @@ import {
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
-
-/** The ask, set in a recessed block so it reads as the quoted request. */
-const SUMMARY_BLOCK_CLASS = [
-  "rounded-[var(--radius-md)] bg-[var(--surface-sunken)]",
-  "p-[var(--app-spacing-md)] leading-normal text-[var(--content-secondary)]",
-].join(" ");
 
 /**
  * The tool's identifier, set as the code it is. One token per role rather

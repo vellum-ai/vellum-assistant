@@ -12,10 +12,10 @@ import {
 } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 
-import { FeedItemRemediation } from "../detail-panel/feed-item-remediation";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
+import { useFeedRemediation } from "../detail-panel/use-feed-remediation";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
@@ -113,6 +113,7 @@ export function NotificationsBellDetail({
   // While the request waits its title is the callout, as a pill. A settled
   // request needs nothing of anyone, so the same name reads as plain text.
   const isTitleAwaitingAction = feedItemAwaitsUserAction(item);
+  const remediation = useFeedRemediation(item);
 
   // The lists start loading when this view opens, so validation has a pending
   // state a warm-cache surface would not have. Every
@@ -211,13 +212,28 @@ export function NotificationsBellDetail({
         )}
 
         {/*
-          The repair the item carries, if any. Rendered here rather than
-          inside a card so every panel kind can offer one: whether a condition
-          is fixable is independent of which card describes it.
+          What became of the repair. The button itself sits in the footer with
+          the panel's other primary controls; only its outcome belongs up here
+          with the content it is about.
         */}
-        <div className="mt-[var(--app-spacing-md)]">
-          <FeedItemRemediation item={item} />
-        </div>
+        {remediation?.isDone ? (
+          <Typography
+            variant="body-medium-default"
+            className="mt-[var(--app-spacing-md)] text-[var(--content-secondary)]"
+            data-testid="feed-remediation-done"
+          >
+            {t("feedRemediation.done")}
+          </Typography>
+        ) : null}
+        {remediation?.error ? (
+          <Typography
+            variant="body-small-default"
+            className="mt-[var(--app-spacing-md)] text-[var(--system-negative-strong)]"
+            data-testid="feed-remediation-error"
+          >
+            {t("feedRemediation.failed", { reason: remediation.error })}
+          </Typography>
+        ) : null}
 
         {/*
           The assistant's own offers on this notification, so they sit with the
@@ -285,6 +301,22 @@ export function NotificationsBellDetail({
               {t(link.labelKey)}
             </Button>
           ))}
+          {/*
+            The repair leads the action group: it is the one control that
+            changes anything, and every other control here navigates. Retired
+            once it succeeds, so a fixed thing offers no button to press again.
+          */}
+          {remediation && !remediation.isDone ? (
+            <Button
+              variant="primary"
+              disabled={remediation.isRunning}
+              onClick={remediation.run}
+            >
+              {remediation.isRunning
+                ? t("feedRemediation.running")
+                : remediation.label}
+            </Button>
+          ) : null}
           {linkedConversationId ? (
             <Button
               variant="primary"
