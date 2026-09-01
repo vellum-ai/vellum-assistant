@@ -452,7 +452,7 @@ describe("AppIconPreview", () => {
         components={BUNDLED_COMPONENTS}
         eyeStyle={WIDE_EYE_STYLE}
         color="green"
-        fieldColorHex="#123456"
+        fieldColor="#123456"
         size={SIZE}
       />,
     );

@@ -25,6 +25,14 @@ import type { AvatarState } from "@/types/avatar";
 const TRAITS = { bodyShape: "blob", eyeStyle: "goofy", color: "teal" };
 const AVATAR_ICON = "avatar-eyes-goofy-teal";
 
+/**
+ * The fills the Dev and Staging Icon Composer bundles declare, verbatim.
+ * Literals rather than a read off the row, so a coordinate drifting from
+ * `clients/ios/App/App/AppIcon-Dev.icon` or `AppIcon-Staging.icon` fails here.
+ */
+const DEV_GROUND_P3 = "color(display-p3 1 0.53333 0.78824)";
+const STAGING_GROUND_P3 = "color(display-p3 0.91373 0.78824 0.10196)";
+
 const CHARACTER: AvatarState = {
   kind: "character",
   traits: TRAITS,
@@ -200,6 +208,26 @@ function previewEyeWidth(): number {
 const buildEnv = import.meta.env as Record<string, string | undefined>;
 let previousBuildEnv: string | undefined;
 
+/**
+ * happy-dom answers every `CSS.supports` with true and hands back a fresh `CSS`
+ * on each read of the global, so a renderer with no `color(display-p3 ...)` is
+ * stood in for by swapping the whole global out.
+ */
+const cssDescriptor = Object.getOwnPropertyDescriptor(globalThis, "CSS");
+
+function dropDisplayP3Support() {
+  Object.defineProperty(globalThis, "CSS", {
+    configurable: true,
+    value: { supports: () => false },
+  });
+}
+
+function restoreDisplayP3Support() {
+  if (cssDescriptor) {
+    Object.defineProperty(globalThis, "CSS", cssDescriptor);
+  }
+}
+
 function catalogPaths(eyeStyleId: string): (string | null)[] {
   const eyeStyle = BUNDLED_COMPONENTS.eyeStyles.find(
     (entry) => entry.id === eyeStyleId,
@@ -232,6 +260,7 @@ beforeEach(() => {
 
 afterEach(() => {
   buildEnv.VITE_SENTRY_ENVIRONMENT = previousBuildEnv;
+  restoreDisplayP3Support();
   cleanup();
   getAppIconState.mockClear();
   setAppIcon.mockClear();
@@ -303,7 +332,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+        expect(previewFill()).toBe(DEV_GROUND_P3);
       });
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
@@ -314,7 +343,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+        expect(previewFill()).toBe(STAGING_GROUND_P3);
       });
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
@@ -325,7 +354,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+        expect(previewFill()).toBe(DEV_GROUND_P3);
       });
     });
 
@@ -347,7 +376,7 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
-        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+        expect(previewFill()).toBe(STAGING_GROUND_P3);
       });
     });
 
@@ -358,7 +387,33 @@ describe("AppIconRow", () => {
       await renderRow();
 
       await waitFor(() => {
+        expect(previewFill()).toBe(DEV_GROUND_P3);
+      });
+    });
+
+    // The two bundles hold sRGB channels in a display-p3 fill, so the readings
+    // are visibly different colors rather than rounding of each other. sRGB is
+    // the closest a renderer that cannot parse `color()` can get.
+    test("paints the sRGB ground where color() will not parse", async () => {
+      dropDisplayP3Support();
+      shellAppId = "ai.vocify-inc.vellum-assistant-ios.dev";
+
+      await renderRow();
+
+      await waitFor(() => {
         expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+      });
+    });
+
+    test("paints the sRGB ground off a build environment too", async () => {
+      dropDisplayP3Support();
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "staging";
+      shellAppId = "com.example.some-other-shell";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
       });
     });
 
