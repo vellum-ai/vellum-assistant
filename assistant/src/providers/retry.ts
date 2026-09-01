@@ -813,23 +813,28 @@ function normalizeSendMessageOptions(
     }
   }
 
-  if (
-    isThinkingConfigDisabled(nextConfig.thinking) &&
-    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
-  ) {
-    nextConfig.effort = "none";
-  }
-
-  // Claude Fable always reasons with adaptive thinking and rejects an explicit
-  // `thinking: { type: "disabled" }` (Anthropic 400s the request). Drop a
-  // disabled thinking config for these models so they fall back to their
-  // always-on adaptive thinking; effort and other params are unaffected.
+  // Adaptive-thinking-only models (Claude Fable, Fireworks Kimi K3 / GLM 5.3)
+  // always reason and reject an explicit opt-out: Anthropic 400s
+  // `thinking: { type: "disabled" }`, and effort-encoding providers 4xx a
+  // generated `reasoning_effort: "none"`. Drop a disabled thinking config for
+  // these models BEFORE the opt-out is encoded as `effort: "none"` below, so
+  // they fall back to their always-on thinking with the user's chosen effort
+  // and other params unaffected. Profiles can retain a stale
+  // `thinking: { enabled: false }` after switching to such a model, so this
+  // state is reachable from the profile editor.
   if (
     typeof nextConfig.model === "string" &&
     isAdaptiveThinkingOnlyModel(nextConfig.model) &&
     isThinkingConfigDisabled(nextConfig.thinking)
   ) {
     delete nextConfig.thinking;
+  }
+
+  if (
+    isThinkingConfigDisabled(nextConfig.thinking) &&
+    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
+  ) {
+    nextConfig.effort = "none";
   }
 
   // Pre-adaptive Claude models (Haiku 4.5, Opus 4.5, Sonnet 4.5) reject

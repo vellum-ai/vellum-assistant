@@ -346,7 +346,7 @@ export function recordRequestLog(
     // plumb call sites through one site at a time.
     callSite: callSite ?? null,
     // JSON first-token latency waterfall, supplied by `handleUsage` for
-    // main-agent calls. NULL for failed/non-instrumented call paths.
+    // instrumented calls. NULL for failed/non-instrumented call paths.
     latencyBreakdown: latencyBreakdown ?? null,
   });
   return id;

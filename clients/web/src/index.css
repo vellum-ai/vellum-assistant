@@ -530,6 +530,28 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* The kept-frame thumbnail's one-shot ring, played when a newer frame replaces
+ * the one the room was holding for the next turn. Two frames of the same scene
+ * look identical at 44px, so without a beat of movement a refresh is invisible
+ * and the thumbnail reads as stuck. Same literal-then-color-mix pattern as the
+ * shutter pulse above, for the same engines. */
+@keyframes sight-frame-kept {
+  0% {
+    box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--camera-accent) 75%, transparent);
+  }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.sight-frame-kept {
+  animation: sight-frame-kept 600ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sight-frame-kept { animation: none; }
+}
+
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */

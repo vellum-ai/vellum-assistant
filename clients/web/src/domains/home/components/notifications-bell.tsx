@@ -23,7 +23,7 @@ import {
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { HomeRecapRow } from "../home-recap-row";
+import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
@@ -37,14 +37,8 @@ import {
   NOTIFICATIONS_PANEL_HEADER_CLASS,
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
-
-/**
- * Router state read by `HomePageRoute`: arriving at the Activity page with a
- * `feedItemId` opens that item's detail drawer.
- */
-export interface ActivityLocationState {
-  feedItemId?: string;
-}
+import { NotificationsBellEmptyState } from "./notifications-bell-empty-state";
+import { NotificationsBellList } from "./notifications-bell-list";
 
 // The height budget the panel's content region is drawn against: five compact
 // cards plus the four 8px gaps between them. A compact card is 73px tall: 2px
@@ -53,7 +47,7 @@ export interface ActivityLocationState {
 // 5 * 73 + 4 * 8 = 397. The list takes it as a cap, so a short feed draws a
 // short panel and older notifications stay reachable by scrolling. The detail
 // takes it as a fixed height, so every notification renders in the same frame.
-const PANEL_CONTENT_HEIGHT = "397px";
+export const PANEL_CONTENT_HEIGHT = "397px";
 
 // Ceiling on that budget, so a viewport too short to seat it shrinks the
 // content region instead of running the popover off the bottom edge. The
@@ -128,14 +122,28 @@ export function NotificationsBell() {
     : null;
   const isDetailOpen = selectedItem !== null;
 
+  // The empty state's recipe card advertises schedules, so it is offered only
+  // to people who have none. Gated on the scene being on screen: the bell
+  // renders in the top bar on every route, and a panel that is closed, showing
+  // a detail, holding notifications, or reporting a failed load never draws
+  // the card, so none of them may pay for the schedules list. Open on an empty
+  // feed, the read lands on the same cache entry the Schedules page and the
+  // entity-link resolver fill, so it is at most one request between them.
+  const isEmptyStateVisible =
+    isOpen && !isDetailOpen && !feedQuery.isError && visibleItems.length === 0;
+  const showBriefingRecipe = useShouldOfferBriefingRecipe(
+    assistantId,
+    isEmptyStateVisible,
+  );
+
   // A notification can point at a conversation that has since been deleted, so
-  // the detail's "Go to Conversation" link is checked against the same three
-  // lists the Activity page merges. They load only while a detail is open: the
-  // bell renders in the top bar on every route, and the list view has no use
-  // for the ids. Disabled, these stay subscribed to the caches without
-  // fetching, so the foreground list the chat layout already loaded is read
-  // for free and opening a detail costs the background and scheduled lists at
-  // most.
+  // the detail's "Go to Conversation" link is checked against the foreground,
+  // background, and scheduled lists merged. They load only while a detail is
+  // open: the bell renders in the top bar on every route, and the list view
+  // has no use for the ids. Disabled, these stay subscribed to the caches
+  // without fetching, so the foreground list the chat layout already loaded is
+  // read for free and opening a detail costs the background and scheduled
+  // lists at most.
   const {
     conversations: foregroundConversations,
     isPending: isForegroundPending,
@@ -324,38 +332,35 @@ export function NotificationsBell() {
 
   const list =
     visibleItems.length === 0 ? (
-      <Typography
-        variant="body-medium-lighter"
-        className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
-      >
-        {feedQuery.isError
-          ? t("notificationsBell.loadFailed")
-          : t("notificationsBell.empty")}
-      </Typography>
+      feedQuery.isError ? (
+        <Typography
+          variant="body-medium-lighter"
+          className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
+        >
+          {t("notificationsBell.loadFailed")}
+        </Typography>
+      ) : (
+        <NotificationsBellEmptyState
+          onLaunchRecipe={closePanel}
+          showBriefingRecipe={showBriefingRecipe}
+        />
+      )
     ) : (
-      <div
-        ref={restoreListScroll}
+      <NotificationsBellList
+        items={visibleItems}
+        maxHeight={listMaxHeight}
+        scrollRef={restoreListScroll}
         onScroll={(event) => {
           listScrollTopRef.current = event.currentTarget.scrollTop;
         }}
-        style={{ maxHeight: listMaxHeight }}
-        className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
-      >
-        {visibleItems.map((item) => (
-          <HomeRecapRow
-            key={item.id}
-            item={item}
-            density="compact"
-            onSelect={handleSelectItem}
-            onDismiss={(itemId) =>
-              feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
-            }
-            onToggleRead={(itemId, status) =>
-              feedQuery.updateStatus.mutate({ itemId, status })
-            }
-          />
-        ))}
-      </div>
+        onSelect={handleSelectItem}
+        onDismiss={(itemId) =>
+          feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
+        }
+        onToggleRead={(itemId, status) =>
+          feedQuery.updateStatus.mutate({ itemId, status })
+        }
+      />
     );
 
   // Keyed so the swap remounts the incoming view and replays its entrance.

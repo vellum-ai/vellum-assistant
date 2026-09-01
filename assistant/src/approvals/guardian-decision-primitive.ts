@@ -155,6 +155,13 @@ export interface ApplyGuardianDecisionParams {
   action: ApprovalAction;
   /** Actor context for the entity making the decision. */
   actorContext: ActorContext;
+  /**
+   * Conversation an in-app (vellum) decision was made from, when known.
+   * Threaded to card withdrawal so only the acting conversation's completion
+   * broadcast is suppressed; the request's sibling in-app projections still
+   * receive theirs.
+   */
+  originConversationId?: string;
   /** Optional user-supplied text (e.g. answer text for pending questions). */
   userText?: string;
   /** Optional channel delivery context — present when the decision arrived via a channel message. */
@@ -227,6 +234,7 @@ export async function applyGuardianDecision(
     requestId,
     action,
     actorContext,
+    originConversationId,
     userText,
     channelDeliveryContext,
     emissionContext,
@@ -531,6 +539,7 @@ export async function applyGuardianDecision(
     request: resolved,
     status: targetStatus,
     originChannel: actorContext.channel,
+    ...(originConversationId ? { originConversationId } : {}),
     decidedAction: cardAction,
     // Tells the Telegram projection whether the origin chat is about to get
     // the resolver's own guardian-facing reply (delivered by our caller), so

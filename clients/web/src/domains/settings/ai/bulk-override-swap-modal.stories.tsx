@@ -52,8 +52,8 @@ const CALL_SITES = [
 
 const PROFILES = [
   { name: "balanced", label: "Balanced", status: "active" as const },
-  { name: "cost-optimized", label: "Cost", status: "active" as const },
-  { name: "speed-tier", label: "Speed", status: "active" as const },
+  { name: "cost-optimized", label: "Budget", status: "active" as const },
+  { name: "speed-tier", label: "Fast", status: "active" as const },
   { name: "quality-optimized", label: "Quality", status: "active" as const },
 ];
 

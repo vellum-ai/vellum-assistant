@@ -443,6 +443,15 @@ const minimizeButton = () =>
 /** The row's mic, named for the act it offers, so this is the LIVE one. */
 const micButton = () =>
   screen.queryByRole("button", { name: "Mute microphone" });
+/** The row's camera: opens and closes the viewfinder. */
+const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
+
+/** An assistant new enough to accept `attach_image`. */
+function seedCameraCapableAssistant() {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
+}
 
 describe("VoiceRoom — visibility", () => {
   test("renders nothing when no session is active", () => {
@@ -567,6 +576,14 @@ describe("VoiceRoom: mobile sheet", () => {
     return () => header.remove();
   }
 
+  /** Stand in for `root-layout.tsx`'s portal container. */
+  function mountOverlayHost() {
+    const host = document.createElement("div");
+    host.id = "viewport-overlays";
+    document.body.appendChild(host);
+    return { host, remove: () => host.remove() };
+  }
+
   /** The room's own box, held by the sheet's content wrapper as its child. */
   function roomBox(): HTMLElement {
     const inner = document.querySelector(
@@ -666,6 +683,89 @@ describe("VoiceRoom: mobile sheet", () => {
     expect(screen.queryByTestId("voice-room-grabber")).toBeNull();
   });
 
+  test("with the viewfinder open the sheet reaches the top edge", async () => {
+    // The camera fills the screen, so the sheet framing it leaves the header's
+    // line: parked there, its corners, its grabber and the chrome line under
+    // them float a third of the way down over a feed that already covers the
+    // rest. Closing the camera puts the sheet back below the header.
+    const overlays = mountOverlayHost();
+    // Another mobile overlay parked in the shared host, beside the sheet.
+    const parkedOverlay = document.createElement("div");
+    overlays.host.append(parkedOverlay);
+    const removeHeader = mountHeader({ top: 47, height: 96 });
+    const header = document.querySelector('[data-slot="chat-layout-header"]')!;
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    try {
+      render(<VoiceRoom variant="sheet" />);
+
+      const sheet = screen.getByRole("dialog", { name: "Voice session" });
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+      expect(overlays.host.contains(sheet)).toBe(true);
+      // Resting below it, the sheet leaves the header usable, which is what
+      // being non-modal buys.
+      expect(header.hasAttribute("inert")).toBe(false);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(false);
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
+      expect(sheet.className).toContain("rounded-t-none");
+      expect(roomBox().className).toContain("rounded-t-none");
+      // Covered by the feed, so out of the tab order and out of VoiceOver's
+      // way rather than lit and reachable behind it. The sheet itself stays
+      // reachable, which is the whole point.
+      expect(header.hasAttribute("inert")).toBe(true);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(true);
+      expect(sheet.closest("[inert]")).toBeNull();
+      // A takeover now: above the tier the host's other overlays share, so
+      // one mounting mid-camera cannot paint over the viewfinder, and still
+      // under the palette.
+      expect(sheet.className).toContain("z-40");
+      expect(sheet.className).not.toContain("z-30");
+      expect(sheet.className).not.toContain("z-50");
+
+      // The pull-down survives the mode switch, and the band it shares with the
+      // camera pill clears the notch the sheet now reaches.
+      const grabber = screen.getByTestId("voice-room-grabber");
+      expect(grabber.className).toContain("top-[var(--room-grabber-top)]");
+      expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
+        "top-[var(--room-chrome-top)]",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-grabber-top: calc(0.5rem + var(--safe-area-inset-top",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-chrome-top: calc(1.25rem + var(--safe-area-inset-top",
+      );
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+      expect(sheet.className).not.toContain("rounded-t-none");
+      expect(sheet.className).toContain("z-30");
+      expect(sheet.className).not.toContain("z-40");
+      expect(header.hasAttribute("inert")).toBe(false);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(false);
+      // Back below the header, where nothing above the sheet is the notch.
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-grabber-top: 0.5rem",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-chrome-top: 1.25rem",
+      );
+    } finally {
+      restoreMediaDevices();
+      removeHeader();
+      overlays.remove();
+    }
+  });
+
   test("with no header present the sheet rests at the top edge", () => {
     // Pop-outs render no header. They never show the room, but a zero offset
     // is the right answer for a surface with nothing above it either way.
@@ -746,14 +846,6 @@ describe("VoiceRoom: mobile sheet", () => {
   // navigation drawer opened invisibly behind the room and search opened behind
   // it. The room belongs inside the shell, under both.
   describe("stacking against the surfaces the header opens", () => {
-    /** Stand in for `root-layout.tsx`'s portal container. */
-    function mountOverlayHost() {
-      const host = document.createElement("div");
-      host.id = "viewport-overlays";
-      document.body.appendChild(host);
-      return { host, remove: () => host.remove() };
-    }
-
     test("portals into the app shell's overlay host, not the body", () => {
       const overlays = mountOverlayHost();
       const removeHeader = mountHeader();
@@ -1542,14 +1634,6 @@ describe("VoiceRoom: camera", () => {
     };
   }
 
-  /** An assistant new enough to accept `attach_image`. */
-  function seedCameraCapableAssistant() {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
-  }
-
-  const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
   const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
 
   afterEach(() => {

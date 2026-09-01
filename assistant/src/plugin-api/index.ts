@@ -223,6 +223,18 @@ export { getConfiguredProvider } from "../providers/provider-send-message.js";
 // an image, embedding it, re-encoding it — use this instead of reaching into
 // the host attachment store, so they stay agnostic to how media is persisted.
 export { resolveMediaSourceData } from "../providers/media-resolve.js";
+// Build the `_attachmentId` property of a media block as a spreadable fragment,
+// omitting it when there is no usable id. A plugin that rebuilds a media block
+// (resizing an image, re-encoding a file) uses this to carry the block's link
+// to its attachment row across the rebuild, so host consumers that correlate a
+// block back to its attachment still can.
+export { attachmentIdFragment } from "../providers/types.js";
+// Read the attachment row a media block came from, whichever shape it is in: a
+// reference names it on `source.attachmentId`, an inline block on
+// `_attachmentId`. A plugin that rebuilds a block into inline bytes derives the
+// id through this before stamping it, since the reference shape's id would
+// otherwise be lost with the source it replaced.
+export { mediaBlockAttachmentId } from "../providers/types.js";
 // Classify a provider stop reason: whether the turn was truncated at the
 // output token cap (vs. a natural stop or a tool call). A `post-model-call`
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to

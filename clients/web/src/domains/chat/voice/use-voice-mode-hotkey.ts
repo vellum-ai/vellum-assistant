@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
 import { isTextEntryElement } from "@/domains/chat/composer-focus";
@@ -10,6 +10,7 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
+import { useNativeChordRegistration } from "@/domains/chat/voice/use-native-chord-registration";
 import { useNativeFnRegistration } from "@/domains/chat/voice/use-native-fn-registration";
 import {
   LS_VOICE_MODE_ACTIVATION_KEY,
@@ -20,6 +21,7 @@ import {
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
 import { type PTTModifier } from "@/utils/ptt-activator";
+import type { VoiceModeChord } from "@vellumai/ipc-contract";
 import {
   type HotkeyEvent,
   subscribeToHotkeyEvents,
@@ -93,6 +95,34 @@ export function useVoiceModeHotkey({
     shouldRegisterFn,
     LS_VOICE_MODE_ACTIVATION_KEY,
     setFnRegistered,
+  );
+
+  // The Windows analog of the Fn registration above. A bare-modifier binding
+  // can only be watched system-wide by the helper's keyboard hook (an Electron
+  // `globalShortcut` cannot express one), so it is registered there whenever
+  // the setting names one. While the host confirms native capture is live,
+  // the DOM tap listener below stays quiet so a focused tap never fires twice.
+  const nativeChordRegisteredRef = useRef(false);
+  const setNativeChordRegistered = useCallback((registered: boolean) => {
+    nativeChordRegisteredRef.current = registered;
+  }, []);
+  const desiredNativeChord = useCallback((): VoiceModeChord | null => {
+    if (!enabled || !supportsBareModifierVoiceMode()) {
+      return null;
+    }
+    const activator = readVoiceModeActivator(supportsFnPushToTalk());
+    if (
+      activator.kind !== "modifierOnly" ||
+      isFnVoiceModeActivator(activator)
+    ) {
+      return null;
+    }
+    return { kind: "modifierOnly", modifiers: activator.modifiers };
+  }, [enabled]);
+  useNativeChordRegistration(
+    desiredNativeChord,
+    LS_VOICE_MODE_ACTIVATION_KEY,
+    setNativeChordRegistered,
   );
 
   const toggleVoiceMode = useCallback(() => {
@@ -198,6 +228,12 @@ export function useVoiceModeHotkey({
       }
       bareTapArmed = false;
       event.preventDefault();
+      // While the helper's global hook holds this chord, the completed tap
+      // arrives over the hotkey bridge below; toggling here too would fire
+      // the same press twice whenever the app happens to be focused.
+      if (nativeChordRegisteredRef.current) {
+        return;
+      }
       toggleVoiceMode();
     };
 
@@ -210,7 +246,17 @@ export function useVoiceModeHotkey({
     const onNativeHotkey = (event: HotkeyEvent) => {
       // The release edge ends a push-to-talk hold. For a toggle it means
       // nothing: the user has already lifted the key that started the session.
-      if (event.state !== "down" || !isFnVoiceModeActivator(activator)) {
+      if (event.state !== "down") {
+        return;
+      }
+      // Fn taps come from the macOS helper; a completed bare-modifier chord
+      // tap comes from the Windows helper's keyboard hook. Either way the
+      // event only counts while the setting still names that binding.
+      const matchesBinding =
+        event.kind === "fnPushToTalk"
+          ? isFnVoiceModeActivator(activator)
+          : isBareModifierActivator(activator);
+      if (!matchesBinding) {
         return;
       }
       toggleVoiceMode();

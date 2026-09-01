@@ -6574,6 +6574,16 @@ components:
         payment_method_last4:
           type: string
           nullable: true
+        payment_method_exp_month:
+          type: integer
+          nullable: true
+        payment_method_exp_year:
+          type: integer
+          nullable: true
+        billing_address:
+          allOf:
+          - $ref: '#/components/schemas/BillingAddress'
+          nullable: true
         stripe_payment_method_updated_at:
           type: string
           format: date-time
@@ -6606,6 +6616,7 @@ components:
           type: boolean
       required:
       - amount_usd
+      - billing_address
       - current_month_charged_usd
       - current_month_credits_purchased_usd
       - disabled_due_to_repeated_failures
@@ -6618,6 +6629,8 @@ components:
       - next_trigger_amount_usd
       - paused_until
       - payment_method_brand
+      - payment_method_exp_month
+      - payment_method_exp_year
       - payment_method_last4
       - stripe_payment_method_updated_at
       - stubbed
@@ -6730,6 +6743,35 @@ components:
       - base
       type: string
       description: '* `base` - base'
+    BillingAddress:
+      type: object
+      description: Billing address saved on the Stripe PaymentMethod.
+      properties:
+        line1:
+          type: string
+          nullable: true
+        line2:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        state:
+          type: string
+          nullable: true
+        postal_code:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+      required:
+      - city
+      - country
+      - line1
+      - line2
+      - postal_code
+      - state
     BillingIntervalEnum:
       enum:
       - month

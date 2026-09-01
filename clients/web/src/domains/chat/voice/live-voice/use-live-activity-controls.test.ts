@@ -42,6 +42,7 @@ const controls = {
   setOutputMuted: mock(() => undefined),
   updateConfig: mock(() => undefined),
   attachImage: mock(() => true),
+  sightFrame: mock(() => true),
 } satisfies LiveVoiceSessionControls;
 
 function session(

@@ -51,6 +51,7 @@ interface ClientCatalogModel {
   longContextMode?: "native-model" | "provider-request-option" | "unsupported";
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
+  thinkingFloor?: "minimal" | "low";
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
@@ -198,6 +199,7 @@ describe("LLM catalog parity: daemon vs client", () => {
         expect(clientModel.adaptiveThinkingOnly).toBe(
           daemonModel.adaptiveThinkingOnly,
         );
+        expect(clientModel.thinkingFloor).toBe(daemonModel.thinkingFloor);
         expect(clientModel.supportsCaching).toBe(daemonModel.supportsCaching);
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);
         expect(clientModel.supportsToolUse).toBe(daemonModel.supportsToolUse);

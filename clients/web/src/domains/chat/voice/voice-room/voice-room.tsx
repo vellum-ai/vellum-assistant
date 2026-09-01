@@ -36,7 +36,9 @@ import { useTranslation } from "@/i18n";
  *   thread header, the mobile counterpart of the inset panel. Radix portals it
  *   out of the layout and positions it `fixed`, so it is told where the header
  *   ends ({@link useChatHeaderBottom}) rather than inheriting that edge from
- *   the DOM. Non-modal, so the header it rests below stays lit and usable,
+ *   the DOM. Opening the camera takes it to the top of the screen instead, with
+ *   square corners: the viewfinder is full-bleed, so the chrome framing it is
+ *   too. Non-modal, so the header it rests below stays lit and usable,
  *   which takes suppressing several of Radix's modal reflexes: see
  *   {@link VoiceRoomSheet}. It portals into `RootLayout`'s `#viewport-overlays`
  *   rather than the body, which is what keeps the surfaces the header opens
@@ -157,6 +159,7 @@ import {
   CAMERA_MEDIA_GLASS_CLASS,
   CAMERA_SCRIM_BOTTOM,
   CAMERA_SCRIM_TOP,
+  cameraModeStyle,
 } from "./camera-mode-paint";
 import {
   CameraStatusPill,
@@ -165,8 +168,10 @@ import {
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
+import { OVERLAY_HOST_ID, useInertBehindSheet } from "./use-inert-behind-sheet";
 import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
+import { useVoiceRoomSight } from "./use-voice-room-sight";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -257,6 +262,16 @@ export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
 const SHEET_LAYER = "z-30";
 
 /**
+ * The sheet's tier while it is flush for the camera. A takeover rather than a
+ * surface under the header, so it rises above the tier the other mobile
+ * overlays share with it in the portal host: one of those mounting mid-camera
+ * would otherwise paint over the viewfinder in DOM order, inert and dead. The
+ * drawer's tier, which the flush sheet follows in the DOM, and still under the
+ * palette a hotkey can raise.
+ */
+const SHEET_FLUSH_LAYER = "z-40";
+
+/**
  * Marks a `role="dialog"` element as belonging to the room, so the global
  * Escape handler can tell the room's own dialog apart from one layered over it.
  * Carried by whichever element is the dialog for the variant: the room's box
@@ -272,9 +287,6 @@ const ROOM_DIALOG_ATTR = "data-voice-room";
  * would remount the sheet on every commit.
  */
 const MotionBottomSheetContent = motion.create(BottomSheet.Content);
-
-/** `RootLayout`'s portal container, inside the app shell's isolation. */
-const OVERLAY_HOST_ID = "viewport-overlays";
 
 /**
  * The element the mobile sheet portals into.
@@ -361,6 +373,14 @@ export function VoiceRoom({
  * Escape is therefore left to the room's own handler, shared with the other
  * variants, rather than Radix's, so one keypress is one minimize.
  *
+ * Flush to the top for the camera, it covers that chrome instead of resting
+ * below it, and {@link useInertBehindSheet} takes the covered shell, the other
+ * overlays sharing its portal host included, out of the tab order and the
+ * accessibility tree for as long as it does. Not by turning
+ * `modal` on: Radix renders a different content component per `modal`, so
+ * flipping it mid-session would remount the sheet, replay the slide-up and
+ * tear down the live viewfinder.
+ *
  * The exit rides this element rather than the room's box inside it. Radix
  * portals the content out of the layout and positions it `fixed`, so it is the
  * outermost thing the sheet owns; sliding the room's box instead would travel
@@ -378,19 +398,29 @@ export function VoiceRoom({
  */
 function VoiceRoomSheet({
   headerBottom,
+  flushToTop,
   motionProps,
   children,
 }: {
   /** Where the sheet's top edge rests. See {@link useChatHeaderBottom}. */
   headerBottom: number;
+  /**
+   * Take the sheet to the top of the screen, square-cornered, rather than to
+   * the header's edge. The camera's viewfinder fills the screen, so the sheet
+   * framing it has to reach the same edges.
+   */
+  flushToTop: boolean;
   /** The slide-down exit. See `voice-room-entrance.ts`. */
   motionProps: MotionProps;
   children: ReactNode;
 }) {
   const { t } = useTranslation("chat");
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  useInertBehindSheet(flushToTop, contentRef);
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <MotionBottomSheetContent
+        ref={contentRef}
         {...motionProps}
         drag="y"
         // A voice room is a tall surface with controls near its bottom edge;
@@ -420,7 +450,10 @@ function VoiceRoomSheet({
         // the bottom edge.
         className={cn(
           "top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0",
-          SHEET_LAYER,
+          flushToTop ? SHEET_FLUSH_LAYER : SHEET_LAYER,
+          // Corners belong to a sheet that stops below the header. Against the
+          // top of the screen they would cut two notches out of the feed.
+          flushToTop && "rounded-t-none",
         )}
         // Marks the sheet as the room's own dialog. See {@link ROOM_DIALOG_ATTR}.
         {...{ [ROOM_DIALOG_ATTR]: "" }}
@@ -439,7 +472,11 @@ function VoiceRoomSheet({
             event.currentTarget.focus();
           }
         }}
-        style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
+        style={
+          {
+            "--voice-sheet-top": flushToTop ? "0px" : `${headerBottom}px`,
+          } as CSSProperties
+        }
         aria-label={t("voiceRoom.ariaLabel")}
         // The room narrates itself through its own live region; a description
         // element would be a second, redundant announcement.
@@ -551,6 +588,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // as the status pill's word below.
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
+  // Sight rides the viewfinder the shutter already put on screen: while it is
+  // open the gate keeps the frames worth keeping and sends each one as it
+  // lands, and the daemon persists it as its own message, so the call can be
+  // asked about what the camera is pointed at without anyone pressing
+  // anything. Inert unless the flag and the session's assistant
+  // both allow it, and it acquires no camera of its own, so the native shells
+  // (where this `<video>` never mounts) simply sample nothing.
+  const { heldFrame } = useVoiceRoomSight(assistantId, viewfinderRef, {
+    cameraOpen,
+    facing: camera.facing,
+  });
   // What every control in the room is sitting on. One value passed down rather
   // than a boolean per control, so the row cannot end up half in camera mode.
   const controlSurface: VoiceRoomControlSurface = cameraOpen
@@ -669,6 +717,27 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   }, []);
 
   const fullscreen = variant === "fullscreen";
+  // The mobile sheet with the viewfinder up: it leaves the header's line and
+  // goes full-bleed, so the camera is the whole screen rather than a feed
+  // showing past a band of sheet chrome parked a third of the way down it.
+  const cameraSheet = sheet && cameraOpen;
+  // Where the room's top band sits, published on the box and read back through
+  // `top-[var(--room-*)]` the way the tone colors are, so the pill and the
+  // minimize control beside it share one line. Only the fullscreen room and the
+  // flush camera sheet reach the notch: the former clamps its gap up to the
+  // inset, the latter adds the gap to it so the grabber fits between. The panel
+  // and the header-resting sheet start below the app's own chrome, where the
+  // inset is not their edge to clear.
+  const topBandVars = {
+    "--room-chrome-top": fullscreen
+      ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
+      : cameraSheet
+        ? `calc(${CORNER_GAP} + ${SAFE_AREA_TOP})`
+        : CORNER_GAP,
+    "--room-grabber-top": cameraSheet
+      ? `calc(0.5rem + ${SAFE_AREA_TOP})`
+      : "0.5rem",
+  } as CSSProperties;
 
   const body = (
     <motion.div
@@ -687,6 +756,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         // The sheet's own box is the Radix content element, which is already
         // positioned and rounded; the room fills it.
         sheet && "absolute inset-0 rounded-t-[24px]",
+        // Square with the sheet, so the clip follows the chrome to the top of
+        // the screen instead of shaving the feed's corners.
+        cameraSheet && "rounded-t-none",
       )}
       // Theme tokens (the connect label, the ambient transcript) follow the
       // look: dark over the void and the dark avatar colors, light over the
@@ -718,6 +790,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               paddingRight: SAFE_AREA_RIGHT,
             }
           : null),
+        ...topBandVars,
         ...toneVars,
         ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
@@ -893,7 +966,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         <div
           aria-hidden
           data-testid="voice-room-grabber"
-          className="pointer-events-none absolute left-1/2 top-2 z-10 h-1 w-9 -translate-x-1/2 rounded-full bg-[var(--room-fg-muted)] opacity-60"
+          className="pointer-events-none absolute left-1/2 top-[var(--room-grabber-top)] z-10 h-1 w-9 -translate-x-1/2 rounded-full bg-[var(--room-fg-muted)] opacity-60"
         />
       ) : null}
 
@@ -910,13 +983,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {cameraOpen ? (
         <div
           data-testid="camera-status-pill-slot"
-          className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
-          style={{
-            top: fullscreen
-              ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
-              : CORNER_GAP,
-            maxWidth: CAMERA_PILL_MAX_WIDTH,
-          }}
+          className="pointer-events-none absolute left-1/2 top-[var(--room-chrome-top)] z-10 -translate-x-1/2"
+          style={{ maxWidth: CAMERA_PILL_MAX_WIDTH }}
         >
           <CameraStatusPill
             voiceState={cameraVoiceState}
@@ -943,19 +1011,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           listening language are Settings' now. */}
       <div
         // An equal gap from both edges, so the control reads as sitting in the
-        // corner rather than floating near it.
-        //
-        // Only the fullscreen variant reaches the notch / Dynamic Island and
-        // has to clear it. The panel and the sheet both start below the app's
-        // own chrome, so clamping their top to the notch inset would push the
-        // control a further ~59px down on a notched phone while the right stays
-        // at the base gap: visibly lopsided, and measured against an edge the
-        // room does not have.
-        style={{
-          top: fullscreen ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})` : CORNER_GAP,
-          right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})`,
-        }}
-        className="absolute z-10 flex items-center gap-1"
+        // corner rather than floating near it. The top comes off the room's own
+        // band, shared with the camera pill; see `--room-chrome-top`.
+        style={{ right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})` }}
+        className="absolute top-[var(--room-chrome-top)] z-10 flex items-center gap-1"
       >
         <VoiceRoomControl
           label={t("voiceRoom.minimizeAria")}
@@ -1108,34 +1167,61 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               the assistant has it. Aligned left so it never sits under the
               shutter, and `aria-hidden` because the live region already
               announces failures in words. */}
-          {photos.length > 0 ? (
-            <ul
-              aria-hidden
-              data-testid="voice-room-photo-strip"
-              className="flex items-center gap-2 self-start pl-6"
-            >
-              {photos.map((photo) => (
-                <li key={photo.id} className="relative">
-                  <img
-                    src={photo.previewUrl}
-                    alt=""
-                    data-testid="voice-room-photo"
-                    data-status={photo.status}
-                    className={cn(
-                      "size-11 rounded-lg border object-cover transition",
-                      "border-[var(--room-border)]",
-                      photo.status === "sending" && "opacity-50",
-                      photo.status === "failed" && "opacity-40 grayscale",
-                    )}
-                  />
-                  {photo.status === "failed" ? (
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <X className="size-5 text-red-300" strokeWidth={3} />
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+          {photos.length > 0 || heldFrame ? (
+            <div className="flex items-center gap-2 self-start pl-6">
+              {photos.length > 0 ? (
+                <ul
+                  aria-hidden
+                  data-testid="voice-room-photo-strip"
+                  className="flex items-center gap-2"
+                >
+                  {photos.map((photo) => (
+                    <li key={photo.id} className="relative">
+                      <img
+                        src={photo.previewUrl}
+                        alt=""
+                        data-testid="voice-room-photo"
+                        data-status={photo.status}
+                        className={cn(
+                          "size-11 rounded-lg border object-cover transition",
+                          "border-[var(--room-border)]",
+                          photo.status === "sending" && "opacity-50",
+                          photo.status === "failed" && "opacity-40 grayscale",
+                        )}
+                      />
+                      {photo.status === "failed" ? (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <X className="size-5 text-red-300" strokeWidth={3} />
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {/* The newest view the call was given.
+
+                  A photo in the strip is a receipt for something the user did;
+                  this is the opposite, a frame nobody asked for, so it has to
+                  be visible at the moment it goes rather than only after the
+                  fact. It wears the strip's shape so the two read as one row,
+                  and the capture accent so they are not read as the same
+                  thing. Keyed on the id, which replays the ring on every keep.
+
+                  `aria-hidden` for the same reason as the strip: every keep
+                  lands in the transcript as its own message, which is the
+                  accessible record of it. */}
+              {heldFrame ? (
+                <img
+                  key={heldFrame.attachmentId}
+                  src={heldFrame.previewUrl}
+                  alt=""
+                  aria-hidden
+                  data-testid="voice-room-sight-frame"
+                  style={cameraModeStyle()}
+                  className="sight-frame-kept size-11 rounded-lg object-cover ring-2 ring-[var(--camera-accent)]"
+                />
+              ) : null}
+            </div>
           ) : null}
 
           {/* The shutter is centred on the room, with flip parked off to the
@@ -1347,6 +1433,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   return sheet && choreography.sheetChrome ? (
     <VoiceRoomSheet
       headerBottom={headerBottom}
+      flushToTop={cameraSheet}
       motionProps={choreography.sheetChrome}
     >
       {body}

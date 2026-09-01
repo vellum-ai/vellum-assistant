@@ -16,10 +16,7 @@ import {
   machineLabel,
 } from "@/domains/settings/billing/plan-spec";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import {
-  FREE_CREDITS_USD,
-  FREE_STORAGE_GIB,
-} from "@/domains/settings/billing/plan-tier-meta";
+import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
   type CustomPlanSeed,
@@ -47,10 +44,7 @@ import {
   isDirectCancelEligible,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
-import {
-  formatDollars,
-  priceLabelFromCents,
-} from "@/domains/settings/components/tier-pricing";
+import { priceLabelFromCents } from "@/domains/settings/components/tier-pricing";
 import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
 import {
   buildPortalReturnSnapshot,
@@ -69,7 +63,6 @@ import type {
   SubscriptionUpgradeRequestRequest,
 } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
@@ -125,27 +118,15 @@ function packageFeatures(
   pkg: ProPackage,
   extra: readonly string[],
   translate: SettingsTranslate,
-  obscureCredits: boolean,
 ): string[] {
-  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   return [
     machineComputerLabel(pkg, translate),
     translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
-    // Under `obscure-credits` the bundle row never names a credit amount: it
-    // reads as the package's own usage allowance, derived from the package
-    // name the way the plan card's chip is, so it holds even when the catalog
-    // carries no `usage_label`. Otherwise the catalog's `usage_label`
-    // ("Mighty Usage") matches the bundle's Stripe product and thus the
-    // invoice; the amount wording covers a package with no usage label.
-    obscureCredits
-      ? translate("plansPage.featureUsage", { name: pkg.name })
-      : pkg.usage_label != null
-        ? translate("plansPage.featureUsageIncluded", {
-            label: pkg.usage_label,
-          })
-        : translate("plansPage.featureCreditsIncluded", {
-            amount: formatDollars(credits * 100),
-          }),
+    // The bundle row never names a credit amount: it reads as the package's
+    // own usage allowance, derived from the package name the way the plan
+    // card's chip is, so it holds even when the catalog carries no
+    // `usage_label`.
+    translate("plansPage.featureUsage", { name: pkg.name }),
     ...extra,
   ];
 }
@@ -172,7 +153,6 @@ function PlansPageContent() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const electron = isElectron();
-  const obscureCredits = useObscureCredits();
 
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
@@ -843,12 +823,7 @@ function PlansPageContent() {
                     ? t("plansPage.downgradeTo", { name: pkg.name })
                     : (copy?.cta ?? pkg.name)
                 }
-                features={packageFeatures(
-                  pkg,
-                  copy?.extraFeatures ?? [],
-                  t,
-                  obscureCredits,
-                )}
+                features={packageFeatures(pkg, copy?.extraFeatures ?? [], t)}
                 recommended={copy?.recommended}
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}

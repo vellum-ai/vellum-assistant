@@ -80,6 +80,19 @@ export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
 export interface ImageContent {
   type: "image";
   source: MediaSource;
+  /**
+   * Internal id linking a base64 image block to a row in the attachments table,
+   * the same correlation {@link FileContent._attachmentId} carries. A live turn
+   * sends its uploads inline while persisting them as references, so this is
+   * the only handle on the in-memory copy of an image whose stored form is a
+   * `workspace_ref`; camera-frame retention matches on it. Redundant once the
+   * block is a reference (use `source.attachmentId`).
+   *
+   * Never reaches a provider: every client builds its image payload out of
+   * `source` alone (see the `case "image"` arms of the Anthropic, Gemini, and
+   * both OpenAI clients), so top-level fields are dropped by construction.
+   */
+  _attachmentId?: string;
 }
 
 export interface FileContent {
@@ -95,6 +108,49 @@ export interface FileContent {
    * Stripped by `daemon/handlers/shared.ts` before sending to the model.
    */
   _attachmentId?: string;
+}
+
+/**
+ * The `_attachmentId` property as a spreadable fragment, or nothing when there
+ * is no usable id.
+ *
+ * Every producer of a media block faces the same choice: it either knows the
+ * attachment row the block came from, or it does not, and the field has to be
+ * absent rather than present-and-empty in the second case. This helper is the
+ * one place that decision lives, so every producer answers it the same way.
+ * Callers pass whatever id they hold: the source block's own
+ * ({@link ImageContent._attachmentId}) when carrying it across a rebuild, or an
+ * upload's row id when stamping a fresh block.
+ *
+ * Empty counts as absent, matching the read side, which requires a non-empty
+ * string before it will treat the field as an id (see
+ * `daemon/handlers/shared.ts`).
+ */
+export function attachmentIdFragment(attachmentId: string | undefined): {
+  _attachmentId?: string;
+} {
+  return attachmentId ? { _attachmentId: attachmentId } : {};
+}
+
+/**
+ * The attachment row a media block came from, whichever of the two shapes it
+ * is in, or undefined for a block that came from none (tool-generated and
+ * assistant-authored media).
+ *
+ * A reference names its row on `source.attachmentId`; an inline block has
+ * nowhere to put it but the top-level `_attachmentId`. Both are the same fact,
+ * so anything asking "which attachment is this?" has to read both or it goes
+ * blind on half the histories. Reading only `_attachmentId` in particular is
+ * the sharp edge: it is absent on every reference block, so a rebuild that
+ * flattens a reference to inline bytes drops the link unless it derives the id
+ * through here first.
+ */
+export function mediaBlockAttachmentId(
+  block: ImageContent | FileContent,
+): string | undefined {
+  return block.source.type === "workspace_ref"
+    ? block.source.attachmentId
+    : block._attachmentId;
 }
 
 export interface ToolUseContent {

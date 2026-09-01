@@ -1,7 +1,7 @@
 /**
- * The preferences menu's usage reading behind the `obscure-credits` flag: the
- * share of the usage credit the org was granted that is already used, and
- * whether the wallet behind it still has anything to draw on.
+ * The preferences menu's usage reading: the share of the usage credit the org
+ * was granted that is already used, and whether the wallet behind it still has
+ * anything to draw on.
  *
  * Read by the menu's usage panel and by the menu itself, which decides from
  * the same numbers whether its credits row belongs on screen. Composing it
@@ -15,7 +15,6 @@ import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useSuppressCreditBannersForByok } from "@/hooks/use-byok-credit-banner-gate";
 import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 
 export interface PreferencesUsage {
   /** Used share of the granted usage credit, clamped to 0..1. */
@@ -36,9 +35,9 @@ export interface PreferencesUsage {
 }
 
 /**
- * Null while the flag is off, while the org has no managed billing to read,
- * and before an honest number lands, so every caller renders exactly what it
- * always has until there is something real to say.
+ * Null while the org has no managed billing to read and before an honest
+ * number lands, so every caller renders exactly what it always has until
+ * there is something real to say.
  *
  * `conversationId` is the chat the reading is for. It reaches the wallet
  * status so a managed per-conversation profile pin classifies `exhausted`
@@ -48,18 +47,15 @@ export interface PreferencesUsage {
 export function usePreferencesUsage(
   opts: { conversationId?: string | null } = {},
 ): PreferencesUsage | null {
-  const obscureCredits = useObscureCredits();
   const {
     isExhausted,
     balance,
     availableUsageBalance,
     totalUsageBalance,
-    enabled: billingEnabled,
+    enabled,
   } = useBillingBalanceStatus({ conversationId: opts.conversationId ?? null });
-  // The sub is only worth fetching when the flag is on and the org actually
-  // has managed billing; the reading itself comes off the summary the wallet
-  // status already read.
-  const enabled = obscureCredits && billingEnabled;
+  // The sub is only worth fetching when the org actually has managed billing;
+  // the reading itself comes off the summary the wallet status already read.
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     enabled,

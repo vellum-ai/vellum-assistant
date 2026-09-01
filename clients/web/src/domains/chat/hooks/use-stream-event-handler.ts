@@ -35,6 +35,8 @@ import {
 import {
   handleSecretRequest,
   handleConfirmationRequest,
+  handleContactFormClosed,
+  handleContactRecordRequest,
   handleContactRequest,
   handleInteractionResolved,
   handleQuestionRequest,
@@ -318,6 +320,12 @@ export function useStreamEventHandler(
           break;
         case "contact_request":
           handleContactRequest(event, ctx);
+          break;
+        case "contact_record_request":
+          handleContactRecordRequest(event, ctx);
+          break;
+        case "contact_form_closed":
+          handleContactFormClosed(event);
           break;
         case "question_request":
           handleQuestionRequest(event, ctx);

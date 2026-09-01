@@ -338,6 +338,9 @@ function makeForkConversationDouble(): Conversation {
   const conversation = {
     conversationId: FORK_ID,
     messages,
+    // The wake trims its own run input; nothing here is tagged as a camera
+    // frame, so the real pass would return the array unchanged too.
+    trimAgedSightFrames: (msgs: Message[]) => msgs,
     getMessages: () => messages,
     isProcessing: () => false,
     setProcessing: (_on: boolean) => {},

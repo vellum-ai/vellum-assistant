@@ -273,36 +273,52 @@ function materializeAttachmentIntoConversation(
   const resolvedName = resolveUniqueFilename(attachDir, row.originalFilename);
   const targetPath = join(attachDir, resolvedName);
 
-  let sourcePath = row.sourcePath;
-  if (row.dataBase64) {
-    writeFileSync(targetPath, Buffer.from(row.dataBase64, "base64"));
-  } else {
-    const readablePath = [row.filePath, row.sourcePath].find(
-      (path): path is string => !!path && existsSync(path),
-    );
-    if (!readablePath) {
-      return;
-    }
-
-    if (!sourcePath && readablePath !== row.filePath) {
-      sourcePath = readablePath;
-    } else if (
-      !sourcePath &&
-      readablePath === row.filePath &&
-      dirname(readablePath) !== attachDir
-    ) {
-      sourcePath = readablePath;
-    }
-
-    copyFileSync(readablePath, targetPath);
-  }
-
   // Remember the old file path before updating the DB row, so we can
   // clean up the staging copy (e.g. in data/attachments/) after the
   // canonical path moves to the conversation directory.
   const previousFilePath = row.filePath;
 
-  persistAttachmentFilePath(row.id, targetPath, sourcePath);
+  let sourcePath = row.sourcePath;
+  try {
+    if (row.dataBase64) {
+      writeFileSync(targetPath, Buffer.from(row.dataBase64, "base64"));
+    } else {
+      const readablePath = [row.filePath, row.sourcePath].find(
+        (path): path is string => !!path && existsSync(path),
+      );
+      if (!readablePath) {
+        return;
+      }
+
+      if (!sourcePath && readablePath !== row.filePath) {
+        sourcePath = readablePath;
+      } else if (
+        !sourcePath &&
+        readablePath === row.filePath &&
+        dirname(readablePath) !== attachDir
+      ) {
+        sourcePath = readablePath;
+      }
+
+      copyFileSync(readablePath, targetPath);
+    }
+
+    persistAttachmentFilePath(row.id, targetPath, sourcePath);
+  } catch (err) {
+    // Only the copy this call was making. `resolveUniqueFilename` picked a name
+    // nothing occupied, so whatever sits at `targetPath` now is this attempt's
+    // own work. The row's `filePath` is deliberately left alone: until the
+    // update above lands it can still name the file the bytes came FROM, and
+    // for a fresh clone that file belongs to another conversation.
+    if (existsSync(targetPath)) {
+      try {
+        unlinkSync(targetPath);
+      } catch {
+        /* leave the copy rather than fail the failure */
+      }
+    }
+    throw err;
+  }
 
   // Remove the old staging file now that the canonical copy lives in
   // the conversation directory.  Only delete files that live in the
@@ -344,16 +360,56 @@ function scopeAttachmentToConversation(
   }
 
   const linkedConversationIds = listLinkedConversationIds(attachmentId);
-  if (linkedConversationIds.some((id) => id !== conversationId)) {
+  const cloned = linkedConversationIds.some((id) => id !== conversationId);
+  if (cloned) {
     row = cloneAttachmentRow(row);
   }
 
-  materializeAttachmentIntoConversation(
-    row,
-    conversationId,
-    conversationCreatedAt,
-  );
+  try {
+    materializeAttachmentIntoConversation(
+      row,
+      conversationId,
+      conversationCreatedAt,
+    );
+  } catch (err) {
+    if (cloned) {
+      discardFailedCloneRow(row.id);
+    }
+    throw err;
+  }
   return row.id;
+}
+
+/**
+ * Drop the row a failed clone left behind, touching no file at all.
+ *
+ * A clone is inserted carrying the SOURCE row's `filePath`, and only a
+ * successful materialization repoints it at a copy of its own. At the moment
+ * materialization fails the row can therefore still name the original's file,
+ * and deleting that would take the source conversation's data with it. This is
+ * the hazard the staging-dir guard in
+ * {@link materializeAttachmentIntoConversation} exists for, applied to the
+ * other end of the same window.
+ *
+ * The file this attempt was creating is cleaned up by materialization itself,
+ * which is the only code that knows the path it chose.
+ *
+ * Best effort. Rethrowing the original failure matters more than the row, and
+ * the caller converts that failure into an inline fallback either way.
+ */
+function discardFailedCloneRow(clonedId: string): void {
+  try {
+    rawRun(
+      "attachments:discardFailedCloneRow",
+      `DELETE FROM attachments WHERE id = ?`,
+      clonedId,
+    );
+  } catch (err) {
+    getLogger("attachments-store").warn(
+      { err, attachmentId: clonedId },
+      "Could not discard the row left by a failed attachment clone",
+    );
+  }
 }
 
 /**
@@ -1164,6 +1220,32 @@ export function getAttachmentsByIds(
   return results;
 }
 
+/**
+ * Hydrate attachment ids into the shape a persisted user message stores:
+ * base64 data plus the on-disk source path where one is known. Ids with no
+ * attachment row are dropped, so a caller that needs to know an id was bad
+ * compares the returned length against what it asked for.
+ */
+export function resolveAttachmentsForPersist(attachmentIds: string[]): Array<{
+  id: string;
+  filename: string;
+  mimeType: string;
+  data: string;
+  filePath?: string;
+}> {
+  const resolved = getAttachmentsByIds(attachmentIds, {
+    hydrateFileData: true,
+  });
+  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
+  return resolved.map((a) => ({
+    id: a.id,
+    filename: a.originalFilename,
+    mimeType: a.mimeType,
+    data: a.dataBase64,
+    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+  }));
+}
+
 export function linkAttachmentToMessage(
   messageId: string,
   attachmentId: string,
@@ -1332,6 +1414,16 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
 
   // Clean up on-disk files only after the DB rows have been removed
   for (const filePath of orphanFilePaths) {
+    // A path is not private to one row. A clone carries the source's
+    // `filePath` until materialization repoints it, and an attachment already
+    // sitting in the destination's directory is scoped without being copied at
+    // all, so a surviving row can still name this file. Unlinking it then
+    // destroys another conversation's data, which is what the staging-dir
+    // guard in `materializeAttachmentIntoConversation` avoids at the other end
+    // of the same window.
+    if (attachmentFilePathStillReferenced(filePath)) {
+      continue;
+    }
     try {
       unlinkSync(filePath);
     } catch {
@@ -1340,4 +1432,15 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   }
 
   return deletedCount;
+}
+
+/** True while any surviving attachment row still names this file. */
+function attachmentFilePathStillReferenced(filePath: string): boolean {
+  return (
+    rawGet<{ id: string }>(
+      "attachments:filePathStillReferenced",
+      `SELECT id FROM attachments WHERE file_path = ? LIMIT 1`,
+      filePath,
+    ) !== null
+  );
 }

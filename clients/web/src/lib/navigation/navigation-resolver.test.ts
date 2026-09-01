@@ -35,7 +35,8 @@ const base: NavigationState = {
   // the hydration-gating cases override these explicitly.
   consentHydrated: true,
   assistantsHydrated: true,
-  alreadyOnboarded: false,
+  userHasOnboardedAssistant: false,
+  selectedAssistantOnboarded: false,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -108,11 +109,11 @@ describe("resolveNavigation", () => {
     test("preserves query string in returnTo", () => {
       const result = guard(
         s({ isAuthenticated: false }),
-        "/assistant/home?tab=1",
+        "/assistant/identity?tab=1",
       );
       expect(result).toEqual({
         action: "redirect",
-        to: "/account/login?returnTo=%2Fassistant%2Fhome%3Ftab%3D1",
+        to: "/account/login?returnTo=%2Fassistant%2Fidentity%3Ftab%3D1",
       });
     });
 
@@ -215,28 +216,28 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
-    test("bounces an already-onboarded user off first-run privacy", () => {
+    test("bounces first-run privacy when the selected assistant is onboarded", () => {
       expect(
-        guard(s({ alreadyOnboarded: true }), "/assistant/onboarding/privacy"),
+        guard(s({ selectedAssistantOnboarded: true }), "/assistant/onboarding/privacy"),
       ).toEqual({ action: "redirect", to: "/assistant" });
       expect(
         guard(
-          s({ alreadyOnboarded: true, hasAssistants: false }),
+          s({ selectedAssistantOnboarded: true, hasAssistants: false }),
           "/assistant/onboarding/privacy?replay=1",
         ),
       ).toEqual({ action: "redirect", to: "/assistant" });
     });
 
-    test("lets a new-assistant walk through privacy despite an onboarded assistant", () => {
+    test("lets a new-assistant walk through privacy despite an onboarded selection", () => {
       expect(
         guard(
-          s({ alreadyOnboarded: true }),
+          s({ selectedAssistantOnboarded: true }),
           `/assistant/onboarding/privacy?hosting=local&${NEW_ASSISTANT_PARAM}=1`,
         ),
       ).toEqual(ALLOW);
       expect(
         guard(
-          s({ alreadyOnboarded: true }),
+          s({ selectedAssistantOnboarded: true }),
           `/assistant/onboarding/privacy?${NEW_ASSISTANT_PARAM}=1`,
         ),
       ).toEqual(ALLOW);
@@ -247,7 +248,7 @@ describe("resolveNavigation", () => {
       const state = s({
         isLocalClient: true,
         isAuthenticated: false,
-        alreadyOnboarded: true,
+        selectedAssistantOnboarded: true,
         hasAssistants: true,
       });
       expect(
@@ -262,18 +263,18 @@ describe("resolveNavigation", () => {
       });
     });
 
-    test("resumes a paid hatch when bouncing an already-onboarded user off privacy", () => {
+    test("resumes a paid hatch when bouncing an onboarded selection off privacy", () => {
       expect(
         guard(
-          s({ alreadyOnboarded: true }),
+          s({ selectedAssistantOnboarded: true }),
           `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
         ),
       ).toEqual({ action: "redirect", to: HATCHING_FUNNEL_URL });
     });
 
-    test("keeps research reachable on demand for an already-onboarded user", () => {
+    test("keeps research reachable on demand for an onboarded selection", () => {
       expect(
-        guard(s({ alreadyOnboarded: true }), "/assistant/onboarding/research"),
+        guard(s({ selectedAssistantOnboarded: true }), "/assistant/onboarding/research"),
       ).toEqual(ALLOW);
     });
 
@@ -812,7 +813,7 @@ describe("resolveNavigation", () => {
     });
 
     test("redirects platform user with consent but no assistants to hatching from deep path", () => {
-      expect(guard(s({ hasAssistants: false }), "/assistant/home")).toEqual({
+      expect(guard(s({ hasAssistants: false }), "/assistant/identity")).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/hatching",
       });
@@ -838,11 +839,11 @@ describe("resolveNavigation", () => {
       expect(
         guard(
           s({ hasAssistants: false, diagnosticsConsentCurrent: false }),
-          "/assistant/home",
+          "/assistant/identity",
         ),
       ).toEqual({
         action: "redirect",
-        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fhome",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fidentity",
       });
     });
 
@@ -1493,11 +1494,11 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
-    test("allows an already-onboarded assistant even without local consent flags", () => {
+    test("allows a returning user even without local consent flags", () => {
       expect(
         intercept(
           s({
-            alreadyOnboarded: true,
+            userHasOnboardedAssistant: true,
             tosAccepted: false,
             privacyConsent: false,
           }),
@@ -1831,9 +1832,9 @@ describe("resolveNavigation", () => {
     });
 
     test("login uses returnTo", () => {
-      expect(postAuth("login", "/assistant/home")).toEqual({
+      expect(postAuth("login", "/assistant/identity")).toEqual({
         action: "redirect",
-        to: "/assistant/home",
+        to: "/assistant/identity",
       });
     });
 
@@ -1853,19 +1854,19 @@ describe("resolveNavigation", () => {
 
     test("signup skips privacy when the assistant is already onboarded", () => {
       expect(
-        resolveNavigation(s({ alreadyOnboarded: true }), {
+        resolveNavigation(s({ userHasOnboardedAssistant: true }), {
           kind: "post-auth",
           authIntent: "signup",
-          returnTo: "/assistant/home",
+          returnTo: "/assistant/identity",
           fallback: "/assistant",
         }),
-      ).toEqual({ action: "redirect", to: "/assistant/home" });
+      ).toEqual({ action: "redirect", to: "/assistant/identity" });
       expect(readCheckoutIntent()).toBeNull();
     });
 
     test("signup with a checkout deep link skips privacy when already onboarded", () => {
       expect(
-        resolveNavigation(s({ alreadyOnboarded: true }), {
+        resolveNavigation(s({ userHasOnboardedAssistant: true }), {
           kind: "post-auth",
           authIntent: "signup",
           returnTo: "/assistant/checkout?package=super",
@@ -1880,7 +1881,7 @@ describe("resolveNavigation", () => {
 
     test("login keeps a paid hatch returnTo when already onboarded", () => {
       expect(
-        resolveNavigation(s({ alreadyOnboarded: true }), {
+        resolveNavigation(s({ userHasOnboardedAssistant: true }), {
           kind: "post-auth",
           authIntent: "login",
           returnTo: HATCHING_FUNNEL_URL,
@@ -1891,7 +1892,7 @@ describe("resolveNavigation", () => {
 
     test("login skips a privacy or research returnTo when already onboarded", () => {
       expect(
-        resolveNavigation(s({ alreadyOnboarded: true }), {
+        resolveNavigation(s({ userHasOnboardedAssistant: true }), {
           kind: "post-auth",
           authIntent: "login",
           returnTo: "/assistant/onboarding/privacy",
@@ -1899,7 +1900,7 @@ describe("resolveNavigation", () => {
         }),
       ).toEqual({ action: "redirect", to: "/assistant" });
       expect(
-        resolveNavigation(s({ alreadyOnboarded: true }), {
+        resolveNavigation(s({ userHasOnboardedAssistant: true }), {
           kind: "post-auth",
           authIntent: "login",
           returnTo: "/assistant/onboarding/research?hosting=vellum-cloud",
@@ -1908,12 +1909,24 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant" });
     });
 
+    test("login keeps a new-assistant returnTo when already onboarded", () => {
+      const returnTo = `/assistant/onboarding/privacy?${NEW_ASSISTANT_PARAM}=1`;
+      expect(
+        resolveNavigation(s({ userHasOnboardedAssistant: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo,
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: returnTo });
+    });
+
     test("signup still goes to privacy for a freshly hatched assistant", () => {
       expect(
-        resolveNavigation(s({ alreadyOnboarded: false, hasAssistants: true }), {
+        resolveNavigation(s({ userHasOnboardedAssistant: false, hasAssistants: true }), {
           kind: "post-auth",
           authIntent: "signup",
-          returnTo: "/assistant/home",
+          returnTo: "/assistant/identity",
           fallback: "/assistant",
         }),
       ).toEqual({
@@ -1933,9 +1946,9 @@ describe("resolveNavigation", () => {
 
     test("a non-checkout login clears a stale stash from an abandoned attempt", () => {
       saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
-      expect(postAuth("login", "/assistant/home")).toEqual({
+      expect(postAuth("login", "/assistant/identity")).toEqual({
         action: "redirect",
-        to: "/assistant/home",
+        to: "/assistant/identity",
       });
       expect(readCheckoutIntent()).toBeNull();
     });

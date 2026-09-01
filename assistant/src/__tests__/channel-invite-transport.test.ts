@@ -109,6 +109,7 @@ describe("resolveAdapterHandle", () => {
 
 describe("createInviteAdapterRegistry", () => {
   const builtInChannels = [
+    "discord",
     "email",
     "slack",
     "telegram",

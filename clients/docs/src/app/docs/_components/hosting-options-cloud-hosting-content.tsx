@@ -321,10 +321,10 @@ export function HostingOptionsCloudHostingContent() {
             instead if you need maximum data control or fully offline
             operation, or at{" "}
             <Link
-              href="/docs/hosting-options/advanced-options"
+              href="/docs/hosting-options/gcp"
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
-              advanced options
+              GCP
             </Link>{" "}
             if you want 24/7 availability on your own infrastructure.
           </p>

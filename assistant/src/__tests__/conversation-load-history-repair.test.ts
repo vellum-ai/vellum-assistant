@@ -435,6 +435,542 @@ describe("loadFromDb history repair", () => {
     ]);
   });
 
+  test("a stored reaction row loads as rendered text, not the sentinel", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Deploy is done" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            eventKind: "message",
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.1",
+              emoji: "thumbsup",
+              op: "added",
+              actorDisplayName: "Alice",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    // History repair merges the two adjacent user rows into one message;
+    // what matters is that the model reads the rendered fact, never the
+    // sentinel.
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).not.toContain("[reaction]");
+    expect(allText).toContain(
+      'Alice reacted with :thumbsup: to the message "Deploy is done"',
+    );
+    expect(allText).toContain("<external_content");
+  });
+
+  test("markHistoryStale makes the next ensureActorScopedHistory reload", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Hi" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+    expect(conversation.getMessages()).toHaveLength(2);
+
+    // A channel event lands straight in the store while the conversation
+    // stays resident.
+    mockDbMessages.push({
+      id: "m3",
+      role: "user",
+      content: [{ type: "text", text: "[reaction]" }],
+    });
+
+    // Same actor, no stale mark: the resident history is reused.
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()).toHaveLength(2);
+
+    conversation.markHistoryStale();
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()).toHaveLength(3);
+  });
+
+  test("a deleted row loads as the deletion marker, not its original text", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [
+          { type: "text", text: "Please forget this password: hunter2" },
+        ],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            eventKind: "message",
+            deletedAt: 1700000001000,
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Understood" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).toContain("[This message was deleted]");
+    expect(allText).not.toContain("hunter2");
+  });
+
+  test("the assistant's own deleted post keeps its content plus a visibility marker", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "What time is the meeting?" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "The meeting is at 3pm." }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.2",
+            eventKind: "message",
+            deletedAt: 1700000001000,
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const assistantRow = conversation
+      .getMessages()
+      .find((m) => m.role === "assistant");
+    const texts = (assistantRow?.content ?? [])
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""));
+    // Erasure is for a retracted user message; the assistant's own words
+    // stay (it did say them), and the rendered fact is lost visibility.
+    expect(texts.join("\n")).toContain("The meeting is at 3pm.");
+    expect(texts.join("\n")).toContain(
+      "[This message was deleted from the channel and is no longer visible to participants]",
+    );
+  });
+
+  test("a reaction never quotes a target that was later deleted", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "secret text" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            eventKind: "message",
+            deletedAt: 1700000001000,
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.1",
+              emoji: "thumbsup",
+              op: "added",
+              actorDisplayName: "Alice",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).toContain("reacted with :thumbsup: to an earlier message");
+    expect(allText).not.toContain("secret text");
+  });
+
+  test("a reaction naming a later post of a split reply still quotes it", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "Deploy finished cleanly." }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            additionalMessageIds: ["555.2"],
+            eventKind: "message",
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.2",
+              emoji: "tada",
+              op: "added",
+              actorDisplayName: "Alice",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).toContain(":tada:");
+    // The quote resolves through the split reply's later post id: the line
+    // never degrades to the unresolved "an earlier message" form.
+    expect(allText).not.toContain("an earlier message");
+  });
+
+  test("a partially deleted split reply quotes only its surviving posts", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    const reactionRow = (target: string, emoji: string, id: string) => ({
+      id,
+      role: "user",
+      content: [{ type: "text", text: "[reaction]" }],
+      metadata: JSON.stringify({
+        providerMeta: JSON.stringify({
+          source: "discord",
+          conversationExternalId: "chan-1",
+          eventKind: "reaction",
+          reaction: {
+            targetMessageId: target,
+            emoji,
+            op: "added",
+            actorDisplayName: "Alice",
+          },
+        }),
+      }),
+    });
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "Deploy finished cleanly." }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            additionalMessageIds: ["555.2"],
+            deletedMessageIds: ["555.2"],
+            eventKind: "message",
+          }),
+        }),
+      },
+      // Reaction on the surviving post: still quotable.
+      reactionRow("555.1", "tada", "m2"),
+      // Reaction on the deleted post: degrades to the unresolved form
+      // rather than quoting content no longer on the channel.
+      reactionRow("555.2", "eyes", "m3"),
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    // The row itself is NOT fully deleted: its content stays.
+    expect(allText).toContain("Deploy finished cleanly.");
+    // :tada: (surviving target) quotes; :eyes: (deleted target) does not.
+    const tadaLine = allText
+      .split("\n")
+      .find((line) => line.includes(":tada:"));
+    const eyesLine = allText
+      .split("\n")
+      .find((line) => line.includes(":eyes:"));
+    expect(tadaLine).toContain("Deploy finished cleanly.");
+    expect(eyesLine).toContain("an earlier message");
+  });
+
+  test("the assistant's own reaction row renders second-person", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "great work" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.9",
+            eventKind: "message",
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          messageKind: "reaction",
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.9",
+              emoji: "🎉",
+              op: "added",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).not.toContain("[reaction]");
+    expect(allText).toContain("You reacted with 🎉 to this message:");
+    // The quoted target is sender text and stays fenced even in the
+    // assistant's own row.
+    expect(allText).toContain("great work");
+    expect(allText).toContain("<external_content");
+  });
+
+  test("a reaction row does not count as a turn on rehydration", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Hi" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.1",
+              emoji: "thumbsup",
+              op: "added",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    // One real user message; the reaction row never dispatched a turn, so
+    // the rehydrated counter must match the live counter's one increment.
+    expect(conversation.turnCount).toBe(1);
+  });
+
+  test("a slackMeta-shaped reaction row renders with its actor id as origin", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          slackMeta: JSON.stringify({
+            source: "slack",
+            channelId: "C123",
+            channelTs: "1700000000.111111",
+            eventKind: "reaction",
+            actorExternalUserId: "U_REACTOR",
+            displayName: "Alice",
+            reaction: {
+              emoji: "tada",
+              targetChannelTs: "1700000000.111111",
+              op: "added",
+              actorDisplayName: "Alice",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).toContain("Alice reacted with :tada:");
+    expect(allText).toContain('origin="U_REACTOR"');
+  });
+
   test("persistUserMessage reloads actor-scoped history before persisting on role switch", async () => {
     mockConversation = {
       id: "conv-1",

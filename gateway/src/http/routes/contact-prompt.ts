@@ -1,15 +1,14 @@
 /**
- * Gateway HTTP handler for the contact prompt submission endpoint.
+ * Gateway HTTP handlers for the two contact-form submission endpoints.
  *
- * POST /v1/contacts/prompt/submit
+ * POST /v1/contacts/prompt/submit   an address the guardian typed (binds a channel)
+ * POST /v1/contacts/record/submit   a contact record the guardian confirmed
  *
- * Called by the client after the user fills in a contact address in response
- * to a `contact_request` broadcast from the daemon. This route:
- *   1. Validates the submitted contact info.
- *   2. Upserts the contact + channel gateway-first via ContactStore.upsertContact
- *      (gateway DB is the source of truth; assistant DB is a best-effort mirror).
- *   3. Calls daemon IPC `resolve_contact_prompt` to unblock the waiting CLI.
- *   4. Returns { accepted: true } to the client.
+ * Both are the second half of the same rail: the daemon parks a CLI call and
+ * broadcasts a form, the guardian submits it in their app, and the client
+ * posts here. The daemon never writes contacts; the gateway does, then calls
+ * `resolve_contact_prompt` to unblock the parked call. A write reaching this
+ * file therefore always carries a human's submit behind it.
  *
  * Auth: edge (same as all ingress contact routes).
  */
@@ -25,8 +24,36 @@ import {
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
 import { canonicalizeInboundIdentity } from "../../verification/identity.js";
+import {
+  ContactRecordNativeError,
+  deleteContactCore,
+  upsertContactRecordCore,
+} from "./contacts-control-plane-proxy.js";
+import {
+  type GuardianFormWriteOutcome,
+  submitGuardianForm,
+} from "./guardian-form-submit.js";
 
 const log = getLogger("contact-prompt");
+
+/**
+ * Guardian-form kinds these routes write for.
+ *
+ * The daemon opens its forms under the same strings and now rejects a claim
+ * that names a different one, so these are a cross-package contract, pinned on
+ * both sides by `contact-form-kinds.test.ts`.
+ */
+export const ADDRESS_FORM = "contacts.address";
+export const RECORD_FORM = "contacts.record";
+
+/**
+ * The contact forms' own IPC names, which predate the form-agnostic pair. Kept
+ * so a gateway running against an older daemon still reaches routes it serves.
+ */
+const CONTACT_FORM_IPC = {
+  claimOperation: "contact_prompt_claim",
+  resolveOperation: "resolve_contact_prompt",
+} as const;
 
 let store: ContactStore | null = null;
 
@@ -66,6 +93,16 @@ interface ContactPromptSubmitBody {
   channelType: string;
   role?: "guardian" | "trusted-contact" | "unknown";
   displayName?: string;
+  /**
+   * Whether the guardian left the "mark verified" box checked. The CLI's
+   * `--verify` only pre-checks it; this is the answer that decides the write,
+   * so what the form showed is what gets attested. Omitted by clients older
+   * than the checkbox, which fall back to the parked flag (see
+   * {@link promptWantsVerify}).
+   */
+  verify?: boolean;
+  /** The guardian dismissed the form. Unblocks the waiting call without writing. */
+  cancelled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,18 +135,63 @@ export async function handleContactPromptSubmit(
       { status: 400 },
     );
   }
-  if (!address || typeof address !== "string") {
-    return Response.json(
-      { accepted: false, error: "address is required" },
-      { status: 400 },
-    );
+  if (body.cancelled !== true) {
+    if (!address || typeof address !== "string") {
+      return Response.json(
+        { accepted: false, error: "address is required" },
+        { status: 400 },
+      );
+    }
+    if (!channelType || typeof channelType !== "string") {
+      return Response.json(
+        { accepted: false, error: "channelType is required" },
+        { status: 400 },
+      );
+    }
   }
-  if (!channelType || typeof channelType !== "string") {
-    return Response.json(
-      { accepted: false, error: "channelType is required" },
-      { status: 400 },
-    );
+
+  if (body.cancelled === true) {
+    return submitGuardianForm({
+      requestId,
+      cancelled: true,
+      logContext: { form: ADDRESS_FORM },
+      formKind: ADDRESS_FORM,
+      ...CONTACT_FORM_IPC,
+    });
   }
+
+  return submitGuardianForm({
+    requestId,
+    logContext: { form: ADDRESS_FORM, channelType },
+    formKind: ADDRESS_FORM,
+    ...CONTACT_FORM_IPC,
+    write: () =>
+      bindSubmittedChannel({
+        requestId,
+        address,
+        channelType,
+        role,
+        displayName,
+        verify: body.verify,
+      }),
+  });
+}
+
+/**
+ * Bind the address the guardian submitted to a contact and a channel.
+ *
+ * Runs with the form's claim already held, so the submission it is writing is
+ * the only one that will land.
+ */
+async function bindSubmittedChannel(input: {
+  requestId: string;
+  address: string;
+  channelType: string;
+  role?: "guardian" | "trusted-contact" | "unknown";
+  displayName?: string;
+  verify?: boolean;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, address, channelType, role, displayName } = input;
 
   const normalizedAddress =
     canonicalizeInboundIdentity(channelType, address) ?? address.trim();
@@ -214,17 +296,18 @@ export async function handleContactPromptSubmit(
           { channelType, address: normalizedAddress, contactId },
           "contact-prompt-submit: channel resolution failed after upsert",
         );
-        return await channelResolutionError(requestId);
+        return CHANNEL_RESOLUTION_FAILED;
       }
 
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
       // Phase 2 channel-creation block below and go straight to resolve.
-      return await resolveContactPrompt({
+      return await channelResolution({
         requestId,
         contactId,
         channelId,
         channelType,
         address: normalizedAddress,
+        verify: input.verify,
       });
     }
 
@@ -287,17 +370,12 @@ export async function handleContactPromptSubmit(
         },
         "contact-prompt-submit: channel already assigned to another contact",
       );
-      await notifyDaemonResolveError(
-        requestId,
-        "Channel already assigned to another contact",
-      );
-      return Response.json(
-        {
-          accepted: false,
+      return {
+        failure: {
           error: "Channel already assigned to another contact",
+          status: 409,
         },
-        { status: 409 },
-      );
+      };
     } else {
       // Compensating delete — only remove the contact if we created it here.
       // "Stale over lost": delete gateway-first, then mirror the delete to
@@ -339,15 +417,9 @@ export async function handleContactPromptSubmit(
         );
         await rollbackCreatedContact();
 
-        // Notify daemon of failure so the CLI doesn't hang.
-        await notifyDaemonResolveError(
-          requestId,
-          "Failed to create contact channel",
-        );
-        return Response.json(
-          { accepted: false, error: "Failed to create contact channel" },
-          { status: 500 },
-        );
+        return {
+          failure: { error: "Failed to create contact channel", status: 500 },
+        };
       }
 
       if (!channelId) {
@@ -364,7 +436,7 @@ export async function handleContactPromptSubmit(
             body: { kind: "contacts_changed" },
           } as unknown as Record<string, unknown>).catch(() => {});
         }
-        return await channelResolutionError(requestId);
+        return CHANNEL_RESOLUTION_FAILED;
       }
 
       log.info(
@@ -374,11 +446,7 @@ export async function handleContactPromptSubmit(
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
-    await notifyDaemonResolveError(requestId, "Database error");
-    return Response.json(
-      { accepted: false, error: "Database error" },
-      { status: 500 },
-    );
+    return { failure: { error: "Database error", status: 500 } };
   }
 
   // Invalidate the daemon guardian-id/role caches after a gateway-owned
@@ -387,34 +455,39 @@ export async function handleContactPromptSubmit(
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});
 
-  return await resolveContactPrompt({
+  return await channelResolution({
     requestId,
     contactId,
     channelId,
     channelType,
     address: normalizedAddress,
+    verify: input.verify,
   });
 }
 
 /**
- * Notify the daemon of a failed channel resolution and return 500. Used when the
- * gateway DB read can't find the just-bound channel — resolving the prompt with
- * an empty channelId would falsely report success for a channel-less contact.
+ * The read-back after a bind could not find the channel. Reporting an empty
+ * channelId would claim success for a channel-less contact.
  */
-async function channelResolutionError(requestId: string): Promise<Response> {
-  await notifyDaemonResolveError(requestId, "Channel resolution failed");
-  return Response.json(
-    { accepted: false, error: "Channel resolution failed" },
-    { status: 500 },
-  );
-}
+const CHANNEL_RESOLUTION_FAILED: GuardianFormWriteOutcome = {
+  failure: { error: "Channel resolution failed", status: 500 },
+};
 
 /**
- * Notify the daemon to unblock the waiting contacts/prompt IPC call, then
- * return { accepted: true }. IPC failures are best-effort — they only mean the
- * CLI may time out, not that the write failed.
+ * Whether the guardian left the "mark verified" box checked.
  */
-async function promptWantsVerify(requestId: string): Promise<boolean> {
+async function promptWantsVerify(
+  requestId: string,
+  submitted: boolean | undefined,
+): Promise<boolean> {
+  // The checkbox is the answer. `--verify` only pre-checks it, so a guardian
+  // who unchecks the box must not get a verified channel.
+  if (typeof submitted === "boolean") {
+    return submitted;
+  }
+  // A client with no checkbox sends no answer, so the parked flag stands in
+  // for one. Read out of band because such a client has no field to echo it
+  // back in.
   try {
     const result = await ipcCallAssistant("contact_prompt_flags", {
       body: { requestId },
@@ -429,61 +502,234 @@ async function promptWantsVerify(requestId: string): Promise<boolean> {
   }
 }
 
-async function resolveContactPrompt(args: {
+/**
+ * The outcome for a committed channel bind, attesting it first if the guardian
+ * asked for that.
+ */
+async function channelResolution(args: {
   requestId: string;
   contactId: string;
   channelId: string;
   channelType: string;
   address: string;
-}): Promise<Response> {
+  verify: boolean | undefined;
+}): Promise<GuardianFormWriteOutcome> {
   const { requestId, contactId, channelId, channelType, address } = args;
-  if (await promptWantsVerify(requestId)) {
-    const verified = await getStore().markChannelVerified(channelId);
+  // What the channel ends up as, not what was asked for: the guardian's box
+  // decides, an attest that fails leaves it unverified, and an address that
+  // reuses an already verified channel stays verified whether or not this
+  // submission asked for it.
+  let verified = false;
+  if (await promptWantsVerify(requestId, args.verify)) {
+    try {
+      // A resolved row means the channel is attested, whether this call is what
+      // wrote it or it already was.
+      verified = (await getStore().markChannelVerified(channelId)) !== null;
+    } catch (err) {
+      // The binding is already committed, so a failed attest is a channel that
+      // exists as it stood, not a failed submission. Read the channel rather
+      // than assuming unverified: attesting one that already was leaves it
+      // verified, and reporting otherwise invents a downgrade.
+      log.error(
+        { err, requestId, contactId, channelId },
+        "contact-prompt-submit: attesting the channel threw",
+      );
+      verified = isChannelVerified(contactId, channelId);
+    }
     if (!verified) {
       log.warn(
         { requestId, contactId, channelId },
-        "contact-prompt-submit: --verify was set but the channel could not be attested",
+        "contact-prompt-submit: verification was requested but the channel could not be attested",
       );
     }
-  }
-  try {
-    const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, contactId, channelId, channelType, address },
-    });
-    if ((ipcResult as { resolved?: boolean }).resolved === false) {
-      log.warn(
-        { requestId, contactId },
-        "contact-prompt-submit: resolve_contact_prompt IPC did not find a pending prompt — CLI may time out",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err, requestId, contactId },
-      "contact-prompt-submit: resolve_contact_prompt IPC failed — CLI may time out",
-    );
+  } else {
+    verified = isChannelVerified(contactId, channelId);
   }
 
-  return Response.json({ accepted: true });
+  return {
+    resolution: { contactId, channelId, channelType, address, verified },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Record submissions (create / update / delete)
+// ---------------------------------------------------------------------------
+
+interface ContactRecordSubmitBody {
+  requestId: string;
+  operation?: "create" | "update" | "delete";
+  contactId?: string;
+  displayName?: string;
+  notes?: string | null;
+  /** The channels the delete confirmation listed. */
+  expectedChannels?: Array<{ type: string; address: string }>;
+  /** The guardian dismissed the form. Unblocks the CLI instead of writing. */
+  cancelled?: boolean;
 }
 
 /**
- * Best-effort notification to the daemon that a pending contact prompt has
- * resolved with an error. Failures here must not block the HTTP response —
- * the caller has already decided the request failed; we just want to wake
- * the CLI up.
+ * POST /v1/contacts/record/submit
+ *
+ * The record half of the contact-form rail: the guardian confirmed (and may
+ * have edited) a create, update, or delete the assistant proposed. Writes it,
+ * then unblocks the parked CLI call.
+ *
+ * The submitted operation is trusted as posted rather than checked against the
+ * parked proposal. A caller who can reach this route can already reach
+ * `POST /v1/contacts` and `DELETE /v1/contacts/:id` at the same edge auth, so
+ * a readback would buy no privilege, only a round trip.
  */
-async function notifyDaemonResolveError(
-  requestId: string,
-  error: string,
-): Promise<void> {
+export async function handleContactRecordSubmit(
+  req: Request,
+): Promise<Response> {
+  let body: ContactRecordSubmitBody;
   try {
-    await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, error },
+    body = (await req.json()) as ContactRecordSubmitBody;
+  } catch {
+    return Response.json(
+      { accepted: false, error: "Invalid JSON body" },
+      { status: 400 },
+    );
+  }
+
+  const { requestId, operation, contactId } = body;
+
+  if (!requestId || typeof requestId !== "string") {
+    return Response.json(
+      { accepted: false, error: "requestId is required" },
+      { status: 400 },
+    );
+  }
+
+  // Dismissal is a real answer: resolve the parked call now rather than
+  // leaving the CLI to time out on a form nobody is going to submit. It takes
+  // the same claim as a write, because one client dismissing while another is
+  // mid-submit would otherwise tell the caller nothing happened while the
+  // other answer was still on its way to the database.
+  if (body.cancelled === true) {
+    return submitGuardianForm({
+      requestId,
+      cancelled: true,
+      logContext: { form: RECORD_FORM },
+      formKind: RECORD_FORM,
+      ...CONTACT_FORM_IPC,
     });
+  }
+
+  if (
+    operation !== "create" &&
+    operation !== "update" &&
+    operation !== "delete"
+  ) {
+    return Response.json(
+      {
+        accepted: false,
+        error: 'operation must be one of: "create", "update", "delete"',
+      },
+      { status: 400 },
+    );
+  }
+
+  if (operation !== "create" && (!contactId || typeof contactId !== "string")) {
+    return Response.json(
+      { accepted: false, error: `contactId is required to ${operation}` },
+      { status: 400 },
+    );
+  }
+
+  // A non-string displayName (an explicit null included) reads as omitted, so
+  // upsertContactRecordCore preserves an existing name rather than writing the
+  // value through to the NOT NULL display_name column.
+  const displayName =
+    typeof body.displayName === "string" ? body.displayName : undefined;
+
+  return submitGuardianForm({
+    requestId,
+    logContext: { form: RECORD_FORM, operation, contactId },
+    formKind: RECORD_FORM,
+    ...CONTACT_FORM_IPC,
+    write: () =>
+      writeContactRecord({
+        requestId,
+        operation,
+        contactId,
+        displayName,
+        notes: body.notes,
+        expectedChannels: Array.isArray(body.expectedChannels)
+          ? body.expectedChannels
+          : undefined,
+      }),
+  });
+}
+
+/**
+ * Apply the record write the guardian confirmed.
+ *
+ * Runs with the form's claim already held: the form is broadcast to every
+ * connected client, so without it a second one could answer with the values it
+ * was seeded with and overwrite the answer the guardian actually gave.
+ */
+async function writeContactRecord(input: {
+  requestId: string;
+  operation: "create" | "update" | "delete";
+  contactId?: string;
+  displayName?: string;
+  notes?: string | null;
+  expectedChannels?: Array<{ type: string; address: string }>;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, operation, contactId, displayName, notes } = input;
+
+  try {
+    if (operation === "delete") {
+      // Deleting cascades the contact's channels, and the confirmation listed
+      // the ones it had when the form opened. The core compares them against
+      // the contact's channels in the same transaction as the delete, so a
+      // channel reparented in between (an invite redeemed, say) is not
+      // cascaded away unseen.
+      await deleteContactCore(contactId!, input.expectedChannels);
+      log.info({ requestId, contactId }, "contact-record-submit: deleted");
+      return { resolution: { contactId } };
+    }
+
+    const { contact, notesSaved, nothingWritten } =
+      await upsertContactRecordCore({
+        operation,
+        contactId: operation === "update" ? contactId : undefined,
+        displayName,
+        notes,
+      });
+    const writtenId = contact.id as string;
+    log.info(
+      { requestId, contactId: writtenId, operation },
+      "contact-record-submit: wrote contact record",
+    );
+    return { resolution: { contactId: writtenId, notesSaved, nothingWritten } };
+  } catch (err) {
+    if (err instanceof ContactRecordNativeError) {
+      return { failure: { error: err.message, status: err.statusCode } };
+    }
+    log.error({ err, requestId, operation }, "contact-record-submit: failed");
+    return { failure: { error: "Contact write failed", status: 500 } };
+  }
+}
+
+/**
+ * Whether the channel already carries an attestation.
+ *
+ * Read rather than assumed, so a submission that reuses a verified channel
+ * without asking for verification reports what the channel is.
+ */
+function isChannelVerified(contactId: string, channelId: string): boolean {
+  try {
+    const channel = getStore()
+      .getChannelsForContact(contactId)
+      .find((ch) => ch.id === channelId);
+    return channel?.verifiedAt != null;
   } catch (err) {
     log.warn(
-      { err, requestId },
-      "contact-prompt-submit: resolve_contact_prompt error notification failed",
+      { err, contactId, channelId },
+      "contact-prompt-submit: could not read the channel's verification state",
     );
+    return false;
   }
 }

@@ -222,7 +222,6 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
       label: "View",
       submenu: [
         fileItem("Toggle Sidebar", { kind: "sidebarToggle" }),
-        fileItem("Home", { kind: "home" }),
         fileItem("Command Palette\u2026", { kind: "commandPalette" }),
         { type: "separator" },
         { role: "reload" },

@@ -39,8 +39,8 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("message-consolidation");
 
 /**
- * True when an assistant row is a standalone display turn (system card or
- * provider-error notice) that never merges with adjacent assistant rows in
+ * True when an assistant row is a standalone display turn (system card,
+ * provider-error notice, or deliberate-silence marker) that never merges with adjacent assistant rows in
  * either direction. Merging one into an adjacent run would let the anchor's
  * metadata win and drop the `messageKind` marker from the wire (or stamp it
  * onto a bubble containing real assistant text).

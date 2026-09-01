@@ -34,6 +34,7 @@ export {
   ScrollShadow,
   type ScrollShadowProps,
   type ScrollShadowOrientation,
+  type ScrollShadowFadeEdges,
 } from "./components/scroll-shadow";
 export {
   Tag,
@@ -196,6 +197,7 @@ export {
 export {
   MARKDOWN_INLINE_CODE_CLASS,
   MarkdownMessage,
+  preloadMarkdownMath,
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
   quoteBlockquoteContentClassName,

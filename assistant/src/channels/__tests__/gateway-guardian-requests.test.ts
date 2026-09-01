@@ -631,11 +631,7 @@ describe("isGuardianRequestInScopeOrFalse", () => {
   test("returns the gateway scope verdict", async () => {
     ipcResponse = { inScope: true };
     expect(
-      await client.isGuardianRequestInScopeOrFalse(
-        "req-1",
-        "conv-1",
-        "telegram",
-      ),
+      await client.isGuardianRequestInScopeOrFalse("req-1", "conv-1"),
     ).toBe(true);
     expect(ipcCalls).toEqual([
       {
@@ -643,7 +639,6 @@ describe("isGuardianRequestInScopeOrFalse", () => {
         params: {
           requestId: "req-1",
           conversationId: "conv-1",
-          channel: "telegram",
         },
       },
     ]);

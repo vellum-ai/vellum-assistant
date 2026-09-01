@@ -10,6 +10,7 @@ import type { TelegramSendOptions } from "./send.js";
 import {
   editTelegramMessage,
   sendTelegramAttachments,
+  sendTelegramReaction,
   sendTelegramReply,
   sendTelegramRichReply,
   sendTelegramTypingIndicator,
@@ -31,6 +32,15 @@ export const telegramTransport: ChannelTransport = {
 
   // Telegram clears a chat action after about five seconds.
   activityRefreshMs: 4_000,
+
+  async react(target) {
+    return sendTelegramReaction(
+      target.chatId,
+      target.emoji,
+      target.messageId,
+      target.action,
+    );
+  },
 
   async deliver(ctx, payload) {
     const { chatId, text, attachments, approval } = payload;

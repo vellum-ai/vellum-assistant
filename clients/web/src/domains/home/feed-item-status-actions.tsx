@@ -1,7 +1,11 @@
 import { RotateCcw, Trash2 } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  type FeedItem,
+  type FeedItemStatus,
+  isPendingGuardianFeedItem,
+} from "@vellumai/assistant-api";
 import { Button } from "@vellumai/design-library";
 
 import { buildReadToggle } from "./read-toggle";
@@ -15,12 +19,11 @@ export interface FeedItemStatusActionsProps {
 /**
  * The status controls a notification's detail header carries: the read/unread
  * toggle, then dismiss (or restore, for an item already dismissed). Rendered
- * by the Activity page's detail panel and by the notification bell's detail.
+ * by the notification bell's detail.
  *
- * A fragment rather than a row: the two headers seat the pair differently
- * (the bell holds its width opposite a back control, the panel pushes it to
- * the trailing edge of a nav bar), so the container stays with each of them
- * and only the controls are shared.
+ * A fragment rather than a row: the header seats the pair against a back
+ * control and holds its own width, so the container stays with the caller and
+ * only the controls live here.
  */
 export function FeedItemStatusActions({
   item,
@@ -48,7 +51,9 @@ export function FeedItemStatusActions({
           aria-label={t("actions.restore")}
           tooltip={t("actions.restore")}
         />
-      ) : (
+      ) : isPendingGuardianFeedItem(item) ? null : (
+        // The live projection of an unresolved guardian request offers no
+        // dismiss: resolution retires it, and only its receipt is clearable.
         <Button
           variant="ghost"
           iconOnly={<Trash2 />}

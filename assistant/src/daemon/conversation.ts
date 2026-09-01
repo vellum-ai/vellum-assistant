@@ -21,7 +21,7 @@ import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
 import type { AssistantEvent } from "../api/index.js";
-import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
+import { syncTerminalGuardianRequestStatus } from "../approvals/guardian-request-status-sync.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -55,6 +56,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { extractTextFromStoredMessageContent } from "../persistence/message-content.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
@@ -137,6 +139,7 @@ import type {
 } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
+  applySightFrameRetention,
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
   getSlackWatermarkAdvanceForRowPrefix,
@@ -172,6 +175,8 @@ import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import { renderReactionHistoryText } from "./reaction-history-render.js";
+import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
   resolveSummarizeBoundary,
   startsNewTurn,
@@ -538,6 +543,14 @@ export class Conversation {
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
+  /** @internal */ loadedHistoryStale = false;
+  /**
+   * @internal Reactions the current turn delivered, awaiting their durable
+   * rows. Written mid-turn by the react tool, drained by the agent loop at
+   * the turn boundary so the rows never land between a tool_use and its
+   * tool_result.
+   */
+  pendingReactionRecords: QueuedReactionRecord[] = [];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /**
@@ -887,6 +900,16 @@ export class Conversation {
           conv.createdAt,
         );
       },
+      // Compaction rebuilds history from the stored rows, so it can retain
+      // camera frames the turn's pre-run pass had already stubbed, and the
+      // rebuilt array is sent on the next request of that same turn. Re-running
+      // the retention pass here is what holds the frame bound across a
+      // compaction instead of only from the next turn onward. The row read
+      // repeats rather than sharing the pre-run pass's map: compactions are
+      // rare, and a map captured before the turn's awaits would describe a
+      // conversation that has since gained rows.
+      transformCompactedHistory: (messages) =>
+        applySightFrameRetention(messages, this.conversationId),
     });
     createContextWindowManager({
       provider,
@@ -1052,6 +1075,9 @@ export class Conversation {
 
   async loadFromDb(): Promise<LoadFromDbResult> {
     const loadStartedAt = performance.now();
+    // Cleared before the rows are read: a channel event persisted mid-load
+    // re-marks the flag, so the next turn reloads rather than missing it.
+    this.loadedHistoryStale = false;
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
@@ -1142,12 +1168,104 @@ export class Conversation {
       }
       return v3PrunedSlugsMemo;
     };
+    // Provider-id → row-text index for reaction target resolution, built
+    // lazily on the first reaction row: most conversations carry none, so
+    // most loads never walk the rows a second time. Keyed over the full
+    // (unsliced) history so a reaction whose target was compacted out of
+    // context still resolves its quote.
+    let reactionTargetIndexMemo: Map<string, string> | null = null;
+    const resolveReactionTarget = (
+      targetMessageId: string,
+    ): string | undefined => {
+      if (reactionTargetIndexMemo === null) {
+        reactionTargetIndexMemo = new Map();
+        for (const row of dbMessages) {
+          const rowMeta = readProviderMetadata(row.metadata);
+          // A deleted target is a logical erasure (same rule as the Slack
+          // transcript renderer), so its text is never quoted back.
+          if (
+            rowMeta?.eventKind === "message" &&
+            rowMeta.deletedAt === undefined &&
+            rowMeta.messageId
+          ) {
+            const text = extractTextFromStoredMessageContent(row.content);
+            if (text) {
+              // A split reply posts several provider messages from one row;
+              // a reaction may name any of them. A post deleted on its own
+              // (partial deletion of a split reply) stops being quotable
+              // while its siblings remain.
+              for (const id of [
+                rowMeta.messageId,
+                ...(rowMeta.additionalMessageIds ?? []),
+              ]) {
+                if (
+                  !reactionTargetIndexMemo.has(id) &&
+                  !rowMeta.deletedMessageIds?.includes(id)
+                ) {
+                  reactionTargetIndexMemo.set(id, text);
+                }
+              }
+            }
+          }
+        }
+      }
+      return reactionTargetIndexMemo.get(targetMessageId);
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
       let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
+
+      // Channel facts stamped in metadata render at load time rather than
+      // at persist time, so every stored row reads correctly whenever it
+      // was written: a reaction row's "[reaction]" sentinel renders as who
+      // reacted with what to which message, and a deleted row's original
+      // text gives way to a deletion marker (the delete intercepts stamp
+      // metadata and deliberately leave the content column untouched). The
+      // substring guard keeps the per-row metadata parse off rows that can
+      // carry neither fact: both envelopes spell these keys literally, in
+      // providerMeta and in nested slackMeta alike.
+      if (
+        m.metadata &&
+        (m.metadata.includes("reaction") || m.metadata.includes("deletedAt"))
+      ) {
+        const providerMeta = readProviderMetadata(m.metadata);
+        if (providerMeta?.eventKind === "reaction") {
+          const rendered = renderReactionHistoryText(
+            providerMeta,
+            resolveReactionTarget,
+            // An assistant-role reaction row is the assistant's own act,
+            // persisted by the react tool.
+            { selfAuthored: role === "assistant" },
+          );
+          if (rendered) {
+            content = [{ type: "text", text: rendered }];
+          }
+        } else if (role === "user" && providerMeta?.deletedAt !== undefined) {
+          // Neutral marker, no actor: Discord deletes can be authorless
+          // (`actorUnattributed`), so the marker never claims who deleted.
+          content = [{ type: "text", text: "[This message was deleted]" }];
+        } else if (
+          role === "assistant" &&
+          providerMeta?.deletedAt !== undefined
+        ) {
+          // The assistant's own deleted post keeps its content: erasure is
+          // how a retracted USER message is honored, but rewriting what the
+          // assistant said would falsify its memory of its own output. The
+          // rendered fact is visibility: the message no longer exists on the
+          // channel, so the assistant should not refer to it as something
+          // participants can see.
+          content = [
+            ...content,
+            {
+              type: "text",
+              text: "[This message was deleted from the channel and is no longer visible to participants]",
+            },
+          ];
+        }
+      }
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
@@ -1522,12 +1640,29 @@ export class Conversation {
       this.trustContext,
     );
     if (
+      !this.loadedHistoryStale &&
       this.loadedHistoryTrustClass === currentTrustClass &&
       this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
     ) {
       return;
     }
     await this.loadFromDb();
+  }
+
+  /**
+   * Mark the resident history stale: a channel event (a reaction, edit, or
+   * delete) was persisted straight to the store while this conversation was
+   * loaded, so `this.messages` no longer reflects the rows. The next
+   * {@link ensureActorScopedHistory} reloads instead of reusing the resident
+   * history.
+   */
+  markHistoryStale(): void {
+    this.loadedHistoryStale = true;
+  }
+
+  /** Queue a delivered reaction for its durable row at the turn boundary. */
+  queueReactionRecord(record: QueuedReactionRecord): void {
+    this.pendingReactionRecords.push(record);
   }
 
   /**
@@ -1975,20 +2110,16 @@ export class Conversation {
     });
 
     // Sync the gateway request status so stale "pending" records don't get
-    // matched by later guardian reply routing. Fire-and-forget: this method
-    // is sync with many callers (HTTP handlers, /v1/confirm, channel
-    // bridges), the in-memory resolution above is authoritative, and a CAS
-    // miss (the decision primitive already resolved it, e.g. the channel
-    // approval path) is expected and harmless.
-    void decideGuardianRequest({
-      id: requestId,
-      expectedStatus: "pending",
+    // matched by later guardian reply routing, and withdraw the request's
+    // approval cards when this sync is the write that landed. Fire-and-forget:
+    // this method is sync with many callers (HTTP handlers, /v1/confirm,
+    // channel bridges), the in-memory resolution above is authoritative, and
+    // a CAS miss (the decision primitive already resolved it and withdrew the
+    // cards itself, e.g. the channel approval path) is expected and harmless.
+    void syncTerminalGuardianRequestStatus({
+      requestId,
       status: resolvedState,
-    }).catch((err) => {
-      log.warn(
-        { err, requestId },
-        "Post-confirmation guardian request status sync failed",
-      );
+      syncContext: "post-confirmation",
     });
   }
 
@@ -2317,6 +2448,20 @@ export class Conversation {
   }
 
   /**
+   * Trim this conversation's aged camera frames out of a history about to be
+   * sent to a provider, keeping only the newest few as real images.
+   *
+   * Thin binding of {@link applySightFrameRetention} to the conversation's own
+   * id, for the send paths that hold the instance rather than a turn context:
+   * the compaction pipeline's summarizer input, and the wake, which sends its
+   * run input itself. Best-effort inside, so a failed row read degrades to the
+   * untrimmed history.
+   */
+  trimAgedSightFrames(messages: Message[]): Message[] {
+    return applySightFrameRetention(messages, this.conversationId);
+  }
+
+  /**
    * Auto-threshold compaction gate. Runs the same durable compaction
    * pipeline as {@link forceCompact} (summary call, circuit-breaker
    * accounting, Slack provenance, in-memory + DB commit) but honors the
@@ -2415,8 +2560,16 @@ export class Conversation {
             },
           )
         : null;
-    const messagesToCompact =
-      slackChronologicalContext?.messages ?? this.messages;
+    // Trim aged camera frames out of the summarizer's own input. Compaction
+    // sends this array to a provider like any other request, so a long camera
+    // session would otherwise put every frame it ever captured into the summary
+    // call, which is the payload-size and many-image rejection retention exists
+    // to prevent. Safe against the caller-fixed boundary below: the pass
+    // replaces blocks inside messages and never adds, drops, or reorders one,
+    // so `fixedTailStartIndex` still names the same message.
+    const messagesToCompact = this.trimAgedSightFrames(
+      slackChronologicalContext?.messages ?? this.messages,
+    );
     const compactedRowCountAtCall = this.contextCompactedMessageCount;
     let result = await defaultCompact({
       conversationId: this.conversationId,

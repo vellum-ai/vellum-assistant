@@ -6,21 +6,37 @@ import type { HotkeyEvent } from "@/runtime/hotkey";
 
 let fnSupported = false;
 let fnRegistrationSucceeds = true;
+let chordSupported = false;
+let chordRegistrationSucceeds = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
+let emitRegistrationChange: ((active: boolean) => void) | null = null;
 
 let onElectron = false;
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => onElectron,
 }));
 
+const setNativeVoiceModeChord = mock(async (_activator: unknown) => {
+  return chordRegistrationSucceeds;
+});
 mock.module("@/runtime/hotkey", () => ({
   supportsFnPushToTalk: () => fnSupported,
+  supportsVoiceModeChord: () => chordSupported,
   setFnPushToTalkEnabled: async (enable: boolean) =>
     enable ? fnRegistrationSucceeds : true,
+  setNativeVoiceModeChord,
   subscribeToHotkeyEvents: (callback: (event: HotkeyEvent) => void) => {
     emitHotkeyEvent = callback;
     return () => {
       emitHotkeyEvent = null;
+    };
+  },
+  subscribeToVoiceModeChordRegistration: (
+    callback: (active: boolean) => void,
+  ) => {
+    emitRegistrationChange = callback;
+    return () => {
+      emitRegistrationChange = null;
     };
   },
 }));
@@ -74,8 +90,12 @@ function chordEvent(): KeyboardEvent {
 beforeEach(() => {
   fnSupported = false;
   fnRegistrationSucceeds = true;
+  chordSupported = false;
+  chordRegistrationSucceeds = true;
   onElectron = false;
   emitHotkeyEvent = null;
+  emitRegistrationChange = null;
+  setNativeVoiceModeChord.mockClear();
   startVoiceFromSurface.mockClear();
   stop.mockClear();
   localStorage.removeItem(LS_VOICE_MODE_ACTIVATION_KEY);
@@ -327,6 +347,113 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(
         new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
       );
+
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    });
+
+    test("registers the bare-modifier binding with the helper's global hook", async () => {
+      onElectron = true;
+      chordSupported = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
+      renderVoiceModeHotkey();
+
+      await waitFor(() => {
+        expect(setNativeVoiceModeChord).toHaveBeenCalledWith({
+          kind: "modifierOnly",
+          modifiers: ["option"],
+        });
+      });
+    });
+
+    test("a completed native tap toggles on the down edge, from any app", async () => {
+      onElectron = true;
+      chordSupported = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
+      renderVoiceModeHotkey();
+      await waitFor(() => {
+        expect(setNativeVoiceModeChord).toHaveBeenCalled();
+      });
+
+      emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
+      emitHotkeyEvent?.({ kind: "voiceModeChord", state: "up" });
+
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    });
+
+    test("the DOM tap stays quiet while native capture is live", async () => {
+      onElectron = true;
+      chordSupported = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
+      renderVoiceModeHotkey();
+      await waitFor(() => {
+        expect(setNativeVoiceModeChord).toHaveBeenCalled();
+      });
+
+      // The hook sees the same physical press; only the bridge event toggles.
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Alt",
+          altKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
+      );
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+
+      // The host reporting the registration lost hands the tap back to the
+      // focused-window listener.
+      emitRegistrationChange?.(false);
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Alt",
+          altKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
+      );
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    });
+
+    test("a refused chord registration keeps the focused-window tap", async () => {
+      onElectron = true;
+      chordSupported = true;
+      chordRegistrationSucceeds = false;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
+      renderVoiceModeHotkey();
+      await waitFor(() => {
+        expect(setNativeVoiceModeChord).toHaveBeenCalled();
+      });
+
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Alt",
+          altKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
+      );
+
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    });
+
+    test("ignores native taps once the binding is not a bare modifier", async () => {
+      onElectron = true;
+      chordSupported = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "off" });
+      renderVoiceModeHotkey();
+
+      emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
 
       expect(startVoiceFromSurface).not.toHaveBeenCalled();
     });

@@ -17,20 +17,25 @@ import { Notice } from "./notice";
  * press again.
  *
  * Focus is auto-directed to the confirm button on open so pressing
- * Enter confirms without requiring Tab. Escape closes only this dialog,
- * not any parent modal it may be stacked inside.
+ * Enter confirms without requiring Tab, unless confirm is disabled.
+ * Escape closes only this dialog, not any parent modal it may be
+ * stacked inside.
  */
 
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: ReactNode;
+  /** Extra body content after the message (acknowledgment, extra detail). */
+  children?: ReactNode;
   /** Inline failure message shown under the message while the dialog stays open. */
   error?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
   isPending?: boolean;
+  /** Keeps confirm visible but inert until a caller-owned gate is satisfied. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -41,14 +46,17 @@ function ConfirmDialog({
   open,
   title,
   message,
+  children,
   error,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
   isPending = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const confirmInert = isPending || confirmDisabled;
   return (
     <Modal.Root
       open={open}
@@ -62,6 +70,9 @@ function ConfirmDialog({
         size="sm"
         hideCloseButton
         onOpenAutoFocus={(event) => {
+          if (confirmDisabled) {
+            return;
+          }
           const content = event.currentTarget as HTMLElement | null;
           const confirmButton = content?.querySelector<HTMLButtonElement>(
             `[${CONFIRM_BUTTON_ATTR}]`,
@@ -74,7 +85,9 @@ function ConfirmDialog({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (!isPending) onCancel();
+          if (!isPending) {
+            onCancel();
+          }
         }}
       >
         <Modal.Header icon={destructive ? AlertTriangle : undefined}>
@@ -82,6 +95,7 @@ function ConfirmDialog({
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>{message}</Modal.Description>
+          {children}
           {error != null ? (
             <div className="mt-3">
               <Notice tone="error">{error}</Notice>
@@ -94,8 +108,13 @@ function ConfirmDialog({
           </Button>
           <Button
             variant={destructive ? "danger" : "primary"}
-            onClick={onConfirm}
-            disabled={isPending}
+            onClick={() => {
+              if (confirmInert) {
+                return;
+              }
+              onConfirm();
+            }}
+            disabled={confirmInert}
             leftIcon={isPending ? <Loader2 className="animate-spin" /> : undefined}
             {...{ [CONFIRM_BUTTON_ATTR]: "" }}
           >

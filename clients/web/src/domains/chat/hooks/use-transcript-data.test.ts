@@ -25,6 +25,7 @@ mock.module("@/domains/chat/interaction-store", () => ({
       pendingSecret: () => null,
       pendingConfirmation: () => null,
       pendingContactRequest: () => null,
+      pendingContactRecordRequest: () => null,
     },
   },
 }));

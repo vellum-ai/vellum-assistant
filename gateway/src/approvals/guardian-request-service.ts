@@ -52,6 +52,7 @@ import {
   getPendingByDestinationMessage,
   isRequestInConversationScope,
   listDeliveries,
+  listDeliveriesByChat,
   listGuardianRequests as storeListGuardianRequests,
   listPendingByConversationScope,
   listPendingByDestinationChat,
@@ -171,6 +172,13 @@ export function listGuardianRequestDeliveries(
   return listDeliveries(requestId);
 }
 
+export function listGuardianRequestDeliveriesByChat(
+  channel: string,
+  chatId: string,
+): GuardianRequestDeliveryWire[] {
+  return listDeliveriesByChat(channel, chatId);
+}
+
 // ---------------------------------------------------------------------------
 // Destination + scope lookups
 // ---------------------------------------------------------------------------
@@ -219,9 +227,8 @@ export function listPendingRequestsByScope(
 export function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): boolean {
-  return isRequestInConversationScope(requestId, conversationId, channel);
+  return isRequestInConversationScope(requestId, conversationId);
 }
 
 export function getPendingRequestByCallSession(

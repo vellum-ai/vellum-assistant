@@ -91,8 +91,12 @@ import {
   type ConversationCreateType,
   type ConversationOrigin,
   isHiddenMessageMetadata,
+  isNoResponseMetadata,
+  isReactionMessageMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
+  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
+  sightFrameAttachmentIdsFromMetadata,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
@@ -458,7 +462,10 @@ export {
  * alongside the schema that carries them.
  */
 export {
+  isNoResponseMetadata,
   isSystemCardMetadata,
+  NO_RESPONSE_MESSAGE_KIND,
+  REACTION_MESSAGE_KIND,
   SYSTEM_CARD_MESSAGE_KIND,
 } from "./conversation-types.js";
 
@@ -485,7 +492,7 @@ export function isProviderErrorMetadata(
 
 /**
  * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice. Standalone rows never merge with adjacent
+ * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
@@ -499,7 +506,12 @@ export function isStandaloneAssistantMessage(
   }
   try {
     const parsed = JSON.parse(metadata) as Record<string, unknown>;
-    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
+    return (
+      isSystemCardMetadata(parsed) ||
+      isProviderErrorMetadata(parsed) ||
+      isNoResponseMetadata(parsed) ||
+      isReactionMessageMetadata(parsed)
+    );
   } catch {
     return false;
   }
@@ -1675,6 +1687,8 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     });
   }
 
+  widenForkSightFrameTags(messagesToCopy, forkedMessageIds, attachmentIdMap);
+
   // Set lastMessageAt to the max createdAt of copied messages so the
   // forked conversation sorts correctly by message recency.
   const lastCopiedMessage = messagesToCopy.at(-1);
@@ -1715,6 +1729,75 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
       fork.id,
       messagesToCopy.at(-1)?.createdAt ?? null,
     );
+  }
+}
+
+/**
+ * Extend the copied rows' camera-frame tags to name the fork's cloned
+ * attachment ids alongside the source ids they were written with.
+ *
+ * A fork leaves its rows describing their attachments two different ways:
+ * `messages.content` is copied byte for byte and still names the SOURCE
+ * attachment ids, while `message_attachments` is re-linked to freshly CLONED
+ * rows under new ids. Readers split along that seam. Camera-frame retention
+ * matches the tag against the ids in the content blocks (source ids), and the
+ * compactor builds its image manifest from the links (cloned ids) and stamps
+ * those onto the frames it rebuilds. A tag naming only one vocabulary goes
+ * blind on the other, so it names both.
+ *
+ * Widening rather than remapping is deliberate: replacing the source ids would
+ * fix the compactor's frames by breaking every frame the fork holds directly,
+ * which is the common case. Extra ids are inert, since an id no block carries
+ * simply never matches.
+ *
+ * Runs after the attachment loop because that loop is what produces the id map.
+ * Only rows that actually carry a tag are rewritten, so an ordinary fork does
+ * no extra writes.
+ */
+function widenForkSightFrameTags(
+  messagesToCopy: MessageRow[],
+  forkedMessageIds: Map<string, string>,
+  attachmentIdMap: Map<string, string>,
+): void {
+  if (attachmentIdMap.size === 0) {
+    return;
+  }
+  const db = getDb();
+  for (const message of messagesToCopy) {
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (!forkedMessageId) {
+      continue;
+    }
+    const sourceMetadata = parseMessageMetadata(message.metadata);
+    const sourceIds = sightFrameAttachmentIdsFromMetadata(sourceMetadata);
+    if (sourceIds.length === 0) {
+      continue;
+    }
+    const widened = new Set(sourceIds);
+    for (const sourceId of sourceIds) {
+      const clonedId = attachmentIdMap.get(sourceId);
+      if (clonedId) {
+        widened.add(clonedId);
+      }
+    }
+    if (widened.size === sourceIds.length) {
+      continue;
+    }
+    const forkedRow = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, forkedMessageId))
+      .get();
+    const forkedMetadata = parseMessageMetadata(forkedRow?.metadata ?? null);
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          ...(forkedMetadata ?? {}),
+          [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: [...widened],
+        }),
+      })
+      .where(eq(messages.id, forkedMessageId))
+      .run();
   }
 }
 
@@ -2492,6 +2575,41 @@ export function selectProviderMetaCandidateMetadata(
     }
   }
   return out;
+}
+
+/**
+ * Every attachment the conversation's rows tagged as an ambient camera frame,
+ * mapped to the `createdAt` of the row that carried it.
+ *
+ * Like the Slack prefilter above, the `LIKE` is an indexable narrowing only:
+ * each candidate row is parsed and validated before an id is taken, so a row
+ * that merely mentions the key contributes nothing. Any row state qualifies
+ * because the tag is written with the insert, and the lineage filter is what
+ * lets a fork see the frames it inherited.
+ */
+export function selectSightFrameCaptureTimes(
+  conversationId: string,
+): Map<string, number> {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all();
+  const captureTimes = new Map<string, number>();
+  for (const row of rows) {
+    const metadata = parseMessageMetadata(row.metadata);
+    for (const id of sightFrameAttachmentIdsFromMetadata(metadata)) {
+      captureTimes.set(id, row.createdAt);
+    }
+  }
+  return captureTimes;
 }
 
 /**
@@ -4082,8 +4200,18 @@ export function relinkAttachments(
  *
  * Returns segment IDs so the caller can clean up the corresponding
  * Qdrant vector entries.
+ *
+ * `retainAttachmentIds` exempts attachments from the orphan cleanup below, for
+ * a caller rolling a message back rather than deleting it: the attachment
+ * returns to the uploaded-but-unlinked state it was in before the row existed,
+ * which is a live state (that is where every attachment sits between upload and
+ * send), not a leak. Callers deleting a message for good pass nothing and the
+ * attachments it alone referenced are collected.
  */
-export function deleteMessageById(messageId: string): DeletedMemoryIds {
+export function deleteMessageById(
+  messageId: string,
+  options?: { retainAttachmentIds?: readonly string[] },
+): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
@@ -4145,7 +4273,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     ...purgeMessageSegments([messageId], "deleteMessageById:post-delete"),
   );
 
-  deleteOrphanAttachments(candidateAttachmentIds);
+  const retainAttachmentIds = options?.retainAttachmentIds;
+  deleteOrphanAttachments(
+    retainAttachmentIds && retainAttachmentIds.length > 0
+      ? candidateAttachmentIds.filter((id) => !retainAttachmentIds.includes(id))
+      : candidateAttachmentIds,
+  );
 
   // Remove the deleted message's point from the lexical index. Enqueued only
   // when the row actually existed (`msgRow` set), after the transaction and

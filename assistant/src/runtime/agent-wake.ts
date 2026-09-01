@@ -145,9 +145,9 @@ function sanitizeEventAttr(value: string): string {
 /**
  * Untrusted third-party output to fence inside a persisted wake trigger via
  * {@link wrapUntrustedContent}. `maxChars` overrides the per-source character
- * budget — used for preformatted shell output that `formatShellOutput` already
- * bounded (to `MAX_OUTPUT_LENGTH`) and appended an `<output_truncated file=…/>`
- * recovery marker to, so the wrapper does not re-truncate that marker off.
+ * budget. Used for preformatted shell output that is already bounded to
+ * `MAX_OUTPUT_LENGTH` with an `<output_truncated />` marker, so the wrapper
+ * does not slice that marker off.
  */
 interface WakeUntrustedOutput {
   content: string;
@@ -1018,7 +1018,19 @@ export async function wakeAgentForOpportunity(
               },
             ];
     const wakeHintMessageCount = wakeMessages.length;
-    const runInput: Message[] = [...baseline, ...wakeMessages];
+    // Camera-frame retention, the wake's equivalent of the orchestrator's
+    // pre-run pass. The wake sends this array itself and keeps the in-loop
+    // budget gate disabled, so neither the loop's post-compaction transform nor
+    // `runAgentLoopImpl`'s pre-run pass ever sees it; a wake on a long camera
+    // session would otherwise carry every frame the conversation holds,
+    // including any the gate above just retained. The pass replaces blocks
+    // inside messages without adding, dropping, or reordering one, so
+    // `baselineLength` and `wakeHintMessageCount` still index the same
+    // positions.
+    const runInput: Message[] = conversation.trimAgedSightFrames([
+      ...baseline,
+      ...wakeMessages,
+    ]);
 
     // Event handling runs in two modes. While `mode === "buffering"`,
     // events accumulate in `buffered` so that a wake which ultimately

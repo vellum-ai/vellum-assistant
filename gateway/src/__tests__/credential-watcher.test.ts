@@ -14,7 +14,7 @@ import {
   pbkdf2Sync,
   randomBytes as cryptoRandomBytes,
 } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer, type Server } from "node:net";
@@ -137,49 +137,6 @@ function writeEncryptedStoreV2(botToken: string, webhookSecret: string): void {
   };
 
   writeFileSync(join(protectedDir, "keys.enc"), JSON.stringify(store));
-}
-
-function metadataRecord(
-  credentialId: string,
-  service: string,
-  field: string,
-): Record<string, unknown> {
-  return {
-    credentialId,
-    service,
-    field,
-    allowedTools: [],
-    allowedDomains: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-}
-
-/**
- * Write credential metadata using the same atomic rename pattern as the
- * production metadata store.
- */
-function writeCredentialMetadata(
-  credentials: Record<string, unknown>[] = [
-    metadataRecord("test-bt", "telegram", "bot_token"),
-    metadataRecord("test-ws", "telegram", "webhook_secret"),
-  ],
-): void {
-  const dir = join(testDir, ".vellum", "workspace", "data", "credentials");
-  mkdirSync(dir, { recursive: true });
-  const metadataPath = join(dir, "metadata.json");
-  const tmpPath = join(
-    dir,
-    `.tmp-${cryptoRandomBytes(4).toString("hex")}-metadata.json`,
-  );
-  writeFileSync(
-    tmpPath,
-    JSON.stringify({
-      version: 2,
-      credentials,
-    }),
-  );
-  renameSync(tmpPath, metadataPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +287,6 @@ describe("gateway telegram hot-reload (e2e)", () => {
 
     // --- Step 2: simulate daemon writing credentials ---
     writeEncryptedStore("fake-bot-token:ABC123", "fake-webhook-secret");
-    writeCredentialMetadata();
 
     // Wait for credential watcher debounce (500ms) + generous margin
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -345,13 +301,8 @@ describe("gateway telegram hot-reload (e2e)", () => {
     expect(after.status).toBe(401);
   }, 30_000);
 
-  test("gateway keeps reloading credentials after multiple atomic metadata rewrites when metadata.json already existed at startup", async () => {
+  test("gateway keeps reloading credentials after keys.enc is rewritten after startup", async () => {
     mkdirSync(testDir, { recursive: true });
-
-    // Start in file-watch mode by creating metadata.json before boot, but
-    // omit Telegram entries so the integration is initially unconfigured.
-    writeCredentialMetadata([metadataRecord("baseline", "github", "token")]);
-    writeEncryptedStore("fake-bot-token:ABC123", "fake-webhook-secret");
 
     await startGateway();
 
@@ -360,23 +311,7 @@ describe("gateway telegram hot-reload (e2e)", () => {
     const before = await waitForTelegramWebhookPastStartup(base);
     expect(before.status).toBe(503);
 
-    // First rewrite after startup stales a file-scoped fs.watch() subscription
-    // on macOS when metadata.json is atomically replaced.
-    writeCredentialMetadata([
-      metadataRecord("baseline", "github", "token"),
-      metadataRecord("other", "openai", "api_key"),
-    ]);
-
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-
-    // Second rewrite adds Telegram credentials. The gateway must still see
-    // this update without requiring a restart.
-    writeCredentialMetadata([
-      metadataRecord("baseline", "github", "token"),
-      metadataRecord("other", "openai", "api_key"),
-      metadataRecord("test-bt", "telegram", "bot_token"),
-      metadataRecord("test-ws", "telegram", "webhook_secret"),
-    ]);
+    writeEncryptedStore("fake-bot-token:ABC123", "fake-webhook-secret");
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -402,7 +337,6 @@ describe("gateway telegram hot-reload (e2e)", () => {
 
     // --- Step 2: simulate daemon writing v2 credentials ---
     writeEncryptedStoreV2("fake-v2-bot-token:XYZ", "fake-v2-webhook-secret");
-    writeCredentialMetadata();
 
     // Wait for credential watcher debounce (500ms) + generous margin
     await new Promise((resolve) => setTimeout(resolve, 2000));

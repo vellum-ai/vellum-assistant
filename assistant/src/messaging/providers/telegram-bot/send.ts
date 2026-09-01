@@ -5,7 +5,10 @@
  * and typing indicators by calling the Telegram Bot API directly via ./api.ts.
  */
 
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
+import type {
+  ApprovalUIMetadata,
+  ChannelDeliveryResult,
+} from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
@@ -388,6 +391,43 @@ export async function sendTelegramAttachments(
  * Send a typing indicator ("chat action") to a Telegram chat.
  * Returns true on success, false on failure (non-throwing).
  */
+/**
+ * Set or clear the bot's emoji reaction on a message.
+ *
+ * `setMessageReaction` semantics (Bot API): a bot holds at most one
+ * reaction per message, so `add` replaces any prior one and `remove`
+ * clears it by sending the empty reaction list. `emoji` is the unicode
+ * emoji itself, and Telegram accepts only its allowed set (the standard
+ * reaction emoji, narrowed further by a chat's allowed-reactions
+ * setting); a rejected emoji reports `ok: false` rather than throwing.
+ */
+export async function sendTelegramReaction(
+  chatId: string,
+  emoji: string,
+  messageId: string,
+  action: "add" | "remove",
+): Promise<ChannelDeliveryResult> {
+  const messageIdNum = Number.parseInt(messageId, 10);
+  if (!Number.isFinite(messageIdNum)) {
+    log.warn({ chatId, messageId }, "Non-numeric Telegram reaction target");
+    return { ok: false };
+  }
+  try {
+    await callTelegramBotApi("setMessageReaction", {
+      chat_id: chatId,
+      message_id: messageIdNum,
+      reaction: action === "add" ? [{ type: "emoji", emoji }] : [],
+    });
+    return { ok: true };
+  } catch (err) {
+    log.warn(
+      { err, chatId, messageId, action },
+      "Failed to deliver Telegram reaction",
+    );
+    return { ok: false };
+  }
+}
+
 export async function sendTelegramTypingIndicator(
   chatId: string,
   opts?: TelegramSendOptions,

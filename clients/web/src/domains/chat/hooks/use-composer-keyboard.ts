@@ -5,8 +5,8 @@
  *    dispatched by the `useVellumCommands` hook in `chat-layout.tsx`
  *    (File > Current Conversation / New Chat). Also drains any pending
  *    focus request that fired before this component mounted (e.g. the
- *    command was invoked from `/assistant/home` and chat-layout navigated
- *    here).
+ *    command was invoked from `/assistant/library` and chat-layout
+ *    navigated here).
  *
  * 2. Typing auto-focus: when the user starts typing with no focused
  *    input and no modal open, captures the keypress and forwards it to

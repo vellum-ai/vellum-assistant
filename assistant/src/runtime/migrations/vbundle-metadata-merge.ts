@@ -1,13 +1,10 @@
 /**
  * Merge helper for `data/credentials/metadata.json` on bundle import.
  *
- * The credential metadata file lists the credentials known to the assistant
- * (service, field, policy, timestamps) and is used by the gateway's
- * `readServiceCredentials` to decide whether a service is "configured".
- * The VELLUM spec requires all four `vellum:*` fields (`platform_base_url`,
- * `assistant_api_key`, `platform_assistant_id`, `webhook_secret`) to be
- * present in metadata before the gateway will even look up their values in
- * CES.
+ * The leftover workspace credential metadata file may remain on disk after
+ * CES import. CES owns identity and policy records. Bundle import still
+ * merges `vellum:*` catalog rows so platform identity survives a
+ * local-to-platform teleport.
  *
  * On a local→platform teleport, the bundle carries the SOURCE's metadata
  * (no `vellum:*` entries, since the source is local), and a naive overwrite

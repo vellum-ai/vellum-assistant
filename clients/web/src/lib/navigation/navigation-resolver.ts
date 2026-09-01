@@ -52,10 +52,17 @@ export interface NavigationState {
   /** Whether the resolved assistants list reflects at least one authoritative load. */
   assistantsHydrated: boolean;
   /**
-   * Whether any resolved assistant is already past first-run onboarding.
-   * Hatch age is the stored proxy (see `hasOnboardedAssistant`).
+   * Whether the user owns ANY assistant past first-run onboarding, i.e. is a
+   * returning user. The right question for post-auth and the onboarding
+   * intercept, where the assistant they will land in is not yet known.
    */
-  alreadyOnboarded: boolean;
+  userHasOnboardedAssistant: boolean;
+  /**
+   * Whether the SELECTED assistant is past first-run onboarding. False when
+   * nothing is selected. The right question for the privacy funnel, which is
+   * always about one assistant.
+   */
+  selectedAssistantOnboarded: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -629,20 +636,15 @@ function allowSetupRoutes(
     return null;
   }
 
-  // An already-onboarded assistant should not re-enter first-run privacy.
-  // Research stays reachable on demand (replay); only the automatic privacy
-  // entry is bounced. A paid hatch riding on `returnTo` is resumed so a
-  // purchased resize is not dropped.
+  // The selected assistant is past first run, so this privacy visit is a
+  // replay rather than its onboarding. Research stays reachable on demand;
+  // only the automatic privacy entry is bounced. A paid hatch riding on
+  // `returnTo` is resumed so a purchased resize is not dropped.
   //
-  // A walk that is provisioning a new assistant is exempt. `alreadyOnboarded`
-  // is `.some()` over every resolved assistant, so without the exemption one
-  // week-old entry bounces the whole provisioning funnel to `/assistant`, which
-  // `requireAuth` sends back to the chooser the walk started from.
-  if (path === routes.onboarding.privacy && state.alreadyOnboarded) {
-    const qIdx = pathnameWithSearch.indexOf("?");
-    const params = new URLSearchParams(
-      qIdx >= 0 ? pathnameWithSearch.slice(qIdx + 1) : "",
-    );
+  // The marker is the walk's INTENT: provisioning a new assistant is first-run
+  // for that assistant no matter how established the selected one is.
+  if (path === routes.onboarding.privacy && state.selectedAssistantOnboarded) {
+    const params = searchParamsOf(pathnameWithSearch);
     if (!isNewAssistantFunnel(params)) {
       const paidReturn = postCheckoutHatchReturnTo(params.get("returnTo"));
       if (paidReturn) {
@@ -837,7 +839,7 @@ function resolveOnboardingIntercept(
   if (state.isLocalClient && state.hasAssistants) {
     return { action: "allow" };
   }
-  if (hasCompletedOnboarding(state) || state.alreadyOnboarded) {
+  if (hasCompletedOnboarding(state) || state.userHasOnboardedAssistant) {
     return { action: "allow" };
   }
 
@@ -898,6 +900,14 @@ function isImportFunnelDestination(destination: string): boolean {
   );
 }
 
+/** The query of a `pathname?search` string the guard was handed. */
+function searchParamsOf(pathnameWithSearch: string): URLSearchParams {
+  const qIdx = pathnameWithSearch.indexOf("?");
+  return new URLSearchParams(
+    qIdx >= 0 ? pathnameWithSearch.slice(qIdx + 1) : "",
+  );
+}
+
 function isOnboardingResearchPath(destination: string): boolean {
   const path = extractPathname(destination);
   const qIdx = path.indexOf("?");
@@ -921,14 +931,17 @@ function resolvePostAuth(
     return { action: "redirect", to: destination };
   }
 
-  // An already-onboarded assistant skips first-run privacy and research.
-  // Treat the auth as a login so a pricing-CTA checkout stash is not marked
-  // for the privacy screen to consume. A paid hatch return keeps its
-  // destination so a purchased resize is not dropped.
-  if (state.alreadyOnboarded) {
-    const skipTarget = postCheckoutHatchReturnTo(destination)
-      ? destination
-      : isOnboardingResearchPath(destination)
+  // A returning user skips first-run privacy and research. Treat the auth as
+  // a login so a pricing-CTA checkout stash is not marked for the privacy
+  // screen to consume. Two funnel destinations are still real work rather
+  // than a re-run, so they survive: a paid hatch, and a walk that is
+  // provisioning a new assistant.
+  if (state.userHasOnboardedAssistant) {
+    const isRealWork =
+      postCheckoutHatchReturnTo(destination) != null ||
+      isNewAssistantFunnel(searchParamsOf(destination));
+    const skipTarget =
+      !isRealWork && isOnboardingResearchPath(destination)
         ? fallback
         : destination;
     resolveSignupCheckoutDestination({

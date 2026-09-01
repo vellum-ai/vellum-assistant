@@ -20,6 +20,15 @@ mock.module("../config/env.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
+// Wake dispatches are captured, not run: this suite pins persistence, and
+// the real background machinery would race the assertions.
+const dispatchedWakes: Array<Record<string, unknown>> = [];
+mock.module("../runtime/routes/inbound-stages/background-dispatch.js", () => ({
+  processChannelMessageInBackground: (params: Record<string, unknown>) => {
+    dispatchedWakes.push(params);
+  },
+}));
+
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
@@ -106,6 +115,7 @@ function resetState(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   gatewayGuardians = [];
+  _conversationMocks.clear();
 }
 
 function seedActiveMember(): void {
@@ -264,6 +274,10 @@ describe("Slack reaction event persistence", () => {
     expect(row.content).toBe("[reaction]");
 
     const envelope = JSON.parse(row.metadata!) as Record<string, unknown>;
+    // Provenance keeps the row visible to actor-scoped history loads:
+    // filterMessagesForUntrustedActor drops rows with no trust class.
+    expect(envelope.provenanceTrustClass).toBe("trusted_contact");
+    expect(envelope.provenanceSourceChannel).toBe("slack");
     const slackMetaRaw = envelope.slackMeta;
     expect(typeof slackMetaRaw).toBe("string");
 
@@ -276,6 +290,9 @@ describe("Slack reaction event persistence", () => {
     // Slack sends no thread on a reaction, so the row claims none.
     expect(slackMeta!.threadTs).toBeUndefined();
     expect(slackMeta!.displayName).toBe(SLACK_DISPLAY_NAME);
+    // Stable identity, not the sender-controlled label: the history
+    // renderer attributes the fenced line's origin by this id.
+    expect(slackMeta!.actorExternalUserId).toBe(SLACK_USER_ID);
     expect(slackMeta!.reaction).toEqual({
       emoji: "thumbsup",
       actorDisplayName: SLACK_DISPLAY_NAME,
@@ -414,6 +431,39 @@ describe("Slack reaction event persistence", () => {
     expect(rows.length).toBe(1);
   });
 
+  test("a persisted reaction stale-marks the resident conversation", async () => {
+    const conversationId = seedStoredMessage("1700000000.111111");
+    const markHistoryStale = mock(() => {});
+    _conversationMocks.set(conversationId, {
+      markHistoryStale,
+    } as unknown as Conversation);
+
+    const resp = await handleChannelInbound(
+      buildReactionRequest("reaction:thumbsup"),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(resp.status).toBe(200);
+    expect(markHistoryStale).toHaveBeenCalledTimes(1);
+  });
+
+  test("a duplicate reaction does not stale-mark again", async () => {
+    const conversationId = seedStoredMessage("1700000000.111111");
+    const markHistoryStale = mock(() => {});
+    _conversationMocks.set(conversationId, {
+      markHistoryStale,
+    } as unknown as Conversation);
+    const sharedExternalMessageId = `${SLACK_CHANNEL_ID}:1700000000.777777:bob`;
+    const makeReq = () =>
+      buildReactionRequest("reaction:tada", {
+        externalMessageId: sharedExternalMessageId,
+      });
+
+    await handleChannelInbound(makeReq(), undefined, TEST_BEARER_TOKEN);
+    await handleChannelInbound(makeReq(), undefined, TEST_BEARER_TOKEN);
+    expect(markHistoryStale).toHaveBeenCalledTimes(1);
+  });
+
   test("reaction on the assistant's own post lands in that conversation", async () => {
     // An outbound post opens no inbound event, so the only record of its ts
     // is the `slackMeta` on the assistant row. Seeded here the way the
@@ -449,13 +499,21 @@ describe("Slack reaction event persistence", () => {
       TEST_BEARER_TOKEN,
     );
     expect(resp.status).toBe(200);
+    const body = (await resp.json()) as Record<string, unknown>;
 
+    // An admitted actor adding a reaction to the assistant's own post wakes
+    // a discretion turn instead of writing the passive row here: the turn's
+    // own persisted user row is the reaction row.
+    expect(body.reaction).toBe("wake_dispatched");
+    expect(dispatchedWakes).toHaveLength(1);
+    expect(dispatchedWakes[0].conversationId).toBe(conversationId);
+    expect(typeof dispatchedWakes[0].slackReactionRowMeta).toBe("string");
     const reactionRow = db.$client
       .prepare(
         "SELECT conversation_id AS conversationId FROM messages WHERE content = '[reaction]'",
       )
       .get() as { conversationId: string } | null;
-    expect(reactionRow?.conversationId).toBe(conversationId);
+    expect(reactionRow).toBeNull();
   });
 
   test("a reaction leaves the reacted message resolvable by its own id", async () => {

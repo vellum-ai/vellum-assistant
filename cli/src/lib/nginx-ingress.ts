@@ -180,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-export const EDGE_TEMPLATE_VERSION = 6;
+export const EDGE_TEMPLATE_VERSION = 7;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -201,19 +201,56 @@ function safeScriptJson(value: unknown): string {
 }
 
 /**
- * Preloading the whole chunk graph opens ~290 tunnel connections on a cold
- * load, and one dropped request blanks the app before React can report it.
- * These are hints only; the entry module still pulls what it needs.
+ * How many modulepreload hints the served index may carry before they are
+ * stripped wholesale.
+ *
+ * The consolidated boot graph emits 4 hints (the entry chunk's static
+ * imports). Serving them lets a phone fetch the whole boot set in parallel;
+ * without them the browser cannot discover the other chunks until the entry
+ * has downloaded AND parsed, so ~515 kB gzip serializes behind ~623 kB plus
+ * a phone-CPU parse of ~2.2 MB of JavaScript.
+ *
+ * The strip exists for the pathological shape: a whole-chunk-graph index
+ * (~290 hints) floods the tunnel with requests, and one dropped *import*
+ * blanks the app before React can report it. A build that regresses toward
+ * that shape trips this threshold and gets the protective strip.
+ * All-or-nothing, because preserving an arbitrary prefix of a broken graph
+ * would be luck, not policy. 12 sits comfortably above the consolidated
+ * graph and within two rounds of the browser's six-per-origin HTTP/1.1
+ * connection pool, so kept hints never widen concurrency much beyond what
+ * the entry's own imports would open.
  */
-function stripModulePreloads(html: string): string {
-  return html.replace(/<link[^>]+rel="modulepreload"[^>]*>\s*/g, "");
+export const MAX_PRESERVED_MODULE_PRELOADS = 12;
+
+const MODULE_PRELOAD_RE = /<link[^>]+rel="modulepreload"[^>]*>\s*/g;
+
+/**
+ * Failure semantics are engine-dependent while whatwg/html#10327 rolls out:
+ * older engines cache a failed module fetch in the module map (a later
+ * import returns the failure without refetching), newer ones evict it so a
+ * later import refetches. The invariant that matters holds in both models:
+ * the preserved hints name exactly the URLs the entry's static imports
+ * fetch anyway, through the same module map, so a dropped request for a
+ * BOOT chunk has the same outcome whether or not the chunk was hinted.
+ * Hints for the boot set add no failure surface; they only start the same
+ * fetches earlier. What the strip guards against is the whole-graph shape,
+ * where hundreds of speculative NON-boot fetches amplify the odds of any
+ * failure and (on old-model engines) a dropped lazy chunk poisons a later
+ * dynamic import.
+ */
+function stripExcessModulePreloads(html: string): string {
+  const count = html.match(MODULE_PRELOAD_RE)?.length ?? 0;
+  if (count <= MAX_PRESERVED_MODULE_PRELOADS) {
+    return html;
+  }
+  return html.replace(MODULE_PRELOAD_RE, "");
 }
 
 export function buildRemoteWebIndexHtml(
   rawHtml: string,
   config: Record<string, unknown>,
 ): string {
-  const html = stripModulePreloads(rawHtml);
+  const html = stripExcessModulePreloads(rawHtml);
   const script = `<script>window.__VELLUM_CONFIG__=${safeScriptJson(config)}</script>`;
   if (html.includes("</head>")) {
     return html.replace("</head>", `${script}</head>`);

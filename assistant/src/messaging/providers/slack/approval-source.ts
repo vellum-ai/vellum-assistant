@@ -26,16 +26,19 @@ import { isSlackTs } from "./message-metadata.js";
 
 function toReference(
   chatId: string,
+  chatName: string | null,
   messageTs: string | undefined,
   threadTs: string | undefined,
 ): ApprovalSourceReference {
+  const named = chatName ? { sourceChatName: chatName } : {};
   // Without a message ts, the thread root is still a valid anchor.
   const anchorTs = messageTs ?? threadTs;
   if (!anchorTs) {
-    return { sourceChatId: chatId };
+    return { sourceChatId: chatId, ...named };
   }
   return {
     sourceChatId: chatId,
+    ...named,
     sourceLink: {
       webUrl: buildSlackPermalink({
         channelId: chatId,
@@ -50,20 +53,30 @@ export function resolveSlackApprovalSource(
   conversationId: string,
   hint: ApprovalSourceHint | undefined,
 ): ApprovalSourceReference | null {
+  const rawBinding = getBindingByConversation(conversationId);
+  const binding = rawBinding?.sourceChannel === "slack" ? rawBinding : null;
+
+  // The chat's display name lives on the binding row, which ingress
+  // upserts from every inbound message. Matched by chat id so a binding
+  // that moved to another chat never lends its name.
+  const chatNameFor = (chatId: string): string | null =>
+    binding?.externalChatId === chatId
+      ? binding.externalChatName?.trim() || null
+      : null;
+
   // Exact provenance from the turn's trust context. An absent thread id here
   // is authoritative (the message arrived at the chat root), so no binding
-  // lookup is needed.
+  // lookup is needed for the reference itself.
   if (hint?.requesterChatId && isSlackTs(hint.sourceMessageId)) {
     return toReference(
       hint.requesterChatId,
+      chatNameFor(hint.requesterChatId),
       hint.sourceMessageId,
       isSlackTs(hint.sourceThreadId) ? hint.sourceThreadId : undefined,
     );
   }
 
   const inbound = getLatestInboundEventReference(conversationId, "slack");
-  const rawBinding = getBindingByConversation(conversationId);
-  const binding = rawBinding?.sourceChannel === "slack" ? rawBinding : null;
 
   const chatId =
     hint?.requesterChatId ?? inbound?.externalChatId ?? binding?.externalChatId;
@@ -83,5 +96,5 @@ export function resolveSlackApprovalSource(
     ? binding.externalThreadId
     : undefined;
 
-  return toReference(chatId, messageTs, threadTs);
+  return toReference(chatId, chatNameFor(chatId), messageTs, threadTs);
 }

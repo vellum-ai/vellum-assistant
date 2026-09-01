@@ -11,8 +11,8 @@
  *
  * A key is an on-disk contract: `llm.callSites.*.profile`, `activeProfile`,
  * mix arms and schedule pins all reference it, so a key is fixed regardless of
- * the label its profile carries. `cost-optimized` is labelled "Cost" and
- * `latency-optimized` is labelled "Speed" (see `default-profile-catalog.ts`).
+ * the label its profile carries. `cost-optimized` is labelled "Budget" and
+ * `latency-optimized` is labelled "Fast" (see `default-profile-catalog.ts`).
  *
  * `latency-optimized` also backs the live-voice front model, which is why it
  * exists as a profile rather than a raw model pin on the call site: a pin

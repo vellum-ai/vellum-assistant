@@ -12,8 +12,8 @@
  *
  * `contain: content` is layout *and paint* containment, so anything a row
  * hangs past its own edge is hard-clipped rather than overflowing visibly:
- * a reaction chip's corner overhang and the subagent row's Details label have
- * both had to reserve their space inside the row instead. Keep it here, and
+ * the subagent row's Details label has had to reserve its space inside the
+ * row instead of overhanging the row edge. Keep it here, and
  * keep stories mounting in this: a card whose chrome escapes the column is
  * meant to look broken, in Storybook exactly as it does in the app.
  */

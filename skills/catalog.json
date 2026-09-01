@@ -140,7 +140,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "deepgram-voice",
@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-09-01T17:54:05.000Z"
     },
     {
       "id": "doordash",
@@ -199,7 +199,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:56:24.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "elevenlabs-voice",
@@ -323,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "gmail-trigger",
@@ -349,7 +349,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "google-calendar",
@@ -370,7 +370,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T22:55:26.000Z"
+      "updatedAt": "2026-09-01T17:54:05.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -441,7 +441,7 @@
     {
       "id": "inbox-management",
       "name": "inbox-management",
-      "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Starts in flag-only mode — earns autonomy through a three-stage trust ladder.",
+      "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Empty polls spend no model tokens. Starts in flag-only mode.",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📬",
@@ -449,7 +449,8 @@
           "category": "email",
           "display-name": "Inbox Management",
           "includes": [
-            "gmail"
+            "gmail",
+            "schedule"
           ],
           "activation-hints": [
             "When the user explicitly asks for ongoing or automatic inbox management",
@@ -465,7 +466,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T19:31:06.000Z"
+      "updatedAt": "2026-09-01T13:32:34.000Z"
     },
     {
       "id": "influencer",
@@ -503,7 +504,7 @@
     {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
-      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Cost / Speed) only where they should deviate from shipped defaults.",
+      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Budget / Fast) only where they should deviate from shipped defaults.",
       "metadata": {
         "emoji": "💸",
         "vellum": {
@@ -511,7 +512,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-08-04T23:11:27.000Z"
+      "updatedAt": "2026-09-01T18:32:50.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -564,7 +565,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "mcp-setup",
@@ -714,7 +715,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "outlook-calendar",
@@ -735,7 +736,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "plugin-builder",
@@ -800,7 +801,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -864,7 +865,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "slack",
@@ -879,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -946,7 +947,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -1098,7 +1099,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-08-28T20:48:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1356,7 +1357,7 @@
           ]
         }
       },
-      "updatedAt": "2026-08-26T23:11:05.000Z"
+      "updatedAt": "2026-08-30T00:44:56.000Z"
     },
     {
       "id": "watcher",

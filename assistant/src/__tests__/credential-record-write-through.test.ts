@@ -1,3 +1,5 @@
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { credentialKey } from "@vellumai/credential-storage";
@@ -9,6 +11,7 @@ import {
   setCredentialRecordBackend,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { getDataDir } from "../util/platform.js";
 
 function makeBackend(): CredentialRecordBackend & {
   store: Map<string, CredentialRecord>;
@@ -44,6 +47,10 @@ describe("CES credential record write-through", () => {
   afterEach(() => {
     setCredentialRecordBackend(undefined);
     _setMetadataPath(null);
+    const leftover = join(getDataDir(), "credentials", "metadata.json");
+    if (existsSync(leftover)) {
+      rmSync(leftover, { force: true });
+    }
   });
 
   test("upsert write-through updates the CES backend", async () => {

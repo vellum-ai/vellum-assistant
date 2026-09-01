@@ -15,15 +15,22 @@ scrim.
 
 ## iPhone
 
-- [ ] The pill clears the notch. Open the camera in the fullscreen room on a
-      notched device and on a Dynamic Island device. The pill sits below the
-      island, on the minimize control's line, and never behind it.
+- [ ] The pill clears the notch. Open the camera in the fullscreen room and in
+      the mobile sheet, on a notched device and on a Dynamic Island device. The
+      pill sits below the island, on the minimize control's line, and never
+      behind it.
 - [ ] The pill clears the corner control. Give the assistant a name of 40
       characters or more and open the camera at portrait phone width. The name
       truncates to an ellipsis, the dot and "Photo" stay whole, and the pill's
       edge never reaches the minimize control.
 - [ ] The pill clears the grabber. In the mobile sheet, the pill sits below the
       grabber and the grabber still takes the pull-down.
+- [ ] The sheet goes full-bleed for the camera. Open the camera in the mobile
+      sheet: the feed reaches the top of the screen, the rounded top corners are
+      gone, and the grabber sits below the notch. Close it and the sheet drops
+      back to the header's line with its corners back. With VoiceOver on,
+      swiping past the sheet while the camera is up never lands on the thread
+      header behind it.
 - [ ] Flash fires on the rear camera. Cycle off, auto, on, and take a photo in a
       dark room on each. `on` fires every time, `auto` fires when it is dark,
       `off` never fires.

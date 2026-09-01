@@ -72,6 +72,7 @@ import {
   hasIpv6Loopback,
   buildRemoteWebIndexHtml,
   cloudWebHubUrl,
+  MAX_PRESERVED_MODULE_PRELOADS,
   ensureTunnelEdge,
   EDGE_TEMPLATE_VERSION,
   startRemoteWebIngress,
@@ -462,22 +463,61 @@ describe("buildRemoteWebIndexHtml", () => {
     expect(result).toContain("\\u003c/script\\u003e");
   });
 
-  test("drops modulepreload hints but keeps the entry script and stylesheet", () => {
+  test("keeps the consolidated boot graph's modulepreload hints", () => {
     const html = [
       "<html><head>",
       '<link rel="modulepreload" crossorigin href="/assistant/assets/a-1.js">',
       '<link rel="modulepreload" crossorigin href="/assistant/assets/b-2.js">',
-      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-3.css">',
-      '<script type="module" crossorigin src="/assistant/assets/index-4.js"></script>',
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/c-3.js">',
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/d-4.js">',
+      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-5.css">',
+      '<script type="module" crossorigin src="/assistant/assets/index-6.js"></script>',
+      "</head><body></body></html>",
+    ].join("\n");
+
+    const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
+
+    expect(result.match(/rel="modulepreload"/g)).toHaveLength(4);
+    expect(result).toContain('href="/assistant/assets/a-1.js"');
+    expect(result).toContain('href="/assistant/assets/main-5.css"');
+    expect(result).toContain('src="/assistant/assets/index-6.js"');
+  });
+
+  test("strips a whole-graph preload set past the threshold, keeping entry and stylesheet", () => {
+    const preloads = Array.from(
+      { length: MAX_PRESERVED_MODULE_PRELOADS + 1 },
+      (_, i) =>
+        `<link rel="modulepreload" crossorigin href="/assistant/assets/chunk-${i}.js">`,
+    );
+    const html = [
+      "<html><head>",
+      ...preloads,
+      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-x.css">',
+      '<script type="module" crossorigin src="/assistant/assets/index-y.js"></script>',
       "</head><body></body></html>",
     ].join("\n");
 
     const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
 
     expect(result).not.toContain("modulepreload");
-    expect(result).not.toContain("/assistant/assets/a-1.js");
-    expect(result).toContain('href="/assistant/assets/main-3.css"');
-    expect(result).toContain('src="/assistant/assets/index-4.js"');
+    expect(result).not.toContain("/assistant/assets/chunk-0.js");
+    expect(result).toContain('href="/assistant/assets/main-x.css"');
+    expect(result).toContain('src="/assistant/assets/index-y.js"');
+  });
+
+  test("keeps exactly the threshold count of hints", () => {
+    const preloads = Array.from(
+      { length: MAX_PRESERVED_MODULE_PRELOADS },
+      (_, i) =>
+        `<link rel="modulepreload" crossorigin href="/assistant/assets/chunk-${i}.js">`,
+    );
+    const html = `<html><head>${preloads.join("\n")}</head><body></body></html>`;
+
+    const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
+
+    expect(result.match(/rel="modulepreload"/g)).toHaveLength(
+      MAX_PRESERVED_MODULE_PRELOADS,
+    );
   });
 });
 

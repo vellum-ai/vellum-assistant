@@ -17,9 +17,11 @@ const meta: Meta<ConfirmDialogProps> = {
     confirmLabel: { control: "text" },
     cancelLabel: { control: "text" },
     destructive: { control: "boolean" },
+    confirmDisabled: { control: "boolean" },
     open: { control: false },
     onConfirm: { control: false },
     onCancel: { control: false },
+    children: { control: false },
   },
 };
 

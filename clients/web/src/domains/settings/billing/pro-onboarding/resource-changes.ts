@@ -13,9 +13,9 @@ export interface ResourceChange {
 }
 
 /**
- * The credits chip's pre-worded strings: monthly rates by default, bundle
- * names under `obscure-credits`, which also overrides the row label ("Usage")
- * and may leave the from-side unstated when the catalog can't word it.
+ * The credits chip's pre-worded strings: bundle names, with the row label
+ * ("Usage") and possibly the from-side unstated when the catalog can't word
+ * it.
  */
 export interface CreditsChipContent {
   label?: string;

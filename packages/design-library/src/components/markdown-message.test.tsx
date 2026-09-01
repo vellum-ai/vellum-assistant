@@ -5,11 +5,17 @@
  * resulting HTML — no DOM testing library required.
  */
 
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { MarkdownMessage } from "./markdown-message";
+import { MarkdownMessage, preloadMarkdownMath } from "./markdown-message";
+
+// KaTeX loads lazily in production; these tests render with
+// renderToStaticMarkup (no effects), so warm the cache once up front.
+beforeAll(async () => {
+  await preloadMarkdownMath();
+});
 
 describe("MarkdownMessage", () => {
   test("root wrapper carries the chat typography token and data-slot", () => {

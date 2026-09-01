@@ -96,7 +96,11 @@ mock.module("../ipc/assistant-client.js", () => ({
 
 // resolveGatewayChannel resolves the assistant channel's (type,address) via the
 // typed identity-lookup IPC; serve it from the same fake channel store.
+// Spread the actual module so unstubbed named exports keep resolving when the
+// transitive import graph grows.
+const actualContactsInfoClient = await import("../ipc/contacts-info-client.js");
 mock.module("../ipc/contacts-info-client.js", () => ({
+  ...actualContactsInfoClient,
   lookupContactChannelIdentity: mock(
     async (selector: { channelId?: string }) => {
       if (selector.channelId == null) return null;
@@ -137,6 +141,10 @@ const upsertVerifiedChannelHandler = contactRoutes.find(
 
 const getGuardianContactHandler = contactRoutes.find(
   (r) => r.method === "get_guardian_contact",
+)!.handler;
+
+const identitySnapshotHandler = contactRoutes.find(
+  (r) => r.method === "contacts_identity_snapshot",
 )!.handler;
 
 beforeAll(async () => {
@@ -289,6 +297,38 @@ describe("mark_channel_revoked IPC handler", () => {
     await expect(
       markChannelRevokedHandler({ contactChannelId: "nonexistent" }),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("contacts_identity_snapshot IPC handler", () => {
+  test("returns every contact with its identity-only channel rows", async () => {
+    seedContact("c1", "contact");
+    seedContact("g1", "guardian");
+    seedChannel({ id: "ch1", contactId: "c1", status: "active" });
+
+    const res = (await identitySnapshotHandler({})) as {
+      ok: boolean;
+      contacts: Array<{
+        id: string;
+        displayName: string;
+        channels: Array<Record<string, unknown>>;
+      }>;
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.contacts.map((c) => c.id).sort()).toEqual(["c1", "g1"]);
+    const c1 = res.contacts.find((c) => c.id === "c1")!;
+    expect(c1.channels).toHaveLength(1);
+    expect(c1.channels[0]).toEqual({
+      id: "ch1",
+      contactId: "c1",
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: null,
+      isPrimary: false,
+    });
+    // ACL columns never ride the identity snapshot.
+    expect(c1.channels[0].status).toBeUndefined();
   });
 });
 

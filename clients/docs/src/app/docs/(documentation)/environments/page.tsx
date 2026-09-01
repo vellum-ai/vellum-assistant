@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Environments - Vellum Docs",
   description:
-    "Choose a deployment environment for Vellum: Vellum Cloud (recommended), local, or user-hosted (GCP/AWS/custom), with trade-offs for each.",
+    "Choose a deployment environment for Vellum: Vellum Cloud (recommended), local, or user-hosted (GCP or a custom Linux host), with trade-offs for each.",
   path: "/docs/environments",
 });
 

@@ -20,6 +20,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {
+  attachmentsDelete,
   attachmentsPost,
   messagesGet,
   messagesPost,
@@ -433,6 +434,37 @@ export async function uploadChatAttachment(
       ? { sizeBytes: data.sizeBytes }
       : {}),
   };
+}
+
+/**
+ * Give back an attachment that was uploaded and then never used.
+ *
+ * The store keeps an uploaded row until a message links it, and collection is
+ * scoped to message deletion with no global sweep, so an id the client uploads
+ * and then abandons has nothing that will ever come for it. Callers that
+ * speculatively upload need this; callers whose id reached a message, or a
+ * surface that owns it (a live-voice parked frame), must not call it and leave
+ * the collection to whoever owns the id.
+ *
+ * Never throws and never reports: the caller has already decided this
+ * attachment does not matter, and a delete that fails costs one abandoned row.
+ * Returns whether the daemon accepted it, so a caller that wants to say
+ * something about a failure can.
+ */
+export async function deleteChatAttachment(
+  assistantId: string,
+  attachmentId: string,
+): Promise<boolean> {
+  try {
+    const { response } = await attachmentsDelete({
+      path: { assistant_id: assistantId },
+      body: { attachmentId },
+      throwOnError: false,
+    });
+    return response?.ok === true;
+  } catch {
+    return false;
+  }
 }
 
 /**

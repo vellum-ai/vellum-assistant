@@ -16,7 +16,6 @@ import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
-  formatDollars,
   storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
@@ -33,10 +32,8 @@ export interface PlanSpec {
   /** Render the chip as a wrap-capable pill for long summary labels. */
   multiline?: boolean;
   /**
-   * Give the chip a full-width row of its own instead of letting it flow in the
-   * wrapping row beside the short chips. Read only by the wrapped layout
-   * (`PlanTile`'s `specsWrap`); the vertical stack gives every chip its own row
-   * already.
+   * Give the chip a full-width row of its own instead of letting it flow in
+   * the wrapping row beside the short chips.
    */
   ownRow?: boolean;
 }
@@ -56,55 +53,26 @@ export function machineLabel(pkg: ProPackage | null): string {
   return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
-export interface PackageSpecsOptions {
-  /**
-   * Replaces the credits chip's dollar label, for the `obscure-credits`
-   * surfaces that describe the bundle as the package's own usage allowance
-   * instead of naming an amount.
-   */
-  obscuredUsageLabel?: string;
-  /**
-   * Localized chip text for a package with a `usage_label` (e.g.
-   * "Mighty Usage included" via `planCard.usageIncludedChip`). Supplied by
-   * the caller because this pure module has no `t()`; without it the chip
-   * falls back to the untranslated dollar wording.
-   */
-  usageIncludedLabel?: string;
-}
-
 /**
- * The spec chips for a package, in mock order: machine, storage, credits,
- * then any static extras from the tier copy (today only the email/subdomain
- * row on Super and Ultra; a new extra inherits the Mail icon until it needs
- * its own mapping).
+ * The spec chips for a package, in mock order: machine, storage, usage, then
+ * any static extras from the tier copy (today only the email/subdomain row on
+ * Super and Ultra; a new extra inherits the Mail icon until it needs its own
+ * mapping).
+ *
+ * `usageLabel` is the localized wording that describes the bundle as the
+ * package's own usage allowance (e.g. `planCard.usageChip`), supplied by the
+ * caller because this pure module has no `t()`.
  *
  * The machine and storage chips are short enough to sit side by side; the
- * credits chip and the extras are sentences, so they take a row each wherever
+ * usage chip and the extras are sentences, so they take a row each wherever
  * the chips are laid out as a wrapping row.
  */
-export function packageSpecs(
-  pkg: ProPackage,
-  opts?: PackageSpecsOptions,
-): PlanSpec[] {
-  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
+export function packageSpecs(pkg: ProPackage, usageLabel: string): PlanSpec[] {
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    // `usageIncludedLabel` carries the localized wording for the catalog's
-    // `usage_label` ("Mighty Usage"), the bundle's Stripe product name, so
-    // the chip matches the invoice line. The dollar fallback covers a package
-    // with no usage label. It is cents-aware like every other price on these
-    // surfaces, so a sub-dollar bundle reads "$0.50 in credits included"
-    // rather than "$0.5".
-    {
-      icon: Coins,
-      label:
-        opts?.obscuredUsageLabel ??
-        opts?.usageIncludedLabel ??
-        `${formatDollars(credits * 100)} in credits included`,
-      ownRow: true,
-    },
+    { icon: Coins, label: usageLabel, ownRow: true },
     ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
   ];
 }

@@ -147,24 +147,24 @@ export const CurrentFree: Story = {
 };
 
 /**
- * The same free tile with the `obscure-credits` flag on and a usage grant to
- * chart: the Usage Balance bar takes the footer over from "Free Forever", so
- * the tile never states its allowance twice. A free account that was never
- * granted any usage has no bar, and keeps the price row above.
+ * The same free tile with a usage grant to chart: the Usage Balance bar takes
+ * the footer over from "Free Forever", so the tile never states its allowance
+ * twice. A free account that was never granted any usage has no bar, and
+ * keeps the price row above.
  */
-export const CurrentFreeObscuredCredits: Story = {
+export const CurrentFreeUsageBalance: Story = {
   args: {
     ...CurrentFree.args,
-    specsWrap: true,
     footer: <UsageBalancePanel ratio={0.68} />,
   },
 };
 
 /**
- * A subscriber's current-plan tile, on the catalog's Mighty package. The
- * footer price is the fixture's own `total_price_cents` run through the shared
- * `priceLabelFromCents` formatter, so it stays honest if the package is
- * repriced.
+ * A subscriber's current-plan tile, on the catalog's Mighty package, when the
+ * platform reports no grant figures to chart: with no Usage Balance reading
+ * the footer keeps the price row. The price is the fixture's own
+ * `total_price_cents` run through the shared `priceLabelFromCents` formatter,
+ * so it stays honest if the package is repriced.
  */
 export const CurrentPaid: Story = {
   args: {
@@ -173,42 +173,34 @@ export const CurrentPaid: Story = {
     name: MIGHTY.name,
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
-    specs: packageSpecs(MIGHTY, { usageIncludedLabel: "Mighty Usage included" }),
+    specs: packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`),
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
   },
 };
 
 /**
- * The same tile with the `obscure-credits` flag on: the credits chip names the
- * package's usage allowance instead of a dollar bundle, the machine and storage
- * chips wrap into a row with that longer chip on its own beneath them, and the
- * price footer gives way to the Usage Balance bar. Props only, so the ratio here
- * is a fixture rather than a live usage read.
+ * The paid tile with a usage reading: the credits chip names the package's
+ * usage allowance, the machine and storage chips wrap into a row with that
+ * longer chip on its own beneath them, and the price footer gives way to the
+ * Usage Balance bar. Props only, so the ratio here is a fixture rather than a
+ * live usage read.
  */
-export const CurrentObscuredCredits: Story = {
+export const CurrentPaidUsageBalance: Story = {
   args: {
-    testId: "plan-tile-current",
-    tierKey: MIGHTY.key,
-    name: MIGHTY.name,
-    nameTestId: "plan-card-name",
-    tag: CURRENT_TAG,
-    specs: packageSpecs(MIGHTY, {
-      obscuredUsageLabel: `${MIGHTY.name} usage, reset monthly`,
-    }),
-    specsWrap: true,
+    ...CurrentPaid.args,
     footer: <UsageBalancePanel ratio={0.42} />,
   },
 };
 
 /**
- * The same flag-on tile once the bundle is spent and the wallet behind it is
- * empty. The footer panel turns its bar and reading negative and raises the
+ * The same tile once the bundle is spent and the wallet behind it is empty.
+ * The footer panel turns its bar and reading negative and raises the
  * add-credits strip, which is the tallest the current tile ever gets: compare
  * it against `CurrentPaid` to see how much the footer grows.
  */
-export const CurrentObscuredCreditsExhausted: Story = {
+export const CurrentPaidExhausted: Story = {
   args: {
-    ...CurrentObscuredCredits.args,
+    ...CurrentPaid.args,
     footer: <UsageBalancePanel ratio={1} exhausted onAddCredits={() => {}} />,
   },
 };
@@ -247,7 +239,7 @@ export const NextPlan: Story = {
     tierKey: SUPER.key,
     name: SUPER.name,
     tag: NEXT_PLAN_TAG,
-    specs: packageSpecs(SUPER, { usageIncludedLabel: "Super Usage included" }),
+    specs: packageSpecs(SUPER, `${SUPER.name} usage, reset monthly`),
     footer: upgradeCta(),
   },
 };
@@ -289,10 +281,8 @@ export const SideBySide: Story = {
           name={MIGHTY.name}
           nameTestId="plan-card-name"
           tag={CURRENT_TAG}
-          specs={packageSpecs(MIGHTY, {
-            usageIncludedLabel: "Mighty Usage included",
-          })}
-          footer={priceFooter(priceLabelFromCents(MIGHTY.total_price_cents))}
+          specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
+          footer={<UsageBalancePanel ratio={0.42} />}
         />
         <PlanTile
           theme={inverted}
@@ -300,9 +290,7 @@ export const SideBySide: Story = {
           tierKey={SUPER.key}
           name={SUPER.name}
           tag={NEXT_PLAN_TAG}
-          specs={packageSpecs(SUPER, {
-            usageIncludedLabel: "Super Usage included",
-          })}
+          specs={packageSpecs(SUPER, `${SUPER.name} usage, reset monthly`)}
           footer={upgradeCta()}
         />
       </div>

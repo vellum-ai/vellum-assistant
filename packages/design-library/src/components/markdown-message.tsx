@@ -12,16 +12,80 @@ import {
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Components } from "react-markdown";
-import "katex/dist/katex.min.css";
 
+import { asyncOnce } from "../utils/async-once";
 import { cn } from "../utils/cn";
 import { writeSelectionClipboard } from "../utils/selection-clipboard";
+
+type RehypeKatexPlugin = typeof import("rehype-katex").default;
+
+/**
+ * KaTeX (the rehype plugin, the katex renderer it pulls in, and the
+ * stylesheet, ~445 kB raw) loads on demand: markdown renders on the boot
+ * path, and most messages carry no math. Cached at module level so the page
+ * pays the load once, and so a synchronous render (renderToStaticMarkup,
+ * and any tree already warmed by {@link preloadMarkdownMath}) can pick the
+ * plugin up via `peek()` without an effect. A failed chunk load is not
+ * cached (see {@link asyncOnce}), so the next math-bearing mount or preload
+ * call invokes import() again. Whether that reaches the network is
+ * engine-dependent while whatwg/html#10327 rolls out: new-model engines
+ * evict failed fetches from the module map and refetch, old-model engines
+ * return the cached failure, where math stays raw TeX until reload.
+ */
+const rehypeKatexOnce = asyncOnce<RehypeKatexPlugin>(async () => {
+  const [mod] = await Promise.all([
+    import("rehype-katex"),
+    // Vite turns this into an on-demand stylesheet chunk alongside the JS.
+    import("katex/dist/katex.min.css"),
+  ]);
+  return mod.default;
+});
+
+/**
+ * Warms the math pipeline. Await it before rendering when math output must be
+ * present synchronously: server/static rendering, or a surface that knows
+ * its content is math-heavy and wants to skip the raw-TeX flash.
+ */
+export function preloadMarkdownMath(): Promise<void> {
+  return rehypeKatexOnce.load().then(() => undefined);
+}
+
+/**
+ * The KaTeX plugin once `needed` and loaded, else null (math renders as raw
+ * TeX text until the chunk arrives, then formats on the re-render).
+ */
+function useRehypeKatex(needed: boolean): RehypeKatexPlugin | null {
+  const [plugin, setPlugin] = useState<RehypeKatexPlugin | null>(() =>
+    rehypeKatexOnce.peek(),
+  );
+  useEffect(() => {
+    if (!needed || plugin !== null) {
+      return;
+    }
+    let cancelled = false;
+    rehypeKatexOnce.load().then(
+      (loaded) => {
+        if (!cancelled) {
+          setPlugin(() => loaded);
+        }
+      },
+      () => {
+        // Math stays raw TeX on this mount. Deliberately no same-mount
+        // retry, which would loop while offline; the uncached failure means
+        // the next math-bearing mount attempts a fresh load.
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [needed, plugin]);
+  return needed ? plugin : null;
+}
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
@@ -1014,9 +1078,20 @@ export function MarkdownMessage({
       }) as Components,
     [Link, imageComponent, extraComponents],
   );
+  // Loosest possible trigger on purpose: every construct remark-math can
+  // treat as math contains a dollar sign after `convertLatexDelimiters`
+  // (which rewrites `\(..\)` / `\[..\]` to the `$` forms), so testing for
+  // the character can over-load KaTeX but can never leave real math
+  // unformatted. Anything cleverer (e.g. skipping escaped `\$`) risks the
+  // reverse, and the only cost of a false positive is a lazy chunk load.
+  const needsMath = processed.includes("$");
+  const katexPlugin = useRehypeKatex(needsMath);
   const rehypePlugins = useMemo(
-    () => [rehypeKatex, ...(extraRehypePlugins ?? [])],
-    [extraRehypePlugins],
+    () => [
+      ...(katexPlugin === null ? [] : [katexPlugin]),
+      ...(extraRehypePlugins ?? []),
+    ],
+    [katexPlugin, extraRehypePlugins],
   );
   return (
     <div

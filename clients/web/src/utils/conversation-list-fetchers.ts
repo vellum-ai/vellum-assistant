@@ -338,15 +338,22 @@ export async function drainConversationList(
       listKind: drainListKind(filter),
     });
     // The ring keeps `assistantId` for feedback bundles; the telemetry rail is
-    // metadata only.
-    emitClientPerfEvent("client_list.drain", totalMs, {
-      outcome,
-      pages,
-      rows: all.length,
-      max_page_ms: maxPageMs,
-      total_bytes: totalBytes,
-      list_kind: drainListKind(filter),
-    });
+    // metadata only. The id is passed as the ROUTING owner (a switch finishing
+    // mid-drain must not attribute this drain to the newly active assistant),
+    // never as detail.
+    emitClientPerfEvent(
+      "client_list.drain",
+      totalMs,
+      {
+        outcome,
+        pages,
+        rows: all.length,
+        max_page_ms: maxPageMs,
+        total_bytes: totalBytes,
+        list_kind: drainListKind(filter),
+      },
+      assistantId,
+    );
   };
 
   try {

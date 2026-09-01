@@ -541,6 +541,116 @@ describe("server frame dispatch", () => {
     ]);
   });
 
+  test("sightFrame shares a kept camera frame while the session is active", async () => {
+    const { client, ws } = await ready();
+
+    expect(client.sightFrame("att-1")).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "sight_frame",
+      attachmentId: "att-1",
+    });
+  });
+
+  test("a rejected sight_frame is a routine drop, not a settings or session error", async () => {
+    // The daemon reclaims the attachment on the path that sends this, so there
+    // is nothing to retry and nothing to give back. What matters is where the
+    // rejection does NOT land: an `unknown_type` from a stale build must not
+    // latch config updates off, and the recoverable refusal must not reach the
+    // controller, which would return a hands-free session to `listening`
+    // mid-turn over a frame nobody asked to send.
+    const { client, ws } = await ready();
+    const errors: unknown[] = [];
+    client.on("error", (e) => errors.push(e));
+
+    client.sightFrame("att-1");
+    const sentAfterFrame = ws.sentJson.length;
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "Could not attach that camera frame to the conversation.",
+      frameType: "sight_frame",
+      recoverable: true,
+    });
+    ws.receive({
+      type: "error",
+      seq: 11,
+      code: "unknown_type",
+      message: "Unknown live voice client frame type: sight_frame",
+      frameType: "sight_frame",
+    });
+
+    expect(errors).toEqual([]);
+    expect(ws.closed).toBe(false);
+    // No retry: the client says nothing back, so the id is never reused.
+    expect(ws.sentJson.length).toBe(sentAfterFrame);
+    // The settings frame is untouched: neither rejection was about it.
+    client.updateConfig({ silenceThresholdMs: 1600 });
+    expect(ws.sentJson.length).toBe(sentAfterFrame + 1);
+  });
+
+  test("an unknown_type sight_frame rejection is reported as unsupported", async () => {
+    // What an assistant with no handler answers: the frame type fails the
+    // known-types check ahead of the validation switch, so the code is
+    // `unknown_type` and the attribution names the frame that failed.
+    const { client, ws } = await ready();
+    const refusals: unknown[] = [];
+    client.on("sightFrameRejected", (r) => refusals.push(r));
+
+    client.sightFrame("att-1");
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "unknown_type",
+      message: "Unknown live voice client frame type: sight_frame",
+      frameType: "sight_frame",
+    });
+
+    expect(refusals).toEqual([{ unsupported: true, attachmentId: null }]);
+  });
+
+  test("a recoverable sight_frame rejection is reported as a routine drop", async () => {
+    // What an assistant that DOES understand the frame answers for one keep it
+    // could not persist. It reclaims that attachment itself, so the session
+    // must not treat this as a reason to stop sending.
+    const { client, ws } = await ready();
+    const refusals: unknown[] = [];
+    client.on("sightFrameRejected", (r) => refusals.push(r));
+
+    client.sightFrame("att-1");
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "Could not attach that camera frame to the conversation.",
+      frameType: "sight_frame",
+      recoverable: true,
+    });
+
+    expect(refusals).toEqual([{ unsupported: false, attachmentId: null }]);
+  });
+
+  test("a sight_frame rejection carries the attachment id when echoed", async () => {
+    // Optional on the wire and absent from every assistant at the version
+    // floor. When present it is what makes a refusal correlatable to its keep.
+    const { client, ws } = await ready();
+    const refusals: unknown[] = [];
+    client.on("sightFrameRejected", (r) => refusals.push(r));
+
+    client.sightFrame("att-7");
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "Could not attach that camera frame to the conversation.",
+      frameType: "sight_frame",
+      attachmentId: "att-7",
+      recoverable: true,
+    });
+
+    expect(refusals).toEqual([{ unsupported: false, attachmentId: "att-7" }]);
+  });
+
   test("sendText refuses when the assistant did not echo textInput", async () => {
     // The gate that keeps an `unknown_type` rejection from ever happening: an
     // assistant predating typed turns rejects the frame identically to

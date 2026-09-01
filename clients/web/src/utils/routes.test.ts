@@ -66,8 +66,8 @@ describe("isAboutAssistantPath", () => {
     }
   });
 
-  test("rejects the Activity page and conversations", () => {
-    expect(isAboutAssistantPath(routes.home)).toBe(false);
+  test("rejects settings and conversations", () => {
+    expect(isAboutAssistantPath(routes.settings.root)).toBe(false);
     expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
   });
 });
@@ -84,7 +84,7 @@ describe("isConversationPath (conversation area, subroutes included)", () => {
   });
 
   test("rejects non-conversation routes", () => {
-    expect(isConversationPath("/assistant/home")).toBe(false);
+    expect(isConversationPath("/assistant/identity")).toBe(false);
     expect(isConversationPath("/assistant/library")).toBe(false);
   });
 });
@@ -121,7 +121,7 @@ describe("conversationIdForPath (the id a path names, if any)", () => {
   });
 
   test("rejects non-conversation routes", () => {
-    expect(conversationIdForPath("/assistant/home")).toBeNull();
+    expect(conversationIdForPath("/assistant/identity")).toBeNull();
     expect(conversationIdForPath("/assistant/library")).toBeNull();
   });
 });
@@ -148,7 +148,7 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
   });
 
   test("rejects non-conversation routes", () => {
-    expect(isConversationChatPath("/assistant/home")).toBe(false);
+    expect(isConversationChatPath("/assistant/identity")).toBe(false);
     expect(isConversationChatPath("/assistant/library")).toBe(false);
   });
 });

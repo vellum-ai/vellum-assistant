@@ -94,6 +94,7 @@ describe("isValidE164", () => {
 describe("invite-code channel gating", () => {
   test("allows exactly the redemption-enabled channels", () => {
     expect([...INVITE_CODE_REDEMPTION_CHANNELS].sort()).toEqual([
+      "discord",
       "email",
       "slack",
       "telegram",

@@ -499,6 +499,9 @@
     "toolLabel": "Tool:"
   },
   "contactActions": {
+    "cancelFailed": "Failed to dismiss the form. Please try again.",
+    "recordCancelFailed": "Failed to dismiss the form. Please try again.",
+    "recordSaveFailed": "Failed to save the contact. Please try again.",
     "saveFailed": "Failed to save contact. Please try again."
   },
   "contactPromptCard": {
@@ -507,8 +510,26 @@
     "contactSaved": "Contact saved",
     "dismiss": "Dismiss",
     "enterAddress": "Enter {channel} address",
+    "markVerified": "Mark this address verified",
+    "markVerifiedHelp": "A verified address is allowed to message your assistant.",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "contactRecordCard": {
+    "cancel": "Cancel",
+    "contactDeleted": "Contact deleted",
+    "contactSaved": "Contact saved",
+    "createTitle": "Add a contact",
+    "delete": "Delete",
+    "deleteTitle": "Delete {name}?",
+    "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
+    "dismiss": "Dismiss",
+    "namePlaceholder": "Name",
+    "noChannels": "This contact has no channels.",
+    "notesPlaceholder": "Notes (optional)",
+    "save": "Save",
+    "saving": "Saving…",
+    "updateTitle": "Update {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "Clear Context",
@@ -545,11 +566,6 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
-  },
-  "conversationActivityPill": {
-    "activity": "Activity",
-    "recent": "Recent",
-    "running": "Running"
   },
   "conversationAssetActions": {
     "delete": "Delete",
@@ -611,9 +627,10 @@
     "title": "Daily credit limit reached"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "I understand that related assets and memories may still persist",
     "cancel": "Cancel",
     "confirm": "Delete",
-    "message": "Delete “{title}”? This permanently removes the conversation and its messages. This cannot be undone.",
+    "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
@@ -1214,6 +1231,14 @@
     "goToFile": "Go to file",
     "noPreviewForType": "No preview for this file type"
   },
+  "progressRail": {
+    "agentsLabel": "Agents",
+    "agentsToggleAria": "Agents: {running, plural, =0 {none running} one {# running} other {# running}}, {completed, plural, =0 {none finished} one {# finished} other {# finished}}",
+    "railAria": "Progress",
+    "stepCounter": "{current} of {total}",
+    "title": "Progress",
+    "titleFinished": "Finished"
+  },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
   },
@@ -1411,6 +1436,17 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
+  "sightTile": {
+    "close": "Close camera",
+    "interrupted": "The camera was disconnected.",
+    "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
+    "unavailable": "No camera is available."
+  },
+  "sightToggle": {
+    "busyInCall": "The voice call is using the camera",
+    "turnOff": "Turn off camera vision",
+    "turnOn": "Turn on camera vision"
+  },
   "singleActivity": {
     "webSearch": "Web Search"
   },
@@ -1465,10 +1501,6 @@
   "storeCredentialDialog": {
     "successToast": "Stored securely. The key never entered the chat."
   },
-  "subagentAvatarRow": {
-    "details": "Details",
-    "showDetailsAria": "Show subagent details"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "Back to timeline",
     "backTooltip": "Back",
@@ -1490,8 +1522,6 @@
     "workedFor": "Worked for {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Collapse",
-    "collapseDetailsAria": "Collapse subagent details",
     "stopSubagentAria": "Stop subagent"
   },
   "suggestionCard": {
@@ -1729,5 +1759,13 @@
   },
   "workspacePathLink": {
     "openTitle": "Open {path}"
+  },
+  "transcript": {
+    "noResponse": "Chose not to respond",
+    "reactionAddedSelf": "Reacted with {emoji}",
+    "reactionRemovedSelf": "Removed the {emoji} reaction",
+    "reactionAdded": "{name} reacted with {emoji}",
+    "reactionRemoved": "{name} removed their {emoji} reaction",
+    "reactionSomeone": "Someone"
   }
 }

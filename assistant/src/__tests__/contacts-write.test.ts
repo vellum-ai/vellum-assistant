@@ -39,6 +39,24 @@ function channelCount(type: string, address: string): number {
   return row.n;
 }
 
+function contactExists(contactId: string): boolean {
+  // bun:sqlite .get() returns null (not undefined) when no row matches.
+  const row = getSqlite()
+    .query("SELECT 1 AS one FROM contacts WHERE id = ?")
+    .get(contactId) as { one: number } | null;
+  return row !== null;
+}
+
+/** Contacts parenting zero channels: the guardian-duplicate shape. */
+function channelLessContactCount(): number {
+  const row = getSqlite()
+    .query(
+      "SELECT COUNT(*) AS n FROM contacts c WHERE NOT EXISTS (SELECT 1 FROM contact_channels ch WHERE ch.contact_id = c.id)",
+    )
+    .get() as { n: number };
+  return row.n;
+}
+
 function workspaceDir(): string {
   const dir = process.env.VELLUM_WORKSPACE_DIR;
   if (!dir) {
@@ -110,6 +128,34 @@ describe("identity-mirror faithful-replica semantics", () => {
     // Mirror stub carries no persona-file pointer, so orphan-GC treats it as
     // unauthored and can reclaim it after a guardian channel claim.
     expect(result?.contact.userFile).toBeNull();
+  });
+
+  test("an op carrying the gateway channel id adopts it onto a divergent legacy row", () => {
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPTID",
+      displayName: "Alice",
+      contactId: "co-adopt-id",
+      channelId: "legacy-ch",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+    });
+
+    // The gateway's row for the same identity lives under a different UUID;
+    // the mirror adopts it so both stores key the channel identically.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPTID",
+      displayName: "Alice",
+      contactId: "co-adopt-id",
+      channelId: "gw-ch-aligned",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+    });
+
+    expect(channelOwnerById("gw-ch-aligned")).toBe("co-adopt-id");
+    expect(channelOwnerById("legacy-ch")).toBeUndefined();
+    expect(channelCount("slack", "UADOPTID")).toBe(1);
   });
 
   test("Finding B: an explicit (gateway-minted) channel id is reused verbatim", () => {
@@ -215,10 +261,102 @@ describe("mirror channel-reparenting race semantics", () => {
       reassignConflictingChannels: false,
     });
 
-    // Original channel stays under contact #1; no duplicate channel was created.
-    expect(channelOwnerById("gw-ch-race-1")).toBe("co-race-1");
-    expect(channelOwnerById("gw-ch-race-2")).toBeUndefined();
+    // Ownership never moves without reassign and no duplicate channel is
+    // created; the row's id follows the latest gateway-sourced op (id
+    // adoption), which is what keeps the two stores' keys aligned.
+    expect(channelOwnerById("gw-ch-race-2")).toBe("co-race-1");
+    expect(channelOwnerById("gw-ch-race-1")).toBeUndefined();
     expect(channelCount("slack", "URACE")).toBe(1);
+    // The losing seed adopts contact #1 rather than minting a channel-less
+    // contact under its own id.
+    expect(contactExists("co-race-2")).toBe(false);
+    expect(channelLessContactCount()).toBe(0);
+  });
+
+  test("adoption and re-seen seeds never clobber curated record fields", () => {
+    // First-seen bot sender: classification and notes land on CREATE.
+    const created = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UCURATED",
+      externalChatId: "DCURATED",
+      displayName: "Peer Assistant",
+      contactId: "co-curated",
+      channelId: "gw-ch-curated",
+      contactType: "assistant",
+      notes: "Automated Slack bot",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    expect(created?.contact.contactType).toBe("assistant");
+    expect(created?.contact.notes).toBe("Automated Slack bot");
+
+    // A later seed for the same identity (mirror row present) carries record
+    // fields for gap recovery, but they are create-only: the stored
+    // classification and notes stand.
+    const reseen = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UCURATED",
+      contactId: "co-curated",
+      displayName: "Peer Assistant",
+      contactType: "human",
+      notes: "seed-refresh notes that must not land",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    expect(reseen?.contact.contactType).toBe("assistant");
+    expect(reseen?.contact.notes).toBe("Automated Slack bot");
+
+    // Adoption (a create-shaped op under a foreign id for the same identity)
+    // is equally forbidden from touching the adopted contact's record fields.
+    const adopted = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UCURATED",
+      contactId: "co-curated-foreign",
+      displayName: "Peer Assistant",
+      contactType: "human",
+      notes: "adoption notes that must not land",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    expect(adopted?.contact.id).toBe("co-curated");
+    expect(adopted?.contact.contactType).toBe("assistant");
+    expect(adopted?.contact.notes).toBe("Automated Slack bot");
+    expect(contactExists("co-curated-foreign")).toBe(false);
+  });
+
+  test("explicit-id create over a conflicting channel adopts the owner instead of minting an empty contact", () => {
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPT",
+      externalChatId: "DADOPT",
+      displayName: "Owner",
+      contactId: "co-adopt-owner",
+      channelId: "gw-ch-adopt",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    // A divergence-shaped write: the gateway hands down a contact id the
+    // mirror has never seen, for an identity the mirror already parents.
+    const result = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPT",
+      displayName: "Owner Renamed",
+      contactId: "co-adopt-foreign",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    expect(result?.contact.id).toBe("co-adopt-owner");
+    expect(result?.contact.displayName).toBe("Owner Renamed");
+    expect(channelOwnerById("gw-ch-adopt")).toBe("co-adopt-owner");
+    expect(contactExists("co-adopt-foreign")).toBe(false);
+    expect(channelLessContactCount()).toBe(0);
   });
 
   test("INVITE-binding path (reassignConflictingChannels:true) DOES reparent", () => {

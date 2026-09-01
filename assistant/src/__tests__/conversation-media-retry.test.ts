@@ -68,9 +68,40 @@ describe("stripMediaPayloadsForRetry", () => {
     // The image in the first message should be replaced with a text stub
     const firstMsg = result.messages[0];
     expect(firstMsg.content[1].type).toBe("text");
+    // Pinned whole, not just the prefix: the descriptor half comes from the
+    // shared `mediaSourceDescriptor`, and this is what keeps this stub and the
+    // camera-frame stub describing dropped media the same way. `makeImageBlock`
+    // carries 4 base64 chars, which decode to 3 bytes.
+    expect((firstMsg.content[1] as { type: "text"; text: string }).text).toBe(
+      "[Image omitted from retry context: image/png, 3 bytes]",
+    );
+  });
+
+  test("a stripped file block reports the same descriptor as an image", () => {
+    const fileBlock: ContentBlock = {
+      type: "file",
+      source: {
+        type: "workspace_ref",
+        media_type: "application/pdf",
+        attachmentId: "att-1",
+        sizeBytes: 2048,
+        filename: "notes.pdf",
+      },
+    };
+    const messages: Message[] = [
+      makeUserMessage({ type: "text", text: "old" }, fileBlock),
+      makeAssistantMessage({ type: "text", text: "response" }),
+      makeUserMessage({ type: "text", text: "new" }),
+    ];
+
+    const result = stripMediaPayloadsForRetry(messages);
+
+    expect(result.replacedBlocks).toBe(1);
     expect(
-      (firstMsg.content[1] as { type: "text"; text: string }).text,
-    ).toContain("Image omitted");
+      (result.messages[0].content[1] as { type: "text"; text: string }).text,
+    ).toBe(
+      "[File omitted from retry context: notes.pdf (application/pdf, 2048 bytes)]",
+    );
   });
 
   test("strips images from older user turns, keeps images in latest kept turn", () => {

@@ -199,6 +199,11 @@ export function detectElectronHostOS(): ElectronHostOS | null {
   return navigator.platform.toLowerCase().includes("win") ? "windows" : "macos";
 }
 
+/** Resolve desktop copy to macOS unless the Windows client is detected. */
+export function resolveDesktopHostOS(): ElectronHostOS {
+  return detectElectronHostOS() ?? "macos";
+}
+
 /**
  * Detect the client's OS surface at runtime.
  *

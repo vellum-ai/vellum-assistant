@@ -16,7 +16,6 @@ import {
   configGetQueryKey,
   documentsGetQueryKey,
   homeFeedGetQueryKey,
-  homeStateGetQueryKey,
   configLlmCallsitesGetQueryKey,
   inferenceProfilesGetQueryKey,
   pluginsGetQueryKey,
@@ -759,7 +758,7 @@ describe("useAssistantResourceSync", () => {
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
   });
 
-  test("invalidates both home-feed and home-state on relationship_state_updated", async () => {
+  test("invalidates the home feed on relationship_state_updated", async () => {
     const queryClient = freshQueryClient();
     const predicates: Array<
       (query: { queryKey: readonly unknown[] }) => boolean
@@ -783,17 +782,13 @@ describe("useAssistantResourceSync", () => {
       updatedAt: "2026-05-21T00:00:00Z",
     } as unknown as AssistantEvent);
     await waitFor(() => {
-      expect(predicates.length).toBe(2);
+      expect(predicates.length).toBe(1);
     });
     const feedKey = homeFeedGetQueryKey({
       path: { assistant_id: "asst-1" },
       query: { timeAwaySeconds: 0 },
     });
-    const stateKey = homeStateGetQueryKey({
-      path: { assistant_id: "asst-1" },
-    });
     expect(predicates.some((p) => p({ queryKey: feedKey }))).toBe(true);
-    expect(predicates.some((p) => p({ queryKey: stateKey }))).toBe(true);
     expect(
       predicates.every((p) => !p({ queryKey: avatarQueryKey("asst-1") })),
     ).toBe(true);

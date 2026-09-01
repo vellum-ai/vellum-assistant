@@ -13,6 +13,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   isUnsendableImageSource,
+  mediaSourceDescriptor,
   resolveMediaReferences,
   UNSENDABLE_IMAGE_FORMAT_NOTE,
 } from "../providers/media-resolve.js";
@@ -218,6 +219,111 @@ describe("resolveMediaReferences image validation", () => {
       inlineImage("image/png", PNG_B64),
       { type: "text", text: UNSENDABLE_IMAGE_FORMAT_NOTE },
     ]);
+  });
+});
+
+describe("resolveMediaReferences attachment id", () => {
+  beforeEach(resetTables);
+
+  test("carries a file block's attachment id across reference resolution", async () => {
+    // Resolving a reference rebuilds the block around freshly read bytes. The
+    // id is the block's only remaining link to its attachment row, so it has to
+    // survive the rebuild.
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "notes.txt",
+      "text/plain",
+      Buffer.from("hello").toString("base64"),
+    );
+    const message = userMessage([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "text/plain",
+          attachmentId: stored.id,
+          sizeBytes: stored.sizeBytes,
+          filename: "notes.txt",
+        },
+        _attachmentId: stored.id,
+      },
+    ]);
+
+    const [resolved] = await resolveMediaReferences([message]);
+
+    const block = resolved.content[0];
+    expect(block.type).toBe("file");
+    expect(block).toMatchObject({
+      source: { type: "base64" },
+      _attachmentId: stored.id,
+    });
+  });
+
+  test("omits the field when the source block carries no id", async () => {
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "plain.txt",
+      "text/plain",
+      Buffer.from("hi").toString("base64"),
+    );
+    const message = userMessage([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "text/plain",
+          attachmentId: stored.id,
+          sizeBytes: stored.sizeBytes,
+          filename: "plain.txt",
+        },
+      },
+    ]);
+
+    const [resolved] = await resolveMediaReferences([message]);
+
+    expect("_attachmentId" in resolved.content[0]).toBe(false);
+  });
+});
+
+describe("mediaSourceDescriptor", () => {
+  // The fragment every media stub embeds. Both the retry path's stubs and the
+  // camera-frame stub read it from here, so this pins what they all report.
+  test("describes a reference from its persisted size hint", () => {
+    expect(
+      mediaSourceDescriptor({
+        type: "workspace_ref",
+        media_type: "image/jpeg",
+        attachmentId: "att-1",
+        sizeBytes: 1024,
+      }),
+    ).toBe("image/jpeg, 1024 bytes");
+  });
+
+  test("describes an inline block from its base64 length", () => {
+    // 8 base64 chars decode to 6 bytes.
+    expect(
+      mediaSourceDescriptor({
+        type: "base64",
+        media_type: "image/png",
+        data: "AAAAAAAA",
+      }),
+    ).toBe("image/png, 6 bytes");
+  });
+
+  test("covers non-image media too", () => {
+    expect(
+      mediaSourceDescriptor({
+        type: "workspace_ref",
+        media_type: "application/pdf",
+        attachmentId: "att-2",
+        sizeBytes: 42,
+        filename: "notes.pdf",
+      }),
+    ).toBe("application/pdf, 42 bytes");
   });
 });
 

@@ -27,7 +27,7 @@ let validateShouldFail = false;
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
-  getSourcePathsForAttachments: () => new Map<string, string>(),
+  resolveAttachmentsForPersist: () => [],
   attachmentExists: () => false,
   linkAttachmentToMessage: () => "att-stored",
   scopeAttachmentToMessageConversation: () => null,

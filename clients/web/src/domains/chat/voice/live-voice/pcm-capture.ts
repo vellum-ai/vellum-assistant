@@ -79,6 +79,18 @@ export interface LiveVoiceAudioCaptureOptions {
   onChunk: (buf: ArrayBuffer) => void;
   /** Receives the smoothed RMS amplitude in [0, 1] for UI / barge-in. */
   onAmplitude?: (amplitude: number) => void;
+  /**
+   * Request automatic gain control on the mic track. Defaults to `true`.
+   *
+   * Half-duplex consumers of this pipeline (streaming dictation, the watch
+   * session) want the default: nothing is playing back, so normalizing a quiet
+   * talker only helps the transcriber. Full-duplex live voice passes `false`,
+   * because a moving input gain sits between the room and the fixed absolute
+   * threshold its barge-in gate compares against. The reasoning lives on
+   * `VoiceInputConstraintOptions.autoGainControl` in
+   * `@/utils/voice-input-device`.
+   */
+  autoGainControl?: boolean;
 }
 
 /**
@@ -129,6 +141,7 @@ function classifyError(cause: unknown): LiveVoiceCaptureError {
 export class LiveVoiceAudioCapture {
   private readonly onChunk: (buf: ArrayBuffer) => void;
   private readonly onAmplitude?: (amplitude: number) => void;
+  private readonly autoGainControl: boolean;
 
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
@@ -148,6 +161,7 @@ export class LiveVoiceAudioCapture {
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
     this.onAmplitude = options.onAmplitude;
+    this.autoGainControl = options.autoGainControl ?? true;
   }
 
   /**
@@ -174,7 +188,9 @@ export class LiveVoiceAudioCapture {
 
     let stream: MediaStream;
     try {
-      stream = await getVoiceInputMediaStream();
+      stream = await getVoiceInputMediaStream({
+        autoGainControl: this.autoGainControl,
+      });
     } catch (cause) {
       return { ok: false, error: classifyError(cause), cause };
     }

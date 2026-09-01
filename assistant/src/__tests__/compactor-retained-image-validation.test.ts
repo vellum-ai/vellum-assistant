@@ -125,6 +125,21 @@ describe("buildRetainedImageBlocks corrupt-bytes gate", () => {
     expect(blocks).toHaveLength(0);
   });
 
+  test("a retained block carries the attachment id it rehydrated from", async () => {
+    // The rebuilt block is inline bytes, so this id is the only handle left on
+    // the row it came from. Camera-frame retention matches on it: without it a
+    // frame compaction chose to keep would be invisible to every later pass.
+    const conv = createConversation();
+    await addImageMessage(conv.id, "good.png", PNG_1X1_BASE64);
+    const manifest = collectImageManifest(conv.id, "guardian");
+
+    const { blocks } = await buildRetainedImageBlocks(["good.png"], manifest);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]._attachmentId).toBe(manifest[0].attachmentId);
+    expect(blocks[0]._attachmentId).toBeTruthy();
+  });
+
   test("unresolvable filenames still land in missing", async () => {
     const conv = createConversation();
     await addImageMessage(conv.id, "good.png", PNG_1X1_BASE64);

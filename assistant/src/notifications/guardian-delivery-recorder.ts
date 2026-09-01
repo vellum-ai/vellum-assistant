@@ -24,6 +24,7 @@ import { DELIVERY_STATUS } from "@vellumai/gateway-client";
 
 import {
   createGuardianRequestDelivery,
+  getGuardianRequestOrNull,
   type GuardianRequestDeliveryWire,
   updateGuardianRequestDelivery,
 } from "../channels/gateway-guardian-requests.js";
@@ -93,9 +94,10 @@ export async function recordApprovalCardDelivery(
  * that row's id as `vellumDeliveryId` and it is reused (only its status applied)
  * — otherwise the vellum row is created here from the result.
  *
- * Every addressable result records the internal `conversationId` the card is
- * shown in, so a conversation's pending cards can be found uniformly
- * regardless of channel. Platform push results are skipped entirely: a push
+ * The vellum result records the internal `conversationId` its card is shown
+ * in. Channel guardian cards pair no conversation (they are delivery
+ * projections; see `conversation-pairing.ts`), so their rows carry no
+ * `conversationId`. Platform push results are skipped entirely: a push
  * has no channel-native card surface to address back to.
  * Channel results additionally carry the chat (`destination`) and channel-native
  * id (`messageId`) used to match inbound replies/reactions; a blank `destination`
@@ -164,5 +166,37 @@ export async function recordGuardianRequestDeliveries(params: {
     }
   }
 
+  await withdrawIfRequestAlreadyTerminal(requestId);
+
   return vellumDeliveryId;
+}
+
+/**
+ * Close the delivery/decision race: recording happens after the notification
+ * pipeline finishes, so a guardian who acts on a card the moment it lands can
+ * resolve the request before its delivery rows exist. That decision's
+ * withdrawal pass then finds nothing to withdraw, and the rows recorded here
+ * would describe live cards for an already-terminal request. Re-running
+ * withdrawal after recording converges them; rows a prior pass already
+ * withdrew are skipped, so the overlap never re-edits a surface.
+ *
+ * Best-effort like the rest of the recorder; the decided action isn't
+ * recoverable here, so denied outcomes render the plain status word.
+ */
+async function withdrawIfRequestAlreadyTerminal(
+  requestId: string,
+): Promise<void> {
+  const request = await getGuardianRequestOrNull(requestId);
+  if (!request || request.status === "pending") {
+    return;
+  }
+  // Imported at call time: the withdrawal module reaches the daemon's
+  // conversation-surface graph, and a static import here would put this
+  // recorder (imported by the guardian-request producers) into that cycle.
+  const { withdrawGuardianRequestCards } =
+    await import("../approvals/guardian-card-withdrawal.js");
+  await withdrawGuardianRequestCards({
+    request,
+    status: request.status,
+  });
 }

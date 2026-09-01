@@ -193,6 +193,7 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   createDelivery: "guardian_requests_create_delivery",
   updateDelivery: "guardian_requests_update_delivery",
   listDeliveries: "guardian_requests_list_deliveries",
+  listDeliveriesByChat: "guardian_requests_list_deliveries_by_chat",
   getByDestinationMessage: "guardian_requests_get_by_destination_message",
   listPendingByDestination: "guardian_requests_list_pending_by_destination",
   listPendingByScope: "guardian_requests_list_pending_by_scope",
@@ -597,6 +598,22 @@ export type ListGuardianRequestDeliveriesIpcParams = z.infer<
   typeof ListGuardianRequestDeliveriesIpcParamsSchema
 >;
 
+/**
+ * Request for `guardian_requests_list_deliveries_by_chat`: every
+ * delivery row addressed to one channel-native chat, whatever request it
+ * belongs to. Lets transcript importers recognize guardian card
+ * messages (by their recorded message id) as delivery projections
+ * rather than conversation content.
+ */
+export const ListGuardianRequestDeliveriesByChatIpcParamsSchema = z.object({
+  channel: z.string().min(1),
+  chatId: z.string().min(1),
+});
+
+export type ListGuardianRequestDeliveriesByChatIpcParams = z.infer<
+  typeof ListGuardianRequestDeliveriesByChatIpcParamsSchema
+>;
+
 /** Response for `guardian_requests_list_deliveries`. */
 export const GuardianRequestDeliveryListIpcResponseSchema = z.array(
   GuardianRequestDeliverySchema,
@@ -662,13 +679,15 @@ export type ListPendingGuardianRequestsByScopeIpcParams = z.infer<
 
 /**
  * Request for `guardian_requests_in_scope`: is a decision from this
- * conversation allowed for the request (source match, or delivery match
- * optionally narrowed by `channel`)?
+ * conversation allowed for the request (source match, or delivery match)?
+ * Deliberately not narrowed by delivery channel: `destinationConversationId`
+ * is always an internal conversation id, and every delivery's paired
+ * conversation renders the same actionable in-app card, so a match on any
+ * delivery row legitimizes the conversation.
  */
 export const GuardianRequestInScopeIpcParamsSchema = z.object({
   requestId: z.string().min(1),
   conversationId: z.string().min(1),
-  channel: z.string().optional(),
 });
 
 export type GuardianRequestInScopeIpcParams = z.infer<

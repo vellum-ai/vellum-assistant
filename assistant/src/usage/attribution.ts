@@ -19,6 +19,13 @@ export type UsageAttributionProfileSource =
 
 export interface UsageAttributionInput {
   callSite: LLMCallSite | null;
+  /**
+   * Call site used to pick the winning profile. Defaults to {@link callSite}.
+   * Compaction invokes the provider as `mainAgent` (prefix cache) but tags
+   * the usage row as `compactionAgent`; pass `mainAgent` here so
+   * `appliedProfile` / `profileSource` match the request that ran.
+   */
+  profileResolutionCallSite?: LLMCallSite | null;
   overrideProfile?: string | null;
   /**
    * Mirrors `ResolveCallSiteOpts.forceOverrideProfile`: the override profile
@@ -130,9 +137,10 @@ export function resolveUsageAttribution(
 ): UsageAttributionSnapshot {
   const llm = getConfig().llm;
   const callSite = input.callSite;
+  const resolutionCallSite = input.profileResolutionCallSite ?? callSite;
   const overrideProfile = normalizeProfileId(input.overrideProfile);
 
-  if (callSite == null) {
+  if (resolutionCallSite == null) {
     const resolvedMainAgent = resolveCallSiteConfig("mainAgent", llm, {
       ...(input.selectionSeed != null
         ? { selectionSeed: input.selectionSeed }
@@ -158,7 +166,7 @@ export function resolveUsageAttribution(
   // Capture which arm each expanded mix resolved to so we can attribute usage
   // to the arm behind the applied (mix) profile below.
   const mixSelections = new Map<string, string>();
-  const resolved = resolveCallSiteConfig(callSite, llm, {
+  const resolved = resolveCallSiteConfig(resolutionCallSite, llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     ...(input.forceOverrideProfile === true
       ? { forceOverrideProfile: true }
@@ -171,13 +179,13 @@ export function resolveUsageAttribution(
   });
   const activeProfile = normalizeProfileId(llm.activeProfile);
   const callSiteProfile = normalizeProfileId(
-    llm.callSites?.[callSite]?.profile,
+    llm.callSites?.[resolutionCallSite]?.profile,
   );
   // The resolver's own winner selection is the single source of truth for which
   // profile applied — attribution must never re-derive precedence and drift
   // from dispatch.
   const profile = appliedProfileFromWinnerSelection(
-    callSite,
+    resolutionCallSite,
     llm,
     overrideProfile,
     input,

@@ -16,6 +16,13 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Mean absolute amplitude (16-bit linear scale) above which a frame counts as speech — mirrors DEFAULT_SPEECH_ENERGY_THRESHOLD in stt/speech-energy.ts",
       ),
+    noiseFloorMargin: z
+      .number({ error: "liveVoice.vad.noiseFloorMargin must be a number" })
+      .nonnegative("liveVoice.vad.noiseFloorMargin must be nonnegative")
+      .default(3)
+      .describe(
+        "Multiple of the room's measured background noise level that the speech gate is raised to, so a noisy room does not read as continuous speech. The gate never falls below speechEnergyThreshold and never exceeds 4x it. 0 disables the adaptation and pins the gate to speechEnergyThreshold.",
+      ),
     silenceThresholdMs: z
       .number({ error: "liveVoice.vad.silenceThresholdMs must be a number" })
       .int("liveVoice.vad.silenceThresholdMs must be an integer")

@@ -18,6 +18,26 @@
       "defaultModel": "claude-opus-4-8",
       "models": [
         {
+          "id": "claude-fable-5-1",
+          "displayName": "Claude Fable 5.1",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 0.25
+          }
+        },
+        {
           "id": "claude-fable-5",
           "displayName": "Claude Fable 5",
           "contextWindowTokens": 1000000,
@@ -453,6 +473,24 @@
       "defaultModel": "gemini-2.5-flash",
       "models": [
         {
+          "id": "gemini-3.7-flash",
+          "displayName": "Gemini 3.7 Flash",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "thinkingFloor": "low",
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.5,
+            "outputPer1mTokens": 7.5,
+            "cacheReadPer1mTokens": 0.15
+          }
+        },
+        {
           "id": "gemini-3.6-flash",
           "displayName": "Gemini 3.6 Flash",
           "contextWindowTokens": 1048576,
@@ -512,6 +550,7 @@
           "longContextPricingThresholdTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
+          "thinkingFloor": "low",
           "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
@@ -538,6 +577,7 @@
           "longContextPricingThresholdTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
+          "thinkingFloor": "low",
           "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
@@ -777,6 +817,42 @@
           }
         },
         {
+          "id": "accounts/fireworks/models/glm-5p3",
+          "displayName": "GLM 5.3",
+          "contextWindowTokens": 1040000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4,
+            "cacheReadPer1mTokens": 0.26
+          }
+        },
+        {
+          "id": "accounts/fireworks/models/glm-5p3-flash",
+          "displayName": "GLM 5.3 Flash",
+          "contextWindowTokens": 1040000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.15,
+            "outputPer1mTokens": 0.5,
+            "cacheReadPer1mTokens": 0.029
+          }
+        },
+        {
           "id": "accounts/fireworks/models/minimax-m3",
           "displayName": "MiniMax M3",
           "contextWindowTokens": 524288,
@@ -895,6 +971,26 @@
       "supportsPlatformAuth": false,
       "defaultModel": "x-ai/grok-4.20",
       "models": [
+        {
+          "id": "anthropic/claude-fable-5.1",
+          "displayName": "Claude Fable 5.1",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 0.25
+          }
+        },
         {
           "id": "anthropic/claude-fable-5",
           "displayName": "Claude Fable 5",
@@ -1797,6 +1893,26 @@
       "supportsPlatformAuth": false,
       "defaultModel": "anthropic/claude-sonnet-4.6",
       "models": [
+        {
+          "id": "anthropic/claude-fable-5.1",
+          "displayName": "Claude Fable 5.1",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 0.25
+          }
+        },
         {
           "id": "anthropic/claude-fable-5",
           "displayName": "Claude Fable 5",

@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { Download } from "lucide-react";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
+import { emitNativeAppNudgeImpressionOnce } from "@/utils/native-app-nudge-telemetry";
 import { useTranslation } from "@/i18n";
 
 interface MacOSAppBannerProps {
@@ -11,6 +13,12 @@ interface MacOSAppBannerProps {
 
 export function MacOSAppBanner({ onDownload, onDismiss }: MacOSAppBannerProps) {
   const { t } = useTranslation();
+
+  // See NativeAppBanner: the mount is the impression, because eligibility does
+  // not mean ChatBody rendered the slot.
+  useEffect(() => {
+    emitNativeAppNudgeImpressionOnce("banner", "macos");
+  }, []);
 
   return (
     <NudgeChatBanner

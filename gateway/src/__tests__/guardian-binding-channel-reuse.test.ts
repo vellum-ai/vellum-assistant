@@ -84,7 +84,11 @@ mock.module("../ipc/assistant-client.js", () => ({
 
 // The orphan-GC mirror inspection now goes through typed IPC instead of raw
 // SELECTs; serve it from the same in-memory assistant DB.
+// Spread the actual module so unstubbed named exports keep resolving when the
+// transitive import graph grows.
+const actualContactsInfoClient = await import("../ipc/contacts-info-client.js");
 mock.module("../ipc/contacts-info-client.js", () => ({
+  ...actualContactsInfoClient,
   async probeContactMirror(contactId: string) {
     const contactRow = db()
       .prepare(

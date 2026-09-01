@@ -83,6 +83,8 @@ export interface ContextWindowResult {
   summaryOutputTokens: number;
   summaryModel: string;
   summaryCallSite?: LLMCallSite;
+  /** See {@link CompactionRunResult.summaryResolutionCallSite}. */
+  summaryResolutionCallSite?: LLMCallSite;
   summaryOverrideProfile?: string | null;
   /** See {@link CompactionRunResult.summaryActualProvider}. */
   summaryActualProvider?: string;
