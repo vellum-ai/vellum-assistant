@@ -47,6 +47,15 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
+// Independent of the two above, which is the point: a tablet is hoverless at a
+// width that is neither mobile nor touch-mobile, so it takes the menu branch.
+const hoverCapableRef = { value: true };
+mock.module("@/hooks/use-hover-affordance", () => ({
+  useHoverCapable: () => hoverCapableRef.value,
+  useShowsHoverAffordance: (hasTouchPath: boolean) =>
+    hasTouchPath ? hoverCapableRef.value : true,
+}));
+
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 const toastError = mock((_msg: string) => {});
@@ -381,6 +390,7 @@ function renderMenu(scaffold?: Scaffold) {
 beforeEach(() => {
   isMobileRef.value = false;
   isTouchMobileRef.value = false;
+  hoverCapableRef.value = true;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   configPatchMock.mockClear();
@@ -1680,6 +1690,26 @@ describe("model names on the profile rows", () => {
     await waitFor(() => {
       expect(inferenceprofilePut).toHaveBeenCalled();
     });
+  });
+
+  test("a hoverless tablet reads the model on the row, not behind a hover", async () => {
+    // An iPad in landscape reports `hover: none` at a width that is neither
+    // mobile nor touch-mobile, so it renders the menu. A tooltip mounts
+    // nothing there, so the model has to be on the row or it is nowhere.
+    hoverCapableRef.value = false;
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GLM 5.2")).toBeTruthy();
+    });
+
+    const rows = screen.getAllByTestId("menu-item");
+    const managed = rows.find((r) => r.textContent?.includes("Balanced"));
+    expect(managed!.textContent).toContain("GLM 5.2");
+    // Nothing is left behind a hover on a device that cannot hover.
+    const labels = screen
+      .queryAllByTestId("tooltip")
+      .map((el) => el.getAttribute("data-tooltip-content"));
+    expect(labels).not.toContain("GLM 5.2");
   });
 
   test("touch reads the model on the row itself, where a tooltip cannot go", async () => {

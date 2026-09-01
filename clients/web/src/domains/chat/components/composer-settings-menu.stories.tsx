@@ -3,6 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
 
+import { HoverCapabilityOverride } from "@vellumai/design-library/utils/hover-capability";
+
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -191,6 +193,30 @@ export const OpenWithManagedProfiles: Story = {
     await openProfileMenu();
     const balanced = await screen.findByRole("menuitem", { name: "Balanced" });
     await userEvent.hover(balanced);
+    await waitFor(() =>
+      expect(context.canvasElement.ownerDocument.body.textContent).toContain(
+        "GLM 5.2",
+      ),
+    );
+  },
+};
+
+/**
+ * The same menu on a device that cannot hover but is too wide for the bottom
+ * sheet, an iPad in landscape being the case in hand. A tooltip mounts nothing
+ * here, so each managed row carries its model inline instead.
+ */
+export const OpenWithManagedProfilesNoHover: Story = {
+  parameters: { profileSeeds: MANAGED_PROFILES },
+  decorators: [
+    (Story) => (
+      <HoverCapabilityOverride hoverCapable={false}>
+        <Story />
+      </HoverCapabilityOverride>
+    ),
+  ],
+  play: async (context) => {
+    await openProfileMenu();
     await waitFor(() =>
       expect(context.canvasElement.ownerDocument.body.textContent).toContain(
         "GLM 5.2",
