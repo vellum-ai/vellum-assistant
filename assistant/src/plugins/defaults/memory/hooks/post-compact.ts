@@ -98,10 +98,6 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
   // Write the re-injected history back onto the threaded context; the loop
   // reads it from there once the hook settles.
   ctx.history = result.messages;
-  if (conversation) {
-    conversation.currentTurnOutboundSpotlight =
-      result.blocks.memoryV3SpotlightBlock;
-  }
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors never received a memory-graph
   // injection, so there is nothing to re-track. The live graph handle is looked

@@ -27,8 +27,9 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
+  MEMORY_SPOTLIGHT_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
-  stripSpotlightInjections,
+  stripTailUserTextBlocksByPrefix,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
@@ -1878,11 +1879,10 @@ export interface RuntimeInjectionBlocks {
    */
   memoryV3InjectedBlock?: string;
   /**
-   * Rendered `<memory_spotlight>` body for this turn. Not spliced into
-   * assembled messages and not persisted. The agent loop attaches it as the
-   * last content block of the turn-start user message on the outbound
-   * request only, so historical user messages stay byte-stable for prompt
-   * cache.
+   * Rendered `<memory_spotlight>` body spliced onto this turn's user
+   * message. Persisted by the user-prompt-submit hook under
+   * `metadata.memoryV3SpotlightBlock`. Historical turns keep the block they
+   * were sent with; a new spotlight is added only on the new tail.
    */
   memoryV3SpotlightBlock?: string;
   /**
@@ -2019,8 +2019,6 @@ function countMemoryPrefixBlocksOnContent(content: ContentBlock[]): number {
  *    prefix blocks.
  *  - `"replace-run-messages"` — replace `runMessages` wholesale with
  *    `block.messagesOverride`.
- *  - `"outbound-append-turn-start"` — captured for the outbound request;
- *    not spliced into assembled messages.
  *
  * Blocks with empty `text` on non-replace placements are no-ops.
  */
@@ -2075,8 +2073,6 @@ function applyInjectionBlock(
         },
       ];
     }
-    case "outbound-append-turn-start":
-      return runMessages;
   }
   return runMessages;
 }
@@ -2308,13 +2304,11 @@ function fallbackTurnTrust(
  *  6. Finally, apply the chain's remaining blocks by placement:
  *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
  *     in descending `order` so the lowest-`order` prepend lands topmost in
- *     the user tail content. `"outbound-append-turn-start"` blocks are
- *     captured on `blocks` and are not spliced into the assembled messages.
+ *     the user tail content.
  *
  * Returns the final message array plus a `blocks` object holding the exact
- * injected text for each captured block — callers persist those bytes to
- * message metadata for later byte-exact rehydration. Spotlight text is
- * captured but not persisted.
+ * injected text for each captured block. Callers persist those bytes to
+ * message metadata for later byte-exact rehydration.
  */
 export async function applyRuntimeInjections(
   runMessages: Message[],
@@ -2510,9 +2504,6 @@ export async function applyRuntimeInjections(
       case "append-user-tail":
         appends.push(block);
         break;
-      case "outbound-append-turn-start":
-        // Captured below; not spliced into assembled messages.
-        break;
     }
   }
 
@@ -2603,16 +2594,19 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: leftover spotlight strip + v2 tail suppression ──
+  // ── Step 0: tail spotlight strip + v2 tail suppression ──
   //
-  // Spotlight strip (unconditional): `<memory_spotlight>` is outbound-only
-  // and is not spliced into assembled messages. Any leftover copy riding
-  // stored history is removed here so it cannot mutate the cached prefix.
-  // This is a SCOPED strip of only that block id: the frozen `<memory>`
-  // card blocks on historical messages are untouched (the cache contract).
-  // With the v3 flag off no spotlight blocks exist and this is a content
-  // no-op, keeping the v2 path bit-for-bit identical.
-  let runMessagesForAssembly = stripSpotlightInjections(runMessages);
+  // Spotlight strip (tail only): mid-turn re-entry and post-compact can
+  // hand back a tail that already carries this turn's `<memory_spotlight>`.
+  // Strip that leftover from the tail so Step 2 splices a single fresh
+  // copy. Historical user messages keep the spotlight they were sent with,
+  // so the provider prefix through those messages stays byte-identical.
+  // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
+  // spotlight blocks exist and this is a content no-op.
+  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(
+    runMessages,
+    [MEMORY_SPOTLIGHT_MATCHER],
+  );
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3

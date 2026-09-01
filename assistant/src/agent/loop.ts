@@ -2,7 +2,6 @@ import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
-import { attachOutboundSpotlight } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -637,12 +636,6 @@ interface AgentLoopRunOptionsBase {
     mark(name: string): void;
     markFirstToken(kind: "thinking" | "text"): void;
   };
-  /**
-   * Memory-v3 `<memory_spotlight>` text for this turn. Attached as the last
-   * content block of the turn-start user message on each outbound provider
-   * request. Not written into the loop's stored history.
-   */
-  outboundSpotlight?: string;
 }
 
 interface AgentLoopRunOptionsWithContextWindow extends AgentLoopRunOptionsBase {
@@ -1122,7 +1115,6 @@ export class AgentLoop {
       isNonInteractive = false,
       model: runModel,
       latencyTracker,
-      outboundSpotlight,
     } = options;
     // Snapshot the system prompt once per run. The instance field is mutable
     // (the conversation may update it between turns), but a single run must
@@ -1649,9 +1641,6 @@ export class AgentLoop {
           () => preModelCallSanitize(history),
           (sanitized) => ({ messageCount: sanitized.length }),
         );
-        const providerHistory = outboundSpotlight
-          ? attachOutboundSpotlight(sanitizedHistory, outboundSpotlight)
-          : sanitizedHistory;
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
@@ -1832,7 +1821,7 @@ export class AgentLoop {
         let response: ProviderResponse;
         try {
           response = await traceAsyncSection("agent-loop:provider-send", () =>
-            this.provider.sendMessage(providerHistory, providerOptions),
+            this.provider.sendMessage(sanitizedHistory, providerOptions),
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1850,7 +1839,7 @@ export class AgentLoop {
             // misrepresent both.
             const rawRequest = {
               provider: this.provider.name,
-              messages: providerHistory,
+              messages: sanitizedHistory,
               tools: providerOptions.tools,
               systemPrompt: providerOptions.systemPrompt,
               config: providerOptions.config,

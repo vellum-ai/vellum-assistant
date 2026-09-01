@@ -78,6 +78,7 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
+import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/types.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -535,14 +536,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */ currentTurnIsNonInteractive?: boolean;
-  /**
-   * Rendered memory-v3 `<memory_spotlight>` for the in-flight turn. Set by
-   * runtime assembly after injection; the agent loop attaches it on the
-   * outbound provider request only. Not persisted.
-   * @internal
-   */
-  currentTurnOutboundSpotlight?: string;
+  /** @internal */   currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
@@ -1281,7 +1275,8 @@ export class Conversation {
           // at the memory boundary after the `<info>` block but before
           // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+          //    <info>v2static</info>, <memory>v3cards</memory>,
+          //    <memory_spotlight>, <NOW.md>,
           //    <system_reminder>, <knowledge_base>, ...original]
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
@@ -1307,6 +1302,28 @@ export class Conversation {
           if (!isTail && typeof meta.nowScratchpadBlock === "string") {
             content = [
               { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
+          // The memory-v3 per-turn `<memory_spotlight>` persists under its
+          // own key as the wrapped block that was sent. Rehydrated on ALL
+          // rows (tail included), matching frozen cards: after a reload the
+          // last completed turn is the tail, and the next user message is
+          // appended without re-running loadFromDb. Prepended here, after
+          // now-md and before the v3 card block, so the inverted prepends
+          // land as [cards, spotlight, now-md, ...]. Trust-gated on
+          // `personalMemoryAllowed` like the cards: the spotlight carries
+          // matched personal-memory sections.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] === "string"
+          ) {
+            content = [
+              {
+                type: "text" as const,
+                text: meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] as string,
+              },
               ...content,
             ];
           }

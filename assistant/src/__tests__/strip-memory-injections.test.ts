@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  attachOutboundSpotlight,
-  stripSpotlightInjections,
-} from "../context/strip-injections.js";
+import { stripSpotlightInjections } from "../context/strip-injections.js";
 import { stripExistingMemoryInjections } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -223,9 +220,9 @@ describe("stripExistingMemoryInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripSpotlightInjections — leftover memory-v3 spotlight blocks must not
-// ride stored history. Frozen `<memory>` card blocks must never be touched
-// (the cache contract).
+// stripSpotlightInjections: leftover memory-v3 spotlight blocks are removed
+// from every user message (compaction leftover cleanup). Frozen `<memory>`
+// card blocks must never be touched (the cache contract).
 // ---------------------------------------------------------------------------
 
 const spotlightBlock = (inner: string): ContentBlock => ({
@@ -267,57 +264,5 @@ describe("stripSpotlightInjections", () => {
 
   test("no-op for empty messages array", () => {
     expect(stripSpotlightInjections([])).toEqual([]);
-  });
-});
-
-describe("attachOutboundSpotlight", () => {
-  test("appends spotlight as the last block of the turn-start user message", () => {
-    const messages = [
-      userMsg(textBlock("earlier")),
-      assistantMsg("ok"),
-      userMsg(memoryTextBlock, textBlock("current")),
-    ];
-    const spotlight = wrapMemorySpotlightBlock("fresh");
-    const result = attachOutboundSpotlight(messages, spotlight);
-    expect(result[0]).toEqual(messages[0]);
-    expect(result[2].content).toEqual([
-      memoryTextBlock,
-      textBlock("current"),
-      { type: "text", text: spotlight },
-    ]);
-  });
-
-  test("does not mutate earlier user messages across two attaches", () => {
-    const turn1Stored = [userMsg(textBlock("first"))];
-    const turn1Outbound = attachOutboundSpotlight(
-      turn1Stored,
-      wrapMemorySpotlightBlock("s1"),
-    );
-    const turn2Stored = [
-      ...turn1Stored,
-      assistantMsg("reply"),
-      userMsg(textBlock("second")),
-    ];
-    const turn2Outbound = attachOutboundSpotlight(
-      turn2Stored,
-      wrapMemorySpotlightBlock("s2"),
-    );
-    expect(turn2Outbound[0]).toEqual(turn1Stored[0]);
-    expect(JSON.stringify(turn2Outbound[0])).toBe(
-      JSON.stringify(turn1Stored[0]),
-    );
-    expect(turn1Outbound[0].content).toHaveLength(2);
-  });
-
-  test("skips attach when the turn-start already carries a spotlight", () => {
-    const existing = wrapMemorySpotlightBlock("already");
-    const messages = [
-      userMsg(textBlock("hi"), { type: "text", text: existing }),
-    ];
-    const result = attachOutboundSpotlight(
-      messages,
-      wrapMemorySpotlightBlock("fresh"),
-    );
-    expect(result).toBe(messages);
   });
 });

@@ -30,13 +30,11 @@ export function unwrapMemoryBlock(block: string): string {
 }
 
 /**
- * The memory-v3 ephemeral spotlight wrapper. Unlike `<memory>` card blocks
- * (frozen into history), the spotlight is attached only on the outbound
- * provider request. The per-turn scoped strip in
- * `context/strip-injections.ts` (`stripSpotlightInjections`) and the
- * compaction matcher in `RUNTIME_INJECTION_PREFIXES` both key off this exact
- * prefix/suffix pair, so the producer wrapper lives here beside the `<memory>`
- * marker it parallels.
+ * The memory-v3 per-turn spotlight wrapper. Each turn's `<memory_spotlight>`
+ * stays on the user message that was sent, matching frozen `<memory>` cards.
+ * Compaction still strips these blocks via `RUNTIME_INJECTION_PREFIXES`, and
+ * `stripSpotlightInjections` is the full-history leftover cleanup used there.
+ * The producer wrapper lives here beside the `<memory>` marker it parallels.
  */
 export const MEMORY_SPOTLIGHT_PREFIX = "<memory_spotlight>\n";
 export const MEMORY_SPOTLIGHT_SUFFIX = "\n</memory_spotlight>";

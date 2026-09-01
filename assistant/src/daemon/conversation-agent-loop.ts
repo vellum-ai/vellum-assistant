@@ -425,7 +425,6 @@ export async function runAgentLoopImpl(
   // present rather than re-deriving it from live state.
   const isNonInteractive = !isInteractiveResolved;
   ctx.currentTurnIsNonInteractive = isNonInteractive;
-  ctx.currentTurnOutboundSpotlight = undefined;
 
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
@@ -860,7 +859,6 @@ export async function runAgentLoopImpl(
     // a stale value and instead fall back to live client state in the tool
     // context.
     ctx.currentTurnIsNonInteractive = undefined;
-    ctx.currentTurnOutboundSpotlight = undefined;
     // Turn-scoped request origin. Clear so a later turn on a reused
     // conversation cannot inherit a stale origin-scoped permission grant.
     ctx.currentTurnRequestOrigin = undefined;
@@ -1395,9 +1393,6 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
-          ...(ctx.currentTurnOutboundSpotlight
-            ? { outboundSpotlight: ctx.currentTurnOutboundSpotlight }
-            : {}),
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

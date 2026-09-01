@@ -11,7 +11,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -148,30 +147,6 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
       mode: "explicit",
     });
     expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
-    expect(breakpointedItemIndexes()).toEqual([0]);
-  });
-
-  test("outbound spotlight suffix: breakpoint stamps the last stable part", async () => {
-    const provider = makeProvider("gpt-5.6-sol");
-    await provider.sendMessage(
-      [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "What did we decide?" },
-            { type: "text", text: wrapMemorySpotlightBlock("recalled plan") },
-          ],
-        },
-      ],
-      { config: { promptCacheKey: "conv-1" } },
-    );
-
-    const input = (lastStreamParams?.input ?? []) as WireItem[];
-    expect(input).toHaveLength(1);
-    const parts = input[0]!.content ?? [];
-    expect(parts).toHaveLength(2);
-    expect(parts[0]!.prompt_cache_breakpoint).toEqual({ mode: "explicit" });
-    expect(parts[1]!.prompt_cache_breakpoint).toBeUndefined();
     expect(breakpointedItemIndexes()).toEqual([0]);
   });
 

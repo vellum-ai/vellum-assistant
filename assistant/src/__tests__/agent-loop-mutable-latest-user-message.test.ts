@@ -1,11 +1,9 @@
 /**
- * Verifies that the loop attaches an outbound-only memory-v3 spotlight on
- * the provider request without writing it into stored history, and that it
- * no longer flags the turn-start message as volatile.
+ * Verifies that a persisted memory-v3 spotlight already in history is sent
+ * as-is and does not flag the turn-start message as volatile.
  *
- * Spotlight is an uncached suffix after the user's text. The provider places
- * the long-TTL breakpoint on the last stable block, so historical user
- * messages stay byte-identical across turns.
+ * Spotlight stays on the user message that was sent. The loop must not
+ * attach, strip, or mark that message mutable.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -20,12 +18,20 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 
+const spotlightText = wrapMemorySpotlightBlock("recalled: Alice's plan");
+
 const userMessage: Message = {
   role: "user",
   content: [{ type: "text", text: "hi" }],
 };
 
-const spotlightText = wrapMemorySpotlightBlock("recalled: Alice's plan");
+const userMessageWithSpotlight: Message = {
+  role: "user",
+  content: [
+    { type: "text", text: "hi" },
+    { type: "text", text: spotlightText },
+  ],
+};
 
 function textResponse(text: string): ProviderResponse {
   return {
@@ -82,8 +88,8 @@ const echoTool: ToolDefinition = {
   },
 };
 
-describe("AgentLoop.run: outbound spotlight attach", () => {
-  test("attaches spotlight on the outbound request and leaves stored history clean", async () => {
+describe("AgentLoop.run: persisted spotlight in history", () => {
+  test("sends a spotlight already in history and does not flag the turn-start as volatile", async () => {
     const { provider, configs, sent } = makeRecordingProvider([
       textResponse("done"),
     ]);
@@ -96,23 +102,21 @@ describe("AgentLoop.run: outbound spotlight attach", () => {
 
     const result = await loop.run({
       requestId: "test-request",
-      messages: [userMessage],
-      outboundSpotlight: spotlightText,
+      messages: [userMessageWithSpotlight],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
 
     expect(sent()).toHaveLength(1);
-    expect(sent()[0]![0]!.content).toEqual([
-      { type: "text", text: "hi" },
-      { type: "text", text: spotlightText },
-    ]);
-    expect(result.history[0]!.content).toEqual([{ type: "text", text: "hi" }]);
+    expect(sent()[0]![0]!.content).toEqual(userMessageWithSpotlight.content);
+    expect(result.history[0]!.content).toEqual(
+      userMessageWithSpotlight.content,
+    );
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("omits spotlight on the wire when outboundSpotlight is absent", async () => {
+  test("does not set mutableLatestUserMessage when history has no spotlight", async () => {
     const { provider, sent, configs } = makeRecordingProvider([
       textResponse("hi"),
     ]);
@@ -135,7 +139,7 @@ describe("AgentLoop.run: outbound spotlight attach", () => {
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("reattaches the same spotlight on every request in a tool loop", async () => {
+  test("keeps a persisted spotlight on the opening user message through a tool loop", async () => {
     const { provider, sent, configs } = makeRecordingProvider([
       toolUseResponse("t1", "echo", { value: "first" }),
       textResponse("done"),
@@ -151,23 +155,18 @@ describe("AgentLoop.run: outbound spotlight attach", () => {
 
     const result = await loop.run({
       requestId: "test-request",
-      messages: [userMessage],
-      outboundSpotlight: spotlightText,
+      messages: [userMessageWithSpotlight],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
 
     expect(sent()).toHaveLength(2);
-    expect(sent()[0]![0]!.content.at(-1)).toEqual({
-      type: "text",
-      text: spotlightText,
-    });
-    expect(sent()[1]![0]!.content.at(-1)).toEqual({
-      type: "text",
-      text: spotlightText,
-    });
-    expect(result.history[0]!.content).toEqual([{ type: "text", text: "hi" }]);
+    expect(sent()[0]![0]!.content).toEqual(userMessageWithSpotlight.content);
+    expect(sent()[1]![0]!.content).toEqual(userMessageWithSpotlight.content);
+    expect(result.history[0]!.content).toEqual(
+      userMessageWithSpotlight.content,
+    );
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
     expect("mutableLatestUserMessage" in (configs()[1] ?? {})).toBe(false);
   });
