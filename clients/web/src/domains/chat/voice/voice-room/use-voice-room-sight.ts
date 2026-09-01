@@ -107,6 +107,11 @@ export interface VoiceRoomSightOptions {
 interface HeldFrame extends VoiceRoomSightFrame {
   /** Session generation at capture. A frame never crosses sessions. */
   readonly sessionGeneration: number;
+  /**
+   * Capture order for this hook instance. `Date.now()` can stamp two keeps
+   * with the same millisecond, and `>=` would then drop the newer one.
+   */
+  readonly captureSeq: number;
 }
 
 export function useVoiceRoomSight(
@@ -123,6 +128,7 @@ export function useVoiceRoomSight(
   const heldRef = useRef<HeldFrame | null>(null);
   const gateRef = useRef<FrameGate | null>(null);
   const frameCountRef = useRef(0);
+  const captureSeqRef = useRef(0);
   /**
    * Which camera and transport this capture chain feeds. Bumped when sampling
    * stops, when the camera flips, and when the transport drops into a
@@ -167,6 +173,7 @@ export function useVoiceRoomSight(
       // neither can be re-read afterwards without describing the wrong one.
       const sessionGeneration = useLiveVoiceStore.getState().sessionGeneration;
       const captureEpoch = captureEpochRef.current;
+      const captureSeq = ++captureSeqRef.current;
       const atMs = Date.now();
       try {
         frameCountRef.current += 1;
@@ -218,11 +225,13 @@ export function useVoiceRoomSight(
           abandonUpload();
           return;
         }
-        // Latest wins by CAPTURE time, not by resolve order: two uploads can be
-        // in flight and the slower one is not the newer view. Losing here is
-        // the whole cost of a superseded frame, so it is simply dropped.
+        // Latest wins by CAPTURE order, not by resolve order: two uploads can
+        // be in flight and the slower one is not the newer view. Losing here
+        // is the whole cost of a superseded frame, so it is simply dropped.
+        // Sequence, not wall clock: two keeps in the same millisecond are
+        // still ordered.
         const held = heldRef.current;
-        if (held && held.atMs >= atMs) {
+        if (held && held.captureSeq >= captureSeq) {
           abandonUpload();
           return;
         }
@@ -240,6 +249,7 @@ export function useVoiceRoomSight(
           atMs,
           previewUrl: URL.createObjectURL(frame),
           sessionGeneration,
+          captureSeq,
         });
       } catch (cause) {
         // Best effort by design: nobody asked for this frame, so a failure
