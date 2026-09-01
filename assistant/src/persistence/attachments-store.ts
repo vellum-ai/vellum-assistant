@@ -1497,93 +1497,68 @@ export interface SightFrameSweepCursor {
 export interface SightFrameSweepPage {
   candidates: SightFrameSweepCandidate[];
   /**
-   * Key of the last attachment the page EXAMINED, which is not always the last
-   * candidate: one the prefilter matched and the tag check rejected has to be
-   * stepped over too, or the next page starts on it again.
+   * Key of the last attachment the page VISITED, which is rarely the last
+   * candidate: the page returns every aged attachment in its range, and most of
+   * them are rejected here for not being an image, for already being small, or
+   * for carrying no sight tag. All of them have to be stepped over, or the next
+   * page starts on them again.
    */
   nextCursor: SightFrameSweepCursor | null;
   /** Whether the page filled its limit, so more attachments may follow. */
   hasMore: boolean;
   /**
-   * Rows the page's queries actually read: the attachments it scanned plus the
-   * linked-message metadata it had to check to tell candidates from prefilter
-   * near-misses. A caller bounding its work per pass charges this rather than
-   * the candidate count, because a backlog of near-misses costs real queries
-   * while producing no candidates at all.
+   * Rows the page's queries read: every attachment it visited, plus the
+   * linked-message metadata it checked for the ones that got that far. The page
+   * visits only what it returns, so this is the true cost of the page and a
+   * caller bounding its work per pass charges this rather than the candidate
+   * count, which says nothing about a range full of rows that qualify for
+   * nothing.
    */
   rowsRead: number;
 }
 
 /**
- * One page of sight-tagged image attachments older than `createdBefore` whose
- * stored bytes still exceed `largerThanBytes`.
+ * The page query, with `cursorClause` the only thing that varies between the
+ * opening page and a continuation. Everything else is written once, so the two
+ * shapes cannot drift in their select list, ordering, or bounds.
  *
- * The population is EVERY tagged frame, standalone camera keeps and the frames
- * that rode a spoken turn alike. That is deliberately wider than
- * `messageMetadataIsAmbientSightKeep`, which additionally requires `scripted`
- * because it answers a question about memory. Bytes on disk cost the same
- * whoever was speaking when the camera sampled them.
+ * Deliberately nothing but the index range. `kind`, the size threshold, and the
+ * sight tag are all applied in JS over the rows this returns, because a residual
+ * left in SQL makes `LIMIT` bound rows RETURNED while the walk that produces
+ * them stays unbounded: given a long run of aged rows the residual rejects,
+ * SQLite keeps reading index entries looking for matches it can return. Measured
+ * on 5000 aged non-image rows followed by one image, the residual form read
+ * 5001 index entries to return 1 row, while this form returns exactly the
+ * entries it visits. Every row a page hands back is therefore a row the caller
+ * can charge to its budget, and `LIMIT` bounds the work rather than the yield.
  *
- * Like the other metadata prefilters, the `LIKE` only narrows: each attachment
- * the prefilter admits has its linked messages parsed, and it is a candidate
- * only when one of them actually names it, so a message that merely mentions
- * the key contributes nothing.
+ * The cost is more pages on a table where sight frames are a small share of
+ * aged attachments, since a page no longer skips past what it cannot use. The
+ * cursor is what makes that safe: a pass resumes where the last one stopped, so
+ * the extra pages are spread across passes instead of paid all at once.
  *
- * The prefilter lives inside an `EXISTS` rather than a join, so the page is one
- * row per ATTACHMENT. A join emits one row per link, and an attachment carried
- * by several messages would then appear several times under a single
- * `(created_at, id)` key. A page ending on such a row advances the cursor past
- * the attachment on the strength of whichever link happened to land last, and
- * the next page's strict `>` excludes the link that would have qualified it, for
- * good. A key that names one row is what makes the cursor safe.
- *
- * Age comes from the attachment row's own `created_at`, not the message's. It
- * dates the bytes this row stores, which is what the sweep is bounding: a fork's
- * clone is a second copy written on the day of the fork, however old the frame
- * it depicts.
- *
- * `after` resumes an ascending scan past an attachment already examined. A
- * caller that cannot act on what it finds (a shared file, a rendering that came
- * out no smaller) has no way to make the row stop matching, so a query that
- * always starts at the oldest row would hand back the same refusals forever and
- * never reach anything behind them.
- */
-/**
- * The candidate page query, with `cursorClause` the only thing that varies
- * between the first page and a continuation. Everything else is written once,
- * so the two shapes cannot drift in their select list, prefilter, residual
- * filters, or ordering.
- *
- * Both are hoisted out so a test can put the exact text this runs through
+ * Both shapes are hoisted out so a test can put the exact text this runs through
  * `EXPLAIN QUERY PLAN`. A copy in the test would go stale the first time the
  * query changed shape, which is precisely when the plan needs checking.
  */
-function sightFrameSweepCandidateSql(cursorClause: string): string {
+function sightFrameSweepPageSql(cursorClause: string): string {
   return `SELECT
        a.id AS id,
        a.size_bytes AS sizeBytes,
-       a.created_at AS createdAt
+       a.created_at AS createdAt,
+       a.kind AS kind
      FROM attachments a
-     WHERE a.kind = 'image'
-       AND a.created_at < ?
-       AND a.size_bytes > ?${cursorClause}
-       AND EXISTS (
-         SELECT 1
-         FROM message_attachments ma
-         JOIN messages m ON m.id = ma.message_id
-         WHERE ma.attachment_id = a.id
-           AND m.metadata LIKE ?
-       )
+     WHERE a.created_at < ?${cursorClause}
      ORDER BY a.created_at ASC, a.id ASC
      LIMIT ?`;
 }
 
 /**
- * Opening page: the age bound alone, which
- * `idx_attachments_created_at_id` (migration 374) serves as an index range in
- * cursor order, so there is no sort step.
+ * Opening page: the age bound alone, which `idx_attachments_created_at_id`
+ * (migration 374) serves as an index range in cursor order, so there is no sort
+ * step and no row is read that is not returned.
  */
-export const SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL = sightFrameSweepCandidateSql("");
+export const SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL = sightFrameSweepPageSql("");
 
 /**
  * Continuation page: a DIRECT tuple comparison against the cursor, deliberately
@@ -1598,11 +1573,44 @@ export const SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL = sightFrameSweepCandidateSql("");
  * straight to where the last one stopped. Two shapes rather than one is the
  * price of that, which is why they are built from a single fragment above.
  */
-export const SIGHT_FRAME_SWEEP_CONTINUATION_SQL = sightFrameSweepCandidateSql(
+export const SIGHT_FRAME_SWEEP_CONTINUATION_SQL = sightFrameSweepPageSql(
   `
        AND (a.created_at, a.id) > (?, ?)`,
 );
 
+/**
+ * One page of aged attachments, with the sight frames among them picked out.
+ *
+ * The page is an index range over `created_at`; everything that decides whether
+ * a visited row is a candidate happens here, in order of what it costs. `kind`
+ * and the size threshold are read off the returned row. Only what survives both
+ * is worth a metadata probe, and an attachment qualifies when at least one
+ * linked message parses to a tag naming it: the `LIKE` in that probe narrows,
+ * the parse decides, so a message that merely mentions the key contributes
+ * nothing.
+ *
+ * The population is EVERY tagged frame, standalone camera keeps and the frames
+ * that rode a spoken turn alike. That is deliberately wider than
+ * `messageMetadataIsAmbientSightKeep`, which additionally requires `scripted`
+ * because it answers a question about memory. Bytes on disk cost the same
+ * whoever was speaking when the camera sampled them.
+ *
+ * Verification is per attachment rather than per link, which is what keeps the
+ * cursor safe. Asking it of a join would give one row per link, several under a
+ * single `(created_at, id)` key, and a page ending on one of them would advance
+ * the cursor past the attachment on the strength of whichever link landed last,
+ * leaving the link that would have qualified it excluded for good.
+ *
+ * Age comes from the attachment row's own `created_at`, not the message's. It
+ * dates the bytes this row stores, which is what the sweep is bounding: a fork's
+ * clone is a second copy written on the day of the fork, however old the frame
+ * it depicts.
+ *
+ * `after` resumes past an attachment already visited. A caller that cannot act
+ * on what it finds (a shared file, a rendering that came out no smaller) has no
+ * way to make the row stop matching, so a query that always started at the
+ * oldest row would hand back the same refusals forever.
+ */
 export function selectSightFrameSweepCandidates(options: {
   createdBefore: number;
   largerThanBytes: number;
@@ -1611,13 +1619,14 @@ export function selectSightFrameSweepCandidates(options: {
 }): SightFrameSweepPage {
   const after = options.after ?? null;
   const taggedMessageLike = `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`;
-  // Bind order follows clause order, and the cursor clause sits between the
-  // size filter and the prefilter, so the shared tail keeps its positions.
+  // Bind order follows clause order, and the cursor clause is the only optional
+  // one, so the limit keeps its position at the tail.
   const cursorBinds = after === null ? [] : [after.createdAt, after.id];
   const rows = rawAll<{
     id: string;
     sizeBytes: number;
     createdAt: number;
+    kind: string;
   }>(
     after === null
       ? "attachments:selectSightFrameSweepCandidates:first"
@@ -1626,9 +1635,7 @@ export function selectSightFrameSweepCandidates(options: {
       ? SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL
       : SIGHT_FRAME_SWEEP_CONTINUATION_SQL,
     options.createdBefore,
-    options.largerThanBytes,
     ...cursorBinds,
-    taggedMessageLike,
     options.limit,
   );
 
@@ -1637,6 +1644,11 @@ export function selectSightFrameSweepCandidates(options: {
   let rowsRead = rows.length;
   for (const row of rows) {
     nextCursor = { createdAt: row.createdAt, id: row.id };
+    // Row-local rejections first, and free: they read nothing the page did not
+    // already return, so only a plausible frame ever costs a metadata probe.
+    if (row.kind !== "image" || row.sizeBytes <= options.largerThanBytes) {
+      continue;
+    }
     const linked = rawAll<{ metadata: string | null }>(
       "attachments:sightFrameSweepCandidateTags",
       `SELECT m.metadata AS metadata

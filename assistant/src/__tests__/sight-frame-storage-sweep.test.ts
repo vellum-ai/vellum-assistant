@@ -34,7 +34,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { setDbMigrating, setDbReady } from "../daemon/daemon-readiness.js";
 import {
+  getSightFrameSweepBackupCursorForTest,
   getSightFrameSweepCursorForTest,
+  getSightFrameSweepDirEnumerationsForTest,
   resetSightFrameSweepCursorForTest,
   sweepAgedSightFrames,
 } from "../daemon/sight-frame-storage-sweep.js";
@@ -270,8 +272,40 @@ function plantCanonicalFile(
   return { id, path, bytes };
 }
 
-/** The prefilter pattern the candidate query binds, so the plans are read with real arguments. */
-const TAGGED_MESSAGE_LIKE = '%"sightFrameAttachmentIds"%';
+/**
+ * Aged, large, image attachments that carry no sight tag at all: the shape of an
+ * ordinary photo library sitting in the index range the sweep pages through.
+ * They are what the page has to walk past, and what a `LIMIT` that bounded
+ * matches rather than visits would let it walk past for free.
+ */
+async function plantUntaggedImages(count: number): Promise<void> {
+  const conversation = createConversation("Album");
+  const message = await addMessage(conversation.id, "user", "photos", {
+    skipIndexing: true,
+  });
+  const filePath = join(
+    getConversationsDir(),
+    "2026-01-01T00-00-00.000Z_album",
+    "attachments",
+    "photo.jpg",
+  );
+  const createdAt = Date.now() - 30 * DAY_MS;
+  for (let i = 0; i < count; i++) {
+    rawRun(
+      "test:plantUntaggedImage",
+      `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, file_path, created_at)
+       VALUES (?, 'photo.jpg', 'image/jpeg', ?, 'image', '', ?, ?)`,
+      `untagged-${String(i).padStart(4, "0")}`,
+      2 * 1024 * 1024,
+      filePath,
+      createdAt + i,
+    );
+    linkAttachmentWithoutScoping(
+      message.id,
+      `untagged-${String(i).padStart(4, "0")}`,
+    );
+  }
+}
 
 /** Every step SQLite reports for a query, joined so a test can assert over the whole plan. */
 function queryPlanFor(sql: string, binds: Array<string | number>): string {
@@ -490,9 +524,14 @@ describe("sweepAgedSightFrames", () => {
 
     const second = await sweepAgedSightFrames();
 
-    // Nothing is even a candidate the second time: the swept size is what the
-    // query bounds on, so an already-shrunk frame is not re-read or re-encoded.
-    expect(second).toEqual(NOTHING_HAPPENED);
+    // The row is still walked, because the page is a plain index range over age
+    // and the size threshold is applied to what it returns. What matters is that
+    // it stops being a CANDIDATE, so nothing re-reads or re-encodes its bytes.
+    expect(second.shrunk).toBe(0);
+    expect(second.examined).toBe(0);
+    expect(second.skipped).toBe(0);
+    expect(second.freedBytes).toBe(0);
+    expect(second.rowsRead).toBe(1);
     expect(storedSizeBytes(frame.attachmentId)).toBe(sweptSize);
     expect(readFileSync(frame.filePath).equals(sweptBytes)).toBe(true);
   });
@@ -816,8 +855,6 @@ describe("sweepAgedSightFrames", () => {
     // per page.
     const detail = queryPlanFor(SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL, [
       Date.now(),
-      128 * 1024,
-      TAGGED_MESSAGE_LIKE,
       200,
     ]);
 
@@ -829,6 +866,41 @@ describe("sweepAgedSightFrames", () => {
     expect(detail).not.toMatch(/\bSCAN a\b/);
   });
 
+  test("visits no more rows than its budget through an untagged backlog", async () => {
+    // The population that used to be invisible. Every one of these is aged,
+    // large, and an image, so the only thing that disqualifies it is the sight
+    // tag. With the tag test in SQL, one page would walk all 60 index entries
+    // probing message_attachments for each and return nothing, none of it
+    // charged. The page is a plain index range now, so a visit is a returned
+    // row and the budget is a real bound.
+    await plantUntaggedImages(60);
+
+    const result = await sweepAgedSightFrames({
+      pageSize: 10,
+      maxRowsRead: 20,
+    });
+
+    expect(result.shrunk).toBe(0);
+    expect(result.examined).toBe(0);
+    // Two pages of ten. Every visited row is counted, and no metadata probe
+    // happens at all, because nothing survives the kind and size checks that a
+    // probe would follow.
+    expect(result.rowsRead).toBe(20);
+    // Stopped part way with somewhere to resume from, not a wrap.
+    expect(getSightFrameSweepCursorForTest()).not.toBeNull();
+  });
+
+  test("charges every visited row when the range holds no candidates", async () => {
+    await plantUntaggedImages(12);
+
+    const result = await sweepAgedSightFrames({ pageSize: 100 });
+
+    // One page covering all twelve, each visited and each counted.
+    expect(result.rowsRead).toBe(12);
+    expect(result.examined).toBe(0);
+    expect(getSightFrameSweepCursorForTest()).toBeNull();
+  });
+
   test("seeks a continuation page straight to the cursor", () => {
     // The lower bound is the half that makes paging linear. A cursor predicate
     // SQLite cannot fold into the index range still SEARCHes, but from the
@@ -836,10 +908,8 @@ describe("sweepAgedSightFrames", () => {
     // quadratic in the pages walked. The tuple has to reach the constraint.
     const detail = queryPlanFor(SIGHT_FRAME_SWEEP_CONTINUATION_SQL, [
       Date.now(),
-      128 * 1024,
       Date.now() - DAY_MS,
       "att-cursor",
-      TAGGED_MESSAGE_LIKE,
       200,
     ]);
 
@@ -847,6 +917,39 @@ describe("sweepAgedSightFrames", () => {
     expect(detail).toContain("(created_at,id)>(?,?)");
     expect(detail).not.toContain("USE TEMP B-TREE");
     expect(detail).not.toMatch(/\bSCAN a\b/);
+  });
+
+  test("lists the conversations directory once per cycle, not once per pass", async () => {
+    // Discovery is O(all conversations). Doing it every pass would leave the
+    // advertised bound covering the child scans while the listing that feeds
+    // them grew with the workspace.
+    for (const suffix of ["aaa", "bbb", "ccc"]) {
+      mkdirSync(
+        join(
+          getConversationsDir(),
+          `2026-02-01T00-00-00.000Z_${suffix}`,
+          "attachments",
+        ),
+        { recursive: true },
+      );
+    }
+
+    await sweepAgedSightFrames({ maxBackupDirs: 1 });
+    expect(getSightFrameSweepDirEnumerationsForTest()).toBe(1);
+    expect(getSightFrameSweepBackupCursorForTest()).not.toBeNull();
+
+    await sweepAgedSightFrames({ maxBackupDirs: 1 });
+    await sweepAgedSightFrames({ maxBackupDirs: 1 });
+    expect(getSightFrameSweepDirEnumerationsForTest()).toBe(1);
+
+    // Finishing the cycle is what earns a fresh listing, which is also how a
+    // conversation created since the cycle began gets picked up.
+    await sweepAgedSightFrames({ maxBackupDirs: 10_000 });
+    expect(getSightFrameSweepBackupCursorForTest()).toBeNull();
+    expect(getSightFrameSweepDirEnumerationsForTest()).toBe(1);
+
+    await sweepAgedSightFrames({ maxBackupDirs: 1 });
+    expect(getSightFrameSweepDirEnumerationsForTest()).toBe(2);
   });
 
   test("deletes a backup whose base is missing and whose row is gone", async () => {

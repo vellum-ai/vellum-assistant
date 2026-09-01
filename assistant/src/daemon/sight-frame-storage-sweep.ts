@@ -95,11 +95,11 @@ const MAX_ENCODE_ATTEMPTS_PER_PASS = 200;
  * Rows a pass will READ before stopping, whatever it managed to encode.
  *
  * Charged against what the queries actually touched, not against the candidates
- * they yielded. A message that mentions the sight key without naming a given
- * attachment makes that attachment a prefilter near-miss: it costs a page slot
- * and a metadata lookup and produces nothing. Counting only candidates would
- * leave a backlog of those free, so a pass would page and parse the whole
- * backlog every hour and never notice.
+ * they yielded, and the page is built so those are the same thing: it visits
+ * exactly the rows it returns, so nothing a pass does is invisible here. A range
+ * full of attachments that qualify for nothing (wrong kind, already small, no
+ * sight tag) still costs page slots and lookups, and counting only candidates
+ * would leave all of it free.
  *
  * The cursor below is what makes stopping safe: the next pass resumes where this
  * one ran out rather than starting over.
@@ -138,6 +138,31 @@ let sweepCursor: SightFrameSweepCursor | null = null;
 const MAX_BACKUP_DIRS_PER_PASS = 40;
 
 let backupScanCursor: string | null = null;
+
+/**
+ * The sorted conversation directory names the current cycle is working through,
+ * enumerated once when the cycle starts rather than on every pass.
+ *
+ * Listing the conversations directory is O(all conversations), so doing it each
+ * pass would leave the advertised bound covering only the child scans while
+ * discovery stayed unbounded. Held across the passes of one cycle, the cost is
+ * one O(N) listing per full cycle and O(maxDirs) per pass.
+ *
+ * Two trades, both cheap here. Staleness: a conversation created mid-cycle is
+ * not scanned until the cursor wraps and the list is rebuilt, which for files a
+ * crash left behind is of no consequence, and a fresh conversation has had no
+ * time to leave any. Memory: one string per conversation, bounded by the size of
+ * the workspace, released and rebuilt at each wrap.
+ *
+ * A streaming `opendir` walk would avoid the list entirely, but the cursor
+ * depends on a stable total order to resume from a name, and directory
+ * iteration order is filesystem-defined rather than sorted, so streaming would
+ * need its own ordering pass and give back what it saved.
+ */
+let backupScanDirNames: string[] | null = null;
+
+/** How many times the conversations directory has been enumerated, for tests. */
+let backupScanEnumerations = 0;
 
 /**
  * How often the sweep runs. The window it enforces is measured in days, so an
@@ -391,12 +416,17 @@ function reclaimSweepLeftovers(maxDirs: number): SweepLeftoverTally {
   reclaimLeftoversIn(join(getWorkspaceDir(), "data", "attachments"), tally);
 
   const conversationsDir = getConversationsDir();
-  let dirNames: string[];
-  try {
-    dirNames = readdirSync(conversationsDir).sort();
-  } catch {
-    return tally;
+  // A null cursor means the last cycle finished, so this pass starts a new one
+  // and re-enumerates. That is also what picks up conversations created since.
+  if (backupScanCursor === null || backupScanDirNames === null) {
+    backupScanEnumerations += 1;
+    try {
+      backupScanDirNames = readdirSync(conversationsDir).sort();
+    } catch {
+      backupScanDirNames = [];
+    }
   }
+  const dirNames = backupScanDirNames;
   const resumeAfter = backupScanCursor;
   const resumeAt =
     resumeAfter === null ? 0 : dirNames.findIndex((name) => name > resumeAfter);
@@ -471,6 +501,21 @@ export function getSightFrameSweepCursorForTest(): SightFrameSweepCursor | null 
 export function resetSightFrameSweepCursorForTest(): void {
   sweepCursor = null;
   backupScanCursor = null;
+  backupScanDirNames = null;
+  backupScanEnumerations = 0;
+}
+
+/**
+ * How many times the conversations directory has been listed, for tests that
+ * assert discovery costs one listing per cycle rather than one per pass.
+ */
+export function getSightFrameSweepDirEnumerationsForTest(): number {
+  return backupScanEnumerations;
+}
+
+/** Where the directory scan stopped, for tests that assert a cycle wrapped. */
+export function getSightFrameSweepBackupCursorForTest(): string | null {
+  return backupScanCursor;
 }
 
 /** Start the periodic sweep. Idempotent. */
