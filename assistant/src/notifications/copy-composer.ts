@@ -174,6 +174,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.message, "A reminder has fired"),
   }),
 
+  // Unreachable on the happy path: the producer always carries
+  // `requestedMessage`, so `composeFallbackCopy`'s verbatim branch answers
+  // first. This is the floor for a signal whose body was lost, and it names
+  // the schedule so the user can still find the run.
+  "schedule.result": (payload) => ({
+    title: sanitizedPayloadField(payload.scheduleName, "Schedule"),
+    body: "A scheduled run finished with results.",
+  }),
+
   // The schedule.* fields below (names, cadence, error reason) originate in
   // plugin-authored declaration files, so they are sanitized like any other
   // untrusted actor-controlled string before interpolation.
