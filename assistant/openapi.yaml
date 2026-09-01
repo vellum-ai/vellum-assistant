@@ -13792,13 +13792,7 @@ paths:
                               type: string
                             sourceUrl:
                               type: string
-                            slackCardUrl:
-                              type: string
-                            slackCardAppUrl:
-                              type: string
                             decidedAction:
-                              type: string
-                            decidedByLabel:
                               type: string
                             decidedAt:
                               type: string
@@ -14033,13 +14027,7 @@ paths:
                         type: string
                       sourceUrl:
                         type: string
-                      slackCardUrl:
-                        type: string
-                      slackCardAppUrl:
-                        type: string
                       decidedAction:
-                        type: string
-                      decidedByLabel:
                         type: string
                       decidedAt:
                         type: string
@@ -14368,13 +14356,7 @@ paths:
                               type: string
                             sourceUrl:
                               type: string
-                            slackCardUrl:
-                              type: string
-                            slackCardAppUrl:
-                              type: string
                             decidedAction:
-                              type: string
-                            decidedByLabel:
                               type: string
                             decidedAt:
                               type: string
@@ -23005,13 +22987,7 @@ paths:
                             type: string
                           sourceUrl:
                             type: string
-                          slackCardUrl:
-                            type: string
-                          slackCardAppUrl:
-                            type: string
                           decidedAction:
-                            type: string
-                          decidedByLabel:
                             type: string
                           decidedAt:
                             type: string

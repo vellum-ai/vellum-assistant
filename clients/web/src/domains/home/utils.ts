@@ -8,8 +8,8 @@ import { flattenSummary } from "./feed-preview";
 
 /**
  * Sort feed items: pending guardian items first (they block the
- * assistant on the user, so they are the "Needs attention" head of any
- * list), then by priority descending, then by createdAt descending.
+ * assistant on the user, so they head any list), then by priority
+ * descending, then by createdAt descending.
  */
 export function sortFeedItems(items: FeedItem[]): FeedItem[] {
   return [...items].sort((a, b) => {
@@ -142,24 +142,27 @@ export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
   };
 }
 
-/** Catalog keys a guardian row's category chip may carry. */
-export type GuardianCategoryLabelKey =
+/** Catalog keys naming a guardian request. */
+export type GuardianLabelKey =
   | "category.guardianAction"
-  | "category.guardianQuestion";
+  | "category.guardianQuestion"
+  | "category.guardianRequest";
 
 /**
- * Category label override for a guardian-request item. The wire
- * `category` stays `security` (older clients keep their chip), but a
- * guardian row names what it actually needs: an action or an answer.
- * Null for every other item, which keeps its category's own label.
+ * What to call a guardian-request item, on the row and on the panel it
+ * opens. A waiting approval asks for something ("Guardian action
+ * needed"); once it is settled nothing is needed of anyone, so it is
+ * named for what it was. A question is a question either way. Null for
+ * every other item, which is named by its own title.
  */
-export function guardianCategoryLabelKey(
-  item: FeedItem,
-): GuardianCategoryLabelKey | null {
+export function guardianLabelKey(item: FeedItem): GuardianLabelKey | null {
   if (!item.guardianRequest) {
     return null;
   }
-  return item.guardianRequest.intent === "question"
-    ? "category.guardianQuestion"
-    : "category.guardianAction";
+  if (item.guardianRequest.intent === "question") {
+    return "category.guardianQuestion";
+  }
+  return isPendingGuardianFeedItem(item)
+    ? "category.guardianAction"
+    : "category.guardianRequest";
 }

@@ -501,6 +501,98 @@ describe("NotificationsBell panel", () => {
   });
 });
 
+describe("NotificationsBell guardian rows", () => {
+  function guardianBellItem(overrides: Partial<FeedItem> = {}): FeedItem {
+    return bellItem({
+      id: "guardian:req-1",
+      status: "new",
+      urgency: "high",
+      // Production shape: the daemon's title is the generic kind of request
+      // and the ask itself arrives in the body.
+      title: "Guardian Question",
+      summary: "Alice asked the assistant to look up an issue",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+        sourceContextLabel: "Slack #user-feedback",
+      },
+      ...overrides,
+    });
+  }
+
+  test("a waiting request sorts above the notifications that only report", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const titles = screen
+      .getAllByTestId("home-recap-row-title")
+      .map((node) => node.textContent);
+    // Named by what it asks of the user, never by the daemon's generic
+    // "Guardian Question", with the ask itself on the line below.
+    expect(titles[0]).toBe("Guardian action needed");
+    expect(titles[1]).toBe("Watcher job failed");
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("the guardian row's second line carries the ask", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("only the waiting row carries the attention treatment", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const marked = document.querySelectorAll("[data-needs-attention]");
+    expect(marked.length).toBe(1);
+    expect(marked[0]?.textContent).toContain("Alice asked the assistant");
+  });
+
+  test("a settled request keeps no attention treatment", async () => {
+    feedRef.items = [
+      guardianBellItem({
+        id: "guardian:req-2",
+        urgency: "medium",
+        guardianRequest: {
+          requestId: "req-2",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "approved",
+          // Receipts keep the context the pending item carried.
+          sourceContextLabel: "Slack #user-feedback",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(document.querySelectorAll("[data-needs-attention]").length).toBe(0);
+    // A settled receipt keeps its source context, and reads by its own
+    // title and summary like any other notification.
+    expect(screen.getByText("Guardian Question")).toBeTruthy();
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+});
+
 describe("NotificationsBell empty state", () => {
   test("offers the schedule that produces the first notification", async () => {
     await openBell();
