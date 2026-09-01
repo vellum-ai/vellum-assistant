@@ -783,6 +783,74 @@ describe("sight frame refusals", () => {
     expect(reclaimed()).toEqual(["att-1"]);
   });
 
+  test("a reconnect queues the sends nobody acknowledged", () => {
+    // Reaching the transport says nothing about persistence. A socket that
+    // closes between the send and the write takes the frame with it, and the
+    // assistant answers nothing either way.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+
+    expect(reclaimed()).toEqual(["att-1", "att-2"]);
+  });
+
+  test("a terminal reset queues them the same way", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1"]);
+  });
+
+  test("pruned sends are queued at a reset too", () => {
+    const { generation } = sightSession();
+    for (let i = 1; i <= 10; i++) {
+      sendLiveVoiceSightFrame(`att-${i}`, generation);
+    }
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toHaveLength(10);
+    expect(reclaimed()).toContain("att-1");
+    expect(reclaimed()).toContain("att-10");
+  });
+
+  test("a retracted send is not queued at a reset", () => {
+    // The assistant answered for it, so it reclaims that attachment itself
+    // and a delete from here would race it.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-1");
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual([]);
+  });
+
+  test("an already queued id is not queued twice by a reset", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    expect(reclaimed()).toEqual(["att-1"]);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1"]);
+  });
+
+  test("a reset with no session assistant queues nothing", () => {
+    // Nothing to aim a delete at, and an id with no assistant is not
+    // actionable.
+    useLiveVoiceStore.getState().noteSightFrameSent("att-1");
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual([]);
+  });
+
   test("a reconnect clears the latch, so an upgraded assistant is tried again", () => {
     const { controls, generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);

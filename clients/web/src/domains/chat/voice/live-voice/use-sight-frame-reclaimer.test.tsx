@@ -141,6 +141,38 @@ describe("useSightFrameReclaimer", () => {
     expect(generation).toBe(useLiveVoiceStore.getState().sessionGeneration);
   });
 
+  test("drains the sends a reconnect left unacknowledged", async () => {
+    // The end-to-end of the reset routing: the socket closed after the frames
+    // went out, nobody ever said whether they landed, and the drain runs at
+    // session scope so a minimized room changes nothing.
+    const generation = startSession();
+    renderHook(() => useSightFrameReclaimer());
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().reset({ sessionContinues: true });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
+  });
+
+  test("drains them after a terminal reset too", async () => {
+    const generation = startSession();
+    renderHook(() => useSightFrameReclaimer());
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().reset();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+  });
+
   test("a routine refusal queues nothing to delete", async () => {
     // An assistant that understands the frame reclaims what it could not
     // persist, so deleting would race it.

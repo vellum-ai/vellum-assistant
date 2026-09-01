@@ -842,6 +842,44 @@ function mergeSightFrameReclaims(
   ];
 }
 
+/**
+ * The uploads a session boundary leaves unaccounted for.
+ *
+ * Reaching the transport is not an acknowledgement that anything was stored.
+ * A socket that closes between the send and the persist takes the frame with
+ * it, and the assistant answers nothing either way, so at a session boundary
+ * every id still in the ledger is one nobody can say landed.
+ *
+ * They are queued for deletion rather than dropped, which is the same trade
+ * the latch-time prune makes. Most of them DID persist and were simply never
+ * acknowledged, and a delete aimed at a persisted frame is refused by the
+ * daemon's link-awareness, so the cost is a burst of refused deletes bounded
+ * by the ledger cap and its prunes. The alternative costs an upload that
+ * genuinely was lost, kept for good, since nothing else collects an
+ * attachment no message links.
+ *
+ * The race with a persist still running is benign in both directions. A
+ * delete that lands first leaves the persist unable to resolve the
+ * attachment, which fails that frame and reclaims nothing; one that lands
+ * after the persist has read the row cannot take the bytes back out of the
+ * message being written.
+ */
+function queueUnacknowledgedSightFrames(
+  state: LiveVoiceState,
+): readonly SightFrameReclaim[] {
+  const assistantId = state.assistantId;
+  const unacknowledged = [
+    ...new Set([...state.prunedSightFrames, ...state.outstandingSightFrames]),
+  ];
+  if (assistantId === null || unacknowledged.length === 0) {
+    return state.sightFramesToReclaim;
+  }
+  return mergeSightFrameReclaims(
+    state.sightFramesToReclaim,
+    unacknowledged.map((attachmentId) => ({ assistantId, attachmentId })),
+  );
+}
+
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
@@ -1007,10 +1045,16 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
         ? s.sessionGeneration
         : s.sessionGeneration + 1,
       // `sightFramesToReclaim` is absent from INITIAL_SESSION_STATE on purpose
-      // and so survives this untouched: a queue a teardown could discard would
-      // strand the uploads it exists to collect. `sightFramesUnsupported` is
-      // the opposite and does reset, because the latch is about the assistant
-      // that just answered and a reconnect can land on an upgraded one.
+      // and so survives this: a queue a teardown could discard would strand
+      // the uploads it exists to collect. It also GROWS here, because the
+      // ledgers this replaces hold sends nobody ever acknowledged. Both reset
+      // kinds route them the same way, deliberately in the reset itself, so a
+      // third kind cannot be added that forgets to.
+      //
+      // `sightFramesUnsupported` is the opposite and does reset, because the
+      // latch is about the assistant that just answered and a reconnect can
+      // land on an upgraded one.
+      sightFramesToReclaim: queueUnacknowledgedSightFrames(s),
     })),
 }));
 

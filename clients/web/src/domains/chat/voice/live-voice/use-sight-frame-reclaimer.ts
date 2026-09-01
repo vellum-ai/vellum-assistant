@@ -16,14 +16,16 @@
  *
  * Deletion failures are logged and dropped. Nobody asked for these uploads and
  * nothing downstream depends on the row being gone, so a failed cleanup is
- * worth telemetry and nothing more.
+ * worth a line in the console and nothing more. A refused delete is in fact
+ * the expected answer for most of what this queue carries, since a session
+ * boundary queues every unacknowledged send and the daemon protects the rows
+ * that a message links.
  */
 
 import { useEffect } from "react";
 
 import { deleteChatAttachment } from "@/domains/chat/api/messages";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { captureError } from "@/lib/sentry/capture-error";
 
 export function useSightFrameReclaimer(): void {
   const queued = useLiveVoiceStore.use.sightFramesToReclaim();
@@ -41,10 +43,15 @@ export function useSightFrameReclaimer(): void {
     for (const { assistantId, attachmentId } of taken) {
       void deleteChatAttachment(assistantId, attachmentId).then((ok) => {
         if (!ok) {
-          captureError(new Error("sight frame delete refused"), {
-            context: "live-voice sight: reclaim refused frame",
-            bestEffort: true,
-          });
+          // Logged, not filed. A refusal is the ORDINARY answer here: a
+          // session boundary queues every send the assistant never
+          // acknowledged, most of those did persist, and the daemon refuses to
+          // delete a row a message links. Filing each one would open a Sentry
+          // issue on every call that had the camera open, which buries the
+          // failures worth reading.
+          console.warn(
+            `live-voice sight: kept frame ${attachmentId} not reclaimed`,
+          );
         }
       });
     }

@@ -176,6 +176,9 @@ beforeEach(() => {
   autoUploadId = 0;
   uploadsResolveImmediately = true;
   useLiveVoiceStore.getState().reset();
+  // The reclaim queue is deliberately not session state, and a reset now feeds
+  // it the sends nobody acknowledged, so it has to be drained between cases.
+  useLiveVoiceStore.getState().takeSightFramesToReclaim();
   controls = makeControlsSpies();
   seedLiveVoiceSession("listening", {
     assistantId: ASSISTANT_ID,
