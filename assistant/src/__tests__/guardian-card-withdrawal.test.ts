@@ -686,28 +686,6 @@ describe("recordApprovalCardDelivery", () => {
     expect(delivery?.destinationChatId).toBeNull();
     expect(delivery?.status).toBe("pending");
   });
-
-  test("lets a Slack reaction resolve back to its request (LUM-2502)", async () => {
-    // A delivered Slack approval card must be addressable by (channel, chat, ts)
-    // so an emoji reaction on it resolves to the right request rather than
-    // silently falling through to transcript persistence.
-    const req = makeRequest();
-    await recordApprovalCardDelivery({
-      requestId: req.id,
-      channel: "slack",
-      chatId: "C-guardian",
-      messageId: "1700000000.5678",
-      status: "sent",
-    });
-
-    const resolved =
-      await bridgeState.module.getPendingRequestByDestinationMessageOrNull(
-        "slack",
-        "C-guardian",
-        "1700000000.5678",
-      );
-    expect(resolved?.id).toBe(req.id);
-  });
 });
 
 describe("recordGuardianRequestDeliveries", () => {

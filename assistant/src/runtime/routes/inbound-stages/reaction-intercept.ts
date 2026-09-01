@@ -11,9 +11,7 @@
  *     row — it is dropped as channel noise,
  *   - a known contact's reaction is recorded as an inline transcript signal in
  *     the conversation of the message it was attached to, whether that message
- *     arrived from the channel or the assistant posted it,
- *   - a guardian's reaction on an approval card is routed through the guardian
- *     decision pipeline (the same path as buttons and text replies).
+ *     arrived from the channel or the assistant posted it.
  *
  * The reactor's trust is read solely from the gateway-stamped verdict on
  * `sourceMetadata`; a missing/failed/contradictory verdict fails closed to
@@ -64,13 +62,11 @@ import { extractTextFromStoredMessageContent } from "../../../persistence/messag
 import { getLogger } from "../../../util/logger.js";
 import { toTrustContext } from "../../actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
-import type { ApprovalConversationGenerator } from "../../http-types.js";
 import {
   actorTrustContextFromVerdict,
   verdictUsability,
 } from "../../trust-verdict-consumer.js";
 import { processChannelMessageInBackground } from "./background-dispatch.js";
-import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
 const log = getLogger("runtime-http");
 
@@ -103,7 +99,6 @@ export interface ReactionInterceptParams {
   actorUsername: string | undefined;
   replyCallbackUrl: string | undefined;
   sourceMetadata: SourceMetadata | undefined;
-  approvalConversationGenerator: ApprovalConversationGenerator | undefined;
 }
 
 /**
@@ -126,7 +121,6 @@ export async function handleReactionIntercept(
     actorUsername,
     replyCallbackUrl,
     sourceMetadata,
-    approvalConversationGenerator,
   } = params;
 
   // Classify the reactor from the gateway-stamped verdict — the same source
@@ -158,10 +152,9 @@ export async function handleReactionIntercept(
 
   const reactedMessageTs = reaction.targetMessageId;
   // Respect disk-pressure cleanup so reactions don't bypass storage
-  // protection. Guardians resolve to `allow-cleanup-mode` (not `block`), so a
-  // guardian's approval-by-reaction still flows. Blocked silently and before
-  // any write: a reaction is a passive signal, so the message pipeline's
-  // "storage is low, try again" notice is meaningless for an emoji.
+  // protection. Blocked silently and before any write: a reaction is a
+  // passive signal, so the message pipeline's "storage is low, try again"
+  // notice is meaningless for an emoji.
   const diskPressure = classifyDiskPressureTurnPolicy(getDiskPressureStatus(), {
     sourceChannel,
     sourceInterface,
@@ -179,9 +172,9 @@ export async function handleReactionIntercept(
     };
   }
 
-  // A redelivery is answered before anything acts on it. Recording the event
-  // is what dedups a reaction, and that happens after the guardian rail, so
-  // without this probe the same emoji could drive a decision twice.
+  // A redelivery is answered before the reacted message is resolved, so a
+  // repeat delivery costs no lookup. `recordInbound` below is the durable
+  // dedup; this is the early out in front of it.
   const alreadyRecorded = findInboundEvent(
     sourceChannel,
     conversationExternalId,
@@ -193,34 +186,6 @@ export async function handleReactionIntercept(
       duplicate: true,
       eventId: alreadyRecorded.eventId,
     };
-  }
-
-  // Guardian approval-by-reaction runs before the reacted message is resolved:
-  // an approval card is addressed by its own message id and is not always a
-  // stored message. Only `reaction:` (added) expresses intent;
-  // `reaction_removed:` never does. `handleGuardianReplyIntercept` self-gates
-  // on `trustClass === "guardian"`, so a contact's reaction returns no
-  // response and falls through to persistence.
-  if (reaction.op === "added" && replyCallbackUrl) {
-    const reactionIntercept = await handleGuardianReplyIntercept({
-      isDuplicate: false,
-      trimmedContent: "",
-      hasCallbackData: true,
-      callbackData: undefined,
-      reaction,
-      reactedMessageTs,
-      rawSenderId,
-      canonicalSenderId,
-      sourceChannel,
-      conversationExternalId,
-      replyCallbackUrl,
-      trustClass: trustCtx.trustClass,
-      guardianPrincipalId: trustCtx.guardianPrincipalId,
-      approvalConversationGenerator,
-    });
-    if (reactionIntercept.response) {
-      return reactionIntercept.response;
-    }
   }
 
   // The reaction belongs to the conversation of the message it was attached

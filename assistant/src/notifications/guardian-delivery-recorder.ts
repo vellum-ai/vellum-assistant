@@ -78,7 +78,7 @@ export async function recordApprovalCardDelivery(
   } catch (err) {
     log.error(
       { err, requestId: address.requestId, channel: address.channel },
-      "Failed to record approval card delivery; reaction/withdrawal on this card will not resolve",
+      "Failed to record approval card delivery; withdrawal of this card will not resolve",
     );
     return null;
   }

@@ -28,10 +28,10 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
   telegram: inline keyboard; slack: blocks;       vellum: conversation card via approval-card-builder)
   card deliveries recorded per channel            (guardian-delivery-recorder.ts → guardian_request_deliveries)
         │
-        ▼ user responds: button tap / emoji reaction / "CODE <reply>" / bare text
+        ▼ user responds: button tap / "CODE <reply>" / bare text
   guardian reply router                          (runtime/guardian-reply-router.ts, invoked from
-  reactions → callbacks → request codes →         routes/inbound-stages/guardian-reply-intercept.ts,
-  bare answer → explicit approve/reject → NL      BEFORE background dispatch — replies to parked
+  callbacks → request codes → bare answer →       routes/inbound-stages/guardian-reply-intercept.ts,
+  explicit approve/reject → NL                    BEFORE background dispatch: replies to parked
         │                                         prompts resolve inline, never deferred)
         ▼ one decision primitive
   applyGuardianDecision                          (approvals/guardian-decision-primitive.ts:
@@ -45,14 +45,14 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
 
 ## Who owns what
 
-| Concern                                 | Owner                                                    | Never                               |
-| --------------------------------------- | -------------------------------------------------------- | ----------------------------------- |
-| The "what": card text, actions, options | broadcaster context build (once per broadcast)           | built per-adapter                   |
-| The "how": channel-native rendering     | `notifications/adapters/<channel>`                       | domain logic, payload parsing       |
-| Request state                           | gateway `guardian_requests` (+ deliveries)               | daemon-side request tables          |
-| Decisions                               | `applyGuardianDecision` (CAS, atomic ACL outcome)        | inline decision logic at call sites |
-| Kind-specific follow-through            | resolver registry (`kind` → resolver)                    | switch statements in the router     |
-| Reply understanding                     | guardian reply router (codes, buttons, reactions, modes) | per-feature inbound intercepts      |
+| Concern                                 | Owner                                             | Never                               |
+| --------------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| The "what": card text, actions, options | broadcaster context build (once per broadcast)    | built per-adapter                   |
+| The "how": channel-native rendering     | `notifications/adapters/<channel>`                | domain logic, payload parsing       |
+| Request state                           | gateway `guardian_requests` (+ deliveries)        | daemon-side request tables          |
+| Decisions                               | `applyGuardianDecision` (CAS, atomic ACL outcome) | inline decision logic at call sites |
+| Kind-specific follow-through            | resolver registry (`kind` → resolver)             | switch statements in the router     |
+| Reply understanding                     | guardian reply router (codes, buttons, modes)     | per-feature inbound intercepts      |
 
 ## The canonical home-feed projection
 
@@ -186,8 +186,8 @@ chat the turn is running in. On Slack that chat can be a shared room, and the
 card carries the tool, a command preview and live buttons.
 `resolveGuardianPromptDelivery` addresses it to the guardian's bound DM
 instead, by chat id rather than user id because that address is written to the
-delivery row and read back to match reactions, scope plain-text replies and
-edit the decided card. It returns the address and its route together, since
+delivery row and read back to scope plain-text replies and edit the decided
+card. It returns the address and its route together, since
 the turn's own callback carries a `threadTs` naming a thread that does not
 exist in the DM. When no private address resolves it returns nothing and the
 prompt is left to the in-app confirmation, because the room is the disclosure
