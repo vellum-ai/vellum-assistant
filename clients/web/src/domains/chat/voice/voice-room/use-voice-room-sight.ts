@@ -46,7 +46,9 @@
  * room already put on screen, and only after the user has held the shutter to
  * ask for it, so frames flow exactly while the user can see what is being
  * sampled and has said to. Each one lands somewhere they can see it and delete
- * it. Tapping the shutter again, or closing the viewfinder, stops them at once.
+ * it. Tapping the shutter again, closing the viewfinder, and putting the app
+ * away all stop them at once, and the last of those costs another hold to
+ * start again rather than resuming on the gesture that came before it.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -60,6 +62,7 @@ import {
   sendLiveVoiceSightFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   isVisionModeOn,
   useVisionModeVariant,
@@ -119,19 +122,20 @@ export interface VoiceRoomSight {
    */
   readonly heldFrame: VoiceRoomSightFrame | null;
   /**
-   * Whether Live can be entered at all: the flag, the assistant, and the
-   * session's assistant understanding the frame. The room reads it to decide
-   * whether to offer the hold and the hint, so an unavailable Live is a
-   * shutter that only takes photos rather than one that takes a hold and does
-   * nothing with it.
+   * Whether Live can be entered at all: the flag, an assistant, that
+   * assistant understanding the frame, and a session that has not latched the
+   * frame as unsupported. The room reads it to decide whether to offer the
+   * hold and the hint, so an unavailable Live is a shutter that only takes
+   * photos rather than one that takes a hold and does nothing with it.
    */
   readonly liveAvailable: boolean;
   /** Whether the viewfinder is streaming. Only then is anything sampled. */
   readonly live: boolean;
   /**
    * Enter or leave Live. Forced back off when the viewfinder closes, when
-   * availability goes, and when the session latches every keep as unsupported,
-   * so nothing can display Live over a camera sampling nothing.
+   * availability goes, and when the app is put into the background, so nothing
+   * can display Live over a camera sampling nothing and no gesture carries
+   * across a backgrounding.
    */
   readonly setLive: (live: boolean) => void;
 }
@@ -151,8 +155,12 @@ export function useVoiceRoomSight(
 ): VoiceRoomSight {
   const visionMode = useVisionModeVariant();
   const supportsFrames = useSupportsSightStream(assistantId);
+  // An assistant that refuses the frame at all, latched for the session. Read
+  // here rather than beside the effect that acts on it, because it is one of
+  // the terms in whether Live can be offered at all: see `liveAvailable`.
+  const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
   const [heldFrame, setHeldFrame] = useState<VoiceRoomSightFrame | null>(null);
-  const [live, setLive] = useState(false);
+  const [live, setLiveState] = useState(false);
   // What the capture continuations read. The sampler outlives a render, so it
   // cannot close over a render's value.
   const heldRef = useRef<VoiceRoomSightFrame | null>(null);
@@ -191,26 +199,65 @@ export function useVoiceRoomSight(
    */
   const captureEpochRef = useRef(0);
 
-  // All three, so the feature is absent rather than half-present: a flag off is
+  // All four, so the feature is absent rather than half-present: a flag off is
   // not shipped, an assistant that predates `sight_frame` answers every keep
-  // with the error code the transport reads as a settings rejection, and
-  // without an assistant there is nothing to upload against.
+  // with the error code the transport reads as a settings rejection, without an
+  // assistant there is nothing to upload against, and a session that has
+  // latched the frame as unsupported drops every keep at the capture guard
+  // below. The latch belongs in the offer and not only in the state: taking
+  // Live down while leaving the hold on the shutter is a gesture that raises a
+  // pill saying Live over a camera whose frames all end in the same drop.
   const liveAvailable =
-    isVisionModeOn(visionMode) && supportsFrames && !!assistantId;
+    isVisionModeOn(visionMode) &&
+    supportsFrames &&
+    !!assistantId &&
+    !sightFramesUnsupported;
   // The camera on screen is the consent, and Live is the ask. Nothing samples
   // without both.
   const active = cameraOpen && liveAvailable && live;
 
+  /**
+   * Enter or leave Live, where entering is refused unless it is available.
+   *
+   * The effect below cannot answer this one: its deps are the availability it
+   * watches, so a request made while Live is already unavailable changes
+   * nothing it re-runs on and would leave the flag raised until the next real
+   * transition. The refusal belongs at the ask.
+   */
+  const setLive = useCallback(
+    (next: boolean) => {
+      setLiveState(next && cameraOpen && liveAvailable);
+    },
+    [cameraOpen, liveAvailable],
+  );
+
   // Live never outlives what makes it honest. The viewfinder closing takes the
-  // consent away, and availability going takes the destination away, so in
-  // either case the mode goes back to photo rather than staying raised over a
-  // camera that is sampling nothing.
+  // consent away, and availability going (a flag, an assistant, or the latch)
+  // takes the destination away, so in either case the mode goes back to photo
+  // rather than staying raised over a camera that is sampling nothing.
   useEffect(() => {
     if (cameraOpen && liveAvailable) {
       return;
     }
-    setLive(false);
+    setLiveState(false);
   }, [cameraOpen, liveAvailable]);
+
+  // Backgrounding ends Live, rather than pausing it.
+  //
+  // The hold is the consent, and it is given to a viewfinder the user is
+  // watching. The sampler only pauses while the page is hidden and picks its
+  // loop back up on the way in, so a Live that survived a backgrounding would
+  // resume sharing what the camera sees on a gesture made before the app was
+  // put away. Coming back to a viewfinder on photo costs one hold; coming back
+  // to one that is already streaming costs whatever it captured first.
+  //
+  // The bus's own edge rather than a `visibilitychange` listener here: it is
+  // published once per physical edge from the two sources that describe it,
+  // which is what the iOS shell needs (see docs/EVENT_BUS.md, and the
+  // composer's sight store, which gives its camera back on the same event).
+  useBusSubscription("app.hidden", () => {
+    setLiveState(false);
+  });
 
   /**
    * Replace the frame on screen, giving back whatever preview it displaced.
@@ -515,15 +562,13 @@ export function useVoiceRoomSight(
   // is no honest version of the thumbnail to leave up, and no correlation to
   // do to know that.
   //
-  // The mode comes down with the thumbnail. Every keep is dropped for the rest
-  // of the session, so a pill still reading Live would be the surface claiming
-  // the call can see the room while nothing it captures leaves the client.
-  const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
+  // Only the thumbnail here. The mode comes down through `liveAvailable`, which
+  // the latch is a term of, so a Live that is running when it rises is ended by
+  // the same effect that ends one whose flag or assistant went away.
   useEffect(() => {
     if (!sightFramesUnsupported) {
       return;
     }
-    setLive(false);
     hold(null);
   }, [hold, sightFramesUnsupported]);
 

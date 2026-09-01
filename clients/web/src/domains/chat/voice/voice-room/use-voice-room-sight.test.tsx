@@ -81,6 +81,7 @@ mock.module("@/domains/chat/api/messages", () => ({
 }));
 
 const { useVoiceRoomSight } = await import("./use-voice-room-sight");
+const { publish } = await import("@/lib/event-bus");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
@@ -318,6 +319,56 @@ describe("useVoiceRoomSight: when it samples", () => {
 
     expect(view.result.current.liveAvailable).toBe(false);
     expect(samplerStart).not.toHaveBeenCalled();
+  });
+
+  test("offers no Live once the session has latched the frame as unsupported", async () => {
+    const { view } = renderSight({ live: true });
+    act(() => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    });
+
+    // The offer goes, not only the state. Left available, the room would keep
+    // the hint and the hold on the shutter, and a second hold would raise a
+    // pill saying Live over a camera whose every keep ends at the capture
+    // guard.
+    expect(view.result.current.liveAvailable).toBe(false);
+    expect(view.result.current.live).toBe(false);
+
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    expect(view.result.current.live).toBe(false);
+  });
+
+  test("backgrounding ends Live, and coming back does not resume it", async () => {
+    const { view } = renderSight({ live: true });
+    await keepFrame();
+    expect(samplerStart).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      publish("app.hidden", { signal: "visibility" });
+    });
+
+    // The hold was given to a viewfinder the user was watching. The sampler
+    // only pauses while the page is hidden, so a Live left standing would go
+    // on sharing what the camera sees the moment the app is back.
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStop).toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+
+    act(() => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStart).toHaveBeenCalledTimes(1);
+
+    // What it costs is one hold, which is the gesture the consent is carried
+    // by rather than one the app remembers across being put away.
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    expect(samplerStart).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -765,8 +816,10 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
         controls,
       });
     });
-    // The latch took Live with it, and unlatching does not put it back: the
-    // user asks for the stream again, the same way they asked the first time.
+    // The offer is back, and the mode is not: unlatching restores the hold on
+    // the shutter, and the user asks for the stream again the same way they
+    // asked the first time.
+    expect(view.result.current.liveAvailable).toBe(true);
     expect(view.result.current.live).toBe(false);
     act(() => {
       view.result.current.setLive(true);

@@ -53,6 +53,7 @@ import {
   stubMediaDevices,
 } from "@/domains/chat/voice/voice-room/voice-camera.test-helper";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { publish } from "@/lib/event-bus";
 import { MIN_VERSION as SIGHT_MIN_VERSION } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -2415,6 +2416,45 @@ describe("VoiceRoom: camera", () => {
 
       expect(shutter().getAttribute("data-mode")).toBe("photo");
       expect(pill().getAttribute("data-camera-mode")).toBe("photo");
+    });
+
+    test("an assistant that refuses the frame withdraws the offer, not just the mode", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      await act(async () => {
+        useLiveVoiceStore.getState().noteSightFrameRefused(true);
+      });
+
+      // Every keep for the rest of the session is dropped before it is
+      // uploaded. Taking the mode down while leaving the hint and the hold up
+      // would offer a gesture whose whole result is a pill saying Live over a
+      // camera nothing is reading.
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(hint()).toBeNull();
+      expect(shutter().getAttribute("aria-keyshortcuts")).toBeNull();
+
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      // What a reconnect clearing the latch gives back is the hook's to say,
+      // and `use-voice-room-sight.test.tsx` says it: the session lifecycle a
+      // reset drives is the thing this room is mounted on.
+    });
+
+    test("backgrounding the app ends Live", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      await act(async () => {
+        publish("app.hidden", { signal: "visibility" });
+      });
+
+      // Back on photo, with the offer still standing: the hold is what the
+      // consent rides on, and it is not carried across being put away.
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(hint()?.textContent).toBe("Tap photo · Hold for live");
     });
 
     test("camera mode hands a keyboard the room from the corner down, live too", async () => {
