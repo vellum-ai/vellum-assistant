@@ -482,7 +482,18 @@ export function isFrameGateDebugEnabled(): boolean {
   return enabled;
 }
 
-function clampOverride(key: FrameGateOverrideKey, value: number): number {
+/**
+ * A threshold both the gate and the readout can hold: inside its slider's
+ * range, and the shipped default for anything unparseable.
+ *
+ * Exported so a restored payload and a moved slider land on the same number
+ * the gate applies. A readout drawing a value the gate is not using describes
+ * a session that does not exist.
+ */
+export function clampFrameGateOverride(
+  key: FrameGateOverrideKey,
+  value: number,
+): number {
   const bound = FRAME_GATE_SLIDER_BOUNDS[key];
   if (!Number.isFinite(value)) {
     return DEFAULT_FRAME_GATE_OPTIONS[key];
@@ -518,6 +529,10 @@ function discardCollected(): void {
  * readout writes the defaults over the record no matter what the sliders hold,
  * so an override left behind by a tuning session cannot reach a real one.
  *
+ * `next` is the effective state, not the persisted switch: a session that may
+ * not reach the readout hands `false` here however that switch was left. See
+ * `frame-gate-debug-access.ts`, which computes it.
+ *
  * Values outside their slider's range, and values a stale persisted payload
  * left as junk, fall back to the shipped default rather than reaching the
  * gate.
@@ -531,7 +546,7 @@ export function syncFrameGateDebugOptions(
   Object.assign(liveOptions, DEFAULT_FRAME_GATE_OPTIONS);
   if (next) {
     for (const key of FRAME_GATE_OVERRIDE_KEYS) {
-      liveOptions[key] = clampOverride(key, overrides[key]);
+      liveOptions[key] = clampFrameGateOverride(key, overrides[key]);
     }
   }
   if (wasEnabled && !next) {

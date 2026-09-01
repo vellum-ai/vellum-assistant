@@ -28,6 +28,7 @@ import {
   syncFrameGateDebugOptions,
   type FrameGateDebugSurface,
 } from "@/lib/camera/frame-gate-debug";
+import { setupCameraGateHudAccessSync } from "@/lib/camera/frame-gate-debug-access";
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
 
@@ -56,6 +57,7 @@ const initialAuthState = useAuthStore.getState();
 const initialDebugState = useCameraGateDebugStore.getState();
 
 let pendingFrames: Array<() => void> = [];
+let stopAccessSync: (() => void) | null = null;
 
 function flushFrames(): void {
   const queued = pendingFrames;
@@ -92,11 +94,16 @@ beforeEach(() => {
     { ...initialDebugState, overrides: defaultFrameGateOverrides() },
     true,
   );
+  // What the sliders do to the gate runs through the access sync, so the panel
+  // is exercised over the same wiring the app boots.
+  stopAccessSync = setupCameraGateHudAccessSync();
   useCameraGateDebugStore.getState().setHudEnabled(true);
 });
 
 afterEach(() => {
   cleanup();
+  stopAccessSync?.();
+  stopAccessSync = null;
   useCameraGateDebugStore.getState().setHudEnabled(false);
   useCameraGateDebugStore.setState(
     { ...initialDebugState, overrides: defaultFrameGateOverrides() },

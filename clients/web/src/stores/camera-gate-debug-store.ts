@@ -12,17 +12,19 @@
  *   `vellum:debug:cameraGateHud`. The `vellum:debug:` namespace is what gets
  *   the key captured into a support export, so a report filed from a session
  *   with a moved threshold says so (see `lib/feature-flags/debug-flag-snapshot.ts`).
- * - A persisted payload is never trusted as gate input. It reaches the gate
- *   only through {@link syncFrameGateDebugOptions}, which clamps each value to
- *   its slider's range and falls back to the shipped default for anything
- *   missing or unparseable.
+ * - A persisted payload is never trusted. Every restored value is clamped to
+ *   its slider's range on the way in, and anything missing or unparseable
+ *   falls back to the shipped default, so what the sliders draw is what the
+ *   gate is judging against.
  *
- * **What every write does.** Both setters push the whole picture back through
- * `syncFrameGateDebugOptions`, which is the module that owns the gate's live
- * options record. That is the seam enforcing the enabled-only rule: a
- * threshold moved while the readout is on is written over with the shipped
- * default the moment it goes off, so an override can never quietly detune a
- * real session.
+ * **What every write does.** A write moves this slice and nothing else. The
+ * gate's live options record is owned by `lib/camera/frame-gate-debug.ts` and
+ * written only from `lib/camera/frame-gate-debug-access.ts`, which subscribes
+ * here and pushes the effective picture: this slice, and whether the session
+ * may reach the readout at all. That is the seam enforcing the enabled-only
+ * rule: the thresholds are written over with the shipped defaults the moment
+ * the readout goes off or the session loses access, so an override can never
+ * quietly detune a real session.
  *
  * Reference:
  * - {@link https://zustand.docs.pmnd.rs/integrations/persisting-store-data}
@@ -32,6 +34,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import {
+  clampFrameGateOverride,
   defaultFrameGateOverrides,
   syncFrameGateDebugOptions,
   type FrameGateOverrideKey,
@@ -77,6 +80,10 @@ const INITIAL_STATE: CameraGateDebugState = {
 /**
  * A complete override set built from whatever was stored, so a payload written
  * before a threshold existed still produces a slider with a value on it.
+ *
+ * Restored values go through the same clamp the gate's writer applies, which
+ * is what keeps a slider, its meter's tick, and the number the gate judges
+ * against in agreement after bounds tighten or localStorage is hand-edited.
  */
 function completeOverrides(saved: unknown): FrameGateOverrides {
   const base = defaultFrameGateOverrides();
@@ -86,8 +93,8 @@ function completeOverrides(saved: unknown): FrameGateOverrides {
   const partial = saved as Partial<Record<FrameGateOverrideKey, unknown>>;
   for (const key of Object.keys(base) as FrameGateOverrideKey[]) {
     const value = partial[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      base[key] = value;
+    if (typeof value === "number") {
+      base[key] = clampFrameGateOverride(key, value);
     }
   }
   return base;
@@ -106,19 +113,19 @@ const useCameraGateDebugStoreBase = create<CameraGateDebugStore>()(
 
       setHudEnabled: (next: boolean) => {
         set({ hudEnabled: next });
-        syncFrameGateDebugOptions(next, get().overrides);
       },
 
       setOverride: (key: FrameGateOverrideKey, value: number) => {
-        const overrides = { ...get().overrides, [key]: value };
-        set({ overrides });
-        syncFrameGateDebugOptions(get().hudEnabled, overrides);
+        set({
+          overrides: {
+            ...get().overrides,
+            [key]: clampFrameGateOverride(key, value),
+          },
+        });
       },
 
       resetOverrides: () => {
-        const overrides = defaultFrameGateOverrides();
-        set({ overrides });
-        syncFrameGateDebugOptions(get().hudEnabled, overrides);
+        set({ overrides: defaultFrameGateOverrides() });
       },
     }),
     {
@@ -152,17 +159,13 @@ export const useCameraGateDebugStore = createSelectors(
  * survive it. A session that ended with the readout on would otherwise leave
  * the next user's camera judging frames against a threshold they never set,
  * with no panel on screen to say so.
+ *
+ * The record is written here as well as through the subscription, because the
+ * value written is unconditionally off: ending a session is the one moment
+ * worth being certain about without depending on a listener being registered.
  */
 export function clearCameraGateDebug(): void {
   const overrides = defaultFrameGateOverrides();
   useCameraGateDebugStoreBase.setState({ hudEnabled: false, overrides });
   syncFrameGateDebugOptions(false, overrides);
 }
-
-// The gate reads its options from a plain record rather than from this store,
-// so a reload that restores an enabled readout has to push the restored values
-// into that record before the first frame is judged.
-syncFrameGateDebugOptions(
-  useCameraGateDebugStoreBase.getState().hudEnabled,
-  useCameraGateDebugStoreBase.getState().overrides,
-);

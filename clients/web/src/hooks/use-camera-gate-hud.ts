@@ -1,16 +1,14 @@
 /**
- * Who may reach the camera frame gate's tuning readout.
+ * Who may reach the camera frame gate's tuning readout, as React reads it.
  *
- * Two gates, and the flag is not redundant with the staff check. A local
- * gateway session has no platform identity and is never staff, and a local
- * session is exactly where the gate gets tuned: a developer with a webcam and
- * a dev server. The flag is what lets that session in without widening who
- * counts as staff.
+ * The predicate itself lives in `lib/camera/frame-gate-debug-access.ts`, which
+ * also applies it outside React so the thresholds a session runs match what it
+ * is allowed even with nothing mounted.
  */
 
+import { cameraGateHudAvailable } from "@/lib/camera/frame-gate-debug-access";
 import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { isVellumStaff } from "@/lib/auth/staff";
 import { useAuthStore } from "@/stores/auth-store";
 
 /**
@@ -21,7 +19,7 @@ import { useAuthStore } from "@/stores/auth-store";
 export function useCameraGateHudAvailable(): boolean {
   const user = useAuthStore.use.user();
   const flagged = useClientFeatureFlagStore.use.cameraGateDebugHud();
-  return isVellumStaff(user) || flagged === true;
+  return cameraGateHudAvailable(user, flagged === true);
 }
 
 /** Whether the panel should be collecting and on screen. */

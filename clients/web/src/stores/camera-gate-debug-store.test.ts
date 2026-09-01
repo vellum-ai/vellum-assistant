@@ -1,11 +1,17 @@
 /**
- * What the readout's store persists, and what every write does to the options
- * record the gate is holding.
+ * What the readout's store persists, and what every write ends up doing to the
+ * options record the gate is holding.
  *
- * The store is the only writer of that record, so these two are one subject:
- * a persisted payload is worth nothing if it never reaches the gate, and a
- * value that reaches the gate while the readout is off is the failure the
- * enabled-only rule exists to prevent.
+ * The two are one subject: a persisted payload is worth nothing if it never
+ * reaches the gate, and a value that reaches the gate while the readout is off
+ * is the failure the enabled-only rule exists to prevent. These tests run the
+ * access sync the app boots with, which is what carries a write from here to
+ * the gate.
+ *
+ * The store holds only values a slider could produce. A readout drawing a
+ * threshold the gate is not judging against describes a session that does not
+ * exist, so clamping happens where the value is stored, not only on its way to
+ * the record.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -13,16 +19,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { DEFAULT_FRAME_GATE_OPTIONS } from "@/lib/camera/frame-gate";
 import {
   FRAME_GATE_LIVE_OPTIONS,
+  FRAME_GATE_SLIDER_BOUNDS,
   defaultFrameGateOverrides,
+  syncFrameGateDebugOptions,
 } from "@/lib/camera/frame-gate-debug";
+import { setupCameraGateHudAccessSync } from "@/lib/camera/frame-gate-debug-access";
 import {
   clearCameraGateDebug,
   useCameraGateDebugStore,
 } from "@/stores/camera-gate-debug-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const STORAGE_KEY = "vellum:debug:cameraGateHud";
 
 const initialState = useCameraGateDebugStore.getState();
+
+let stopAccessSync: (() => void) | null = null;
 
 function persisted(): { hudEnabled?: boolean; overrides?: unknown } {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -36,14 +48,21 @@ beforeEach(() => {
     true,
   );
   localStorage.removeItem(STORAGE_KEY);
+  // The flag is what makes this session one that may reach the readout, which
+  // is the other half of what the gate is handed.
+  useClientFeatureFlagStore.setState({ cameraGateDebugHud: true });
+  stopAccessSync = setupCameraGateHudAccessSync();
 });
 
 afterEach(() => {
-  useCameraGateDebugStore.getState().setHudEnabled(false);
+  stopAccessSync?.();
+  stopAccessSync = null;
   useCameraGateDebugStore.setState(
     { ...initialState, overrides: defaultFrameGateOverrides() },
     true,
   );
+  syncFrameGateDebugOptions(false, defaultFrameGateOverrides());
+  useClientFeatureFlagStore.setState({ cameraGateDebugHud: false });
   localStorage.removeItem(STORAGE_KEY);
 });
 
@@ -116,6 +135,74 @@ describe("camera gate debug store", () => {
     expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
       ...DEFAULT_FRAME_GATE_OPTIONS,
     });
+  });
+
+  test("a threshold moved past its slider's range is clamped where it is stored", () => {
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("minIntervalMs", 1_000_000);
+
+    const { max } = FRAME_GATE_SLIDER_BOUNDS.minIntervalMs;
+    expect(useCameraGateDebugStore.getState().overrides.minIntervalMs).toBe(
+      max,
+    );
+    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(max);
+  });
+
+  test("a threshold moved below its slider's range is clamped where it is stored", () => {
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("maxIntervalMs", 0);
+
+    const { min } = FRAME_GATE_SLIDER_BOUNDS.maxIntervalMs;
+    expect(useCameraGateDebugStore.getState().overrides.maxIntervalMs).toBe(
+      min,
+    );
+    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(min);
+  });
+
+  test("a restored threshold outside its slider's range is clamped, not just on the gate", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          hudEnabled: true,
+          overrides: { ...defaultFrameGateOverrides(), noveltyThreshold: 99 },
+        },
+        version: 0,
+      }),
+    );
+
+    await useCameraGateDebugStore.persist.rehydrate();
+
+    const { max } = FRAME_GATE_SLIDER_BOUNDS.noveltyThreshold;
+    expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
+    expect(useCameraGateDebugStore.getState().overrides.noveltyThreshold).toBe(
+      max,
+    );
+    expect(FRAME_GATE_LIVE_OPTIONS.noveltyThreshold).toBe(max);
+  });
+
+  test("a restored threshold that is not a number falls back to the shipped default", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          hudEnabled: true,
+          overrides: { ...defaultFrameGateOverrides(), minDetail: "loads" },
+        },
+        version: 0,
+      }),
+    );
+
+    await useCameraGateDebugStore.persist.rehydrate();
+
+    expect(useCameraGateDebugStore.getState().overrides.minDetail).toBe(
+      DEFAULT_FRAME_GATE_OPTIONS.minDetail,
+    );
+    expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(
+      DEFAULT_FRAME_GATE_OPTIONS.minDetail,
+    );
   });
 
   test("reset puts every slider and the gate back to the defaults", () => {
