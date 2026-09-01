@@ -195,14 +195,20 @@ export default meta;
 
 type Story = StoryObj<StoryArgs>;
 
-/** The circle, as it sits when nobody is asking anything of it. */
+/**
+ * The capsule, as it sits when nobody is asking anything of it.
+ *
+ * The state this surface spends almost all of its life in, and the reason it
+ * is a capsule rather than the creature: it sits over whatever the user is
+ * working in all day. The creature is one pointer-move away.
+ */
 export const Resting: Story = {
   args: { phase: "resting" },
 };
 
 /**
- * The same circle in an assistant's own colour, which is what the desktop
- * actually shows: the glow is the character's palette hex, not the surface's
+ * The same capsule in an assistant's own colour, which is what the desktop
+ * actually shows: the dot is the character's palette hex, not the surface's
  * teal default. Here so the resting colour is reviewable without a live call.
  */
 export const RestingInItsOwnColour: Story = {
@@ -226,7 +232,8 @@ export const RestingCustomImage: Story = {
  *
  * The state the working ring exists for: the assistant is doing something and
  * nothing is open to say so. The ring has to carry that on its own, at the size
- * the surface actually spends its day.
+ * the surface actually spends its day, which is why it is drawn on the shape
+ * rather than on the box: at rest it hugs the capsule.
  */
 export const RestingWhileWorking: Story = {
   args: { phase: "resting", working: true },

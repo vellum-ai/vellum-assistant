@@ -202,6 +202,29 @@ const WATCHING_RING_ACCENT = "#ff9f45";
 const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 
 /**
+ * The capsule the creature collapses into at rest.
+ *
+ * At rest this surface is a marker rather than a mascot. It sits on the desktop
+ * all day over whatever the user is actually working in, and a character
+ * standing there is a character in the way; a thin capsule says the assistant
+ * is here and reachable and asks for nothing. The creature comes back the
+ * moment the pointer arrives, which is the only time anyone is looking at it.
+ *
+ * As wide as the artwork it stands in for ({@link AVATAR_IMAGE}), so the
+ * collapse reads as the creature tucking into its own width rather than as a
+ * differently sized object taking its place. The height is the one authored
+ * number here: thin enough to read as a marker, tall enough to see against a
+ * busy desktop and to carry the working ring around.
+ *
+ * **The box it is drawn in does not shrink with it.** That box is the drag
+ * handle, the point the host positions the window around, and the rect the
+ * pointer is hit-tested against, so shrinking it would move the anchor the host
+ * measures every drag and clamp against, and would make the surface hardest to
+ * hit exactly when it is smallest. What changes is the shape drawn inside it.
+ */
+const RESTING_HEIGHT = 10;
+
+/**
  * The clearance every round thing inside the pill keeps from its edge.
  *
  * One number, because the geometry only works at one value. Nested rounded
@@ -946,6 +969,10 @@ export function CompanionSurface({
         // uses while a reply is streaming: one vocabulary for "it is working"
         // wherever the user meets it.
         busy={assistantWorking}
+        // At rest the creature tucks into a capsule. The same answer the pill's
+        // own width reads, so the two collapse together and the surface goes to
+        // its resting shape as one thing.
+        collapsed={!expanded}
         edge={edge}
         style={{
           left: "50%",
@@ -1247,8 +1274,13 @@ function Composer({
  * animation on that node would silently replace one of them. Everything that
  * belongs to the creature rides inside the wrapper, glow included, so the light
  * travels with what is casting it. The edge sits outside the wrapper: it is
- * drawn on the box rather than on the artwork, so a ring saying something is
+ * drawn on the shape rather than on the artwork, so a ring saying something is
  * running holds still while the creature breathes under it.
+ *
+ * **The collapse is a third node, for the same reason.** Fading and shrinking
+ * the creature away at rest is a `transform`, and putting it on the bob would
+ * silently drop the bob. So the collapse gets a wrapper of its own around the
+ * bob, and the two animations stay on separate nodes.
  */
 function Avatar({
   accentHex,
@@ -1256,6 +1288,7 @@ function Avatar({
   character,
   busy = false,
   attentive = false,
+  collapsed = false,
   edge,
   style,
   elementRef,
@@ -1268,6 +1301,11 @@ function Avatar({
   character?: CompanionCharacter;
   busy?: boolean;
   attentive?: boolean;
+  /**
+   * Whether the surface is at rest, where the creature gives way to the
+   * capsule. See {@link RESTING_HEIGHT}.
+   */
+  collapsed?: boolean;
   /** What the creature's edge is drawing. See `edge` in `CompanionSurface`. */
   edge?: ReactNode;
   style?: CSSProperties;
@@ -1294,57 +1332,109 @@ function Avatar({
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
-      {edge}
+      {/* The shape the surface is drawn as: the creature's whole box while it
+        is being looked at, a thin capsule at rest, and one node morphing
+        between the two rather than two shapes cross-fading, so it reads as
+        this object changing rather than as a swap.
+
+        The edge rides it. A ring is a statement about the shape it is drawn
+        around, so a working ring at rest hugs the capsule instead of circling
+        the empty box the capsule sits in. One node either way, which is what
+        keeps the one-shot capture flare from remounting and replaying: see
+        `edge` in `CompanionSurface`. */}
       <div
-        className="companion-avatar-bob relative grid place-items-center"
-        style={{ animation: reduce ? "none" : undefined }}
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height] duration-300"
+        style={{
+          width: collapsed ? AVATAR_IMAGE : COMPANION_BASE_AVATAR_BOX,
+          height: collapsed ? RESTING_HEIGHT : COMPANION_BASE_AVATAR_BOX,
+          // The easing the pill's own width uses, so the two halves of a
+          // surface waking up settle together rather than in sequence.
+          transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+        }}
       >
-        <span
-          className="companion-glow absolute size-10 rounded-full blur-lg"
-          style={{
-            background: accentHex,
-            animation: reduce ? "none" : undefined,
-          }}
+        {edge}
+        {/* The capsule itself, in the pill's own material: the same border,
+          ground and shadow the expanded body paints, so at rest and expanded
+          the user is looking at one surface rather than two. Drawn only while
+          collapsed, since the creature stands on the desktop unbacked.
+
+          The dot inside it is the assistant's colour, which is all that is
+          left of the creature at this size. Dark chrome alone would be a
+          lozenge the eye slides off on a busy desktop, and this shape has to
+          stay findable: it is the only thing saying the assistant is here. */}
+        <div
+          className="absolute inset-0 grid place-items-center rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
+          style={{ opacity: collapsed ? 1 : 0 }}
           aria-hidden
-        />
-        {character !== undefined ? (
-          // The live creature, composed here rather than shipped as pixels. It
-          // blinks, twitches and breathes on its own, which is the whole reason
-          // the traits cross the bridge instead of a still.
-          <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
-            <AnimatedAvatar
-              components={BUNDLED_COMPONENTS}
-              traits={character}
-              size={AVATAR_IMAGE}
-              isAssistantBusy={busy}
-              attentive={attentive}
-            />
-          </div>
-        ) : avatarSrc === undefined ? (
-          // Until the avatar resolves, a disc in its colour. Same size, so
-          // nothing about the geometry moves when the image lands.
+        >
           <span
-            className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+            className="size-1.5 rounded-full"
             style={{ background: accentHex }}
+          />
+        </div>
+      </div>
+      {/* The creature, tucking into the capsule rather than blinking out of
+        it. A wrapper of its own because the scale is a `transform` and the bob
+        below already owns one. */}
+      <div
+        className="transition-[opacity,transform] duration-300"
+        style={{
+          opacity: collapsed ? 0 : 1,
+          transform: collapsed ? "scale(0.35)" : "scale(1)",
+          transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+        }}
+      >
+        <div
+          className="companion-avatar-bob relative grid place-items-center"
+          style={{ animation: reduce ? "none" : undefined }}
+        >
+          <span
+            className="companion-glow absolute size-10 rounded-full blur-lg"
+            style={{
+              background: accentHex,
+              animation: reduce ? "none" : undefined,
+            }}
             aria-hidden
           />
-        ) : (
-          // A custom uploaded image, which has no traits to compose and so no
-          // eyes to animate.
-          //
-          // Undraggable, because the avatar is the surface's drag handle. An
-          // image is natively draggable, and the platform's own HTML5 image drag
-          // takes the pointer and ends the `mousemove` stream the surface's drag
-          // runs on, so pressing a custom avatar would move nothing where
-          // pressing a composed creature moves the window. WebKit honours the CSS
-          // on paths where it ignores the attribute, so both are needed.
-          <img
-            src={avatarSrc}
-            alt=""
-            draggable={false}
-            className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
-          />
-        )}
+          {character !== undefined ? (
+            // The live creature, composed here rather than shipped as pixels. It
+            // blinks, twitches and breathes on its own, which is the whole reason
+            // the traits cross the bridge instead of a still.
+            <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
+              <AnimatedAvatar
+                components={BUNDLED_COMPONENTS}
+                traits={character}
+                size={AVATAR_IMAGE}
+                isAssistantBusy={busy}
+                attentive={attentive}
+              />
+            </div>
+          ) : avatarSrc === undefined ? (
+            // Until the avatar resolves, a disc in its colour. Same size, so
+            // nothing about the geometry moves when the image lands.
+            <span
+              className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+              style={{ background: accentHex }}
+              aria-hidden
+            />
+          ) : (
+            // A custom uploaded image, which has no traits to compose and so no
+            // eyes to animate.
+            //
+            // Undraggable, because the avatar is the surface's drag handle. An
+            // image is natively draggable, and the platform's own HTML5 image drag
+            // takes the pointer and ends the `mousemove` stream the surface's drag
+            // runs on, so pressing a custom avatar would move nothing where
+            // pressing a composed creature moves the window. WebKit honours the CSS
+            // on paths where it ignores the attribute, so both are needed.
+            <img
+              src={avatarSrc}
+              alt=""
+              draggable={false}
+              className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
+            />
+          )}
+        </div>
       </div>
     </div>
   );
