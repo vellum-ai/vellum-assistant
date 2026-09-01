@@ -223,29 +223,49 @@
     "title": "¡Únete a nuestra comunidad!"
   },
   "discordSetupConnectStep": {
-    "instructions": "Pega el token del bot que copiaste de la pagina Bot.",
+    "instructions": "Pega el token del bot que copiaste de la página Bot.",
+    "verificationNoticeTitle": "Ignora la página \"Verify your App\"",
+    "verificationNoticeBody": "Discord la muestra a cada app nueva. Solo importa a partir de 100 servidores.",
     "botTokenLabel": "Token del bot",
     "save": "Conectar",
     "saving": "Conectando...",
-    "saved": "Conectado. Ahora anade el bot a un servidor.",
+    "saved": "Conectado. Ahora añade el bot a un servidor.",
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
-    "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "inPortal": "En el portal de desarrolladores de Discord:",
+    "stepCreateApp": "Pulsa <strong>New Application</strong> y ponle a la app el nombre de tu asistente:",
+    "copyName": "Copiar nombre",
+    "copied": "¡Copiado!",
+    "stepAppIcon": "Opcional: descarga el avatar y súbelo en <strong>General Information</strong> como icono de la app.",
+    "stepResetToken": "Ve a la página <strong>Bot</strong> en el menú de la app, pulsa <strong>Reset Token</strong> y copia el token de inmediato. Discord solo lo muestra una vez.",
+    "stepIntentsOff": "En la misma página, deja apagados los tres interruptores de <strong>Privileged Gateway Intents</strong>. Tu asistente no los necesita: solo lee mensajes directos y mensajes que lo mencionan.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "Bot añadido",
+    "connectedBody": "El token está guardado y el bot ya está en tu servidor. La parte de Discord está lista.",
+    "verifyTitle": "Último paso: confirma que eres tú",
+    "verifyAction": "Verificarme",
+    "verifyActionBody": "El bot aún no sabe cuál cuenta de Discord es la tuya, así que no te responderá. Tu asistente lo termina contigo en el chat.",
+    "verifyBody": "El bot aún no sabe cuál cuenta de Discord es la tuya, así que no te responderá. Di \"verifícame en Discord\" en el chat y tu asistente terminará la configuración contigo.",
+    "verifiedTitle": "Identidad verificada",
+    "verifiedBody": "El bot conoce tu cuenta de Discord y responderá a tus menciones. Todo listo."
+  },
   "discordSetupInviteStep": {
-    "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
-    "openInvite": "Anadir a un servidor",
-    "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."
+    "instructions": "Tu bot no puede ver ni responder nada hasta que entre en un servidor. Abre el enlace, elige tu servidor y aprueba.",
+    "openInvite": "Añadir a un servidor",
+    "confirmJoined": "Ya añadí el bot",
+    "noAppId": "Conecta primero un token del bot y vuelve para añadirlo a un servidor."
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "Crear app",
     "stepConnect": "Conectar",
-    "stepInvite": "Anadir al servidor"
+    "stepInvite": "Añadir al servidor",
+    "stepFinish": "Finalizar",
+    "copyError": "No se pudo copiar el nombre. Escríbelo en Discord en su lugar."
   },
   "diskPressureBanner": {
     "acknowledge": "Reconocer",
@@ -510,7 +530,8 @@
     "botTokenLabel": "Token del bot",
     "connectSlack": "Conectar Slack",
     "connecting": "Conectando…",
-    "credentialsSaved": "Credenciales guardadas.",
+    "credentialsSaved": "Credenciales guardadas",
+    "verifyBody": "Tu asistente aún no sabe cuál cuenta de Slack es la tuya, así que no te responderá. Di \"verifícame en Slack\" en el chat para terminar.",
     "instructions": "En la pantalla de confirmación de Slack, expande <credentials>Your app credentials</credentials> y copia ambos tokens.",
     "skipNotice": "Esa pantalla también ofrece una guía por línea de comandos y un botón <download>Download app files</download>. Omite ambos. Configuran una app local aparte, y este asistente solo necesita los dos tokens."
   },
@@ -589,7 +610,8 @@
     "connectTelegram": "Conectar Telegram",
     "instructions": "Pega el token de la respuesta de BotFather. Es la línea completa después de <tokenLine>Use this token to access the HTTP API</tokenLine>.",
     "saving": "Guardando…",
-    "successNotice": "Token guardado. El resto termina solo. Tu asistente confirmará que Telegram entrega la próxima vez que chatees, y se asegurará de poder alcanzarte."
+    "savedTitle": "Token guardado",
+    "successNotice": "Tu asistente aún no sabe cuál cuenta de Telegram es la tuya, así que no te responderá. Di \"verifícame en Telegram\" en el chat para terminar."
   },
   "telegramSetupCreateStep": {
     "copied": "¡Copiado!",

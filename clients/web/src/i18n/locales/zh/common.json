@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "粘贴您从“机器人”页面复制的机器人令牌。",
+    "verificationNoticeTitle": "请忽略“验证您的应用”页面",
+    "verificationNoticeBody": "Discord 对每个新应用都会显示它。只有超过 100 个服务器时才有意义。",
     "botTokenLabel": "机器人令牌",
     "save": "连接",
     "saving": "正在连接...",
@@ -231,21 +233,39 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "打开 Discord 开发者门户并创建一个新应用程序。在其 <resetLine>机器人</resetLine> 页面上，点击“重置令牌”并立即复制令牌：Discord 只显示一次，之后无法再次查看。",
-    "intentsNote": "关闭所有三个特权网关意图。您的助手只读取直接消息和提及它的消息，Discord 将这些消息排除在“消息内容”意图之外。",
+    "inPortal": "在 Discord 开发者门户中：",
+    "stepCreateApp": "点击<strong>New Application</strong>，并用您助手的名字命名应用：",
+    "copyName": "复制名称",
+    "copied": "已复制！",
+    "stepAppIcon": "可选：下载头像，然后在<strong>一般信息</strong>页面上传为应用图标。",
+    "stepResetToken": "前往应用菜单中的<strong>机器人</strong>页面，点击<strong>重置令牌</strong>并立即复制令牌。Discord 只显示一次。",
+    "stepIntentsOff": "在同一页面，保持三个<strong>特权网关意图</strong>开关全部关闭。您的助手不需要它们：它只读取私信和提及它的消息。",
     "openPortal": "打开 Discord 门户",
     "continue": "我已拥有令牌"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "机器人已添加",
+    "connectedBody": "令牌已保存，机器人已加入您的服务器。Discord 这边已完成。",
+    "verifyTitle": "最后一步：确认您的身份",
+    "verifyAction": "验证我",
+    "verifyActionBody": "机器人还不知道哪个 Discord 账号是您的，所以暂时不会回复您。您的助手会在聊天中陪您完成。",
+    "verifyBody": "机器人还不知道哪个 Discord 账号是您的，所以暂时不会回复您。在聊天中说“在 Discord 上验证我”，您的助手会陪您完成设置。",
+    "verifiedTitle": "身份已验证",
+    "verifiedBody": "机器人已识别您的 Discord 账号，会回复您的提及。一切就绪。"
+  },
   "discordSetupInviteStep": {
-    "instructions": "您的机器人必须加入服务器才能看到任何内容。此链接使用您应用程序“安装”页面上的安装设置。",
+    "instructions": "机器人加入服务器前什么都看不到、也无法回复。打开链接，选择您的服务器并批准。",
     "openInvite": "添加到服务器",
+    "confirmJoined": "我已添加机器人",
     "noAppId": "请先连接机器人令牌，然后返回此处将其添加到服务器。"
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "创建应用",
     "stepConnect": "连接",
-    "stepInvite": "添加到服务器"
+    "stepInvite": "添加到服务器",
+    "stepFinish": "完成",
+    "copyError": "无法复制名称。请改为在 Discord 中输入。"
   },
   "diskPressureBanner": {
     "acknowledge": "确认",
@@ -510,7 +530,8 @@
     "botTokenLabel": "机器人令牌",
     "connectSlack": "连接 Slack",
     "connecting": "正在连接…",
-    "credentialsSaved": "凭据已保存。",
+    "credentialsSaved": "凭据已保存",
+    "verifyBody": "您的助手还不知道哪个 Slack 账号是您的，所以暂时不会回复您。在聊天中说“在 Slack 上验证我”即可完成。",
     "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个令牌。",
     "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个令牌。"
   },
@@ -589,7 +610,8 @@
     "connectTelegram": "连接 Telegram",
     "instructions": "粘贴 BotFather 回复中的令牌。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之后的整行内容。",
     "saving": "正在保存…",
-    "successNotice": "令牌已保存。其余步骤将自动完成。您的助手将在您下次聊天时确认 Telegram 正在发送消息，并确保可以联系到您。"
+    "savedTitle": "令牌已保存",
+    "successNotice": "您的助手还不知道哪个 Telegram 账号是您的，所以暂时不会回复您。在聊天中说“在 Telegram 上验证我”即可完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已复制！",

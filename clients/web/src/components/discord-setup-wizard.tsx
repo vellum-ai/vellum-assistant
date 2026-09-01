@@ -7,8 +7,10 @@ import {
 } from "@/components/channel-setup-wizard";
 import { DiscordSetupConnectStep } from "@/components/discord-setup-connect-step";
 import { DiscordSetupCreateStep } from "@/components/discord-setup-create-step";
+import { DiscordSetupFinishStep } from "@/components/discord-setup-finish-step";
 import { DiscordSetupInviteStep } from "@/components/discord-setup-invite-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 
@@ -16,31 +18,45 @@ export type { MutationStatus };
 
 const DISCORD_PORTAL_URL = "https://discord.com/developers/applications";
 
-const WIZARD_STEP_IDS = ["create", "connect", "invite"] as const;
+const WIZARD_STEP_IDS = ["create", "connect", "invite", "finish"] as const;
 
 export interface DiscordSetupWizardProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
+  /** Suggested app name, offered to copy when the portal asks for one. */
+  assistantName: string;
   onSave?: (botToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
   /** The install link, read back from the daemon once the token validates. */
   inviteUrl?: string;
+  /**
+   * Hands identity verification to the assistant from the finish step. Only
+   * the chat drawer can offer it (it signals the originating conversation);
+   * without it the finish step tells the user what to say in chat instead.
+   */
+  onVerifyRequest?: () => void;
 }
 
 /**
- * Guided setup for connecting a Discord bot, paced across three steps.
+ * Guided setup for connecting a Discord bot, paced across four steps.
  *
- * One more step than Telegram because a Discord bot is not reachable until it
- * has been invited to a server, and one fewer beat than Slack because there is
- * a single token rather than a pair.
+ * More steps than Telegram because a Discord bot is not reachable until it
+ * has been invited to a server, and joining is only observable as the user's
+ * own confirmation: Discord authorizes in a popup this app cannot see, and
+ * the token is dropped after save rather than kept around to poll with. The
+ * finish step lives here rather than in the invite step because it completes
+ * the whole wizard, and both surfaces that mount this component keep it
+ * mounted after the token saves, so wizard-owned completion reaches both.
  */
 export function DiscordSetupWizard({
   assistantId,
+  assistantName,
   onSave,
   saveStatus = "idle",
   saveError = null,
   inviteUrl,
+  onVerifyRequest,
 }: DiscordSetupWizardProps) {
   const { t } = useTranslation();
   const WIZARD_STEPS: StepperStep[] = useMemo(
@@ -48,6 +64,7 @@ export function DiscordSetupWizard({
       { id: "create", label: t("discordSetupWizard.stepCreate") },
       { id: "connect", label: t("discordSetupWizard.stepConnect") },
       { id: "invite", label: t("discordSetupWizard.stepInvite") },
+      { id: "finish", label: t("discordSetupWizard.stepFinish") },
     ],
     [t],
   );
@@ -65,6 +82,14 @@ export function DiscordSetupWizard({
     }
   }, [saveStatus, goTo]);
 
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: t("discordSetupWizard.copyError"),
+  });
+
+  const handleCopyName = useCallback(() => {
+    copy(assistantName);
+  }, [copy, assistantName]);
+
   const handleOpenPortal = useCallback(() => {
     void openExternalUrl(DISCORD_PORTAL_URL);
   }, []);
@@ -74,6 +99,8 @@ export function DiscordSetupWizard({
   }, []);
 
   const handleContinueToConnect = useCallback(() => goTo("connect"), [goTo]);
+
+  const handleConfirmJoined = useCallback(() => goTo("finish"), [goTo]);
 
   const handleSave = useCallback(() => {
     onSave?.(botToken.trim());
@@ -90,6 +117,9 @@ export function DiscordSetupWizard({
       {stepId === "create" && (
         <DiscordSetupCreateStep
           assistantId={assistantId}
+          suggestedName={assistantName}
+          copied={copied}
+          onCopyName={handleCopyName}
           onOpenPortal={handleOpenPortal}
           onContinue={handleContinueToConnect}
         />
@@ -109,6 +139,14 @@ export function DiscordSetupWizard({
         <DiscordSetupInviteStep
           {...(inviteUrl ? { inviteUrl } : {})}
           onOpenInvite={handleOpenInvite}
+          onConfirmJoined={handleConfirmJoined}
+        />
+      )}
+
+      {stepId === "finish" && (
+        <DiscordSetupFinishStep
+          assistantId={assistantId}
+          {...(onVerifyRequest ? { onVerifyRequest } : {})}
         />
       )}
     </ChannelSetupWizard>

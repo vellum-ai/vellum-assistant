@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "貼上您從「機器人」頁面複製的機器人金鑰。",
+    "verificationNoticeTitle": "請忽略「驗證您的應用程式」頁面",
+    "verificationNoticeBody": "Discord 對每個新應用程式都會顯示它。只有超過 100 個伺服器時才有意義。",
     "botTokenLabel": "機器人金鑰",
     "save": "連線",
     "saving": "正在連線...",
@@ -231,21 +233,39 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "開啟 Discord 開發者入口網站並建立新的應用程式。在其 <resetLine>機器人</resetLine> 頁面上，點擊「重設金鑰」並立即複製金鑰：Discord 只會顯示一次，之後無法再次讀取。",
-    "intentsNote": "關閉所有三個特權閘道意圖。您的助理只會讀取直接訊息和提及它的訊息，Discord 將這些訊息排除在「訊息內容」意圖之外。",
+    "inPortal": "在 Discord 開發者入口網站中：",
+    "stepCreateApp": "點擊<strong>New Application</strong>，並用您助理的名字命名應用程式：",
+    "copyName": "複製名稱",
+    "copied": "已複製！",
+    "stepAppIcon": "可選：下載頭像，然後在<strong>一般資訊</strong>頁面上傳為應用程式圖示。",
+    "stepResetToken": "前往應用程式選單中的<strong>機器人</strong>頁面，點擊<strong>重設金鑰</strong>並立即複製金鑰。Discord 只會顯示一次。",
+    "stepIntentsOff": "在同一頁面，保持三個<strong>特權閘道意圖</strong>開關全部關閉。您的助理不需要它們：它只會讀取私訊和提及它的訊息。",
     "openPortal": "開啟 Discord 入口網站",
     "continue": "我已擁有金鑰"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "機器人已新增",
+    "connectedBody": "金鑰已儲存，機器人已加入您的伺服器。Discord 這邊已完成。",
+    "verifyTitle": "最後一步：確認您的身分",
+    "verifyAction": "驗證我",
+    "verifyActionBody": "機器人還不知道哪個 Discord 帳號是您的，所以暫時不會回覆您。您的助理會在聊天中陪您完成。",
+    "verifyBody": "機器人還不知道哪個 Discord 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Discord 上驗證我」，您的助理會陪您完成設定。",
+    "verifiedTitle": "身分已驗證",
+    "verifiedBody": "機器人已識別您的 Discord 帳號，會回覆您的提及。一切就緒。"
+  },
   "discordSetupInviteStep": {
-    "instructions": "您的機器人必須加入伺服器才能看到任何內容。此連結使用您應用程式「安裝」頁面上的安裝設定。",
+    "instructions": "機器人加入伺服器前什麼都看不到、也無法回覆。開啟連結，選擇您的伺服器並核准。",
     "openInvite": "新增至伺服器",
+    "confirmJoined": "我已新增機器人",
     "noAppId": "請先連線機器人金鑰，然後再回來將其新增至伺服器。"
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "建立應用程式",
     "stepConnect": "連線",
-    "stepInvite": "新增至伺服器"
+    "stepInvite": "新增至伺服器",
+    "stepFinish": "完成",
+    "copyError": "無法複製名稱。請改為在 Discord 中輸入。"
   },
   "diskPressureBanner": {
     "acknowledge": "確認",
@@ -510,7 +530,8 @@
     "botTokenLabel": "機器人權杖",
     "connectSlack": "連接 Slack",
     "connecting": "正在連接…",
-    "credentialsSaved": "憑證已儲存。",
+    "credentialsSaved": "憑證已儲存",
+    "verifyBody": "您的助理還不知道哪個 Slack 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Slack 上驗證我」即可完成。",
     "instructions": "在 Slack 的確認畫面中，展開 <credentials>您的應用程式憑證</credentials> 並複製兩個權杖。",
     "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。"
   },
@@ -589,7 +610,8 @@
     "connectTelegram": "連接 Telegram",
     "instructions": "貼上 BotFather 回覆中的權杖。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之後的整行內容。",
     "saving": "正在儲存…",
-    "successNotice": "權杖已儲存。其餘部分將自動完成。您的助理會在您下次聊天時確認 Telegram 正在傳送訊息，並確保可以聯絡到您。"
+    "savedTitle": "權杖已儲存",
+    "successNotice": "您的助理還不知道哪個 Telegram 帳號是您的，所以暫時不會回覆您。在聊天中說「在 Telegram 上驗證我」即可完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已複製！",

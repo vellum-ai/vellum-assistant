@@ -24,9 +24,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 
-const { TelegramSetupWizard } = await import(
-  "@/components/telegram-setup-wizard"
-);
+const { TelegramSetupWizard } =
+  await import("@/components/telegram-setup-wizard");
 
 const ASSISTANT_NAME = "Example Assistant";
 const BOT_TOKEN = `123456789:${"A".repeat(10)}bCdEfGhIjKlMnOpQrStUvWx`;
@@ -164,10 +163,12 @@ describe("TelegramSetupWizard step flow", () => {
     expect(saveButton().hasAttribute("disabled")).toBe(true);
   });
 
-  test("clears the token once the save succeeds", () => {
+  test("retires the token form once the save succeeds", () => {
     // Neither surface unmounts this wizard on success, and the Channels page
-    // keeps it mounted while readiness catches up, so a retained secret sits
-    // in a live field for as long as that takes.
+    // keeps it mounted while readiness catches up, so a retained secret would
+    // sit in a live field for as long as that takes. The field goes away
+    // entirely rather than being blanked, which is both the stronger
+    // guarantee and the honest reading of a saved credential.
     function Harness() {
       const [status, setStatus] = useState<"idle" | "success">("idle");
       return (
@@ -191,9 +192,11 @@ describe("TelegramSetupWizard step flow", () => {
 
     fireEvent.click(saveButton());
 
+    expect(screen.queryByLabelText(/Bot Token/i)).toBeNull();
     expect(
-      (screen.getByLabelText(/Bot Token/i) as HTMLInputElement).value,
-    ).toBe("");
+      screen.queryByRole("button", { name: /Connect Telegram/i }),
+    ).toBeNull();
+    expect(screen.queryByText(/Token saved/i)).not.toBeNull();
   });
 
   test("a well-formed token reaches onSave, trimmed", () => {

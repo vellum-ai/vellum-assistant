@@ -14,11 +14,12 @@ export interface TelegramSetupConnectStepProps {
 /**
  * Step 2 of `TelegramSetupWizard`: bring the token back from BotFather.
  *
- * Saving is not the end of setup. Delivery still has to be confirmed and the
- * user's identity linked before anything reaches them, which the assistant
- * does. The chat drawer closes on a successful save and hands off, so this
- * success state is what the Channels page shows, where nothing is listening
- * and the user picks it up next time they chat.
+ * Saving is not the end of setup: until the guardian's Telegram identity is
+ * linked, the default admission policy leaves the bot seeing their messages
+ * and declining to answer. The chat drawer closes on a successful save and
+ * hands off to the assistant, so this success state is only ever the Channels
+ * page's, where no conversation is listening and the copy has to tell the
+ * user what to say instead.
  */
 export function TelegramSetupConnectStep({
   botToken,
@@ -31,6 +32,17 @@ export function TelegramSetupConnectStep({
   const tokenError = validateTelegramToken(botToken);
   const canSave =
     botToken.trim().length > 0 && !tokenError && saveStatus !== "pending";
+
+  // A saved credential retires the form. The wizard empties the field on
+  // success, so leaving it up would pair "Token saved" with a blank box and a
+  // dead button, which reads as a save that did not take.
+  if (saveStatus === "success") {
+    return (
+      <Notice tone="success" title={t("telegramSetupConnectStep.savedTitle")}>
+        {t("telegramSetupConnectStep.successNotice")}
+      </Notice>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -68,11 +80,6 @@ export function TelegramSetupConnectStep({
           : t("telegramSetupConnectStep.connectTelegram")}
       </Button>
 
-      {saveStatus === "success" && (
-        <Notice tone="success">
-          {t("telegramSetupConnectStep.successNotice")}
-        </Notice>
-      )}
       {saveStatus === "error" && saveError && (
         <Notice tone="error">{saveError}</Notice>
       )}

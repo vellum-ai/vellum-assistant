@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "Paste the bot token you copied from the Bot page.",
+    "verificationNoticeTitle": "Ignore the \"Verify your App\" page",
+    "verificationNoticeBody": "Discord shows it for every new app. It only matters past 100 servers.",
     "botTokenLabel": "Bot token",
     "save": "Connect",
     "saving": "Connecting...",
@@ -231,21 +233,39 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Open the Discord developer portal and create a new application. On its <resetLine>Bot</resetLine> page, click Reset Token and copy the token straight away: Discord shows it once and there is no way to read it back.",
-    "intentsNote": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
+    "inPortal": "In the Discord developer portal:",
+    "stepCreateApp": "Click <strong>New Application</strong> and give the app your assistant's name:",
+    "copyName": "Copy name",
+    "copied": "Copied!",
+    "stepAppIcon": "Optional: download the avatar, then upload it on <strong>General Information</strong> as the app icon.",
+    "stepResetToken": "Go to the <strong>Bot</strong> page in the app's menu, then click <strong>Reset Token</strong> and copy the token right away. Discord only shows it once.",
+    "stepIntentsOff": "On the same page, leave all three <strong>Privileged Gateway Intents</strong> switches off. Your assistant doesn't need them: it only reads direct messages and messages that mention it.",
     "openPortal": "Open Discord portal",
     "continue": "I have my token"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "Bot added",
+    "connectedBody": "The token is saved and the bot is in your server. The Discord side is done.",
+    "verifyTitle": "One last step: verify it's you",
+    "verifyAction": "Verify me",
+    "verifyActionBody": "The bot doesn't know which Discord account is yours yet, so it won't answer you. Your assistant finishes this with you in chat.",
+    "verifyBody": "The bot doesn't know which Discord account is yours yet, so it won't answer you. Say \"verify me on Discord\" in chat and your assistant will finish setup with you.",
+    "verifiedTitle": "You're verified",
+    "verifiedBody": "The bot knows your Discord account, so it will answer your mentions. You're all set."
+  },
   "discordSetupInviteStep": {
-    "instructions": "Your bot cannot see anything until it joins a server. This link uses the install settings on your application's Installation page.",
+    "instructions": "Your bot can't see or answer anything until it joins a server. Open the link, pick your server, and approve.",
     "openInvite": "Add to a server",
+    "confirmJoined": "I've added the bot",
     "noAppId": "Connect a bot token first, then come back to add it to a server."
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "Create app",
     "stepConnect": "Connect",
-    "stepInvite": "Add to server"
+    "stepInvite": "Add to server",
+    "stepFinish": "Finish",
+    "copyError": "Could not copy the name. Type it into Discord instead."
   },
   "diskPressureBanner": {
     "acknowledge": "Acknowledge",
@@ -510,7 +530,8 @@
     "botTokenLabel": "Bot Token",
     "connectSlack": "Connect Slack",
     "connecting": "Connecting…",
-    "credentialsSaved": "Credentials saved.",
+    "credentialsSaved": "Credentials saved",
+    "verifyBody": "Your assistant doesn't know which Slack account is yours yet, so it won't answer you. Say \"verify me on Slack\" in chat to finish.",
     "instructions": "On Slack's confirmation screen, expand <credentials>Your app credentials</credentials> and copy both tokens.",
     "skipNotice": "That screen also offers a command-line walkthrough and a <download>Download app files</download> button. Skip both. They set up a separate local app, and this assistant needs only the two tokens."
   },
@@ -589,7 +610,8 @@
     "connectTelegram": "Connect Telegram",
     "instructions": "Paste the token from BotFather's reply. It is the whole line after <tokenLine>Use this token to access the HTTP API</tokenLine>.",
     "saving": "Saving…",
-    "successNotice": "Token saved. The rest finishes on its own. Your assistant will confirm Telegram is delivering the next time you chat, and make sure it can reach you."
+    "savedTitle": "Token saved",
+    "successNotice": "Your assistant doesn't know which Telegram account is yours yet, so it won't answer you. Say \"verify me on Telegram\" in chat to finish."
   },
   "telegramSetupCreateStep": {
     "copied": "Copied!",
