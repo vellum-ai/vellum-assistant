@@ -1,12 +1,19 @@
 /**
- * Sight in the voice room: the open viewfinder feeding the call what it can
- * see, without anyone pressing anything.
+ * Sight in the voice room: Live mode, where the open viewfinder feeds the call
+ * what it can see without anyone pressing anything further.
  *
- * The shutter next door answers "look at this". This answers "here is what I am
+ * A tap on the shutter answers "look at this". Live answers "here is what I am
  * holding while I talk about it", which is a different interaction and cannot
  * be built out of shutter presses: the frame has to be in hand before the
  * sentence ends, and a person describing an object is not free to also operate
  * a camera.
+ *
+ * Live is entered by holding the shutter and left by tapping it, and this hook
+ * owns the flag. It already computes the conjunction that says whether Live can
+ * be offered at all, and it is the thing that has to stop the moment the
+ * viewfinder closes; a flag kept anywhere else would be a second answer to both
+ * questions, free to disagree with the sampler it is supposed to describe. Its
+ * scope is the room's, so the mode dies with the room.
  *
  * ## The shape of it
  *
@@ -36,9 +43,10 @@
  * ## Consent
  *
  * There is no second camera and no hidden one. This samples the viewfinder the
- * room already put on screen, so frames flow exactly while the user can see
- * what is being sampled, and each one lands somewhere they can see it and
- * delete it. Closing the viewfinder stops them at once.
+ * room already put on screen, and only after the user has held the shutter to
+ * ask for it, so frames flow exactly while the user can see what is being
+ * sampled and has said to. Each one lands somewhere they can see it and delete
+ * it. Tapping the shutter again, or closing the viewfinder, stops them at once.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -110,6 +118,22 @@ export interface VoiceRoomSight {
    * the place a user deletes one from.
    */
   readonly heldFrame: VoiceRoomSightFrame | null;
+  /**
+   * Whether Live can be entered at all: the flag, the assistant, and the
+   * session's assistant understanding the frame. The room reads it to decide
+   * whether to offer the hold and the hint, so an unavailable Live is a
+   * shutter that only takes photos rather than one that takes a hold and does
+   * nothing with it.
+   */
+  readonly liveAvailable: boolean;
+  /** Whether the viewfinder is streaming. Only then is anything sampled. */
+  readonly live: boolean;
+  /**
+   * Enter or leave Live. Forced back off when the viewfinder closes, when
+   * availability goes, and when the session latches every keep as unsupported,
+   * so nothing can display Live over a camera sampling nothing.
+   */
+  readonly setLive: (live: boolean) => void;
 }
 
 export interface VoiceRoomSightOptions {
@@ -128,6 +152,7 @@ export function useVoiceRoomSight(
   const visionMode = useVisionModeVariant();
   const supportsFrames = useSupportsSightStream(assistantId);
   const [heldFrame, setHeldFrame] = useState<VoiceRoomSightFrame | null>(null);
+  const [live, setLive] = useState(false);
   // What the capture continuations read. The sampler outlives a render, so it
   // cannot close over a render's value.
   const heldRef = useRef<VoiceRoomSightFrame | null>(null);
@@ -166,12 +191,26 @@ export function useVoiceRoomSight(
    */
   const captureEpochRef = useRef(0);
 
-  // All three, so the feature is absent rather than half-present: no camera on
-  // screen is no consent, a flag off is not shipped, and an assistant that
-  // predates `sight_frame` answers every one with the error code the transport
-  // reads as a settings rejection.
-  const active =
-    cameraOpen && isVisionModeOn(visionMode) && supportsFrames && !!assistantId;
+  // All three, so the feature is absent rather than half-present: a flag off is
+  // not shipped, an assistant that predates `sight_frame` answers every keep
+  // with the error code the transport reads as a settings rejection, and
+  // without an assistant there is nothing to upload against.
+  const liveAvailable =
+    isVisionModeOn(visionMode) && supportsFrames && !!assistantId;
+  // The camera on screen is the consent, and Live is the ask. Nothing samples
+  // without both.
+  const active = cameraOpen && liveAvailable && live;
+
+  // Live never outlives what makes it honest. The viewfinder closing takes the
+  // consent away, and availability going takes the destination away, so in
+  // either case the mode goes back to photo rather than staying raised over a
+  // camera that is sampling nothing.
+  useEffect(() => {
+    if (cameraOpen && liveAvailable) {
+      return;
+    }
+    setLive(false);
+  }, [cameraOpen, liveAvailable]);
 
   /**
    * Replace the frame on screen, giving back whatever preview it displaced.
@@ -475,11 +514,16 @@ export function useVoiceRoomSight(
   // latch rather than an event: nothing it was sent was ever shared, so there
   // is no honest version of the thumbnail to leave up, and no correlation to
   // do to know that.
+  //
+  // The mode comes down with the thumbnail. Every keep is dropped for the rest
+  // of the session, so a pill still reading Live would be the surface claiming
+  // the call can see the room while nothing it captures leaves the client.
   const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
   useEffect(() => {
     if (!sightFramesUnsupported) {
       return;
     }
+    setLive(false);
     hold(null);
   }, [hold, sightFramesUnsupported]);
 
@@ -500,5 +544,5 @@ export function useVoiceRoomSight(
     invalidateCaptures();
   }, [invalidateCaptures, reconnecting]);
 
-  return { heldFrame };
+  return { heldFrame, liveAvailable, live, setLive };
 }

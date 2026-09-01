@@ -112,11 +112,24 @@ async function flush(): Promise<void> {
   });
 }
 
+/**
+ * Mount the hook, in Live unless a case says otherwise.
+ *
+ * Live is the only mode that samples, so it is the premise of every case about
+ * a kept frame rather than a variable in them: written out at each of those, it
+ * would be forty repetitions of the same line. The cases where the mode itself
+ * is what is under test pass it explicitly, in both directions.
+ *
+ * Live is turned on through the hook's own setter rather than an argument,
+ * because the hook owns the flag and the room is not allowed to force it: what
+ * a test can reach is what the shutter can.
+ */
 function renderSight(
   options: {
     cameraOpen?: boolean;
     assistantId?: string | null;
     facing?: "environment" | "user";
+    live?: boolean;
   } = {},
 ) {
   const video = document.createElement("video");
@@ -141,6 +154,11 @@ function renderSight(
       },
     },
   );
+  if (options.live ?? true) {
+    act(() => {
+      view.result.current.setLive(true);
+    });
+  }
   return { view, video };
 }
 
@@ -201,15 +219,15 @@ afterEach(() => {
 });
 
 describe("useVoiceRoomSight: when it samples", () => {
-  test("samples the room's viewfinder while the camera is open", () => {
-    const { video } = renderSight();
+  test("samples the room's viewfinder while Live is running", () => {
+    const { video } = renderSight({ live: true });
 
     expect(samplerStart).toHaveBeenCalledTimes(1);
     expect(samplerStart.mock.calls[0]?.[0]).toBe(video);
   });
 
   test("stops when the viewfinder closes", () => {
-    const { view } = renderSight();
+    const { view } = renderSight({ live: true });
     expect(samplerStart).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -220,9 +238,39 @@ describe("useVoiceRoomSight: when it samples", () => {
   });
 
   test("samples nothing with the camera closed", () => {
-    renderSight({ cameraOpen: false });
+    renderSight({ cameraOpen: false, live: true });
 
     expect(samplerStart).not.toHaveBeenCalled();
+  });
+
+  test("samples nothing with the camera open and Live off", () => {
+    // The viewfinder on its own is a camera the user is aiming, not one they
+    // asked to stream. Nothing leaves the client until the shutter is held.
+    const { view } = renderSight({ live: false });
+
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStart).not.toHaveBeenCalled();
+  });
+
+  test("starts sampling when Live goes on mid-session, and stops when it goes off", async () => {
+    const { view } = renderSight({ live: false });
+
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    expect(view.result.current.live).toBe(true);
+    expect(samplerStart).toHaveBeenCalledTimes(1);
+
+    await keepFrame();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    expect(samplerStop).toHaveBeenCalled();
+    // The pulse says the call is being shown this, and once the stream is off
+    // it is not being shown anything.
+    expect(view.result.current.heldFrame).toBeNull();
   });
 
   test("samples nothing while the vision-mode flag is off", () => {
@@ -230,8 +278,9 @@ describe("useVoiceRoomSight: when it samples", () => {
       .getState()
       .setStringFlags({ visionMode: "off" }, null);
 
-    renderSight();
+    const { view } = renderSight({ live: true });
 
+    expect(view.result.current.liveAvailable).toBe(false);
     expect(samplerStart).not.toHaveBeenCalled();
   });
 
@@ -242,8 +291,9 @@ describe("useVoiceRoomSight: when it samples", () => {
       .getState()
       .setIdentity("assistant", "0.11.7", ASSISTANT_ID);
 
-    renderSight();
+    const { view } = renderSight({ live: true });
 
+    expect(view.result.current.liveAvailable).toBe(false);
     expect(samplerStart).not.toHaveBeenCalled();
   });
 
@@ -258,8 +308,15 @@ describe("useVoiceRoomSight: when it samples", () => {
         ASSISTANT_ID,
       );
 
-    renderSight();
+    renderSight({ live: true });
 
+    expect(samplerStart).not.toHaveBeenCalled();
+  });
+
+  test("offers no Live without an assistant to upload against", () => {
+    const { view } = renderSight({ assistantId: null, live: true });
+
+    expect(view.result.current.liveAvailable).toBe(false);
     expect(samplerStart).not.toHaveBeenCalled();
   });
 });
@@ -678,13 +735,17 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
     expect(view.result.current.heldFrame).toBeNull();
   });
 
-  test("the sampler keeps running while the session is latched", async () => {
-    renderSight();
+  test("the latch takes Live down, so nothing goes on being sampled", async () => {
+    const { view } = renderSight();
     act(() => {
       useLiveVoiceStore.getState().noteSightFrameRefused(true);
     });
 
-    expect(samplerStop).not.toHaveBeenCalled();
+    // Every keep from here is dropped before it is uploaded, so a surface
+    // still reading Live would be claiming the call can see the room while
+    // nothing it captures leaves the client.
+    expect(view.result.current.live).toBe(false);
+    expect(samplerStop).toHaveBeenCalled();
   });
 
   test("a reconnect unlatches, so an upgraded assistant is tried again", async () => {
@@ -703,6 +764,12 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
         conversationId: "conv_sight",
         controls,
       });
+    });
+    // The latch took Live with it, and unlatching does not put it back: the
+    // user asks for the stream again, the same way they asked the first time.
+    expect(view.result.current.live).toBe(false);
+    act(() => {
+      view.result.current.setLive(true);
     });
     controls.sightFrame.mockClear();
     await keepFrame();
@@ -779,6 +846,11 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
       },
     );
 
+    // This case mounts the hook itself, to seat an effect ahead of the sight
+    // hook's, so it enters Live the way `renderSight` does.
+    act(() => {
+      view.result.current.setLive(true);
+    });
     await keepFrame();
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
 
@@ -993,6 +1065,23 @@ describe("useVoiceRoomSight: closing and flipping", () => {
     expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
     expect(deleteChatAttachment).not.toHaveBeenCalled();
     revoke.mockRestore();
+  });
+
+  test("closing takes Live down, and reopening starts on photo", () => {
+    const { view } = renderSight();
+    expect(view.result.current.live).toBe(true);
+
+    act(() => {
+      view.rerender({ cameraOpen: false, facing: "environment" });
+    });
+    expect(view.result.current.live).toBe(false);
+
+    // The camera on screen is the consent, so the next time it comes up the
+    // room asks again rather than resuming a stream nobody just asked for.
+    act(() => {
+      view.rerender({ cameraOpen: true, facing: "environment" });
+    });
+    expect(view.result.current.live).toBe(false);
   });
 
   test("says nothing when there was never anything shared", () => {
