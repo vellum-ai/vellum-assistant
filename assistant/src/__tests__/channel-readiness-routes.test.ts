@@ -174,6 +174,33 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       );
     });
 
+    test("a your-own provider credential passes the inbox check", async () => {
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      mockRegisteredInbox = { status: "none" };
+      mockSecureKeys[credentialKey("resend", "api_key")] = "stored";
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      expect(snapshot.ready).toBe(true);
+      expect(snapshot.reasons).toHaveLength(0);
+    });
+
+    test("a your-own credential decides even when the platform is unreachable", async () => {
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      mockRegisteredInbox = { status: "unavailable", detail: "HTTP 503" };
+      mockSecureKeys[credentialKey("mailgun", "api_key")] = "stored";
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("email", true);
+
+      expect(snapshot.ready).toBe(true);
+    });
+
     test("unreachable platform is indeterminate, not a fault", async () => {
       setConfig("ingress", {
         publicBaseUrl: "https://example.com",

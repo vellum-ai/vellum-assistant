@@ -37,10 +37,20 @@ mock.module("../platform/client.js", () => ({
 // Import after mocks
 // ---------------------------------------------------------------------------
 
+import { VellumPlatformClient } from "../platform/client.js";
 import {
   invalidateRegisteredInboxCache,
+  listEmailAddresses,
   resolveRegisteredInbox,
 } from "./registered-inbox.js";
+
+async function testClient(): Promise<VellumPlatformClient> {
+  const client = await VellumPlatformClient.create();
+  if (!client) {
+    throw new Error("mocked create returned null");
+  }
+  return client;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -59,7 +69,10 @@ describe("resolveRegisteredInbox", () => {
     mockResponse = {
       ok: true,
       status: 200,
-      body: { count: 1, results: [{ address: "assistant@example.com" }] },
+      body: {
+        count: 1,
+        results: [{ id: "addr-1", address: "assistant@example.com" }],
+      },
     };
 
     const state = await resolveRegisteredInbox();
@@ -118,7 +131,7 @@ describe("resolveRegisteredInbox", () => {
     mockResponse = {
       ok: true,
       status: 200,
-      body: { count: 1, results: [{ address: "hi@bot" }] },
+      body: { count: 1, results: [{ id: "addr-1", address: "hi@bot" }] },
     };
     await resolveRegisteredInbox();
 
@@ -135,7 +148,7 @@ describe("resolveRegisteredInbox", () => {
     mockResponse = {
       ok: true,
       status: 200,
-      body: { count: 1, results: [{ address: "hi@bot" }] },
+      body: { count: 1, results: [{ id: "addr-1", address: "hi@bot" }] },
     };
 
     const fresh = await resolveRegisteredInbox({ fresh: true });
@@ -162,10 +175,58 @@ describe("resolveRegisteredInbox", () => {
     mockResponse = {
       ok: true,
       status: 200,
-      body: { count: 1, results: [{ address: "hi@bot" }] },
+      body: { count: 1, results: [{ id: "addr-1", address: "hi@bot" }] },
     };
     const state = await resolveRegisteredInbox();
 
     expect(state).toEqual({ status: "registered", address: "hi@bot" });
+  });
+});
+
+describe("listEmailAddresses", () => {
+  beforeEach(() => {
+    mockPlatformAssistantId = "assistant-test-id";
+    mockResponse = { ok: true, status: 200, body: { count: 0, results: [] } };
+    mockFetchThrows = false;
+    fetchCallCount = 0;
+  });
+
+  test("returns the platform's rows with ids", async () => {
+    mockResponse = {
+      ok: true,
+      status: 200,
+      body: { results: [{ id: "addr-1", address: "user@example.com" }] },
+    };
+
+    const list = await listEmailAddresses(await testClient());
+
+    expect(list).toEqual({
+      ok: true,
+      addresses: [{ id: "addr-1", address: "user@example.com" }],
+    });
+  });
+
+  test("carries the platform's status on a non-ok response", async () => {
+    mockResponse = { ok: false, status: 503, body: { detail: "boom" } };
+
+    const list = await listEmailAddresses(await testClient());
+
+    expect(list).toEqual({ ok: false, status: 503, detail: "HTTP 503" });
+  });
+
+  test("fails without a status when the fetch throws", async () => {
+    mockFetchThrows = true;
+
+    const list = await listEmailAddresses(await testClient());
+
+    expect(list).toEqual({ ok: false, detail: "platform unreachable" });
+  });
+
+  test("fails on an unexpected response shape", async () => {
+    mockResponse = { ok: true, status: 200, body: { results: [{ id: 7 }] } };
+
+    const list = await listEmailAddresses(await testClient());
+
+    expect(list).toEqual({ ok: false, detail: "unexpected response shape" });
   });
 });

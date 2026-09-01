@@ -9,7 +9,11 @@ import { z } from "zod";
 
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
-import { invalidateRegisteredInboxCache } from "../../email/registered-inbox.js";
+import {
+  invalidateRegisteredInboxCache,
+  listEmailAddresses,
+  type RegisteredEmailAddress,
+} from "../../email/registered-inbox.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -86,26 +90,28 @@ function invalidateEmailReadinessState(): void {
   getReadinessService().invalidateChannel("email");
 }
 
+/**
+ * The registered addresses, or the route-appropriate error: a listing
+ * failure maps to LIST_FAILED with the platform's status when it sent one.
+ */
+async function requireEmailAddressList(
+  client: VellumPlatformClient,
+): Promise<RegisteredEmailAddress[]> {
+  const list = await listEmailAddresses(client);
+  if (!list.ok) {
+    throw new RouteError(
+      `Failed to list email addresses: ${list.detail}`,
+      "LIST_FAILED",
+      list.status ?? 502,
+    );
+  }
+  return list.addresses;
+}
+
 async function handleEmailUnregister(_args: RouteHandlerArgs) {
   const client = await requireClient();
 
-  const listResponse = await client.fetch(
-    `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-  );
-
-  if (!listResponse.ok) {
-    throw new RouteError(
-      `Failed to list email addresses: HTTP ${listResponse.status}`,
-      "LIST_FAILED",
-      listResponse.status,
-    );
-  }
-
-  const listData = (await listResponse.json()) as {
-    results: { id: string; address: string }[];
-  };
-
-  const addresses = listData.results ?? [];
+  const addresses = await requireEmailAddressList(client);
   if (addresses.length === 0) {
     throw new NotFoundError("No email address registered for this assistant.");
   }
@@ -137,23 +143,7 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
 async function handleEmailStatus(_args: RouteHandlerArgs) {
   const client = await requireClient();
 
-  const listResponse = await client.fetch(
-    `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-  );
-
-  if (!listResponse.ok) {
-    throw new RouteError(
-      `Failed to list email addresses: HTTP ${listResponse.status}`,
-      "LIST_FAILED",
-      listResponse.status,
-    );
-  }
-
-  const listData = (await listResponse.json()) as {
-    results: { id: string; address: string }[];
-  };
-
-  const addresses = listData.results ?? [];
+  const addresses = await requireEmailAddressList(client);
   if (addresses.length === 0) {
     throw new NotFoundError(
       "No email address registered for this assistant. Run: assistant email register <username>",
@@ -272,23 +262,7 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
   const client = await requireClient();
 
   // Resolve "from" address
-  const listResponse = await client.fetch(
-    `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-  );
-
-  if (!listResponse.ok) {
-    throw new RouteError(
-      `Failed to list email addresses: HTTP ${listResponse.status}`,
-      "LIST_FAILED",
-      listResponse.status,
-    );
-  }
-
-  const listData = (await listResponse.json()) as {
-    results: { id: string; address: string }[];
-  };
-
-  const addresses = listData.results ?? [];
+  const addresses = await requireEmailAddressList(client);
   if (addresses.length === 0) {
     throw new NotFoundError(
       "No email address registered for this assistant. Run: assistant email register <username>",

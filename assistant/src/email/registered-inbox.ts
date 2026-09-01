@@ -29,16 +29,69 @@ export type RegisteredInboxState =
   /** The platform could not be asked; nothing is known either way. */
   | { status: "unavailable"; detail: string };
 
+/** One row of the platform's email-address listing. */
+export interface RegisteredEmailAddress {
+  id: string;
+  address: string;
+}
+
+export type EmailAddressListResult =
+  | { ok: true; addresses: RegisteredEmailAddress[] }
+  /** The platform could not be asked or answered unusably. */
+  | { ok: false; status?: number; detail: string };
+
 /**
  * Validated rather than cast: the response crosses a runtime boundary, and a
- * shape drift should read as `unavailable` (nothing established), not as a
+ * shape drift should read as a failed listing (nothing established), not as a
  * confidently wrong answer. Unknown keys are ignored, since the platform adds
  * fields over time.
  */
 const EmailAddressListSchema = z.object({
   count: z.number().optional(),
-  results: z.array(z.object({ address: z.string() })).optional(),
+  results: z
+    .array(z.object({ id: z.string(), address: z.string() }))
+    .optional(),
 });
+
+/**
+ * Fetch the platform's email-address listing for the caller's own client.
+ *
+ * The seam every consumer of the listing shares: the readiness resolver
+ * below, the email register/unregister/status/send routes, and verification
+ * email delivery. Takes the caller's client rather than creating one so a
+ * route that already authenticated (and already knows how to report a
+ * missing platform connection) keeps its own error semantics.
+ */
+export async function listEmailAddresses(
+  client: VellumPlatformClient,
+): Promise<EmailAddressListResult> {
+  let response: Response;
+  try {
+    response = await client.fetch(
+      `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
+    );
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { ok: false, detail };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      detail: `HTTP ${response.status}`,
+    };
+  }
+
+  const parsed = EmailAddressListSchema.safeParse(
+    await response.json().catch(() => null),
+  );
+  if (!parsed.success) {
+    return { ok: false, detail: "unexpected response shape" };
+  }
+
+  return { ok: true, addresses: parsed.data.results ?? [] };
+}
 
 /**
  * Matches the readiness service's remote-check TTL: the cache exists so the
@@ -82,28 +135,12 @@ async function fetchRegisteredInbox(): Promise<RegisteredInboxState> {
     return { status: "no_platform" };
   }
 
-  let response: Response;
-  try {
-    response = await client.fetch(
-      `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-    );
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return { status: "unavailable", detail };
+  const list = await listEmailAddresses(client);
+  if (!list.ok) {
+    return { status: "unavailable", detail: list.detail };
   }
 
-  if (!response.ok) {
-    return { status: "unavailable", detail: `HTTP ${response.status}` };
-  }
-
-  const parsed = EmailAddressListSchema.safeParse(
-    await response.json().catch(() => null),
-  );
-  if (!parsed.success) {
-    return { status: "unavailable", detail: "unexpected response shape" };
-  }
-
-  const address = parsed.data.results?.[0]?.address;
+  const address = list.addresses[0]?.address;
   if (typeof address === "string" && address.length > 0) {
     return { status: "registered", address };
   }

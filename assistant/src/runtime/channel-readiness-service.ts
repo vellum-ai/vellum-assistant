@@ -291,14 +291,17 @@ const emailProbe: ChannelProbe = {
     ];
   },
   /**
-   * Ask the platform whether an inbox address is registered. The platform's
-   * email-addresses API is the only writer of managed inbox registrations
-   * (nothing about one lands in workspace config), so it is the only source
-   * this check may read.
+   * Ask the platform whether an inbox address is registered, falling back to
+   * a "your own" provider credential. The platform's email-addresses API is
+   * the only writer of managed inbox registrations (nothing about one lands
+   * in workspace config), and a BYO deployment's configuration claim is its
+   * stored provider API key, so those are the only sources this check may
+   * read.
    *
-   * Three outcomes, matching the Telegram probe: a platform answer passes or
-   * fails the check outright, and an unreachable platform is indeterminate,
-   * which is not evidence of a fault and must not report the channel broken.
+   * Three outcomes, matching the Telegram probe: an answer passes or fails
+   * the check outright, and an unreachable platform (with no BYO credential
+   * to fall back to) is indeterminate, which is not evidence of a fault and
+   * must not report the channel broken.
    */
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     // Imported here rather than at module scope, matching the other probes:
@@ -314,6 +317,22 @@ const emailProbe: ChannelProbe = {
     // Published identifier (see the Telegram probe's `webhook_delivery` note):
     // external clients search readiness responses for this name.
     const name = "inbox_configured";
+
+    if (inbox.status !== "registered") {
+      const { resolveConfiguredByoEmailService } =
+        await import("../email/byo-email-credential.js");
+      const byoService = await resolveConfiguredByoEmailService();
+      if (byoService) {
+        return [
+          {
+            name,
+            passed: true,
+            message: `Email is configured through your own provider (${byoService} API key is stored)`,
+          },
+        ];
+      }
+    }
+
     switch (inbox.status) {
       case "registered":
         return [

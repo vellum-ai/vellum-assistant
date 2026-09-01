@@ -26,6 +26,7 @@ import {
   type ChannelInfo,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
+import { resolveConfiguredByoEmailService } from "../../email/byo-email-credential.js";
 import { resolveRegisteredInbox } from "../../email/registered-inbox.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -40,25 +41,30 @@ const BASE_AVAILABLE_CHANNELS: readonly ChannelId[] = [
 ] as const;
 
 /**
- * Best-effort check that an inbox address is registered for this
- * assistant, through the shared registered-inbox reader. An unavailable
- * platform is treated as "no inbox": we prefer to under-report than block
- * the entire Contacts page when the platform is briefly unreachable.
+ * Best-effort check that email is configured for this assistant: a managed
+ * inbox registered on the platform, or a "your own" provider credential
+ * (whose gateway webhook routes carry inbound just as the managed pipeline
+ * does). An unavailable platform is treated as "no inbox": we prefer to
+ * under-report than block the entire Contacts page when the platform is
+ * briefly unreachable.
  *
  * Fresh, preserving this route's long-standing live-read-per-request
  * behavior: availability is fetched on surface loads, not on a poll, so it
  * does not need the resolver's cache and should not inherit its staleness.
  */
-async function hasRegisteredInbox(): Promise<boolean> {
+async function hasConfiguredEmail(): Promise<boolean> {
   const inbox = await resolveRegisteredInbox({ fresh: true });
-  return inbox.status === "registered";
+  if (inbox.status === "registered") {
+    return true;
+  }
+  return (await resolveConfiguredByoEmailService()) !== undefined;
 }
 
 async function handleGetChannelAvailability(
   _args: RouteHandlerArgs,
 ): Promise<{ channels: AvailableChannel[] }> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
-  if (await hasRegisteredInbox()) {
+  if (await hasConfiguredEmail()) {
     ids.push("email");
   }
   if (isA2AEnabled(getConfig())) {
