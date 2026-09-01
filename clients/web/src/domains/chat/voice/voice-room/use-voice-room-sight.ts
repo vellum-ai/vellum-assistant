@@ -459,9 +459,14 @@ export function useVoiceRoomSight(
     if (sightFrameRetractions.length === 0) {
       return;
     }
-    useLiveVoiceStore.getState().clearSightFrameRetractions();
+    // Taken rather than read-then-cleared, and the taken set is what gets
+    // checked rather than the one this render captured. A retraction queued
+    // between that render and this effect is inside the take, so it is acted
+    // on instead of being cleared unread, which would leave a frame the
+    // assistant refused sitting on screen as one it was shown.
+    const taken = useLiveVoiceStore.getState().takeSightFrameRetractions();
     const displayed = heldRef.current?.attachmentId;
-    if (displayed !== undefined && sightFrameRetractions.includes(displayed)) {
+    if (displayed !== undefined && taken.includes(displayed)) {
       hold(null);
     }
   }, [hold, sightFrameRetractions]);

@@ -22,6 +22,7 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import { useEffect } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
@@ -743,6 +744,48 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
     });
 
     expect(view.result.current.heldFrame).toBeNull();
+  });
+
+  test("a retraction queued after the render is applied, not cleared unread", async () => {
+    // The window an atomic take closes. This render captured the retractions
+    // as they stood, and a refusal can land before the effect body runs; a
+    // consumer that cleared the whole list while checking only what it
+    // captured would leave a frame the assistant refused sitting on screen as
+    // one it was shown.
+    const video = document.createElement("video");
+    const videoRef = { current: video };
+    let armed = false;
+    let fired = false;
+    const view = renderHook(() =>
+      // Declared first, so its effect runs before the sight hook's in the same
+      // commit: exactly between that hook's capture and its body.
+      {
+        useEffect(() => {
+          if (!armed || fired) {
+            return;
+          }
+          fired = true;
+          useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-1");
+        });
+        return useVoiceRoomSight(ASSISTANT_ID, videoRef, {
+          cameraOpen: true,
+          facing: "environment",
+        });
+      },
+    );
+
+    await keepFrame();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+
+    armed = true;
+    await act(async () => {
+      // An unrelated retraction, which is what this render will capture.
+      useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-other");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([]);
   });
 
   test("leaves the pulse alone when the error named an older keep", async () => {

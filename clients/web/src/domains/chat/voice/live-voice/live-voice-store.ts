@@ -605,8 +605,16 @@ export interface LiveVoiceActions {
    * queued for the next one.
    */
   takeSightFramesToReclaim: () => readonly SightFrameReclaim[];
-  /** Drop the retractions the room's sight surface has acted on. */
-  clearSightFrameRetractions: () => void;
+  /**
+   * Remove every queued retraction and hand it back, in one state transition.
+   *
+   * The only way to empty it, for the same reason
+   * {@link takeSightFramesToReclaim} is: a clear that did not return what it
+   * removed could drop a retraction queued between a consumer reading the list
+   * and acting on it, and the surface would go on showing a frame that never
+   * reached the transcript.
+   */
+  takeSightFrameRetractions: () => readonly string[];
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -954,7 +962,16 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     });
     return taken;
   },
-  clearSightFrameRetractions: () => set({ sightFrameRetractions: [] }),
+  takeSightFrameRetractions: () => {
+    let taken: readonly string[] = [];
+    // Read and emptied inside one updater, so nothing can be appended between
+    // the two halves.
+    set((s) => {
+      taken = s.sightFrameRetractions;
+      return { sightFrameRetractions: [] };
+    });
+    return taken;
+  },
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
