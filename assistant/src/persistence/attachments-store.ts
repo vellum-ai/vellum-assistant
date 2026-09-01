@@ -1583,6 +1583,13 @@ export type ShrinkAttachmentResult =
  *
  * The file write goes through a sibling temp file and a rename, so a torn write
  * cannot leave a truncated image where the transcript expects one.
+ *
+ * A row still holding its bytes inline is rewritten too, rather than skipped.
+ * That shape is degraded (materialization found nothing readable to copy and
+ * left the staged row as it was), and it is the one shape where the bytes sit in
+ * the database itself, which is the last place an image nobody chose to send
+ * should grow unbounded. Nothing aliases an inline payload the way a file path
+ * can be aliased: a clone copies the string into a row of its own.
  */
 export function shrinkAttachmentBytes(
   attachmentId: string,

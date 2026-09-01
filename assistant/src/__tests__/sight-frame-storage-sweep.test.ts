@@ -23,6 +23,8 @@ import {
   getAttachmentById,
   getAttachmentContent,
   getAttachmentMetadataForMessage,
+  getFilePathForAttachment,
+  uploadAttachment,
   uploadFileBackedAttachment,
 } from "../persistence/attachments-store.js";
 import {
@@ -73,6 +75,25 @@ function backdateAttachment(attachmentId: string, ageDays: number): void {
     "UPDATE attachments SET created_at = ? WHERE id = ?",
     Date.now() - ageDays * DAY_MS,
     attachmentId,
+  );
+}
+
+/**
+ * Link an attachment to a message without scoping it into the conversation.
+ * `linkAttachmentToMessage` materializes as it links, which is exactly what the
+ * degraded shapes below need to skip.
+ */
+function linkAttachmentWithoutScoping(
+  messageId: string,
+  attachmentId: string,
+): void {
+  rawRun(
+    "test:linkAttachmentWithoutScoping",
+    "INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at) VALUES (?, ?, ?, 0, ?)",
+    `link-${attachmentId}`,
+    messageId,
+    attachmentId,
+    Date.now(),
   );
 }
 
@@ -231,14 +252,7 @@ describe("sweepAgedSightFrames", () => {
       outsidePath,
       bytes.length,
     );
-    rawRun(
-      "test:linkOutsideAttachment",
-      "INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at) VALUES (?, ?, ?, 0, ?)",
-      `link-${stored.id}`,
-      message.id,
-      stored.id,
-      Date.now(),
-    );
+    linkAttachmentWithoutScoping(message.id, stored.id);
     tagMessageFrames(message.id, [stored.id]);
     backdateAttachment(stored.id, 30);
 
@@ -248,6 +262,43 @@ describe("sweepAgedSightFrames", () => {
     expect(result.skipped).toBe(1);
     expect(existsSync(outsidePath)).toBe(true);
     expect(readFileSync(outsidePath).length).toBe(bytes.length);
+  });
+
+  test("re-encodes a frame whose bytes are still inline in the row", async () => {
+    // The shape materialization leaves when it finds nothing readable to copy:
+    // a linked row still holding its payload in the database, which is the last
+    // place a frame nobody chose to send should grow.
+    const conversation = createConversation("Call");
+    const message = await addMessage(
+      conversation.id,
+      "user",
+      "(camera frame)",
+      {
+        skipIndexing: true,
+      },
+    );
+    const stored = await uploadAttachment(
+      "sight-frame.jpg",
+      "image/jpeg",
+      await makeFrameJpegBase64(),
+    );
+    linkAttachmentWithoutScoping(message.id, stored.id);
+    tagMessageFrames(message.id, [stored.id]);
+    backdateAttachment(stored.id, 30);
+    expect(getFilePathForAttachment(stored.id)).toBeNull();
+
+    const result = await sweepAgedSightFrames();
+
+    expect(result.shrunk).toBe(1);
+    const swept = getAttachmentById(stored.id);
+    expect(swept!.dataBase64.length).toBeGreaterThan(0);
+    expect(Buffer.from(swept!.dataBase64, "base64").length).toBe(
+      swept!.sizeBytes,
+    );
+    expect(swept!.sizeBytes).toBeLessThan(stored.sizeBytes);
+    // Still inline: the sweep re-encodes what is there rather than changing how
+    // the row stores it.
+    expect(getFilePathForAttachment(stored.id)).toBeNull();
   });
 
   test("skips every cycle while DB migrations are unready", async () => {
