@@ -198,9 +198,10 @@ export function useAssistantResourceSync(
         });
         return;
 
-      // The relationship snapshot itself has no reader left, but the daemon
-      // only rewrites it at a turn boundary, which is also when the feed can
-      // have gained an item. Treated as a second staleness signal for the feed.
+      // No web surface reads the relationship snapshot, so this event is kept
+      // only as a second staleness signal for the feed: the daemon rewrites
+      // the snapshot at a turn boundary, which is also when the feed can have
+      // gained an item.
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
           predicate: (query) =>

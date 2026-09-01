@@ -3,12 +3,7 @@
  *
  *   - `GET /v1/home/feed`   → `HomeFeedResponse`
  *   - `PATCH /v1/home/feed/:id` → `FeedItem`
- *
- * `RelationshipState` and the `Fact` / `Capability` shapes it is built from
- * no longer back an endpoint: the Activity page was the only reader of
- * `GET /v1/home/state`, and the route went away with the page. They stay
- * published here because they are the wire shape of the snapshot the daemon
- * still writes and announces over `relationship_state_updated`.
+ *   - `GET /v1/home/state`  → `RelationshipState`
  *
  * Holds the canonical feed-item, suggested-prompt, and relationship-state
  * shapes shared by the daemon route handlers, the on-disk feed-file parser
@@ -301,7 +296,7 @@ export const HomeFeedResponseSchema = z.object({
 export type HomeFeedResponse = z.infer<typeof HomeFeedResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Relationship state (no endpoint; see the module docstring)
+// GET /v1/home/state
 // ---------------------------------------------------------------------------
 
 export const FactSchema = z.object({
