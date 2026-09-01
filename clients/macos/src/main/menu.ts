@@ -1,6 +1,7 @@
 import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 import { z } from "zod";
 
+import { companionVisibilityItem } from "@vellumai/electron-desktop/companion-menu";
 import {
   onSettingChange,
   readSetting,
@@ -253,20 +254,12 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         fileItem("Pop Out Conversation", { kind: "popOut" }),
         { type: "separator" },
-        {
-          // The same label and checkbox shape as the tray's item, because it
-          // is the same switch reached two ways rather than two switches. A
-          // checkbox because the surface can be hidden from three places (here,
-          // the tray, its own right-click) and the item has to say which state
-          // it is in. Electron flips `checked` before `click` runs, so the item
-          // carries the state being asked for.
-          label: "Show Companion",
-          type: "checkbox",
-          checked: !readCompanionHidden(),
-          click: (item) => {
-            setCompanionSurfaceVisible(item.checked);
-          },
-        },
+        // The show/hide checkbox the tray offers too, from the one builder both
+        // read: two doors onto a single switch, not two switches.
+        companionVisibilityItem(
+          readCompanionHidden(),
+          setCompanionSurfaceVisible,
+        ),
         { type: "separator" },
         { role: "front" },
       ],
