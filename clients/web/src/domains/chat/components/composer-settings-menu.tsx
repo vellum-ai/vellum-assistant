@@ -982,11 +982,13 @@ export function ComposerSettingsMenu({
 
   // The profile list grows with the workspace and the menu has no ceiling of
   // its own, so a long one runs off the top of the composer. Cap it at about
-  // seven rows and scroll the rest, with the design library's edge fade
-  // signalling that there is more below. Radix keeps the focused row in view
-  // as the arrow keys walk past the cap.
+  // seven rows and scroll the rest, with a top fade signalling that there is
+  // more above. Only the top edge fades: the bottom row sits against the
+  // menu's own padded edge, where a fade dims the active row instead of
+  // reading as an overflow cue. Radix keeps the focused row in view as the
+  // arrow keys walk past the cap.
   const profileMenuList = (
-    <ScrollShadow className="max-h-[13rem]" size={16}>
+    <ScrollShadow className="max-h-[13rem]" size={16} fadeEdges="start">
       {profileMenuItems}
     </ScrollShadow>
   );
