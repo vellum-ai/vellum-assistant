@@ -73,6 +73,29 @@ function bundleGroundP3(bundle: string): string {
 const DEV_GROUND_P3 = bundleGroundP3("AppIcon-Dev.icon");
 const STAGING_GROUND_P3 = bundleGroundP3("AppIcon-Staging.icon");
 
+/** Where the Android flavors keep their own resources. */
+const ANDROID_FLAVOR_DIR = join(
+  import.meta.dir,
+  "../../../../../android/app/src",
+);
+
+/**
+ * The `launcher_background` a flavor declares, read off the flavor rather than
+ * named here for the same reason the bundles above are read: an edited resource
+ * fails this file instead of leaving the thumbnail depicting a field no shell
+ * installs.
+ */
+function flavorLauncherBackground(flavor: string): string {
+  const path = join(ANDROID_FLAVOR_DIR, flavor, "res/values/colors.xml");
+  const fill = readFileSync(path, "utf8").match(
+    /name="launcher_background"\s*>\s*(#[0-9A-Fa-f]{6})\s*</,
+  )?.[1];
+  if (!fill) {
+    throw new Error(`${flavor} declares no launcher_background`);
+  }
+  return fill;
+}
+
 const CHARACTER: AvatarState = {
   kind: "character",
   traits: TRAITS,
@@ -89,6 +112,7 @@ const IMAGE: AvatarState = {
 
 let avatarState: AvatarState | null = CHARACTER;
 let nativeIOS = true;
+let nativeAndroid = false;
 let iconState: AppIconState = {
   supported: true,
   current: null,
@@ -130,6 +154,7 @@ mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
   ...platformDetection,
   useIsNativeIOS: () => nativeIOS,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({
@@ -283,6 +308,17 @@ async function renderRow() {
   return view;
 }
 
+/**
+ * Put the stand-in shell on Android, flag and all. Each shell carries its own
+ * flag, so naming the platform without opening its gate draws nothing.
+ */
+function runOnAndroidShell(appId: string) {
+  nativeIOS = false;
+  nativeAndroid = true;
+  shellAppId = appId;
+  useClientFeatureFlagStore.setState({ androidAvatarAppIcon: true });
+}
+
 beforeEach(() => {
   // The default thumbnail follows the shell it runs in, so every test that is
   // not about that runs in the one users install.
@@ -291,10 +327,14 @@ beforeEach(() => {
   shellAppId = "ai.vocify-inc.vellum-assistant-ios";
   avatarState = CHARACTER;
   nativeIOS = true;
+  nativeAndroid = false;
   swapSucceeds = true;
   iconState = { supported: true, current: null, available: ALL_ICONS };
   useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
-  useClientFeatureFlagStore.setState({ iosAvatarAppIcon: true });
+  useClientFeatureFlagStore.setState({
+    iosAvatarAppIcon: true,
+    androidAvatarAppIcon: false,
+  });
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
 });
 
@@ -305,7 +345,10 @@ afterEach(() => {
   getAppIconState.mockClear();
   setAppIcon.mockClear();
   getInfoMock.mockClear();
-  useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
+  useClientFeatureFlagStore.setState({
+    iosAvatarAppIcon: false,
+    androidAvatarAppIcon: false,
+  });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
@@ -471,6 +514,88 @@ describe("AppIconRow", () => {
         expect(buttonByText("Change")).toBeDefined();
       });
       expect(previewFill()).toBe(hexFor("teal"));
+    });
+  });
+
+  // Android draws its launcher field from per-flavor resources that share
+  // nothing with the iOS bundles, so the thumbnail standing in for the primary
+  // icon reads the shell's platform as well as its build.
+  describe("the default thumbnail follows the Android flavor", () => {
+    test("draws the dev flavor's blue field", async () => {
+      runOnAndroidShell("ai.vellum.assistant.dev");
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(flavorLauncherBackground("dev"));
+      });
+      expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
+    });
+
+    test("draws the staging flavor's orange field", async () => {
+      runOnAndroidShell("ai.vellum.assistant.staging");
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(flavorLauncherBackground("staging"));
+      });
+      expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
+    });
+
+    test("leaves the production flavor on the catalog green", async () => {
+      runOnAndroidShell("ai.vellum.assistant");
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+      // Production is the one flavor the row names no field for, which is only
+      // honest while the flavor itself declares the catalog's own green.
+      expect(flavorLauncherBackground("production")).toBe(hexFor("green"));
+      expect(previewFill()).toBe(hexFor("green"));
+    });
+  });
+
+  // A press means something different on each shell: iOS swaps the icon behind
+  // its own alert, Android waits for the app to leave the foreground and can
+  // drop a pinned shortcut on the way.
+  describe("the picker's copy follows the shell", () => {
+    test("names the deferred apply and the pinned shortcut on Android", async () => {
+      runOnAndroidShell("ai.vellum.assistant");
+      await renderRow();
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+
+      await press("Change");
+
+      expect(modal()?.textContent).toContain(
+        "Android applies your choice once you leave the app",
+      );
+      expect(modal()?.textContent).not.toContain("iOS");
+    });
+
+    test("names Android as the shell that kept the old icon", async () => {
+      swapSucceeds = false;
+      runOnAndroidShell("ai.vellum.assistant");
+      await renderRow();
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+
+      await press("Change");
+      await press("Set app icon");
+
+      await waitFor(() => {
+        expect(
+          document.querySelector('[role="alert"]')?.textContent?.trim(),
+        ).toBe(
+          "Android did not change your home screen icon. You can try again.",
+        );
+      });
+      expect(modal()).not.toBeNull();
     });
   });
 

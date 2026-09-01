@@ -74,6 +74,8 @@
     "unsupportedLabel": "不可用"
   },
   "appIcon": {
+    "androidApplyNote": "备用图标随应用提供。Android 会在您离开应用后应用您的选择，更换图标可能会重置您固定到主屏幕的快捷方式。",
+    "androidError": "Android 未更改您的主屏幕图标。您可以再试一次。",
     "apply": "设置应用图标",
     "change": "更改",
     "color": "颜色",

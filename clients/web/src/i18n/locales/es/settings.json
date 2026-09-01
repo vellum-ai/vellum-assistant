@@ -74,6 +74,8 @@
     "unsupportedLabel": "No disponible"
   },
   "appIcon": {
+    "androidApplyNote": "Los iconos alternativos vienen incluidos en la app. Android aplica tu elección en cuanto sales de la app, y cambiarlo puede restablecer un acceso directo que hayas anclado a tu pantalla de inicio.",
+    "androidError": "Android no cambió el icono de tu pantalla de inicio. Puedes intentarlo de nuevo.",
     "apply": "Establecer icono",
     "change": "Cambiar",
     "color": "Color",

@@ -74,6 +74,8 @@
     "unsupportedLabel": "無法使用"
   },
   "appIcon": {
+    "androidApplyNote": "替換圖示隨應用程式提供。Android 會在您離開應用程式後套用您的選擇，變更圖示可能會重設您釘選到主螢幕的捷徑。",
+    "androidError": "Android 未變更您的主螢幕圖示。您可以再試一次。",
     "apply": "設定應用程式圖示",
     "change": "變更",
     "color": "顏色",
