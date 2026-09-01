@@ -308,6 +308,53 @@ export class VellumPlatformClient {
     }
   }
 
+  /**
+   * Ask the platform whether this client's assistant API key still
+   * authenticates.
+   *
+   * `"rejected"` is a settled negative: the platform answered, and the answer
+   * was that the credential is not accepted (401/403, which is how
+   * `AssistantAPIKeyAuthentication` reports a revoked, expired, or unknown
+   * key). Only that verdict may drive a rotation, because rotating on a
+   * network blip would replace a working credential for no reason.
+   * `"unknown"` covers every unsettled case (no assistant id, transport
+   * failure, server error) and means "ask again later", never "broken".
+   *
+   * The carrier is the owner-consent endpoint. Nothing here reads consent:
+   * the request is a side-effect-free authenticated GET this client already
+   * makes, and the only thing inspected is whether authentication succeeded.
+   * The platform exposes no dedicated credential-verification endpoint, so
+   * the carrier is named here rather than left implicit at call sites.
+   */
+  async verifyCredential(): Promise<"valid" | "rejected" | "unknown"> {
+    if (!this.assistantId) {
+      return "unknown";
+    }
+
+    try {
+      const res = await this.fetch(
+        `/v1/assistants/${this.assistantId}/owner-consent/`,
+      );
+      if (res.ok) {
+        return "valid";
+      }
+      if (res.status === 401 || res.status === 403) {
+        return "rejected";
+      }
+      log.debug(
+        { status: res.status },
+        "credential verification returned an unsettled status",
+      );
+      return "unknown";
+    } catch (err) {
+      log.debug(
+        { err },
+        "credential verification could not reach the platform",
+      );
+      return "unknown";
+    }
+  }
+
   get baseUrl(): string {
     return this.platformBaseUrl;
   }

@@ -20,6 +20,7 @@ import {
   fetchPlatformAssistants,
   getPlatformUrl,
   injectCredentialsIntoAssistant,
+  readGatewayAssistantApiKeyStatus,
   readGatewayCredential,
   readPlatformToken,
   reprovisionAssistantApiKey,
@@ -409,9 +410,14 @@ export async function login(): Promise<void> {
         // LocalAssistantBootstrapService 3-step flow:
         // 1. Use fresh key from registration (first-time only)
         // 2. Use existing key from the daemon's credential store
-        // 3. Reprovision (rotate) as a last resort — this revokes the
-        //    old key server-side, so we only do it when the gateway
-        //    confirms no key exists (not when it's merely unreachable).
+        // 3. Reprovision (rotate) when no usable key exists. Rotation is
+        //    gated on the gateway confirming the key is absent or rejected,
+        //    never on it being merely unreachable, so a login during an
+        //    outage cannot rotate a key it then fails to store.
+        //
+        // A stored key the platform has rejected is not usable, so step 2
+        // must skip it. Reusing it would make this command look like a repair
+        // while re-injecting the exact credential that is failing.
         let assistantApiKey = registration.assistant_api_key;
         if (!assistantApiKey) {
           const cached = await readGatewayCredential(
@@ -419,10 +425,19 @@ export async function login(): Promise<void> {
             "vellum:assistant_api_key",
             entry.bearerToken,
           );
-          if (cached.value) {
+          const keyStatus = await readGatewayAssistantApiKeyStatus(
+            entry.runtimeUrl,
+            entry.bearerToken,
+          );
+          const cachedKeyRejected = keyStatus === "rejected";
+          if (cached.value && !cachedKeyRejected) {
             assistantApiKey = cached.value;
           } else if (!cached.unreachable) {
-            console.log("No API key available locally — reprovisioning...");
+            console.log(
+              cachedKeyRejected
+                ? "Stored API key was rejected by Vellum. Provisioning a replacement..."
+                : "No API key available locally, reprovisioning...",
+            );
             const reprovision = await reprovisionAssistantApiKey(
               token,
               orgId,

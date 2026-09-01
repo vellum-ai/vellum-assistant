@@ -37,6 +37,8 @@ type PlatformStatusBody = {
   organization_id?: unknown;
   hasAssistantApiKey?: unknown;
   has_assistant_api_key?: unknown;
+  assistantApiKeyStatus?: unknown;
+  assistant_api_key_status?: unknown;
   clientInstallationId?: unknown;
   client_installation_id?: unknown;
 };
@@ -46,6 +48,12 @@ type LocalPlatformStatus = {
   baseUrl: string | null;
   organizationId: string | null;
   hasAssistantApiKey: boolean | null;
+  /**
+   * Whether the stored key still authenticates, as the daemon last observed.
+   * Null against a daemon that predates the field, which reads the same as
+   * `"unknown"`: no rotation, exactly the behavior before it existed.
+   */
+  assistantApiKeyStatus: "valid" | "rejected" | "unknown" | null;
   clientInstallationId: string | null;
 };
 
@@ -216,7 +224,24 @@ async function ensureLocalAssistantPlatformIdentity(
     status?.assistantId && isUuid(status.assistantId)
       ? status.assistantId
       : null;
-  if (statusPlatformAssistantId && status?.hasAssistantApiKey !== false) {
+  // A stored key the platform has rejected is worse than no key: managed
+  // inference fails on every call and the assistant cannot mint a replacement
+  // for itself. The platform leaves self-hosted and local registrations to
+  // their client on purpose (`recover_expired_assistant_api_key` excludes
+  // them), so this bootstrap is the thing that has to rotate it. Treating a
+  // rejection like an absence is what lets it reach the reprovision below.
+  //
+  // Only a settled rejection counts. The daemon records one from a platform
+  // 401/403 and drops it the moment any new key is stored, so a "rejected"
+  // verdict always describes the value sitting in the credential store right
+  // now, and rotating on it cannot replace a working key.
+  const credentialRejected = status?.assistantApiKeyStatus === "rejected";
+
+  if (
+    statusPlatformAssistantId &&
+    status?.hasAssistantApiKey !== false &&
+    !credentialRejected
+  ) {
     const statusOrganizationId =
       status?.organizationId ?? assistant.platformOrganizationId ?? null;
     if (statusOrganizationId) {
@@ -265,8 +290,16 @@ async function ensureLocalAssistantPlatformIdentity(
     );
   }
 
+  // `ensureRegistration` hands back a key only for a registration that had
+  // none, so a rejected key needs the explicit rotation. Rotation is not
+  // destructive: the platform keeps the outgoing key valid for a grace period
+  // rather than revoking it on the spot, so a rotation whose injection fails
+  // leaves the install no worse off than it already was.
   let assistantApiKey = stringValue(registration.assistant_api_key);
-  if (!assistantApiKey && status?.hasAssistantApiKey !== true) {
+  if (
+    !assistantApiKey &&
+    (status?.hasAssistantApiKey !== true || credentialRejected)
+  ) {
     assistantApiKey = await reprovisionApiKey(
       assistant,
       organizationId,
@@ -373,6 +406,10 @@ export async function fetchPlatformStatus(
     hasAssistantApiKey: firstBoolean(
       body?.hasAssistantApiKey,
       body?.has_assistant_api_key,
+    ),
+    assistantApiKeyStatus: assistantApiKeyStatusValue(
+      body?.assistantApiKeyStatus,
+      body?.assistant_api_key_status,
     ),
     clientInstallationId: firstString(
       body?.clientInstallationId,
@@ -618,6 +655,23 @@ function firstString(...values: unknown[]): string | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Read the daemon's verdict on the stored assistant key.
+ *
+ * Anything unrecognized reads as null rather than a guess: the value decides
+ * whether the client rotates a credential, so an unknown shape must be inert.
+ */
+function assistantApiKeyStatusValue(
+  ...values: unknown[]
+): "valid" | "rejected" | "unknown" | null {
+  for (const value of values) {
+    if (value === "valid" || value === "rejected" || value === "unknown") {
+      return value;
+    }
+  }
+  return null;
 }
 
 function firstBoolean(...values: unknown[]): boolean | null {

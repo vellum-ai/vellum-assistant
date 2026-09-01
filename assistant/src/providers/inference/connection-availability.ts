@@ -17,6 +17,7 @@
  */
 
 import { getDb } from "../../persistence/db-connection.js";
+import { getManagedCredentialVerdict } from "../../platform/managed-credential-state.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../security/secure-keys.js";
 import {
@@ -55,6 +56,7 @@ export const CONNECTION_AVAILABILITY_STATUSES = [
   "provider_mismatch",
   "unsupported_auth",
   "vellum_unauthenticated",
+  "vellum_credential_rejected",
   "unknown",
 ] as const;
 
@@ -73,6 +75,18 @@ const SETTINGS_HINT = "in Settings → Models & Services";
  * Availability of the Vellum-managed platform proxy: signed in and reachable.
  */
 export async function vellumConnectionAvailability(): Promise<ConnectionAvailability> {
+  // A stored key that the platform has rejected is worth reporting before
+  // anything else: every check below asks only whether a credential exists,
+  // which a dead one satisfies, so without this the managed route reads
+  // healthy right up until a turn fails on it.
+  if (getManagedCredentialVerdict().verdict === "rejected") {
+    return {
+      status: "vellum_credential_rejected",
+      message:
+        "Vellum rejected the managed inference credential. Sign in to Vellum to provision a replacement.",
+    };
+  }
+
   const ctx = await resolveManagedProxyContext();
   if (ctx.enabled) {
     return { status: "ok" };
@@ -257,6 +271,10 @@ const UNAVAILABLE_STATUSES: ReadonlySet<ConnectionAvailabilityStatus> = new Set(
     "provider_mismatch",
     "unsupported_auth",
     "vellum_unauthenticated",
+    // A rejected managed credential fails dispatch exactly like an absent
+    // one. It clears the moment a replacement key is stored, so pinning a
+    // managed profile is refused only while the route is genuinely dead.
+    "vellum_credential_rejected",
   ],
 );
 

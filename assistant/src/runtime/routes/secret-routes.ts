@@ -30,6 +30,7 @@ import {
   scrubStoredCredentialFromTranscripts,
 } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import { clearManagedCredentialVerdict } from "../../platform/managed-credential-state.js";
 import { syncAvatarToPlatform } from "../../platform/sync-avatar.js";
 import { syncWorkspaceIdentityToPlatform } from "../../platform/sync-identity.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
@@ -408,6 +409,10 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         // pages unseeded until restart. Detached — must not block the response.
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
+          // Any recorded verdict described the value being replaced, so it
+          // would report a freshly provisioned key as rejected and keep the
+          // recovery surfaces asking for a rotation that already happened.
+          clearManagedCredentialVerdict();
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
         }
       } else if (!isTrimmedIdentity) {

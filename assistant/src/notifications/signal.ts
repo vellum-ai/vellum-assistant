@@ -133,7 +133,7 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
   {
     id: "credential.health_alert",
     description:
-      "OAuth credential health issue detected (expired, revoked, missing scopes)",
+      "Credential health issue detected (expired, revoked, missing scopes), for an OAuth connection or the Vellum-managed inference credential",
   },
   {
     id: "chat.assistant_reply",

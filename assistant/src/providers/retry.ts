@@ -6,6 +6,10 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import {
+  clearManagedCredentialVerdict,
+  recordManagedCredentialVerdict,
+} from "../platform/managed-credential-state.js";
+import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
@@ -1206,9 +1210,19 @@ export class RetryProvider implements Provider {
    * leaves the original error to surface.
    */
   private async refreshManagedCredential(): Promise<boolean> {
+    // Reached only from `shouldRefreshManagedCredential`, so the platform has
+    // just answered 401/403 on a managed route: a settled rejection of the
+    // stored credential. Recording it here is what lets the recovery surfaces
+    // see a dead key between health checks, instead of reporting the key
+    // healthy until the next one runs.
+    recordManagedCredentialVerdict("rejected");
     try {
       const refreshed = await this.options.refreshCredentialProvider?.();
       if (refreshed) {
+        // A different credential took over. Whether it authenticates is not
+        // established until a call succeeds, so drop the verdict rather than
+        // claiming either answer for a value nothing has tested.
+        clearManagedCredentialVerdict();
         this.inner = refreshed;
         log.info(
           {

@@ -1,6 +1,11 @@
 /**
  * Proactive credential health monitoring.
  *
+ * Covers two kinds of credential. The Vellum-managed assistant API key is a
+ * single workspace-wide slot, checked by asking the platform whether it still
+ * authenticates (see {@link ASSISTANT_API_KEY_CONNECTION_ID}). Everything else
+ * is an OAuth connection, enumerated and validated per connection.
+ *
  * Enumerates all active OAuth connections and validates each one for:
  * - Token presence in secure storage
  * - Token expiry (expired or expiring within the warning window)
@@ -38,6 +43,12 @@ import {
   expectedScopesForStoredToken,
   scopeDifference,
 } from "../oauth/scope-utils.js";
+import { recordManagedCredentialVerdict } from "../platform/managed-credential-state.js";
+import { credentialKey } from "../security/credential-key.js";
+import {
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+} from "../security/secure-keys.js";
 import {
   TokenExpiredError,
   withValidToken,
@@ -610,6 +621,124 @@ async function checkManagedProvider(
   return results;
 }
 
+/**
+ * Connection id for the Vellum-managed assistant credential.
+ *
+ * The credential is a single workspace-wide slot rather than one row per
+ * account, so it carries the credential-store key as its id instead of a
+ * connection uuid.
+ */
+export const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
+
+/**
+ * Health of the platform-provisioned assistant API key, the credential that
+ * authenticates Vellum-managed inference.
+ *
+ * This is the one credential the assistant cannot mint for itself: the
+ * platform issues it and a signed-in client writes it in. For a self-hosted
+ * or local assistant the platform deliberately does not self-heal a dead key
+ * (`recover_expired_assistant_api_key` excludes registrations of that kind,
+ * because the client owns the reprovision flow), so its health has to be
+ * observed here and acted on by a client.
+ *
+ * Statuses map onto the shared vocabulary:
+ *   - `missing_token`: no key is stored, so managed inference cannot run.
+ *   - `revoked`: the platform settled that the stored key is not accepted.
+ *   - `unreachable`: the credential store or the platform did not answer, so
+ *     health is unknown. The heartbeat drops these before notifying, which is
+ *     what keeps a transient outage from raising a credential alert.
+ *
+ * `canAutoRecover` is true for both failure statuses: recovery needs no
+ * re-authorization from the user, only a signed-in client to rotate the key.
+ */
+async function checkAssistantApiKey(): Promise<CredentialHealthResult | null> {
+  const base: Omit<
+    CredentialHealthResult,
+    "status" | "details" | "canAutoRecover"
+  > = {
+    connectionId: ASSISTANT_API_KEY_CONNECTION_ID,
+    provider: "vellum",
+    accountInfo: null,
+    missingScopes: [],
+  };
+
+  const stored = await getSecureKeyResultAsync(
+    credentialKey("vellum", "assistant_api_key"),
+  );
+
+  if (stored.unreachable) {
+    return {
+      ...base,
+      status: "unreachable",
+      details:
+        "The credential store is unreachable, so the Vellum managed inference credential could not be checked.",
+      canAutoRecover: false,
+    };
+  }
+
+  if (stored.value == null) {
+    // A workspace that was never connected to the platform has no managed
+    // credential and is not unhealthy. Only an install that already carries
+    // the rest of a platform identity is missing something.
+    const baseUrl = await getSecureKeyAsync(
+      credentialKey("vellum", "platform_base_url"),
+    );
+    if (!baseUrl) {
+      return null;
+    }
+    return {
+      ...base,
+      status: "missing_token",
+      details:
+        "No Vellum managed inference credential is stored. Sign in to Vellum to provision one.",
+      canAutoRecover: true,
+    };
+  }
+
+  const { VellumPlatformClient } = await import("../platform/client.js");
+  const client = await VellumPlatformClient.create();
+  if (!client) {
+    return {
+      ...base,
+      status: "unreachable",
+      details:
+        "The Vellum platform client could not be built, so the managed inference credential could not be checked.",
+      canAutoRecover: false,
+    };
+  }
+
+  const verdict = await client.verifyCredential();
+  // The platform answered, so this is the freshest verdict available. Share it
+  // with the surfaces that report credential state and decide on rotation, so
+  // they need no probe of their own.
+  recordManagedCredentialVerdict(verdict);
+  if (verdict === "rejected") {
+    return {
+      ...base,
+      status: "revoked",
+      details:
+        "Vellum rejected the managed inference credential. Sign in to Vellum to provision a replacement.",
+      canAutoRecover: true,
+    };
+  }
+  if (verdict === "unknown") {
+    return {
+      ...base,
+      status: "unreachable",
+      details:
+        "Vellum did not answer the managed inference credential check. Health is unknown until the next check.",
+      canAutoRecover: false,
+    };
+  }
+
+  return {
+    ...base,
+    status: "healthy",
+    details: "The Vellum managed inference credential authenticates.",
+    canAutoRecover: true,
+  };
+}
+
 // ── Public API ────────────────────────────────────────────────────────
 
 /**
@@ -713,6 +842,19 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
       }
     }
     results.push(...managedResults);
+  }
+
+  // The Vellum-managed assistant credential is not an OAuth connection and so
+  // is not reached by either loop above, but it gates managed inference for
+  // the whole workspace. Checked last so a failure here cannot cost the
+  // per-connection results already gathered.
+  try {
+    const assistantKeyResult = await checkAssistantApiKey();
+    if (assistantKeyResult) {
+      results.push(assistantKeyResult);
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to check managed assistant credential health");
   }
 
   const unhealthy = results.filter((r) => r.status !== "healthy");

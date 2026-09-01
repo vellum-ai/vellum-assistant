@@ -274,6 +274,60 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     });
   });
 
+  test("rotates a stored API key the platform has rejected", async () => {
+    // The incident shape: a key IS stored, so every presence check reads
+    // healthy, but the platform rejects it on every managed call.
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: true,
+      assistantApiKeyStatus: "rejected",
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+    // An existing registration hands back no key, so only the explicit
+    // rotation can produce a replacement.
+    ensureRegistrationBody = {
+      assistant: { id: PLATFORM_ASSISTANT_ID },
+      assistant_api_key: null,
+    };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    const injectedSecrets = requests
+      .filter((request) => request.pathname.endsWith("/v1/secrets"))
+      .map((request) => request.body);
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:assistant_api_key",
+      value: "reprovisioned-key",
+    });
+  });
+
+  // The anti-churn invariant. Only a settled rejection may rotate a key;
+  // every other verdict, including a daemon too old to report one, must leave
+  // the stored credential untouched.
+  test.each([["valid"], ["unknown"], [undefined]])(
+    "leaves a stored API key alone when the status is %p",
+    async (keyStatus) => {
+      statusBody = {
+        assistant_id: PLATFORM_ASSISTANT_ID,
+        baseUrl: STATUS_PLATFORM_BASE_URL,
+        organization_id: ORGANIZATION_ID,
+        has_assistant_api_key: true,
+        ...(keyStatus === undefined
+          ? {}
+          : { assistantApiKeyStatus: keyStatus }),
+        client_installation_id: HOST_INSTALLATION_ID,
+      };
+
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+      expect(requestNames()).not.toContain("reprovision-api-key");
+    },
+  );
+
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {
     statusBody = {
       assistant_id: PLATFORM_ASSISTANT_ID,

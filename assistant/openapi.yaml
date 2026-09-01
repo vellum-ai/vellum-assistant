@@ -24595,6 +24595,12 @@ paths:
                     type: string
                   hasAssistantApiKey:
                     type: boolean
+                  assistantApiKeyStatus:
+                    type: string
+                    enum:
+                      - valid
+                      - rejected
+                      - unknown
                   hasWebhookSecret:
                     type: boolean
                   clientInstallationId:
@@ -24616,6 +24622,7 @@ paths:
                   - baseUrl
                   - assistantId
                   - hasAssistantApiKey
+                  - assistantApiKeyStatus
                   - hasWebhookSecret
                   - clientInstallationId
                   - available
@@ -36439,6 +36446,7 @@ components:
                 - provider_mismatch
                 - unsupported_auth
                 - vellum_unauthenticated
+                - vellum_credential_rejected
                 - unknown
                 - missing_default
             message:
@@ -36674,6 +36682,7 @@ components:
             - provider_mismatch
             - unsupported_auth
             - vellum_unauthenticated
+            - vellum_credential_rejected
             - unknown
         message:
           type: string

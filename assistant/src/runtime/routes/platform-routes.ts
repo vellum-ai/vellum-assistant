@@ -31,6 +31,7 @@ import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
+import { getManagedCredentialVerdict } from "../../platform/managed-credential-state.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -68,6 +69,14 @@ const PlatformStatusResponseSchema = z.object({
   baseUrl: z.string(),
   assistantId: z.string(),
   hasAssistantApiKey: z.boolean(),
+  /**
+   * Whether the stored assistant API key still authenticates, as last
+   * observed. `hasAssistantApiKey` reports only that a value is stored, which
+   * a rejected key also satisfies, so a client deciding whether to reprovision
+   * reads this instead. `unknown` means nothing has established an answer yet
+   * and is never grounds for rotating a key.
+   */
+  assistantApiKeyStatus: z.enum(["valid", "rejected", "unknown"]),
   hasWebhookSecret: z.boolean(),
   clientInstallationId: z.string().nullable(),
   available: z.boolean(),
@@ -222,6 +231,7 @@ async function handlePlatformStatus(
     baseUrl: context.platformBaseUrl,
     assistantId: context.assistantId,
     hasAssistantApiKey: context.hasAssistantApiKey,
+    assistantApiKeyStatus: getManagedCredentialVerdict().verdict,
     hasWebhookSecret,
     clientInstallationId: getExistingDeviceId(),
     available: context.enabled,
@@ -249,7 +259,15 @@ async function handlePlatformConnect(
     ),
   ]);
 
-  if (existingUrl && existingApiKey) {
+  // Stored credentials only count as a connection while they still
+  // authenticate. Answering "already connected" for a key the platform has
+  // rejected is what leaves disconnect-then-connect as the only way back:
+  // connect reports nothing to do, and the client that could rotate the key
+  // never gets the signal to.
+  const credentialRejected =
+    getManagedCredentialVerdict().verdict === "rejected";
+
+  if (existingUrl && existingApiKey && !credentialRejected) {
     return {
       alreadyConnected: true,
       baseUrl: existingUrl,
