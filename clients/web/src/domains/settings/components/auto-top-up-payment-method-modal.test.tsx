@@ -392,18 +392,14 @@ describe("AutoTopUpPaymentMethodModal completeness gate", () => {
     expect(saveButton(result).disabled).toBe(true);
   });
 
-  test("surfaces an error when an element fails to load", async () => {
-    const { getByTestId } = await renderModalWithForm();
+  test("re-disables the primary action when an element fails to load", async () => {
+    const result = await renderReadyForm();
+    expect(saveButton(result).disabled).toBe(false);
 
-    fireOnLoadError(paymentElementProps);
-    expect(
-      getByTestId("auto-top-up-pm-modal-confirm-error").textContent,
-    ).toContain("Failed to load the payment form");
-
+    // The form unmounts with the failed element, so it cannot report its own
+    // completeness back down; the error branch has to do it.
     fireOnLoadError(addressElementProps);
-    expect(
-      getByTestId("auto-top-up-pm-modal-confirm-error").textContent,
-    ).toContain("Failed to load the billing address form");
+    expect(saveButton(result).disabled).toBe(true);
   });
 });
 
@@ -738,6 +734,75 @@ describe("AutoTopUpPaymentMethodModal field skeleton", () => {
     fireOnReady(paymentElementProps);
     fireOnReady(addressElementProps);
     expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
+  });
+
+  test("an element load failure swaps the skeleton for a retryable error", async () => {
+    const result = await renderModalWithForm();
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+
+    fireOnLoadError(paymentElementProps);
+
+    // A failed element never reports ready, so the surface has to settle
+    // here rather than wait on a readiness that is not coming.
+    expect(
+      result.getByTestId("auto-top-up-pm-modal-fields-error").textContent,
+    ).toContain("Failed to load the payment form");
+    expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
+    expect(result.queryByTestId("stripe-address-element")).toBeNull();
+    // The message has one home: the shell's inline error line stays empty.
+    expect(
+      result.queryByTestId("auto-top-up-pm-modal-confirm-error"),
+    ).toBeNull();
+
+    fireEvent.click(result.getByText("Try again"));
+
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+    await result.findByTestId("stripe-address-element");
+    expect(setupIntentCalls).toBe(2);
+  });
+
+  test("an address element load failure settles the same surface", async () => {
+    const result = await renderModalWithForm();
+
+    fireOnLoadError(addressElementProps);
+
+    expect(
+      result.getByTestId("auto-top-up-pm-modal-fields-error").textContent,
+    ).toContain("Failed to load the billing address form");
+    expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
+  });
+
+  test("a re-open after a load failure comes back on the skeleton", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const tree = (open: boolean) => (
+      <QueryClientProvider client={client}>
+        <AutoTopUpPaymentMethodModal
+          open={open}
+          onClose={() => {}}
+          onSavedOptimistic={() => {}}
+        />
+      </QueryClientProvider>
+    );
+    const result = render(tree(true));
+    await result.findByTestId("stripe-address-element");
+    fireOnLoadError(paymentElementProps);
+    expect(
+      result.getByTestId("auto-top-up-pm-modal-fields-error"),
+    ).not.toBeNull();
+
+    result.rerender(tree(false));
+    result.rerender(tree(true));
+
+    expect(
+      result.queryByTestId("auto-top-up-pm-modal-fields-error"),
+    ).toBeNull();
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+    await result.findByTestId("stripe-address-element");
   });
 
   test("a failed SetupIntent swaps the skeleton for the retry action", async () => {

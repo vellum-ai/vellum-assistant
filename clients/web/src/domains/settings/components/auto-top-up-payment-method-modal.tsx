@@ -231,9 +231,20 @@ function AutoTopUpPaymentMethodModalContent({
   // A re-open, or a new client secret, boots fresh element instances, so the
   // skeleton takes the surface back until both report ready again.
   const [fieldsReady, setFieldsReady] = useState(false);
+  // An element that fails to load never reports ready, so the skeleton would
+  // otherwise hold the surface forever; this settles that wait into a retry.
+  const [fieldsLoadError, setFieldsLoadError] = useState<string | null>(null);
   useEffect(() => {
     setFieldsReady(false);
+    setFieldsLoadError(null);
   }, [open, clientSecret]);
+
+  const handleFieldsLoadError = useCallback((message: string) => {
+    setFieldsLoadError(message);
+    // The form unmounts with the elements it failed to boot, so no later
+    // completeness report can arrive to arm the primary action.
+    setFormComplete(false);
+  }, []);
 
   const theme = useDocumentTheme();
   // react-stripe-js forwards appearance changes to elements.update(), so a
@@ -322,6 +333,30 @@ function AutoTopUpPaymentMethodModalContent({
         </div>
       );
     }
+    if (fieldsLoadError) {
+      // Both the skeleton and the elements go away with this branch: the
+      // failed element will never paint, so nothing is left to reveal.
+      // A retry mints a new client secret, which remounts <Elements> fresh.
+      return (
+        <div
+          className="space-y-3"
+          data-testid="auto-top-up-pm-modal-fields-error"
+        >
+          <Notice tone="error">{fieldsLoadError}</Notice>
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setFieldsLoadError(null);
+                createSetupIntent({});
+              }}
+            >
+              {t("autoTopUpPaymentMethodModal.tryAgain")}
+            </Button>
+          </div>
+        </div>
+      );
+    }
     // One skeleton spans the SetupIntent fetch and the iframes' boot: it
     // stays mounted while the elements arrive underneath, so the shimmer
     // never restarts mid-wait.
@@ -361,7 +396,7 @@ function AutoTopUpPaymentMethodModalContent({
               <SetupCardForm
                 billingAddress={billingAddress}
                 onCompleteChange={setFormComplete}
-                onError={setErrorMessage}
+                onFieldsLoadError={handleFieldsLoadError}
                 onFieldsReady={setFieldsReady}
                 onSave={handleSave}
                 onSubmitReady={registerSubmit}
@@ -448,14 +483,19 @@ function MissingStripeKeyNotice() {
 function SetupCardForm({
   billingAddress,
   onCompleteChange,
-  onError,
+  onFieldsLoadError,
   onFieldsReady,
   onSave,
   onSubmitReady,
 }: {
   billingAddress: BillingAddress | null;
   onCompleteChange: (complete: boolean) => void;
-  onError: (message: string) => void;
+  /**
+   * An element failed to boot, so it will never report ready. The parent owns
+   * the message: it drops this form for a retry rather than leaving the
+   * skeleton up beside an error line.
+   */
+  onFieldsLoadError: (message: string) => void;
   /** Both elements have painted, so the parent can drop its skeleton. */
   onFieldsReady: (ready: boolean) => void;
   onSave: (confirm: () => Promise<SetupIntentResult>) => Promise<void>;
@@ -516,7 +556,9 @@ function SetupCardForm({
         onReady={() => setPaymentReady(true)}
         onChange={(event) => setPaymentComplete(event.complete)}
         onLoadError={() =>
-          onError(t("autoTopUpPaymentMethodModal.paymentFormLoadError"))
+          onFieldsLoadError(
+            t("autoTopUpPaymentMethodModal.paymentFormLoadError"),
+          )
         }
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
@@ -546,7 +588,9 @@ function SetupCardForm({
         onReady={() => setAddressReady(true)}
         onChange={(event) => setAddressComplete(event.complete)}
         onLoadError={() =>
-          onError(t("autoTopUpPaymentMethodModal.addressFormLoadError"))
+          onFieldsLoadError(
+            t("autoTopUpPaymentMethodModal.addressFormLoadError"),
+          )
         }
         options={{
           mode: "billing",
