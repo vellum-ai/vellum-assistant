@@ -1,13 +1,13 @@
 /**
  * Pins what `MIN_VERSION` admits.
  *
- * The constant is a pinned dev-build timestamp, `0.11.7-dev.202609010135`,
- * which looks like a value someone left behind by accident. It is not: `main`
- * carries 0.11.7 as its base, so a build with the `sight_frame` handler and one
- * from before it are both named `0.11.7-dev.*` and only the timestamp separates
- * them. The rows below pin both edges of that separation, and one row each for
- * the two tidier constants that are wrong in opposite directions, so neither
- * edit can land quietly.
+ * The constant is one published build's exact version string,
+ * `0.11.7-dev.202609010224.44cd29e`, which looks like a value someone left
+ * behind by accident. It is not: `main` carries 0.11.7 as its base, so a build
+ * with the `sight_frame` handler and one from before it are both named
+ * `0.11.7-dev.*` and only the suffix separates them. The rows below pin both
+ * edges of that separation, plus one row for each tidier constant that is wrong
+ * in a different direction, so none of those edits can land quietly.
  *
  * These assert against `versionSupports` rather than the hook: the hook adds
  * store hydration and owner-scoping, which are `useAssistantScopedSupports`'s
@@ -23,21 +23,35 @@ import { versionSupports } from "./utils";
 import { MIN_VERSION } from "./use-supports-sight-stream";
 
 describe("sight stream version gate", () => {
-  test("admits a dev build cut after the handler merged", () => {
+  test("admits the published build it names", () => {
+    // The floor is an artifact, not a boundary, so the artifact itself has to
+    // clear it: `versionSupports` compares dev suffixes with `>= 0`, and equal
+    // strings compare 0.
+    expect(versionSupports(MIN_VERSION, MIN_VERSION)).toBe(true);
+  });
+
+  test("admits a dev build published after it", () => {
     // The row `0.11.8` breaks: a build packaged from `main` today has the
     // handler and reports a 0.11.7 base, so a 0.11.8 floor would leave the
     // feature dark on exactly the builds it was written for.
     expect(
-      versionSupports("0.11.7-dev.202609010200.abcdef01", MIN_VERSION),
+      versionSupports("0.11.7-dev.202609010300.abcdef01", MIN_VERSION),
+    ).toBe(true);
+    expect(
+      versionSupports("0.11.7-dev.202609010225.abcdef01", MIN_VERSION),
     ).toBe(true);
   });
 
-  test("admits a dev build stamped in the floor's own minute", () => {
-    // The floor names no sha, so this is the segment-count edge: the version
-    // has one segment more than the floor and must still clear it.
+  test("excludes a pre-merge sha stamped after the merge minute", () => {
+    // The reason the floor is a published build rather than the minute after
+    // the merge. Dev versions are stamped when the workflow's compute-version
+    // step runs, not when the run was dispatched, so a run queued for a
+    // pre-merge sha can emerge stamped past the merge and has no handler. A
+    // bare-minute floor such as `0.11.7-dev.202609010135` admits this on the
+    // extra-segment rule; the published floor does not.
     expect(
-      versionSupports("0.11.7-dev.202609010135.abcdef01", MIN_VERSION),
-    ).toBe(true);
+      versionSupports("0.11.7-dev.202609010140.deadbee", MIN_VERSION),
+    ).toBe(false);
   });
 
   test("excludes a dev build from before the handler merged", () => {
@@ -48,11 +62,13 @@ describe("sight stream version gate", () => {
     expect(
       versionSupports("0.11.7-dev.202608310000.abcdef01", MIN_VERSION),
     ).toBe(false);
-    // The minute before the floor, which is the rounding-up decision itself: a
-    // build stamped here may have been computed before the merge landed at
-    // 01:34:30Z, so it is refused rather than guessed at.
+    // The merge minute and the minute after it, neither of which published
+    // anything: the 01:34 run on the merge commit failed.
     expect(
       versionSupports("0.11.7-dev.202609010134.abcdef01", MIN_VERSION),
+    ).toBe(false);
+    expect(
+      versionSupports("0.11.7-dev.202609010135.abcdef01", MIN_VERSION),
     ).toBe(false);
   });
 
@@ -89,24 +105,31 @@ describe("sight stream version gate", () => {
     expect(versionSupports("not-a-version", MIN_VERSION)).toBe(false);
   });
 
-  test("the comparator orders a sha-bearing build against the bare floor", () => {
-    // The property the floor's format rests on, asserted directly rather than
-    // inferred from the rows above: where the floor runs out of segments, the
-    // version that still has one is the greater. Without it a same-minute build
-    // would tie, and a `>= 0` gate would still admit it, but the rounding-up
-    // argument would be resting on luck.
-    // Asserted rather than assumed, so a floor edited into a plain release
-    // fails here with a readable message instead of throwing on the split.
-    expect(MIN_VERSION).toMatch(/^\d+\.\d+\.\d+-dev\.\d{12}$/);
+  test("the floor is a whole build version, timestamp and sha", () => {
+    // Asserted rather than assumed, so a floor edited into a plain release or
+    // back to a bare minute fails here with a readable message instead of
+    // silently changing which builds the gate trusts.
+    expect(MIN_VERSION).toMatch(/^\d+\.\d+\.\d+-dev\.\d{12}\.[0-9a-f]+$/);
+  });
+
+  test("the comparator orders dev suffixes by timestamp, then by sha", () => {
+    // The mechanics the rows above rest on, asserted directly. The last pair
+    // is the residual ambiguity written down: a second run stamped in this
+    // same minute would be ordered by a lexical sha comparison that means
+    // nothing. No such run exists, which is why the floor names an artifact.
     const floorPre = MIN_VERSION.split("-")[1]!;
     expect(
-      comparePreRelease("dev.202609010135.abcdef01", floorPre),
+      comparePreRelease("dev.202609010300.abcdef01", floorPre),
     ).toBeGreaterThan(0);
     expect(
-      comparePreRelease("dev.202609010200.abcdef01", floorPre),
+      comparePreRelease("dev.202609010140.deadbee", floorPre),
+    ).toBeLessThan(0);
+    expect(comparePreRelease(floorPre, floorPre)).toBe(0);
+    expect(
+      comparePreRelease("dev.202609010224.ffffffff", floorPre),
     ).toBeGreaterThan(0);
     expect(
-      comparePreRelease("dev.202608310000.abcdef01", floorPre),
+      comparePreRelease("dev.202609010224.00000000", floorPre),
     ).toBeLessThan(0);
   });
 });

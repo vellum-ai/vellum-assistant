@@ -14,30 +14,41 @@
  * sampler would be sending a frame every few seconds into a void while the
  * room's thumbnail claimed the call could see each one.
  *
- * MIN_VERSION is `0.11.7-dev.202609010135`: a pinned dev-build timestamp, not
- * a release. That is unusual enough to be worth the paragraph, and both of the
- * tidier-looking constants are wrong.
+ * MIN_VERSION is `0.11.7-dev.202609010224.44cd29e`: the exact version string of
+ * a build that exists, not a release and not a computed boundary. That is
+ * unusual enough to be worth the paragraphs, and every tidier-looking constant
+ * is wrong.
  *
- * The floor is the first dev build that can carry the handler. `main` carries
- * the version of the last cut, so every build off it is named `0.11.7-dev.*`
- * whether or not it has the frame, and only the timestamp in the suffix tells
- * them apart. `versionSupports` compares two same-base dev builds by that
- * suffix (`comparePreRelease`, numeric segment by segment), so a timestamp is
- * the one thing that can separate them.
+ * The floor has to be a dev build at all because `main` carries the version of
+ * the last cut, so every build off it is named `0.11.7-dev.*` whether or not it
+ * has the handler, and only the suffix tells them apart. `versionSupports`
+ * compares two same-base dev builds through `comparePreRelease`, segment by
+ * segment and numerically where both segments are digits, so the timestamp is
+ * what does the separating.
  *
- * The anchor is the daemon change's squash merge, commit 3251f98402, committed
- * at 2026-09-01T01:34:30Z. Dev versions stamp `dev.YYYYMMDDHHMM.<sha>` at the
- * moment the release workflow computes them, so a build stamped `...0134` may
- * have been computed in the seconds BEFORE the merge landed and carry a
- * pre-merge sha. Rounding up to the next whole minute, `...0135`, removes the
- * ambiguity. It costs at most one build: one computed in the last 29 seconds
- * of the merge minute has the handler and is refused until the next dev
- * release. That is the safe direction to be wrong in.
+ * It has to be a PUBLISHED build rather than the minute after the daemon
+ * change merged (3251f98402, committed 2026-09-01T01:34:30Z), because the
+ * release workflow stamps `dev.YYYYMMDDHHMM.<sha>` when its compute-version
+ * step RUNS, not when the run was dispatched. A run queued for a pre-merge sha
+ * can therefore emerge stamped well past the merge minute, and against a floor
+ * naming a bare minute it would clear on the extra-segment rule (a version with
+ * a segment where the floor has run out is the greater) despite having no
+ * handler. Predicting the boundary cannot rule that out; naming an artifact
+ * can.
  *
- * The floor names no sha, and does not need one. `comparePreRelease` walks
- * segments and treats a version that still has segments where the floor has
- * run out as the greater of the two, so `dev.202609010135.abcdef01` clears
- * `dev.202609010135` rather than tying with it.
+ * The artifact is dev-release run 33462421058, which succeeded on head
+ * 44cd29e199 (the daemon merge is an ancestor of it) and stamped exactly
+ * `0.11.7-dev.202609010224.44cd29e`. It is the first success after the merge:
+ * the 01:34 run on the merge commit itself failed, so nothing published in
+ * between, and no queued pre-merge run can sit above this floor.
+ *
+ * One residual ambiguity, stated rather than papered over: another run stamped
+ * in this SAME minute would tie on the timestamp and fall through to a
+ * comparison of short shas, which are ordered lexically and mean nothing in
+ * that order (an all-digit short sha sorts below any sha carrying a letter,
+ * via the numeric-versus-not branch). No such run exists in the history around
+ * the merge, which is the point: the floor names a real artifact, so the
+ * ambiguity is hypothetical rather than something a build could fall into.
  *
  * Two constants that look tidier and are not:
  *
@@ -49,6 +60,9 @@
  *   of 0.11.7", which admits the whole window between the 2026-08-27 cut and
  *   the merge: builds with no handler, refusing every keep with the code the
  *   transport reads as an `update_config` rejection.
+ * - **A bare minute** such as `0.11.7-dev.202609010135` admits the queued
+ *   pre-merge run described above, which is the case this floor was moved to
+ *   close.
  *
  * Do NOT replace this with either. The stable 0.11.7 release is excluded by
  * the `dev` suffix alone (a dev build outranks its own base's release, see
@@ -63,7 +77,7 @@
  */
 import { useAssistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.7-dev.202609010135";
+export const MIN_VERSION = "0.11.7-dev.202609010224.44cd29e";
 
 /**
  * Returns `true` when the assistant that owns the live voice session

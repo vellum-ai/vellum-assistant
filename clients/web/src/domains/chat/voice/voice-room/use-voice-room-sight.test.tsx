@@ -90,8 +90,8 @@ const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 
 const ASSISTANT_ID = "asst_sight";
-/** A dev build off `main` from after the `sight_frame` handler merged. */
-const SUPPORTING_VERSION = "0.11.7-dev.202609010200.b432fb7";
+/** A dev build off `main` published after the `sight_frame` handler merged. */
+const SUPPORTING_VERSION = "0.11.7-dev.202609010300.b432fb7";
 
 const KEEP = {
   keep: true,
