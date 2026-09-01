@@ -3,18 +3,19 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
-import {
-  SearchableSelect,
-  SEARCHABLE_SELECT_MENU_MIN_REACH,
-  SEARCHABLE_SELECT_MENU_REACH,
-  type SearchableSelectOption,
-} from "@vellumai/design-library/components/searchable-select";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import { CHATGPT_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
+import {
+  CHATGPT_CONNECTION_PROVIDER,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
+import {
+  ModelFirstModelList,
+  type ModelFirstListRow,
+} from "@/domains/settings/ai/model-first-model-list";
 import {
   collapseSectionRows,
   customModelProviderCandidates,
@@ -64,46 +65,10 @@ type ModelDraft =
 
 const NO_MODEL: ModelDraft = { kind: "none" };
 
-/** The Model label: one line of `text-body-small-default`, whose leading is 1. */
-const MODEL_LABEL_HEIGHT = 12;
-
-/** The `space-y-1` between the label and the field under it. */
-const MODEL_LABEL_GAP = 4;
-
-/** The field itself, which is an `h-9` input. */
-const MODEL_FIELD_HEIGHT = 36;
-
-/** The Model field with its label, from the top of one to the foot of the other. */
-const MODEL_FIELD_BLOCK =
-  MODEL_LABEL_HEIGHT + MODEL_LABEL_GAP + MODEL_FIELD_HEIGHT;
-
-/**
- * Room the Model field and its open list need, measured from the top of the
- * label to the bottom of a list at its full height.
- *
- * The dialog is as tall as what it holds, and the list is portaled, so it is
- * not what it holds. Bounding the list to the dialog body is what keeps it
- * off the footer; reserving this is what keeps the body from being too short
- * to hold the list the bound then caps.
- */
-const MODEL_LIST_ROOM = MODEL_FIELD_BLOCK + SEARCHABLE_SELECT_MENU_REACH;
-
-/** The same room for a list at its floor, which is all a picked model spares. */
-const MODEL_LIST_MIN_ROOM =
-  MODEL_FIELD_BLOCK + SEARCHABLE_SELECT_MENU_MIN_REACH;
-
 export interface ProfileCreateModelFirstProps {
   editor: ProfileEditor;
   /** Assistant whose connections the inline connect form writes to. */
   assistantId: string;
-  /**
-   * Box the open model list is kept inside, and which the field stack then
-   * keeps tall enough to hold it. Pass the scrolling body of a host whose own
-   * actions sit under the field: a dialog, which is only as tall as its
-   * content and whose footer is the next thing below the field. The settings
-   * sidepanel is already full height and passes nothing.
-   */
-  menuBoundary?: Element | null;
 }
 
 /**
@@ -121,7 +86,6 @@ export interface ProfileCreateModelFirstProps {
 export function ProfileCreateModelFirst({
   editor,
   assistantId,
-  menuBoundary,
 }: ProfileCreateModelFirstProps) {
   const { t } = useTranslation("settings");
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
@@ -176,6 +140,11 @@ export function ProfileCreateModelFirst({
       ? { kind: "catalog", displayName: seeded.displayName }
       : { kind: "custom", modelId: editor.model };
   });
+  // Set by "Change", which puts the list back over an answer that already
+  // stands. The list is otherwise on screen exactly while the question is
+  // open, so this is the only state it needs.
+  const [browsing, setBrowsing] = useState(false);
+
   const [selectedValue, setSelectedValue] = useState(() => {
     if (editor.provider === "") {
       return "";
@@ -273,17 +242,21 @@ export function ProfileCreateModelFirst({
   }
 
   function handleModelPick(value: string): void {
-    if (value === CUSTOM_MODEL_OPTION_VALUE) {
-      editor.setModel("");
-      openCandidatesFor({ kind: "custom", modelId: "" });
-      return;
-    }
     if (value.startsWith(SEE_MORE_PREFIX)) {
-      // Acts on the list rather than answering it, so the draft is untouched.
+      // Acts on the list rather than answering it, so the draft is untouched
+      // and the list stays on screen.
       const group = value.slice(SEE_MORE_PREFIX.length);
       setUnfoldedGroups((previous) =>
         previous.includes(group) ? previous : [...previous, group],
       );
+      return;
+    }
+    // Anything else answers the question, so the list gives the dialog its
+    // height back and the answer stands in its place.
+    setBrowsing(false);
+    if (value === CUSTOM_MODEL_OPTION_VALUE) {
+      editor.setModel("");
+      openCandidatesFor({ kind: "custom", modelId: "" });
       return;
     }
     openCandidatesFor({ kind: "catalog", displayName: value });
@@ -315,28 +288,23 @@ export function ProfileCreateModelFirst({
     setSetupOpenFor(candidate.value);
   }
 
-  const modelOptions = useMemo<SearchableSelectOption[]>(() => {
-    const rows: SearchableSelectOption[] = [];
+  const modelOptions = useMemo<ModelFirstListRow[]>(() => {
+    const rows: ModelFirstListRow[] = [];
     const modelRow = (
       option: ModelFirstOption,
       group: string,
       state: ModelRowState,
-    ): SearchableSelectOption => ({
+    ): ModelFirstListRow => ({
       value: option.displayName,
       label: option.displayName,
       group,
       folded: state === "folded",
       disclosed: state === "disclosed",
-      suffix: (
-        <PickerMeta
-          text={
-            option.soleProviderLabel ??
-            t("profileCreateModelFirst.providerCountMeta", {
-              count: option.providerCount,
-            })
-          }
-        />
-      ),
+      meta:
+        option.soleProviderLabel ??
+        t("profileCreateModelFirst.providerCountMeta", {
+          count: option.providerCount,
+        }),
     });
     for (const group of groups) {
       const { shown, hidden } = collapseSectionRows(group.options);
@@ -373,29 +341,12 @@ export function ProfileCreateModelFirst({
   const fieldLabelClass =
     "block text-body-small-default text-[var(--content-tertiary)]";
 
-  // Held for as long as there is a list to open, which is every state but the
-  // custom id, where free text has replaced it. It cannot be held only until
-  // a model is picked: the field outlives the question, and reopening it in a
-  // dialog that had given the room back is what put the list over the footer.
-  // How much is held is the part that changes. While the field is the whole
-  // of the dialog the list gets the height it is meant to be read at; once
-  // the answer stands under it, the room drops to the least the list can be
-  // reopened at, so what the flow gained is not paid for in white space. The
-  // test is never whether the list happens to be open, which would grow and
-  // shrink the dialog under the user as they browse it.
-  const roomForList =
-    !menuBoundary || draft.kind === "custom"
-      ? null
-      : draft.kind === "none"
-        ? MODEL_LIST_ROOM
-        : MODEL_LIST_MIN_ROOM;
-
+  // The list is in the dialog rather than over it, so the dialog is as tall
+  // as whichever of the three the Model question is currently in: the list
+  // while it is unanswered, the answer once it stands, free text where the
+  // catalog had none. Nothing is reserved for a list that is not there.
   return (
-    <div
-      className="space-y-4"
-      data-testid="model-first-fields"
-      style={roomForList === null ? undefined : { minHeight: roomForList }}
-    >
+    <div className="space-y-4" data-testid="model-first-fields">
       <div className="space-y-1">
         <label className={fieldLabelClass}>
           {t("profileCreateModelFirst.modelLabel")}
@@ -432,18 +383,30 @@ export function ProfileCreateModelFirst({
               {t("profileCreateModelFirst.customModelHint")}
             </Typography>
           </>
+        ) : draft.kind === "catalog" && !browsing ? (
+          // A statement, not a control: the question is answered, so the list
+          // stands down to the line that says what it answered and the rest
+          // of the flow comes up to meet the user.
+          <div
+            data-testid="picked-model"
+            className="flex min-h-9 items-center justify-between gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2"
+          >
+            <Typography variant="body-medium-lighter" as="span">
+              {draft.displayName}
+            </Typography>
+            <Button
+              variant="link"
+              size="compact"
+              onClick={() => setBrowsing(true)}
+            >
+              {t("profileCreateModelFirst.changeModel")}
+            </Button>
+          </div>
         ) : (
-          <SearchableSelect
+          <ModelFirstModelList
+            rows={modelOptions}
             value={draft.kind === "catalog" ? draft.displayName : ""}
-            onChange={handleModelPick}
-            aria-label={t("profileCreateModelFirst.modelAriaLabel")}
-            placeholder={t("profileCreateModelFirst.modelPlaceholder")}
-            emptyText={t("profileCreateModelFirst.modelNoMatches")}
-            menuBoundary={menuBoundary}
-            announceResults={(count) =>
-              t("profileCreateModelFirst.modelResultsAnnouncement", { count })
-            }
-            options={modelOptions}
+            onPick={handleModelPick}
           />
         )}
       </div>
@@ -590,6 +553,7 @@ function ProviderStep({
         >
           {candidates.map((candidate) => {
             const selected = candidate.value === selectedCandidate?.value;
+            const meta = candidateMeta(candidate, t);
             return (
               <div
                 key={candidate.value}
@@ -607,9 +571,7 @@ function ProviderStep({
                     label={
                       <span className="flex items-center gap-2">
                         <span>{candidate.label}</span>
-                        {candidate.meta ? (
-                          <PickerMeta text={candidate.meta} />
-                        ) : null}
+                        {meta === "" ? null : <PickerMeta text={meta} />}
                       </span>
                     }
                   />
@@ -634,6 +596,25 @@ function ProviderStep({
       ) : null}
     </div>
   );
+}
+
+/**
+ * The route's own annotation, which this flow words its own way for one row.
+ * Everywhere a provider is picked from a list of providers, the Vellum entry
+ * is annotated by what it is: managed. Here the question is which route to
+ * send a model through, and for someone who has not connected anything that
+ * route is the answer, so the annotation says that instead. It is worded at
+ * the render site rather than in the shared picker rows, so the wording
+ * cannot reach the surfaces that mean the other thing.
+ */
+function candidateMeta(
+  candidate: ProviderCandidate,
+  t: TFunction<"settings">,
+): string {
+  if (candidate.provider === VELLUM_CONNECTION_PROVIDER) {
+    return t("profileCreateModelFirst.recommendedMeta");
+  }
+  return candidate.meta ?? "";
 }
 
 /** What an unconnected route still needs, as the tag and the action say it. */

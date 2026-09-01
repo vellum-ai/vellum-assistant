@@ -164,67 +164,48 @@ export const CreateDuplicateName: Story = {
 };
 
 /**
- * The same create modal under `model-first-profile-create`: it opens on one
- * list of models rather than a provider dropdown, and asks nothing else until
- * a model is chosen.
+ * The same create modal under `model-first-profile-create`. It opens on one
+ * list of models rather than a provider dropdown, and the list is in the
+ * dialog rather than over it: sections are named for whoever made the model,
+ * spelled the way that vendor spells it, each heading stays pinned while its
+ * own rows scroll under it, and Cancel and Save stay where they are.
  */
 export const CreateModelFirst: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
-};
-
-/**
- * The open model list. Sections are named for whoever made the model, spelled
- * the way that vendor spells it, and each heading stays pinned while its own
- * rows scroll under it. The row that unfolds a section's older versions is
- * drawn as a secondary action, not as one more model.
- */
-export const CreateModelFirstListOpen: Story = {
-  args: { mode: "create" },
-  beforeEach: withModelFirstCreate,
   play: async () => {
-    await userEvent.click(
-      await screen.findByRole("combobox", { name: "Model" }),
-    );
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
   },
 };
 
 /**
- * The list reopened over the answer to its own question. The dialog is at its
- * shortest here, since one connected route is stated in a line rather than
- * offered as cards, and the list still opens inside it: bounded by the body,
- * clear of the footer, and no shorter than it can be read at.
+ * The same list in a window too short to hold it. The dialog stops at its own
+ * ceiling and the list takes what is left, so nothing has to scroll past the
+ * footer to reach it.
  */
-export const CreateModelFirstListReopened: Story = {
-  args: { mode: "create", connections: [connection("gemini")] },
-  beforeEach: withModelFirstCreate,
-  play: async () => {
-    const modelField = await screen.findByRole("combobox", { name: "Model" });
-    await userEvent.click(modelField);
-    await userEvent.click(
-      await screen.findByRole("option", { name: /Gemini 3\.6 Flash/ }),
-    );
-    await waitFor(() =>
-      expect(screen.getByText("Only Google Gemini serves this model.")).toBeTruthy(),
-    );
-    await userEvent.click(modelField);
-    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
-  },
-};
-
-/**
- * The same open list in a window too short to hold it. The dialog stops at
- * its own ceiling, the body scrolls instead of growing, and the list caps
- * itself to what is left of the body, so Cancel and Save stay on screen.
- */
-export const CreateModelFirstListOpenShort: Story = {
+export const CreateModelFirstShort: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
   globals: { viewport: { value: "sbShort", isRotated: false } },
   play: async () => {
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
+ * The list put back over an answer that already stands. It opens on the model
+ * it stood down to, marked with its check, so the user can see what they are
+ * changing from.
+ */
+export const CreateModelFirstChanging: Story = {
+  args: { mode: "create", connections: [connection("gemini")] },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
     await userEvent.click(
-      await screen.findByRole("combobox", { name: "Model" }),
+      await screen.findByRole("option", { name: /Gemini 3\.6 Flash/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change" }),
     );
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
   },
@@ -238,9 +219,6 @@ export const CreateModelFirstSeeMore: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
   play: async () => {
-    await userEvent.click(
-      await screen.findByRole("combobox", { name: "Model" }),
-    );
     // Scoped to the section: every section that folds anything offers a row
     // of the same shape, spelled the same way.
     const anthropic = await screen.findByRole("group", { name: "Anthropic" });
@@ -265,9 +243,6 @@ export const CreateModelFirstConnectForm: Story = {
   beforeEach: withModelFirstCreate,
   play: async () => {
     await userEvent.click(
-      await screen.findByRole("combobox", { name: "Model" }),
-    );
-    await userEvent.click(
       await screen.findByRole("option", { name: /Claude Opus 5/ }),
     );
     await userEvent.click(
@@ -287,8 +262,6 @@ export const CreateModelFirstSeveralProviders: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
   play: async () => {
-    const modelField = await screen.findByRole("combobox", { name: "Model" });
-    await userEvent.click(modelField);
     await userEvent.click(
       await screen.findByRole("option", { name: /Claude Opus 5/ }),
     );
@@ -299,16 +272,35 @@ export const CreateModelFirstSeveralProviders: Story = {
 };
 
 /**
- * A model only one connected provider serves. There is nothing to decide, so
- * the route is stated rather than offered and the flow goes straight to
- * Advanced.
+ * The Vellum route, for an account whose only connection is the managed one.
+ * The flow asks which route to send the model through, and for someone who
+ * has connected nothing else that route is the answer, so it is annotated as
+ * the recommendation rather than by who runs it. Every other picker still
+ * calls the same entry "Managed".
+ */
+export const CreateModelFirstManagedRoute: Story = {
+  args: { mode: "create", connections: [connection("vellum")] },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Claude Opus 5/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { name: /Recommended/ })).toBeTruthy(),
+    );
+  },
+};
+
+/**
+ * A model only one connected provider serves, and the shortest the dialog
+ * gets. The list has stood down to the line naming what was picked, and there
+ * is nothing to decide below it: the route is stated rather than offered, and
+ * the flow goes straight to Advanced.
  */
 export const CreateModelFirstSingleProvider: Story = {
   args: { mode: "create", connections: [connection("gemini")] },
   beforeEach: withModelFirstCreate,
   play: async () => {
-    const modelField = await screen.findByRole("combobox", { name: "Model" });
-    await userEvent.click(modelField);
     await userEvent.click(
       await screen.findByRole("option", { name: /Gemini 3\.6 Flash/ }),
     );
