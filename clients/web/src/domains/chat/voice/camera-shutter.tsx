@@ -22,9 +22,9 @@
  * that follows the release. So the threshold, the cancels, and the suppression
  * of the tap a fired hold ends with all live here, and the caller is handed
  * one `onHold` that has already happened. The presses that end without a
- * release to end them (a wandering finger, a blurred window, a backgrounded
- * page, a hold the caller takes back) are the same job, and are given up on
- * here for the same reason. What a hold is worth in time and travel is not
+ * release to end them (a wandering finger, focus moving off the button, a
+ * blurred window, a backgrounded page, a hold the caller takes back) are the
+ * same job, and are given up on here for the same reason. What a hold is worth in time and travel is not
  * this component's to decide: both numbers come from `use-long-press.ts`, so
  * the app has one answer to "how long is held".
  *
@@ -118,6 +118,7 @@ export function CameraShutter({
   onPointerUp,
   onPointerCancel,
   onPointerLeave,
+  onBlur,
   onKeyDown,
   onKeyUp,
   ...buttonProps
@@ -406,6 +407,20 @@ export function CameraShutter({
         // The whole press, not just the threshold: a pointer that leaves can
         // come back and lift over the button, and a click fires for a down and
         // an up that both landed on it however far it went in between.
+        abandonPress();
+      }}
+      onBlur={(event) => {
+        onBlur?.(event);
+        // Focus leaving is the press ending, and for a Space press it is the
+        // only sign there is: the `keyup` that would end it goes to whatever
+        // holds focus now, so the threshold would fire at a button the user
+        // has already tabbed off. The window keeps its focus through that, so
+        // neither the blur it fires nor the bus edge says anything about it.
+        //
+        // A pointer press keeps focus by itself, so this reaches one only when
+        // something takes it (a dialog opening, a programmatic move), which is
+        // a press aimed at a control that no longer has it: the same reading,
+        // and the same suppression of the click it may still end with.
         abandonPress();
       }}
       onKeyDown={handleKeyDown}

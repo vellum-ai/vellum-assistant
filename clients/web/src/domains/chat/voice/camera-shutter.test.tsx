@@ -637,6 +637,89 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  test("tabbing off the shutter ends the Space press it was holding", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      render(
+        <>
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />
+          <button type="button" data-testid="elsewhere">
+            Elsewhere
+          </button>
+        </>,
+      );
+
+      const elsewhere = screen.getByTestId("elsewhere");
+      shutter().focus();
+      fireEvent.keyDown(shutter(), { key: " " });
+      // Focus moved inside the window, so the window keeps its own and the
+      // page stays visible: nothing outside this button can tell. The `keyup`
+      // that would end the press goes to whatever holds focus now.
+      elsewhere.focus();
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(0);
+
+      fireEvent.keyUp(elsewhere, { key: " " });
+      expect(holds).toBe(0);
+      expect(taps).toBe(0);
+
+      // Coming back is a new press, which behaves like any other.
+      shutter().focus();
+      fireEvent.keyDown(shutter(), { key: " " });
+      advanceBy(HOLD_MS - 1);
+      fireEvent.keyUp(shutter(), { key: " " });
+      expect(holds).toBe(0);
+      expect(taps).toBe(1);
+      expect(pulse()).not.toBeNull();
+    });
+  });
+
+  test("a pointer press whose focus is taken takes no photo on release", () => {
+    withFakeTimers(() => {
+      let taps = 0;
+      render(
+        <>
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />
+          <button type="button" data-testid="elsewhere">
+            Elsewhere
+          </button>
+        </>,
+      );
+
+      // A pointer press holds its own focus, so this is something taking it:
+      // a dialog opening over the room, a programmatic move. The press is
+      // aimed at a control that no longer has it, and the release is not a
+      // photo any more than a wandering finger's is.
+      shutter().focus();
+      press();
+      screen.getByTestId("elsewhere").focus();
+      release();
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
+
+      press();
+      release();
+      expect(taps).toBe(1);
+    });
+  });
+
   test("a window losing focus ends the Space press, its release included", () => {
     withFakeTimers((advanceBy) => {
       let holds = 0;
