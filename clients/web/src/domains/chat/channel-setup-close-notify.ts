@@ -53,14 +53,26 @@ export function buildChannelSetupVerifyRequestedMessage(
 }
 
 /**
+ * Channel whose next close signal a richer signal has already covered.
+ *
+ * The Verify me hand-off reports the finished setup itself and then closes the
+ * drawer. Without this, that close reaches the assistant as a second, weaker
+ * report of one action, and the setup skills answer a plain close by asking
+ * whether the bot was ever added, which is the question the hand-off exists to
+ * skip. Set synchronously before the send so the close, which the drawer fires
+ * from a store subscription in the same tick, cannot overtake it.
+ */
+let closeCoveredForChannel: string | null = null;
+
+/**
  * Signal that the user finished the wizard and asked to verify their
- * identity. Same delivery contract as {@link notifyChannelSetupClosed}. The
- * drawer close that follows still fires the generic closed signal; the two
- * arrive together and read as one action.
+ * identity, and suppress the close signal the drawer fires immediately after.
+ * Same delivery contract as {@link notifyChannelSetupClosed}.
  */
 export async function notifyChannelSetupVerifyRequested(
   payload: ChannelSetupPayload,
 ): Promise<void> {
+  closeCoveredForChannel = payload.channel;
   await sendChannelSetupSignal(
     payload,
     buildChannelSetupVerifyRequestedMessage(payload.channel),
@@ -80,6 +92,11 @@ export async function notifyChannelSetupVerifyRequested(
 export async function notifyChannelSetupClosed(
   payload: ChannelSetupPayload,
 ): Promise<void> {
+  const covered = closeCoveredForChannel === payload.channel;
+  closeCoveredForChannel = null;
+  if (covered) {
+    return;
+  }
   await sendChannelSetupSignal(
     payload,
     buildChannelSetupClosedMessage(payload.channel),

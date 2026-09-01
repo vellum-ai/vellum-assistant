@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
-import { withAvatar } from "./channel-avatar-story-decorator";
+import { withAvatarRaster } from "./channel-avatar-story-decorator";
 import { SlackSetupWizard } from "./slack-setup-wizard";
 
 const ASSISTANT_ID = "asst_story";
@@ -18,7 +18,7 @@ const meta: Meta<typeof SlackSetupWizard> = {
   // `minWidth` both 400. A wider frame hides the density these stories exist to
   // show.
   decorators: [
-    withAvatar(ASSISTANT_ID, true),
+    withAvatarRaster(ASSISTANT_ID, true),
     (Story) => (
       <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
@@ -175,6 +175,6 @@ export const ConnectWithAvatar: Story = {
 
 /** The same step for an assistant with no avatar: the card is absent entirely. */
 export const ConnectWithoutAvatar: Story = {
-  decorators: [withAvatar(ASSISTANT_ID, false)],
+  decorators: [withAvatarRaster(ASSISTANT_ID, false)],
   play: ConnectWithAvatar.play,
 };

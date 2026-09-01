@@ -59,8 +59,10 @@ mock.module("@/lib/backwards-compat/channel-setup-close-notify", () => ({
 const {
   buildChannelSetupClosedMessage,
   buildChannelSetupHandedOffMessage,
+  buildChannelSetupVerifyRequestedMessage,
   notifyChannelSetupClosed,
   notifyChannelSetupHandedOff,
+  notifyChannelSetupVerifyRequested,
 } = await import("./channel-setup-close-notify");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 
@@ -190,5 +192,53 @@ describe("notifyChannelSetupHandedOff", () => {
     );
     expect(postCalls[0]?.body.hidden).toBe(true);
     expect(postCalls[0]?.body.scripted).toBe(true);
+  });
+});
+
+describe("notifyChannelSetupVerifyRequested", () => {
+  const PAYLOAD = {
+    channel: "discord",
+    assistantId: "a1",
+    assistantName: "Vellum",
+    conversationId: "c1",
+  } as const;
+
+  test("sends the hidden verify-requested marker", async () => {
+    await notifyChannelSetupVerifyRequested({ ...PAYLOAD });
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body.content).toBe(
+      buildChannelSetupVerifyRequestedMessage("discord"),
+    );
+    expect(postCalls[0]?.body.hidden).toBe(true);
+    expect(postCalls[0]?.body.scripted).toBe(true);
+  });
+
+  test("swallows the close signal the drawer fires right after it", async () => {
+    // The hand-off closes the drawer itself. Reporting the close too would
+    // reach the assistant as a second, weaker account of one action, and the
+    // setup skills answer a plain close by asking whether the bot was ever
+    // added, which is the question the hand-off exists to skip.
+    await notifyChannelSetupVerifyRequested({ ...PAYLOAD });
+    await notifyChannelSetupClosed({ ...PAYLOAD });
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body.content).toBe(
+      buildChannelSetupVerifyRequestedMessage("discord"),
+    );
+  });
+
+  test("suppression is one-shot and channel-scoped", async () => {
+    await notifyChannelSetupVerifyRequested({ ...PAYLOAD });
+    // A different channel's close is nobody else's business to swallow.
+    await notifyChannelSetupClosed({ ...PAYLOAD, channel: "slack" });
+    // And the next close on the same channel is a real one.
+    await notifyChannelSetupClosed({ ...PAYLOAD });
+
+    expect(postCalls.map((c) => c.body.content)).toEqual([
+      buildChannelSetupVerifyRequestedMessage("discord"),
+      buildChannelSetupClosedMessage("slack"),
+      buildChannelSetupClosedMessage("discord"),
+    ]);
   });
 });

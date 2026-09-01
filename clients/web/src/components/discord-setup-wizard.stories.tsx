@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
 import { channelverificationsessionsStatusGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { withAvatar } from "./channel-avatar-story-decorator";
+import { withAvatarRaster } from "./channel-avatar-story-decorator";
 import { DiscordSetupWizard } from "./discord-setup-wizard";
 
 const ASSISTANT_ID = "asst_story";
@@ -18,7 +18,7 @@ const meta: Meta<typeof DiscordSetupWizard> = {
   // the channel setup panel in an `AnimatedRightDrawer` with `defaultWidth` and
   // `minWidth` both 400.
   decorators: [
-    withAvatar(ASSISTANT_ID, true),
+    withAvatarRaster(ASSISTANT_ID, true),
     (Story) => (
       <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
@@ -124,7 +124,7 @@ export const FinishWithoutChat: Story = {
 export const FinishVerified: Story = {
   args: { saveStatus: "success", inviteUrl: INVITE_URL },
   decorators: [
-    withAvatar(ASSISTANT_ID, true, (client) => {
+    withAvatarRaster(ASSISTANT_ID, true, (client) => {
       client.setQueryData(
         channelverificationsessionsStatusGetQueryKey({
           path: { assistant_id: ASSISTANT_ID },

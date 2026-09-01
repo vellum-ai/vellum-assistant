@@ -82,6 +82,10 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
   });
 
+  const saveTwilio = useSaveTwilioCredentials({
+    assistantId: payload.assistantId,
+  });
+
   // The finish step's "Verify me": signal the originating conversation, then
   // close so the assistant carries verification forward in chat. Offered only
   // when a conversation exists to signal; the wizard otherwise falls back to
@@ -91,9 +95,6 @@ export function ChannelSetupPanel({
     void notifyChannelSetupVerifyRequested(payload);
     onClose();
   }, [payload, onClose]);
-  const saveTwilio = useSaveTwilioCredentials({
-    assistantId: payload.assistantId,
-  });
 
   const readinessOpts = useMemo(
     () => ({ path: { assistant_id: payload.assistantId } }),

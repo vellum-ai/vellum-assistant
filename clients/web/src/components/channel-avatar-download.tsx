@@ -9,6 +9,9 @@ import { Button, Typography } from "@vellumai/design-library";
 /** Side of the square preview, large enough to judge the image by. */
 const PREVIEW_PX = 64;
 
+/** Preview side inside an instruction, where the text carries the weight. */
+const COMPACT_PREVIEW_PX = 32;
+
 /** Name the raster is offered under, rather than the blob id. */
 const DOWNLOAD_FILENAME = "assistant-avatar.png";
 
@@ -119,37 +122,38 @@ export function ChannelAvatarDownload({
     return null;
   }
 
+  const preview = (
+    <img
+      src={imageUrl}
+      alt={t("channelAvatarDownload.previewAlt")}
+      width={compact ? COMPACT_PREVIEW_PX : PREVIEW_PX}
+      height={compact ? COMPACT_PREVIEW_PX : PREVIEW_PX}
+      className="shrink-0 rounded-md"
+    />
+  );
+  const downloadButton = (
+    <Button
+      type="button"
+      variant="outlined"
+      size={compact ? "compact" : "regular"}
+      onClick={handleDownload}
+    >
+      {t("channelAvatarDownload.download")}
+    </Button>
+  );
+
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <img
-          src={imageUrl}
-          alt={t("channelAvatarDownload.previewAlt")}
-          width={32}
-          height={32}
-          className="shrink-0 rounded-md"
-        />
-        <Button
-          type="button"
-          variant="outlined"
-          size="compact"
-          onClick={handleDownload}
-        >
-          {t("channelAvatarDownload.download")}
-        </Button>
+        {preview}
+        {downloadButton}
       </div>
     );
   }
 
   return (
     <div className="flex items-center gap-3">
-      <img
-        src={imageUrl}
-        alt={t("channelAvatarDownload.previewAlt")}
-        width={PREVIEW_PX}
-        height={PREVIEW_PX}
-        className="shrink-0 rounded-md"
-      />
+      {preview}
       <div className="flex flex-col items-start gap-2">
         <Typography
           as="p"
@@ -158,9 +162,7 @@ export function ChannelAvatarDownload({
         >
           {t(PROMPT_KEY[channel])}
         </Typography>
-        <Button type="button" variant="outlined" onClick={handleDownload}>
-          {t("channelAvatarDownload.download")}
-        </Button>
+        {downloadButton}
       </div>
     </div>
   );

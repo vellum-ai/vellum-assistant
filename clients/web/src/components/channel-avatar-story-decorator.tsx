@@ -17,7 +17,7 @@ export const STORY_AVATAR_DATA_URI =
  * where there is no avatar to offer and the card renders nothing. `seed`
  * stages any further cache state a story needs on the same client.
  */
-export function withAvatar(
+export function withAvatarRaster(
   assistantId: string,
   hasAvatar: boolean,
   seed?: (client: QueryClient) => void,
