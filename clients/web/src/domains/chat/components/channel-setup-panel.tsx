@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Phone, Send } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { notifyChannelSetupVerifyRequested } from "@/domains/chat/channel-setup-close-notify";
+import { useViewerStore } from "@/stores/viewer-store";
 
 import { Trans, useTranslation } from "@/i18n";
 
@@ -86,15 +86,16 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
   });
 
-  // The finish step's "Verify me": signal the originating conversation, then
-  // close so the assistant carries verification forward in chat. Offered only
-  // when a conversation exists to signal; the wizard otherwise falls back to
-  // telling the user what to say.
+  // The finish step's "Verify me": record why the session is ending, then
+  // close. The close auto-notify reads the outcome and reports the hand-off
+  // rather than a bare dismissal, so the assistant carries verification
+  // forward in chat. Offered only when a conversation exists to signal; the
+  // wizard otherwise falls back to telling the user what to say.
   const canSignalConversation = Boolean(payload.conversationId);
   const handleVerifyRequest = useCallback(() => {
-    void notifyChannelSetupVerifyRequested(payload);
+    useViewerStore.getState().markChannelSetupOutcome("verify_requested");
     onClose();
-  }, [payload, onClose]);
+  }, [onClose]);
 
   const readinessOpts = useMemo(
     () => ({ path: { assistant_id: payload.assistantId } }),

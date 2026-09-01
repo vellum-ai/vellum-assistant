@@ -62,7 +62,6 @@ const {
   buildChannelSetupVerifyRequestedMessage,
   notifyChannelSetupClosed,
   notifyChannelSetupHandedOff,
-  notifyChannelSetupVerifyRequested,
 } = await import("./channel-setup-close-notify");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 
@@ -195,7 +194,7 @@ describe("notifyChannelSetupHandedOff", () => {
   });
 });
 
-describe("notifyChannelSetupVerifyRequested", () => {
+describe("notifyChannelSetupClosed: verify_requested outcome", () => {
   const PAYLOAD = {
     channel: "discord",
     assistantId: "a1",
@@ -203,8 +202,15 @@ describe("notifyChannelSetupVerifyRequested", () => {
     conversationId: "c1",
   } as const;
 
-  test("sends the hidden verify-requested marker", async () => {
-    await notifyChannelSetupVerifyRequested({ ...PAYLOAD });
+  test("reports the hand-off instead of a bare dismissal", async () => {
+    // One close is one message. The hand-off closes the drawer itself, so a
+    // separate send would reach the assistant as a second, weaker account of
+    // one action, and the setup skills answer a bare close by asking whether
+    // the bot was ever added: the question the hand-off exists to skip.
+    await notifyChannelSetupClosed({
+      ...PAYLOAD,
+      outcome: "verify_requested",
+    });
 
     expect(postCalls).toHaveLength(1);
     expect(postCalls[0]?.body.content).toBe(
@@ -214,31 +220,11 @@ describe("notifyChannelSetupVerifyRequested", () => {
     expect(postCalls[0]?.body.scripted).toBe(true);
   });
 
-  test("swallows the close signal the drawer fires right after it", async () => {
-    // The hand-off closes the drawer itself. Reporting the close too would
-    // reach the assistant as a second, weaker account of one action, and the
-    // setup skills answer a plain close by asking whether the bot was ever
-    // added, which is the question the hand-off exists to skip.
-    await notifyChannelSetupVerifyRequested({ ...PAYLOAD });
+  test("a payload without an outcome still reports a dismissal", async () => {
     await notifyChannelSetupClosed({ ...PAYLOAD });
 
-    expect(postCalls).toHaveLength(1);
     expect(postCalls[0]?.body.content).toBe(
-      buildChannelSetupVerifyRequestedMessage("discord"),
-    );
-  });
-
-  test("suppression is one-shot and channel-scoped", async () => {
-    await notifyChannelSetupVerifyRequested({ ...PAYLOAD });
-    // A different channel's close is nobody else's business to swallow.
-    await notifyChannelSetupClosed({ ...PAYLOAD, channel: "slack" });
-    // And the next close on the same channel is a real one.
-    await notifyChannelSetupClosed({ ...PAYLOAD });
-
-    expect(postCalls.map((c) => c.body.content)).toEqual([
-      buildChannelSetupVerifyRequestedMessage("discord"),
-      buildChannelSetupClosedMessage("slack"),
       buildChannelSetupClosedMessage("discord"),
-    ]);
+    );
   });
 });
