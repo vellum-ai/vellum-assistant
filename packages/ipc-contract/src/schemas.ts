@@ -100,6 +100,21 @@ export const companionTurnSchema = z.object({
  */
 export const companionTurnsSchema = z.array(companionTurnSchema).max(40);
 
+/**
+ * See `CompanionEntrypoint`: one plugin-contributed control on the idle row.
+ *
+ * Every field is bounded, because all four originate in a plugin's manifest and
+ * end up on a window that floats over every other app. `label` is bounded to
+ * what a pill can hold, `prompt` to what a composer would accept from a person,
+ * and `icon` is a name the surface looks up rather than anything it renders.
+ */
+export const companionEntrypointSchema = z.object({
+  id: z.string().min(1).max(128),
+  label: z.string().min(1).max(24),
+  icon: z.string().max(64).optional(),
+  prompt: z.string().min(1).max(2000),
+});
+
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),
@@ -122,6 +137,13 @@ export const companionContextSchema = z.object({
   // capture having happened, and the only shape that can say that is a whole
   // number that goes up.
   captureCount: z.number().int().nonnegative().default(0),
+  // Defaulted for the same reason `watching` is: a publisher with no plugins
+  // loaded contributes nothing, and an empty row is the truthful reading of
+  // silence. Capped in aggregate as well as per field, and deliberately looser
+  // than what the surface draws: the daemon caps what any one plugin may
+  // contribute, and this caps the total that reaches a window which cannot
+  // afford to grow.
+  entrypoints: z.array(companionEntrypointSchema).max(8).default([]),
 });
 
 // ---------------------------------------------------------------------------

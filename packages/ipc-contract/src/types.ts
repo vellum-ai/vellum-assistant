@@ -1088,6 +1088,26 @@ export interface CompanionTurn {
 export type CompanionWatchRetro = "pending" | "ready";
 
 /**
+ * One plugin-contributed control on the companion's idle row.
+ *
+ * The surface is a floating route with no session and no plugin registry of its
+ * own, so these arrive the way `watchEnabled` does: published by the window that
+ * can read them and pushed back down with the rest of the state.
+ *
+ * `icon` is a name, not markup. The surface resolves it against its own fixed
+ * map and falls back when unknown, because this window is always-on-top and
+ * denies every navigation: nothing a plugin supplies may become markup here.
+ */
+export interface CompanionEntrypoint {
+  /** `<pluginId>:<entrypointId>`, unique across plugins. */
+  id: string;
+  label: string;
+  icon?: string;
+  /** Submitted verbatim when pressed. */
+  prompt: string;
+}
+
+/**
  * What the app's own window knows that the surface cannot.
  *
  * The surface is a renderer with no assistant and no conversation in it, so
@@ -1154,6 +1174,19 @@ export interface CompanionContext {
    * the truthful reading of silence.
    */
   captureCount?: number;
+
+  /**
+   * The controls plugins have contributed to the idle row, in the order they
+   * should be offered. See {@link CompanionEntrypoint}.
+   *
+   * Published by the app's window for the reason the turns are: the plugin
+   * registry lives with the session, and the surface has neither.
+   *
+   * Optional for the same reason {@link CompanionContext.watching} is, and
+   * absence means none contributed. A publisher that predates the field, or one
+   * with no plugins loaded, contributes nothing rather than erroring.
+   */
+  entrypoints?: CompanionEntrypoint[];
 }
 
 /**
@@ -1335,6 +1368,21 @@ export interface CompanionSurfaceState {
    * offer while the answer is unknown.
    */
   watchEnabled?: boolean;
+  /**
+   * The controls plugins have contributed to the idle row, as the app's window
+   * last published them. See {@link CompanionEntrypoint}.
+   *
+   * Carried on the state rather than read where it is drawn, for the reason
+   * {@link CompanionSurfaceState.watchEnabled} is: the surface is a floating
+   * route with no session and no plugin registry, so a list it assembled for
+   * itself would be empty forever.
+   *
+   * Optional, and absence means none contributed. Read it that way rather than
+   * as an error: a shell that predates the field and a window whose plugins
+   * have not loaded yet are both states with nothing to offer, and an idle row
+   * with nothing extra on it is the honest drawing of either.
+   */
+  entrypoints?: CompanionEntrypoint[];
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
