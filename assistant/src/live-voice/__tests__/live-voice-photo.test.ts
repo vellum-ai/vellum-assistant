@@ -43,6 +43,7 @@ import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
   _drainFrameReclaimRechecksForTests,
+  _nextFrameReclaimRecheckDelayForTests,
   _pendingFrameReclaimCountForTests,
   _setProcessingWaitMsForTests,
   _standaloneImageQueueSizeForTests,
@@ -204,6 +205,22 @@ async function uploadFrame(name: string): Promise<string> {
 /** True while the attachment's row is still in the store. */
 function frameStored(attachmentId: string): boolean {
   return getAttachmentById(attachmentId) !== null;
+}
+
+/** Collect the row announcements the hub carries for one conversation. */
+function watchEchoes(conversationId: string) {
+  const published: AssistantEvent[] = [];
+  const subscription = assistantEventHub.subscribe({
+    type: "process",
+    filter: { conversationId },
+    callback: (event) => {
+      published.push(event.message);
+    },
+  });
+  return {
+    echoes: () => published.filter((e) => e.type === "user_message_echo"),
+    dispose: () => subscription.dispose(),
+  };
 }
 
 function conversationCount(): number {
@@ -1056,6 +1073,7 @@ describe("standalone image persists are serialized per conversation", () => {
     // could not explain has to come back to the question rather than leave the
     // bytes for good.
     const live = liveConversation("Live voice keep unreadable store");
+    const watch = watchEchoes(live.id);
     try {
       const frame = await uploadFrame("unreadable.png");
 
@@ -1073,18 +1091,24 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(_pendingFrameReclaimCountForTests()).toBe(0);
       expect(frameStored(frame)).toBe(false);
       expect(getMessages(live.id)).toHaveLength(0);
+      // No row landed, so there is nothing to tell the client about and the
+      // refusal it already has stands.
+      expect(watch.echoes()).toHaveLength(0);
     } finally {
       storeUnreadable = false;
+      watch.dispose();
       live.dispose();
     }
   });
 
-  test("a frame whose row landed keeps its upload when the store answers", async () => {
+  test("a frame whose row landed is kept and announced when the store answers", async () => {
     // The other half of the same question. A persist can fail after its row
     // committed, and that row references the bytes through content the link
     // write never got to protect, so a recheck that finds the row must leave
-    // the attachment alone.
+    // the attachment alone. The client was told the frame was dropped, so
+    // without the announce the row it never heard about waits for a reload.
     const live = liveConversation("Live voice keep row landed unreadable");
+    const watch = watchEchoes(live.id);
     try {
       const frame = await uploadFrame("landed.png");
 
@@ -1099,11 +1123,85 @@ describe("standalone image persists are serialized per conversation", () => {
 
       expect(_pendingFrameReclaimCountForTests()).toBe(0);
       // The row is in the transcript, so its bytes are spoken for.
-      expect(getMessages(live.id)).toHaveLength(1);
+      const rows = getMessages(live.id);
+      expect(rows).toHaveLength(1);
       expect(frameStored(frame)).toBe(true);
+
+      await waitFor(() => watch.echoes().length > 0, {
+        message: "Timed out waiting for the deferred row announcement",
+      });
+      expect(watch.echoes()).toMatchObject([
+        {
+          type: "user_message_echo",
+          text: "(camera frame)",
+          conversationId: live.id,
+          messageId: rows[0].id,
+        },
+      ]);
     } finally {
       breakStoreAfterInsert = false;
       storeUnreadable = false;
+      watch.dispose();
+      live.dispose();
+    }
+  });
+
+  test("a frame outlasting the quick passes waits, then settles when the store returns", async () => {
+    // Ten passes was once the whole budget, and dropping a record there loses
+    // its upload for good: nothing else in the daemon collects an attachment
+    // no caller names. The passes only get further apart.
+    const live = liveConversation("Live voice keep long outage");
+    const watch = watchEchoes(live.id);
+    try {
+      const landed = await uploadFrame("outage-landed.png");
+      const dropped = await uploadFrame("outage-dropped.png");
+
+      // One frame whose row commits before the store goes, one that never
+      // reaches an insert at all, so both branches wait out the same outage.
+      breakStoreAfterInsert = true;
+      expect(await persistAmbientSightFrame(live.id, landed, "voice")).toEqual({
+        ok: false,
+      });
+      expect(await persistAmbientSightFrame(live.id, dropped, "voice")).toEqual(
+        { ok: false },
+      );
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(2);
+      expect(_nextFrameReclaimRecheckDelayForTests()).toBe(30_000);
+
+      // Well past the ten passes the records used to be given up at.
+      for (let pass = 0; pass < 14; pass += 1) {
+        _drainFrameReclaimRechecksForTests();
+      }
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(2);
+      // Asking less often rather than not at all.
+      expect(_nextFrameReclaimRecheckDelayForTests()).toBe(300_000);
+
+      // The store comes back long after the old cap.
+      storeUnreadable = false;
+      // Neither upload was given up while it was down.
+      expect(frameStored(landed)).toBe(true);
+      expect(frameStored(dropped)).toBe(true);
+
+      _drainFrameReclaimRechecksForTests();
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(0);
+      expect(frameStored(landed)).toBe(true);
+      expect(frameStored(dropped)).toBe(false);
+
+      const rows = getMessages(live.id);
+      expect(rows).toHaveLength(1);
+      await waitFor(() => watch.echoes().length > 0, {
+        message: "Timed out waiting for the post-outage row announcement",
+      });
+      expect(watch.echoes()).toMatchObject([
+        { type: "user_message_echo", messageId: rows[0].id },
+      ]);
+    } finally {
+      breakStoreAfterInsert = false;
+      storeUnreadable = false;
+      watch.dispose();
       live.dispose();
     }
   });

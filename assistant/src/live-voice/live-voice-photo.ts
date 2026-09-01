@@ -275,34 +275,39 @@ export function _standaloneImageQueueSizeForTests(): number {
  * How long to wait before asking the store again about a frame whose fate it
  * could not report.
  *
- * A store that cannot be read is either mid-migration or held by a writer, and
- * neither outlasts a boot, so the question is asked on a slow cadence and given
- * up on after a bounded number of passes rather than forever.
+ * The quick cadence covers the ordinary outage, a migration or a writer holding
+ * the database, which clears in seconds. One that outlasts those passes steps
+ * down to a cadence that can wait all day without filling the log. There is no
+ * final pass: giving the record up is the one outcome that loses the bytes for
+ * good, nothing else in the daemon collecting an attachment no caller names.
  */
 const RECLAIM_RECHECK_MS = 30_000;
-const RECLAIM_RECHECK_ATTEMPTS = 10;
-
-let reclaimRecheckMs = RECLAIM_RECHECK_MS;
-
-/** Shorten the recheck wait for a test. Returns the value it replaced. */
-export function _setReclaimRecheckMsForTests(ms: number): number {
-  const previous = reclaimRecheckMs;
-  reclaimRecheckMs = ms;
-  return previous;
-}
+const RECLAIM_RECHECK_SLOW_MS = 300_000;
+/** Passes at the quick cadence before a record steps down to the slow one. */
+const RECLAIM_RECHECK_QUICK_PASSES = 10;
 
 interface PendingFrameReclaim {
   conversationId: string;
   messageId: string;
   attachmentId: string;
+  /** Row text, so a frame found to have landed can still be announced. */
+  content: string;
   attempts: number;
 }
 
+/**
+ * Frames waiting on an answer, held for as long as this process lives.
+ *
+ * In memory on purpose: the record exists because the store could not be read,
+ * so writing it to that store is circular. A process that dies inside the
+ * outage therefore loses it, which leaves the upload in the same position as
+ * every other attachment nothing links, since the daemon has no orphan sweep.
+ */
 const pendingFrameReclaims: PendingFrameReclaim[] = [];
 let reclaimRecheckTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Hold a frame whose outcome the store would not report, and decide it once
+ * Hold a frame whose outcome the store would not report, and settle it once
  * the store answers.
  *
  * Both the refusal a caller sees and the upload behind it are this module's to
@@ -322,14 +327,28 @@ function deferFrameReclaimDecision(
   conversationId: string,
   messageId: string,
   attachmentId: string,
+  content: string,
 ): void {
   pendingFrameReclaims.push({
     conversationId,
     messageId,
     attachmentId,
+    content,
     attempts: 0,
   });
   scheduleFrameReclaimRecheck();
+}
+
+/**
+ * The wait before the next pass: quick while any record is still in its early
+ * passes, slow once every one of them has outlasted those.
+ */
+function nextFrameReclaimRecheckDelay(): number {
+  return pendingFrameReclaims.some(
+    (pending) => pending.attempts < RECLAIM_RECHECK_QUICK_PASSES,
+  )
+    ? RECLAIM_RECHECK_MS
+    : RECLAIM_RECHECK_SLOW_MS;
 }
 
 function scheduleFrameReclaimRecheck(): void {
@@ -339,17 +358,52 @@ function scheduleFrameReclaimRecheck(): void {
   reclaimRecheckTimer = setTimeout(() => {
     reclaimRecheckTimer = null;
     drainFrameReclaimRechecks();
-  }, reclaimRecheckMs);
+  }, nextFrameReclaimRecheckDelay());
   // A pending reclaim is never a reason to keep the process alive.
   reclaimRecheckTimer.unref?.();
 }
 
 /**
+ * Deliver a row the client was told had not landed.
+ *
+ * The refusal it got is not destructive: it retracts a frame the client was
+ * showing as pending and does nothing else, so this arrives as an ordinary
+ * event for a message the client has never seen and the transcript converges
+ * without a reload. A row that reads as existing is proof its conversation is
+ * there too, the message being a foreign key into it, so what the announce
+ * writes has somewhere to go.
+ *
+ * The persist unwound its own history push before it threw, so the resident
+ * history no longer matches the rows and the next turn reloads rather than
+ * reusing what it holds.
+ */
+function announceDeferredImage(pending: PendingFrameReclaim): void {
+  findConversation(pending.conversationId)?.markHistoryStale();
+  try {
+    announcePersistedImage(
+      pending.conversationId,
+      pending.content,
+      pending.messageId,
+    );
+  } catch (err) {
+    log.warn(
+      {
+        err,
+        conversationId: pending.conversationId,
+        messageId: pending.messageId,
+      },
+      "Persisted a standalone image but could not announce it",
+    );
+  }
+}
+
+/**
  * Ask the store again about every frame waiting on it.
  *
- * A row that exists means the frame reached the transcript and its bytes are
- * spoken for. Absent means the write never landed and the upload is this
- * module's to give up. Still unreadable means ask again, up to the cap.
+ * A row that exists means the frame reached the transcript, so its bytes are
+ * spoken for and the client is told about the row it was never given. Absent
+ * means the write never landed and the upload is this module's to give up.
+ * Still unreadable means ask again, for as long as that takes.
  */
 function drainFrameReclaimRechecks(): void {
   for (const pending of pendingFrameReclaims.splice(0)) {
@@ -362,18 +416,18 @@ function drainFrameReclaimRechecks(): void {
       continue;
     }
     if (inserted === "exists") {
+      announceDeferredImage(pending);
       continue;
     }
     pending.attempts += 1;
-    if (pending.attempts >= RECLAIM_RECHECK_ATTEMPTS) {
+    if (pending.attempts === RECLAIM_RECHECK_QUICK_PASSES) {
       log.warn(
         {
           conversationId: pending.conversationId,
           attachmentId: pending.attachmentId,
         },
-        "Gave up asking whether a camera frame persisted; keeping its upload",
+        "Still cannot read whether a camera frame persisted; asking less often until the store answers",
       );
-      continue;
     }
     pendingFrameReclaims.push(pending);
   }
@@ -383,6 +437,11 @@ function drainFrameReclaimRechecks(): void {
 /** Frames whose outcome the store has not reported yet. */
 export function _pendingFrameReclaimCountForTests(): number {
   return pendingFrameReclaims.length;
+}
+
+/** The wait the next recheck pass would use. */
+export function _nextFrameReclaimRecheckDelayForTests(): number {
+  return nextFrameReclaimRecheckDelay();
 }
 
 /** Ask the store now rather than on the recheck timer. */
@@ -476,7 +535,12 @@ function persistStandaloneImage(
       "Could not read the conversation a standalone image names",
     );
     if (kind === "sight_frame") {
-      deferFrameReclaimDecision(conversationId, uuidv7(), attachmentId);
+      deferFrameReclaimDecision(
+        conversationId,
+        uuidv7(),
+        attachmentId,
+        persistOptions.content,
+      );
     }
     return Promise.resolve({ ok: false });
   }
@@ -664,9 +728,15 @@ async function writeStandaloneImage(
         reclaimDroppedFrame(attachmentId);
       } else {
         // The store would not say whether the row landed. The refusal below
-        // reports the frame as handled, so the upload cannot simply be left:
-        // it waits for an answer instead.
-        deferFrameReclaimDecision(conversationId, requestId, attachmentId);
+        // reports the frame as handled, so the upload cannot simply be left,
+        // and a row that turns out to have landed was never announced. Both
+        // wait on the same answer.
+        deferFrameReclaimDecision(
+          conversationId,
+          requestId,
+          attachmentId,
+          content,
+        );
       }
     }
     return { ok: false };
