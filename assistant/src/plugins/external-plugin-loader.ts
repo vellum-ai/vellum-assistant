@@ -57,6 +57,7 @@ import { registerPlugin } from "./registry.js";
 import type {
   HookFunction,
   Plugin,
+  PluginCompanionEntrypoint,
   PluginCredentialKeyPattern,
   PluginHooks,
   PluginManifest,
@@ -82,6 +83,8 @@ const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
  *   separately ({@link parseCredentialKeyPatterns}) so a malformed
  *   declaration degrades to `undefined` instead of failing the whole
  *   `safeParse` and blocking plugin load.
+ * - `companionEntrypoints` is typed `unknown` for the same reason and
+ *   shape-validated by {@link parseCompanionEntrypoints}.
  * - Unknown fields pass through (`passthrough`) so the loader does not
  *   destructively reshape the file when the rest of the npm ecosystem
  *   writes to it.
@@ -92,6 +95,7 @@ const PluginPackageJsonSchema = z
     version: z.string().optional(),
     peerDependencies: z.record(z.string(), z.string()).optional(),
     credentialKeyPatterns: z.unknown().optional(),
+    companionEntrypoints: z.unknown().optional(),
     /** Human title, when the package name is not one ("@vellumai/imessage"). */
     displayName: z.string().min(1).optional(),
     /** Standard npm field, reused as the one-line description clients show. */
@@ -147,6 +151,87 @@ function parseCredentialKeyPatterns(
     return undefined;
   }
   return parsed.data;
+}
+
+/**
+ * Shape-level caps for the `companionEntrypoints` manifest field. These bound
+ * what a plugin may *declare* so a manifest cannot smuggle in unbounded data;
+ * how many of those entries a client actually draws is the client's own
+ * decision, taken well below this cap.
+ */
+const COMPANION_ENTRYPOINT_LIMITS = {
+  maxEntrypointsPerPlugin: 4,
+  maxIdLength: 40,
+  maxLabelLength: 24,
+  maxIconLength: 40,
+  maxPromptLength: 2000,
+} as const;
+
+/** Stable kebab-case: lowercase alphanumeric groups joined by single dashes. */
+const COMPANION_ENTRYPOINT_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/**
+ * At least one non-whitespace character. A label of only spaces draws a blank
+ * control and a prompt of only spaces submits no message, so both are
+ * malformed rather than merely nonempty.
+ */
+const COMPANION_ENTRYPOINT_NON_BLANK_PATTERN = /\S/;
+
+const CompanionEntrypointsSchema = z
+  .array(
+    z.object({
+      id: z
+        .string()
+        .max(COMPANION_ENTRYPOINT_LIMITS.maxIdLength)
+        .regex(COMPANION_ENTRYPOINT_ID_PATTERN),
+      label: z
+        .string()
+        .max(COMPANION_ENTRYPOINT_LIMITS.maxLabelLength)
+        .regex(COMPANION_ENTRYPOINT_NON_BLANK_PATTERN),
+      icon: z
+        .string()
+        .min(1)
+        .max(COMPANION_ENTRYPOINT_LIMITS.maxIconLength)
+        .optional(),
+      prompt: z
+        .string()
+        .max(COMPANION_ENTRYPOINT_LIMITS.maxPromptLength)
+        .regex(COMPANION_ENTRYPOINT_NON_BLANK_PATTERN),
+    }),
+  )
+  .max(COMPANION_ENTRYPOINT_LIMITS.maxEntrypointsPerPlugin);
+
+/**
+ * Shape-validate a raw `companionEntrypoints` value from a plugin
+ * `package.json`. Ids must be unique within the plugin: a repeat is dropped
+ * rather than rejected, since the first declaration is unambiguous and the
+ * plugin is otherwise well-formed. A malformed value degrades to `undefined`
+ * with a logged warning and must never fail plugin load (daemon startup
+ * philosophy: subsystem failures never block).
+ */
+function parseCompanionEntrypoints(
+  raw: unknown,
+  pluginDir: string,
+): PluginCompanionEntrypoint[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = CompanionEntrypointsSchema.safeParse(raw);
+  if (!parsed.success) {
+    log.warn(
+      { pluginDir, err: parsed.error },
+      `package.json at ${pluginDir} has a malformed companionEntrypoints field, ignoring it`,
+    );
+    return undefined;
+  }
+  const seen = new Set<string>();
+  return parsed.data.filter((entry) => {
+    if (seen.has(entry.id)) {
+      return false;
+    }
+    seen.add(entry.id);
+    return true;
+  });
 }
 
 export interface LoadExternalPluginOptions {
@@ -348,6 +433,13 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   if (credentialKeyPatterns !== undefined) {
     manifest.credentialKeyPatterns = credentialKeyPatterns;
   }
+  const companionEntrypoints = parseCompanionEntrypoints(
+    pkg.companionEntrypoints,
+    pluginDir,
+  );
+  if (companionEntrypoints !== undefined) {
+    manifest.companionEntrypoints = companionEntrypoints;
+  }
   const plugin: Plugin = { manifest };
 
   const hooks = await loadHooks(pluginDir, name);
@@ -513,12 +605,20 @@ export async function parsePluginPresentation(
   return { displayName, description, icon };
 }
 
+/**
+ * The manifest fields {@link parsePluginManifest} can read from a
+ * `package.json` alone. Everything else on {@link PluginManifest} comes from
+ * surface files the full loader imports.
+ */
+export type ParsedPluginManifest = Pick<
+  PluginManifest,
+  "name" | "version" | "credentialKeyPatterns" | "companionEntrypoints"
+>;
+
 export async function parsePluginManifest(
   pluginDir: string,
   opts: { quiet?: boolean } = {},
-): Promise<
-  Pick<PluginManifest, "name" | "version" | "credentialKeyPatterns"> | undefined
-> {
+): Promise<ParsedPluginManifest | undefined> {
   const pkgPath = join(pluginDir, "package.json");
   let rawPkg: unknown;
   try {
@@ -546,12 +646,20 @@ export async function parsePluginManifest(
   const pkg: PluginPackageJson = parsed.data;
   const name = basename(pluginDir);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
+  const manifest: ParsedPluginManifest = { name, version };
   const credentialKeyPatterns = parseCredentialKeyPatterns(
     pkg.credentialKeyPatterns,
     pluginDir,
   );
   if (credentialKeyPatterns !== undefined) {
-    return { name, version, credentialKeyPatterns };
+    manifest.credentialKeyPatterns = credentialKeyPatterns;
   }
-  return { name, version };
+  const companionEntrypoints = parseCompanionEntrypoints(
+    pkg.companionEntrypoints,
+    pluginDir,
+  );
+  if (companionEntrypoints !== undefined) {
+    manifest.companionEntrypoints = companionEntrypoints;
+  }
+  return manifest;
 }

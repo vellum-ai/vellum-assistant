@@ -196,6 +196,165 @@ describe("credentialKeyPatterns manifest field", () => {
   );
 });
 
+describe("companionEntrypoints manifest field", () => {
+  const validEntrypoints = [
+    { id: "start-run", label: "Run", icon: "play", prompt: "Start a new run" },
+    { id: "summarize", label: "Summary", prompt: "Summarize today" },
+  ];
+
+  test("a valid declaration round-trips onto the manifest", async () => {
+    const dir = freshPluginDir("entrypoints-valid");
+    writePackageJson(dir, {
+      name: "entrypoints-valid",
+      version: "0.1.0",
+      companionEntrypoints: validEntrypoints,
+    });
+
+    await loadExternalPlugin(dir);
+    const manifest = await parsePluginManifest(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "entrypoints-valid",
+    );
+    expect(registered?.manifest.companionEntrypoints).toEqual(validEntrypoints);
+    expect(manifest?.companionEntrypoints).toEqual(validEntrypoints);
+  });
+
+  test("absent field parses to undefined on both paths", async () => {
+    const dir = freshPluginDir("entrypoints-absent");
+    writePackageJson(dir, { name: "entrypoints-absent", version: "0.1.0" });
+
+    await loadExternalPlugin(dir);
+    const manifest = await parsePluginManifest(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "entrypoints-absent",
+    );
+    expect(registered).toBeDefined();
+    expect(registered?.manifest.companionEntrypoints).toBeUndefined();
+    expect(manifest?.companionEntrypoints).toBeUndefined();
+  });
+
+  test.each([
+    ["a string instead of an array", "not-an-array"],
+    [
+      "more than 4 entries",
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `entry-${i}`,
+        label: `Entry ${i}`,
+        prompt: `Do thing ${i}`,
+      })),
+    ],
+    [
+      "an id that is not kebab-case",
+      [{ id: "Start_Run", label: "Run", prompt: "Start a new run" }],
+    ],
+    [
+      "an id with a leading dash",
+      [{ id: "-start", label: "Run", prompt: "Start a new run" }],
+    ],
+    [
+      "an over-long id",
+      [{ id: "a".repeat(41), label: "Run", prompt: "Start a new run" }],
+    ],
+    [
+      "an over-long label",
+      [{ id: "start-run", label: "x".repeat(25), prompt: "Start a new run" }],
+    ],
+    [
+      "an over-long prompt",
+      [{ id: "start-run", label: "Run", prompt: "x".repeat(2001) }],
+    ],
+    [
+      "an over-long icon",
+      [
+        {
+          id: "start-run",
+          label: "Run",
+          icon: "i".repeat(41),
+          prompt: "Start a new run",
+        },
+      ],
+    ],
+    ["a missing prompt", [{ id: "start-run", label: "Run" }]],
+    [
+      "a whitespace-only label",
+      [{ id: "start-run", label: "   ", prompt: "Start a new run" }],
+    ],
+    [
+      "a whitespace-only prompt",
+      [{ id: "start-run", label: "Run", prompt: " \n\t " }],
+    ],
+  ])(
+    "malformed declaration (%s) degrades to undefined without blocking load",
+    async (_desc, malformed) => {
+      const dir = freshPluginDir("entrypoints-malformed");
+      writePackageJson(dir, {
+        name: "entrypoints-malformed",
+        version: "0.1.0",
+        companionEntrypoints: malformed,
+      });
+
+      await loadExternalPlugin(dir);
+      const manifest = await parsePluginManifest(dir);
+
+      const registered = getRegisteredPlugins().find(
+        (p) => p.manifest.name === "entrypoints-malformed",
+      );
+      expect(registered).toBeDefined();
+      expect(registered?.manifest.companionEntrypoints).toBeUndefined();
+      expect(manifest).toEqual({
+        name: "entrypoints-malformed",
+        version: "0.1.0",
+      });
+    },
+  );
+
+  test("exactly 4 entries is accepted", async () => {
+    const dir = freshPluginDir("entrypoints-at-cap");
+    const atCap = Array.from({ length: 4 }, (_, i) => ({
+      id: `entry-${i}`,
+      label: `Entry ${i}`,
+      prompt: `Do thing ${i}`,
+    }));
+    writePackageJson(dir, {
+      name: "entrypoints-at-cap",
+      version: "0.1.0",
+      companionEntrypoints: atCap,
+    });
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "entrypoints-at-cap",
+    );
+    expect(registered?.manifest.companionEntrypoints).toEqual(atCap);
+  });
+
+  test("a duplicate id collapses to the first declaration", async () => {
+    const dir = freshPluginDir("entrypoints-duplicate");
+    writePackageJson(dir, {
+      name: "entrypoints-duplicate",
+      version: "0.1.0",
+      companionEntrypoints: [
+        { id: "start-run", label: "First", prompt: "First prompt" },
+        { id: "start-run", label: "Second", prompt: "Second prompt" },
+        { id: "summarize", label: "Summary", prompt: "Summarize today" },
+      ],
+    });
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "entrypoints-duplicate",
+    );
+    expect(registered?.manifest.companionEntrypoints).toEqual([
+      { id: "start-run", label: "First", prompt: "First prompt" },
+      { id: "summarize", label: "Summary", prompt: "Summarize today" },
+    ]);
+  });
+});
+
 describe("loadExternalPlugin — plugin-api peerDependency", () => {
   // Tests anchor against assistantPkg.version (read from the assistant's
   // own package.json) so the matrix below stays correct across version

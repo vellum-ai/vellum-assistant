@@ -64,6 +64,13 @@ export interface PluginManifest {
    * never blocks plugin load).
    */
   credentialKeyPatterns?: PluginCredentialKeyPattern[];
+  /**
+   * Entrypoints the plugin contributes to a client surface, parsed from the
+   * plugin's `package.json` `companionEntrypoints` field. The loader only
+   * enforces shape (entry count, id grammar, field lengths); a malformed
+   * declaration degrades to `undefined` and never blocks plugin load.
+   */
+  companionEntrypoints?: PluginCompanionEntrypoint[];
 }
 
 /**
@@ -75,6 +82,25 @@ export interface PluginCredentialKeyPattern {
   label: string;
   /** Regex source string matching the service's credential format. */
   pattern: string;
+}
+
+/**
+ * One entrypoint a plugin contributes to a client surface: a labelled control
+ * that, when pressed, sends `prompt` as a message.
+ *
+ * Data rather than code. Clients resolve `icon` against their own fixed set of
+ * names and fall back when it is unknown, so a plugin never chooses what is
+ * drawn, only which of the host's icons is picked.
+ */
+export interface PluginCompanionEntrypoint {
+  /** Stable kebab-case id, unique within the plugin. */
+  id: string;
+  /** Short label. One or two words: it is drawn inside a floating pill. */
+  label: string;
+  /** Icon name resolved against the client's allowlist; unknown falls back. */
+  icon?: string;
+  /** The message submitted when the entrypoint is pressed. */
+  prompt: string;
 }
 
 // ─── Public plugin-API types ─────────────────────────────────────────────────
