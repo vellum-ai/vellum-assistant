@@ -39,7 +39,7 @@ export function ConceptGraphIntroBanner({
       </span>
       <div className="min-w-0 flex-1">
         <p
-          className="text-body-medium-emphasised"
+          className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
           {t("conceptGraphIntroBanner.title")}

@@ -244,6 +244,37 @@ If the color is a UI surface, text, or border that users see across themes — u
 
 ---
 
+## Typography
+
+### Use a real variant name
+
+`packages/design-library/src/tokens.css` defines exactly 13 typography utilities via Tailwind `@utility`:
+
+`text-title-large` · `text-title-medium` · `text-title-small` · `text-body-large-lighter` · `text-body-large-default` · `text-body-medium-lighter` · `text-body-medium-default` · `text-body-small-lighter` · `text-body-small-default` · `text-body-small-emphasised` · `text-label-medium-default` · `text-label-small-default` · `text-chat`
+
+The `--text-*` variables live in a plain `:root`, not `@theme`, so Tailwind generates **nothing else**. A plausible-looking name that isn't on that list matches no CSS at all, and the element silently falls back to the inherited 16px/400 rather than failing. This is not hypothetical: it reached 193 call sites in the platform admin tree before anyone noticed, and 92 here.
+
+`no-restricted-syntax` errors on any `text-{title,body,label,chat}-*` class that isn't one of the 13. Prefer `<Typography variant="…">` where you're writing a component anyway — the variant prop is a typed union, so a misspelling is a compile error rather than a lint one.
+
+### Check the leading before text that wraps
+
+The split is by line-height, not by the `-lighter` / `-default` suffix:
+
+- **Real leading, safe to wrap** — `body-large-*` (20px), `body-medium-*` (18px), `body-small-lighter` (18px), `chat` (24px).
+- **`line-height: 1`, single-line only** — all three `title-*`, both `label-*`, and `body-small-default` / `body-small-emphasised`. On text that wraps, these collapse the line boxes onto each other.
+
+### Rebinding one facet of a variant
+
+To change a single property of a variant on one element, rebind its CSS variable rather than stacking a second utility that sets the same property:
+
+```tsx
+<span className="text-label-medium-default [--text-label-medium-default-weight:600]">
+```
+
+Both a `font-semibold` and the utility set `font-weight`, and which wins is Tailwind's generation order rather than the order you wrote. Rebinding the variable is unambiguous. The lint rule above ignores custom properties, so this form isn't flagged.
+
+---
+
 ## TypeScript
 
 ### Strict mode

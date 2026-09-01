@@ -205,14 +205,14 @@ function PromptSectionItem({
           </span>
           <span className="mt-0.5 flex items-center gap-2">
             <span
-              className="text-label-default"
+              className="text-label-medium-default"
               style={{ color: "var(--content-tertiary)" }}
             >
               {kind}
             </span>
             {formatLabel && (
               <span
-                className="text-label-default"
+                className="text-label-medium-default"
                 style={{ color: "var(--content-secondary)" }}
               >
                 {formatLabel}

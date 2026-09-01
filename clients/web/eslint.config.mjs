@@ -23,6 +23,69 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
  * contrast. Use semantic tokens (`--surface-*`, `--content-*`,
  * `--border-*`) instead. See `clients/web/docs/STYLE_GUIDE.md`.
  */
+/**
+ * Typography variant names that do not exist.
+ *
+ * `packages/design-library/src/tokens.css` defines these 13 utilities via
+ * Tailwind `@utility`. The `--text-*` variables live in a plain `:root`
+ * rather than `@theme`, so Tailwind generates nothing else — an invented but
+ * plausible name matches no CSS and the element silently falls back to the
+ * inherited 16px/400. That reached 193 call sites in the platform admin tree
+ * before it was noticed, and 92 here; this is the port of the guard added
+ * there.
+ *
+ * Keep in sync with the `@utility` blocks in `tokens.css` and with
+ * `TypographyVariant` in
+ * `packages/design-library/src/components/typography.tsx`.
+ */
+const TYPOGRAPHY_VARIANTS = [
+  "title-large",
+  "title-medium",
+  "title-small",
+  "body-large-lighter",
+  "body-large-default",
+  "body-medium-lighter",
+  "body-medium-default",
+  "body-small-lighter",
+  "body-small-default",
+  "body-small-emphasised",
+  "label-medium-default",
+  "label-small-default",
+  "chat",
+];
+
+/**
+ * Matches `text-` + a scale family unless the whole token is a real variant.
+ *
+ * The exemption ends with `(?![a-z-])` rather than `\b`: a word boundary
+ * matches before a hyphen, which would exempt anything merely *prefixed* by
+ * a valid variant (`text-chat-foo`, `text-body-small-default-typo`).
+ *
+ * The leading `(?<!-)` keeps the rule off CSS custom properties. Rebinding a
+ * token on one element is legitimate — the
+ * `[--text-label-medium-default-weight:600]` in `camera-status-pill.tsx`
+ * sets the variable the utility reads, which is how you change one facet of
+ * a variant without a second utility racing it on the same property.
+ * Without the lookbehind the `text-` inside `--text-…` matches.
+ */
+export const unknownTypographyPattern = `(?<!-)\\btext-(?!(?:${TYPOGRAPHY_VARIANTS.join("|")})(?![a-z-]))(?:title|body|label|chat)[a-z-]*`;
+
+const unknownTypographyMessage =
+  "This is not a real typography variant, so it matches no CSS and the element falls back to the inherited 16px/400. Use one of: " +
+  TYPOGRAPHY_VARIANTS.map((v) => `text-${v}`).join(", ") +
+  '. Prefer <Typography variant="…"> so the name is checked by the compiler.';
+
+const unknownTypographyRules = [
+  {
+    selector: `Literal[value=/${unknownTypographyPattern}/]`,
+    message: unknownTypographyMessage,
+  },
+  {
+    selector: `TemplateElement[value.raw=/${unknownTypographyPattern}/]`,
+    message: unknownTypographyMessage,
+  },
+];
+
 const darkPairedColorScaleRules = [
   {
     selector:
@@ -238,6 +301,7 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
+        ...unknownTypographyRules,
         ...universalAuthRules,
         ...rawApiFetchRules,
         ...headerLiteralRules,
@@ -282,6 +346,7 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
+        ...unknownTypographyRules,
         ...universalAuthRules,
         ...rawApiFetchRules,
       ],
