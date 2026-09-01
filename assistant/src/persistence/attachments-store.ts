@@ -1481,11 +1481,38 @@ export interface SightFrameSweepCandidate {
   id: string;
   /** Stored size before the sweep, so a caller can report what it freed. */
   sizeBytes: number;
+  /**
+   * This row's half of the keyset key. A caller that stops part way through a
+   * page resumes from the candidate it stopped on, not from the page's end.
+   */
+  createdAt: number;
 }
 
 /**
- * Sight-tagged image attachments older than `createdBefore` whose stored bytes
- * still exceed `largerThanBytes`, capped at `limit` rows.
+ * Where a scan of the candidate set stopped. `(created_at, id)` because
+ * `created_at` alone is not unique: frames captured inside the same millisecond
+ * would be skipped or repeated by a cursor that could not tell them apart.
+ */
+export interface SightFrameSweepCursor {
+  createdAt: number;
+  id: string;
+}
+
+export interface SightFrameSweepPage {
+  candidates: SightFrameSweepCandidate[];
+  /**
+   * Key of the last row the query EXAMINED, which is not always the last
+   * candidate: a row the metadata prefilter matched but the parse rejected has
+   * to be stepped over too, or the next page starts on it again.
+   */
+  nextCursor: SightFrameSweepCursor | null;
+  /** Whether the query filled its page, so more rows may follow. */
+  hasMore: boolean;
+}
+
+/**
+ * One page of sight-tagged image attachments older than `createdBefore` whose
+ * stored bytes still exceed `largerThanBytes`.
  *
  * The population is EVERY tagged frame, standalone camera keeps and the frames
  * that rode a spoken turn alike. That is deliberately wider than
@@ -1501,21 +1528,31 @@ export interface SightFrameSweepCandidate {
  * dates the bytes this row stores, which is what the sweep is bounding: a fork's
  * clone is a second copy written on the day of the fork, however old the frame
  * it depicts.
+ *
+ * `after` resumes an ascending scan past a row already examined. A caller that
+ * cannot act on what it finds (a shared file, a rendering that came out no
+ * smaller) has no way to make the row stop matching, so a query that always
+ * starts at the oldest row would hand back the same refusals forever and never
+ * reach anything behind them.
  */
 export function selectSightFrameSweepCandidates(options: {
   createdBefore: number;
   largerThanBytes: number;
   limit: number;
-}): SightFrameSweepCandidate[] {
+  after?: SightFrameSweepCursor | null;
+}): SightFrameSweepPage {
+  const after = options.after ?? null;
   const rows = rawAll<{
     id: string;
     sizeBytes: number;
+    createdAt: number;
     metadata: string | null;
   }>(
     "attachments:selectSightFrameSweepCandidates",
     `SELECT
        a.id AS id,
        a.size_bytes AS sizeBytes,
+       a.created_at AS createdAt,
        m.metadata AS metadata
      FROM attachments a
      JOIN message_attachments ma ON ma.attachment_id = a.id
@@ -1524,17 +1561,23 @@ export function selectSightFrameSweepCandidates(options: {
        AND a.created_at < ?
        AND a.size_bytes > ?
        AND m.metadata LIKE ?
-     ORDER BY a.created_at ASC
+       AND (? IS NULL OR (a.created_at, a.id) > (?, ?))
+     ORDER BY a.created_at ASC, a.id ASC
      LIMIT ?`,
     options.createdBefore,
     options.largerThanBytes,
     `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`,
+    after === null ? null : 1,
+    after?.createdAt ?? 0,
+    after?.id ?? "",
     options.limit,
   );
 
   const candidates: SightFrameSweepCandidate[] = [];
   const seen = new Set<string>();
+  let nextCursor: SightFrameSweepCursor | null = null;
   for (const row of rows) {
+    nextCursor = { createdAt: row.createdAt, id: row.id };
     if (seen.has(row.id)) {
       continue;
     }
@@ -1550,25 +1593,35 @@ export function selectSightFrameSweepCandidates(options: {
       continue;
     }
     seen.add(row.id);
-    candidates.push({ id: row.id, sizeBytes: row.sizeBytes });
+    candidates.push({
+      id: row.id,
+      sizeBytes: row.sizeBytes,
+      createdAt: row.createdAt,
+    });
   }
-  return candidates;
+  return { candidates, nextCursor, hasMore: rows.length === options.limit };
 }
 
-export type ShrinkAttachmentResult =
-  | "shrunk"
+/**
+ * Why an attachment's bytes are not this store's to rewrite. Every one of these
+ * is decidable from the row alone, before a caller spends anything on producing
+ * a replacement.
+ */
+export type ShrinkAttachmentRefusal =
   | "not_found"
   | "no_content"
-  | "not_smaller"
   | "shared_file"
-  | "foreign_file"
+  | "foreign_file";
+
+export type ShrinkAttachmentResult =
+  | ShrinkAttachmentRefusal
+  | "shrunk"
+  | "not_smaller"
   | "write_failed";
 
 /**
- * Replace an attachment's stored bytes with a smaller rendering of the same
- * image, leaving the row, its links, and its message content in place.
- *
- * Refuses every case where the bytes are not this row's alone to rewrite:
+ * The refusals {@link shrinkAttachmentBytes} would answer with, decided without
+ * touching the bytes:
  *
  *  - a `file_path` more than one row names. A path is not private to a row (see
  *    {@link deleteOrphanAttachments}), and rewriting a shared file would rewrite
@@ -1578,18 +1631,73 @@ export type ShrinkAttachmentResult =
  *    actually bounds storage.
  *  - a file outside the store's own directories, which may be a file the user
  *    or a tool still owns.
- *  - bytes that are not smaller than what is stored, so a rendering that cannot
- *    win leaves the original alone.
+ *  - a row holding neither a file nor inline bytes.
  *
- * The file write goes through a sibling temp file and a rename, so a torn write
- * cannot leave a truncated image where the transcript expects one.
+ * Exported so a caller that has to PRODUCE the smaller rendering can ask first
+ * and skip the work. The shrink applies the same predicate itself, so the check
+ * is an optimization and never the enforcement.
+ */
+export function attachmentShrinkRefusal(
+  attachmentId: string,
+): ShrinkAttachmentRefusal | null {
+  const row = getAttachmentRow(attachmentId);
+  return row ? refusalForRow(row) : "not_found";
+}
+
+function refusalForRow(row: AttachmentRow): ShrinkAttachmentRefusal | null {
+  if (row.filePath) {
+    if (!isStoreOwnedAttachmentFile(row.filePath)) {
+      return "foreign_file";
+    }
+    if (attachmentFilePathReferenceCount(row.filePath) > 1) {
+      return "shared_file";
+    }
+    return null;
+  }
+  return row.dataBase64 ? null : "no_content";
+}
+
+/**
+ * Replace an attachment's stored bytes with a smaller rendering of the same
+ * image, leaving the row, its links, and its message content in place.
+ *
+ * Refuses everything {@link attachmentShrinkRefusal} names, plus bytes that are
+ * not smaller than what is stored, so a rendering that cannot win leaves the
+ * original alone.
  *
  * A row still holding its bytes inline is rewritten too, rather than skipped.
  * That shape is degraded (materialization found nothing readable to copy and
  * left the staged row as it was), and it is the one shape where the bytes sit in
  * the database itself, which is the last place an image nobody chose to send
  * should grow unbounded. Nothing aliases an inline payload the way a file path
- * can be aliased: a clone copies the string into a row of its own.
+ * can be aliased: a clone copies the string into a row of its own. Its bytes and
+ * their description go into one statement, so there is no window where the row
+ * can disagree with what it holds.
+ *
+ * A file-backed row has no such single statement available, so the order is
+ * chosen for what a failure leaves behind. The original is renamed aside to a
+ * `.sweep-bak` sibling, the replacement is renamed into place, and only then is
+ * the row updated; a throw from that update puts the backup back, so the file
+ * and the row still agree. The backup name is fixed rather than random so that
+ * one left by a killed process is reclaimed by the next attempt on the same row
+ * instead of accumulating. Callers must serialize their calls per attachment;
+ * the sweep that drives this runs one pass at a time.
+ *
+ * NEVER reorder this to update the row first. The window that ordering opens is
+ * the unrecoverable one: a process killed between a DB-first update and the
+ * file rename leaves the row claiming a thumbnail's size while the full-size
+ * file is still there, which puts the row UNDER the size threshold the sweep
+ * selects on, so nothing ever looks at it again and
+ * `/attachments/:id/content` serves that understated size as `Content-Length`
+ * forever.
+ *
+ * The order used here self-heals instead. A process killed after the rename but
+ * before the update leaves a thumbnail on disk under a row still claiming the
+ * original size, which is ABOVE the threshold, so the sweep re-selects the row.
+ * {@link getAttachmentContent} reads the file rather than trusting `sizeBytes`,
+ * so the next pass re-encodes the thumbnail that is actually there, and the
+ * not-smaller check compares that against the stale, larger stored size and
+ * lets it through. One more pass and the row describes what it stores.
  */
 export function shrinkAttachmentBytes(
   attachmentId: string,
@@ -1600,53 +1708,82 @@ export function shrinkAttachmentBytes(
   if (!row) {
     return "not_found";
   }
+  const refusal = refusalForRow(row);
+  if (refusal) {
+    return refusal;
+  }
   if (bytes.length >= row.sizeBytes) {
     return "not_smaller";
   }
 
-  if (row.filePath) {
-    if (!isStoreOwnedAttachmentFile(row.filePath)) {
-      return "foreign_file";
-    }
-    if (attachmentFilePathReferenceCount(row.filePath) > 1) {
-      return "shared_file";
-    }
-    const tmpPath = `${row.filePath}.${process.pid}-${uuid().slice(0, 8)}.tmp`;
-    try {
-      writeFileSync(tmpPath, bytes);
-      renameSync(tmpPath, row.filePath);
-    } catch {
-      try {
-        unlinkSync(tmpPath);
-      } catch {
-        /* nothing was written */
-      }
-      return "write_failed";
-    }
-  } else if (row.dataBase64) {
-    rawRun(
-      "attachments:shrinkAttachmentBytes:inline",
-      `UPDATE attachments SET data_base64 = ? WHERE id = ?`,
-      Buffer.from(bytes).toString("base64"),
-      attachmentId,
-    );
-  } else {
-    return "no_content";
+  const describedBy = {
+    sizeBytes: bytes.length,
+    mimeType,
+    kind: classifyKind(mimeType),
+    originalFilename:
+      mimeType === "image/jpeg" && row.mimeType !== "image/jpeg"
+        ? jpegFilenameFor(row.originalFilename)
+        : row.originalFilename,
+  };
+  const db = getDb();
+
+  if (!row.filePath) {
+    db.update(attachments)
+      .set({
+        ...describedBy,
+        dataBase64: Buffer.from(bytes).toString("base64"),
+      })
+      .where(eq(attachments.id, attachmentId))
+      .run();
+    return "shrunk";
   }
 
-  const db = getDb();
-  db.update(attachments)
-    .set({
-      sizeBytes: bytes.length,
-      mimeType,
-      kind: classifyKind(mimeType),
-      originalFilename:
-        mimeType === "image/jpeg" && row.mimeType !== "image/jpeg"
-          ? jpegFilenameFor(row.originalFilename)
-          : row.originalFilename,
-    })
-    .where(eq(attachments.id, attachmentId))
-    .run();
+  const filePath = row.filePath;
+  const tmpPath = `${filePath}.sweep-tmp`;
+  const bakPath = `${filePath}.sweep-bak`;
+  try {
+    writeFileSync(tmpPath, bytes);
+    renameSync(filePath, bakPath);
+    renameSync(tmpPath, filePath);
+  } catch {
+    if (!existsSync(filePath) && existsSync(bakPath)) {
+      try {
+        renameSync(bakPath, filePath);
+      } catch {
+        /* the backup is the original, still readable under its own name */
+      }
+    }
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* nothing was written */
+    }
+    return "write_failed";
+  }
 
+  try {
+    db.update(attachments)
+      .set(describedBy)
+      .where(eq(attachments.id, attachmentId))
+      .run();
+  } catch (err) {
+    let restoreErr: unknown;
+    try {
+      renameSync(bakPath, filePath);
+    } catch (caught) {
+      restoreErr = caught;
+    }
+    getLogger("attachments-store").warn(
+      { err, restoreErr, attachmentId },
+      "Could not record a shrunk attachment's new size; restored its original bytes",
+    );
+    return "write_failed";
+  }
+
+  try {
+    unlinkSync(bakPath);
+  } catch {
+    /* reclaimed by the next attempt on this row */
+  }
   return "shrunk";
 }

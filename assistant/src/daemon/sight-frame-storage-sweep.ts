@@ -28,9 +28,11 @@ import {
   SWEEP_SIGHT_FRAMES_AFTER_DAYS,
 } from "../config/schemas/sight.js";
 import {
+  attachmentShrinkRefusal,
   getAttachmentContent,
   selectSightFrameSweepCandidates,
   shrinkAttachmentBytes,
+  type SightFrameSweepCursor,
 } from "../persistence/attachments-store.js";
 import { convertImageToJpeg } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
@@ -62,8 +64,46 @@ const SWEPT_JPEG_QUALITY = 60;
  */
 const SWEPT_MAX_BYTES = 128 * 1024;
 
-/** Rows examined per pass, so one tick's work is bounded whatever the backlog. */
-const SWEEP_BATCH_SIZE = 200;
+/** Rows one candidate query asks for. A pass walks as many pages as its bounds allow. */
+const SWEEP_PAGE_SIZE = 200;
+
+/**
+ * Re-encodes a pass will attempt before stopping.
+ *
+ * The bound is counted in ENCODES rather than rows because that is where the
+ * cost is. A refusal the store can decide from the row alone (a shared file, a
+ * file it does not own) costs two point queries, so a pass steps over any number
+ * of those to reach work it can actually do; producing a thumbnail costs real
+ * CPU, and a frame that comes out no smaller costs it for nothing.
+ *
+ * 200 frames an hour is far more than a camera generates, so the bound only ever
+ * binds on a backlog, which is exactly when a pass should stop and let the next
+ * one continue.
+ */
+const MAX_ENCODE_ATTEMPTS_PER_PASS = 200;
+
+/**
+ * Rows a pass will examine before stopping, whatever it managed to encode.
+ *
+ * Refusals are cheap but not free, and the candidate query has no index to ride,
+ * so an install whose aged frames are all unrewritable still needs a stop. The
+ * cursor below is what makes stopping safe: the next pass resumes here rather
+ * than starting over.
+ */
+const MAX_ROWS_EXAMINED_PER_PASS = 5_000;
+
+/**
+ * Where the last pass stopped, so the next one resumes instead of re-examining
+ * rows it already refused. Reset to the head once a scan reaches the end of the
+ * candidate set, so newly aged frames and rows whose circumstances changed get
+ * looked at again.
+ *
+ * In memory on purpose. A durable marker would be a schema addition to survive
+ * a restart, and what a restart actually costs is one pass that re-examines the
+ * refusals at the head before advancing past them again, which is a handful of
+ * queries once per boot.
+ */
+let sweepCursor: SightFrameSweepCursor | null = null;
 
 /**
  * How often the sweep runs. The window it enforces is measured in days, so an
@@ -112,52 +152,117 @@ export interface SightFrameSweepResult {
   freedBytes: number;
   /** Candidates left alone: shared or foreign file, unreadable, or no smaller. */
   skipped: number;
+  /** Candidate rows this pass looked at, refusals included. */
+  examined: number;
 }
 
 function emptyResult(): SightFrameSweepResult {
-  return { shrunk: 0, freedBytes: 0, skipped: 0 };
+  return { shrunk: 0, freedBytes: 0, skipped: 0, examined: 0 };
+}
+
+export interface SightFrameSweepBounds {
+  maxEncodeAttempts?: number;
+  maxRowsExamined?: number;
 }
 
 /**
- * Shrink one batch of aged camera frames. Never throws: a sweep that cannot run
- * is a sweep that runs next hour.
+ * Shrink aged camera frames, walking the candidate set from where the last pass
+ * stopped until it runs out of rows or spends this pass's bounds.
+ *
+ * Never throws: a sweep that cannot run is a sweep that runs next hour.
+ *
+ * The bounds are parameters only so tests can make a pass stop early. Production
+ * callers take the defaults.
  */
-export async function sweepAgedSightFrames(): Promise<SightFrameSweepResult> {
+export async function sweepAgedSightFrames(
+  bounds: SightFrameSweepBounds = {},
+): Promise<SightFrameSweepResult> {
   if (!getDbMigrationReadiness().ready) {
     return emptyResult();
   }
+  const maxEncodeAttempts =
+    bounds.maxEncodeAttempts ?? MAX_ENCODE_ATTEMPTS_PER_PASS;
+  const maxRowsExamined = bounds.maxRowsExamined ?? MAX_ROWS_EXAMINED_PER_PASS;
 
-  let candidates;
-  try {
-    candidates = selectSightFrameSweepCandidates({
-      createdBefore: Date.now() - resolveSightSweepAfterDays() * MS_PER_DAY,
-      largerThanBytes: SWEPT_MAX_BYTES,
-      limit: SWEEP_BATCH_SIZE,
-    });
-  } catch (err) {
-    log.warn({ err }, "Could not read aged camera frames");
-    return emptyResult();
-  }
-
+  const createdBefore = Date.now() - resolveSightSweepAfterDays() * MS_PER_DAY;
   const result = emptyResult();
-  for (const candidate of candidates) {
+  let cursor = sweepCursor;
+  let encodeAttempts = 0;
+
+  while (encodeAttempts < maxEncodeAttempts) {
+    let page;
     try {
-      const shrunkBytes = await shrinkOneFrame(candidate.id);
-      if (shrunkBytes === null) {
-        result.skipped += 1;
-        continue;
-      }
-      result.shrunk += 1;
-      result.freedBytes += candidate.sizeBytes - shrunkBytes;
+      page = selectSightFrameSweepCandidates({
+        createdBefore,
+        largerThanBytes: SWEPT_MAX_BYTES,
+        limit: SWEEP_PAGE_SIZE,
+        after: cursor,
+      });
     } catch (err) {
-      result.skipped += 1;
-      log.warn(
-        { err, attachmentId: candidate.id },
-        "Could not shrink an aged camera frame",
-      );
+      log.warn({ err }, "Could not read aged camera frames");
+      break;
+    }
+
+    let spentOnThisPage = false;
+    for (const candidate of page.candidates) {
+      result.examined += 1;
+      // Ask before encoding. A row the store will refuse whatever it is handed
+      // costs a query here and nothing more, which is what lets a pass walk past
+      // a wall of them to the frames behind.
+      const refusal = attachmentShrinkRefusal(candidate.id);
+      if (refusal) {
+        result.skipped += 1;
+        log.debug(
+          { attachmentId: candidate.id, outcome: refusal },
+          "Left an aged camera frame alone",
+        );
+      } else {
+        encodeAttempts += 1;
+        try {
+          const shrunkBytes = await shrinkOneFrame(candidate.id);
+          if (shrunkBytes === null) {
+            result.skipped += 1;
+          } else {
+            result.shrunk += 1;
+            result.freedBytes += candidate.sizeBytes - shrunkBytes;
+          }
+        } catch (err) {
+          result.skipped += 1;
+          log.warn(
+            { err, attachmentId: candidate.id },
+            "Could not shrink an aged camera frame",
+          );
+        }
+      }
+      // Per candidate, not per page: a pass that stops on its bound part way
+      // through has to resume on the next candidate, and a cursor holding the
+      // page's last row would skip everything between.
+      cursor = { createdAt: candidate.createdAt, id: candidate.id };
+      if (encodeAttempts >= maxEncodeAttempts) {
+        spentOnThisPage = true;
+        break;
+      }
+    }
+    if (spentOnThisPage) {
+      break;
+    }
+
+    // The whole page was consumed, so step past its tail too: rows the metadata
+    // prefilter matched and the parse rejected are not candidates and would
+    // otherwise be re-read on every pass.
+    cursor = page.nextCursor ?? cursor;
+    if (!page.hasMore) {
+      // End of the candidate set. Start the next pass at the head so newly aged
+      // frames, and rows whose circumstances changed, are seen again.
+      cursor = null;
+      break;
+    }
+    if (result.examined >= maxRowsExamined) {
+      break;
     }
   }
 
+  sweepCursor = cursor;
   if (result.shrunk > 0) {
     log.info(result, "Shrank aged camera frames to thumbnail scale");
   }
@@ -190,6 +295,16 @@ async function shrinkOneFrame(attachmentId: string): Promise<number | null> {
     return null;
   }
   return thumbnail.length;
+}
+
+/** The pass cursor, for tests that assert a pass resumed rather than restarted. */
+export function getSightFrameSweepCursorForTest(): SightFrameSweepCursor | null {
+  return sweepCursor;
+}
+
+/** Send the next pass back to the head of the candidate set. */
+export function resetSightFrameSweepCursorForTest(): void {
+  sweepCursor = null;
 }
 
 /** Start the periodic sweep. Idempotent. */
