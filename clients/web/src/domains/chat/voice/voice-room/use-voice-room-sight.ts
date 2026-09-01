@@ -145,6 +145,16 @@ export interface VoiceRoomSight {
    * across a backgrounding.
    */
   readonly setLive: (live: boolean) => void;
+  /**
+   * Withdraw consent from every frame captured but not yet shared, now.
+   *
+   * For the acts that end the viewfinder without going through `setLive`: the
+   * camera control's close is one press to the user and two facts to the app,
+   * and the mode coming down behind it is a render too late for a frame whose
+   * upload lands in between. Callers that close the camera call this first, in
+   * the same handler. Idempotent, and free when nothing is being sampled.
+   */
+  readonly revokeCaptureConsent: () => void;
 }
 
 export interface VoiceRoomSightOptions {
@@ -228,19 +238,30 @@ export function useVoiceRoomSight(
    * Take consent back from every frame the camera has produced but not yet
    * shared, in the same tick as the act that takes it back.
    *
-   * Stopping Live only schedules a re-render. The epoch bump that voids the
-   * work in flight rides the sampler effect's cleanup, which runs after that
-   * render, so an upload resolving inside the gap passes the guard it is
-   * checked against and is shared with the call after the user said stop. The
-   * bump happens here instead, when the user acts: every capture already
-   * started fails the guard on its way out, and the flag stops one the loop
-   * would otherwise begin before it is torn down.
+   * Ending Live only schedules a re-render, and the sampler effect's cleanup
+   * runs after it. An epoch left to that cleanup is one an upload resolving in
+   * the gap still matches, so the frame passes the guard it is checked against
+   * and is shared with the call after the user has said stop. The bump belongs
+   * here instead: every capture already started fails the guard on its way
+   * out, and the flag stops one the loop would otherwise begin before it is
+   * torn down.
+   *
+   * There are two tiers of caller, and the difference is whether a user acted.
+   * An act (the shutter's stop, the camera control's close, the app being put
+   * away) revokes in the handler itself, which is the only place with no gap
+   * at all. Everything state-derived (availability going, the preview turning
+   * native, a flip that failed its way out of the viewfinder) has no such tick
+   * to sit in, so it revokes at the earliest point a hook offers, the commit
+   * that carries the change, before paint and before the effect that lowers
+   * the mode. Neither is the user withdrawing consent, so a frame crossing
+   * that narrower window is a stale view rather than a broken promise.
    *
    * Parked sends are left to refuse themselves at that same guard, and the
-   * cleanup behind this hands their uploads back. Nothing but a real sampling
-   * run to revoke gets past the first line, so a refused raise, a stop of
-   * something already stopped, and an ordinary re-render all cost nothing: an
-   * epoch churned for one of those would void a capture nobody withdrew.
+   * sampler cleanup behind this hands their uploads back. Nothing but a real
+   * sampling run to revoke gets past the first line, so a refused raise, a
+   * stop of something already stopped, and an ordinary re-render all cost
+   * nothing: an epoch churned for one of those would void a capture nobody
+   * withdrew.
    */
   const revokeCaptureConsent = useCallback(() => {
     if (!captureConsentedRef.current) {
@@ -321,8 +342,21 @@ export function useVoiceRoomSight(
     if (cameraOpen && liveAvailable) {
       return;
     }
-    revokeCaptureConsent();
     setLiveState(false);
+  }, [cameraOpen, liveAvailable]);
+
+  // The same ending, taken at the commit rather than after it. Every way the
+  // viewfinder or the destination can go without the user acting arrives as
+  // one of these two values changing: a flip that failed its way out of the
+  // camera, the preview turning native, the latch, the flag, the assistant
+  // unbinding. None has a handler to be synchronous with, so this is the
+  // earliest they can be answered, a paint and a passive flush ahead of the
+  // effect above. The user's own acts do not wait for it.
+  useLayoutEffect(() => {
+    if (cameraOpen && liveAvailable) {
+      return;
+    }
+    revokeCaptureConsent();
   }, [cameraOpen, liveAvailable, revokeCaptureConsent]);
 
   // Backgrounding ends Live, rather than pausing it.
@@ -691,5 +725,5 @@ export function useVoiceRoomSight(
     invalidateCaptures();
   }, [invalidateCaptures, reconnecting]);
 
-  return { heldFrame, liveAvailable, live, setLive };
+  return { heldFrame, liveAvailable, live, setLive, revokeCaptureConsent };
 }

@@ -857,6 +857,56 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     );
   });
 
+  test("refuses a frame still uploading when the camera control closes", async () => {
+    // Closing the viewfinder ends Live without going through `setLive`, so the
+    // mode only comes down on the render the tap schedules. The room revokes
+    // in the handler instead, which is what this stands in for.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    view.result.current.revokeCaptureConsent();
+    pendingUploads[0]!({ ok: true, id: "att-camera-closed" });
+    await resumeUploadBeforeRender();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    // The close itself, arriving as the render the tap scheduled.
+    act(() => {
+      view.rerender({ cameraOpen: false, facing: "environment" });
+    });
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-camera-closed",
+    );
+  });
+
+  test("revoking with nothing being sampled costs the next Live nothing", async () => {
+    const { view } = renderSight({ live: false });
+
+    // The camera control closing a viewfinder that never left photo. There is
+    // no run to withdraw, so the flag's early return makes this free: an epoch
+    // churned here would void a capture nobody withdrew.
+    act(() => {
+      view.result.current.revokeCaptureConsent();
+      view.result.current.revokeCaptureConsent();
+    });
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    await keepFrame();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+  });
+
   test("refuses a frame still uploading when Live stops being available", async () => {
     uploadsResolveImmediately = false;
     const { view } = renderSight();

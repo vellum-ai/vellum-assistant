@@ -102,6 +102,7 @@ import { useTranslation } from "@/i18n";
  */
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -598,11 +599,21 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // preview behind the web view and mount no `<video>` for it to read, so it is
   // handed which preview is up and withdraws Live there rather than sampling
   // nothing.
-  const { heldFrame, liveAvailable, live, setLive } = useVoiceRoomSight(
-    assistantId,
-    viewfinderRef,
-    { cameraOpen, facing: camera.facing, nativePreview: camera.native },
-  );
+  const { heldFrame, liveAvailable, live, setLive, revokeCaptureConsent } =
+    useVoiceRoomSight(assistantId, viewfinderRef, {
+      cameraOpen,
+      facing: camera.facing,
+      nativePreview: camera.native,
+    });
+  // Closing the viewfinder is the other way a user ends Live, and it does not
+  // go through `setLive`. The mode comes down behind it, on the render the
+  // close schedules, which is too late for a frame whose upload lands in
+  // between: consent goes here, in the handler. Every close in this component
+  // goes through this rather than through `close`.
+  const closeCamera = useCallback(() => {
+    revokeCaptureConsent();
+    close();
+  }, [close, revokeCaptureConsent]);
   // One value for what the camera is doing, read by the pill, the shutter, the
   // hint and the announcement alike, so no two of them can disagree about it.
   const cameraMode = live ? "live" : "photo";
@@ -1404,7 +1415,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                 ? t("voiceRoom.closeCamera")
                 : t("voiceRoom.showCamera")
             }
-            onClick={() => (cameraOpen ? close() : void open())}
+            onClick={() => (cameraOpen ? closeCamera() : void open())}
             pressed={cameraOpen}
             surface={controlSurface}
             data-testid="voice-room-camera-toggle"
