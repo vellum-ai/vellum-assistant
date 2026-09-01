@@ -148,7 +148,6 @@ const meta: Meta<StoryArgs> = {
     },
     accentHex: { control: "color" },
     watching: { control: "boolean" },
-    watchEnabled: { control: "boolean" },
     introBeat: {
       control: "inline-radio",
       options: COMPANION_INTRO_BEATS,
@@ -156,11 +155,6 @@ const meta: Meta<StoryArgs> = {
   },
   args: {
     phase: "resting",
-    // On here, off everywhere a real user meets it until the flag says
-    // otherwise. Design stories are for looking at what the surface can draw,
-    // and a control the stories hid would be one nobody could review. Turn it
-    // off to see the two-control row a user without the flag gets.
-    watchEnabled: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
     character: EXAMPLE_CHARACTER,
@@ -345,18 +339,15 @@ export const Hover: Story = {
  * A session reading the screen, with the pointer nowhere near the surface.
  *
  * `hovered` is off on purpose: this is the state the phase exists for. The pill
- * stays open with no hand on it, Watch is held down, and the ring burns amber
- * rather than the assistant's own colour, so the running session is legible
- * from across the desk.
+ * stays open with no hand on it, the row carries the stop that ends the
+ * session, and the ring burns amber rather than the assistant's own colour, so
+ * the running session is legible from across the desk.
  *
- * The phase and the flag are both set because they answer different questions.
- * Turn `watching` off and the pill stays open on a row nothing is running
- * behind, which is what the phase alone means.
- *
- * Watch is the one control on this surface that is genuinely on or off, so it
- * is the one that reports a pressed state. Everything else the surface says
- * about a running session is a colour, and a colour reaches nobody who is
- * reading the page rather than looking at it.
+ * The phase and the session are both set because they answer different
+ * questions. Turn `watching` off and the pill stays open on a row nothing is
+ * running behind, which is what the phase alone means, and the stop goes with
+ * it: a control offering to end the reading is drawn only while there is
+ * reading to end.
  */
 export const Watching: Story = {
   args: { phase: "watching", watching: true, hovered: false },
@@ -403,7 +394,7 @@ export const SummaryReady: Story = {
  * that is not a pill.
  *
  * The way out survives with it, in the composer's own trailing controls: the
- * idle row that carries Watch is not drawn here, and a ring the user can see
+ * idle row that carries the stop is not drawn here, and a ring the user can see
  * and cannot act on is a worse bargain than no ring at all. It sits on this row
  * rather than a row of its own because the card is already within ten points of
  * the height main sized the canvas for.

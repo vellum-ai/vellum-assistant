@@ -189,6 +189,24 @@ const pinSurface = async (
   return found;
 };
 
+/** The control a running session puts on the row, which is where it is read. */
+const stopOf = (container: HTMLElement): HTMLButtonElement | null =>
+  container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Stop teaching"]',
+  );
+
+/** The row drawn with a session running behind it, which cases wait on. */
+const runningStop = async (
+  container: HTMLElement,
+): Promise<HTMLButtonElement> =>
+  await waitFor(() => {
+    const found = stopOf(container);
+    if (!found) {
+      throw new Error("Expected the stop control to render");
+    }
+    return found;
+  });
+
 /**
  * The surface is a union of rects, and this is the one nothing draws into.
  *
@@ -798,23 +816,11 @@ describe("the working ring on the page", () => {
  * sentence and by a call, and the indicator is not.
  */
 describe("the watch session on the companion surface", () => {
-  const watchOf = (container: HTMLElement): HTMLButtonElement => {
-    const found = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Teach"]',
-    );
-    if (!found) {
-      throw new Error("Expected Watch to render");
-    }
-    return found;
-  };
-
   test("hands the press back to the window holding the session", async () => {
+    STATE.watching = true;
     const { container } = render(<CompanionSurfacePage />);
-    await pinSurface(container);
-    const canvas = canvasOf(container);
-    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
 
-    fireEvent.click(watchOf(container));
+    fireEvent.click(await runningStop(container));
 
     expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
@@ -832,9 +838,8 @@ describe("the watch session on the companion surface", () => {
     STATE.watching = true;
     const { container } = render(<CompanionSurfacePage />);
 
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
+    await runningStop(container);
+    expect(container.querySelector(".companion-working-ring")).not.toBeNull();
   });
 
   /**
@@ -846,9 +851,7 @@ describe("the watch session on the companion surface", () => {
     STATE.watching = true;
     STATE.captureCount = 3;
     const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
+    await runningStop(container);
 
     pushState({ ...STATE, captureCount: 4 });
 
@@ -865,9 +868,7 @@ describe("the watch session on the companion surface", () => {
     STATE.watching = true;
     STATE.captureCount = 3;
     const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
+    await runningStop(container);
 
     expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
@@ -879,9 +880,7 @@ describe("the watch session on the companion surface", () => {
   test("reads a state that says nothing about captures as none", async () => {
     STATE.watching = true;
     const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
-    });
+    await runningStop(container);
 
     expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
@@ -897,8 +896,11 @@ describe("the watch session on the companion surface", () => {
     fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
 
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+      expect(
+        container.querySelector('button[aria-label="Talk"]'),
+      ).not.toBeNull();
     });
+    expect(stopOf(container)).toBeNull();
   });
 
   /**
@@ -923,16 +925,7 @@ describe("the watch session on the companion surface", () => {
       }),
     );
 
-    const stop = await waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Stop teaching"]',
-      );
-      if (!found) {
-        throw new Error("Expected the stop control to render");
-      }
-      return found;
-    });
-    fireEvent.click(stop);
+    fireEvent.click(await runningStop(container));
 
     expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
@@ -1125,14 +1118,15 @@ describe("the companion's introduction", () => {
  *
  * The route is standalone: no auth, no `RootLayout`, and so no flag store that
  * ever settles. Main reads the evaluation the app's window wrote into settings
- * and pushes it here, and this page's whole job is to believe only a positive
- * answer.
+ * and pushes it here, and the page passes it on. No control the surface draws
+ * turns on it: the row is Talk and Type under every answer, and the way out of
+ * a running session is drawn from the session itself.
  */
 describe("the Watch flag on the companion surface", () => {
   const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
     container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
-  /** Open the pill, which is where the way into a session would be drawn. */
+  /** Open the pill, which is where a way into a session would be drawn. */
   const openPill = async (container: HTMLElement): Promise<void> => {
     await pinSurface(container);
     await open(container);
@@ -1154,36 +1148,29 @@ describe("the Watch flag on the companion surface", () => {
     expect(watchButton(container)).toBeNull();
   });
 
-  test("draws the way in when the pushed state says yes", async () => {
+  test("draws none when the pushed state says yes either", async () => {
     STATE.watchEnabled = true;
     const { container } = render(<CompanionSurfacePage />);
     await openPill(container);
 
-    expect(watchButton(container)).not.toBeNull();
+    expect(watchButton(container)).toBeNull();
+    expect(container.querySelector('button[aria-label="Talk"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Type"]')).not.toBeNull();
   });
 
   /**
-   * The flag hides the door and never the exit. A session that outlives the
-   * answer is still reading the screen, and a capture the user cannot end is
-   * the one thing this surface exists to prevent.
+   * The exit is not the flag's to take away. A session running under a
+   * negative answer is still reading the screen, and a capture the user cannot
+   * end is the one thing this surface exists to prevent.
    */
-  test("keeps a way out of a session the flag no longer offers", async () => {
+  test("keeps a way out of a session the flag would not have offered", async () => {
     STATE.watchEnabled = false;
     STATE.watching = true;
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
 
-    const stop = await waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Stop teaching"]',
-      );
-      if (!found) {
-        throw new Error("Expected the stop control to render");
-      }
-      return found;
-    });
-    fireEvent.click(stop);
+    fireEvent.click(await runningStop(container));
 
     expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
