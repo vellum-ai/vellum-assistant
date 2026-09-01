@@ -825,6 +825,83 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  test("a bare activation after a keyboard hold is not eaten by it", () => {
+    withFakeTimers((advanceBy) => {
+      let taps = 0;
+      let holds = 0;
+      const onClick = () => {
+        taps += 1;
+      };
+      const { rerender } = render(
+        <CameraShutter
+          onClick={onClick}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The room's shape: the hold enters Live, Live has no second hold to
+      // offer, and the release lands after the offer has gone.
+      fireEvent.keyDown(shutter(), { key: " " });
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(1);
+      rerender(
+        <CameraShutter
+          onClick={onClick}
+          ariaLabel="Stop live"
+          testId="s"
+          mode="live"
+        />,
+      );
+      fireEvent.keyUp(shutter(), { key: " " });
+
+      // What a screen reader and voice control dispatch: a click with no press
+      // in front of it, so nothing of its own clears what the hold raised. The
+      // press that stops Live is the user's first attempt, not their second.
+      fireEvent.click(shutter());
+      expect(taps).toBe(1);
+    });
+  });
+
+  test("a pointer hold's own release is the click that spends it", () => {
+    withFakeTimers((advanceBy) => {
+      let taps = 0;
+      const onClick = () => {
+        taps += 1;
+      };
+      const { rerender } = render(
+        <CameraShutter
+          onClick={onClick}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The same withdrawal, reached by a finger. This release does produce a
+      // click, and that click is the one the hold was suppressing.
+      press();
+      advanceBy(HOLD_MS);
+      rerender(
+        <CameraShutter
+          onClick={onClick}
+          ariaLabel="Stop live"
+          testId="s"
+          mode="live"
+        />,
+      );
+      release();
+      expect(taps).toBe(0);
+
+      // Spent by it, so a bare activation after it lands.
+      fireEvent.click(shutter());
+      expect(taps).toBe(1);
+    });
+  });
+
   test("advertises the hold to a screen reader, and only when offered", () => {
     const { rerender } = render(
       <CameraShutter

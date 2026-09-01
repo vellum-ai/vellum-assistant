@@ -204,13 +204,16 @@ export function CameraShutter({
   /**
    * A new press begins, so whatever the last one was is over.
    *
-   * The flags are normally consumed by the click the press they describe ends
-   * with, but the keyboard path produces no click to consume one (the
-   * activation was suspended on the way down), a press abandoned off the button
-   * produces none either, and a caller that withdraws `onHold` once the hold
-   * has done its work leaves nothing else to clear them. Cleared here instead
-   * of on release, so a stray click still finds them raised while a later press
-   * never does.
+   * The backstop rather than the usual route. A press normally settles its own
+   * flags: a pointer release spends them on the click it produces, and a Space
+   * release clears the hold's on its way out. What is left is the press whose
+   * end reaches nothing here at all, a finger lifted somewhere off the button
+   * or a key released at whatever took focus, and a flag from one of those
+   * would sit raised waiting for a click to eat.
+   *
+   * Cleared at the start of the next press rather than at the end of the last,
+   * so a stray click belonging to the press that just ended still finds them
+   * raised, while a press that comes after never does.
    */
   const beginPress = () => {
     heldRef.current = false;
@@ -368,7 +371,21 @@ export function CameraShutter({
 
   const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
     onKeyUp?.(event);
-    if (!holdOffered || event.key !== " ") {
+    if (event.key !== " ") {
+      return;
+    }
+    // The press this key began is over, whatever is on offer by the time it
+    // ends. A fired hold raises a suppression for a click only a pointer
+    // release produces, so left up it waits for one that never comes and is
+    // spent on some later activation instead. Assistive technology and voice
+    // control dispatch a bare click with no press in front of it, so that
+    // activation has nothing of its own to clear the flag first, and the
+    // user's press does nothing.
+    heldRef.current = false;
+    // The tap the release turns out to be is still the caller's to be offered
+    // a hold for: with none on offer the browser's own activation was never
+    // suspended, so there is nothing here to re-dispatch.
+    if (!holdOffered) {
       return;
     }
     const tapped = holdTimerRef.current !== null;
