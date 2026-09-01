@@ -1549,24 +1549,24 @@ export interface SightFrameSweepPage {
  * never reach anything behind them.
  */
 /**
- * The candidate page query, hoisted out so a test can put the exact text this
- * runs through `EXPLAIN QUERY PLAN`. A copy in the test would go stale the first
- * time the query changed shape, which is precisely when the plan needs checking.
+ * The candidate page query, with `cursorClause` the only thing that varies
+ * between the first page and a continuation. Everything else is written once,
+ * so the two shapes cannot drift in their select list, prefilter, residual
+ * filters, or ordering.
  *
- * The bound, the keyset continuation, and the ordering are all carried by
- * `idx_attachments_created_at_id` (migration 374), so a page is an index-range
- * continuation rather than a fresh scan and sort of the whole table. `kind` and
- * `size_bytes` stay residual filters over the rows that range visits.
+ * Both are hoisted out so a test can put the exact text this runs through
+ * `EXPLAIN QUERY PLAN`. A copy in the test would go stale the first time the
+ * query changed shape, which is precisely when the plan needs checking.
  */
-export const SIGHT_FRAME_SWEEP_CANDIDATE_SQL = `SELECT
+function sightFrameSweepCandidateSql(cursorClause: string): string {
+  return `SELECT
        a.id AS id,
        a.size_bytes AS sizeBytes,
        a.created_at AS createdAt
      FROM attachments a
      WHERE a.kind = 'image'
        AND a.created_at < ?
-       AND a.size_bytes > ?
-       AND (? IS NULL OR (a.created_at, a.id) > (?, ?))
+       AND a.size_bytes > ?${cursorClause}
        AND EXISTS (
          SELECT 1
          FROM message_attachments ma
@@ -1576,6 +1576,32 @@ export const SIGHT_FRAME_SWEEP_CANDIDATE_SQL = `SELECT
        )
      ORDER BY a.created_at ASC, a.id ASC
      LIMIT ?`;
+}
+
+/**
+ * Opening page: the age bound alone, which
+ * `idx_attachments_created_at_id` (migration 374) serves as an index range in
+ * cursor order, so there is no sort step.
+ */
+export const SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL = sightFrameSweepCandidateSql("");
+
+/**
+ * Continuation page: a DIRECT tuple comparison against the cursor, deliberately
+ * not wrapped in an `OR` or guarded by a nullable sentinel.
+ *
+ * The predicate has to be one SQLite can turn into the index's lower bound. A
+ * `(? IS NULL OR (a.created_at, a.id) > (?, ?))` shape reads as a plain
+ * expression it cannot, so the plan keeps only `created_at<?`, every
+ * continuation restarts at the oldest eligible entry, and walking a backlog of
+ * pages costs index visits quadratic in the pages walked. Written directly, the
+ * plan becomes `((created_at,id)>(?,?) AND created_at<?)` and a page seeks
+ * straight to where the last one stopped. Two shapes rather than one is the
+ * price of that, which is why they are built from a single fragment above.
+ */
+export const SIGHT_FRAME_SWEEP_CONTINUATION_SQL = sightFrameSweepCandidateSql(
+  `
+       AND (a.created_at, a.id) > (?, ?)`,
+);
 
 export function selectSightFrameSweepCandidates(options: {
   createdBefore: number;
@@ -1585,18 +1611,23 @@ export function selectSightFrameSweepCandidates(options: {
 }): SightFrameSweepPage {
   const after = options.after ?? null;
   const taggedMessageLike = `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`;
+  // Bind order follows clause order, and the cursor clause sits between the
+  // size filter and the prefilter, so the shared tail keeps its positions.
+  const cursorBinds = after === null ? [] : [after.createdAt, after.id];
   const rows = rawAll<{
     id: string;
     sizeBytes: number;
     createdAt: number;
   }>(
-    "attachments:selectSightFrameSweepCandidates",
-    SIGHT_FRAME_SWEEP_CANDIDATE_SQL,
+    after === null
+      ? "attachments:selectSightFrameSweepCandidates:first"
+      : "attachments:selectSightFrameSweepCandidates:continuation",
+    after === null
+      ? SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL
+      : SIGHT_FRAME_SWEEP_CONTINUATION_SQL,
     options.createdBefore,
     options.largerThanBytes,
-    after === null ? null : 1,
-    after?.createdAt ?? 0,
-    after?.id ?? "",
+    ...cursorBinds,
     taggedMessageLike,
     options.limit,
   );

@@ -44,7 +44,8 @@ import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
-  SIGHT_FRAME_SWEEP_CANDIDATE_SQL,
+  SIGHT_FRAME_SWEEP_CONTINUATION_SQL,
+  SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL,
   SWEEP_BACKUP_SUFFIX,
   SWEEP_TEMP_SUFFIX,
   uploadAttachment,
@@ -267,6 +268,17 @@ function plantCanonicalFile(
     Date.now(),
   );
   return { id, path, bytes };
+}
+
+/** The prefilter pattern the candidate query binds, so the plans are read with real arguments. */
+const TAGGED_MESSAGE_LIKE = '%"sightFrameAttachmentIds"%';
+
+/** Every step SQLite reports for a query, joined so a test can assert over the whole plan. */
+function queryPlanFor(sql: string, binds: Array<string | number>): string {
+  const plan = getSqlite()
+    .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+    .all(...binds) as Array<{ detail: string }>;
+  return plan.map((step) => step.detail).join("\n");
 }
 
 /** A pass that found nothing to do and nothing to reclaim. */
@@ -797,32 +809,43 @@ describe("sweepAgedSightFrames", () => {
     );
   });
 
-  test("reads each candidate page as an index range, not a scan and a sort", () => {
-    // Paging is what makes this load-bearing. The row budget bounds rows
-    // RETURNED, so without an index every page would re-scan the whole
-    // attachments table and re-sort it, and a large install's hourly pass would
-    // pay for that once per page. With `idx_attachments_created_at_id` the age
-    // bound, the keyset continuation, and the ordering are the same index seek,
-    // so a page resumes where the last one stopped.
-    const plan = getSqlite()
-      .prepare(`EXPLAIN QUERY PLAN ${SIGHT_FRAME_SWEEP_CANDIDATE_SQL}`)
-      .all(
-        Date.now(),
-        128 * 1024,
-        1,
-        0,
-        "",
-        '%"sightFrameAttachmentIds"%',
-        200,
-      );
-    const detail = (plan as Array<{ detail: string }>)
-      .map((step) => step.detail)
-      .join("\n");
+  test("opens on an index range rather than a scan and a sort", () => {
+    // Without `idx_attachments_created_at_id` every page would re-scan the whole
+    // attachments table and re-sort it, and the row budget bounds rows RETURNED,
+    // not rows visited, so a large install's hourly pass would pay for that once
+    // per page.
+    const detail = queryPlanFor(SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL, [
+      Date.now(),
+      128 * 1024,
+      TAGGED_MESSAGE_LIKE,
+      200,
+    ]);
 
     expect(detail).toContain("USING INDEX idx_attachments_created_at_id");
+    expect(detail).toContain("created_at<?");
     expect(detail).not.toContain("USE TEMP B-TREE");
     // `SCAN a` is the whole-table read the index replaces. The subquery's own
     // steps are SEARCHes on indexes that already existed.
+    expect(detail).not.toMatch(/\bSCAN a\b/);
+  });
+
+  test("seeks a continuation page straight to the cursor", () => {
+    // The lower bound is the half that makes paging linear. A cursor predicate
+    // SQLite cannot fold into the index range still SEARCHes, but from the
+    // oldest eligible entry every time, so walking a backlog costs index visits
+    // quadratic in the pages walked. The tuple has to reach the constraint.
+    const detail = queryPlanFor(SIGHT_FRAME_SWEEP_CONTINUATION_SQL, [
+      Date.now(),
+      128 * 1024,
+      Date.now() - DAY_MS,
+      "att-cursor",
+      TAGGED_MESSAGE_LIKE,
+      200,
+    ]);
+
+    expect(detail).toContain("USING INDEX idx_attachments_created_at_id");
+    expect(detail).toContain("(created_at,id)>(?,?)");
+    expect(detail).not.toContain("USE TEMP B-TREE");
     expect(detail).not.toMatch(/\bSCAN a\b/);
   });
 
