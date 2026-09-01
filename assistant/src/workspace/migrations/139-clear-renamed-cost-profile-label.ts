@@ -5,16 +5,17 @@ import type { WorkspaceMigration } from "./types.js";
 
 /**
  * Clear the machinery-written `"Speed"` label off the `cost-optimized`
- * profile so the code catalog's own label reaches existing installs.
+ * profile so the code catalog's new label ("Cost") reaches existing installs.
  *
  * `label` is workspace-owned overlay state: a managed-source entry's label
  * wins over the code default (`WORKSPACE_OWNED_DEFAULT_FIELDS` in
  * `config/default-profile-catalog.ts`). Migration 082 and the pre-catalog
  * seeder both wrote `"Speed"` onto `cost-optimized`, and migration 126
- * carried it onto the thin stub, so without this the picker shows that stale
- * overlay in place of the label the code assigns the profile.
+ * carried it onto the thin stub, so without this the picker would show two
+ * profiles named "Speed": `cost-optimized`'s stale overlay and
+ * `latency-optimized`, the user-facing Speed profile.
  *
- * Deleting the key (rather than writing a replacement) returns the label to code
+ * Deleting the key (rather than writing "Cost") returns the label to code
  * ownership, so later renames ship with a release instead of a migration.
  *
  * Only the exact string `"Speed"` is cleared. A user rename to anything else

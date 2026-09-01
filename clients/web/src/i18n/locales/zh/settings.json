@@ -1625,7 +1625,7 @@
     "customTag": "自定义",
     "customTagTitle": "您创建的提供商，由兼容 OpenAI 的端点提供服务。",
     "defaultTag": "默认",
-    "defaultTagTitle": "内置配置文件（平衡、质量、成本、速度）使用此提供商。",
+    "defaultTagTitle": "内置配置文件（平衡、质量、预算、快速）使用此提供商。",
     "delete": "删除",
     "edit": "编辑",
     "localTag": "本地",
