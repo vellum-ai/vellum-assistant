@@ -57,17 +57,26 @@ export function validateDailyLimit(raw: string): string | undefined {
 
 /**
  * Whether a query still owes this render data. `isPending` alone is not
- * enough: a disabled observer (the auto top-up config while the org header is
- * resolving) sits at pending with an idle fetch status and no request on the
- * way, so waiting on it would hold the skeleton with no error escape. An idle
- * pending query counts as settled, and the card falls back the same way it
- * does for a failure.
+ * enough, so this reads the fetch status and counts only an in-flight request
+ * as awaiting:
+ *
+ * - `"idle"`: a disabled observer (the auto top-up config while the org header
+ *   is resolving) or a settled one, with no request on the way.
+ * - `"paused"`: the browser is offline, so the request is deferred with no
+ *   deadline. TanStack resumes it on reconnect, so the fallback shown now
+ *   heals into content by itself.
+ * - `"fetching"`: a request is genuinely in flight and this render owes the
+ *   user a skeleton.
+ *
+ * Both non-fetching cases count as settled, and the card falls back the same
+ * way it does for a failure instead of holding a skeleton with no error to
+ * escape through.
  */
 function isAwaitingData(query: {
   isPending: boolean;
   fetchStatus: "fetching" | "paused" | "idle";
 }): boolean {
-  return query.isPending && query.fetchStatus !== "idle";
+  return query.isPending && query.fetchStatus === "fetching";
 }
 
 /**

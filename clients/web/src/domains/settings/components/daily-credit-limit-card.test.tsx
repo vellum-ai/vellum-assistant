@@ -20,6 +20,8 @@
  *  - a failed sibling query settles the skeleton instead of stranding it
  *  - a disabled sibling query settles it too, so a stuck org-header readiness
  *    cannot skeleton the card forever
+ *  - an offline-paused query settles it as well, so the card reaches its error
+ *    fallback instead of skeletoning for as long as the connection is down
  *  - the deep-link scroll additionally waits for org-header readiness, so it
  *    cannot latch while the card can still fall back to its skeleton
  *  - `validateDailyLimit` bounds checks (pure)
@@ -35,7 +37,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -624,12 +630,16 @@ describe("DailyCreditLimitCard loading state", () => {
   }
 
   /** Seed every query except the one whose pending state is under test. */
-  function clientWithout(pending: "summary" | "autoTopUp"): QueryClient {
+  function clientWithout(
+    pending: "limit" | "summary" | "autoTopUp",
+  ): QueryClient {
     const client = newClient();
-    client.setQueryData(
-      organizationsBillingDailyCreditLimitRetrieveQueryKey(),
-      OFF,
-    );
+    if (pending !== "limit") {
+      client.setQueryData(
+        organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+        OFF,
+      );
+    }
     if (pending !== "summary") {
       client.setQueryData(
         organizationsBillingSummaryRetrieveQueryKey(),
@@ -780,6 +790,34 @@ describe("DailyCreditLimitCard loading state", () => {
     } finally {
       proto.scrollIntoView = originalScroll;
       window.location.hash = originalHash;
+    }
+  });
+
+  test("an offline-paused limit query settles into the fallback", () => {
+    // Offline, TanStack holds the initial request at pending with a "paused"
+    // fetch status and no deadline of its own. Counting that as loading would
+    // skeleton the card for as long as the connection is down; the load-error
+    // fallback is the honest state, and it heals back into content when the
+    // query resumes on reconnect.
+    onlineManager.setOnline(false);
+    try {
+      const client = clientWithout("limit");
+      const { getByTestId, queryByRole } = renderAtAnchor(client);
+
+      expect(
+        client.getQueryState(
+          organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+        )?.fetchStatus,
+      ).toBe("paused");
+
+      const card = getByTestId("daily-credit-limit-card");
+      expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+      expect(card.textContent).toBe(
+        "Failed to load daily credit limit settings.",
+      );
+      expect(queryByRole("switch")).toBeNull();
+    } finally {
+      onlineManager.setOnline(true);
     }
   });
 });
