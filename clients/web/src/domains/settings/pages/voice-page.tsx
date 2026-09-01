@@ -32,7 +32,7 @@ import {
 } from "@/utils/hold-to-dictate";
 import {
   getSystemPermissionsState,
-  openSystemPermissionSettings,
+  requestSystemPermission,
 } from "@/runtime/system-permissions";
 import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
@@ -193,13 +193,10 @@ function HoldToDictateCard() {
           checked={enabled}
           onChange={(next: boolean) => {
             setHoldToDictateEnabled(next);
-            // Switching it on is the moment to ask, and the only one. Opening
-            // the pane rather than only requesting: macOS shows the prompt once
-            // per app and silently does nothing afterwards, so a request alone
-            // leaves anyone who has already dismissed it with a switch that
-            // looks on and a binding that never fires.
+            // Switching it on is the moment to ask, and the only one: a press
+            // cannot be, since noticing the press is the thing being granted.
             if (next) {
-              void openSystemPermissionSettings("inputMonitoring").then(
+              void requestSystemPermission("inputMonitoring").then(
                 refreshPermission,
               );
             }
@@ -208,22 +205,9 @@ function HoldToDictateCard() {
         />
 
         {enabled && !granted && (
-          <div className="flex flex-col gap-2">
-            <span className={labelClasses}>
-              {t("voicePage.holdToDictateNeedsInputMonitoring")}
-            </span>
-            <Button
-              variant="outlined"
-              className="self-start"
-              onClick={() => {
-                void openSystemPermissionSettings("inputMonitoring").then(
-                  refreshPermission,
-                );
-              }}
-            >
-              {t("voicePage.holdToDictateOpenSettings")}
-            </Button>
-          </div>
+          <span className={labelClasses}>
+            {t("voicePage.holdToDictateNeedsInputMonitoring")}
+          </span>
         )}
 
         {enabled && (
