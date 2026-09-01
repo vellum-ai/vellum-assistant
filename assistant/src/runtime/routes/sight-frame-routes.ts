@@ -75,8 +75,11 @@ async function handleConversationSightFrame({
 
   // Every non-fatal outcome the persist folds into `ok` is reported as a
   // refusal rather than an error status: the frame is gone either way, the
-  // client's only move is to keep sampling, and the persist reclaims the
-  // upload behind each one itself.
+  // client's only move is to keep sampling, and the upload behind each one is
+  // the persist's to settle. It gives the bytes up as it refuses, or, where
+  // the store would not say whether a row landed, holds them until it answers
+  // and gives them up then. Either way the client is done with the frame,
+  // which is what the two-state response means.
   const result = await persistAmbientSightFrame(
     conversationId,
     attachmentId,
@@ -108,8 +111,8 @@ export const ROUTES: RouteDefinition[] = [
       "Add an already-uploaded camera frame to a conversation as its own " +
       "message, tagged so retention can age the image out of the model's " +
       "context while the transcript keeps it. No reply is generated. " +
-      "Returns persisted=false when the frame was dropped, in which case " +
-      "the upload has already been released and there is nothing to clean up.",
+      "Returns persisted=false when the frame was dropped, in which case the " +
+      "assistant owns the upload and there is nothing to clean up.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
     requestBody: z.object({

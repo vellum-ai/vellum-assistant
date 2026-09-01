@@ -34,6 +34,7 @@ import {
   selectSightFrameCaptureTimes,
 } from "../../persistence/conversation-crud.js";
 import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversation-types.js";
+import * as dbConnection from "../../persistence/db-connection.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import { conversations } from "../../persistence/schema/index.js";
@@ -41,6 +42,8 @@ import * as slowSyncLog from "../../persistence/slow-sync-log.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
+  _drainFrameReclaimRechecksForTests,
+  _pendingFrameReclaimCountForTests,
   _setProcessingWaitMsForTests,
   _standaloneImageQueueSizeForTests,
   persistAmbientSightFrame,
@@ -83,6 +86,20 @@ mock.module("../../agent/message-types.js", () => ({
  * insert runs for real the first time.
  */
 let beforeFailingInsertAttempt: (() => void) | null = null;
+
+/**
+ * Make every store read throw, which is what leaves a persist unable to say
+ * whether its row landed.
+ */
+let storeUnreadable = false;
+
+/**
+ * Break the store the instant a row has committed rather than before it, which
+ * is the one shape where "could not read" and "the frame is in the transcript"
+ * are both true.
+ */
+let breakStoreAfterInsert = false;
+
 const realSlowSyncLog = { ...slowSyncLog };
 mock.module("../../persistence/slow-sync-log.js", () => ({
   ...realSlowSyncLog,
@@ -99,7 +116,23 @@ mock.module("../../persistence/slow-sync-log.js", () => ({
         code: "SQLITE_BUSY",
       });
     }
-    return realSlowSyncLog.timeSyncSection(label, fn, detail);
+    const result = realSlowSyncLog.timeSyncSection(label, fn, detail);
+    if (label === "messages:insert" && breakStoreAfterInsert) {
+      breakStoreAfterInsert = false;
+      storeUnreadable = true;
+    }
+    return result;
+  },
+}));
+
+const realDbConnection = { ...dbConnection };
+mock.module("../../persistence/db-connection.js", () => ({
+  ...realDbConnection,
+  getDb: () => {
+    if (storeUnreadable) {
+      throw new Error("database is not readable");
+    }
+    return realDbConnection.getDb();
   },
 }));
 
@@ -1012,6 +1045,65 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(frameStored(frame)).toBe(true);
     } finally {
       beforeFailingInsertAttempt = null;
+      live.dispose();
+    }
+  });
+
+  test("a frame refused under an unreadable store is collected once it answers", async () => {
+    // `persisted: false` tells the client the daemon has dealt with the
+    // upload, and nothing else ever collects an attachment no caller names:
+    // collection is candidate-driven with no sweep. So a refusal the store
+    // could not explain has to come back to the question rather than leave the
+    // bytes for good.
+    const live = liveConversation("Live voice keep unreadable store");
+    try {
+      const frame = await uploadFrame("unreadable.png");
+
+      storeUnreadable = true;
+      const result = await persistAmbientSightFrame(live.id, frame, "voice");
+      storeUnreadable = false;
+
+      expect(result).toEqual({ ok: false });
+      // Not reclaimed on the spot: "could not read" is not "no row".
+      expect(frameStored(frame)).toBe(true);
+      expect(_pendingFrameReclaimCountForTests()).toBe(1);
+
+      _drainFrameReclaimRechecksForTests();
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(0);
+      expect(frameStored(frame)).toBe(false);
+      expect(getMessages(live.id)).toHaveLength(0);
+    } finally {
+      storeUnreadable = false;
+      live.dispose();
+    }
+  });
+
+  test("a frame whose row landed keeps its upload when the store answers", async () => {
+    // The other half of the same question. A persist can fail after its row
+    // committed, and that row references the bytes through content the link
+    // write never got to protect, so a recheck that finds the row must leave
+    // the attachment alone.
+    const live = liveConversation("Live voice keep row landed unreadable");
+    try {
+      const frame = await uploadFrame("landed.png");
+
+      breakStoreAfterInsert = true;
+      const result = await persistAmbientSightFrame(live.id, frame, "voice");
+      storeUnreadable = false;
+
+      expect(result).toEqual({ ok: false });
+      expect(_pendingFrameReclaimCountForTests()).toBe(1);
+
+      _drainFrameReclaimRechecksForTests();
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(0);
+      // The row is in the transcript, so its bytes are spoken for.
+      expect(getMessages(live.id)).toHaveLength(1);
+      expect(frameStored(frame)).toBe(true);
+    } finally {
+      breakStoreAfterInsert = false;
+      storeUnreadable = false;
       live.dispose();
     }
   });

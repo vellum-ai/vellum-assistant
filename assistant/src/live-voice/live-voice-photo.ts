@@ -239,10 +239,12 @@ async function enqueueStandaloneImagePersist(
  * Each caller owes the invariant in the first line. The supersede and timeout
  * paths have it by construction, neither having reached the persist; the
  * thrown path establishes it by checking that no row was inserted
- * ({@link messageMayExist}), because a persist can fail after `addMessage`
- * succeeded. {@link deleteOrphanAttachments} being link-aware is the second
- * backstop rather than the only one: a failure between the insert and the link
- * leaves a row that references the attachment with no link to protect it.
+ * ({@link insertedMessageState}), because a persist can fail after `addMessage`
+ * succeeded, and a path that cannot read that answer waits for it through
+ * {@link deferFrameReclaimDecision} rather than guessing.
+ * {@link deleteOrphanAttachments} being link-aware is the second backstop
+ * rather than the only one: a failure between the insert and the link leaves a
+ * row that references the attachment with no link to protect it.
  *
  * The reclaim names the id the caller handed in, which is not always the id
  * the row ended up referencing: conversation scoping clones an attachment
@@ -267,6 +269,125 @@ function reclaimDroppedFrame(attachmentId: string): void {
 /** Conversations with a standalone-image persist still in flight. */
 export function _standaloneImageQueueSizeForTests(): number {
   return standaloneImageQueues.size;
+}
+
+/**
+ * How long to wait before asking the store again about a frame whose fate it
+ * could not report.
+ *
+ * A store that cannot be read is either mid-migration or held by a writer, and
+ * neither outlasts a boot, so the question is asked on a slow cadence and given
+ * up on after a bounded number of passes rather than forever.
+ */
+const RECLAIM_RECHECK_MS = 30_000;
+const RECLAIM_RECHECK_ATTEMPTS = 10;
+
+let reclaimRecheckMs = RECLAIM_RECHECK_MS;
+
+/** Shorten the recheck wait for a test. Returns the value it replaced. */
+export function _setReclaimRecheckMsForTests(ms: number): number {
+  const previous = reclaimRecheckMs;
+  reclaimRecheckMs = ms;
+  return previous;
+}
+
+interface PendingFrameReclaim {
+  conversationId: string;
+  messageId: string;
+  attachmentId: string;
+  attempts: number;
+}
+
+const pendingFrameReclaims: PendingFrameReclaim[] = [];
+let reclaimRecheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Hold a frame whose outcome the store would not report, and decide it once
+ * the store answers.
+ *
+ * Both the refusal a caller sees and the upload behind it are this module's to
+ * settle: a refused frame is reported as handled, and nothing else in the
+ * daemon collects an attachment no caller names, collection being
+ * candidate-driven with no sweep. Reclaiming on the spot is the other wrong
+ * answer, because "could not read" is not "no row", and a row that landed can
+ * reference the bytes through content whose link write failed. So the question
+ * is asked again later and only an answer decides it.
+ *
+ * `messageId` is the id the row would carry. A path that never reached an
+ * insert passes the id it would have used, which reads absent the moment the
+ * store is readable, and readable is the whole of what that path is waiting
+ * for.
+ */
+function deferFrameReclaimDecision(
+  conversationId: string,
+  messageId: string,
+  attachmentId: string,
+): void {
+  pendingFrameReclaims.push({
+    conversationId,
+    messageId,
+    attachmentId,
+    attempts: 0,
+  });
+  scheduleFrameReclaimRecheck();
+}
+
+function scheduleFrameReclaimRecheck(): void {
+  if (reclaimRecheckTimer || pendingFrameReclaims.length === 0) {
+    return;
+  }
+  reclaimRecheckTimer = setTimeout(() => {
+    reclaimRecheckTimer = null;
+    drainFrameReclaimRechecks();
+  }, reclaimRecheckMs);
+  // A pending reclaim is never a reason to keep the process alive.
+  reclaimRecheckTimer.unref?.();
+}
+
+/**
+ * Ask the store again about every frame waiting on it.
+ *
+ * A row that exists means the frame reached the transcript and its bytes are
+ * spoken for. Absent means the write never landed and the upload is this
+ * module's to give up. Still unreadable means ask again, up to the cap.
+ */
+function drainFrameReclaimRechecks(): void {
+  for (const pending of pendingFrameReclaims.splice(0)) {
+    const inserted = insertedMessageState(
+      pending.conversationId,
+      pending.messageId,
+    );
+    if (inserted === "absent") {
+      reclaimDroppedFrame(pending.attachmentId);
+      continue;
+    }
+    if (inserted === "exists") {
+      continue;
+    }
+    pending.attempts += 1;
+    if (pending.attempts >= RECLAIM_RECHECK_ATTEMPTS) {
+      log.warn(
+        {
+          conversationId: pending.conversationId,
+          attachmentId: pending.attachmentId,
+        },
+        "Gave up asking whether a camera frame persisted; keeping its upload",
+      );
+      continue;
+    }
+    pendingFrameReclaims.push(pending);
+  }
+  scheduleFrameReclaimRecheck();
+}
+
+/** Frames whose outcome the store has not reported yet. */
+export function _pendingFrameReclaimCountForTests(): number {
+  return pendingFrameReclaims.length;
+}
+
+/** Ask the store now rather than on the recheck timer. */
+export function _drainFrameReclaimRechecksForTests(): void {
+  drainFrameReclaimRechecks();
 }
 
 /**
@@ -347,13 +468,16 @@ function persistStandaloneImage(
     // This read is the one thing here that runs outside the job's own catch,
     // and the contract above is that an image never takes its caller down: the
     // socket attaches no handler for a rejection. Reported as the refusal it
-    // is, and the upload is kept, because a store that cannot be read is not
-    // evidence the conversation is gone and reclaiming on a guess deletes
-    // bytes a message may reference.
+    // is, and the upload is held rather than deleted, because a store that
+    // cannot be read is not evidence the conversation is gone. Nothing was
+    // inserted, so the recheck reclaims as soon as the store answers at all.
     log.warn(
       { err, conversationId, attachmentId, kind },
       "Could not read the conversation a standalone image names",
     );
+    if (kind === "sight_frame") {
+      deferFrameReclaimDecision(conversationId, uuidv7(), attachmentId);
+    }
     return Promise.resolve({ ok: false });
   }
   if (incarnation === null) {
@@ -535,8 +659,15 @@ async function writeStandaloneImage(
       }
       return { ok: true, messageId: requestId };
     }
-    if (kind === "sight_frame" && inserted === "absent") {
-      reclaimDroppedFrame(attachmentId);
+    if (kind === "sight_frame") {
+      if (inserted === "absent") {
+        reclaimDroppedFrame(attachmentId);
+      } else {
+        // The store would not say whether the row landed. The refusal below
+        // reports the frame as handled, so the upload cannot simply be left:
+        // it waits for an answer instead.
+        deferFrameReclaimDecision(conversationId, requestId, attachmentId);
+      }
     }
     return { ok: false };
   }

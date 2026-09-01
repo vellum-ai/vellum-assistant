@@ -287,14 +287,19 @@ async function acquireConversation(
     // the map instead of building unconditionally: two creating callers that
     // fell through together would each build an instance for one id, the
     // second overwriting the first in the registry and leaving the first to
-    // run outside the shared processing and queue state.
+    // run outside the shared processing and queue state. A non-creating caller
+    // re-consults for the mirrored reason: a flight that declined answered for
+    // the incarnation IT was asked about, which a delete and recreate can have
+    // made a different one from this caller's.
     //
     // It terminates. The owner of a flight attaches its own continuation in
     // the same synchronous run that publishes the flight, so its `finally`
     // has already removed the entry by the time any joiner resumes, and a
     // joiner therefore never re-joins the flight it just awaited. What it
     // finds instead is a newer flight or nothing, and a creating flight only
-    // ever resolves non-null, so joining one returns.
+    // ever resolves non-null, so joining one returns. A non-creating caller
+    // passes again only while the row it was asked about is still there, so
+    // the delete that a declining flight reports ends its loop as well.
     for (;;) {
       const pending = conversationCreating.get(conversationId);
       if (!pending) {
@@ -310,9 +315,17 @@ async function acquireConversation(
         // writing a fresh row under the same id. Present is therefore not the
         // question: that row is a different conversation, and this caller was
         // never asked to persist into it.
-        return joined && isSameIncarnation(conversationId, incarnation)
-          ? joined
-          : null;
+        if (joined) {
+          return isSameIncarnation(conversationId, incarnation) ? joined : null;
+        }
+        // A declining flight reports its own incarnation gone, which says
+        // nothing about a later one this caller may hold. Taking that null
+        // would refuse work the id can still accept, so this reconsults, and
+        // only its own row being gone ends it.
+        if (!isSameIncarnation(conversationId, incarnation)) {
+          return null;
+        }
+        continue;
       }
       if (joined) {
         return joined;

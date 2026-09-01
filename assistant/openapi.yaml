@@ -8196,7 +8196,7 @@ paths:
       description:
         Add an already-uploaded camera frame to a conversation as its own message, tagged so retention can age the
         image out of the model's context while the transcript keeps it. No reply is generated. Returns persisted=false
-        when the frame was dropped, in which case the upload has already been released and there is nothing to clean up.
+        when the frame was dropped, in which case the assistant owns the upload and there is nothing to clean up.
       tags:
         - conversations
       parameters:

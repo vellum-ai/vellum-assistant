@@ -421,4 +421,67 @@ describe("acquisitions sharing one flight", () => {
     expect(findConversation("herd-conversation")).toBe(first);
     expect(conversationCount()).toBe(1);
   });
+
+  test("a joiner holding a later incarnation does not inherit the decline", async () => {
+    // The flight it joined was asked about the row that has since been
+    // deleted, and reports that. This caller was accepted for the row written
+    // after it, which is still there, so taking the null would drop work the
+    // conversation on screen can still accept.
+    resetAcquireState();
+    conversationRowPresent = true;
+    let releaseSetup = () => {};
+    holdSetup = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    // Passes its up-front read, publishes the flight, then waits inside setup.
+    const doomed = getConversationIfExists("rejoin-conversation");
+
+    // The delete the flight above will refuse on, and the recreate the caller
+    // below is accepted for.
+    conversationRowPresent = false;
+    writeConversationRow();
+    const acceptedIncarnation = conversationCreatedAt;
+
+    // Reads the recreated row, finds no instance, and joins the flight above.
+    const joining = getConversationIfExists("rejoin-conversation");
+    releaseSetup();
+
+    expect(await doomed).toBeNull();
+
+    const conversation = await joining;
+    expect(conversation).not.toBeNull();
+    expect(findConversation("rejoin-conversation")).toBe(conversation!);
+    // The row it was accepted for, untouched: a non-creating acquire that
+    // finds its own row present writes nothing back.
+    expect(conversationCreatedAt).toBe(acceptedIncarnation);
+    expect(mockEnsureConversationExists).not.toHaveBeenCalled();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  test("a joiner whose own row is gone still answers null", async () => {
+    // The control on the retry above. Reconsulting is for a caller whose row
+    // outlived the flight's, and a caller with no row at all has to keep
+    // getting the answer its callers reclaim uploads on.
+    resetAcquireState();
+    conversationRowPresent = true;
+    let releaseSetup = () => {};
+    holdSetup = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    const doomed = getConversationIfExists("rejoin-absent-conversation");
+    // Joins while the row is still the one both were asked about.
+    const joining = getConversationIfExists("rejoin-absent-conversation");
+
+    // Deleted for good, with nothing written back.
+    conversationRowPresent = false;
+    releaseSetup();
+
+    expect(await doomed).toBeNull();
+    expect(await joining).toBeNull();
+    expect(conversationCount()).toBe(0);
+    expect(mockEnsureConversationExists).not.toHaveBeenCalled();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
 });
