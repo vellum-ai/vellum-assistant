@@ -265,7 +265,7 @@ export function CacheBreakpointMapCard({
       ) : null}
 
       <p
-        className="mt-3 text-label-medium-default"
+        className="mt-3 text-body-small-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("cacheBreakpointMapCard.tokenEstimateNote")}

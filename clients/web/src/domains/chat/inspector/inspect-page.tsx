@@ -497,7 +497,7 @@ function ScopeSubtitle({
   }
   return (
     <p
-      className="text-label-medium-default"
+      className="text-body-small-lighter"
       style={{ color: "var(--content-secondary)" }}
     >
       {tChat("inspectPage.conversationScopeSubtitle")}

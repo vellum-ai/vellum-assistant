@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { defineConfig, globalIgnores } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
@@ -26,33 +29,36 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
 /**
  * Typography variant names that do not exist.
  *
- * `packages/design-library/src/tokens.css` defines these 13 utilities via
- * Tailwind `@utility`. The `--text-*` variables live in a plain `:root`
+ * `packages/design-library/src/tokens.css` defines the typography utilities
+ * via Tailwind `@utility`. The `--text-*` variables sit in a plain `:root`
  * rather than `@theme`, so Tailwind generates nothing else — an invented but
  * plausible name matches no CSS and the element silently falls back to the
  * inherited 16px/400. That reached 193 call sites in the platform admin tree
- * before it was noticed, and 92 here; this is the port of the guard added
- * there.
+ * before anyone noticed, and 92 here.
  *
- * Keep in sync with the `@utility` blocks in `tokens.css` and with
- * `TypographyVariant` in
- * `packages/design-library/src/components/typography.tsx`.
+ * The list is parsed out of `tokens.css` rather than restated, so it cannot
+ * drift from the utilities that actually exist. `tokens.test.ts` takes the
+ * same approach with the colour palette, for the same reason. Filtered to
+ * the four scale families so unrelated `@utility` entries (for example
+ * `text-optical-center`) are not treated as variants.
  */
 const TYPOGRAPHY_VARIANTS = [
-  "title-large",
-  "title-medium",
-  "title-small",
-  "body-large-lighter",
-  "body-large-default",
-  "body-medium-lighter",
-  "body-medium-default",
-  "body-small-lighter",
-  "body-small-default",
-  "body-small-emphasised",
-  "label-medium-default",
-  "label-small-default",
-  "chat",
-];
+  ...readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../packages/design-library/src/tokens.css",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ).matchAll(/@utility\s+text-((?:title|body|label|chat)[a-z-]*)\s*\{/g),
+].map((match) => match[1]);
+
+if (TYPOGRAPHY_VARIANTS.length === 0) {
+  throw new Error(
+    "No typography utilities found in tokens.css — the parse above has drifted from the file's shape, and the unknown-variant rule would match everything.",
+  );
+}
 
 /**
  * Matches `text-` + a scale family unless the whole token is a real variant.

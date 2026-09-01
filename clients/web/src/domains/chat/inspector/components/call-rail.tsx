@@ -62,7 +62,7 @@ export function CallRail({
   if (!logs.length) {
     return (
       <div
-        className="flex h-full items-center justify-center p-4 text-label-medium-default"
+        className="flex h-full items-center justify-center p-4 text-body-small-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("callRail.empty")}

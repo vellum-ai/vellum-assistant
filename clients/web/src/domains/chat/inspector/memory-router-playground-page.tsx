@@ -1390,7 +1390,7 @@ function EmptyResultCard(): ReactNode {
           {t("memoryRouterPlaygroundPage.noPagesSelected")}
         </span>
         <span
-          className="text-label-medium-default"
+          className="text-body-small-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
           {t("memoryRouterPlaygroundPage.emptySelectionHint")}

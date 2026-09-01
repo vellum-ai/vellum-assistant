@@ -468,7 +468,7 @@ function V2ConfigCard({
               {t("memoryTab.configTitle")}
             </span>
             <span
-              className="text-label-medium-default"
+              className="text-body-small-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
               {t("memoryTab.configSubtitle")}
