@@ -35,10 +35,6 @@ import {
   readHomeFeed,
 } from "../home/feed-writer.js";
 import { buildSlackMessageDeepLinks } from "../messaging/providers/slack/deep-link.js";
-import {
-  DEFAULT_USER_REFERENCE,
-  resolveGuardianName,
-} from "../prompts/user-reference.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildToolApprovalSourceView,
@@ -90,16 +86,6 @@ export function requestIdFromGuardianFeedItemId(itemId: string): string | null {
   return itemId.startsWith("guardian:")
     ? itemId.slice("guardian:".length)
     : null;
-}
-
-/**
- * Guardian display name for receipt copy, or undefined when only the
- * prompt-voice fallback ("my human") is available. A receipt with no
- * decider label renders as the bare status word.
- */
-function guardianReceiptName(): string | undefined {
-  const name = resolveGuardianName();
-  return name === DEFAULT_USER_REFERENCE ? undefined : name;
 }
 
 /**
@@ -265,13 +251,6 @@ export async function writeGuardianFeedReceipt(
         ...(params.decidedAction
           ? { decidedAction: params.decidedAction }
           : {}),
-        // A decider label only when a person decided: a non-decision
-        // terminal (superseded, expired) must not read as the guardian's
-        // own rejection.
-        ...((params.status === "approved" || params.status === "denied") &&
-        !params.terminalReason
-          ? decidedByLabelPatch()
-          : {}),
         decidedAt: new Date(params.decidedAtMs ?? Date.now()).toISOString(),
         ...(params.terminalReason
           ? { terminalReason: params.terminalReason }
@@ -293,15 +272,6 @@ export async function writeGuardianFeedReceipt(
     );
     return false;
   }
-}
-
-/** `{ decidedByLabel }` when a real display name exists, `{}` otherwise. */
-function decidedByLabelPatch(): Pick<
-  Partial<FeedItemGuardianRequest>,
-  "decidedByLabel"
-> {
-  const name = guardianReceiptName();
-  return name === undefined ? {} : { decidedByLabel: name };
 }
 
 /**

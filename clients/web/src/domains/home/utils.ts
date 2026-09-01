@@ -142,39 +142,20 @@ export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
   };
 }
 
-/** Catalog keys a guardian row or panel title may carry. */
-export type GuardianCategoryLabelKey =
+/** Catalog keys naming a guardian request. */
+export type GuardianLabelKey =
   | "category.guardianAction"
   | "category.guardianQuestion"
   | "category.guardianRequest";
 
 /**
- * Category label override for a pending guardian-request item. The wire
- * `category` stays `security` (older clients keep their chip), but a
- * pending guardian row names what it actually needs: an action or an
- * answer. Null once the request is terminal (a resolved request needs
- * nothing, so its chip falls back to the category's own label) and for
- * every other item.
+ * What to call a guardian-request item, on the row and on the panel it
+ * opens. A waiting approval asks for something ("Guardian action
+ * needed"); once it is settled nothing is needed of anyone, so it is
+ * named for what it was. A question is a question either way. Null for
+ * every other item, which is named by its own title.
  */
-export function guardianCategoryLabelKey(
-  item: FeedItem,
-): GuardianCategoryLabelKey | null {
-  if (!isPendingGuardianFeedItem(item)) {
-    return null;
-  }
-  return guardianDetailTitleKey(item);
-}
-
-/**
- * Panel title for a guardian-request item's detail. A waiting approval
- * asks for something ("Guardian action needed"); once it is settled
- * nothing is needed of anyone, so it is named for what it was: a
- * guardian request. A question is a question either way. Null for every
- * other item, whose detail is titled by the item's own title.
- */
-export function guardianDetailTitleKey(
-  item: FeedItem,
-): GuardianCategoryLabelKey | null {
+export function guardianLabelKey(item: FeedItem): GuardianLabelKey | null {
   if (!item.guardianRequest) {
     return null;
   }

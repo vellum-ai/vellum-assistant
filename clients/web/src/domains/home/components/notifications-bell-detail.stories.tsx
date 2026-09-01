@@ -252,7 +252,6 @@ export const GuardianApprovalResolved: Story = {
         requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceContextLabel: "Slack #user-feedback",
-        decidedByLabel: "Bob",
         decidedAt: "2026-08-31T13:00:00.000Z",
       },
     }),

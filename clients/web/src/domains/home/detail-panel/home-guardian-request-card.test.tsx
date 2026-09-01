@@ -121,15 +121,9 @@ describe("HomeGuardianRequestCard", () => {
     ).toBeTruthy();
   });
 
-  // The decider is deliberately never named: a guardian request is the
-  // guardian's alone to decide, so the only name it could carry is the
-  // name of the person reading it.
   test.each([
-    [
-      { status: "approved", decidedByLabel: "Bob" } as const,
-      "Request approved",
-    ],
-    [{ status: "denied", decidedByLabel: "Bob" } as const, "Request rejected"],
+    [{ status: "approved" } as const, "Request approved"],
+    [{ status: "denied" } as const, "Request rejected"],
     [{ status: "expired" } as const, "Request expired"],
     [
       { status: "denied", terminalReason: "superseded" } as const,

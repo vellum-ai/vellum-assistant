@@ -258,7 +258,7 @@ describe("writeGuardianFeedReceipt", () => {
     expect(item && isPendingGuardianFeedItem(item)).toBe(false);
   });
 
-  test("a superseded auto-deny carries its reason and no decider", async () => {
+  test("a superseded auto-deny carries its reason", async () => {
     await appendFeedItem(pendingGuardianItem("req-4"));
     await writeGuardianFeedReceipt({
       requestId: "req-4",
@@ -270,7 +270,7 @@ describe("writeGuardianFeedReceipt", () => {
       (i) => i.id === guardianFeedItemId("req-4"),
     );
     expect(item?.guardianRequest?.terminalReason).toBe("superseded");
-    expect(item?.guardianRequest?.decidedByLabel).toBeUndefined();
+    expect(item?.guardianRequest?.status).toBe("denied");
   });
 
   test("a request with no item resolves true (nothing to retry)", async () => {

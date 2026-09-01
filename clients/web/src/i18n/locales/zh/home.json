@@ -56,6 +56,7 @@
       "expired": "请求已过期",
       "superseded": "请求已被取代",
       "leftUnverified": "未验证",
+      "cancelled": "请求已取消",
       "alreadyResolved": "已处理"
     },
     "viewSourceThread": "查看来源消息串",

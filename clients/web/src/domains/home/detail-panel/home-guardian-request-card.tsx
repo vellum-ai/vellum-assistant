@@ -215,13 +215,11 @@ export function HomeGuardianRequestCard({
           a delivery of this same request, so linking it from here would
           send a person to a copy of the surface they are already on. */}
       {guardianRequest.sourceUrl ? (
-        <div className="flex flex-wrap items-center gap-[var(--app-spacing-sm)]">
-          <ExternalTextLink
-            href={guardianRequest.sourceUrl}
-            icon={<ExternalLink className="size-3.5" />}
-            label={t("homeGuardianRequestCard.viewSourceThread")}
-          />
-        </div>
+        <ExternalTextLink
+          href={guardianRequest.sourceUrl}
+          icon={<ExternalLink className="size-3.5" />}
+          label={t("homeGuardianRequestCard.viewSourceThread")}
+        />
       ) : null}
     </div>
   );
@@ -261,6 +259,7 @@ type ReceiptLabelKey =
   | "homeGuardianRequestCard.receipt.expired"
   | "homeGuardianRequestCard.receipt.superseded"
   | "homeGuardianRequestCard.receipt.leftUnverified"
+  | "homeGuardianRequestCard.receipt.cancelled"
   | "homeGuardianRequestCard.receipt.alreadyResolved";
 
 interface ReceiptView {
@@ -330,7 +329,7 @@ function receiptView(
     };
   }
   return {
-    labelKey: "homeGuardianRequestCard.receipt.alreadyResolved",
+    labelKey: "homeGuardianRequestCard.receipt.cancelled",
     tone: "neutral",
     icon: CircleSlash,
   };

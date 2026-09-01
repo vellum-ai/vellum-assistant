@@ -27,7 +27,7 @@ import {
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
 } from "./home-recap-actions";
-import { guardianCategoryLabelKey, resolveFeedItemTitle } from "./utils";
+import { guardianLabelKey, resolveFeedItemTitle } from "./utils";
 
 /**
  * Marks the card's own click target, the one control a long press may arm on:
@@ -137,13 +137,11 @@ export function HomeRecapRow({
   const longPress = useLongPressSheet({ shouldSkip: skipRowControls });
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
-  const guardianLabelKey = guardianCategoryLabelKey(item) ?? undefined;
   const needsAttention = isPendingGuardianFeedItem(item);
-  /* A waiting request leads with the same pill its detail is titled by, so
-     the row and the panel it opens say the same thing. That takes the first
-     line, which puts the ask on its own line under it. */
-  const attentionPillKey = needsAttention ? guardianLabelKey : undefined;
-  const showsMetaRow = densityStyle.showsMetaRow || attentionPillKey != null;
+  /* A waiting request is named on its first line, the same name the panel
+     it opens is titled by, which puts the ask on its own line under it. */
+  const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
+  const showsMetaRow = densityStyle.showsMetaRow || attentionLabelKey !== null;
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
@@ -254,7 +252,7 @@ export function HomeRecapRow({
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
           {showsMetaRow ? (
             <>
-              {attentionPillKey ? (
+              {attentionLabelKey ? (
                 // Plain text, not the pill the detail is titled by: the row
                 // behind it already carries the attention hue, so a pill
                 // would tint against its own colour and read as nothing but
@@ -263,16 +261,13 @@ export function HomeRecapRow({
                   variant="body-small-emphasised"
                   className="text-[var(--content-default)]"
                 >
-                  {t(attentionPillKey)}
+                  {t(attentionLabelKey)}
                 </Typography>
               ) : (
-                <FeedCategoryChip
-                  category={item.category}
-                  labelKey={guardianLabelKey}
-                />
+                <FeedCategoryChip category={item.category} />
               )}
 
-              {sourceLabel !== null && !attentionPillKey && (
+              {sourceLabel !== null && (
                 <Typography
                   variant="body-small-default"
                   className="min-w-0 truncate text-[var(--content-tertiary)]"

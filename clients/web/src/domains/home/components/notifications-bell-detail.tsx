@@ -17,7 +17,7 @@ import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-c
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
-import { guardianDetailTitleKey, resolveFeedItemTitle } from "../utils";
+import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -105,7 +105,7 @@ export function NotificationsBellDetail({
   // A guardian request's panel is titled by the kind of request; the card
   // below renders the item's own title as its heading. Every other item is
   // titled by its title.
-  const guardianTitleKey = guardianDetailTitleKey(item);
+  const guardianTitleKey = guardianLabelKey(item);
   const panelTitle = guardianTitleKey
     ? t(guardianTitleKey)
     : resolveFeedItemTitle(item);

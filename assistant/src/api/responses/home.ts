@@ -170,8 +170,6 @@ export const FeedItemGuardianRequestSchema = z.object({
   slackCardAppUrl: z.string().optional(),
   /** Action that resolved the request, for terminal statuses. */
   decidedAction: z.string().optional(),
-  /** Display label of the decider, when the decision came from a person. */
-  decidedByLabel: z.string().optional(),
   /** ISO-8601 time the request reached its terminal status. */
   decidedAt: z.string().optional(),
   /**

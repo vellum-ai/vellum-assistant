@@ -56,6 +56,7 @@
       "expired": "Срок запроса истёк",
       "superseded": "Запрос заменён",
       "leftUnverified": "Осталось непроверенным",
+      "cancelled": "Запрос отменён",
       "alreadyResolved": "Уже решено"
     },
     "viewSourceThread": "Открыть исходный тред",

@@ -160,7 +160,6 @@ export const GuardianRequestResolved: Story = {
         requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceContextLabel: "#user-feedback",
-        decidedByLabel: "Bob",
         decidedAt: "2026-09-01T13:00:00.000Z",
       },
     }),

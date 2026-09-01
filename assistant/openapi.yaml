@@ -13798,8 +13798,6 @@ paths:
                               type: string
                             decidedAction:
                               type: string
-                            decidedByLabel:
-                              type: string
                             decidedAt:
                               type: string
                             terminalReason:
@@ -14038,8 +14036,6 @@ paths:
                       slackCardAppUrl:
                         type: string
                       decidedAction:
-                        type: string
-                      decidedByLabel:
                         type: string
                       decidedAt:
                         type: string
@@ -14373,8 +14369,6 @@ paths:
                             slackCardAppUrl:
                               type: string
                             decidedAction:
-                              type: string
-                            decidedByLabel:
                               type: string
                             decidedAt:
                               type: string
@@ -23010,8 +23004,6 @@ paths:
                           slackCardAppUrl:
                             type: string
                           decidedAction:
-                            type: string
-                          decidedByLabel:
                             type: string
                           decidedAt:
                             type: string

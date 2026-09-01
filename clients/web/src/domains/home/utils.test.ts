@@ -11,8 +11,7 @@ import {
   getFeedItemScheduleId,
   getFeedItemSkillId,
   getVisibleFeedItems,
-  guardianCategoryLabelKey,
-  guardianDetailTitleKey,
+  guardianLabelKey,
   markAllReadArgs,
   resolveFeedItemTitle,
   sortFeedItems,
@@ -168,9 +167,13 @@ describe("guardian feed item derivations", () => {
     );
   });
 
-  test("guardian rows name what they need on the category chip", () => {
-    expect(guardianCategoryLabelKey(guardianItem("pending"))).toBe(
+  test("a guardian item is named for what its state asks of the user", () => {
+    expect(guardianLabelKey(guardianItem("pending"))).toBe(
       "category.guardianAction",
+    );
+    // Settled: nothing is needed of anyone, so it is named for what it was.
+    expect(guardianLabelKey(guardianItem("approved"))).toBe(
+      "category.guardianRequest",
     );
     const question = feedItem({
       guardianRequest: {
@@ -180,30 +183,7 @@ describe("guardian feed item derivations", () => {
         status: "pending",
       },
     });
-    expect(guardianCategoryLabelKey(question)).toBe(
-      "category.guardianQuestion",
-    );
-    expect(guardianCategoryLabelKey(feedItem())).toBeNull();
-  });
-
-  test("terminal guardian rows drop the callout label", () => {
-    for (const status of [
-      "approved",
-      "denied",
-      "expired",
-      "cancelled",
-    ] as const) {
-      expect(guardianCategoryLabelKey(guardianItem(status))).toBeNull();
-    }
-  });
-
-  test("the detail title names the request kind whatever the status", () => {
-    expect(guardianDetailTitleKey(guardianItem("pending"))).toBe(
-      "category.guardianAction",
-    );
-    expect(guardianDetailTitleKey(guardianItem("approved"))).toBe(
-      "category.guardianAction",
-    );
-    expect(guardianDetailTitleKey(feedItem())).toBeNull();
+    expect(guardianLabelKey(question)).toBe("category.guardianQuestion");
+    expect(guardianLabelKey(feedItem())).toBeNull();
   });
 });
