@@ -40,4 +40,26 @@ describe("ScrollShadow", () => {
     );
     expect(disabled).not.toContain("mask-image");
   });
+
+  test("fadeEdges drops the stops for the edge it opts out of", () => {
+    const both = renderToStaticMarkup(<ScrollShadow size={16}>x</ScrollShadow>);
+    expect(both).toContain("#000 16px");
+    expect(both).toContain("calc(100% - 16px)");
+
+    const startOnly = renderToStaticMarkup(
+      <ScrollShadow size={16} fadeEdges="start">
+        x
+      </ScrollShadow>,
+    );
+    expect(startOnly).toContain("#000 16px");
+    expect(startOnly).not.toContain("calc(100% - 16px)");
+
+    const endOnly = renderToStaticMarkup(
+      <ScrollShadow size={16} fadeEdges="end">
+        x
+      </ScrollShadow>,
+    );
+    expect(endOnly).not.toContain("#000 16px");
+    expect(endOnly).toContain("calc(100% - 16px)");
+  });
 });

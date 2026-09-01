@@ -64,9 +64,9 @@ it end to end:
   `guardian:<requestId>`, so the feed's replace-in-place merge keeps one
   item per request. Its typed `guardianRequest` field
   (`FeedItemGuardianRequestSchema` in `api/responses/home.ts`) is a read
-  projection of the gateway row: intent, status, requester, tool, source
-  reference, and the Slack-DM card deep links. It is never a delivery
-  row of its own; clients derive every affordance from `status`.
+  projection of the gateway row: intent, status, requester, tool, and
+  source reference. It is never a delivery row of its own; clients
+  derive every affordance from `status`.
 - `withdrawGuardianRequestCards` rewrites it into a terminal receipt as
   one of the surfaces it settles, and its failure gates `complete` the
   same way a failed card edit does. The write-vs-resolve race converges

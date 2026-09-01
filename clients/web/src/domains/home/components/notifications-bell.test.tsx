@@ -291,9 +291,6 @@ const READ_LABEL = 'aria-label="Notifications"';
 /** The recipe card, matched by the title it leads with. */
 const RECIPE_LABEL = /^Set up a morning briefing/;
 
-/** The control that retires the recipe, matched by its accessible name. */
-const RECIPE_DISMISS_LABEL = "Dismiss the morning briefing suggestion";
-
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
 function bellItem(overrides: Partial<FeedItem>): FeedItem {
@@ -370,8 +367,6 @@ beforeEach(() => {
   schedulesEnabledCalls.length = 0;
   skillsEnabledCalls.length = 0;
   activeAssistantIdRef.value = "assistant-1";
-  // The recipe's dismissal is the one piece of state that outlives a render,
-  // so each test starts from a store that has never been written to.
   localStorage.clear();
   updateStatusCalls.length = 0;
   triggerActionCalls.length = 0;
@@ -501,6 +496,98 @@ describe("NotificationsBell panel", () => {
   });
 });
 
+describe("NotificationsBell guardian rows", () => {
+  function guardianBellItem(overrides: Partial<FeedItem> = {}): FeedItem {
+    return bellItem({
+      id: "guardian:req-1",
+      status: "new",
+      urgency: "high",
+      // Production shape: the daemon's title is the generic kind of request
+      // and the ask itself arrives in the body.
+      title: "Guardian Question",
+      summary: "Alice asked the assistant to look up an issue",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+        sourceContextLabel: "Slack #user-feedback",
+      },
+      ...overrides,
+    });
+  }
+
+  test("a waiting request sorts above the notifications that only report", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const titles = screen
+      .getAllByTestId("home-recap-row-title")
+      .map((node) => node.textContent);
+    // Named by what it asks of the user, never by the daemon's generic
+    // "Guardian Question", with the ask itself on the line below.
+    expect(titles[0]).toBe("Guardian action needed");
+    expect(titles[1]).toBe("Watcher job failed");
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("the guardian row's second line carries the ask", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("only the waiting row carries the attention treatment", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    const marked = document.querySelectorAll("[data-needs-attention]");
+    expect(marked.length).toBe(1);
+    expect(marked[0]?.textContent).toContain("Alice asked the assistant");
+  });
+
+  test("a settled request keeps no attention treatment", async () => {
+    feedRef.items = [
+      guardianBellItem({
+        id: "guardian:req-2",
+        urgency: "medium",
+        guardianRequest: {
+          requestId: "req-2",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "approved",
+          // Receipts keep the context the pending item carried.
+          sourceContextLabel: "Slack #user-feedback",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(document.querySelectorAll("[data-needs-attention]").length).toBe(0);
+    // A settled receipt keeps its source context, and reads by its own
+    // title and summary like any other notification.
+    expect(screen.getByText("Guardian Question")).toBeTruthy();
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+});
+
 describe("NotificationsBell empty state", () => {
   test("offers the schedule that produces the first notification", async () => {
     await openBell();
@@ -510,15 +597,12 @@ describe("NotificationsBell empty state", () => {
   });
 
   test("carries no second call to action beside the recipe", async () => {
-    // The bell trigger, the recipe, and the control that retires it. Nothing
-    // else: a second call to action would compete with the one thing this
-    // scene is asking for, and the dismiss is not one, it is the way out.
+    // The bell trigger and the recipe. Nothing else: a second call to action
+    // would compete with the one thing this scene is asking for.
     await openBell();
 
-    expect(screen.getAllByRole("button")).toHaveLength(3);
-    expect(
-      screen.getByRole("button", { name: RECIPE_DISMISS_LABEL }),
-    ).toBeTruthy();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: RECIPE_LABEL })).toBeTruthy();
   });
 
   test("the recipe closes the panel and seeds a conversation", async () => {
@@ -633,30 +717,6 @@ describe("NotificationsBell briefing recipe gating", () => {
     await openBell();
 
     expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
-  });
-
-  test("dismissing the recipe retires it", async () => {
-    await openBell();
-
-    fireEvent.click(screen.getByRole("button", { name: RECIPE_DISMISS_LABEL }));
-    await act(async () => {});
-
-    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
-    expect(screen.getByText("Nothing yet.")).toBeTruthy();
-  });
-
-  test("the dismissal survives a remount", async () => {
-    await openBell();
-    fireEvent.click(screen.getByRole("button", { name: RECIPE_DISMISS_LABEL }));
-    await act(async () => {});
-
-    cleanup();
-    await openBell();
-
-    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: RECIPE_DISMISS_LABEL }),
-    ).toBeNull();
   });
 
   test("hides the recipe before the active assistant resolves", async () => {

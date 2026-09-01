@@ -186,6 +186,18 @@ describe("postTelemetryEvents", () => {
     expect(reportedMessages()[0]).toContain("503");
   });
 
+  test.each([401, 403])(
+    "stays quiet on %i: the auth layer refusing the caller is expected",
+    async (status) => {
+      result = { response: { ok: false, status } };
+
+      postTelemetryEvents([{ type: "watchdog" }]);
+      await flush();
+
+      expect(captureErrorMock).not.toHaveBeenCalled();
+    },
+  );
+
   test("swallows a transport failure without reporting it", async () => {
     transportError = new Error("network down");
 

@@ -18,9 +18,12 @@
     "background": "Background",
     "system": "System",
     "guardianAction": "Guardian action needed",
-    "guardianQuestion": "Guardian question"
+    "guardianQuestion": "Guardian question",
+    "guardianRequest": "Guardian request"
   },
-  "homeRecapRow": { "actionsTitle": "Update Actions" },
+  "homeRecapRow": {
+    "actionsTitle": "Update Actions"
+  },
   "homeToolPermissionCard": {
     "missingScopes": "Missing scopes",
     "status": {
@@ -39,34 +42,32 @@
     "loadFailed": "Couldn't load notifications.",
     "actionFailed": "Couldn't start that conversation. Try again."
   },
-  "notificationsBellDetail": { "back": "Back to notifications" },
+  "notificationsBellDetail": {
+    "back": "Back to notifications"
+  },
   "homeGuardianRequestCard": {
-    "requester": "Requested by",
-    "source": "Source",
     "approve": "Approve",
     "reject": "Reject",
-    "answerHint": "Answer this question from the source conversation.",
-    "viewSourceMessage": "View message",
-    "openInSlack": "Open in Slack",
-    "alreadyResolved": "This request was already resolved on another surface.",
+    "answerHint": "Go to the conversation to answer this question.",
     "decisionFailed": "The decision could not be submitted. Try again.",
     "receipt": {
-      "approved": "Approved",
-      "approvedBy": "Approved by {name}",
-      "rejected": "Rejected",
-      "rejectedBy": "Rejected by {name}",
-      "expired": "Expired",
-      "superseded": "Superseded",
-      "cancelled": "Cancelled",
-      "leftUnverified": "Left unverified"
-    }
+      "approved": "Request approved",
+      "rejected": "Request rejected",
+      "expired": "Request expired",
+      "superseded": "Request superseded",
+      "leftUnverified": "Left unverified",
+      "cancelled": "Request cancelled",
+      "alreadyResolved": "Already resolved"
+    },
+    "viewSourceThread": "View source thread",
+    "toolRequested": "Requested to run <code>{toolName}</code>",
+    "toolRequesting": "Requesting to run <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Nothing yet.",
     "briefingRecipeTitle": "Set up a morning briefing",
     "briefingRecipeMeta": "Daily",
-    "briefingRecipeDescription": "Your first notification, tomorrow at 8:00.",
-    "briefingRecipePrompt": "Set up a morning briefing for me: every weekday at 8:00, check my calendar, my inbox, and the news, then post a short summary to my notifications.",
-    "dismissBriefingRecipe": "Dismiss the morning briefing suggestion"
+    "briefingRecipeDescription": "Your first notification, tomorrow morning.",
+    "briefingRecipePrompt": "Help me set up a morning briefing. Before you create anything, check which of my accounts are connected, then give me a few options for what it could cover and when it should run. Once I pick, set it up."
   }
 }

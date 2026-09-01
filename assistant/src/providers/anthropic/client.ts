@@ -1056,7 +1056,7 @@ export class AnthropicProvider implements Provider {
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
         /claude-opus-5\b/.test(effectiveModel) ||
         /claude-sonnet-5\b/.test(effectiveModel) ||
-        effectiveModel.startsWith("claude-fable-");
+        /claude-fable-/.test(effectiveModel);
       const mergedOutputConfig = {
         ...(output_config ?? {}),
         ...(effort && effort !== "none" && supportsEffort

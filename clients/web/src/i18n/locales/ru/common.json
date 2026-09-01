@@ -43,6 +43,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "Вставьте токен бота, скопированный со страницы Bot.",
+    "verificationNoticeTitle": "Игнорируйте страницу «Verify your App»",
+    "verificationNoticeBody": "Discord показывает её каждому новому приложению. Она важна только после 100 серверов.",
     "botTokenLabel": "Токен бота",
     "save": "Подключить",
     "saving": "Подключение...",
@@ -50,21 +52,39 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Откройте портал разработчиков Discord и создайте приложение. На странице <resetLine>Bot</resetLine> нажмите Reset Token и сразу скопируйте токен: Discord показывает его один раз, и посмотреть его снова нельзя.",
-    "intentsNote": "Оставьте все три Privileged Gateway Intents выключенными. Ассистент читает только личные сообщения и сообщения с упоминанием, которые Discord исключает из интента содержимого.",
+    "inPortal": "На портале разработчиков Discord:",
+    "stepCreateApp": "Нажмите <strong>New Application</strong> и назовите приложение именем ассистента:",
+    "copyName": "Скопировать имя",
+    "copied": "Скопировано!",
+    "stepAppIcon": "Необязательно: скачайте аватар и загрузите его на странице <strong>General Information</strong> как значок приложения.",
+    "stepResetToken": "Перейдите на страницу <strong>Bot</strong> в меню приложения, нажмите <strong>Reset Token</strong> и сразу скопируйте токен. Discord показывает его только один раз.",
+    "stepIntentsOff": "На той же странице оставьте все три переключателя <strong>Privileged Gateway Intents</strong> выключенными. Ассистенту они не нужны: он читает только личные сообщения и сообщения с упоминанием.",
     "openPortal": "Открыть портал Discord",
     "continue": "Токен у меня есть"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "Бот добавлен",
+    "connectedBody": "Токен сохранён, бот на вашем сервере. Со стороны Discord всё готово.",
+    "verifyTitle": "Последний шаг: подтвердите, что это вы",
+    "verifyAction": "Подтвердить меня",
+    "verifyActionBody": "Бот ещё не знает, какой аккаунт Discord ваш, поэтому не будет вам отвечать. Ассистент завершит это с вами в чате.",
+    "verifyBody": "Бот ещё не знает, какой аккаунт Discord ваш, поэтому не будет вам отвечать. Скажите в чате «подтверди меня в Discord», и ассистент завершит настройку вместе с вами.",
+    "verifiedTitle": "Личность подтверждена",
+    "verifiedBody": "Бот знает ваш аккаунт Discord и будет отвечать на ваши упоминания. Всё готово."
+  },
   "discordSetupInviteStep": {
-    "instructions": "Бот ничего не увидит, пока не войдёт на сервер. Ссылка использует настройки установки вашего приложения.",
+    "instructions": "Бот ничего не видит и не отвечает, пока не войдёт на сервер. Откройте ссылку, выберите свой сервер и подтвердите.",
     "openInvite": "Добавить на сервер",
+    "confirmJoined": "Бот уже на сервере",
     "noAppId": "Сначала подключите токен бота, затем вернитесь, чтобы добавить его на сервер."
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "Создать приложение",
     "stepConnect": "Подключить",
-    "stepInvite": "Добавить на сервер"
+    "stepInvite": "Добавить на сервер",
+    "stepFinish": "Завершение",
+    "copyError": "Не удалось скопировать имя. Введите его в Discord вручную."
   },
   "domainVerificationChip": {
     "checkingDomain": "Проверка домена…",

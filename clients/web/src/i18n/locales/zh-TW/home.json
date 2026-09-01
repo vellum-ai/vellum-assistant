@@ -18,7 +18,8 @@
     "background": "背景",
     "system": "系統",
     "guardianAction": "需要監護人操作",
-    "guardianQuestion": "監護人問題"
+    "guardianQuestion": "監護人問題",
+    "guardianRequest": "監護人請求"
   },
   "homeRecapRow": {
     "actionsTitle": "更新動作"
@@ -45,24 +46,21 @@
     "back": "返回通知"
   },
   "homeGuardianRequestCard": {
-    "requester": "請求人",
-    "source": "來源",
     "approve": "核准",
     "reject": "拒絕",
-    "answerHint": "請在來源對話中回答這個問題。",
-    "viewSourceMessage": "檢視訊息",
-    "openInSlack": "在 Slack 中開啟",
-    "alreadyResolved": "此請求已在其他介面解決。",
+    "answerHint": "前往對話回答這個問題。",
     "decisionFailed": "無法送出決定。請再試一次。",
     "receipt": {
-      "approved": "已核准",
-      "approvedBy": "由 {name} 核准",
-      "rejected": "已拒絕",
-      "rejectedBy": "由 {name} 拒絕",
-      "expired": "已過期",
-      "superseded": "已被取代",
-      "cancelled": "已取消",
-      "leftUnverified": "保持未驗證"
-    }
+      "approved": "請求已核准",
+      "rejected": "請求已拒絕",
+      "expired": "請求已過期",
+      "superseded": "請求已被取代",
+      "leftUnverified": "未驗證",
+      "cancelled": "請求已取消",
+      "alreadyResolved": "已處理"
+    },
+    "viewSourceThread": "檢視來源討論串",
+    "toolRequested": "已請求執行 <code>{toolName}</code>",
+    "toolRequesting": "請求執行 <code>{toolName}</code>"
   }
 }
