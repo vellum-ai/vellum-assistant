@@ -914,8 +914,9 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
 
     await flush();
 
-    // The caller's event has no replayable payload, so the sweep must never
-    // see it: the degradation is the fallback alone.
+    // The caller's event stores nothing the sweep could rebuild a turn
+    // from, so its processing lane must never see it: the degradation is
+    // the fallback alone.
     expect(fellBack).toBe(1);
     expect(deferredRetryEvents).toEqual([]);
     expect(retryableFailureEvents).toEqual([]);
@@ -982,9 +983,7 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
 
     await flush();
 
-    expect(seenOptions?.slackReactionRowMeta).toBe(
-      '{"eventKind":"reaction"}',
-    );
+    expect(seenOptions?.slackReactionRowMeta).toBe('{"eventKind":"reaction"}');
     expect(seenOptions?.clientMessageId).toBe("reaction:evt-wake-meta");
     expect(seenOptions?.skipUserMessageIndexing).toBe(true);
   });

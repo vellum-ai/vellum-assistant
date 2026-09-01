@@ -129,10 +129,11 @@ export interface BackgroundProcessingParams {
   /**
    * Called when the turn could not run because a non-channel turn re-took
    * the processing lock after admission. When present it REPLACES the
-   * retry-sweep deferral: the sweep replays stored payloads as plain message
-   * turns, so a caller whose event has no replayable payload (a reaction
-   * wake) degrades through this hook instead, e.g. by persisting the
-   * passive row the turn would have created.
+   * retry-sweep deferral: that lane rebuilds a turn from its stored payload
+   * as a plain message, so a caller whose event stores nothing a turn can be
+   * rebuilt from (a reaction wake, whose payload is delivery-only) degrades
+   * through this hook instead, e.g. by persisting the passive row the turn
+   * would have created.
    */
   onTurnLostToBusy?: () => Promise<void>;
 }
@@ -310,10 +311,10 @@ export function processChannelMessageInBackground(
         await slackReplySession?.finish();
         if (isConversationBusyError(err)) {
           if (onTurnLostToBusy) {
-            // No replayable payload exists for this turn (see the hook's
-            // doc), so the sweep cannot rebuild it; the caller degrades in
-            // its own way instead. Nothing was persisted: the busy error is
-            // thrown before the row insert.
+            // The sweep's processing lane cannot rebuild this turn (see the
+            // hook's doc), so the caller degrades in its own way instead.
+            // Nothing was persisted: the busy error is thrown before the
+            // row insert.
             log.info(
               { conversationId, eventId },
               "Channel turn lost the processing lock after admission; degrading via caller fallback",

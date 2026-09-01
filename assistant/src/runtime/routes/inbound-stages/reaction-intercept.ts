@@ -271,6 +271,9 @@ export async function handleReactionIntercept(
     };
   }
 
+  const rowTrustContext = toTrustContext(trustCtx, conversationExternalId);
+  const actorExternalId = canonicalSenderId ?? rawSenderId ?? undefined;
+
   const persistPassively = async (): Promise<void> => {
     await persistReactionAsMessage({
       conversationId: result.conversationId,
@@ -279,10 +282,10 @@ export async function handleReactionIntercept(
       sourceChannel,
       reaction,
       actorDisplayName,
-      actorExternalId: canonicalSenderId ?? rawSenderId ?? undefined,
+      actorExternalId,
       reactedMessageTs,
       duplicate: false,
-      trustCtx: toTrustContext(trustCtx, conversationExternalId),
+      trustCtx: rowTrustContext,
     });
     // A passive row lands in the store only, so a resident conversation
     // would otherwise carry it only after eviction. Marking it stale makes
@@ -307,9 +310,9 @@ export async function handleReactionIntercept(
           conversationExternalId,
           replyCallbackUrl,
           actorDisplayName,
-          actorExternalId: canonicalSenderId ?? rawSenderId ?? undefined,
+          actorExternalId,
           reactedMessageTs,
-          trustCtx: toTrustContext(trustCtx, conversationExternalId),
+          trustCtx: rowTrustContext,
           chatType: sourceMetadata?.chatType?.trim() || undefined,
           persistPassively,
         })
@@ -365,10 +368,12 @@ export async function handleReactionIntercept(
  * live content is the same line `renderReactionHistoryText` produces at
  * reload, so the model sees one wording on both paths.
  *
- * Wake turns are at-most-once. The retry sweep replays stored payloads as
- * plain message turns, which would corrupt a reaction into a fabricated
- * user message, so no payload is stored and the event is marked processed
- * up front: a crash mid-turn loses the discretionary turn, never a row the
+ * Wake turns are at-most-once. The retry sweep's processing lane rebuilds a
+ * turn from its stored payload as a plain message, which would corrupt a
+ * reaction into a fabricated user message, so the event is marked processed
+ * up front and the payload it stores is delivery-only: it names where a
+ * generated reply goes and carries no content to rebuild a turn from. A
+ * crash mid-turn therefore loses the discretionary turn, never a row the
  * store already held. The one recoverable loss, a non-channel turn stealing
  * the lock after admission, degrades through `persistPassively` to exactly
  * the row the passive path would have written.
