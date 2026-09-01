@@ -1461,9 +1461,9 @@
     "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
     "providerLabel": "Provider",
     "recommendedMeta": "Recommended",
+    "seeLess": "See less",
+    "seeMore": "See more",
     "setUpTag": "Set up",
-    "showAllModels": "Show all models",
-    "showFewerModels": "Show fewer models",
     "signInTag": "Sign in",
     "soleProviderHint": "Only {name} serves this model."
   },

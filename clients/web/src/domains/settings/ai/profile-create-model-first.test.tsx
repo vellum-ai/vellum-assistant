@@ -204,10 +204,10 @@ function modelOptionLabels(): string[] {
   ).map(optionLabel);
 }
 
-/** A section's own name, which is all its heading carries. */
+/** A section's own name, which its heading carries beside its disclosure. */
 function headingName(group: Element): string {
   return (
-    group.querySelector('[data-slot="combobox-group-label"]')?.textContent ?? ""
+    group.querySelector('[data-slot="combobox-group-name"]')?.textContent ?? ""
   ).trim();
 }
 
@@ -233,17 +233,18 @@ function sectionRowLabels(heading: string): string[] {
   ).map(optionLabel);
 }
 
-/** The one control that unfolds every section, which sits under them all. */
-function showAllModelsRow(): HTMLElement {
-  const row = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((option) => option.hasAttribute("aria-expanded"));
-  if (!row) {
-    throw new Error(
-      `expected a "show all models" control - saw ${modelOptionLabels().join(", ")}`,
-    );
+/** One section's disclosure, which its heading carries. */
+function sectionAction(heading: string): HTMLElement {
+  const section = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
+  ).find((group) => headingName(group) === heading);
+  const action = section
+    ?.querySelector('[data-slot="combobox-group-label"]')
+    ?.querySelector<HTMLElement>('[role="option"]');
+  if (!action) {
+    throw new Error(`expected a disclosure on the "${heading}" heading`);
   }
-  return row;
+  return action;
 }
 
 /** Type into the model field, which is the list's own search box. */
@@ -492,35 +493,38 @@ describe("the model list", () => {
     expect(sectionRowLabels("MiniMax")).toContain("MiniMax M3");
   });
 
-  test("offers three models per section and folds the rest behind one control", () => {
+  test("offers three models per section and folds the rest behind See more", () => {
     renderCreate([makeConnection("anthropic-personal")]);
     openModelList();
 
-    // Each section offers three rows and nothing else, whatever it holds
-    // behind them.
+    // The disclosure sits on the heading, ahead of the three rows the section
+    // offers, whatever it holds behind it.
     expect(sectionRowLabels("Anthropic")).toEqual([
+      "See more",
       "Claude Fable 5",
       "Claude Opus 5",
       "Claude Sonnet 5",
     ]);
-    // The one control that unfolds them all follows every section, outside
-    // any of them, and says which way it goes.
-    expect(showAllModelsRow().getAttribute("aria-expanded")).toBe("false");
-    expect(modelOptionLabels().at(-2)).toBe("Show all models");
+    expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
 
-    clickModelOption("Show all models");
+    clickModelOption("See more");
 
-    // Every section grows at once, and the list stays open on the control
-    // that was just acted on.
+    // The list stays open on the row that was just acted on, and the rest of
+    // the section follows the three it already offered.
     expect(sectionRowLabels("Anthropic")).toContain("Claude Haiku 4.5");
     expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 4.8");
     // Unfolding is not an answer: no model is chosen by it.
     expect(getSaveBtn().disabled).toBe(true);
 
-    // The same control folds the list back up.
-    expect(showAllModelsRow().getAttribute("aria-expanded")).toBe("true");
-    clickModelOption("Show fewer models");
+    // The same control folds the section back up.
+    expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    clickModelOption("See less");
     expect(sectionRowLabels("Anthropic")).toEqual([
+      "See more",
       "Claude Fable 5",
       "Claude Opus 5",
       "Claude Sonnet 5",
@@ -533,7 +537,7 @@ describe("the model list", () => {
     searchModels("Opus 4.8");
 
     expect(modelOptionLabels()).toContain("Claude Opus 4.8");
-    expect(modelOptionLabels()).not.toContain("Show all models");
+    expect(modelOptionLabels()).not.toContain("See more");
     // The headings survive a query, so a match is still placed.
     expect(groupHeadings()).toEqual(["Anthropic"]);
   });
