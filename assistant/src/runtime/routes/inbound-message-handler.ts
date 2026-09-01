@@ -450,9 +450,8 @@ export async function handleChannelInbound({
   // notification, and a stranger's reaction creates no conversation/binding.
   // The interceptor drops strangers and records an admitted actor's reaction
   // as a transcript signal in the conversation of the reacted message.
-  // Reactions never mint a conversation; the one that wakes a
-  // turn (an admitted actor adding a reaction to the assistant's own post)
-  // is the interceptor's call. A family member whose payload does not
+  // Reactions never mint a conversation; the one that wakes a turn (a
+  // reaction on the assistant's own post) is the interceptor's call. A family member whose payload does not
   // resolve (no emoji or no target message id) is dropped as noise here:
   // the kind names the family, so it must never fall through and be read
   // as a message.

@@ -13,8 +13,8 @@
  * validation, expiry checks, the atomic gateway CAS+outcome commit,
  * kind-specific resolver dispatch, and grant minting.
  *
- * Routing reads (code lookup, pending discovery) use the
- * degrading gateway-client variants: an unreachable gateway resolves to "no
+ * Routing reads (code lookup, pending discovery) use the degrading
+ * gateway-client variants: an unreachable gateway resolves to "no
  * pending requests", so the message falls through to the normal pipeline
  * instead of failing the inbound turn — decisions themselves still fail
  * loudly inside the primitive.
