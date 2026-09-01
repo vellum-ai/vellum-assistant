@@ -26,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { COMPANION_ENTRYPOINT_ID_MAX_LENGTH } from "@vellumai/service-contracts/companion-entrypoints";
 import { z } from "zod";
 
 import {
@@ -198,7 +199,7 @@ const pluginInfoSchema = z.object({
     .array(pluginCompanionEntrypointSchema)
     .optional()
     .describe(
-      "Companion-surface controls the plugin contributes, from its `package.json` `companionEntrypoints`. Omitted entirely when the plugin declares none, and never returned for a disabled plugin.",
+      "Companion-surface controls the plugin contributes, from its `package.json` `companionEntrypoints`. Omitted entirely when the plugin declares none, and never returned for a disabled plugin. An individual control whose namespaced id would exceed the companion surface's id bound is left out; the rest still come through.",
     ),
 });
 
@@ -858,6 +859,13 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
  * loader's own containment predicate ({@link isInsidePluginRoot}) runs here
  * too: without it the companion could draw controls whose prompts have no
  * plugin surface behind them.
+ *
+ * A composed id longer than {@link COMPANION_ENTRYPOINT_ID_MAX_LENGTH} is
+ * dropped on its own. Nothing caps a plugin's directory name, so a long enough
+ * one plus a legal 40-character entrypoint id composes past the bound the
+ * companion validates its whole context snapshot against, where a single
+ * over-long id would take every other plugin's entrypoints down with it. The
+ * plugin stays listed and keeps whichever of its entrypoints do fit.
  */
 async function attachCompanionEntrypoints(
   plugins: PluginView[],
@@ -875,15 +883,37 @@ async function attachCompanionEntrypoints(
       if (declared === undefined || declared.length === 0) {
         return plugin;
       }
-      return {
-        ...plugin,
-        entrypoints: declared.map((entry) => ({
-          id: `${plugin.id}:${entry.id}`,
-          label: entry.label,
-          prompt: entry.prompt,
-          ...(entry.icon !== undefined ? { icon: entry.icon } : {}),
-        })),
-      };
+      const entrypoints = declared.flatMap((entry) => {
+        const id = `${plugin.id}:${entry.id}`;
+        if (id.length > COMPANION_ENTRYPOINT_ID_MAX_LENGTH) {
+          // Warn rather than drop silently: the plugin is well-formed and its
+          // author cannot see the composed id, so the only clue that a control
+          // is missing from the surface is this line.
+          log.warn(
+            {
+              pluginId: plugin.id,
+              entrypointId: entry.id,
+              idLength: id.length,
+            },
+            "Namespaced companion entrypoint id exceeds the surface's cap; dropping the entrypoint",
+          );
+          return [];
+        }
+        return [
+          {
+            id,
+            label: entry.label,
+            prompt: entry.prompt,
+            ...(entry.icon !== undefined ? { icon: entry.icon } : {}),
+          },
+        ];
+      });
+      // Same shape as declaring none: an empty array would have the client
+      // reason about a plugin that contributes nothing.
+      if (entrypoints.length === 0) {
+        return plugin;
+      }
+      return { ...plugin, entrypoints };
     }),
   );
 }

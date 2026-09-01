@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./channels": "./src/channels.ts",
+    "./companion-entrypoints": "./src/companion-entrypoints.ts",
     "./conversation-handle": "./src/conversation-handle.ts",
     "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",

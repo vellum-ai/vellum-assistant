@@ -16,6 +16,9 @@
  *     namespaced `<pluginId>:<entrypointId>`; omitted for a plugin declaring
  *     none, for a disabled plugin, and for a plugin directory that resolves
  *     outside the plugins root (the loader would refuse to activate it)
+ *   - A single `entrypoints` entry whose namespaced id would exceed the
+ *     companion's id cap is dropped on its own, leaving the plugin listed and
+ *     its other entrypoints intact
  *
  * GET /v1/plugins/search (catalog search):
  *   - Resolves the catalog for `?ref=` and filters it by `?q=`
@@ -63,6 +66,8 @@
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { COMPANION_ENTRYPOINT_ID_MAX_LENGTH } from "@vellumai/service-contracts/companion-entrypoints";
 
 import {
   type DiffPluginDeps,
@@ -1016,6 +1021,52 @@ describe("GET /v1/plugins", () => {
 
       const [entry] = (await invoke()).plugins;
       expect(entry?.enabled).toBe(false);
+      expect("entrypoints" in entry!).toBe(false);
+    });
+
+    test("drops only the entry whose namespaced id exceeds the cap", async () => {
+      // A legal 40-character entrypoint id under a directory name this long
+      // composes one character past the cap the companion validates its whole
+      // context snapshot against. Nothing bounds the directory name, so the
+      // composition is where the bound has to be enforced.
+      const overCapId = "a".repeat(40);
+      const name = "n".repeat(
+        COMPANION_ENTRYPOINT_ID_MAX_LENGTH - overCapId.length,
+      );
+      installedFixture = [
+        pluginWithManifest(name, {
+          companionEntrypoints: [
+            { id: overCapId, label: "Too long", prompt: "Never drawn" },
+            { id: "go", label: "Go", prompt: "Do the thing" },
+          ],
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      // Still listed and enabled, and the entry that fits still comes through:
+      // one over-long id must not cost the plugin its other controls.
+      expect(entry?.enabled).toBe(true);
+      expect(entry?.entrypoints).toEqual([
+        { id: `${name}:go`, label: "Go", prompt: "Do the thing" },
+      ]);
+    });
+
+    test("omits the field when every namespaced id exceeds the cap", async () => {
+      const overCapId = "a".repeat(40);
+      const name = "n".repeat(
+        COMPANION_ENTRYPOINT_ID_MAX_LENGTH - overCapId.length,
+      );
+      installedFixture = [
+        pluginWithManifest(name, {
+          companionEntrypoints: [
+            { id: overCapId, label: "Too long", prompt: "Never drawn" },
+          ],
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      expect(entry?.enabled).toBe(true);
+      // Absence, not an empty array: same shape as declaring none.
       expect("entrypoints" in entry!).toBe(false);
     });
 

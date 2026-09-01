@@ -13,6 +13,7 @@
  *   - Preload / renderer: type-only imports; schemas are never bundled
  *     into the preload or renderer.
  */
+import { COMPANION_ENTRYPOINT_ID_MAX_LENGTH } from "@vellumai/service-contracts/companion-entrypoints";
 import { z } from "zod";
 
 import {
@@ -107,9 +108,14 @@ export const companionTurnsSchema = z.array(companionTurnSchema).max(40);
  * end up on a window that floats over every other app. `label` is bounded to
  * what a pill can hold, `prompt` to what a composer would accept from a person,
  * and `icon` is a name the surface looks up rather than anything it renders.
+ *
+ * The id cap comes from `@vellumai/service-contracts` rather than a literal
+ * here: the assistant composes these ids as `<pluginId>:<entrypointId>` and has
+ * to enforce the same bound, because this schema validates a whole context
+ * snapshot and one over-long id would fail every entrypoint in it.
  */
 export const companionEntrypointSchema = z.object({
-  id: z.string().min(1).max(128),
+  id: z.string().min(1).max(COMPANION_ENTRYPOINT_ID_MAX_LENGTH),
   label: z.string().min(1).max(24),
   icon: z.string().max(64).optional(),
   prompt: z.string().min(1).max(2000),

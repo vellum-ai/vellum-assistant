@@ -24834,7 +24834,9 @@ paths:
                         entrypoints:
                           description:
                             Companion-surface controls the plugin contributes, from its `package.json` `companionEntrypoints`. Omitted
-                            entirely when the plugin declares none, and never returned for a disabled plugin.
+                            entirely when the plugin declares none, and never returned for a disabled plugin. An
+                            individual control whose namespaced id would exceed the companion surface's id bound is left
+                            out; the rest still come through.
                           type: array
                           items:
                             type: object
