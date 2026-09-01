@@ -94,7 +94,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * ## Suggested order for follow-up design slices
  *
  * Ranked by how many calls each slice improves against how much design it
- * needs, which puts the two families Noa named first.
+ * needs, which puts the two families the design lead named first.
  *
  * 1. Files. `file_edit` as a rendered diff and `file_write` as an editor view
  *    are the largest single readability win available.

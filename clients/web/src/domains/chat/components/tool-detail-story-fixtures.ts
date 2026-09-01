@@ -2,10 +2,10 @@
  * `ToolDetailPayload` fixtures for the tool-call detail catalogue (LUM-3509).
  *
  * Every fixture's `input` key set is a shape the tools genuinely send, so a
- * story cannot quietly review a payload the product never produces. The old
- * stories' `bash` input was a bare `{ command }`; the real tool sends an
- * `activity` sibling alongside it, and rebuilding the fixtures around the true
- * shapes is what surfaced the panel defects tracked in LUM-3510.
+ * story cannot quietly review a payload the product never produces. Native
+ * tools carry an `activity` sibling alongside `command` / `path`, which is why
+ * the panel's header, its subtitle, and its input block can all show the same
+ * sentence at once (LUM-3510).
  *
  * Values are written here rather than taken from any live conversation.
  *
