@@ -158,7 +158,22 @@ export type GuardianCategoryLabelKey =
 export function guardianCategoryLabelKey(
   item: FeedItem,
 ): GuardianCategoryLabelKey | null {
-  if (!item.guardianRequest || !isPendingGuardianFeedItem(item)) {
+  if (!isPendingGuardianFeedItem(item)) {
+    return null;
+  }
+  return guardianDetailTitleKey(item);
+}
+
+/**
+ * Panel title for a guardian-request item's detail: the kind of request,
+ * whatever its status, so a resolved request's detail keeps its name and
+ * the receipt below carries the outcome. Null for every other item, whose
+ * detail is titled by the item's own title.
+ */
+export function guardianDetailTitleKey(
+  item: FeedItem,
+): GuardianCategoryLabelKey | null {
+  if (!item.guardianRequest) {
     return null;
   }
   return item.guardianRequest.intent === "question"

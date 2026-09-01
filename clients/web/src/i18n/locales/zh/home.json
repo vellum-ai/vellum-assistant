@@ -9,7 +9,8 @@
     "viewSchedule": "查看日程",
     "viewSkill": "查看技能",
     "markAllAsRead": "全部标记为已读",
-    "clearAll": "全部清除"
+    "clearAll": "全部清除",
+    "clearUpdates": "清除更新"
   },
   "category": {
     "security": "安全",
@@ -39,17 +40,17 @@
     "ariaLabelUnread": "通知 (未读)",
     "heading": "通知",
     "loadFailed": "无法加载通知。",
-    "actionFailed": "无法开始该对话。请重试。"
+    "actionFailed": "无法开始该对话。请重试。",
+    "needsAttention": "需要关注",
+    "updates": "更新"
   },
   "notificationsBellDetail": {
     "back": "返回通知"
   },
   "homeGuardianRequestCard": {
-    "requester": "请求人",
-    "source": "来源",
     "approve": "批准",
     "reject": "拒绝",
-    "answerHint": "请在来源对话中回答这个问题。",
+    "answerHint": "前往对话回答这个问题。",
     "openInSlack": "在 Slack 中打开",
     "alreadyResolved": "此请求已在其他界面解决。",
     "decisionFailed": "无法提交决定。请重试。",
@@ -62,6 +63,10 @@
       "superseded": "已被取代",
       "cancelled": "已取消",
       "leftUnverified": "保持未验证"
-    }
+    },
+    "statusNeedsAttention": "需要关注",
+    "statusResolved": "已解决",
+    "tool": "工具",
+    "viewSourceThread": "查看来源消息串"
   }
 }

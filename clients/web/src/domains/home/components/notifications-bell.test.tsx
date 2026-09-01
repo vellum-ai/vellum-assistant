@@ -501,6 +501,96 @@ describe("NotificationsBell panel", () => {
   });
 });
 
+describe("NotificationsBell guardian sections", () => {
+  function guardianBellItem(overrides: Partial<FeedItem> = {}): FeedItem {
+    return bellItem({
+      id: "guardian:req-1",
+      status: "new",
+      urgency: "high",
+      summary: "Alice asked the assistant to look up an issue",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+        sourceContextLabel: "Slack #user-feedback",
+      },
+      ...overrides,
+    });
+  }
+
+  test("a pending guardian item splits the list into labelled sections", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    expect(
+      screen.getByTestId("notifications-bell-section-attention"),
+    ).toBeTruthy();
+    expect(screen.getByText("Needs attention")).toBeTruthy();
+    expect(screen.getByText("Updates")).toBeTruthy();
+
+    // The guardian row sits in the attention section, above the update.
+    const titles = screen
+      .getAllByTestId("home-recap-row-title")
+      .map((node) => node.textContent);
+    expect(titles[0]).toContain("Alice asked the assistant");
+    expect(titles[1]).toBe("Watcher job failed");
+  });
+
+  test("the guardian row's second line names the source context", async () => {
+    feedRef.items = [guardianBellItem()];
+
+    await openBell();
+
+    expect(screen.getByText("Slack #user-feedback")).toBeTruthy();
+  });
+
+  test("without a pending guardian item the list stays unsectioned", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      // A resolved request's receipt drops urgency with it, so the item
+      // files as an ordinary update.
+      guardianBellItem({
+        id: "guardian:req-2",
+        urgency: "medium",
+        guardianRequest: {
+          requestId: "req-2",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "approved",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(
+      screen.queryByTestId("notifications-bell-section-attention"),
+    ).toBeNull();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByText("Updates")).toBeNull();
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
+  });
+
+  test("Clear all reads Clear updates while a pending guardian item exists", async () => {
+    feedRef.items = [
+      bellItem({ id: "update-1", title: "Watcher job failed" }),
+      guardianBellItem(),
+    ];
+
+    await openBell();
+
+    expect(screen.getByRole("button", { name: "Clear updates" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear all" })).toBeNull();
+  });
+});
+
 describe("NotificationsBell empty state", () => {
   test("offers the schedule that produces the first notification", async () => {
     await openBell();

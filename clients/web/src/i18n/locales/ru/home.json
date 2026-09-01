@@ -9,7 +9,8 @@
     "viewSchedule": "Открыть расписание",
     "viewSkill": "Открыть навык",
     "markAllAsRead": "Отметить всё как прочитанное",
-    "clearAll": "Очистить всё"
+    "clearAll": "Очистить всё",
+    "clearUpdates": "Очистить обновления"
   },
   "category": {
     "security": "Безопасность",
@@ -20,7 +21,9 @@
     "guardianAction": "Требуется действие опекуна",
     "guardianQuestion": "Вопрос опекуну"
   },
-  "homeRecapRow": { "actionsTitle": "Действия по обновлению" },
+  "homeRecapRow": {
+    "actionsTitle": "Действия по обновлению"
+  },
   "homeToolPermissionCard": {
     "missingScopes": "Не хватает разрешений",
     "status": {
@@ -37,15 +40,17 @@
     "ariaLabelUnread": "Уведомления (непрочитанные)",
     "heading": "Уведомления",
     "loadFailed": "Не удалось загрузить уведомления.",
-    "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
+    "actionFailed": "Не удалось начать этот диалог. Повторите попытку.",
+    "needsAttention": "Требует внимания",
+    "updates": "Обновления"
   },
-  "notificationsBellDetail": { "back": "Назад к уведомлениям" },
+  "notificationsBellDetail": {
+    "back": "Назад к уведомлениям"
+  },
   "homeGuardianRequestCard": {
-    "requester": "Запросил",
-    "source": "Источник",
     "approve": "Одобрить",
     "reject": "Отклонить",
-    "answerHint": "Ответьте на этот вопрос в исходной беседе.",
+    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
     "openInSlack": "Открыть в Slack",
     "alreadyResolved": "Этот запрос уже был решён на другой поверхности.",
     "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
@@ -58,7 +63,11 @@
       "superseded": "Заменён новым",
       "cancelled": "Отменён",
       "leftUnverified": "Оставлен без проверки"
-    }
+    },
+    "statusNeedsAttention": "Требует внимания",
+    "statusResolved": "Решено",
+    "tool": "Инструмент",
+    "viewSourceThread": "Открыть исходный тред"
   },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",

@@ -134,11 +134,6 @@ export function HomeRecapRow({
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
   const guardianLabelKey = guardianCategoryLabelKey(item) ?? undefined;
-  /* A pending guardian item announces what it needs at every density: the
-     callout is information, not decoration, and one line cannot hold the
-     chip, the title, and the timestamp at narrow widths, so the row takes
-     the meta-row layout instead of sharing the first line. */
-  const showsMetaRow = densityStyle.showsMetaRow || guardianLabelKey != null;
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
@@ -151,9 +146,13 @@ export function HomeRecapRow({
     [item.title, item.summary],
   );
 
+  /* A guardian row's second line names where the request came from rather
+     than echoing the summary's tail: the title already is the summary's
+     ask, so the source context is the line that adds information. */
+  const guardianContext = item.guardianRequest?.sourceContextLabel ?? null;
   const preview = useMemo(
-    () => resolvePreview(title, item.summary),
-    [title, item.summary],
+    () => guardianContext ?? resolvePreview(title, item.summary),
+    [guardianContext, title, item.summary],
   );
 
   // leading-snug: the title-small token is line-height:1, and line-clamp's
@@ -166,7 +165,9 @@ export function HomeRecapRow({
         "leading-snug text-[var(--content-default)]",
         // On the first line the title has to yield to the timestamp beside it,
         // so it shrinks and ellipsizes rather than pushing the timestamp out.
-        showsMetaRow ? densityStyle.clamp : "min-w-0 flex-1 truncate",
+        densityStyle.showsMetaRow
+          ? densityStyle.clamp
+          : "min-w-0 flex-1 truncate",
       )}
     >
       {title}
@@ -235,7 +236,7 @@ export function HomeRecapRow({
         )}
       >
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
-          {showsMetaRow ? (
+          {densityStyle.showsMetaRow ? (
             <>
               <FeedCategoryChip
                 category={item.category}
@@ -276,7 +277,7 @@ export function HomeRecapRow({
           )}
         </div>
 
-        {showsMetaRow && titleLine}
+        {densityStyle.showsMetaRow && titleLine}
 
         {preview !== null && (
           <Typography

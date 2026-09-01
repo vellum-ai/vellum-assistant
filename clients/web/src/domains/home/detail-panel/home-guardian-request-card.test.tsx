@@ -85,11 +85,12 @@ describe("HomeGuardianRequestCard", () => {
       }),
     );
 
-    expect(screen.getByText("Alice")).toBeTruthy();
-    expect(screen.getByText("Guardian action needed")).toBeTruthy();
-    expect(
-      screen.getByText("linear_graphql · Slack #user-feedback"),
-    ).toBeTruthy();
+    expect(screen.getByText("Needs attention")).toBeTruthy();
+    // Source context and requester share the meta line under the title.
+    expect(screen.getByText(/Slack #user-feedback · Alice/)).toBeTruthy();
+    // The tool renders by name in its own labelled row.
+    expect(screen.getByText("Tool")).toBeTruthy();
+    expect(screen.getByText("linear_graphql")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Approve"));
     expect(mutateCalls).toEqual([
@@ -115,7 +116,7 @@ describe("HomeGuardianRequestCard", () => {
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
     expect(
-      screen.getByText("Answer this question from the source conversation."),
+      screen.getByText("Go to the conversation to answer this question."),
     ).toBeTruthy();
   });
 
@@ -141,9 +142,10 @@ describe("HomeGuardianRequestCard", () => {
       );
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
-      // Resolved requests demand nothing: the chip drops the pending
-      // callout and falls back to the category's own label.
-      expect(screen.queryByText("Guardian action needed")).toBeNull();
+      // Resolved requests demand nothing: the status pill reads Resolved
+      // in place of the pending callout.
+      expect(screen.queryByText("Needs attention")).toBeNull();
+      expect(screen.getByText("Resolved")).toBeTruthy();
     },
   );
 

@@ -9,7 +9,8 @@
     "viewSchedule": "Ver programación",
     "viewSkill": "Ver habilidad",
     "markAllAsRead": "Marcar todas como leídas",
-    "clearAll": "Borrar todas"
+    "clearAll": "Borrar todas",
+    "clearUpdates": "Borrar actualizaciones"
   },
   "category": {
     "security": "Seguridad",
@@ -20,7 +21,9 @@
     "guardianAction": "Acción del guardián requerida",
     "guardianQuestion": "Pregunta del guardián"
   },
-  "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
+  "homeRecapRow": {
+    "actionsTitle": "Acciones de la actualización"
+  },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
     "status": {
@@ -37,15 +40,17 @@
     "ariaLabelUnread": "Notificaciones (sin leer)",
     "heading": "Notificaciones",
     "loadFailed": "No se pudieron cargar las notificaciones.",
-    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
+    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo.",
+    "needsAttention": "Requiere atención",
+    "updates": "Actualizaciones"
   },
-  "notificationsBellDetail": { "back": "Volver a las notificaciones" },
+  "notificationsBellDetail": {
+    "back": "Volver a las notificaciones"
+  },
   "homeGuardianRequestCard": {
-    "requester": "Solicitado por",
-    "source": "Origen",
     "approve": "Aprobar",
     "reject": "Rechazar",
-    "answerHint": "Responde esta pregunta desde la conversación de origen.",
+    "answerHint": "Ve a la conversación para responder esta pregunta.",
     "openInSlack": "Abrir en Slack",
     "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
@@ -58,7 +63,11 @@
       "superseded": "Reemplazada",
       "cancelled": "Cancelada",
       "leftUnverified": "Sin verificar"
-    }
+    },
+    "statusNeedsAttention": "Requiere atención",
+    "statusResolved": "Resuelto",
+    "tool": "Herramienta",
+    "viewSourceThread": "Ver hilo de origen"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",

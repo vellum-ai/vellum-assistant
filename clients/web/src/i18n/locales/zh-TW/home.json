@@ -9,7 +9,8 @@
     "viewSchedule": "檢視排程",
     "viewSkill": "檢視技能",
     "markAllAsRead": "全部標示為已讀",
-    "clearAll": "全部清除"
+    "clearAll": "全部清除",
+    "clearUpdates": "清除更新"
   },
   "category": {
     "security": "安全性",
@@ -39,17 +40,17 @@
     "ariaLabelUnread": "通知 (未讀)",
     "heading": "通知",
     "loadFailed": "無法載入通知。",
-    "actionFailed": "無法開始該對話。請再試一次。"
+    "actionFailed": "無法開始該對話。請再試一次。",
+    "needsAttention": "需要關注",
+    "updates": "更新"
   },
   "notificationsBellDetail": {
     "back": "返回通知"
   },
   "homeGuardianRequestCard": {
-    "requester": "請求人",
-    "source": "來源",
     "approve": "核准",
     "reject": "拒絕",
-    "answerHint": "請在來源對話中回答這個問題。",
+    "answerHint": "前往對話回答這個問題。",
     "openInSlack": "在 Slack 中開啟",
     "alreadyResolved": "此請求已在其他介面解決。",
     "decisionFailed": "無法送出決定。請再試一次。",
@@ -62,6 +63,10 @@
       "superseded": "已被取代",
       "cancelled": "已取消",
       "leftUnverified": "保持未驗證"
-    }
+    },
+    "statusNeedsAttention": "需要關注",
+    "statusResolved": "已解決",
+    "tool": "工具",
+    "viewSourceThread": "檢視來源討論串"
   }
 }

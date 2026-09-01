@@ -12,6 +12,7 @@ import {
   getFeedItemSkillId,
   getVisibleFeedItems,
   guardianCategoryLabelKey,
+  guardianDetailTitleKey,
   markAllReadArgs,
   resolveFeedItemTitle,
   sortFeedItems,
@@ -194,5 +195,15 @@ describe("guardian feed item derivations", () => {
     ] as const) {
       expect(guardianCategoryLabelKey(guardianItem(status))).toBeNull();
     }
+  });
+
+  test("the detail title names the request kind whatever the status", () => {
+    expect(guardianDetailTitleKey(guardianItem("pending"))).toBe(
+      "category.guardianAction",
+    );
+    expect(guardianDetailTitleKey(guardianItem("approved"))).toBe(
+      "category.guardianAction",
+    );
+    expect(guardianDetailTitleKey(feedItem())).toBeNull();
   });
 });

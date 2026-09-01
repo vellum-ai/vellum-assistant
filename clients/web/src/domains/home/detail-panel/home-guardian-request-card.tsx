@@ -3,16 +3,18 @@ import { type TFunction, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import { formatRelativeDate } from "@/utils/format-date";
 import {
   type FeedItem,
   type FeedItemGuardianRequest,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,
 } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
+import { ExternalLink, MessageCircle } from "lucide-react";
+import { type ReactNode } from "react";
 
-import { FeedCategoryChip } from "../feed-category-chip";
-import { guardianCategoryLabelKey } from "../utils";
+import { resolveFeedItemTitle } from "../utils";
 
 export interface HomeGuardianRequestCardProps {
   item: FeedItem;
@@ -22,14 +24,16 @@ export interface HomeGuardianRequestCardProps {
  * Detail card for the canonical guardian-request feed item.
  *
  * Everything renders off the item's `guardianRequest` projection, which
- * the daemon keeps aligned with the gateway-owned request: a `pending`
- * approval offers Approve/Reject through the canonical decision route,
- * a `pending` question points at the source conversation (the host
- * panel's "Go to Conversation" link is the way there), and a terminal
- * status renders as a receipt in place of the buttons. A decision that
- * comes back not-applied means another surface resolved the request
- * first; the projection converges through the feed's own refresh, so
- * the card only has to say so.
+ * the daemon keeps aligned with the gateway-owned request: a status pill
+ * says whether the request still needs the user, the title and source
+ * line say what and where, and the summary carries the plain-language
+ * ask. A `pending` approval offers Approve/Reject through the canonical
+ * decision route, a `pending` question points at the source conversation
+ * (the host panel's "Go to Conversation" link is the way there), and a
+ * terminal status renders as a receipt in place of the buttons. A
+ * decision that comes back not-applied means another surface resolved
+ * the request first; the projection converges through the feed's own
+ * refresh, so the card only has to say so.
  */
 export function HomeGuardianRequestCard({
   item,
@@ -76,13 +80,17 @@ export function HomeGuardianRequestCard({
       : null;
   const resolvedElsewhere = decision.data?.applied === false;
 
-  const isPending = guardianRequest.status === "pending" && !decidedLocally;
+  const isPending =
+    guardianRequest.status === "pending" &&
+    !decidedLocally &&
+    !resolvedElsewhere;
   const showsApprovalButtons =
-    isPending && guardianRequest.intent === "approval" && !resolvedElsewhere;
+    isPending && guardianRequest.intent === "approval";
 
-  const contextLine = [
-    guardianRequest.toolName,
+  const metaLine = [
     guardianRequest.sourceContextLabel,
+    guardianRequest.requesterLabel,
+    formatRelativeDate(item.timestamp),
   ]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
@@ -90,35 +98,73 @@ export function HomeGuardianRequestCard({
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
       <div>
-        <FeedCategoryChip
-          category={item.category}
-          labelKey={guardianCategoryLabelKey(item) ?? undefined}
-        />
+        {isPending ? (
+          <Tag
+            tone="warning"
+            className="uppercase tracking-wide"
+            leftIcon={
+              <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />
+            }
+          >
+            {t("homeGuardianRequestCard.statusNeedsAttention")}
+          </Tag>
+        ) : (
+          <Tag
+            tone={
+              (decidedLocally ?? guardianRequest.status) === "approved"
+                ? "positive"
+                : "neutral"
+            }
+            className="uppercase tracking-wide"
+            data-testid="guardian-request-status-resolved"
+          >
+            {t("homeGuardianRequestCard.statusResolved")}
+          </Tag>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-[var(--app-spacing-xxs)]">
+        <Typography
+          variant="title-small"
+          className="leading-snug text-[var(--content-default)]"
+        >
+          {resolveFeedItemTitle(item)}
+        </Typography>
+        {metaLine ? (
+          <Typography
+            variant="body-small-default"
+            className="text-[var(--content-tertiary)]"
+          >
+            {metaLine}
+          </Typography>
+        ) : null}
       </div>
 
       <Typography
         variant="body-medium-default"
-        className="text-[var(--content-secondary)]"
+        className="rounded-[var(--radius-md)] bg-[var(--surface-hover)] p-[var(--app-spacing-md)] leading-normal text-[var(--content-secondary)]"
       >
         {item.summary}
       </Typography>
 
-      {guardianRequest.requesterLabel ? (
-        <MetadataRow
-          label={t("homeGuardianRequestCard.requester")}
-          value={guardianRequest.requesterLabel}
-        />
+      {guardianRequest.toolName ? (
+        <div className="flex flex-col gap-[var(--app-spacing-xxs)]">
+          <Typography
+            variant="body-small-emphasised"
+            className="uppercase tracking-wide text-[var(--content-tertiary)]"
+          >
+            {t("homeGuardianRequestCard.tool")}
+          </Typography>
+          <Typography
+            variant="body-small-default"
+            className="break-all font-mono text-[var(--content-secondary)]"
+          >
+            {guardianRequest.toolName}
+          </Typography>
+        </div>
       ) : null}
 
-      {contextLine ? (
-        <MetadataRow
-          label={t("homeGuardianRequestCard.source")}
-          value={contextLine}
-          href={guardianRequest.sourceUrl}
-        />
-      ) : null}
-
-      {!isPending || resolvedElsewhere ? (
+      {!isPending ? (
         <Typography
           variant="body-small-emphasised"
           className="text-[var(--content-default)]"
@@ -163,65 +209,38 @@ export function HomeGuardianRequestCard({
         </Typography>
       ) : null}
 
-      {guardianRequest.slackCardUrl ? (
-        <div className="flex flex-wrap gap-[var(--app-spacing-sm)]">
-          <ExternalLinkButton
-            href={guardianRequest.slackCardUrl}
-            label={t("homeGuardianRequestCard.openInSlack")}
-          />
+      {guardianRequest.sourceUrl || guardianRequest.slackCardUrl ? (
+        <div className="flex flex-wrap items-center gap-[var(--app-spacing-md)]">
+          {guardianRequest.sourceUrl ? (
+            <ExternalTextLink
+              href={guardianRequest.sourceUrl}
+              icon={<ExternalLink className="size-4" />}
+              label={t("homeGuardianRequestCard.viewSourceThread")}
+            />
+          ) : null}
+          {guardianRequest.slackCardUrl ? (
+            <ExternalTextLink
+              href={guardianRequest.slackCardUrl}
+              icon={<MessageCircle className="size-4" />}
+              label={t("homeGuardianRequestCard.openInSlack")}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-interface MetadataRowProps {
-  label: string;
-  value: string;
-  /** Makes the value an external link to the originating message. */
-  href?: string;
-}
-
-function MetadataRow({ label, value, href }: MetadataRowProps) {
-  return (
-    <div className="flex items-baseline gap-[var(--app-spacing-sm)]">
-      <Typography
-        variant="body-small-emphasised"
-        className="shrink-0 text-[var(--content-secondary)]"
-      >
-        {label}
-      </Typography>
-      {href ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => handleNativeAnchorClick(event, href)}
-          className="min-w-0 truncate text-[var(--content-tertiary)] underline underline-offset-2 hover:text-[var(--content-default)]"
-        >
-          <Typography variant="body-small-default">{value}</Typography>
-        </a>
-      ) : (
-        <Typography
-          variant="body-small-default"
-          className="min-w-0 truncate text-[var(--content-tertiary)]"
-        >
-          {value}
-        </Typography>
-      )}
-    </div>
-  );
-}
-
-interface ExternalLinkButtonProps {
+interface ExternalTextLinkProps {
   href: string;
+  icon: ReactNode;
   label: string;
 }
 
-/** Outlined button opening an external target (Slack, a channel permalink). */
-function ExternalLinkButton({ href, label }: ExternalLinkButtonProps) {
+/** Inline link opening an external target (a Slack thread, a permalink). */
+function ExternalTextLink({ href, icon, label }: ExternalTextLinkProps) {
   return (
-    <Button asChild variant="outlined">
+    <Button asChild variant="link" leftIcon={icon}>
       <a
         href={href}
         target="_blank"
