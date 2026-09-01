@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { isMemorySpotlightText } from "../../plugins/defaults/memory/memory-marker.js";
+import { isMemorySpotlightText } from "../../context/strip-injections.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
@@ -1206,20 +1206,6 @@ export class AnthropicProvider implements Provider {
           return isMemorySpotlightText((block as { text: string }).text);
         }
         return false;
-      };
-      const applyCacheControlToLastBlock = (
-        msgIdx: number,
-        control: typeof cacheControl | typeof tailCacheControl = cacheControl,
-      ): void => {
-        const content = msgs[msgIdx].content;
-        if (!Array.isArray(content) || content.length === 0) {
-          return;
-        }
-        const lastBlock = content[content.length - 1];
-        if (typeof lastBlock !== "string") {
-          (lastBlock as unknown as Record<string, unknown>).cache_control =
-            control;
-        }
       };
       // Long-TTL anchors skip a trailing `<memory_spotlight>` suffix so the
       // breakpoint lands on the last stable block (usually the user's text).

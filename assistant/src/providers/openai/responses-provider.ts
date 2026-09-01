@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import { isMemorySpotlightText } from "../../plugins/defaults/memory/memory-marker.js";
+import { isMemorySpotlightText } from "../../context/strip-injections.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";

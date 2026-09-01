@@ -12,11 +12,13 @@
  * without reaching up into the daemon orchestrator.
  */
 import {
+  isMemorySpotlightText,
   MEMORY_SPOTLIGHT_PREFIX,
   MEMORY_SPOTLIGHT_SUFFIX,
-  isMemorySpotlightText,
 } from "../plugins/defaults/memory/memory-marker.js";
 import type { Message } from "../providers/types.js";
+
+export { isMemorySpotlightText };
 
 /**
  * A matcher for an injected text block. A plain string matches by prefix
