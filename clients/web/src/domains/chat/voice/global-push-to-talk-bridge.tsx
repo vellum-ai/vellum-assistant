@@ -12,7 +12,10 @@ import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
-import { useHoldToDictateEnabled } from "@/utils/hold-to-dictate";
+import {
+  markHoldDictation,
+  useHoldToDictateEnabled,
+} from "@/utils/hold-to-dictate";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -119,9 +122,13 @@ export function GlobalPushToTalkBridge({
         return;
       }
       holdRef.current = true;
+      // Read by the recording session as it starts, which decides there
+      // whether the local transcript is the authority.
+      markHoldDictation(true);
       resolveTarget()?.start();
     },
     onHoldEnd: () => {
+      markHoldDictation(false);
       if (useVoiceRecordingStore.getState().phase !== "recording") {
         holdRef.current = false;
         return;

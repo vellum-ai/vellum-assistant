@@ -33,6 +33,7 @@ import {
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
+import { isHoldDictation } from "@/utils/hold-to-dictate";
 import { Button, cn } from "@vellumai/design-library";
 
 const RECORDING_GLYPH_CLASS =
@@ -639,6 +640,15 @@ export const VoiceInputButton = forwardRef<
     // whole session: no daemon stream, no batch upload — the helper's
     // recognizer (already running for every session) is the authority.
     const nativeSttForced = prefersMacosNativeStt();
+    // The same bargain, reached a different way. A hold is aimed at a cursor
+    // in another application and has been showing its words on the companion
+    // the whole time it ran, so what it owes is the sentence the user just
+    // read, the moment they stop. Waiting on a round trip to replace text they
+    // have already checked is a wait with nothing at the end of it.
+    //
+    // Captured at the start, like the provider choice above, so a session
+    // cannot change what it owes halfway through.
+    const localTranscriptWins = nativeSttForced || isHoldDictation();
 
     if (onBeforeStart) {
       let proceed: boolean;
@@ -841,7 +851,7 @@ export const VoiceInputButton = forwardRef<
         let text = "";
         let daemonFailure: SttFailureReason | null = null;
         try {
-          if (audioBlob && assistantId && !nativeSttForced) {
+          if (audioBlob && assistantId && !localTranscriptWins) {
             if (
               typeof navigator !== "undefined" &&
               navigator.onLine === false
@@ -891,6 +901,13 @@ export const VoiceInputButton = forwardRef<
         // the fallback's fallback. The Web Speech accumulator only matters
         // in plain browsers — inside Electron the API ships without a
         // speech service, so it stays empty.
+        // What the pill drew, when the pill is what the user was reading. The
+        // whole-recording pass below is a second slower for a handful of
+        // characters, and a second is most of the wait this gesture has left.
+        if (!text && localTranscriptWins && nativeText) {
+          text = nativeText;
+        }
+
         let blobText = "";
         if (!text) {
           blobText = (await blobTextPromise) ?? "";
@@ -898,7 +915,7 @@ export const VoiceInputButton = forwardRef<
 
         // Character counts only — transcript content must never be logged.
         console.info(
-          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"} forcedNative=${nativeSttForced}`,
+          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"} forcedNative=${nativeSttForced} localWins=${localTranscriptWins}`,
         );
 
         if (!text && blobText) {

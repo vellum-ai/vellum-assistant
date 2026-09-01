@@ -39,3 +39,28 @@ export function useHoldToDictateEnabled(): boolean {
   );
   return enabled;
 }
+
+/**
+ * Whether the dictation being recorded was started by the held keys.
+ *
+ * A hold is aimed at a cursor in another application and shows its words on
+ * the companion while they are said, so what it owes the user is the sentence
+ * they just read, as soon as they stop. That is a different bargain from the
+ * composer's microphone, which can afford to wait for the best answer because
+ * nobody is standing in another app watching for it.
+ *
+ * A flag rather than a parameter because the recording is started through an
+ * imperative handle on whichever `VoiceInputButton` currently owns dictation,
+ * which is the composer's on a chat route and a headless one everywhere else.
+ * Read once when a session starts, so what it says later cannot change the
+ * bargain a session was begun under.
+ */
+let holdDictation = false;
+
+export function markHoldDictation(active: boolean): void {
+  holdDictation = active;
+}
+
+export function isHoldDictation(): boolean {
+  return holdDictation;
+}
