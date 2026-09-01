@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   formatVellumModel,
   getManagedUpstream,
-  isVellumProviderModel,
   MANAGED_ROUTABLE_PROVIDERS,
   parseVellumModel,
 } from "./vellum-model-routing.js";
@@ -64,14 +63,6 @@ describe("vellum-model-routing", () => {
   test("getManagedUpstream rejects managed-prefixed strings whose model is not cataloged under that provider", () => {
     expect(getManagedUpstream("anthropic/definitely-not-a-model")).toBeNull();
     expect(getManagedUpstream("openai/accounts/foo/bar")).toBeNull();
-  });
-
-  test("isVellumProviderModel matches VellumProvider catalog ownership", () => {
-    expect(isVellumProviderModel("qwen/qwen3-8b")).toBe(true);
-    expect(isVellumProviderModel("claude-opus-4-8")).toBe(false);
-    expect(
-      isVellumProviderModel("accounts/fireworks/models/minimax-m3"),
-    ).toBe(false);
   });
 
   test("managed set matches the platform proxy table", () => {

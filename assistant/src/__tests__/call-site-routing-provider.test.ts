@@ -220,49 +220,6 @@ describe("CallSiteRoutingProvider", () => {
     expect(response.model).toBe("anthropic");
   });
 
-  test("does not fall back to the default transport for a Vellum-hosted GPU model", async () => {
-    setLlmConfig({
-      default: {
-        provider: "fireworks",
-        model: "accounts/fireworks/models/kimi-k2p5",
-      },
-      profiles: {
-        steer: {
-          provider: "vellum",
-          model: "qwen/qwen3-8b",
-        },
-      },
-      callSites: {
-        mainAgent: { profile: "steer" },
-      },
-    });
-
-    let defaultCalls = 0;
-    const defaultProvider = makeProvider("fireworks", () => {
-      defaultCalls++;
-    });
-    const wrapped = new CallSiteRoutingProvider(
-      defaultProvider,
-      async () => null,
-    );
-
-    let caught: unknown;
-    try {
-      await wrapped.sendMessage(DUMMY_MESSAGES, {
-        config: { callSite: "mainAgent" },
-      });
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(defaultCalls).toBe(0);
-    expect(caught).toBeInstanceOf(ConnectionResolutionError);
-    expect((caught as ConnectionResolutionError).reason).toBe(
-      "adapter_unavailable",
-    );
-    expect((caught as ConnectionResolutionError).model).toBe("qwen/qwen3-8b");
-  });
-
   test("alternate-provider profile WITHOUT a connection throws ConnectionResolutionError", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },

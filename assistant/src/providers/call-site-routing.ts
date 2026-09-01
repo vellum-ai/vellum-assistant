@@ -48,7 +48,6 @@ import {
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
-import { isVellumProviderModel } from "./vellum-model-routing.js";
 import type { ProvidersConfig } from "./registry.js";
 import { shouldUseNativeWebSearch } from "./registry.js";
 import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
@@ -356,16 +355,6 @@ export class CallSiteRoutingProvider implements Provider {
           ...actualRoute,
           ...(profileName ? { profileName } : {}),
         };
-      }
-      // VellumProvider is the only adapter for this model. The default
-      // transport cannot serve it.
-      if (resolved.model && isVellumProviderModel(resolved.model)) {
-        throw new ConnectionResolutionError(
-          connectionName,
-          "adapter_unavailable",
-          `provider_connection "${connectionName}" yielded no adapter for Vellum-hosted model "${resolved.model}". The default transport cannot serve this model.`,
-          { model: resolved.model, profileName },
-        );
       }
       // Soft credential failure: the routed connection yielded no usable
       // adapter and dispatch is landing on the default transport, which may

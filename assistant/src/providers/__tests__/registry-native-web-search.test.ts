@@ -192,14 +192,18 @@ describe("resolveProviderFromConnection vellum GPU upstream", () => {
     });
   });
 
-  test("vellum plus a non-GPU model is still an unresolved identity", async () => {
-    await expect(
-      resolveProviderFromConnection(vellumConnection, makeConfig(), {
-        model: "claude-opus-4-8",
-        providerOverride: "vellum",
-      }),
-    ).rejects.toThrow(/unresolved routing identity "vellum"/);
-    expect(adapterCalls).toHaveLength(0);
+  test("providerOverride vellum is a factory id, not an unresolved identity", async () => {
+    const adapter = await resolveProviderFromConnection(
+      vellumConnection,
+      makeConfig(),
+      { model: "claude-opus-4-8", providerOverride: "vellum" },
+    );
+    expect(adapter).not.toBeNull();
+    expect(adapterCalls).toHaveLength(1);
+    expect(adapterCalls[0].opts).toMatchObject({
+      model: "claude-opus-4-8",
+      provider: "vellum",
+    });
   });
 });
 

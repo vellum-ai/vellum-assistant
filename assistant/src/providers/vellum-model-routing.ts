@@ -37,8 +37,9 @@ export const MANAGED_ROUTABLE_PROVIDERS: ReadonlySet<string> = new Set(
  * connection. Unlike the per-provider `*-managed` connections, this one does
  * not name an upstream provider on its DB row — the upstream is determined
  * per-request from the resolving profile. The same id is the catalog owner
- * of Vellum-hosted GPU models. Dispatch still substitutes a concrete
- * upstream (including `vellum` for those GPU models) before adapter lookup.
+ * of Vellum-hosted GPU models. Dispatch translates the identity to a
+ * factory id (including `vellum` when that is the catalog owner) before
+ * adapter lookup.
  */
 export const VELLUM_MANAGED_PROVIDER = "vellum";
 
@@ -64,14 +65,6 @@ export const VELLUM_MANAGED_CONNECTION_NAME = "vellum";
  */
 export function isVellumManagedConnection(conn: { provider: string }): boolean {
   return conn.provider === VELLUM_MANAGED_PROVIDER;
-}
-
-/**
- * True when `VellumProvider` is the catalog owner of this model id.
- * That is the GPU adapter, not a `<provider>/<model>` routing string.
- */
-export function isVellumProviderModel(model: string): boolean {
-  return isModelInCatalog(VELLUM_MANAGED_PROVIDER, model);
 }
 
 export interface VellumModelRoute {

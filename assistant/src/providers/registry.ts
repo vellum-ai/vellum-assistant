@@ -25,10 +25,6 @@ import { resolveAuth } from "./inference/resolve-auth.js";
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import {
-  isVellumProviderModel,
-  VELLUM_MANAGED_PROVIDER,
-} from "./vellum-model-routing.js";
-import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "./platform-proxy/context.js";
@@ -318,20 +314,17 @@ export async function resolveProviderFromConnection(
   // is the connection's own — no behavior change.
   const effectiveProvider = opts.providerOverride ?? connection.provider;
   const model = opts.model ?? resolveModel(config, effectiveProvider);
-  // Routing identities must be translated to a real upstream before this
-  // point (resolveRoutingIdentity in connection-resolution). An identity
-  // reaching adapter construction would silently yield no adapter.
-  // VellumProvider is the exception: its catalog id is also the routing
-  // identity, so that pair is a real adapter.
-  if (ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider)) {
-    const isVellumProvider =
-      effectiveProvider === VELLUM_MANAGED_PROVIDER &&
-      isVellumProviderModel(model);
-    if (!isVellumProvider) {
-      throw new Error(
-        `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}": translate to a real upstream before adapter construction`,
-      );
-    }
+  // Routing identities must already be translated to a factory id
+  // (`resolveRoutingIdentity`). `chatgpt` has no factory and must not
+  // reach adapter construction. `vellum` is a catalog factory, so it is
+  // a valid effectiveProvider after that translation.
+  if (
+    ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider) &&
+    !PROVIDER_CATALOG.some((entry) => entry.id === effectiveProvider)
+  ) {
+    throw new Error(
+      `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}": translate to a real upstream before adapter construction`,
+    );
   }
   const cacheKey = getConnectionProviderCacheKey(
     connection,

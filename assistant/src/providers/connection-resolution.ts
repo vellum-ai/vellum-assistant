@@ -63,10 +63,8 @@ import type { Provider } from "./types.js";
 import {
   getManagedUpstream,
   isVellumManagedConnection,
-  isVellumProviderModel,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
-  VELLUM_MANAGED_PROVIDER,
 } from "./vellum-model-routing.js";
 
 export { ConnectionResolutionError, resolveRoutingIdentity };
@@ -241,10 +239,6 @@ export async function tryResolveProviderForConnectionName(
   if (identity) {
     connectionName = identity.connectionName;
     expectedProvider = identity.expectedProvider;
-  }
-  // VellumProvider owns this model in the catalog, so the upstream is vellum.
-  if (model && isVellumProviderModel(model)) {
-    expectedProvider = VELLUM_MANAGED_PROVIDER;
   }
   let connection;
   try {
