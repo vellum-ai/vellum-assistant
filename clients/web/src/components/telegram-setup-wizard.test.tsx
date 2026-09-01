@@ -197,6 +197,8 @@ describe("TelegramSetupWizard step flow", () => {
       screen.queryByRole("button", { name: /Connect Telegram/i }),
     ).toBeNull();
     expect(screen.queryByText(/Token saved/i)).not.toBeNull();
+    // The hand-off is the shared notice, channel-interpolated.
+    expect(screen.queryByText(/verify me on Telegram/i)).not.toBeNull();
   });
 
   test("a well-formed token reaches onSave, trimmed", () => {

@@ -451,10 +451,12 @@ export async function handleChannelInbound({
   // The interceptor drops strangers, records known contacts' reactions as
   // transcript signals in the conversation of the reacted message, and routes
   // a guardian's reaction on an approval card through the guardian decision
-  // pipeline. Reactions never mint a conversation and never drive an agent
-  // turn. A family member whose payload does not resolve (no emoji or no
-  // target message id) is dropped as noise here: the kind names the family,
-  // so it must never fall through and be read as a message.
+  // pipeline. Reactions never mint a conversation; the one that wakes a
+  // turn (an admitted actor adding a reaction to the assistant's own post)
+  // is the interceptor's call. A family member whose payload does not
+  // resolve (no emoji or no target message id) is dropped as noise here:
+  // the kind names the family, so it must never fall through and be read
+  // as a message.
   if (isReactionEvent(body)) {
     const reaction = resolveInboundReactionPayload(body);
     if (!reaction) {

@@ -1,9 +1,12 @@
 import { Button, Input, Notice, Typography } from "@vellumai/design-library";
+import { ChannelSetupCompleteNotice } from "@/components/channel-setup-complete-notice";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { Trans, useTranslation } from "@/i18n";
 import { validateTelegramToken } from "@/utils/telegram-token-validation";
 
 export interface TelegramSetupConnectStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   botToken: string;
   saveStatus: MutationStatus;
   saveError: string | null;
@@ -22,6 +25,7 @@ export interface TelegramSetupConnectStepProps {
  * user what to say instead.
  */
 export function TelegramSetupConnectStep({
+  assistantId,
   botToken,
   saveStatus,
   saveError,
@@ -38,9 +42,12 @@ export function TelegramSetupConnectStep({
   // dead button, which reads as a save that did not take.
   if (saveStatus === "success") {
     return (
-      <Notice tone="success" title={t("telegramSetupConnectStep.savedTitle")}>
-        {t("telegramSetupConnectStep.successNotice")}
-      </Notice>
+      <ChannelSetupCompleteNotice
+        assistantId={assistantId}
+        channel="telegram"
+        savedTitle={t("telegramSetupConnectStep.savedTitle")}
+        savedBody={t("telegramSetupConnectStep.savedBody")}
+      />
     );
   }
 

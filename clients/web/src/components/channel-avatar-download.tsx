@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchAvatarImageUrlResult } from "@/assistant/avatar-api";
 import { useTranslation } from "@/i18n";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
+import type { BotSetupChannel } from "@/types/channel-types";
 import { Button, Typography } from "@vellumai/design-library";
 
 /** Side of the square preview, large enough to judge the image by. */
@@ -24,7 +25,7 @@ const PROMPT_KEY = {
   slack: "channelAvatarDownload.prompt.slack",
   discord: "channelAvatarDownload.prompt.discord",
   telegram: "channelAvatarDownload.prompt.telegram",
-} as const;
+} as const satisfies Record<BotSetupChannel, string>;
 
 /**
  * Key for the avatar raster as a downloadable file, distinct from
@@ -47,12 +48,34 @@ export interface ChannelAvatarDownloadProps {
    */
   assistantId: string;
   /** Provider whose icon field this is for, used only to pick the copy. */
-  channel: "slack" | "discord" | "telegram";
+  channel: BotSetupChannel;
   /**
    * Thumbnail-and-button row for embedding inside an instruction that
    * already explains the avatar, so the prompt sentence is not repeated.
    */
   compact?: boolean;
+}
+
+/**
+ * The avatar raster as an object URL, or null when there is none to offer
+ * (the `none` avatar kind, or a workspace whose raster has not been written
+ * yet). Shared with steps that mention the download, so an instruction can
+ * disappear together with the control it describes.
+ */
+export function useAvatarRasterUrl(assistantId: string): string | null {
+  const { data: imageUrl } = useQuery<string | null>({
+    queryKey: avatarRasterQueryKey(assistantId),
+    queryFn: async () => {
+      const result = await fetchAvatarImageUrlResult(assistantId);
+      const url = result.status === "found" ? result.value : null;
+      // Tracked inside the fetch so a refetch revokes the URL it replaces
+      // rather than leaking one per render of the wizard.
+      trackBlobUrl(rasterUrls, assistantId, url);
+      return url;
+    },
+    staleTime: Infinity,
+  });
+  return imageUrl ?? null;
 }
 
 /**
@@ -79,28 +102,6 @@ export interface ChannelAvatarDownloadProps {
  * kind and a workspace whose raster has not been written yet. An absent
  * suggestion is better than a broken thumbnail beside a dead control.
  */
-/**
- * The avatar raster as an object URL, or null when there is none to offer
- * (the `none` avatar kind, or a workspace whose raster has not been written
- * yet). Shared with steps that mention the download, so an instruction can
- * disappear together with the control it describes.
- */
-export function useAvatarRasterUrl(assistantId: string): string | null {
-  const { data: imageUrl } = useQuery<string | null>({
-    queryKey: avatarRasterQueryKey(assistantId),
-    queryFn: async () => {
-      const result = await fetchAvatarImageUrlResult(assistantId);
-      const url = result.status === "found" ? result.value : null;
-      // Tracked inside the fetch so a refetch revokes the URL it replaces
-      // rather than leaking one per render of the wizard.
-      trackBlobUrl(rasterUrls, assistantId, url);
-      return url;
-    },
-    staleTime: Infinity,
-  });
-  return imageUrl ?? null;
-}
-
 export function ChannelAvatarDownload({
   assistantId,
   channel,

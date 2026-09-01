@@ -20,6 +20,15 @@ mock.module("../config/env.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
+// Wake dispatches are captured, not run: this suite pins persistence, and
+// the real background machinery would race the assertions.
+const dispatchedWakes: Array<Record<string, unknown>> = [];
+mock.module("../runtime/routes/inbound-stages/background-dispatch.js", () => ({
+  processChannelMessageInBackground: (params: Record<string, unknown>) => {
+    dispatchedWakes.push(params);
+  },
+}));
+
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
@@ -490,13 +499,21 @@ describe("Slack reaction event persistence", () => {
       TEST_BEARER_TOKEN,
     );
     expect(resp.status).toBe(200);
+    const body = (await resp.json()) as Record<string, unknown>;
 
+    // An admitted actor adding a reaction to the assistant's own post wakes
+    // a discretion turn instead of writing the passive row here: the turn's
+    // own persisted user row is the reaction row.
+    expect(body.reaction).toBe("wake_dispatched");
+    expect(dispatchedWakes).toHaveLength(1);
+    expect(dispatchedWakes[0].conversationId).toBe(conversationId);
+    expect(typeof dispatchedWakes[0].slackReactionRowMeta).toBe("string");
     const reactionRow = db.$client
       .prepare(
         "SELECT conversation_id AS conversationId FROM messages WHERE content = '[reaction]'",
       )
       .get() as { conversationId: string } | null;
-    expect(reactionRow?.conversationId).toBe(conversationId);
+    expect(reactionRow).toBeNull();
   });
 
   test("a reaction leaves the reacted message resolvable by its own id", async () => {

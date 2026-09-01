@@ -1646,7 +1646,7 @@
     "customTag": "Custom",
     "customTagTitle": "A provider you created, served by an OpenAI-compatible endpoint.",
     "defaultTag": "Default",
-    "defaultTagTitle": "Built-in profiles (Balanced, Quality, Cost, Speed) use this provider.",
+    "defaultTagTitle": "Built-in profiles (Balanced, Quality, Budget, Fast) use this provider.",
     "delete": "Delete",
     "edit": "Edit",
     "localTag": "Local",

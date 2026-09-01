@@ -11,13 +11,12 @@ import {
   beforeEach,
   describe,
   expect,
-  jest,
   mock,
   setSystemTime,
   test,
 } from "bun:test";
 import { useEffect } from "react";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 const deleteChatAttachment = mock(
   async (_assistantId: string, _attachmentId: string) => true,
@@ -35,6 +34,11 @@ const ASSISTANT_ID = "asst_sight";
 // Comfortably past every deadline these tests derive, which queue at most a
 // handful of jobs ahead.
 const PAST_EVERY_DEADLINE_MS = 10 * PER_JOB_CEILING_MS;
+
+// How far short of a deadline {@link holdShortOfTheDeadline} parks the clock,
+// and so how long the hook's own `setTimeout` waits: short enough to spend on
+// a real clock, long enough not to spin.
+const SHORT_OF_THE_DEADLINE_MS = 25;
 
 /** Put a running session on the store, bound to an assistant. */
 function startSession() {
@@ -58,33 +62,32 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   setSystemTime();
-  jest.useRealTimers();
 });
 
 /**
- * Run `body` on a clock this test owns.
+ * Queue reclaims and let the hook arm against a clock parked just short of the
+ * deadline they derive. Returns that deadline, for the caller to step past.
  *
- * Scoped rather than global: fake timers freeze the ordinary `setTimeout(0)`
- * settles the other cases wait on, so only the cases about the delay take
- * them, and those settle with microtasks alone.
+ * The wait under test is tens of seconds long, so something has to give. What
+ * gives is `Date.now()` rather than the timers: the hook keeps the ordinary
+ * `setTimeout` it ships with, and its arm comes out a few real milliseconds
+ * instead. Replacing the timers instead would take React's own scheduling with
+ * them, since a faked timer that writes to the store leaves work `act` can no
+ * longer settle.
+ *
+ * The clock is parked rather than merely set, so an arm that fires while the
+ * caller is asserting the wait finds nothing due and simply arms again.
  */
-async function onAFakeClock(
-  body: (advanceBy: (ms: number) => void) => Promise<void>,
-): Promise<void> {
-  const base = new Date("2026-09-01T00:00:00Z");
-  setSystemTime(base);
-  jest.useFakeTimers();
-  let elapsed = 0;
-  try {
-    await body((ms) => {
-      elapsed += ms;
-      setSystemTime(new Date(base.getTime() + elapsed));
-      jest.advanceTimersByTime(ms);
-    });
-  } finally {
-    jest.useRealTimers();
-    setSystemTime();
-  }
+async function holdShortOfTheDeadline(queue: () => void): Promise<number> {
+  let deadline = 0;
+  await act(async () => {
+    queue();
+    const pending = useLiveVoiceStore.getState().sightFramesToReclaim;
+    deadline = Math.max(...pending.map((entry) => entry.notBefore ?? 0));
+    setSystemTime(new Date(deadline - SHORT_OF_THE_DEADLINE_MS));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return deadline;
 }
 
 describe("useSightFrameReclaimer", () => {
@@ -189,97 +192,85 @@ describe("useSightFrameReclaimer", () => {
     // still be queued behind another when the socket closes. Deleting straight
     // away would make its persist find nothing and drop a frame that was going
     // to land, with no open socket left to say so.
-    await onAFakeClock(async (advanceBy) => {
-      const generation = startSession();
-      renderHook(() => useSightFrameReclaimer());
-      sendLiveVoiceSightFrame("att-1", generation);
-      sendLiveVoiceSightFrame("att-2", generation);
+    const generation = startSession();
+    renderHook(() => useSightFrameReclaimer());
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
 
-      await act(async () => {
-        useLiveVoiceStore.getState().reset({ sessionContinues: true });
-        await Promise.resolve();
-      });
+    const deadline = await holdShortOfTheDeadline(() => {
+      useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    });
 
-      expect(deleteChatAttachment).not.toHaveBeenCalled();
-      expect(useLiveVoiceStore.getState().sightFramesToReclaim).toHaveLength(2);
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toHaveLength(2);
 
-      // Once the daemon has had its time, the link-aware delete decides: a
-      // frame that persisted meanwhile is refused, one that was lost is
-      // collected.
-      await act(async () => {
-        advanceBy(PAST_EVERY_DEADLINE_MS);
-        await Promise.resolve();
-      });
-
-      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
-      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
+    // Once the daemon has had its time, the link-aware delete decides: a frame
+    // that persisted meanwhile is refused, one that was lost is collected.
+    setSystemTime(new Date(deadline + 1));
+    await waitFor(() => {
       expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
     });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
   });
 
   test("holds a terminal reset's the same way", async () => {
-    await onAFakeClock(async (advanceBy) => {
-      const generation = startSession();
-      renderHook(() => useSightFrameReclaimer());
-      sendLiveVoiceSightFrame("att-1", generation);
+    const generation = startSession();
+    renderHook(() => useSightFrameReclaimer());
+    sendLiveVoiceSightFrame("att-1", generation);
 
-      await act(async () => {
-        useLiveVoiceStore.getState().reset();
-        await Promise.resolve();
-      });
-      expect(deleteChatAttachment).not.toHaveBeenCalled();
+    const deadline = await holdShortOfTheDeadline(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
 
-      await act(async () => {
-        advanceBy(PAST_EVERY_DEADLINE_MS);
-        await Promise.resolve();
-      });
-
+    setSystemTime(new Date(deadline + 1));
+    await waitFor(() => {
       expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
     });
   });
 
   test("stops arming once the queue is empty", async () => {
-    await onAFakeClock(async (advanceBy) => {
-      const generation = startSession();
-      renderHook(() => useSightFrameReclaimer());
-      sendLiveVoiceSightFrame("att-1", generation);
-      await act(async () => {
-        useLiveVoiceStore.getState().reset();
-        await Promise.resolve();
-      });
+    const generation = startSession();
+    renderHook(() => useSightFrameReclaimer());
+    sendLiveVoiceSightFrame("att-1", generation);
 
-      await act(async () => {
-        advanceBy(PAST_EVERY_DEADLINE_MS);
-        await Promise.resolve();
-      });
-      expect(deleteChatAttachment).toHaveBeenCalledTimes(1);
+    const deadline = await holdShortOfTheDeadline(() => {
+      useLiveVoiceStore.getState().reset();
+    });
 
-      // Nothing is queued, so nothing is waiting to fire: running the clock on
-      // must not re-issue the delete this already made.
-      await act(async () => {
-        advanceBy(PAST_EVERY_DEADLINE_MS * 4);
-        await Promise.resolve();
-      });
-
+    setSystemTime(new Date(deadline + 1));
+    await waitFor(() => {
       expect(deleteChatAttachment).toHaveBeenCalledTimes(1);
     });
+
+    // Nothing is queued, so nothing is waiting to fire: running the clock on
+    // must not re-issue the delete this already made.
+    setSystemTime(new Date(deadline + PAST_EVERY_DEADLINE_MS));
+    await act(async () => {
+      await new Promise((resolve) =>
+        setTimeout(resolve, SHORT_OF_THE_DEADLINE_MS * 4),
+      );
+    });
+
+    expect(deleteChatAttachment).toHaveBeenCalledTimes(1);
   });
 
   test("a refusal-routed reclaim does not wait", async () => {
     // The assistant answered for these and reclaimed its own side, so there is
     // nothing left to settle and no reason to hold them.
-    await onAFakeClock(async () => {
-      const generation = startSession();
-      renderHook(() => useSightFrameReclaimer());
-      sendLiveVoiceSightFrame("att-1", generation);
+    const generation = startSession();
+    renderHook(() => useSightFrameReclaimer());
+    sendLiveVoiceSightFrame("att-1", generation);
 
-      await act(async () => {
-        useLiveVoiceStore.getState().noteSightFrameRefused(true);
-        await Promise.resolve();
-      });
-
-      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    await act(async () => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
   });
 
   test("a routine refusal queues nothing to delete", async () => {
