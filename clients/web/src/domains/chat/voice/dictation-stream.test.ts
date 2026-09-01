@@ -426,4 +426,28 @@ describe("startDictationStream", () => {
     expect(dialled).toBe(0);
     expect(await handle!.stop()).toBeNull();
   });
+
+  /**
+   * A hold short enough to end before the runtime is ready has its audio
+   * still held and a runtime that ignores a stop. The stop goes out from the
+   * ready handler, right behind the audio it asks the runtime to finish,
+   * rather than being lost and the hold waiting out the flush timeout.
+   */
+  test("a stop before ready is sent once ready arrives, after the held audio", async () => {
+    const { handle, ws, captureFake } = await startWithFakes();
+    const early = new ArrayBuffer(4);
+    ws.serverOpen();
+    captureFake.pushChunk(early);
+
+    const stopped = handle.stop();
+    expect(ws.sent).toHaveLength(0);
+
+    ws.serverMessage({ type: "ready" });
+    expect(ws.sent[0]).toBe(early);
+    expect(ws.sent[1]).toContain('"stop"');
+
+    ws.serverMessage({ type: "final", text: "brief.", seq: 0 });
+    ws.serverMessage({ type: "closed" });
+    expect(await stopped).toBe("brief.");
+  });
 });

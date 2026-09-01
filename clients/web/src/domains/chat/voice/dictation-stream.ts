@@ -201,6 +201,16 @@ export function startDictationStream(
   // saying the flush is done. Any other way out is a failure, whatever text
   // had been committed by then.
   let closedByServer = false;
+  // A stop asked for before the runtime was ready to hear it.
+  let stopPending = false;
+
+  const sendStop = (socket: WebSocket): void => {
+    try {
+      socket.send(JSON.stringify({ type: "stop" }));
+    } catch {
+      // Socket raced shut. The flush timeout finishes the session.
+    }
+  };
   // Settled by `teardown`, which every way out of the session runs through.
   let settleStop: ((text: string | null) => void) | null = null;
   const stopped = new Promise<string | null>((resolve) => {
@@ -288,6 +298,10 @@ export function startDictationStream(
             socket.send(buf);
           }
           held = [];
+          if (stopPending) {
+            stopPending = false;
+            sendStop(socket);
+          }
           return;
         case "partial":
           if (typeof message.text === "string") {
@@ -301,7 +315,7 @@ export function startDictationStream(
           }
           return;
         // Includes the structured "streaming not supported for provider"
-        // error — the session degrades to batch-only.
+        // error, and the session degrades to batch-only.
         case "error":
           console.warn(
             "dictation-stream: server error event",
@@ -323,7 +337,7 @@ export function startDictationStream(
     });
 
     socket.addEventListener("close", (event) => {
-      // A close before `ready` means the session never delivered a partial —
+      // A close before `ready` means the session never delivered a partial;
       // surface why (CSP-blocked sockets land here with code 1006, and a
       // gateway that could not reach the assistant with 1014).
       if (!live && !closed) {
@@ -391,10 +405,14 @@ export function startDictationStream(
         // to flush finals.
         capture.flush?.();
         stopRequestedAt = Date.now();
-        try {
-          ws.send(JSON.stringify({ type: "stop" }));
-        } catch {
-          // Socket raced shut — the timeout below finishes it.
+        // A hold short enough to end before `ready` has its audio still held
+        // and a runtime still initialising, which ignores a stop. The stop
+        // goes out from the `ready` handler in that case, right behind the
+        // audio it is asking the runtime to finish.
+        if (live) {
+          sendStop(ws);
+        } else {
+          stopPending = true;
         }
         // The provider flushes what it has left and the session closes
         // behind it, which is what settles `stopped` through `teardown`.

@@ -75,12 +75,6 @@ export function GlobalPushToTalkBridge({
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   const holdToDictateEnabled = useHoldToDictateEnabled();
-  /**
-   * Whether the dictation in flight was started by the hold rather than by a
-   * press. A ref because the transcript arrives after the keys are back up, so
-   * a state read at that point would already describe the next silence.
-   */
-  const holdRef = useRef(false);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -148,7 +142,6 @@ export function GlobalPushToTalkBridge({
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
       }
-      holdRef.current = true;
       // Read by the recording session as it starts, which decides there
       // whether the local transcript is the authority.
       markHoldDictation(true);
@@ -157,7 +150,6 @@ export function GlobalPushToTalkBridge({
     onHoldEnd: () => {
       markHoldDictation(false);
       if (useVoiceRecordingStore.getState().phase !== "recording") {
-        holdRef.current = false;
         return;
       }
       holdTarget()?.stop();
@@ -235,8 +227,6 @@ export function GlobalPushToTalkBridge({
             useConversationStore.getState().activeConversationId,
           );
       }
-
-      holdRef.current = false;
 
       const conversationKey = ensureConversationKey();
       const composer = useComposerStore.getState();
