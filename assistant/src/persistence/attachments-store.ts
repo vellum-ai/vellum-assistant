@@ -12,6 +12,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -27,8 +28,12 @@ import {
   sniffImageFileMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
+import {
+  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
+  sightFrameAttachmentIdsFromMetadata,
+} from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
 import { attachments, messageAttachments } from "./schema.js";
@@ -1436,11 +1441,205 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
 
 /** True while any surviving attachment row still names this file. */
 function attachmentFilePathStillReferenced(filePath: string): boolean {
+  return attachmentFilePathReferenceCount(filePath) > 0;
+}
+
+/** How many attachment rows name this file. */
+function attachmentFilePathReferenceCount(filePath: string): number {
   return (
-    rawGet<{ id: string }>(
-      "attachments:filePathStillReferenced",
-      `SELECT id FROM attachments WHERE file_path = ? LIMIT 1`,
+    rawGet<{ refCount: number }>(
+      "attachments:filePathReferenceCount",
+      `SELECT COUNT(*) AS refCount FROM attachments WHERE file_path = ?`,
       filePath,
-    ) !== null
+    )?.refCount ?? 0
   );
+}
+
+/**
+ * True when a file is one the attachment store itself wrote: either a staged
+ * upload or a conversation's own `attachments/` directory.
+ *
+ * `file_path` is not always the store's to rewrite. `uploadFileBackedAttachment`
+ * registers a file by path, and `/attachments/register` accepts any path inside
+ * the workspace, so a row can name a file the user or a tool created and still
+ * owns. Directory identity is the same test
+ * {@link materializeAttachmentIntoConversation} uses to decide whether a file is
+ * already where it belongs.
+ */
+function isStoreOwnedAttachmentFile(filePath: string): boolean {
+  const dir = dirname(filePath);
+  if (dir === join(getWorkspaceDir(), "data", "attachments")) {
+    return true;
+  }
+  return (
+    basename(dir) === "attachments" &&
+    dirname(dirname(dir)) === getConversationsDir()
+  );
+}
+
+export interface SightFrameSweepCandidate {
+  id: string;
+  /** Stored size before the sweep, so a caller can report what it freed. */
+  sizeBytes: number;
+}
+
+/**
+ * Sight-tagged image attachments older than `createdBefore` whose stored bytes
+ * still exceed `largerThanBytes`, capped at `limit` rows.
+ *
+ * The population is EVERY tagged frame, standalone camera keeps and the frames
+ * that rode a spoken turn alike. That is deliberately wider than
+ * `messageMetadataIsAmbientSightKeep`, which additionally requires `scripted`
+ * because it answers a question about memory. Bytes on disk cost the same
+ * whoever was speaking when the camera sampled them.
+ *
+ * Like the other metadata prefilters, the `LIKE` only narrows: every candidate
+ * row is parsed and has to name this attachment before it is returned, so a row
+ * that merely mentions the key contributes nothing.
+ *
+ * Age comes from the attachment row's own `created_at`, not the message's. It
+ * dates the bytes this row stores, which is what the sweep is bounding: a fork's
+ * clone is a second copy written on the day of the fork, however old the frame
+ * it depicts.
+ */
+export function selectSightFrameSweepCandidates(options: {
+  createdBefore: number;
+  largerThanBytes: number;
+  limit: number;
+}): SightFrameSweepCandidate[] {
+  const rows = rawAll<{
+    id: string;
+    sizeBytes: number;
+    metadata: string | null;
+  }>(
+    "attachments:selectSightFrameSweepCandidates",
+    `SELECT
+       a.id AS id,
+       a.size_bytes AS sizeBytes,
+       m.metadata AS metadata
+     FROM attachments a
+     JOIN message_attachments ma ON ma.attachment_id = a.id
+     JOIN messages m ON m.id = ma.message_id
+     WHERE a.kind = 'image'
+       AND a.created_at < ?
+       AND a.size_bytes > ?
+       AND m.metadata LIKE ?
+     ORDER BY a.created_at ASC
+     LIMIT ?`,
+    options.createdBefore,
+    options.largerThanBytes,
+    `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`,
+    options.limit,
+  );
+
+  const candidates: SightFrameSweepCandidate[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (seen.has(row.id)) {
+      continue;
+    }
+    let tagged: string[];
+    try {
+      tagged = sightFrameAttachmentIdsFromMetadata(
+        JSON.parse(row.metadata ?? "null") as Record<string, unknown> | null,
+      );
+    } catch {
+      continue;
+    }
+    if (!tagged.includes(row.id)) {
+      continue;
+    }
+    seen.add(row.id);
+    candidates.push({ id: row.id, sizeBytes: row.sizeBytes });
+  }
+  return candidates;
+}
+
+export type ShrinkAttachmentResult =
+  | "shrunk"
+  | "not_found"
+  | "no_content"
+  | "not_smaller"
+  | "shared_file"
+  | "foreign_file"
+  | "write_failed";
+
+/**
+ * Replace an attachment's stored bytes with a smaller rendering of the same
+ * image, leaving the row, its links, and its message content in place.
+ *
+ * Refuses every case where the bytes are not this row's alone to rewrite:
+ *
+ *  - a `file_path` more than one row names. A path is not private to a row (see
+ *    {@link deleteOrphanAttachments}), and rewriting a shared file would rewrite
+ *    the other row's image too. Writing a fresh file and repointing only this
+ *    row would avoid the corruption but strand the original, which nothing
+ *    unlinks until its last row is deleted, so refusing is the option that
+ *    actually bounds storage.
+ *  - a file outside the store's own directories, which may be a file the user
+ *    or a tool still owns.
+ *  - bytes that are not smaller than what is stored, so a rendering that cannot
+ *    win leaves the original alone.
+ *
+ * The file write goes through a sibling temp file and a rename, so a torn write
+ * cannot leave a truncated image where the transcript expects one.
+ */
+export function shrinkAttachmentBytes(
+  attachmentId: string,
+  bytes: Uint8Array,
+  mimeType: string,
+): ShrinkAttachmentResult {
+  const row = getAttachmentRow(attachmentId);
+  if (!row) {
+    return "not_found";
+  }
+  if (bytes.length >= row.sizeBytes) {
+    return "not_smaller";
+  }
+
+  if (row.filePath) {
+    if (!isStoreOwnedAttachmentFile(row.filePath)) {
+      return "foreign_file";
+    }
+    if (attachmentFilePathReferenceCount(row.filePath) > 1) {
+      return "shared_file";
+    }
+    const tmpPath = `${row.filePath}.${process.pid}-${uuid().slice(0, 8)}.tmp`;
+    try {
+      writeFileSync(tmpPath, bytes);
+      renameSync(tmpPath, row.filePath);
+    } catch {
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+        /* nothing was written */
+      }
+      return "write_failed";
+    }
+  } else if (row.dataBase64) {
+    rawRun(
+      "attachments:shrinkAttachmentBytes:inline",
+      `UPDATE attachments SET data_base64 = ? WHERE id = ?`,
+      Buffer.from(bytes).toString("base64"),
+      attachmentId,
+    );
+  } else {
+    return "no_content";
+  }
+
+  const db = getDb();
+  db.update(attachments)
+    .set({
+      sizeBytes: bytes.length,
+      mimeType,
+      kind: classifyKind(mimeType),
+      originalFilename:
+        mimeType === "image/jpeg" && row.mimeType !== "image/jpeg"
+          ? jpegFilenameFor(row.originalFilename)
+          : row.originalFilename,
+    })
+    .where(eq(attachments.id, attachmentId))
+    .run();
+
+  return "shrunk";
 }
