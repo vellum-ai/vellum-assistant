@@ -23,6 +23,7 @@ import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import {
   channelInboundEvents,
+  channelOutboundPosts,
   conversationKeys,
   conversations,
   messages,
@@ -61,11 +62,13 @@ const PROVIDER_MESSAGE_ID_SCAN_BATCH_SIZE = 200;
 const UNRECONCILED_OUTBOUND_ROW_SCAN = 25;
 
 /**
- * Widened `maxScan` for the deletion path. A delete can target an
- * arbitrarily old assistant post, so recency is not a completeness
- * contract there, but deletes are rare and run off the gateway-ack hot
- * path, so a deep batched scan is affordable. Beyond this bound the delete
- * degrades exactly as an unresolvable one always has.
+ * Widened `maxScan` for the deletion path's TRANSITIONAL fallback. Posts
+ * delivered since `channel_outbound_posts` exists resolve through that
+ * index exactly, at any age; this bound serves only rows reconciled before
+ * the table. A delete can target an arbitrarily old such post, so recency
+ * is not a completeness contract, but deletes are rare and run off the
+ * gateway-ack hot path, so a deep batched scan is affordable. Delete this
+ * (and the fallback scan) once pre-table rows stop mattering.
  */
 export const DELETE_PROVIDER_MESSAGE_ID_MAX_SCAN = 20_000;
 
@@ -331,6 +334,29 @@ export function findMessageByProviderMessageId(
   opts?: { maxScan?: number },
 ): { messageId: string; conversationId: string } | null {
   const db = getDb();
+
+  // The `channel_outbound_posts` index is the resolution contract: exact,
+  // unbounded by recency, one indexed read. It covers every post delivered
+  // since the table exists; the batched envelope scan below survives only
+  // as the transitional fallback for rows reconciled before it.
+  const indexed = db
+    .select({
+      messageId: channelOutboundPosts.messageId,
+      conversationId: channelOutboundPosts.conversationId,
+    })
+    .from(channelOutboundPosts)
+    .where(
+      and(
+        eq(channelOutboundPosts.sourceChannel, sourceChannel),
+        eq(channelOutboundPosts.externalChatId, externalChatId),
+        eq(channelOutboundPosts.providerMessageId, providerMessageId),
+      ),
+    )
+    .get();
+  if (indexed) {
+    return indexed;
+  }
+
   const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
   const maxScan = opts?.maxScan ?? OUTBOUND_MESSAGE_ID_MAX_SCAN;
 
@@ -386,6 +412,34 @@ export function findMessageByProviderMessageId(
     offset += rows.length;
   }
   return null;
+}
+
+/**
+ * Record one provider post the assistant's delivery produced, into the
+ * `channel_outbound_posts` index. Idempotent: a redelivered id upserts onto
+ * the same triple and changes nothing. Written by the post-send
+ * reconciliation alongside the row's `providerMeta` envelope; the envelope
+ * stays the row's self-description, this table is the resolution index.
+ */
+export function recordOutboundPost(post: {
+  sourceChannel: string;
+  externalChatId: string;
+  providerMessageId: string;
+  messageId: string;
+  conversationId: string;
+}): void {
+  const db = getDb();
+  db.insert(channelOutboundPosts)
+    .values({
+      sourceChannel: post.sourceChannel,
+      externalChatId: post.externalChatId,
+      providerMessageId: post.providerMessageId,
+      messageId: post.messageId,
+      conversationId: post.conversationId,
+      createdAt: Date.now(),
+    })
+    .onConflictDoNothing()
+    .run();
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   findMessageBySourceId,
   linkMessage,
   recordInbound,
+  recordOutboundPost,
   storePayload,
 } from "../persistence/delivery-crud.js";
 import {
@@ -52,6 +53,7 @@ await initializeDb();
 function resetTables() {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
+  db.run("DELETE FROM channel_outbound_posts");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM external_conversation_bindings");
@@ -170,6 +172,58 @@ describe("channel-delivery-store", () => {
         "discord",
         "other-chat",
         "1234567890123456789",
+      ),
+    ).toBeNull();
+  });
+
+  test("the outbound-posts index resolves a post exactly, at any age", () => {
+    const chatId = "999000111222333444";
+    const minted = recordInbound("discord", chatId, "evt-index-seed");
+    const db = getDb();
+    // The row's envelope names nothing: resolution comes from the index
+    // alone, proving the table is the contract rather than a cache in
+    // front of the scan.
+    db.insert(messages)
+      .values({
+        id: "assistant-indexed-post",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "indexed reply",
+        createdAt: Date.now(),
+        metadata: null,
+      })
+      .run();
+    recordOutboundPost({
+      sourceChannel: "discord",
+      externalChatId: chatId,
+      providerMessageId: "555666777888999000",
+      messageId: "assistant-indexed-post",
+      conversationId: minted.conversationId,
+    });
+    // Idempotent on redelivery.
+    recordOutboundPost({
+      sourceChannel: "discord",
+      externalChatId: chatId,
+      providerMessageId: "555666777888999000",
+      messageId: "assistant-indexed-post",
+      conversationId: minted.conversationId,
+    });
+
+    expect(
+      findMessageByProviderMessageId("discord", chatId, "555666777888999000"),
+    ).toEqual({
+      messageId: "assistant-indexed-post",
+      conversationId: minted.conversationId,
+    });
+    // Channel and chat scoping hold on the index path too.
+    expect(
+      findMessageByProviderMessageId("telegram", chatId, "555666777888999000"),
+    ).toBeNull();
+    expect(
+      findMessageByProviderMessageId(
+        "discord",
+        "other-chat",
+        "555666777888999000",
       ),
     ).toBeNull();
   });

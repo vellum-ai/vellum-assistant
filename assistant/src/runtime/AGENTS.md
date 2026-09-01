@@ -213,8 +213,13 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   (`buildAssistantChannelMetadata`) whose `messageId` (and, for a reply
   split into several posts, `additionalMessageIds`) the post-send
   reconciliation in `channel-reply-delivery.ts` back-fills from the
-  transport's delivery results, which is what lets a later reaction on the
-  assistant's own post resolve back to its row. Slack
+  transport's delivery results. The same reconciliation writes each id into
+  the `channel_outbound_posts` index (the outbound counterpart of
+  `channel_inbound_events`' provider-id resolution), which is what lets a
+  later reaction or delete naming the assistant's own post resolve back to
+  its row exactly; the envelope stays the row's self-description, and the
+  capped envelope scan in `findMessageByProviderMessageId` survives only as
+  the transitional fallback for rows reconciled before the table. Slack
   keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
   onto this shape on read, so the channel-agnostic readers in
   `persistence/delivery-crud.ts` (thread evidence, and finding the
