@@ -14,7 +14,7 @@ import type { ProvidersConfig } from "../registry.js";
 
 const adapterCalls: Array<{
   connection: ProviderConnection;
-  opts: { model: string; useNativeWebSearch?: boolean };
+  opts: { model: string; useNativeWebSearch?: boolean; provider?: string };
 }> = [];
 
 mock.module("../inference/resolve-auth.js", () => ({
@@ -32,7 +32,7 @@ mock.module("../inference/adapter-factory.js", () => ({
   createAdapterFromConnection: (
     connection: ProviderConnection,
     _resolvedAuth: unknown,
-    opts: { model: string; useNativeWebSearch?: boolean },
+    opts: { model: string; useNativeWebSearch?: boolean; provider?: string },
   ) => {
     adapterCalls.push({ connection, opts });
     return {
@@ -81,6 +81,18 @@ const openRouterConnection: ProviderConnection = {
   createdAt: 1,
   updatedAt: 1,
   isManaged: false,
+};
+
+const vellumConnection: ProviderConnection = {
+  name: "vellum",
+  provider: "vellum",
+  auth: { type: "platform" },
+  label: "Vellum",
+  baseUrl: null,
+  models: null,
+  createdAt: 1,
+  updatedAt: 1,
+  isManaged: true,
 };
 
 describe("resolveProviderFromConnection native web search selection", () => {
@@ -157,6 +169,41 @@ describe("resolveProviderFromConnection connection cache TTL", () => {
       model: "anthropic/claude-opus-4-7",
     });
     expect(adapterCalls).toHaveLength(2);
+  });
+});
+
+describe("resolveProviderFromConnection vellum GPU upstream", () => {
+  beforeEach(() => {
+    adapterCalls.length = 0;
+    clearConnectionProviderCache();
+  });
+
+  test("a GPU model with providerOverride vellum builds an adapter", async () => {
+    const adapter = await resolveProviderFromConnection(
+      vellumConnection,
+      makeConfig(),
+      { model: "qwen/qwen3-8b", providerOverride: "vellum" },
+    );
+    expect(adapter).not.toBeNull();
+    expect(adapterCalls).toHaveLength(1);
+    expect(adapterCalls[0].opts).toMatchObject({
+      model: "qwen/qwen3-8b",
+      provider: "vellum",
+    });
+  });
+
+  test("providerOverride vellum is a factory id, not an unresolved identity", async () => {
+    const adapter = await resolveProviderFromConnection(
+      vellumConnection,
+      makeConfig(),
+      { model: "claude-opus-4-8", providerOverride: "vellum" },
+    );
+    expect(adapter).not.toBeNull();
+    expect(adapterCalls).toHaveLength(1);
+    expect(adapterCalls[0].opts).toMatchObject({
+      model: "claude-opus-4-8",
+      provider: "vellum",
+    });
   });
 });
 

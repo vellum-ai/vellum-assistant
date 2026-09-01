@@ -18,9 +18,12 @@
     "background": "Segundo plano",
     "system": "Sistema",
     "guardianAction": "Acción del guardián requerida",
-    "guardianQuestion": "Pregunta del guardián"
+    "guardianQuestion": "Pregunta del guardián",
+    "guardianRequest": "Solicitud del guardián"
   },
-  "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
+  "homeRecapRow": {
+    "actionsTitle": "Acciones de la actualización"
+  },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
     "status": {
@@ -39,34 +42,32 @@
     "loadFailed": "No se pudieron cargar las notificaciones.",
     "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
   },
-  "notificationsBellDetail": { "back": "Volver a las notificaciones" },
+  "notificationsBellDetail": {
+    "back": "Volver a las notificaciones"
+  },
   "homeGuardianRequestCard": {
-    "requester": "Solicitado por",
-    "source": "Origen",
     "approve": "Aprobar",
     "reject": "Rechazar",
-    "answerHint": "Responde esta pregunta desde la conversación de origen.",
-    "viewSourceMessage": "Ver mensaje",
-    "openInSlack": "Abrir en Slack",
-    "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
+    "answerHint": "Ve a la conversación para responder esta pregunta.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
     "receipt": {
-      "approved": "Aprobada",
-      "approvedBy": "Aprobada por {name}",
-      "rejected": "Rechazada",
-      "rejectedBy": "Rechazada por {name}",
-      "expired": "Caducada",
-      "superseded": "Reemplazada",
-      "cancelled": "Cancelada",
-      "leftUnverified": "Sin verificar"
-    }
+      "approved": "Solicitud aprobada",
+      "rejected": "Solicitud rechazada",
+      "expired": "Solicitud vencida",
+      "superseded": "Solicitud reemplazada",
+      "leftUnverified": "Sin verificar",
+      "cancelled": "Solicitud cancelada",
+      "alreadyResolved": "Ya resuelta"
+    },
+    "viewSourceThread": "Ver hilo de origen",
+    "toolRequested": "Solicitó ejecutar <code>{toolName}</code>",
+    "toolRequesting": "Solicita ejecutar <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",
     "briefingRecipeTitle": "Configurar un resumen matutino",
     "briefingRecipeMeta": "Cada día",
-    "briefingRecipeDescription": "Tu primera notificación, mañana a las 8:00.",
-    "briefingRecipePrompt": "Configúrame un resumen matutino: cada día laborable a las 8:00, revisa mi calendario, mi bandeja de entrada y las noticias, y publica un resumen breve en mis notificaciones.",
-    "dismissBriefingRecipe": "Descartar la sugerencia del resumen matutino"
+    "briefingRecipeDescription": "Tu primera notificación, mañana por la mañana.",
+    "briefingRecipePrompt": "Ayúdame a configurar un resumen matutino. Antes de crear nada, comprueba qué cuentas mías están conectadas y luego dame algunas opciones sobre qué podría incluir y a qué hora debería enviarse. Cuando elija, configúralo."
   }
 }

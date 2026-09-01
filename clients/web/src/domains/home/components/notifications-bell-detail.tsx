@@ -5,15 +5,19 @@ import {
   formatCompactLocalDate,
   formatFullLocalDate,
 } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import {
+  isPendingGuardianFeedItem,
+  type FeedItem,
+  type FeedItemStatus,
+} from "@vellumai/assistant-api";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
-import { resolveFeedItemTitle } from "../utils";
+import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -98,6 +102,17 @@ export function NotificationsBellDetail({
   const conversationId = item.conversationId ?? null;
   const actions = item.actions ?? [];
 
+  // A guardian request's panel is titled by the kind of request; the card
+  // below renders the item's own title as its heading. Every other item is
+  // titled by its title.
+  const guardianTitleKey = guardianLabelKey(item);
+  const panelTitle = guardianTitleKey
+    ? t(guardianTitleKey)
+    : resolveFeedItemTitle(item);
+  // While the request waits its title is the callout, as a pill. A settled
+  // request needs nothing of anyone, so the same name reads as plain text.
+  const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
+
   // The lists start loading when this view opens, so validation has a pending
   // state a warm-cache surface would not have. Every
   // list a candidate link depends on has to land before any link becomes
@@ -135,13 +150,27 @@ export function NotificationsBellDetail({
           onClick={onBack}
           aria-label={t("notificationsBellDetail.back")}
         />
-        <Typography
-          variant="body-medium-default"
-          as="h2"
-          className="min-w-0 flex-1 truncate text-[var(--content-default)]"
-        >
-          {resolveFeedItemTitle(item)}
-        </Typography>
+        {isTitleAwaitingAction ? (
+          <h2 className="flex min-w-0 flex-1 items-center overflow-hidden">
+            <Tag
+              className="min-w-0 overflow-hidden text-ellipsis"
+              tone="warning"
+              leftIcon={
+                <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />
+              }
+            >
+              {panelTitle}
+            </Tag>
+          </h2>
+        ) : (
+          <Typography
+            variant="body-medium-default"
+            as="h2"
+            className="min-w-0 flex-1 truncate text-[var(--content-default)]"
+          >
+            {panelTitle}
+          </Typography>
+        )}
 
         {/*
           Status actions ride in the header as icon-only buttons, the

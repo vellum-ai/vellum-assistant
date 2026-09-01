@@ -176,8 +176,9 @@ export const LinksPending: Story = {
 /**
  * A pending guardian approval: the canonical "Needs attention" item for a
  * request raised from a channel. The body is the guardian card with
- * requester and source context first, then Approve/Reject against the
- * canonical request, with the source-thread jump in the footer.
+ * the ask and where it came from first, then the tool the request would
+ * run, then Approve/Reject against the canonical request, with the
+ * source-thread link under them.
  */
 export const GuardianApprovalPending: Story = {
   args: {
@@ -200,8 +201,6 @@ export const GuardianApprovalPending: Story = {
         sourceChannel: "slack",
         sourceContextLabel: "Slack #user-feedback",
         sourceUrl: "https://slack.com/archives/C0123456789/p1725100000000100",
-        slackCardUrl:
-          "https://slack.com/archives/D0AAAAAAAAA/p1725100001000100",
       },
     }),
   },
@@ -252,7 +251,6 @@ export const GuardianApprovalResolved: Story = {
         requesterLabel: "Alice",
         toolName: "linear_graphql",
         sourceContextLabel: "Slack #user-feedback",
-        decidedByLabel: "Bob",
         decidedAt: "2026-08-31T13:00:00.000Z",
       },
     }),

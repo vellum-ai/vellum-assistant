@@ -36,6 +36,7 @@ import {
 import {
   deferRetryUntilIdle,
   isDeduplicatedDeliveryOwnedBySibling,
+  markDeliveryDelivered,
   markProcessed,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
@@ -299,11 +300,17 @@ export function processChannelMessageInBackground(
         userMessageId = result.messageId;
         deduplicatedIngress = result.deduplicated === true;
         linkMessage(eventId, userMessageId);
-        markProcessed(eventId);
+        // Record the reply row BEFORE marking the event processed. Stranded
+        // delivery recovery treats `processed` as the point an event becomes
+        // eligible and reads the reply id from the stored payload, so an
+        // event that becomes eligible first would be skipped by that step
+        // and never deliver. Crashing between these two leaves the row
+        // `pending` instead, which the orphan step already recovers.
         replyMessageId ??= result.assistantMessageId;
         if (replyMessageId) {
           storeReplyMessageId(eventId, replyMessageId);
         }
+        markProcessed(eventId);
       } catch (err) {
         // Stop any live Slack stream cleanly. Its `ts` is already durably
         // recorded via `onStreamOpen`, so the retry sweep can reconcile
@@ -389,6 +396,10 @@ export function processChannelMessageInBackground(
           { conversationId, eventId },
           "Skipping channel reply delivery for deduplicated ingress event; a prior attempt owns delivery",
         );
+        // The sibling owns delivery, so settle this row rather than leaving it
+        // `pending`, which stranded-delivery recovery reads as delivery still
+        // owed and would act on after a restart.
+        markDeliveryDelivered(eventId);
       } else if (replyCallbackUrl) {
         try {
           await finalizeEventDelivery({
