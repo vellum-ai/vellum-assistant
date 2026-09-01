@@ -23,6 +23,7 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { buildForChatSentinel } from "../../daemon/chat-credential-redaction.js";
+import { invalidateEmailReadinessForByoCredential } from "../../email/byo-email-credential.js";
 import {
   disconnectOAuthProvider,
   getConnectionByProvider,
@@ -550,6 +551,8 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   }
 
   invalidateConnectionsAfterCredentialDelete(affectedConnections);
+
+  await invalidateEmailReadinessForByoCredential(service);
 
   return { service, field, affectedConnections };
 }

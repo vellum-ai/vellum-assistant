@@ -10,10 +10,11 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   clearPayload,
-  findConversationByProviderMessageId,
+  findMessageByProviderMessageId,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
+  recordOutboundPost,
   storePayload,
 } from "../persistence/delivery-crud.js";
 import {
@@ -52,6 +53,7 @@ await initializeDb();
 function resetTables() {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
+  db.run("DELETE FROM channel_outbound_posts");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM external_conversation_bindings");
@@ -147,32 +149,26 @@ describe("channel-delivery-store", () => {
       .run();
 
     expect(
-      findConversationByProviderMessageId(
-        "discord",
-        chatId,
-        "1234567890123456789",
-      ),
-    ).toBe(minted.conversationId);
+      findMessageByProviderMessageId("discord", chatId, "1234567890123456789"),
+    ).toEqual({
+      messageId: "assistant-post-1",
+      conversationId: minted.conversationId,
+    });
     // A split reply posts several provider messages from one row; any of
     // their ids resolves it.
     expect(
-      findConversationByProviderMessageId(
-        "discord",
-        chatId,
-        "2234567890123456789",
-      ),
-    ).toBe(minted.conversationId);
+      findMessageByProviderMessageId("discord", chatId, "2234567890123456789"),
+    ).toEqual({
+      messageId: "assistant-post-1",
+      conversationId: minted.conversationId,
+    });
     // The scan is scoped to the reaction's own channel address: the same id
     // is invisible from another channel's or another chat's key space.
     expect(
-      findConversationByProviderMessageId(
-        "telegram",
-        chatId,
-        "1234567890123456789",
-      ),
+      findMessageByProviderMessageId("telegram", chatId, "1234567890123456789"),
     ).toBeNull();
     expect(
-      findConversationByProviderMessageId(
+      findMessageByProviderMessageId(
         "discord",
         "other-chat",
         "1234567890123456789",
@@ -206,7 +202,7 @@ describe("channel-delivery-store", () => {
       .run();
     linkMessage(minted.eventId, "linked-user-row");
     expect(
-      findConversationByProviderMessageId("telegram", chatId, "tg-linked-1"),
+      findMessageByProviderMessageId("telegram", chatId, "tg-linked-1"),
     ).toBeNull();
 
     // A crash-window row: persisted with its envelope but its event link
@@ -218,8 +214,11 @@ describe("channel-delivery-store", () => {
       .where(eq(messages.id, "orphan-user-row"))
       .run();
     expect(
-      findConversationByProviderMessageId("telegram", chatId, "tg-orphan-1"),
-    ).toBe(minted.conversationId);
+      findMessageByProviderMessageId("telegram", chatId, "tg-orphan-1"),
+    ).toEqual({
+      messageId: "orphan-user-row",
+      conversationId: minted.conversationId,
+    });
 
     // A legacy linked row whose event carries no source_message_id:
     // findMessageBySourceId matches only that column, so the fallback must
@@ -233,8 +232,63 @@ describe("channel-delivery-store", () => {
       .run();
     linkMessage(legacy.eventId, "legacy-user-row");
     expect(
-      findConversationByProviderMessageId("telegram", chatId, "tg-legacy-1"),
-    ).toBe(legacy.conversationId);
+      findMessageByProviderMessageId("telegram", chatId, "tg-legacy-1"),
+    ).toEqual({
+      messageId: "legacy-user-row",
+      conversationId: legacy.conversationId,
+    });
+  });
+
+  test("the outbound-posts index resolves a post exactly, at any age", () => {
+    const chatId = "999000111222333444";
+    const minted = recordInbound("discord", chatId, "evt-index-seed");
+    const db = getDb();
+    // The row's envelope names nothing: resolution comes from the index
+    // alone, proving the table is the contract rather than a cache in
+    // front of the scan.
+    db.insert(messages)
+      .values({
+        id: "assistant-indexed-post",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "indexed reply",
+        createdAt: Date.now(),
+        metadata: null,
+      })
+      .run();
+    recordOutboundPost({
+      sourceChannel: "discord",
+      externalChatId: chatId,
+      providerMessageId: "555666777888999000",
+      messageId: "assistant-indexed-post",
+      conversationId: minted.conversationId,
+    });
+    // Idempotent on redelivery.
+    recordOutboundPost({
+      sourceChannel: "discord",
+      externalChatId: chatId,
+      providerMessageId: "555666777888999000",
+      messageId: "assistant-indexed-post",
+      conversationId: minted.conversationId,
+    });
+
+    expect(
+      findMessageByProviderMessageId("discord", chatId, "555666777888999000"),
+    ).toEqual({
+      messageId: "assistant-indexed-post",
+      conversationId: minted.conversationId,
+    });
+    // Channel and chat scoping hold on the index path too.
+    expect(
+      findMessageByProviderMessageId("telegram", chatId, "555666777888999000"),
+    ).toBeNull();
+    expect(
+      findMessageByProviderMessageId(
+        "discord",
+        "other-chat",
+        "555666777888999000",
+      ),
+    ).toBeNull();
   });
 
   test("same chat on same channel reuses the same conversation", () => {

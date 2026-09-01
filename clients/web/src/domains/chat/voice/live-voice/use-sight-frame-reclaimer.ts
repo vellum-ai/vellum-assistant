@@ -18,7 +18,7 @@
  * (see `PER_JOB_CEILING_MS`, and `queueUnacknowledgedSightFrames` for how the
  * deadline is derived from what can still be queued on the daemon), so this
  * runs on a timer as well as on new work. The timer is armed for the earliest
- * waiting entry, re-armed by the drain it triggers, and left unarmed once
+ * waiting entry, re-arms itself for whatever is left, and is left unarmed once
  * nothing is queued.
  *
  * Deletion failures are logged and dropped. Nobody asked for these uploads and
@@ -67,20 +67,27 @@ export function useSightFrameReclaimer(): void {
     if (queued.length === 0) {
       return;
     }
-    drainDue();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     // Whatever is left is waiting on its own clock, and no store change is
-    // coming to wake this. Arm for the earliest of them: the drain that
-    // follows re-runs this effect, which re-arms only while something is still
-    // pending and arms nothing once the queue is empty.
-    const pending = useLiveVoiceStore.getState().sightFramesToReclaim;
-    if (pending.length === 0) {
-      return;
-    }
-    const now = Date.now();
-    const earliest = Math.min(
-      ...pending.map((entry) => entry.notBefore ?? now),
-    );
-    const timer = setTimeout(drainDue, Math.max(0, earliest - now));
+    // coming to wake this, so the wait re-arms itself rather than relying on a
+    // render. A timer that wakes a hair short of its entry's deadline takes
+    // nothing, and a take that took nothing leaves the queue untouched, so an
+    // arm made only where the queue changes would strand that entry for good.
+    // Each arm is for the earliest waiting entry, and the queue emptying ends
+    // the chain.
+    const drainAndArm = (): void => {
+      drainDue();
+      const pending = useLiveVoiceStore.getState().sightFramesToReclaim;
+      if (pending.length === 0) {
+        return;
+      }
+      const now = Date.now();
+      const earliest = Math.min(
+        ...pending.map((entry) => entry.notBefore ?? now),
+      );
+      timer = setTimeout(drainAndArm, Math.max(0, earliest - now));
+    };
+    drainAndArm();
     return () => clearTimeout(timer);
   }, [drainDue, queued]);
 }

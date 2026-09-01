@@ -138,6 +138,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
   ),
 }));
 
+const recordedOutboundPosts: Array<Record<string, string>> = [];
+mock.module("../persistence/delivery-crud.js", () => ({
+  recordOutboundPost: (post: Record<string, string>) => {
+    recordedOutboundPosts.push(post);
+  },
+}));
+
 mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
@@ -266,6 +273,7 @@ describe("outbound assistant Slack metadata persistence", () => {
     persistedRows.length = 0;
     setConfig("ui", {});
     nextDeliveryTs = null;
+    recordedOutboundPosts.length = 0;
     state = createEventHandlerState();
     state.turnStartedAt = 1_700_000_000_000;
   });
@@ -613,6 +621,12 @@ describe("outbound assistant Slack metadata persistence", () => {
     ) as Record<string, unknown>;
     expect(metaAfter.messageId).toBe("1234567890123456789");
     expect(metaAfter.additionalMessageIds).toEqual(["8888888888888888888"]);
+    // Both ids also land in the channel_outbound_posts resolution index,
+    // written by the same reconciliation so envelope and index cannot drift.
+    expect(recordedOutboundPosts.map((post) => post.providerMessageId)).toEqual(
+      ["1234567890123456789", "8888888888888888888"],
+    );
+    expect(recordedOutboundPosts[0].messageId).toBe(persisted.id);
 
     // A redelivery reporting an already-recorded id changes nothing.
     nextDeliveryTs = "8888888888888888888";

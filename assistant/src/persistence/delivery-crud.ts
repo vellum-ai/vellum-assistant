@@ -34,6 +34,7 @@ import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import {
   channelInboundEvents,
+  channelOutboundPosts,
   conversationKeys,
   conversations,
   messages,
@@ -72,7 +73,20 @@ const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
  * but the inbound-event index already resolves them, so admitting them here
  * would only shrink the window of assistant posts the cap can reach.
  */
-const OUTBOUND_MESSAGE_ID_MAX_SCAN = 400;
+const OUTBOUND_MESSAGE_ID_MAX_SCAN = 800;
+const PROVIDER_MESSAGE_ID_SCAN_BATCH_SIZE = 200;
+const UNRECONCILED_OUTBOUND_ROW_SCAN = 25;
+
+/**
+ * Widened `maxScan` for the deletion path's TRANSITIONAL fallback. Posts
+ * delivered since `channel_outbound_posts` exists resolve through that
+ * index exactly, at any age; this bound serves only rows reconciled before
+ * the table. A delete can target an arbitrarily old such post, so recency
+ * is not a completeness contract, but deletes are rare and run off the
+ * gateway-ack hot path, so a deep batched scan is affordable. Delete this
+ * (and the fallback scan) once pre-table rows stop mattering.
+ */
+export const DELETE_PROVIDER_MESSAGE_ID_MAX_SCAN = 20_000;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -311,33 +325,173 @@ export function findInboundEvent(
 }
 
 /**
- * The conversation holding the message with this provider id, found by
- * reading the metadata the assistant's own posts carry, on any channel.
+ * The message row carrying this provider id in its stored envelope, on any
+ * channel. Returns the same shape as {@link findMessageBySourceId} so the
+ * two resolution legs compose: that one covers every message that arrived
+ * as an inbound event, and this one covers what the assistant posted, which
+ * opens no inbound event and is only identifiable by the id its row carries.
  *
  * Reads through `readProviderMetadata`, so it matches any channel that
  * describes its rows in the neutral shape as well as Slack's own envelope.
  *
- * `findMessageBySourceId` covers every message that arrived as an inbound
- * event. It cannot see what the assistant posted, because an outbound reply
- * opens no inbound event, so a reaction on the assistant's own message needs
- * this. The search is confined to conversations already bound to the same
- * channel address and to the most recent
- * {@link OUTBOUND_MESSAGE_ID_MAX_SCAN} rows among them; beyond that it gives
- * up and the caller drops the annotation, which is the same outcome as never
- * finding it at all.
+ * The search is confined to conversations already bound to the same
+ * channel address and, by default, to the most recent
+ * {@link OUTBOUND_MESSAGE_ID_MAX_SCAN} rows among them: reactions land on
+ * recent messages and the reaction path runs while the gateway waits for
+ * its ack. A caller resolving an event that can target arbitrarily old
+ * posts off the hot path (a deletion) widens the window via `maxScan`;
+ * beyond whichever bound applies the lookup gives up and the caller drops
+ * the annotation, which is the same outcome as never finding it at all.
  */
-export function findConversationByProviderMessageId(
+export function findMessageByProviderMessageId(
   sourceChannel: string,
   externalChatId: string,
   providerMessageId: string,
-): string | null {
+  opts?: { maxScan?: number },
+): { messageId: string; conversationId: string } | null {
+  const db = getDb();
+
+  // The `channel_outbound_posts` index is the resolution contract: exact,
+  // unbounded by recency, one indexed read. It covers every post delivered
+  // since the table exists; the batched envelope scan below survives only
+  // as the transitional fallback for rows reconciled before it.
+  const indexed = db
+    .select({
+      messageId: channelOutboundPosts.messageId,
+      conversationId: channelOutboundPosts.conversationId,
+    })
+    .from(channelOutboundPosts)
+    .where(
+      and(
+        eq(channelOutboundPosts.sourceChannel, sourceChannel),
+        eq(channelOutboundPosts.externalChatId, externalChatId),
+        eq(channelOutboundPosts.providerMessageId, providerMessageId),
+      ),
+    )
+    .get();
+  if (indexed) {
+    return indexed;
+  }
+
+  const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
+  const maxScan = opts?.maxScan ?? OUTBOUND_MESSAGE_ID_MAX_SCAN;
+
+  let offset = 0;
+  while (offset < maxScan) {
+    const batchLimit = Math.min(
+      PROVIDER_MESSAGE_ID_SCAN_BATCH_SIZE,
+      maxScan - offset,
+    );
+    const rows = db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        metadata: messages.metadata,
+      })
+      .from(messages)
+      .innerJoin(
+        conversationKeys,
+        eq(conversationKeys.conversationId, messages.conversationId),
+      )
+      .where(
+        and(
+          or(
+            eq(conversationKeys.conversationKey, keyPrefix),
+            like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
+          ),
+          or(
+            like(messages.metadata, '%"providerMeta"%'),
+            like(messages.metadata, '%"slackMeta"%'),
+          ),
+          // Rows the inbound-event index resolves are not candidates: this
+          // fallback exists for messages `findMessageBySourceId` cannot
+          // answer (the assistant's pre-table posts, a crash-window inbound
+          // row whose link never landed, and legacy linked rows whose event
+          // carries no source_message_id), and admitting resolvable rows
+          // would burn the scan budget on messages the primary path already
+          // answers.
+          notExists(
+            db
+              .select({ id: channelInboundEvents.id })
+              .from(channelInboundEvents)
+              .where(
+                and(
+                  eq(channelInboundEvents.messageId, messages.id),
+                  isNotNull(channelInboundEvents.sourceMessageId),
+                ),
+              ),
+          ),
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(batchLimit)
+      .offset(offset)
+      .all();
+
+    for (const row of rows) {
+      const meta = readProviderMetadata(row.metadata, {
+        allowFlatLegacy: true,
+      });
+      if (
+        meta?.conversationExternalId === externalChatId &&
+        (meta.messageId === providerMessageId ||
+          meta.additionalMessageIds?.includes(providerMessageId))
+      ) {
+        return { messageId: row.id, conversationId: row.conversationId };
+      }
+    }
+    if (rows.length < batchLimit) {
+      return null;
+    }
+    offset += rows.length;
+  }
+  return null;
+}
+
+/**
+ * Record one provider post the assistant's delivery produced, into the
+ * `channel_outbound_posts` index. Idempotent: a redelivered id upserts onto
+ * the same triple and changes nothing. Written by the post-send
+ * reconciliation alongside the row's `providerMeta` envelope; the envelope
+ * stays the row's self-description, this table is the resolution index.
+ */
+export function recordOutboundPost(post: {
+  sourceChannel: string;
+  externalChatId: string;
+  providerMessageId: string;
+  messageId: string;
+  conversationId: string;
+}): void {
+  const db = getDb();
+  db.insert(channelOutboundPosts)
+    .values({
+      sourceChannel: post.sourceChannel,
+      externalChatId: post.externalChatId,
+      providerMessageId: post.providerMessageId,
+      messageId: post.messageId,
+      conversationId: post.conversationId,
+      createdAt: Date.now(),
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+/**
+ * Whether the chat has a recent outbound row still awaiting its post-send id
+ * reconciliation (a neutral envelope naming no `messageId`). The deletion
+ * path's evidence that "unresolvable" may mean "not reconciled yet" rather
+ * than "never stored": with no such row, a miss is final and the delete
+ * returns without paying a retry window. Bounded to the newest handful of
+ * rows: the race it detects is one delivery round-trip wide.
+ */
+export function hasUnreconciledOutboundRow(
+  sourceChannel: string,
+  externalChatId: string,
+): boolean {
   const db = getDb();
   const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
   const rows = db
-    .select({
-      conversationId: messages.conversationId,
-      metadata: messages.metadata,
-    })
+    .select({ metadata: messages.metadata })
     .from(messages)
     .innerJoin(
       conversationKeys,
@@ -349,18 +503,11 @@ export function findConversationByProviderMessageId(
           eq(conversationKeys.conversationKey, keyPrefix),
           like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
         ),
-        or(
-          like(messages.metadata, '%"providerMeta"%'),
-          like(messages.metadata, '%"slackMeta"%'),
-        ),
-        // Rows the inbound-event index resolves are not candidates: this
-        // lookup exists for messages `findMessageBySourceId` cannot answer
-        // (the assistant's own posts, a crash-window inbound row whose link
-        // never landed, and legacy linked rows whose event carries no
-        // source_message_id to match on), and admitting resolvable rows
-        // would burn the scan budget on messages the primary path already
-        // answers. The source-id predicate mirrors findMessageBySourceId's
-        // own match column.
+        like(messages.metadata, '%"providerMeta"%'),
+        // Inbound rows carry `providerMeta` too, and a busy chat's newest
+        // rows are mostly inbound; excluding rows the inbound-event index
+        // resolves keeps this probe's small window counting only rows that
+        // could actually be an unreconciled outbound post.
         notExists(
           db
             .select({ id: channelInboundEvents.id })
@@ -375,20 +522,19 @@ export function findConversationByProviderMessageId(
       ),
     )
     .orderBy(desc(messages.createdAt))
-    .limit(OUTBOUND_MESSAGE_ID_MAX_SCAN)
+    .limit(UNRECONCILED_OUTBOUND_ROW_SCAN)
     .all();
-
   for (const row of rows) {
-    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
+    const meta = readProviderMetadata(row.metadata);
     if (
       meta?.conversationExternalId === externalChatId &&
-      (meta.messageId === providerMessageId ||
-        meta.additionalMessageIds?.includes(providerMessageId))
+      meta.eventKind === "message" &&
+      meta.messageId === undefined
     ) {
-      return row.conversationId;
+      return true;
     }
   }
-  return null;
+  return false;
 }
 
 export function recordInbound(
