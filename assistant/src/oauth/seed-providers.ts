@@ -969,10 +969,142 @@ export const PROVIDER_SEED_DATA: Record<
     dashboardUrl: "https://www.figma.com/developers/apps",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/figma",
-    defaultScopes: ["files:read", "file_comments:write"],
-    availableScopes: "https://developers.figma.com/docs/rest-api/scopes/",
+    // Figma access tokens expire after 90 days and a refresh token is issued
+    // with every grant, so the refresh endpoint is wired up. Both the token
+    // and refresh endpoints authenticate the client with HTTP Basic
+    // (client_secret_basic), not form-encoded credentials.
+    refreshUrl: "https://api.figma.com/v1/oauth/refresh",
+    // Granular scopes only. The legacy `files:read` scope is deprecated by
+    // Figma in favour of the narrower `file_*` scopes and is deliberately
+    // absent here; it stays in availableScopes for BYO apps that still rely
+    // on it. Enterprise-only and org-admin-only scopes (file_variables:*,
+    // library_analytics:read, org:*) are offered but not requested by
+    // default, because Figma rejects the whole authorization request if the
+    // app cannot grant a requested scope.
+    defaultScopes: [
+      "current_user:read",
+      "file_content:read",
+      "file_metadata:read",
+      "file_versions:read",
+      "file_comments:read",
+      "file_comments:write",
+      "file_dev_resources:read",
+      "file_dev_resources:write",
+      "folders:read",
+      "folder_metadata:read",
+      "library_content:read",
+      "library_assets:read",
+      "team_library_content:read",
+      "selections:read",
+    ],
+    availableScopes: [
+      {
+        scope: "current_user:read",
+        description: "Read your name, email, and profile image",
+      },
+      {
+        scope: "file_content:read",
+        description:
+          "Read the contents of files, such as nodes and the editor type",
+      },
+      {
+        scope: "file_metadata:read",
+        description: "Read metadata of files",
+      },
+      {
+        scope: "file_versions:read",
+        description: "Read the version history for files you can access",
+      },
+      {
+        scope: "file_comments:read",
+        description: "Read the comments for files",
+      },
+      {
+        scope: "file_comments:write",
+        description: "Post and delete comments and comment reactions in files",
+      },
+      {
+        scope: "file_dev_resources:read",
+        description: "Read dev resources in files",
+      },
+      {
+        scope: "file_dev_resources:write",
+        description: "Write dev resources to files",
+      },
+      {
+        scope: "folders:read",
+        description: "List folders and files in folders",
+      },
+      {
+        scope: "folder_metadata:read",
+        description: "Read metadata of folders",
+      },
+      {
+        scope: "library_content:read",
+        description: "Read published components and styles of files",
+      },
+      {
+        scope: "library_assets:read",
+        description: "Read data of individual published components and styles",
+      },
+      {
+        scope: "team_library_content:read",
+        description: "Read published components and styles of teams",
+      },
+      {
+        scope: "selections:read",
+        description: "Read most recent selection in files you can access",
+      },
+      {
+        scope: "file_variables:read",
+        description: "Read variables in files (Enterprise plan only)",
+      },
+      {
+        scope: "file_variables:write",
+        description:
+          "Write variables and collections in files (Enterprise plan only)",
+      },
+      {
+        scope: "library_analytics:read",
+        description: "Read your design system analytics (Enterprise plan only)",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read metadata of webhooks",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and manage webhooks",
+      },
+      {
+        scope: "org:activity_log_read",
+        description:
+          "Read organization activity logs (Enterprise plan, org admin only)",
+      },
+      {
+        scope: "org:ai_metering_usage_read",
+        description:
+          "Read organization AI usage (Enterprise plan, org admin only)",
+      },
+      {
+        scope: "org:developer_log_read",
+        description:
+          "Read organization developer logs (Governance+, org admin only)",
+      },
+      {
+        scope: "org:discovery_read",
+        description:
+          "Read text event data in the organization (Governance+, org admin only)",
+      },
+      {
+        scope: "files:read",
+        description:
+          "Deprecated by Figma. Broad read access to files, folders, users, versions, comments, components, styles, and webhooks",
+      },
+    ],
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17331,
+    managedServiceConfigKey: "figma-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.figma.com",
@@ -983,7 +1115,10 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     appType: "App",
     identityUrl: "https://api.figma.com/v1/me",
-    identityResponsePaths: ["handle", "email"],
+    // GET /v1/me returns a flat user object: { id, handle, img_url, email }.
+    // `id` is the stable account identifier; email is the friendlier label
+    // with handle as the fallback.
+    identityResponsePaths: ["email", "handle"],
   },
 
   outlook: {

@@ -140,6 +140,10 @@ const MondayOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -201,6 +205,9 @@ export const ServicesSchema = z.object({
   ),
   "monday-oauth": MondayOAuthServiceSchema.default(
     MondayOAuthServiceSchema.parse({}),
+  ),
+  "figma-oauth": FigmaOAuthServiceSchema.default(
+    FigmaOAuthServiceSchema.parse({}),
   ),
   "eventbrite-oauth": EventbriteOAuthServiceSchema.default(
     EventbriteOAuthServiceSchema.parse({}),

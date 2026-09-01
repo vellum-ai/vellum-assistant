@@ -180,6 +180,7 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
       "discord-oauth": managed,
       "hubspot-oauth": managed,
       "monday-oauth": managed,
+      "figma-oauth": managed,
       "eventbrite-oauth": managed,
       "calendly-oauth": managed,
     },
