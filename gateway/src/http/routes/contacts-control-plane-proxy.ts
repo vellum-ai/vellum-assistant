@@ -1589,7 +1589,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       const assistantMeta = body.assistantMetadata as
-        { species?: unknown; metadata?: unknown } | undefined;
+        | { species?: unknown; metadata?: unknown }
+        | undefined;
 
       if (body.contactType === "assistant") {
         if (!assistantMeta) {
@@ -1656,7 +1657,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         address: string;
         isPrimary?: boolean;
         externalUserId?: string | null;
-        externalChatId?: string | null;
+        /** Omitted preserves the stored value; a legacy explicit null is
+         *  normalized to omitted below, so past validation only two states
+         *  exist and a `?? null` coercion cannot type-check again. */
+        externalChatId?: string;
         status?: string;
         policy?: string;
       };
@@ -1682,6 +1686,35 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                   code: "BAD_REQUEST",
                   message:
                     "channel.type is required and must be a non-empty string",
+                },
+              },
+              { status: 400 },
+            );
+          }
+          // The wire can carry values the cast does not rule out (nothing
+          // zod-parses this body), so read the field at unknown width; the
+          // tightened ChannelInput type rules non-strings out everywhere
+          // past this block.
+          const rawExternalChatId: unknown = ch?.externalChatId;
+          if (rawExternalChatId === null) {
+            // The published contract formerly admitted an explicit null, so
+            // external consumers may still send one. Treat it as omitted,
+            // which preserves the stored value: clearing is off the contract
+            // because a stored null is indistinguishable from never-learned,
+            // so no reader could tell a deliberate clear from a gap.
+            delete ch.externalChatId;
+          } else if (
+            rawExternalChatId !== undefined &&
+            typeof rawExternalChatId !== "string"
+          ) {
+            // A malformed value must never reach persistence: one poisoned
+            // row would fail every typed identity-snapshot parse.
+            return Response.json(
+              {
+                error: {
+                  code: "BAD_REQUEST",
+                  message:
+                    "channel.externalChatId must be a string when present",
                 },
               },
               { status: 400 },
@@ -1746,14 +1779,22 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                 species: assistantMeta.species as string,
                 metadata:
                   (assistantMeta.metadata as
-                    Record<string, unknown> | null | undefined) ?? null,
+                    | Record<string, unknown>
+                    | null
+                    | undefined) ?? null,
               }
             : undefined,
         channels: channelInputs?.map((ch) => ({
           type: ch.type,
           address: ch.address,
           isPrimary: ch.isPrimary,
-          externalChatId: ch.externalChatId ?? null,
+          // Passed through verbatim: syncChannels preserves the stored
+          // delivery chat id when the field is undefined and writes when it
+          // is not, so an omitted field must stay omitted (a channel upsert
+          // that never mentions the chat id must not blank it). Legacy nulls
+          // were normalized to omitted and malformed values rejected above,
+          // so only strings can reach the store through this path.
+          externalChatId: ch.externalChatId,
           status: ch.status,
           policy: ch.policy,
         })),

@@ -632,9 +632,10 @@
     "title": "Límite diario de créditos alcanzado"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "Entiendo que los recursos y recuerdos relacionados pueden seguir existiendo",
     "cancel": "Cancelar",
     "confirm": "Eliminar",
-    "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Esta acción no se puede deshacer.",
+    "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
@@ -1750,5 +1751,13 @@
   },
   "workspacePathLink": {
     "openTitle": "Abrir {path}"
+  },
+  "transcript": {
+    "noResponse": "Decidió no responder",
+    "reactionAddedSelf": "Reaccionó con {emoji}",
+    "reactionRemovedSelf": "Quitó la reacción {emoji}",
+    "reactionAdded": "{name} reaccionó con {emoji}",
+    "reactionRemoved": "{name} quitó su reacción {emoji}",
+    "reactionSomeone": "Alguien"
   }
 }

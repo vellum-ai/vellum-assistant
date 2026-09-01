@@ -219,6 +219,18 @@ export class FakePlayer {
   /** Route the fake reports, and how many times it was asked to re-render it. */
   outputRoute: TtsOutputRoute = "unsupported";
   restartOutputRouteCount = 0;
+  /**
+   * Chunks a `holdPlayback()` flush retained, or null when nothing is held.
+   * The real player keeps the audio scheduled but not yet sounded; the fake
+   * stands in for it with whatever had been enqueued, which is enough for the
+   * controller specs (they assert what is held, resumed, and dropped, not how
+   * the audio is re-scheduled). Buffer-level behavior is covered against the
+   * real player in `tts-playback.test.ts`.
+   */
+  heldAudio: unknown[] | null = null;
+  holdCount = 0;
+  resumeHeldCount = 0;
+  discardHeldCount = 0;
   private drainResolvers: Array<() => void> = [];
 
   prewarm(): void {
@@ -256,13 +268,45 @@ export class FakePlayer {
     this.outputMuted = muted;
   }
   enqueue(chunk: unknown): void {
+    // New audio supersedes a hold, exactly as it does on the real player.
+    this.heldAudio = null;
     this.enqueued.push(chunk);
     this.isPlaying = true;
   }
   stop(): void {
+    this.heldAudio = null;
     this.stopCount++;
     this.isPlaying = false;
     this.resolveDrain();
+  }
+  /**
+   * Flush while retaining the unplayed audio. A flush that finds nothing
+   * playing captures nothing, mirroring the real player on both counts: a
+   * drained reply has nothing left to keep, and the second flush of a barge-in
+   * pair must not clear what the first kept.
+   */
+  holdPlayback(): void {
+    this.holdCount++;
+    const held = this.isPlaying ? [...this.enqueued] : this.heldAudio;
+    this.stop();
+    this.heldAudio = held;
+  }
+  hasHeldPlayback(): boolean {
+    return this.heldAudio !== null;
+  }
+  discardHeldPlayback(): void {
+    this.discardHeldCount++;
+    this.heldAudio = null;
+  }
+  resumeHeldPlayback(): boolean {
+    const held = this.heldAudio;
+    this.heldAudio = null;
+    if (!held) {
+      return false;
+    }
+    this.resumeHeldCount++;
+    this.isPlaying = true;
+    return true;
   }
   async dispose(): Promise<void> {
     this.disposeCount++;

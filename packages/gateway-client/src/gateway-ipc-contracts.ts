@@ -355,6 +355,52 @@ export type GetGuardianContactIpcResponse = z.infer<
   typeof GetGuardianContactIpcResponseSchema
 >;
 
+// ── contacts_identity_snapshot ───────────────────────────────────────────────
+// Lean identity projection of every gateway contact + channel, for the
+// daemon's mirror reconciler: enough to converge the assistant identity
+// mirror onto gateway truth (ids, ownership, addresses), nothing more. No
+// ACL columns (the mirror never carries them) and no assistant-info join
+// (the daemon IS the assistant), so the read is uncapped and cheap.
+
+export const ContactsIdentitySnapshotIpcParamsSchema = z
+  .object({})
+  .strict()
+  .default({});
+
+export type ContactsIdentitySnapshotIpcParams = z.infer<
+  typeof ContactsIdentitySnapshotIpcParamsSchema
+>;
+
+export const ContactIdentityChannelSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  type: z.string(),
+  address: z.string(),
+  externalChatId: z.string().nullable(),
+  isPrimary: z.boolean(),
+});
+
+export type ContactIdentityChannel = z.infer<
+  typeof ContactIdentityChannelSchema
+>;
+
+export const ContactIdentitySchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  channels: z.array(ContactIdentityChannelSchema),
+});
+
+export type ContactIdentity = z.infer<typeof ContactIdentitySchema>;
+
+export const ContactsIdentitySnapshotIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  contacts: z.array(ContactIdentitySchema),
+});
+
+export type ContactsIdentitySnapshotIpcResponse = z.infer<
+  typeof ContactsIdentitySnapshotIpcResponseSchema
+>;
+
 // ── classify_risk ────────────────────────────────────────────────────────────
 // Risk classification is gateway-owned; the assistant sends one request per
 // tool invocation and reads the whole answer back. The gateway validates the

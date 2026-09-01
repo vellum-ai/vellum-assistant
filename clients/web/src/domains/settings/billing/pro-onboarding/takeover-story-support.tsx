@@ -16,7 +16,7 @@
  */
 import type { Decorator } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useLayoutEffect, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 
 import {
   makeProPackage,
@@ -31,7 +31,6 @@ import type {
 } from "@/generated/api/types.gen";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -78,8 +77,8 @@ const ULTRA = makeUltraPackage();
 /**
  * The credit bundles the packages above are built on. `label` is the bundle's
  * customer-facing usage name, the same wording the package carries in
- * `usage_label`: the `obscure-credits` chip renders it verbatim in place of a
- * monthly rate, so a dollar-denominated label would defeat the flag.
+ * `usage_label`: the credits chip renders it verbatim, so a dollar-denominated
+ * label would leak an amount the chip must never name.
  */
 function creditTier(
   tier: string,
@@ -411,30 +410,6 @@ export const takeoverQueryDecorator: Decorator = (Story) => (
     <Story />
   </QueryClientProvider>
 );
-
-/**
- * Puts the `obscure-credits` flag where the `obscureCredits` control says, so
- * the flag-on treatment is one toggle away rather than its own story file.
- *
- * Written straight into the store rather than through `setFlags`, which layers
- * local and env overrides back on top (an override to `false` would win) and
- * marks the store hydrated as if a server response had landed. The write sits in
- * an effect because the tree below subscribes to this store, and the whole
- * previous state is handed back on unmount so nothing set here outlives the
- * story.
- */
-export const obscureCreditsDecorator: Decorator<{ obscureCredits: boolean }> =
-  function ObscureCreditsFlag(Story, context) {
-    const { obscureCredits } = context.args;
-    useLayoutEffect(() => {
-      const previous = useClientFeatureFlagStore.getState();
-      useClientFeatureFlagStore.setState({ obscureCredits });
-      return () => {
-        useClientFeatureFlagStore.setState(previous, true);
-      };
-    }, [obscureCredits]);
-    return <Story />;
-  };
 
 /**
  * The takeover frame: a black ground, a viewport-tall box, `data-theme="dark"`,

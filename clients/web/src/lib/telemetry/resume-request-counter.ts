@@ -77,30 +77,34 @@ type EndpointGroup = (typeof ENDPOINT_GROUPS)[number];
 const KNOWN_GROUPS = new Set<string>(ENDPOINT_GROUPS);
 
 /**
- * Maps a request URL onto the closed label set. Anything unrecognized (and
- * anything unparseable) lands on `"other"` so a new route can never leak a
- * path into telemetry.
+ * The daemon route resource segment (`/v1/<resource>` or the assistant-scoped
+ * `/v1/assistants/<id>/<resource>`), or null when the URL has no `/v1/` shape.
  */
-function groupForUrl(url: string): EndpointGroup {
+function daemonRouteSegment(url: string): string | null {
   try {
     const segments = new URL(url, "http://localhost").pathname
       .split("/")
       .filter(Boolean);
     const v1 = segments.indexOf("v1");
     if (v1 === -1) {
-      return "other";
+      return null;
     }
-    // Daemon routes are either `/v1/<resource>` or the assistant-scoped
-    // `/v1/assistants/<id>/<resource>`.
     const index = segments[v1 + 1] === "assistants" ? v1 + 3 : v1 + 1;
-    const segment = segments[index];
-    if (segment && KNOWN_GROUPS.has(segment)) {
-      return segment as EndpointGroup;
-    }
-    return "other";
+    return segments[index] ?? null;
   } catch {
-    return "other";
+    return null;
   }
+}
+
+/**
+ * Maps a resource segment onto the closed label set. Anything unrecognized
+ * (and anything unparseable) lands on `"other"` so a new route can never leak
+ * a path into telemetry.
+ */
+function groupForSegment(segment: string | null): EndpointGroup {
+  return segment !== null && KNOWN_GROUPS.has(segment)
+    ? (segment as EndpointGroup)
+    : "other";
 }
 
 type ResumeWindow = {
@@ -173,7 +177,15 @@ export function noteDaemonApiRequest(url: string): void {
   if (!resumeWindow) {
     return;
   }
-  const group = groupForUrl(url);
+  const segment = daemonRouteSegment(url);
+  // The observer must not measure itself: the `client_*` perf reports this
+  // window exists to produce are daemon requests too (the `telemetry` routes,
+  // via the relay in `client-perf.ts`), and counting them would add a
+  // synthetic request to exactly the resumes being measured.
+  if (segment === "telemetry") {
+    return;
+  }
+  const group = groupForSegment(segment);
   resumeWindow.total += 1;
   resumeWindow.byGroup[group] = (resumeWindow.byGroup[group] ?? 0) + 1;
 }

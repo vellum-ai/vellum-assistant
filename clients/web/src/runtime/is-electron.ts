@@ -53,6 +53,8 @@ import type {
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
+  VoiceModeChord,
+  VoiceModeChordRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -155,7 +157,13 @@ declare global {
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
-          fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
+          setVoiceModeChord?(
+            activator: VoiceModeChord | null,
+          ): Promise<VoiceModeChordRegistrationResult>;
+          onRegistrationChange?(
+            callback: (active: boolean) => void,
+          ): () => void;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
         dictation?: {

@@ -391,14 +391,6 @@
       "values": ["control", "terra", "glm-5p2"]
     },
     {
-      "id": "obscure-credits",
-      "scope": "client",
-      "key": "obscure-credits",
-      "label": "Obscure Credits",
-      "description": "Obscures raw credit dollar amounts across the web billing surfaces in favor of a usage-relative view. The Plan section's current-plan tile trades its price footer for a Usage Balance bar and its credits spec chip reads \"<Package> usage, reset monthly\"; the plans takeover, custom-plan modal, and Pro provisioning takeover swap dollar credit wording for the catalog's usage labels; the Credits balance tile and the chat preferences menu show only credit bought or earned beyond the plan's included grants. Chat low-balance and daily-limit banners still name credits. Off leaves every surface exactly as it ships today.",
-      "defaultEnabled": false
-    },
-    {
       "id": "ios-avatar-app-icon",
       "scope": "client",
       "key": "ios-avatar-app-icon",
@@ -428,6 +420,14 @@
       "key": "chatgpt-device-code-login",
       "label": "ChatGPT Device Code Login",
       "description": "Gates the device-code sign-in as the primary ChatGPT subscription connect flow in the web client. Off: the redirect-and-paste flow is the only flow the connect section shows, with no device code UI and no other-sign-in-options disclosure. On: device code leads, and the redirect-and-paste flow stays reachable behind that disclosure and takes the section over when the assistant has no device-auth route.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "model-first-profile-create",
+      "scope": "client",
+      "key": "model-first-profile-create",
+      "label": "Model-First Profile Create",
+      "description": "Reverses the two questions the web client's New Model modal asks when creating an inference profile. Off: the modal asks for a provider first and then offers that provider's models. On: it opens on one searchable list of every catalog model the assistant can reach, deduplicated across providers, and only then asks which provider serves the chosen model. That second question is skipped when a single provider serves it, answered with radio cards when several do, and turned into an inline connect form (API key, setup, or ChatGPT sign-in) when the chosen route has no connection yet. Editing an existing profile is unchanged either way, and both flows persist the same profile shape.",
       "defaultEnabled": false
     }
   ]

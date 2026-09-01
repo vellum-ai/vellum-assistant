@@ -108,6 +108,83 @@ export const FeedItemDetailPanelSchema = z.object({
 export type FeedItemDetailPanel = z.infer<typeof FeedItemDetailPanelSchema>;
 
 /**
+ * Canonical guardian-request status projected onto a feed item.
+ *
+ * Values mirror `GuardianRequestStatusSchema` in
+ * `@vellumai/gateway-client` (this file is copied verbatim into client
+ * packages, so it cannot import the contract; the daemon's projection
+ * writer asserts the two stay aligned at compile time).
+ */
+export const FeedItemGuardianStatusSchema = z.enum([
+  "pending",
+  "approved",
+  "denied",
+  "expired",
+  "cancelled",
+]);
+export type FeedItemGuardianStatus = z.infer<
+  typeof FeedItemGuardianStatusSchema
+>;
+
+/** Whether the guardian is being asked to approve or to answer. */
+export const FeedItemGuardianIntentSchema = z.enum(["approval", "question"]);
+export type FeedItemGuardianIntent = z.infer<
+  typeof FeedItemGuardianIntentSchema
+>;
+
+/**
+ * Read projection of one canonical guardian request onto its feed item.
+ *
+ * The feed item carrying this is the request's single "Needs attention"
+ * home: exactly one item per `requestId`, kept current by the daemon's
+ * status fan-out. Clients derive every affordance from `status` +
+ * `intent`: a `pending` approval offers Approve/Reject (via
+ * `POST /v1/guardian-actions/decision`), a `pending` question routes to
+ * the source conversation, and a terminal status renders as a receipt.
+ * Nothing here is an independent delivery record; it restates gateway
+ * `guardian_requests` state and is never a source of truth on its own.
+ */
+export const FeedItemGuardianRequestSchema = z.object({
+  requestId: z.string(),
+  /**
+   * Guardian request kind (`tool_approval`, `tool_grant_request`,
+   * `pending_question`, `access_request`). A string rather than an enum so
+   * rows written by a newer daemon still parse.
+   */
+  kind: z.string(),
+  intent: FeedItemGuardianIntentSchema,
+  status: FeedItemGuardianStatusSchema,
+  /** Display name or identifier of the requester (e.g. "Alice"). */
+  requesterLabel: z.string().optional(),
+  /** Tool the request is about, when it is a tool approval/grant. */
+  toolName: z.string().optional(),
+  /** Channel the request originated from (e.g. "slack"). */
+  sourceChannel: z.string().optional(),
+  /** Display label for the originating chat (e.g. "#user-feedback"). */
+  sourceContextLabel: z.string().optional(),
+  /** Permalink to the originating channel message, when derivable. */
+  sourceUrl: z.string().optional(),
+  /** Web URL of the Slack guardian-DM approval card ("Open in Slack"). */
+  slackCardUrl: z.string().optional(),
+  /** slack:// deep link for the same card, preferred on devices with the app. */
+  slackCardAppUrl: z.string().optional(),
+  /** Action that resolved the request, for terminal statuses. */
+  decidedAction: z.string().optional(),
+  /** Display label of the decider, when the decision came from a person. */
+  decidedByLabel: z.string().optional(),
+  /** ISO-8601 time the request reached its terminal status. */
+  decidedAt: z.string().optional(),
+  /**
+   * Why a non-decision terminal status was reached (e.g. `superseded`
+   * when a newer message auto-denied the request). Display-only.
+   */
+  terminalReason: z.string().optional(),
+});
+export type FeedItemGuardianRequest = z.infer<
+  typeof FeedItemGuardianRequestSchema
+>;
+
+/**
  * A single item rendered in the Home feed.
  *
  * Notes:
@@ -135,6 +212,9 @@ export const FeedItemSchema = z.object({
   urgency: FeedItemUrgencySchema.optional(),
   conversationId: z.string().optional(),
   detailPanel: FeedItemDetailPanelSchema.optional(),
+  // Present only on the canonical "Needs attention" item projecting a
+  // guardian request; see FeedItemGuardianRequestSchema.
+  guardianRequest: FeedItemGuardianRequestSchema.optional(),
   category: FeedItemCategorySchema.optional(),
   noteworthy: z.boolean().optional(),
   fromAssistant: z.boolean().optional(),
@@ -149,6 +229,27 @@ export const FeedItemSchema = z.object({
   createdAt: z.string(),
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
+
+/**
+ * `terminalReason` value for a request auto-denied because a newer
+ * inbound message superseded it. Shared by the daemon rails that record
+ * it and the clients that render "Superseded" instead of a rejection.
+ */
+export const GUARDIAN_TERMINAL_REASON_SUPERSEDED = "superseded";
+
+/**
+ * Whether a feed item is the live projection of an unresolved guardian
+ * request. Shared by the daemon (bulk-dismiss protection in the feed
+ * writer) and clients (visibility carve-outs, bulk-action id sets) so
+ * "pending guardian item" means the same thing on both sides: such an
+ * item must stay actionable until the canonical request resolves, and
+ * only its terminal receipt is ordinarily clearable.
+ */
+export function isPendingGuardianFeedItem(
+  item: Pick<FeedItem, "guardianRequest">,
+): boolean {
+  return item.guardianRequest?.status === "pending";
+}
 
 // ---------------------------------------------------------------------------
 // Suggested prompt

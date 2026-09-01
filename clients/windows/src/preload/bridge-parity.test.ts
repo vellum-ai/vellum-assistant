@@ -77,8 +77,11 @@ const required = VELLUM_BRIDGE_KEYS.filter(
   (key) => !NOT_APPLICABLE.includes(key),
 );
 
-// Windows draws its own menu bar and themes the native caption buttons.
+// Windows draws its own menu bar, themes the native caption buttons, and
+// registers the voice mode shortcut's chord with its keyboard hook.
 const WINDOWS_ONLY_SURFACE = [
+  "helper.hotkey.onRegistrationChange",
+  "helper.hotkey.setVoiceModeChord",
   "mainWindow.setTitleBarOverlay",
   "menu.popup",
   "menu.titles",
@@ -87,7 +90,6 @@ const WINDOWS_ONLY_SURFACE = [
 // configurable global chord.
 const MACOS_ONLY_SURFACE = [
   "helper.hotkey.fnPushToTalk",
-  "helper.hotkey.onEvent",
 ];
 
 test("the composed Windows bridge satisfies every applicable VellumBridge key", () => {

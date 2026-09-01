@@ -57,6 +57,28 @@ function clickByText(text: string) {
   });
 }
 
+function getConfirmButton(): HTMLButtonElement {
+  const button = document.querySelector<HTMLButtonElement>(
+    "[data-confirm-dialog-confirm]",
+  );
+  expect(button).not.toBeNull();
+  return button!;
+}
+
+function getAcknowledgmentCheckbox(): HTMLElement {
+  const checkbox = document.querySelector<HTMLElement>(
+    '[role="checkbox"]',
+  );
+  expect(checkbox).not.toBeNull();
+  return checkbox!;
+}
+
+function acknowledge() {
+  act(() => {
+    getAcknowledgmentCheckbox().click();
+  });
+}
+
 async function waitForDialog() {
   await waitFor(() => {
     expect(
@@ -80,6 +102,37 @@ describe("useDeleteConversationConfirmation + DeleteConversationConfirmDialog", 
       expect(calls).toHaveLength(0);
       expect(document.body.textContent).toContain("Planning notes");
       expect(document.body.textContent).toContain("permanently removes");
+      expect(document.body.textContent).toContain(
+        "Related assets and memories may still persist",
+      );
+      expect(document.body.textContent).toContain(
+        "I understand that related assets and memories may still persist",
+      );
+      expect(getConfirmButton().disabled).toBe(true);
+      expect(getAcknowledgmentCheckbox().getAttribute("aria-checked")).toBe(
+        "false",
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("confirm without acknowledgment deletes nothing", async () => {
+    const calls: Conversation[] = [];
+    render(
+      createElement(Harness, {
+        assistantId: "asst-1",
+        deleteConversation: (conversation) => calls.push(conversation),
+      }),
+    );
+    try {
+      clickByText("request");
+      await waitForDialog();
+      act(() => {
+        getConfirmButton().click();
+      });
+      expect(calls).toHaveLength(0);
+      expect(getConfirmButton().disabled).toBe(true);
     } finally {
       cleanup();
     }
@@ -96,10 +149,10 @@ describe("useDeleteConversationConfirmation + DeleteConversationConfirmDialog", 
     try {
       clickByText("request");
       await waitForDialog();
+      acknowledge();
+      expect(getConfirmButton().disabled).toBe(false);
       act(() => {
-        document
-          .querySelector<HTMLElement>("[data-confirm-dialog-confirm]")!
-          .click();
+        getConfirmButton().click();
       });
       expect(calls).toHaveLength(1);
       expect(calls[0]!.conversationId).toBe("conv-xyz");
@@ -108,6 +161,35 @@ describe("useDeleteConversationConfirmation + DeleteConversationConfirmDialog", 
           document.querySelector("[data-confirm-dialog-confirm]"),
         ).toBeNull();
       });
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("reopening the dialog clears the acknowledgment", async () => {
+    render(
+      createElement(Harness, {
+        assistantId: "asst-1",
+        deleteConversation: () => {},
+      }),
+    );
+    try {
+      clickByText("request");
+      await waitForDialog();
+      acknowledge();
+      expect(getConfirmButton().disabled).toBe(false);
+      clickByText("Cancel");
+      await waitFor(() => {
+        expect(
+          document.querySelector("[data-confirm-dialog-confirm]"),
+        ).toBeNull();
+      });
+      clickByText("request");
+      await waitForDialog();
+      expect(getConfirmButton().disabled).toBe(true);
+      expect(getAcknowledgmentCheckbox().getAttribute("aria-checked")).toBe(
+        "false",
+      );
     } finally {
       cleanup();
     }

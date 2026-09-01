@@ -29,6 +29,12 @@ import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
+import {
+  buildPendingGuardianProjection,
+  guardianFeedItemId,
+  isGuardianRequestSignalEvent,
+  receiptGuardianFeedItemIfRequestTerminal,
+} from "./guardian-feed-projection.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -79,6 +85,7 @@ export async function writeHomeFeedItemForSignal(
   signal: NotificationSignal,
   decision: NotificationDecision,
   vellumDelivery?: NotificationDeliveryResult,
+  deliveryResults?: NotificationDeliveryResult[],
 ): Promise<FeedItem | null> {
   const { mirror, sourceConversationId, sourceScheduleJobId } =
     resolveHomeFeedMirror(signal, vellumDelivery?.conversationId);
@@ -107,7 +114,14 @@ export async function writeHomeFeedItemForSignal(
       : undefined) ||
     renderedCopy?.body?.trim() ||
     payloadBody?.trim() ||
-    "";
+    // Guardian requests must never be dropped for missing copy: the
+    // producer's questionText (or, for access requests, the triggering
+    // message preview) is already the human-readable ask.
+    (isGuardianRequestSignalEvent(signal.sourceEventName)
+      ? (readPayloadString(signal.contextPayload, "questionText")?.trim() ??
+        readPayloadString(signal.contextPayload, "messagePreview")?.trim() ??
+        "")
+      : "");
   if (!resolvedSummary) {
     log.warn(
       { signalId: signal.signalId, sourceEventName: signal.sourceEventName },
@@ -155,8 +169,28 @@ export async function writeHomeFeedItemForSignal(
       ? { ...(baseMetadata ?? {}), scheduleId }
       : baseMetadata;
 
+  // A guardian request's item is keyed by the request rather than the
+  // signal, so the feed's replace-in-place merge keeps exactly one
+  // canonical "Needs attention" item per request across re-emits and
+  // the terminal-status receipt rewrite.
+  const guardianProjection = isGuardianRequestSignalEvent(
+    signal.sourceEventName,
+  )
+    ? buildPendingGuardianProjection(
+        signal.contextPayload,
+        deliveryResults?.find(
+          (r) => r.channel === "slack" && r.status === "sent",
+        ),
+        signal.sourceEventName === "ingress.access_request"
+          ? "access_request"
+          : undefined,
+      )
+    : null;
+
   const item: FeedItem = {
-    id: `notif:${signal.signalId}`,
+    id: guardianProjection
+      ? guardianFeedItemId(guardianProjection.requestId)
+      : `notif:${signal.signalId}`,
     type: "notification",
     priority: 50,
     title: resolvedTitle,
@@ -167,6 +201,7 @@ export async function writeHomeFeedItemForSignal(
     category,
     noteworthy: deriveNoteworthy(signal),
     fromAssistant: signal.sourceChannel === "assistant_tool",
+    ...(guardianProjection ? { guardianRequest: guardianProjection } : {}),
     ...(urgency ? { urgency } : {}),
     ...(sourceConversationId ? { conversationId: sourceConversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
@@ -205,6 +240,16 @@ export async function writeHomeFeedItemForSignal(
     : item;
 
   await appendFeedItem(card);
+
+  // Converge the write-vs-resolve race: a request decided while this
+  // write was in flight already ran its receipt fan-out against an item
+  // that did not exist yet. Mirrors the delivery recorder's
+  // `withdrawIfRequestAlreadyTerminal`.
+  if (guardianProjection) {
+    await receiptGuardianFeedItemIfRequestTerminal(
+      guardianProjection.requestId,
+    );
+  }
   return card;
 }
 
@@ -418,15 +463,12 @@ function deriveDetailPanelKind(
     return "toolPermission";
   }
 
-  if (signal.sourceEventName === "guardian.question") {
-    const payload = signal.contextPayload;
-    const kind =
-      payload && typeof payload === "object" && "requestKind" in payload
-        ? payload.requestKind
-        : undefined;
-    if (kind === "tool_approval" || kind === "tool_grant_request") {
-      return "permissionChat";
-    }
+  // Every guardian request opens the permission-style panel: the client
+  // dispatches the guardian card off the item's `guardianRequest`
+  // projection, and the panel kind keeps pre-projection clients (and
+  // bucket-fallback derivations) treating the row as an approval.
+  if (isGuardianRequestSignalEvent(signal.sourceEventName)) {
+    return "permissionChat";
   }
 
   return undefined;
@@ -477,6 +519,12 @@ function resolveHomeFeedMirror(
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (signal.attentionHints.isAsyncBackground) {
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
+  }
+  // Guardian requests always project into the feed: the "Needs
+  // attention" item is the request's canonical home, and the request
+  // blocks on the guardian whatever kind of conversation raised it.
+  if (isGuardianRequestSignalEvent(signal.sourceEventName)) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (isBackgroundConversationType(sourceRow?.conversationType)) {

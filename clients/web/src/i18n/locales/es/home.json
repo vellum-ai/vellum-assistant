@@ -18,7 +18,9 @@
     "email": "Correo",
     "scheduling": "Programación",
     "background": "Segundo plano",
-    "system": "Sistema"
+    "system": "Sistema",
+    "guardianAction": "Acción del guardián requerida",
+    "guardianQuestion": "Pregunta del guardián"
   },
   "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
   "homeTopHeader": { "title": "Actividad" },
@@ -63,5 +65,26 @@
     "empty": "Todavía no hay notificaciones.",
     "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
   },
-  "notificationsBellDetail": { "back": "Volver a las notificaciones" }
+  "notificationsBellDetail": { "back": "Volver a las notificaciones" },
+  "homeGuardianRequestCard": {
+    "requester": "Solicitado por",
+    "source": "Origen",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "answerHint": "Responde esta pregunta desde la conversación de origen.",
+    "viewSourceMessage": "Ver mensaje",
+    "openInSlack": "Abrir en Slack",
+    "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
+    "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
+    "receipt": {
+      "approved": "Aprobada",
+      "approvedBy": "Aprobada por {name}",
+      "rejected": "Rechazada",
+      "rejectedBy": "Rechazada por {name}",
+      "expired": "Caducada",
+      "superseded": "Reemplazada",
+      "cancelled": "Cancelada",
+      "leftUnverified": "Sin verificar"
+    }
+  }
 }

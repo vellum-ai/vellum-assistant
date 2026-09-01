@@ -62,6 +62,13 @@ export const providerMessageMetadataSchema = z
      */
     messageId: z.string().optional(),
     /**
+     * Provider ids of the further posts this row's delivery produced beyond
+     * `messageId`: one stored reply split at tool boundaries or length
+     * limits posts several provider messages, and they all belong to this
+     * one row. A reaction naming any of them resolves here.
+     */
+    additionalMessageIds: z.array(z.string()).optional(),
+    /**
      * Provider id of the thread this row sits in, absent when it is not in one.
      * Never synthesized from `messageId`: a value here asserts that a thread
      * exists, and inventing one keys conversations on threads that never do.

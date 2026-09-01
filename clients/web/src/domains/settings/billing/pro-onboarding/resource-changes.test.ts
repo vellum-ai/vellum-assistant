@@ -105,7 +105,7 @@ describe("buildResourceChanges", () => {
     expect(changes.map((c) => c.key)).toEqual(["credits"]);
   });
 
-  test("takes the credits label override the obscured wording passes", () => {
+  test("takes the credits label override when one is passed", () => {
     const changes = buildResourceChanges({
       targets: { machineSize: null, storageGib: null },
       fromSnapshot: { machineSize: null, storageGib: null },

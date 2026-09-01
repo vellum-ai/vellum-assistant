@@ -565,6 +565,29 @@ export function SlackMessageAttribution({
  * Compact inline rendering of a Slack reaction event. Shows the emoji
  * character (or `:shortcode:` fallback) plus the actor name and verb.
  */
+/**
+ * Display form of a reaction emoji, shared by every reaction line. A unicode
+ * emoji renders as itself; a shortcode resolves through the catalog with the
+ * ":shortcode:" fallback while it lazy-loads. A custom-emoji mention form
+ * (Discord's `<:name:id>`) renders as its bare ":name:" and never consults
+ * the catalog: custom names are arbitrary guild identities, and a name that
+ * collides with a catalog shortcode must not swap into the unrelated
+ * standard emoji.
+ */
+export function displayReactionEmoji(
+  raw: string,
+  lookup: (shortcode: string) => string | undefined,
+): string {
+  const customMention = /^<a?:([^:>]+):\d+>$/.exec(raw);
+  if (customMention) {
+    return `:${customMention[1]!}:`;
+  }
+  if (/^[\w+'-]+$/.test(raw)) {
+    return lookup(raw) ?? `:${raw}:`;
+  }
+  return raw;
+}
+
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {
   const lookupEmoji = useEmojiLookup();
   const reaction = message.slackMessage?.reaction;
@@ -572,8 +595,7 @@ export function SlackReactionLine({ message }: { message: DisplayMessage }) {
     return null;
   }
 
-  const emojiChar = lookupEmoji(reaction.emoji);
-  const emojiDisplay = emojiChar ?? `:${reaction.emoji}:`;
+  const emojiDisplay = displayReactionEmoji(reaction.emoji, lookupEmoji);
   const actor =
     reaction.actorDisplayName ??
     message.slackMessage?.sender?.displayName ??

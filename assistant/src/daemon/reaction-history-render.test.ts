@@ -117,6 +117,39 @@ describe("renderReactionHistoryText", () => {
     expect(rendered).toContain("Bob reacted with");
   });
 
+  test("a self-authored row is second-person with the quoted target fenced", () => {
+    const rendered = renderReactionHistoryText(
+      reactionMeta({ source: "discord" }),
+      () => "Deploy is done",
+      { selfAuthored: true },
+    );
+    expect(rendered).toContain("You reacted with :thumbsup: to this message:");
+    expect(rendered).toContain('<external_content source="webhook"');
+    expect(rendered).toContain("Deploy is done");
+    expect(rendered).toContain("</external_content>");
+  });
+
+  test("a self-authored row with no target stays unfenced", () => {
+    const rendered = renderReactionHistoryText(
+      reactionMeta({ source: "discord" }),
+      noTarget,
+      { selfAuthored: true },
+    );
+    expect(rendered).toBe("You reacted with :thumbsup: to an earlier message");
+    expect(rendered).not.toContain("<external_content");
+  });
+
+  test("a self-authored removal reads as your reaction", () => {
+    const rendered = renderReactionHistoryText(
+      reactionMeta({ reaction: { op: "removed" } }),
+      noTarget,
+      { selfAuthored: true },
+    );
+    expect(rendered).toContain(
+      "You removed your :thumbsup: reaction from an earlier message",
+    );
+  });
+
   test("returns null for a message row", () => {
     const meta: ProviderMessageMetadata = {
       source: "slack",

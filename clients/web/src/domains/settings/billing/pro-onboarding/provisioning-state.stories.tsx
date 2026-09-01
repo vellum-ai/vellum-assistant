@@ -13,9 +13,8 @@
  * STALLED reads, and `avatar` swaps the seeded assistant between a bundled
  * creature, an uploaded image, and one nothing was seeded for. `landedMachine`,
  * `landedStorage`, `softWaiting`, and `escapeAvailable` drive the wait's own
- * progress and affordances, and `obscureCredits` flips the feature flag that
- * replaces every credit amount with its bundle name. Each is a URL arg too, so
- * a state links directly: `?args=phase:STALLED;snag:submissionFailed`.
+ * progress and affordances. Each is a URL arg too, so a state links directly:
+ * `?args=phase:STALLED;snag:submissionFailed`.
  *
  * The decorators supply what the modal supplies: the plan catalog and avatar
  * reads in a story-local query cache, and the takeover frame (a black ground, a
@@ -30,7 +29,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ProvisioningStateKind } from "./provisioning-machine";
 import { ProvisioningState } from "./provisioning-state";
 import {
-  obscureCreditsDecorator,
   TAKEOVER_AVATARS,
   TAKEOVER_CONSTANT_PROPS,
   TAKEOVER_SCENARIOS,
@@ -45,8 +43,7 @@ import {
 
 /**
  * The playground's controls, which are not `ProvisioningState` props: each one
- * either names a row in a fixture table the render expands, or drives something
- * outside the component entirely (`obscureCredits` is a feature flag).
+ * names a row in a fixture table the render expands.
  *
  * The three table-backed controls hold the row's name rather than the row, and
  * the render looks it up. That keeps a story's `args` type-checked against the
@@ -67,7 +64,6 @@ interface TakeoverPlaygroundArgs {
   escapeAvailable: boolean;
   snag: TakeoverSnagKey;
   avatar: TakeoverAvatarKey;
-  obscureCredits: boolean;
 }
 
 const PHASES: ProvisioningStateKind[] = [
@@ -145,14 +141,6 @@ const meta: Meta<TakeoverPlaygroundArgs> = {
       description: "Offer the background escape hatch.",
       control: "boolean",
     },
-    obscureCredits: {
-      description:
-        "Flip `obscure-credits`, which states bundles by catalog name instead of by monthly rate. Live only on `Playground`.",
-      // Hidden everywhere but `Playground`: the flag is a module-level singleton,
-      // and the docs page mounts every curated story into one iframe, so a
-      // control there would flip the treatment for all of them at once.
-      control: false,
-    },
   },
   args: {
     phase: "WAITING",
@@ -163,28 +151,15 @@ const meta: Meta<TakeoverPlaygroundArgs> = {
     escapeAvailable: false,
     snag: "none",
     avatar: "creature",
-    obscureCredits: false,
   },
   render: renderTakeover,
-  // Storybook applies decorators innermost first, so the flag is already set for
-  // the frame and the takeover, both of which sit inside the query provider that
-  // answers their reads.
-  decorators: [
-    takeoverFrameDecorator,
-    obscureCreditsDecorator,
-    takeoverQueryDecorator,
-  ],
+  // Storybook applies decorators innermost first, so the frame and the takeover
+  // both sit inside the query provider that answers their reads.
+  decorators: [takeoverFrameDecorator, takeoverQueryDecorator],
 };
 
 export default meta;
 type Story = StoryObj<TakeoverPlaygroundArgs>;
-
-// Every curated story below pins `obscureCredits: false` and exposes no control
-// for it. The flag is a module-level Zustand singleton and the docs page mounts
-// all of these into one iframe at once, so a story that flipped it would flip it
-// for its neighbours too, and their decorators would not re-run to undo it. The
-// flag-on treatment belongs to `Playground`, which carries the only live control
-// and stays off the docs page so it is never mounted beside them.
 
 /**
  * The whole surface, driven from the Controls panel. Opens on the rollout of a
@@ -194,9 +169,6 @@ type Story = StoryObj<TakeoverPlaygroundArgs>;
  */
 export const Playground: Story = {
   tags: ["!autodocs"],
-  argTypes: {
-    obscureCredits: { control: "boolean" },
-  },
 };
 
 /** Waiting on Stripe after a package checkout: the package names itself. */
@@ -204,7 +176,6 @@ export const Confirming: Story = {
   args: {
     phase: "CONFIRMING",
     change: "packageIntent",
-    obscureCredits: false,
   },
 };
 
@@ -216,7 +187,6 @@ export const Confirming: Story = {
 export const ConfirmTimeout: Story = {
   args: {
     phase: "CONFIRM_TIMEOUT",
-    obscureCredits: false,
   },
 };
 
@@ -229,7 +199,6 @@ export const Waiting: Story = {
   args: {
     phase: "WAITING",
     change: "baseToSuper",
-    obscureCredits: false,
   },
 };
 
@@ -241,7 +210,6 @@ export const Waiting: Story = {
 export const Done: Story = {
   args: {
     phase: "DONE",
-    obscureCredits: false,
   },
 };
 
@@ -254,7 +222,6 @@ export const NotApplicable: Story = {
   args: {
     phase: "NOT_APPLICABLE",
     change: "creditOnlySwitch",
-    obscureCredits: false,
   },
 };
 
@@ -268,6 +235,5 @@ export const Stalled: Story = {
     phase: "STALLED",
     snag: "submissionFailed",
     escapeAvailable: true,
-    obscureCredits: false,
   },
 };

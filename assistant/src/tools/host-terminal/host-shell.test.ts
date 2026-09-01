@@ -104,6 +104,10 @@ mock.module("../../daemon/host-bash-proxy.js", () => ({
 // Import under test — MUST come after mock.module calls.
 // ---------------------------------------------------------------------------
 
+import {
+  MAX_OUTPUT_LENGTH,
+  OUTPUT_TRUNCATED_TAG,
+} from "../shared/shell-output.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { hostShellTool } from "./host-shell.js";
 
@@ -361,5 +365,25 @@ describe("host_bash background lifecycle events — direct spawn path", () => {
     // Cancellation must surface a cancellation message, not "failed" framing.
     expect(completed[0]!.output).toContain("cancelled");
     expect(completed[0]!.output).not.toContain("failed");
+  });
+
+  test("drops stdout past the cap without a recovery file", async () => {
+    await hostShellTool.execute(
+      { command: "yes", background: true },
+      makeContext(),
+    );
+
+    latestChild!.stdout.emit("data", Buffer.alloc(80_000, 0x78));
+    latestChild!.stdout.emit("data", Buffer.alloc(80_000, 0x79));
+    latestChild!.emit("close", 0);
+    await flush();
+
+    const completed = completedEvents();
+    expect(completed).toHaveLength(1);
+    const output = String(completed[0]!.output);
+    expect(output).toContain(OUTPUT_TRUNCATED_TAG);
+    expect(output).not.toContain("file=");
+    expect(output.length).toBeLessThan(MAX_OUTPUT_LENGTH + 80);
+    expect(output).not.toContain("y");
   });
 });

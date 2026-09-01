@@ -43,87 +43,6 @@ describe("freePlanSpecs", () => {
 
 describe("packageSpecs", () => {
   test("reads a machine-less Pro package (Mighty) at the small baseline", () => {
-    const specs = packageSpecs({
-      key: "mighty",
-      name: "Mighty",
-      machine_size: null,
-      credits_usd: 25,
-      storage_gib: 10,
-    } as ProPackage);
-    expect(specs.map((s) => s.label)).toEqual([
-      "Small Machine",
-      "10 GB Storage",
-      "$25 in credits included",
-    ]);
-    expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
-  });
-
-  test("reads a package with an explicit machine size", () => {
-    const specs = packageSpecs({
-      key: "unknown",
-      machine_size: "medium",
-      credits_usd: 45,
-      storage_gib: 30,
-    } as ProPackage);
-    expect(specs.map((s) => s.label)).toEqual([
-      "Medium Machine",
-      "30 GB Storage",
-      "$45 in credits included",
-    ]);
-  });
-
-  test("appends the tier copy's extra feature rows with the Mail icon", () => {
-    const specs = packageSpecs({
-      key: "super",
-      machine_size: "medium",
-      credits_usd: 45,
-      storage_gib: 30,
-    } as ProPackage);
-    expect(specs.map((s) => s.label)).toEqual([
-      "Medium Machine",
-      "30 GB Storage",
-      "$45 in credits included",
-      "Assistant email and subdomain",
-    ]);
-    expect(specs[3].icon).toBe(Mail);
-  });
-
-  test("gives the credits chip and every extra a row of its own", () => {
-    const specs = packageSpecs({
-      key: "super",
-      machine_size: "medium",
-      credits_usd: 45,
-      storage_gib: 30,
-    } as ProPackage);
-    // Machine and storage share the wrapping row; the credits phrase and the
-    // email/subdomain extra each take a full row below it.
-    expect(specs.map((s) => s.ownRow)).toEqual([
-      undefined,
-      undefined,
-      true,
-      true,
-    ]);
-  });
-
-  test("keeps the credits chip on its own row under the obscured label", () => {
-    const specs = packageSpecs(
-      { key: "mighty", credits_usd: 25, storage_gib: 10 } as ProPackage,
-      { obscuredUsageLabel: "Mighty usage, reset monthly" },
-    );
-    expect(specs[2].ownRow).toBe(true);
-  });
-
-  test("falls back to $0 when credits_usd is null", () => {
-    const specs = packageSpecs({
-      key: "unknown",
-      machine_size: "small",
-      credits_usd: null,
-      storage_gib: 8,
-    } as ProPackage);
-    expect(specs[2].label).toBe("$0 in credits included");
-  });
-
-  test("swaps the credits chip for an obscured usage label when given one", () => {
     const specs = packageSpecs(
       {
         key: "mighty",
@@ -132,38 +51,70 @@ describe("packageSpecs", () => {
         credits_usd: 25,
         storage_gib: 10,
       } as ProPackage,
-      { obscuredUsageLabel: "Mighty usage, reset monthly" },
+      "Mighty usage, reset monthly",
     );
     expect(specs.map((s) => s.label)).toEqual([
       "Small Machine",
       "10 GB Storage",
       "Mighty usage, reset monthly",
     ]);
-    // Only the credits chip's copy moves; its icon and the rest are untouched.
     expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
   });
 
-  test("keeps the dollar label when the options carry no override", () => {
+  test("reads a package with an explicit machine size", () => {
     const specs = packageSpecs(
       {
-        key: "mighty",
-        machine_size: null,
-        credits_usd: 25,
-        storage_gib: 10,
+        key: "unknown",
+        machine_size: "medium",
+        credits_usd: 45,
+        storage_gib: 30,
       } as ProPackage,
-      {},
+      "Unknown usage, reset monthly",
     );
-    expect(specs[2].label).toBe("$25 in credits included");
+    expect(specs.map((s) => s.label)).toEqual([
+      "Medium Machine",
+      "30 GB Storage",
+      "Unknown usage, reset monthly",
+    ]);
   });
 
-  test("formats a sub-dollar credit amount cents-aware", () => {
-    const specs = packageSpecs({
-      key: "unknown",
-      machine_size: "small",
-      credits_usd: 0.5,
-      storage_gib: 8,
-    } as ProPackage);
-    expect(specs[2].label).toBe("$0.50 in credits included");
+  test("appends the tier copy's extra feature rows with the Mail icon", () => {
+    const specs = packageSpecs(
+      {
+        key: "super",
+        machine_size: "medium",
+        credits_usd: 45,
+        storage_gib: 30,
+      } as ProPackage,
+      "Super usage, reset monthly",
+    );
+    expect(specs.map((s) => s.label)).toEqual([
+      "Medium Machine",
+      "30 GB Storage",
+      "Super usage, reset monthly",
+      "Assistant email and subdomain",
+    ]);
+    expect(specs[3].icon).toBe(Mail);
+  });
+
+  test("gives the usage chip and every extra a row of its own", () => {
+    const specs = packageSpecs(
+      {
+        key: "super",
+        machine_size: "medium",
+        credits_usd: 45,
+        storage_gib: 30,
+      } as ProPackage,
+      "Super usage, reset monthly",
+    );
+    // Machine and storage share the wrapping row; the usage phrase and the
+    // email/subdomain extra each take a full row below it.
+    expect(specs.map((s) => s.ownRow)).toEqual([
+      undefined,
+      undefined,
+      true,
+      true,
+    ]);
   });
 });
 

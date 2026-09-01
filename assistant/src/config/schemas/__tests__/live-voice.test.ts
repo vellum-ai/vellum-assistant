@@ -40,6 +40,7 @@ describe("LiveVoiceVadConfigSchema", () => {
     const parsed = LiveVoiceVadConfigSchema.parse({});
     expect(parsed).toEqual({
       speechEnergyThreshold: 800,
+      noiseFloorMargin: 3,
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
@@ -60,6 +61,17 @@ describe("LiveVoiceVadConfigSchema", () => {
     expect(parsed.silenceThresholdMs).toBe(500);
     expect(parsed.maxTurnDurationMs).toBe(60_000);
     expect(parsed.bargeInMinSpeechMs).toBe(120);
+  });
+
+  test("accepts a noiseFloorMargin of 0 (adaptation disabled)", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({ noiseFloorMargin: 0 });
+    expect(parsed.noiseFloorMargin).toBe(0);
+  });
+
+  test("rejects a negative noiseFloorMargin", () => {
+    expect(() =>
+      LiveVoiceVadConfigSchema.parse({ noiseFloorMargin: -1 }),
+    ).toThrow();
   });
 
   test("accepts a bargeInMinSpeechMs of 0 (guard disabled)", () => {
@@ -317,6 +329,7 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
+        noiseFloorMargin: 3,
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,

@@ -23,7 +23,7 @@ import {
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
 } from "./home-recap-actions";
-import { resolveFeedItemTitle } from "./utils";
+import { guardianCategoryLabelKey, resolveFeedItemTitle } from "./utils";
 
 /**
  * Marks the card's own click target, the one control a long press may arm on:
@@ -233,7 +233,10 @@ export function HomeRecapRow({
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
           {densityStyle.showsMetaRow ? (
             <>
-              <FeedCategoryChip category={item.category} />
+              <FeedCategoryChip
+                category={item.category}
+                labelKey={guardianCategoryLabelKey(item) ?? undefined}
+              />
 
               {sourceLabel !== null && (
                 <Typography

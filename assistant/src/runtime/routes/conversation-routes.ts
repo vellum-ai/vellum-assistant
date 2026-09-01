@@ -23,6 +23,7 @@ import {
   type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
+import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
 import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
   expireGuardianRequest,
@@ -97,6 +98,7 @@ import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { readProviderMetadata } from "../../messaging/read-provider-metadata.js";
 import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.js";
 import {
   classifyKind,
@@ -127,6 +129,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
@@ -163,6 +166,7 @@ import {
   resolveActorPrincipalIdForLocalGuardian,
 } from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
+import { stripNoResponseMarkers } from "../no-response.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   publishConversationListAndMetadataChanged,
@@ -194,8 +198,6 @@ import { RouteResponse } from "./types.js";
 
 const log = getLogger("conversation-routes");
 
-/** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
 
 /** Rewrites a rendered `contentOrder` to reflect attachment alignment. */
@@ -997,6 +999,8 @@ export async function handleListMessages({
       {};
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
+    let noResponse: boolean | undefined;
+    let reaction: ConversationMessage["reaction"];
     let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
@@ -1008,6 +1012,25 @@ export async function handleListMessages({
         // render as standalone system notices, not persona speech.
         if (isSystemCardMetadata(meta)) {
           systemCard = true;
+        }
+        if (isNoResponseMetadata(meta)) {
+          noResponse = true;
+        }
+        // A reaction row, either direction, projects its structured fact so
+        // clients never render the stored "[reaction]" sentinel.
+        if (msg.metadata.includes("reaction")) {
+          const reactionMeta = readProviderMetadata(msg.metadata);
+          if (reactionMeta?.eventKind === "reaction" && reactionMeta.reaction) {
+            reaction = {
+              emoji: reactionMeta.reaction.emoji,
+              op: reactionMeta.reaction.op,
+              targetMessageId: reactionMeta.reaction.targetMessageId,
+              ...(reactionMeta.reaction.actorDisplayName
+                ? { actorDisplayName: reactionMeta.reaction.actorDisplayName }
+                : {}),
+              ...(msg.role === "assistant" ? { selfAuthored: true } : {}),
+            };
+          }
         }
         // Daemon-persisted provider-failure notices carry the classified
         // error code/category so clients can render a themed card instead
@@ -1061,6 +1084,8 @@ export async function handleListMessages({
       backgroundEventNotification: notifications.backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
+      noResponse,
+      reaction,
       providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -1175,9 +1200,7 @@ export async function handleListMessages({
         const keepIndices: number[] = [];
         const filteredSegments: string[] = [];
         for (let i = 0; i < rendered.textSegments.length; i++) {
-          const cleaned = rendered.textSegments[i]
-            .replace(NO_RESPONSE_INLINE_RE, "")
-            .trim();
+          const cleaned = stripNoResponseMarkers(rendered.textSegments[i]);
           if (cleaned.length > 0) {
             keepIndices.push(i);
             filteredSegments.push(cleaned);
@@ -1201,7 +1224,7 @@ export async function handleListMessages({
             block.type === "text"
               ? {
                   type: "text" as const,
-                  text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+                  text: stripNoResponseMarkers(block.text),
                 }
               : block,
           )
@@ -1271,6 +1294,8 @@ export async function handleListMessages({
           ? { backgroundToolCompletion: m.backgroundToolCompletion }
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
+        ...(m.noResponse ? { noResponse: true } : {}),
+        ...(m.reaction ? { reaction: m.reaction } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
       };
@@ -2332,6 +2357,7 @@ export async function handleSendMessage(
           requestId: interaction.requestId,
           status: "denied",
           syncContext: "auto-deny-idle-send",
+          terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
         });
       }
     }

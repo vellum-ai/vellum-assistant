@@ -94,9 +94,10 @@ export async function recordApprovalCardDelivery(
  * that row's id as `vellumDeliveryId` and it is reused (only its status applied)
  * — otherwise the vellum row is created here from the result.
  *
- * Every addressable result records the internal `conversationId` the card is
- * shown in, so a conversation's pending cards can be found uniformly
- * regardless of channel. Platform push results are skipped entirely: a push
+ * The vellum result records the internal `conversationId` its card is shown
+ * in. Channel guardian cards pair no conversation (they are delivery
+ * projections; see `conversation-pairing.ts`), so their rows carry no
+ * `conversationId`. Platform push results are skipped entirely: a push
  * has no channel-native card surface to address back to.
  * Channel results additionally carry the chat (`destination`) and channel-native
  * id (`messageId`) used to match inbound replies/reactions; a blank `destination`

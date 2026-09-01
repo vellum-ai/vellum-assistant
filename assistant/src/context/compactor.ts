@@ -64,16 +64,30 @@ const log = getLogger("compactor");
 const COMPACTION_CALL_SITE: LLMCallSite = "mainAgent";
 
 /**
- * Tag stamped on `llm_request_logs.call_site` for compaction-driven rows.
+ * Tag stamped on `llm_request_logs.call_site` and the usage event's
+ * `callSite` for compaction-driven rows.
  *
  * Distinct from `COMPACTION_CALL_SITE` (above) on purpose: that constant
- * names the **provider config resolution** site (set to `mainAgent` so we
+ * names the provider-config resolution site (set to `mainAgent` so we
  * inherit the agent's profile and keep the prefix cache warm). This
- * constant names the **observability** site — what the row IS — so
- * inspectors can filter "show me only compaction calls". They're
+ * constant names the observability site (what the row is) so
+ * inspectors and usage breakdowns can filter compaction calls. They're
  * semantically different even though both come from the same enum.
  */
 const COMPACTION_LOG_CALL_SITE: LLMCallSite = "compactionAgent";
+
+function compactionUsageAttribution(
+  args: Pick<CompactionRunArgs, "overrideProfile">,
+): Pick<
+  CompactionRunResult,
+  "summaryCallSite" | "summaryResolutionCallSite" | "summaryOverrideProfile"
+> {
+  return {
+    summaryCallSite: COMPACTION_LOG_CALL_SITE,
+    summaryResolutionCallSite: COMPACTION_CALL_SITE,
+    summaryOverrideProfile: args.overrideProfile ?? null,
+  };
+}
 
 /**
  * What actually served a compaction call, for attribution on both the request
@@ -354,6 +368,14 @@ export interface CompactionRunResult {
   summaryOutputTokens: number;
   summaryModel: string;
   summaryCallSite?: LLMCallSite;
+  /**
+   * Call site used to resolve the winning inference profile for the
+   * summary. Compaction invokes the provider as `mainAgent` so the
+   * prefix cache stays warm; {@link summaryCallSite} is the observability
+   * tag (`compactionAgent`). Attribution uses this field for profile
+   * selection and {@link summaryCallSite} for the usage-row call site.
+   */
+  summaryResolutionCallSite?: LLMCallSite;
   summaryOverrideProfile?: string | null;
   /**
    * Provider that actually served the summary call: the response's
@@ -1418,8 +1440,7 @@ export async function runAssistantDrivenCompaction(
       summaryCacheCreationInputTokens:
         response.usage.cacheCreationInputTokens ?? 0,
       summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
-      summaryCallSite: COMPACTION_CALL_SITE,
-      summaryOverrideProfile: args.overrideProfile ?? null,
+      ...compactionUsageAttribution(args),
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
       summaryRequestLogId,
       summaryCalls: 1,
@@ -1457,8 +1478,7 @@ export async function runAssistantDrivenCompaction(
         summaryCacheCreationInputTokens:
           response.usage.cacheCreationInputTokens ?? 0,
         summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
-        summaryCallSite: COMPACTION_CALL_SITE,
-        summaryOverrideProfile: args.overrideProfile ?? null,
+        ...compactionUsageAttribution(args),
         summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
         summaryCalls: 1,
       };
@@ -1628,8 +1648,7 @@ export async function runAssistantDrivenCompaction(
       summaryCacheCreationInputTokens:
         response.usage.cacheCreationInputTokens ?? 0,
       summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
-      summaryCallSite: COMPACTION_CALL_SITE,
-      summaryOverrideProfile: args.overrideProfile ?? null,
+      ...compactionUsageAttribution(args),
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
       summaryRequestLogId,
       summaryCalls: 1,
@@ -1698,8 +1717,7 @@ export async function runAssistantDrivenCompaction(
     summaryInputTokens: response.usage.inputTokens,
     summaryOutputTokens: response.usage.outputTokens,
     summaryModel: response.model,
-    summaryCallSite: COMPACTION_CALL_SITE,
-    summaryOverrideProfile: args.overrideProfile ?? null,
+    ...compactionUsageAttribution(args),
     ...servedAttribution(response, args.provider),
     summaryCacheCreationInputTokens:
       response.usage.cacheCreationInputTokens ?? 0,
@@ -1886,12 +1904,11 @@ export async function runEmergencyCompaction(
       summaryInputTokens: response.usage.inputTokens,
       summaryOutputTokens: response.usage.outputTokens,
       summaryModel: response.model,
-      // This path bills real tokens, so its provider must follow a reroute
-      // like every other call-bearing path. It is the one such path that sets
-      // no `summaryCallSite`/`summaryOverrideProfile`, which leaves its
-      // profile attribution null; that gap predates this change and is not
-      // widened by it.
+      // This path bills real tokens, so its provider, call site, and
+      // override profile must follow the same attribution as every other
+      // call-bearing compaction path.
       ...servedAttribution(response, args.provider),
+      ...compactionUsageAttribution(args),
     };
   }
 
@@ -1937,8 +1954,7 @@ export async function runEmergencyCompaction(
     summaryInputTokens: response.usage.inputTokens,
     summaryOutputTokens: response.usage.outputTokens,
     summaryModel: response.model,
-    summaryCallSite: COMPACTION_CALL_SITE,
-    summaryOverrideProfile: args.overrideProfile ?? null,
+    ...compactionUsageAttribution(args),
     ...servedAttribution(response, args.provider),
     summaryCacheCreationInputTokens:
       response.usage.cacheCreationInputTokens ?? 0,

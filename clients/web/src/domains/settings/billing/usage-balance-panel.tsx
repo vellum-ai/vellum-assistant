@@ -20,9 +20,8 @@ export interface UsageBalancePanelProps {
 }
 
 /**
- * The current-plan tile's footer while `obscure-credits` is on, in place of the
- * price row: how much of the usage credit the account was granted it has
- * already used.
+ * The current-plan tile's footer, in place of the price row: how much of the
+ * usage credit the account was granted it has already used.
  */
 export function UsageBalancePanel({
   ratio,

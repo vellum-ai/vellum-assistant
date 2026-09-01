@@ -78,8 +78,12 @@ mock.module("../ipc/assistant-client.js", () => ({
 
 // Contact-info reads (daemon-backed) — no known contacts by default; the
 // lookup impl is mutable so a test can induce an assistant-IPC failure.
+// Spread the actual module so unstubbed named exports keep resolving when the
+// transitive import graph grows.
 let lookupContactChannelIdentityImpl: () => Promise<null> = async () => null;
+const actualContactsInfoClient = await import("../ipc/contacts-info-client.js");
 mock.module("../ipc/contacts-info-client.js", () => ({
+  ...actualContactsInfoClient,
   lookupContactChannelIdentity: () => lookupContactChannelIdentityImpl(),
   probeContactMirror: async () => ({ exists: false, hasChannels: false }),
 }));

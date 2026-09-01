@@ -1699,6 +1699,91 @@ describe("session-agent-loop", () => {
       expect(call[1]).toBe(JSON.stringify(rawRequest));
       expect(call[2]).toBe(JSON.stringify(rawResponse));
     });
+
+    test("request log and usage event share the turn call site", async () => {
+      const rawRequest = {
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+      const rawResponse = {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { role: "assistant", content: "Hi there." },
+          },
+        ],
+      };
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "openai",
+            rawRequest,
+            rawResponse,
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+      });
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[5]).toBe("callAgent");
+
+      const usageCall = recordUsageMock.mock.calls.find(
+        (entry) => (entry as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+      expect(usageCall).toBeDefined();
+      const attribution = usageCall?.[12] as UsageAttributionInput;
+      expect(attribution.callSite).toBe("callAgent");
+    });
+
+    test("stamps voiceFrontDoor on the request log for a front-door turn", async () => {
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi." }],
+            model: "mock-model",
+            usage: { inputTokens: 8, outputTokens: 2 },
+            stopReason: "end_turn",
+            rawRequest: { model: "mock-model", messages: [] },
+            rawResponse: { id: "resp-1" },
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "voiceFrontDoor",
+      });
+
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[5]).toBe("voiceFrontDoor");
+    });
+
+    test("provider-error request logs carry the turn call site", async () => {
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+      });
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[5]).toBe("callAgent");
+    });
   });
 
   describe("usage accounting", () => {
@@ -4155,6 +4240,7 @@ describe("session-agent-loop", () => {
           summaryModel: "claude-sonnet-5",
           summaryText: "summary",
           summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
           // What the compactor resolved before the call...
           summaryOverrideProfile: "primaryProfile",
           // ...and what the reroute actually served.
@@ -4175,6 +4261,7 @@ describe("session-agent-loop", () => {
       expect(compactorCall?.[3]).toBe("claude-sonnet-5");
       expect(compactorCall?.[12]).toEqual({
         callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
         overrideProfile: "backupProfile",
         forceOverrideProfile: true,
       });
@@ -4201,6 +4288,7 @@ describe("session-agent-loop", () => {
           summaryModel: "mock-model",
           summaryText: "summary",
           summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
           summaryOverrideProfile: "primaryProfile",
           summaryActualProvider: "openai",
         },
@@ -4217,6 +4305,7 @@ describe("session-agent-loop", () => {
       expect(compactorCall?.[3]).toBe("mock-model");
       expect(compactorCall?.[12]).toEqual({
         callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
         overrideProfile: "primaryProfile",
       });
     });
@@ -4246,6 +4335,7 @@ describe("session-agent-loop", () => {
           summaryModel: "mock-model",
           summaryText: "summary",
           summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
           summaryOverrideProfile: "primaryProfile",
         },
         () => {},
@@ -4262,6 +4352,7 @@ describe("session-agent-loop", () => {
       });
       expect(compactorCall?.[12]).toEqual({
         callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
         overrideProfile: "primaryProfile",
       });
     });

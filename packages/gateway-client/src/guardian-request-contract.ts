@@ -193,6 +193,7 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   createDelivery: "guardian_requests_create_delivery",
   updateDelivery: "guardian_requests_update_delivery",
   listDeliveries: "guardian_requests_list_deliveries",
+  listDeliveriesByChat: "guardian_requests_list_deliveries_by_chat",
   getByDestinationMessage: "guardian_requests_get_by_destination_message",
   listPendingByDestination: "guardian_requests_list_pending_by_destination",
   listPendingByScope: "guardian_requests_list_pending_by_scope",
@@ -595,6 +596,22 @@ export const ListGuardianRequestDeliveriesIpcParamsSchema = z.object({
 
 export type ListGuardianRequestDeliveriesIpcParams = z.infer<
   typeof ListGuardianRequestDeliveriesIpcParamsSchema
+>;
+
+/**
+ * Request for `guardian_requests_list_deliveries_by_chat`: every
+ * delivery row addressed to one channel-native chat, whatever request it
+ * belongs to. Lets transcript importers recognize guardian card
+ * messages (by their recorded message id) as delivery projections
+ * rather than conversation content.
+ */
+export const ListGuardianRequestDeliveriesByChatIpcParamsSchema = z.object({
+  channel: z.string().min(1),
+  chatId: z.string().min(1),
+});
+
+export type ListGuardianRequestDeliveriesByChatIpcParams = z.infer<
+  typeof ListGuardianRequestDeliveriesByChatIpcParamsSchema
 >;
 
 /** Response for `guardian_requests_list_deliveries`. */

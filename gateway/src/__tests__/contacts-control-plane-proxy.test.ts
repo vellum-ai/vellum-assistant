@@ -663,6 +663,53 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(params.autoApproveThreshold).toBeUndefined();
   });
 
+  test("externalChatId boundary: omitted preserves, legacy null normalizes to omitted, malformed is rejected", async () => {
+    // Omit-vs-null is load-bearing: syncChannels preserves the stored
+    // delivery chat id when the field is undefined and writes when it is
+    // not, so conflating an omitted field with null makes every channel
+    // upsert that never mentions the chat id (e.g. link-account) blank it.
+    // A legacy explicit null (the published contract once admitted one) is
+    // accepted for external-consumer compatibility but treated as omitted:
+    // a stored null is indistinguishable from never-learned, so no reader
+    // could tell a deliberate clear from a gap. Anything else non-string
+    // must never reach persistence.
+    contactStoreUpsertMock = mock(async () => ({
+      contact: DEFAULT_MOCK_CONTACT,
+      created: false,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const upsert = (channel: Record<string, unknown>) =>
+      handler.handleUpsertContact(
+        new Request("http://localhost:7830/v1/contacts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            displayName: "Alice",
+            channels: [{ type: "slack", address: "U123", ...channel }],
+          }),
+        }),
+      );
+    const storeChannel = (call: number) => {
+      const [params] = contactStoreUpsertMock.mock.calls[call] as [
+        { channels: Array<Record<string, unknown>> },
+      ];
+      return params.channels[0];
+    };
+
+    expect((await upsert({})).status).toBe(200);
+    expect(storeChannel(0).externalChatId).toBeUndefined();
+
+    expect((await upsert({ externalChatId: null })).status).toBe(200);
+    expect(storeChannel(1).externalChatId).toBeUndefined();
+
+    const rejected = await upsert({ externalChatId: 42 });
+    expect(rejected.status).toBe(400);
+    const body = await rejected.json();
+    expect(body.error.message).toContain("must be a string");
+    expect(contactStoreUpsertMock.mock.calls).toHaveLength(2);
+  });
+
   test("passes a valid autoApproveThreshold through to the store", async () => {
     const mockContact = {
       ...DEFAULT_MOCK_CONTACT,

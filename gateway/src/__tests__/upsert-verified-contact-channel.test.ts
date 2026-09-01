@@ -151,6 +151,14 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   probeContactMirror: async () => {
     throw new Error("probeContactMirror not stubbed for this suite");
   },
+  // Not exercised here (ContactStore info joins only); present so the module
+  // graph links (contact-helpers → ContactStore → contacts-info-joiner).
+  fetchContactsInfoBatch: async () => {
+    throw new Error("fetchContactsInfoBatch not stubbed for this suite");
+  },
+  listContactUserFileSlugs: async () => {
+    throw new Error("listContactUserFileSlugs not stubbed for this suite");
+  },
 }));
 
 mock.module("../ipc/assistant-client.js", () => ({
@@ -176,6 +184,8 @@ mock.module("../db/schema.js", () => ({
     status: "status",
   },
   contacts: "contacts",
+  // Not exercised here; present so ContactStore's module graph links.
+  ingressInvites: {},
 }));
 
 mock.module("drizzle-orm", () => ({
@@ -186,6 +196,10 @@ mock.module("drizzle-orm", () => ({
     strings: Array.from(strings),
     vals,
   }),
+  // Not exercised here; present so ContactStore's module graph links.
+  desc: (col: unknown) => ({ op: "desc", col }),
+  gt: (col: unknown, val: unknown) => ({ op: "gt", col, val }),
+  ne: (col: unknown, val: unknown) => ({ op: "ne", col, val }),
 }));
 
 mock.module("../verification/identity.js", () => ({
@@ -197,7 +211,7 @@ mock.module("../ipc/endpoint.js", () => ({
 }));
 
 // Import after mocks
-const { upsertContactChannel, upsertVerifiedContactChannel } =
+const { upsertVerifiedContactChannel } =
   await import("../verification/contact-helpers.js");
 
 beforeEach(() => {
@@ -846,7 +860,9 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 describe("upsertVerifiedContactChannel — invite target-contact binding", () => {
   test("reassigns an existing channel to the supplied target contact", async () => {
     // The redeemer's channel currently lives under a different contact (the
-    // guardian); the invite binds it to the target contact "mom".
+    // guardian); the invite binds it to the target contact "mom". The gateway
+    // row exists too: the re-parent primitive only issues an UPDATE for a row
+    // it actually found under another owner.
     queryRows = [
       {
         channelId: "ch-redeemer",
@@ -854,6 +870,7 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
         channelStatus: "active",
       },
     ];
+    gwSelectStatus = "active";
 
     await upsertVerifiedContactChannel({
       sourceChannel: "telegram",
@@ -1106,119 +1123,17 @@ describe("identity lookup failure posture", () => {
     expect(gwInserts).toHaveLength(0);
   });
 
-  test("upsertContactChannel: a thrown identity lookup propagates (no soft mode)", async () => {
-    lookupThrow = true;
-
-    await expect(
-      upsertContactChannel({
-        sourceChannel: "slack",
-        externalUserId: "ULOOKUPFAIL",
-        externalChatId: "DLOOKUPFAIL",
-      }),
-    ).rejects.toThrow("identity lookup IPC failed");
-    expect(mirrorUpserts()).toHaveLength(0);
-    expect(gwInserts).toHaveLength(0);
-  });
+  // Inbound seeding (upsertContactChannel) is covered by the real-DB suite in
+  // inbound-contact-seed.test.ts: it dedupes against the gateway DB inside a
+  // ContactStore transaction, which this suite's call-recording gateway fake
+  // cannot express.
 });
 
-describe("upsertContactChannel — channel address casing", () => {
-  test("preserves original Slack address casing", async () => {
-    queryRows = [];
-
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "U123EXAMPLE",
-      externalChatId: "D123EXAMPLE",
-    });
-
-    const upsert = mirrorUpserts()[0];
-    expect(upsert).toBeTruthy();
-    // address preserves original casing
-    expect(upsert!.body.address).toBe("U123EXAMPLE");
-
-    // The typed identity lookup receives the original casing; the daemon
-    // handler owns the NOCASE match.
-    expect(lookupCalls[0]).toEqual({ type: "slack", address: "U123EXAMPLE" });
-  });
-});
-
-describe("upsertContactChannel — inbound seed identity mirror (id alignment + display refresh)", () => {
-  test("Finding B: shares the gateway-minted channel id with the mirror on create", async () => {
-    // First-seen actor: no existing mirror channel.
-    queryRows = [];
-
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "USEED1",
-      externalChatId: "DSEED1",
-      displayName: "Seed One",
-    });
-
-    // The mirror create carries the SAME channel id the gateway inserted, so
-    // both stores key the channel identically (id-keyed read-backs match).
-    const mirror = mirrorUpserts()[0];
-    expect(mirror).toBeTruthy();
-    const gwChannel = gwInserts.find(
-      (i) => i.values.type === "slack" && i.values.address === "USEED1",
-    );
-    expect(gwChannel).toBeTruthy();
-    expect(mirror!.body.channelId).toBe(gwChannel!.values.id);
-    // Inbound seed refreshes the mirror display name.
-    expect(mirror!.body.refreshDisplayName).toBe(true);
-    // Inbound seed never reparents (gateway insert uses onConflictDoNothing).
-    expect(mirror!.body.reassignConflictingChannels).toBe(false);
-  });
-
-  test("Finding B: a follow-up seed update targets the aligned id and persists externalChatId", async () => {
-    // The mirror row created by the first seed reads back with the SAME
-    // (gateway-aligned) channel id.
-    const alignedChannelId = "gw-aligned-ch";
-    queryRows = [
-      {
-        channelId: alignedChannelId,
-        contactId: "co-seed",
-        channelStatus: "unverified",
-      },
-    ];
-
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "USEED1",
-      externalChatId: "DSEED1-dm", // workspace seed → DM: new external chat id
-      displayName: "Seed One",
-    });
-
-    // The gateway update keys on the aligned channel id (read back from the
-    // mirror) and persists the new externalChatId. Before id-alignment the
-    // mirror minted a divergent id, so this update matched 0 gateway rows.
-    const gwUpdate = gwUpdates.find(
-      (u) =>
-        (u.set as { externalChatId?: string }).externalChatId === "DSEED1-dm",
-    );
-    expect(gwUpdate).toBeTruthy();
-    expect(gwUpdate!.where).toMatchObject({
-      op: "eq",
-      col: "id",
-      val: alignedChannelId,
-    });
-  });
-
-  test("Finding C: seed refreshes the mirror name; invite binding preserves it", async () => {
-    // Inbound seed (existing channel) → refresh flag set.
-    queryRows = [
-      { channelId: "ch-a", contactId: "co-a", channelStatus: "unverified" },
-    ];
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "UREF",
-      externalChatId: "DREF",
-      displayName: "Renamed",
-    });
-    expect(mirrorUpserts()[0]!.body.refreshDisplayName).toBe(true);
-
+describe("invite binding preserves a curated mirror name", () => {
+  test("the verified path sends no refresh flag", async () => {
     // Invite-binding (verified) path → NO refresh flag, so the primitive
-    // preserves a guardian-curated contact name.
-    mirrorCalls.length = 0;
+    // preserves a guardian-curated contact name. (The inbound seed's refresh
+    // flag is pinned in inbound-contact-seed.test.ts.)
     queryRows = [
       { channelId: "ch-b", contactId: "co-guardian", channelStatus: "active" },
     ];
@@ -1230,68 +1145,5 @@ describe("upsertContactChannel — inbound seed identity mirror (id alignment + 
       contactId: "co-target",
     });
     expect(mirrorUpserts()[0]!.body.refreshDisplayName).toBeUndefined();
-  });
-});
-
-describe("upsertContactChannel — bot sender classification", () => {
-  test("creates a bot sender's contact as 'assistant' with a provenance note, not 'human'", async () => {
-    queryRows = [];
-
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "UBOT99",
-      externalChatId: "D123EXAMPLE",
-      displayName: "Peer Assistant",
-      contactType: "assistant",
-      notes:
-        "Automated Slack bot — messages from this contact are sent by an app, not a person.",
-    });
-
-    const upsert = mirrorUpserts()[0];
-    expect(upsert).toBeTruthy();
-    expect(upsert!.body.displayName).toBe("Peer Assistant");
-    expect(upsert!.body.notes).toContain("Automated Slack bot");
-    expect(upsert!.body.contactType).toBe("assistant");
-    expect(upsert!.body.contactType).not.toBe("human");
-  });
-
-  test("creates a human sender's contact as 'human' with no notes by default", async () => {
-    queryRows = [];
-
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "U123EXAMPLE",
-      externalChatId: "D123EXAMPLE",
-      displayName: "Alice",
-    });
-
-    const upsert = mirrorUpserts()[0];
-    expect(upsert).toBeTruthy();
-    expect(upsert!.body.notes).toBeUndefined();
-    expect(upsert!.body.contactType).toBe("human");
-  });
-
-  test("does not overwrite contact type or notes for an existing channel", async () => {
-    queryRows = [
-      {
-        channelId: "ch-bot",
-        contactId: "co-bot",
-        channelStatus: "unverified",
-      },
-    ];
-
-    await upsertContactChannel({
-      sourceChannel: "slack",
-      externalUserId: "UBOT99",
-      contactType: "assistant",
-      notes: "Automated Slack bot",
-    });
-
-    // The existing-channel branch upserts identity only — contactType/notes are
-    // omitted so guardian-authored classification is never clobbered.
-    const upsert = mirrorUpserts()[0];
-    expect(upsert).toBeTruthy();
-    expect(upsert!.body.contactType).toBeUndefined();
-    expect(upsert!.body.notes).toBeUndefined();
   });
 });

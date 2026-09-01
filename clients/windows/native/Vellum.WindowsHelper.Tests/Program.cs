@@ -50,6 +50,7 @@ DictationServiceTests.Run();
 await Vellum.WindowsHelper.Tests.AutomationObserverTests.RunAsync();
 await Vellum.WindowsHelper.Tests.ScreenCaptureTests.RunAsync();
 await Vellum.WindowsHelper.Tests.InputControllerTests.RunAsync();
+Vellum.WindowsHelper.Tests.ChordTapTrackerTests.Run();
 await TextInsertionTests.RunAsync();
 await NotificationServiceTests.RunAsync();
 await Vellum.WindowsHelper.Tests.WindowsCuObservationSourceTests.RunAsync();

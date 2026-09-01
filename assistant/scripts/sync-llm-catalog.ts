@@ -74,6 +74,9 @@ function projectModel(model: CatalogModel): Record<string, unknown> {
   if (model.adaptiveThinkingOnly !== undefined) {
     projected.adaptiveThinkingOnly = model.adaptiveThinkingOnly;
   }
+  if (model.thinkingFloor !== undefined) {
+    projected.thinkingFloor = model.thinkingFloor;
+  }
   if (model.supportsCaching !== undefined) {
     projected.supportsCaching = model.supportsCaching;
   }

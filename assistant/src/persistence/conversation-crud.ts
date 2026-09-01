@@ -91,6 +91,8 @@ import {
   type ConversationCreateType,
   type ConversationOrigin,
   isHiddenMessageMetadata,
+  isNoResponseMetadata,
+  isReactionMessageMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
@@ -460,7 +462,10 @@ export {
  * alongside the schema that carries them.
  */
 export {
+  isNoResponseMetadata,
   isSystemCardMetadata,
+  NO_RESPONSE_MESSAGE_KIND,
+  REACTION_MESSAGE_KIND,
   SYSTEM_CARD_MESSAGE_KIND,
 } from "./conversation-types.js";
 
@@ -487,7 +492,7 @@ export function isProviderErrorMetadata(
 
 /**
  * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice. Standalone rows never merge with adjacent
+ * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
@@ -501,7 +506,12 @@ export function isStandaloneAssistantMessage(
   }
   try {
     const parsed = JSON.parse(metadata) as Record<string, unknown>;
-    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
+    return (
+      isSystemCardMetadata(parsed) ||
+      isProviderErrorMetadata(parsed) ||
+      isNoResponseMetadata(parsed) ||
+      isReactionMessageMetadata(parsed)
+    );
   } catch {
     return false;
   }

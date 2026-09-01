@@ -145,9 +145,9 @@ function sanitizeEventAttr(value: string): string {
 /**
  * Untrusted third-party output to fence inside a persisted wake trigger via
  * {@link wrapUntrustedContent}. `maxChars` overrides the per-source character
- * budget — used for preformatted shell output that `formatShellOutput` already
- * bounded (to `MAX_OUTPUT_LENGTH`) and appended an `<output_truncated file=…/>`
- * recovery marker to, so the wrapper does not re-truncate that marker off.
+ * budget. Used for preformatted shell output that is already bounded to
+ * `MAX_OUTPUT_LENGTH` with an `<output_truncated />` marker, so the wrapper
+ * does not slice that marker off.
  */
 interface WakeUntrustedOutput {
   content: string;

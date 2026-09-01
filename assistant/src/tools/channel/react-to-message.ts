@@ -14,6 +14,9 @@
  */
 import { z } from "zod";
 
+import { parseChannelId } from "../../channels/types.js";
+import { findConversationOrSubagent } from "../../daemon/conversation-registry.js";
+import { persistReactionRecords } from "../../daemon/reaction-record.js";
 import {
   sendChannelReaction,
   supportsChannelReaction,
@@ -116,6 +119,35 @@ export const reactToMessageTool = {
         isError: true,
       };
     }
+
+    // The delivered reaction becomes a durable row, the same canonical
+    // fact inbound reactions store. Queued on the live conversation and
+    // drained by the agent loop at the turn boundary, never written here:
+    // an assistant row inserted between this call's tool_use and its
+    // tool_result would break the pairing history repair enforces, and a
+    // reload would read the reaction as having failed. The rare turn with
+    // no resident conversation persists directly, trading perfect row
+    // ordering for durability.
+    const sourceChannel = parseChannelId(channel);
+    if (sourceChannel) {
+      const record = {
+        channel: sourceChannel,
+        chatId,
+        messageId,
+        emoji: parsed.data.emoji,
+        op: action === "remove" ? ("removed" as const) : ("added" as const),
+        ...(context.trustClass
+          ? { provenanceTrustClass: context.trustClass }
+          : {}),
+      };
+      const conversation = findConversationOrSubagent(context.conversationId);
+      if (conversation) {
+        conversation.queueReactionRecord(record);
+      } else {
+        await persistReactionRecords(context.conversationId, [record]);
+      }
+    }
+
     return {
       content:
         action === "remove"
