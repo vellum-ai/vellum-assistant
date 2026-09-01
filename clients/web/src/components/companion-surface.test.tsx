@@ -467,6 +467,18 @@ const shapeOf = (container: HTMLElement): HTMLElement => {
   return found;
 };
 
+/**
+ * The capsule drawn at rest, which is a sibling of that box rather than a child
+ * of it: it holds its own size while the ring's box grows to the creature's.
+ */
+const capsuleOf = (container: HTMLElement): HTMLElement => {
+  const found = avatarOf(container).children[1] as HTMLElement | undefined;
+  if (found === undefined) {
+    throw new Error("Expected the resting capsule to render");
+  }
+  return found;
+};
+
 describe("the companion surface's anchor in the canvas", () => {
   test("grows up by default, which is where the surface normally lives", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
@@ -1737,13 +1749,27 @@ describe("the avatar's resting collapse", () => {
   test("wears a dark rim inside the capsule, not an outline over it", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    const capsule = shapeOf(container).querySelector<HTMLElement>(
-      "[style*='background']",
-    );
-    expect(capsule?.style.borderWidth).toBe("2px");
-    expect(capsule?.style.borderStyle).toBe("solid");
-    // Inside the box, so the ring still owns the whole annulus outside it.
-    expect(capsule?.className).toContain("inset-0");
+    const capsule = capsuleOf(container);
+    expect(capsule.style.borderWidth).toBe("2px");
+    expect(capsule.style.borderStyle).toBe("solid");
+  });
+
+  /**
+   * The capsule holds its size and fades where it stands.
+   *
+   * Sized on itself rather than filling the ring's box, which grows to the
+   * creature's: a capsule that grew with it inflated into a coloured disc and
+   * dissolved, which read as a bubble popping rather than as the creature
+   * coming out of the pill.
+   */
+  test("never grows the capsule with the box the ring rides", () => {
+    for (const phase of PHASES) {
+      const { container } = render(<CompanionSurface phase={phase} />);
+
+      const capsule = capsuleOf(container);
+      expect(capsule.style.width).toBe("32px");
+      expect(capsule.style.height).toBe("14px");
+    }
   });
 
   /**

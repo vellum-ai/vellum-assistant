@@ -250,6 +250,18 @@ const RESTING_HEIGHT = 10;
 const RESTING_RIM = 2;
 
 /**
+ * The capsule's box: the accent the user sees, plus that rim on every side.
+ *
+ * One statement of it, because two things are sized from it and they must not
+ * drift. The capsule is drawn at it, and the box the working ring rides matches
+ * it at rest so the ring hugs the shape rather than the air around it.
+ */
+const RESTING_BOX = {
+  width: AVATAR_IMAGE + 2 * RESTING_RIM,
+  height: RESTING_HEIGHT + 2 * RESTING_RIM,
+};
+
+/**
  * The clearance every round thing inside the pill keeps from its edge.
  *
  * One number, because the geometry only works at one value. Nested rounded
@@ -1385,25 +1397,23 @@ function Avatar({
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
-      {/* The shape the surface is drawn as: the creature's whole box while it
-        is being looked at, a thin capsule at rest, and one node morphing
-        between the two rather than two shapes cross-fading, so it reads as
-        this object changing rather than as a swap.
+      {/* The box the working ring is drawn around: the creature's whole box
+        while it is being looked at, the capsule at rest.
 
-        The edge rides it. A ring is a statement about the shape it is drawn
-        around, so a working ring at rest hugs the capsule instead of circling
-        the empty box the capsule sits in. One node either way, which is what
-        keeps the one-shot capture flare from remounting and replaying: see
-        `edge` in `CompanionSurface`. */}
+        A ring is a statement about the shape it rides, so at rest it hugs the
+        capsule rather than circling the empty box the capsule sits in. It is
+        the only thing this node carries, and the node is otherwise invisible:
+        painting the capsule here instead is what made the surface inflate a
+        coloured disc on its way open, since this box grows to the creature's
+        and anything filling it grows with it.
+
+        One node either way, never remounted, which is what keeps the one-shot
+        capture flare from replaying: see `edge` in `CompanionSurface`. */}
       <div
         className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,transform] duration-300"
         style={{
-          width: collapsed
-            ? AVATAR_IMAGE + 2 * RESTING_RIM
-            : COMPANION_BASE_AVATAR_BOX,
-          height: collapsed
-            ? RESTING_HEIGHT + 2 * RESTING_RIM
-            : COMPANION_BASE_AVATAR_BOX,
+          width: collapsed ? RESTING_BOX.width : COMPANION_BASE_AVATAR_BOX,
+          height: collapsed ? RESTING_BOX.height : COMPANION_BASE_AVATAR_BOX,
           // Centred on the anchor, then scaled about that centre. The scale is
           // stated on both sides rather than only the collapsed one, so the two
           // states are the same transform list and interpolate cleanly.
@@ -1418,33 +1428,42 @@ function Avatar({
         }}
       >
         {edge}
-        {/* The capsule itself, drawn whole in the assistant's own colour.
-
-          The colour is all that is left of the creature at this size, so it is
-          the shape rather than a mark on it: a dark lozenge carrying a dot is
-          chrome with a light in it, and what this wants to be is the assistant,
-          small. It is also what keeps the marker findable on a busy desktop,
-          which matters more here than anywhere else on the surface: at rest
-          this is the only thing saying the assistant is there at all.
-
-          The pill's own material is deliberately not borrowed: a white rim over
-          a saturated colour reads as a highlight on it and muddies the one
-          thing the shape is for. The rim it does wear is dark and is not
-          decoration, it is what keeps the working ring legible; see
-          {@link RESTING_RIM}. The shadow stays, since it is what holds any of
-          this against a desktop the surface does not own. */}
-        <div
-          className="absolute inset-0 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
-          style={{
-            background: accentHex,
-            // Drawn as a border rather than an outline so it is inside the
-            // box, which is what leaves the ring the whole annulus outside.
-            border: `${RESTING_RIM}px solid #17181b`,
-            opacity: collapsed ? 1 : 0,
-          }}
-          aria-hidden
-        />
       </div>
+      {/* The capsule itself, drawn whole in the assistant's own colour.
+
+        The colour is all that is left of the creature at this size, so it is
+        the shape rather than a mark on it: a dark lozenge carrying a dot is
+        chrome with a light in it, and what this wants to be is the assistant,
+        small. It is also what keeps the marker findable on a busy desktop,
+        which matters more here than anywhere else on the surface: at rest this
+        is the only thing saying the assistant is there at all.
+
+        **It holds its size and fades where it stands.** Sized here rather than
+        filling the box above, which grows to the creature's: a capsule that
+        grew with it inflated into a coloured disc and then dissolved, which
+        read as a bubble popping rather than as the creature coming out of the
+        pill. Nothing about this shape moves; the creature does the moving.
+
+        The pill's own material is deliberately not borrowed: a white rim over a
+        saturated colour reads as a highlight on it and muddies the one thing
+        the shape is for. The rim it does wear is dark and is not decoration, it
+        is what keeps the working ring legible; see {@link RESTING_RIM}. The
+        shadow stays, since it is what holds any of this against a desktop the
+        surface does not own. */}
+      <div
+        className="absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
+        style={{
+          width: RESTING_BOX.width,
+          height: RESTING_BOX.height,
+          transform: `translate(-50%, -50%) scale(${restingScale})`,
+          background: accentHex,
+          // Drawn as a border rather than an outline so it is inside the box,
+          // which is what leaves the ring the whole annulus outside.
+          border: `${RESTING_RIM}px solid #17181b`,
+          opacity: collapsed ? 1 : 0,
+        }}
+        aria-hidden
+      />
       {/* The creature, tucking into the capsule rather than blinking out of
         it. A wrapper of its own because the scale is a `transform` and the bob
         below already owns one. */}
