@@ -3,6 +3,7 @@ import type { MessageAudience } from "@vellumai/gateway-client";
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { readProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { editChannelMessage } from "../messaging/providers/index.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -528,7 +529,10 @@ function makeSentMessageIdReconciler(
   // leaves the next segment's ts free to stamp the row.
   let slackStamped = false;
   return async (ts: string): Promise<void> => {
-    if (!ts) {
+    // Only ever set on the Slack branch, so a neutral-envelope row (which
+    // records every reported id) is never gated here. Checked before the row
+    // is re-read so a split Slack reply pays one read, not one per segment.
+    if (!ts || slackStamped) {
       return;
     }
     try {
@@ -558,11 +562,6 @@ function makeSentMessageIdReconciler(
           envelope,
           ts,
         );
-        return;
-      }
-      // A Slack row names one id, so a stamp this delivery already committed
-      // stands: later split segments are independent Slack messages.
-      if (slackStamped) {
         return;
       }
       // If the existing slackMeta already parses cleanly via the strict
@@ -646,33 +645,38 @@ async function reconcileProviderMessageId(
       }),
     { op: "record_outbound_post", context: { messageId } },
   );
-  if (providerMeta.messageId === undefined) {
-    await withSqliteRetry(
-      () =>
-        updateMessageMetadata(messageId, {
-          providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),
-        }),
-      { op: "reconcile_provider_message_id", context: { messageId } },
-    );
-    return;
-  }
-  if (
-    providerMeta.messageId === ts ||
-    providerMeta.additionalMessageIds?.includes(ts)
-  ) {
+  const patch = providerIdPatchFor(providerMeta, ts);
+  if (patch === null) {
     return;
   }
   await withSqliteRetry(
     () =>
       updateMessageMetadata(messageId, {
-        providerMeta: JSON.stringify({
-          ...providerMeta,
-          additionalMessageIds: [
-            ...(providerMeta.additionalMessageIds ?? []),
-            ts,
-          ],
-        }),
+        providerMeta: JSON.stringify({ ...providerMeta, ...patch }),
       }),
     { op: "reconcile_provider_message_id", context: { messageId } },
   );
+}
+
+/**
+ * Where a newly reported id belongs on the neutral envelope: `messageId` when
+ * the row names none yet, otherwise appended to `additionalMessageIds`.
+ * `null` when the envelope already names it, which is a redelivery.
+ */
+function providerIdPatchFor(
+  providerMeta: ProviderMessageMetadata,
+  ts: string,
+): Partial<ProviderMessageMetadata> | null {
+  if (providerMeta.messageId === undefined) {
+    return { messageId: ts };
+  }
+  if (
+    providerMeta.messageId === ts ||
+    providerMeta.additionalMessageIds?.includes(ts)
+  ) {
+    return null;
+  }
+  return {
+    additionalMessageIds: [...(providerMeta.additionalMessageIds ?? []), ts],
+  };
 }

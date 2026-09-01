@@ -634,10 +634,9 @@ export async function sweepFailedEvents(
         { eventId: event.id, conversationId: event.conversationId },
         "Skipping retry delivery: a sibling event owns delivery for the deduplicated turn",
       );
-      // Settle this event's own delivery state. The sibling owns delivery, so
-      // a row left `pending` here reads as still owing one, and the
-      // stranded-delivery recovery step would promote it after a restart and
-      // post the sibling's reply a second time.
+      // The sibling owns delivery, so settle this row rather than leaving it
+      // `pending`, which stranded-delivery recovery reads as delivery still
+      // owed and would act on after a restart.
       markDeliveryDelivered(event.id);
     } else if (replyCallbackUrl && externalChatId) {
       try {
