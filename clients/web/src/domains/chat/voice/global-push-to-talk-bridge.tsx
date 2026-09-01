@@ -28,6 +28,15 @@ interface GlobalPushToTalkBridgeProps {
   assistantId: string | null;
 }
 
+/**
+ * How long a hold gives the cleanup pass before inserting the words as heard.
+ *
+ * Generous for a healthy call, which is a small model answering a sentence,
+ * and far short of the route's own five second timeout, which is the wait
+ * the pass has been measured costing when the daemon is not answering.
+ */
+const CLEANUP_DEADLINE_MS = 1500;
+
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -164,11 +173,32 @@ export function GlobalPushToTalkBridge({
       // list, and the only leg of this that can. A hold takes it too, now that
       // nothing else on its path is worth waiting for; what it costs is
       // measured rather than assumed. Character counts and timings only.
+      //
+      // Raced against a deadline rather than awaited. The pass is worth a few
+      // hundred milliseconds and no more: a daemon that is not answering has
+      // been measured stalling for the route's own five second timeout and
+      // then returning the words untouched, and a hold that waited for that
+      // would be paying the whole wait for nothing. Past the deadline the raw
+      // words go down and the late answer is dropped.
       const cleanupStartedAt = Date.now();
+      const cleanupAbort = new AbortController();
       const dictationResult = assistantId
-        ? await postDictation(rawText, assistantId, {
-            cursorInTextField: true,
-          })
+        ? await Promise.race([
+            postDictation(
+              rawText,
+              assistantId,
+              {
+                cursorInTextField: true,
+              },
+              cleanupAbort.signal,
+            ),
+            new Promise<null>((resolve) => {
+              setTimeout(() => {
+                cleanupAbort.abort();
+                resolve(null);
+              }, CLEANUP_DEADLINE_MS);
+            }),
+          ])
         : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
