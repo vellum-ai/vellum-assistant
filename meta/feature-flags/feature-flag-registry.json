@@ -382,13 +382,13 @@
       "defaultEnabled": true
     },
     {
-      "id": "experiment-balanced-model-2026-08-06",
+      "id": "experiment-balanced-model-2026-08-31",
       "scope": "assistant",
-      "key": "experiment-balanced-model-2026-08-06",
+      "key": "experiment-balanced-model-2026-08-31",
       "label": "Experiment: Balanced Profile Model",
-      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = the shipped pin (accounts/fireworks/models/glm-5p2); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
-      "defaultEnabled": "control",
-      "values": ["control", "terra", "glm-5p2"]
+      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. glm-5p3-flash = the shipped pin (accounts/fireworks/models/glm-5p3-flash); glm-5p3 = accounts/fireworks/models/glm-5p3; glm-5p2 = accounts/fireworks/models/glm-5p2. Replaces experiment-balanced-model-2026-08-06, which ended on 2026-08-31: the activation cohort keys a user on their first-ever assignment per flag, so a new arm on the old key could never enrol a user the old test already stamped. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to the shipped pin.",
+      "defaultEnabled": "glm-5p3-flash",
+      "values": ["glm-5p3-flash", "glm-5p3", "glm-5p2"]
     },
     {
       "id": "ios-avatar-app-icon",

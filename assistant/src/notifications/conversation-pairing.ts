@@ -1,10 +1,12 @@
 /**
  * Generic notification conversation pairing.
  *
- * Materializes a conversation + message for each notification delivery
- * before the adapter sends it. This ensures every delivery has an
- * auditable conversation trail and enables the macOS/iOS client to
- * deep-link directly into the notification conversation.
+ * Materializes a conversation + message for a notification delivery
+ * before the adapter sends it, so the delivery has an auditable
+ * conversation trail and the macOS/iOS client can deep-link into it.
+ * Guardian-request deliveries to channels are the exception: they are
+ * delivery projections of a canonical request and pair nothing (see the
+ * guard below); only their vellum delivery carries a conversation.
  *
  * Resolution order:
  * 1. Explicit `reuse_existing` conversation action — highest precedence.
@@ -123,18 +125,20 @@ export async function pairDeliveryWithConversation(
       };
     }
 
-    // A Slack guardian-request approval card (tool approvals, questions,
-    // and access requests alike) is a delivery projection of a canonical
-    // guardian request, not conversation content: its in-app homes are
-    // the home-feed "Needs attention" item and the source conversation's
-    // card (the vellum delivery). Pairing it here would either write the
-    // card into the guardian's bound DM transcript or mint a fresh
-    // conversation for a transient work item, so it gets neither a row
-    // nor a conversation. The gateway delivery row (chat id + message
-    // ts) remains its only persisted envelope.
+    // A channel-delivered guardian-request approval card (tool
+    // approvals, questions, and access requests alike) is a delivery
+    // projection of a canonical guardian request, not conversation
+    // content: its in-app homes are the home-feed "Needs attention"
+    // item and the source conversation's card (the vellum delivery,
+    // which still pairs below). Pairing a channel card here would
+    // either write it into the guardian's bound chat transcript or
+    // mint a fresh conversation for a transient work item, so it gets
+    // neither a row nor a conversation. The gateway delivery row (chat
+    // id + channel-native message id) remains its only persisted
+    // envelope.
     if (
       isGuardianRequestSignalEvent(signal.sourceEventName) &&
-      channel === "slack"
+      channel !== "vellum"
     ) {
       return {
         conversationId: null,

@@ -545,11 +545,6 @@
     "closeAriaLabel": "关闭",
     "title": "对话操作"
   },
-  "conversationActivityPill": {
-    "activity": "活动",
-    "recent": "最近",
-    "running": "运行中"
-  },
   "conversationAssetActions": {
     "delete": "删除",
     "downloadPdf": "下载PDF",
@@ -1214,6 +1209,14 @@
     "goToFile": "前往文件",
     "noPreviewForType": "此文件类型无预览"
   },
+  "progressRail": {
+    "agentsLabel": "代理",
+    "agentsToggleAria": "代理：{running, plural, =0 {无运行中} other {# 个运行中}}，{completed, plural, =0 {无已完成} other {# 个已完成}}",
+    "railAria": "进度",
+    "stepCounter": "第 {current} 步，共 {total} 步",
+    "title": "进度",
+    "titleFinished": "已完成"
+  },
   "promptSubmission": {
     "noActiveSession": "无活动会话。请重试。"
   },
@@ -1465,10 +1468,6 @@
   "storeCredentialDialog": {
     "successToast": "已安全存储。密钥从未进入聊天。"
   },
-  "subagentAvatarRow": {
-    "details": "详情",
-    "showDetailsAria": "显示子代理详情"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "返回时间线",
     "backTooltip": "返回",
@@ -1490,8 +1489,6 @@
     "workedFor": "运行了 {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "收起",
-    "collapseDetailsAria": "收起子代理详情",
     "stopSubagentAria": "停止子代理"
   },
   "suggestionCard": {

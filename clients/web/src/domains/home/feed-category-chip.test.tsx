@@ -15,7 +15,7 @@ import { FeedCategoryChip } from "@/domains/home/feed-category-chip";
 import {
   CATEGORY_STYLES,
   resolveCategoryStyle,
-} from "@/domains/home/home-feed-filter-bar";
+} from "@/domains/home/feed-category-styles";
 
 const CATEGORY_LABELS = [
   ["security", "Security"],

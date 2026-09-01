@@ -545,11 +545,6 @@
     "closeAriaLabel": "關閉",
     "title": "對話動作"
   },
-  "conversationActivityPill": {
-    "activity": "活動",
-    "recent": "最近",
-    "running": "執行中"
-  },
   "conversationAssetActions": {
     "delete": "刪除",
     "downloadPdf": "下載 PDF",
@@ -1214,6 +1209,14 @@
     "goToFile": "前往檔案",
     "noPreviewForType": "此檔案類型無預覽"
   },
+  "progressRail": {
+    "agentsLabel": "代理",
+    "agentsToggleAria": "代理：{running, plural, =0 {無執行中} other {# 個執行中}}，{completed, plural, =0 {無已完成} other {# 個已完成}}",
+    "railAria": "進度",
+    "stepCounter": "第 {current} 步，共 {total} 步",
+    "title": "進度",
+    "titleFinished": "已完成"
+  },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"
   },
@@ -1465,10 +1468,6 @@
   "storeCredentialDialog": {
     "successToast": "已安全儲存。金鑰從未進入聊天。"
   },
-  "subagentAvatarRow": {
-    "details": "詳細資料",
-    "showDetailsAria": "顯示子代理詳細資料"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "返回時間軸",
     "backTooltip": "返回",
@@ -1490,8 +1489,6 @@
     "workedFor": "已執行 {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "收合",
-    "collapseDetailsAria": "收合子代理詳細資料",
     "stopSubagentAria": "停止子代理"
   },
   "suggestionCard": {

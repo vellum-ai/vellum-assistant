@@ -6,14 +6,12 @@
     "dismiss": "Descartar",
     "goToThread": "Ir al hilo",
     "goToConversation": "Ir a la conversación",
-    "goToConvo": "Ir a la conversación",
     "viewSchedule": "Ver programación",
     "viewSkill": "Ver habilidad",
     "markAllAsRead": "Marcar todas como leídas",
     "clearAll": "Borrar todas"
   },
   "category": {
-    "all": "Todas",
     "security": "Seguridad",
     "email": "Correo",
     "scheduling": "Programación",
@@ -23,29 +21,6 @@
     "guardianQuestion": "Pregunta del guardián"
   },
   "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
-  "homeTopHeader": { "title": "Actividad" },
-  "homeFeedFilterBar": { "ariaLabel": "Filtrar notificaciones" },
-  "homeFeedList": {
-    "today": "Hoy",
-    "yesterday": "Ayer",
-    "older": "Anteriores",
-    "noMatches": "Ningún elemento coincide con el filtro seleccionado.",
-    "emptyTitle": "Todavía no hay notificaciones",
-    "emptyBody": "Las novedades y la actividad de tu asistente aparecerán aquí.",
-    "earlier": "Anteriores ({count, number})",
-    "dismissed": "Descartadas ({count, number})"
-  },
-  "homePage": {
-    "loadFailed": "No se pudo cargar la actividad.",
-    "loadFailedDetail": "No se pudo cargar la actividad: {message}"
-  },
-  "homeDetailPanel": {
-    "back": "Atrás",
-    "heading": "Detalles",
-    "close": "Cerrar",
-    "closeAriaLabel": "Cerrar el panel de detalles",
-    "untitled": "Notificación"
-  },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
     "status": {
@@ -62,7 +37,6 @@
     "ariaLabelUnread": "Notificaciones (sin leer)",
     "heading": "Notificaciones",
     "loadFailed": "No se pudieron cargar las notificaciones.",
-    "empty": "Todavía no hay notificaciones.",
     "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
   },
   "notificationsBellDetail": { "back": "Volver a las notificaciones" },
@@ -86,5 +60,13 @@
       "cancelled": "Cancelada",
       "leftUnverified": "Sin verificar"
     }
+  },
+  "notificationsBellEmptyState": {
+    "title": "Todavía no hay nada.",
+    "briefingRecipeTitle": "Configurar un resumen matutino",
+    "briefingRecipeMeta": "Cada día",
+    "briefingRecipeDescription": "Tu primera notificación, mañana a las 8:00.",
+    "briefingRecipePrompt": "Configúrame un resumen matutino: cada día laborable a las 8:00, revisa mi calendario, mi bandeja de entrada y las noticias, y publica un resumen breve en mis notificaciones.",
+    "dismissBriefingRecipe": "Descartar la sugerencia del resumen matutino"
   }
 }

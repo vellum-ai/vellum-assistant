@@ -446,6 +446,25 @@ describe("AppIconPreview", () => {
     expect(field(container).getAttribute("fill")).toBe(GREEN_HEX);
   });
 
+  test("paints an explicit field color over the catalog's", () => {
+    const { container } = render(
+      <AppIconPreview
+        components={BUNDLED_COMPONENTS}
+        eyeStyle={WIDE_EYE_STYLE}
+        color="green"
+        fieldColorHex="#123456"
+        size={SIZE}
+      />,
+    );
+
+    expect(field(container).getAttribute("fill")).toBe("#123456");
+    // The override is the field alone: the pair is still the one the id names.
+    expectWithinTolerance(
+      placement(container, sampledBounds(WIDE_EYE_STYLE)).box.w,
+      expectedSpan(WIDE_EYE_STYLE, SIZE),
+    );
+  });
+
   test("falls back to a neutral field for an unknown color", () => {
     const { container } = render(
       <AppIconPreview

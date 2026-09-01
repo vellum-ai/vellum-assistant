@@ -811,6 +811,40 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("applies sight defaults", () => {
+    expect(AssistantConfigSchema.parse({}).sight).toEqual({
+      keepLatestFrames: 2,
+    });
+  });
+
+  test("accepts a custom sight.keepLatestFrames", () => {
+    const result = AssistantConfigSchema.parse({
+      sight: { keepLatestFrames: 4 },
+    });
+    expect(result.sight.keepLatestFrames).toBe(4);
+  });
+
+  test("keeps an out-of-range sight.keepLatestFrames for the reader to clamp", () => {
+    // Rejecting it would reset the key to the default, which is fewer frames
+    // than either the config or the guardrail asked for. The clamp lives at
+    // read (`resolveSightKeepLatestFrames`).
+    const result = AssistantConfigSchema.parse({
+      sight: { keepLatestFrames: 99 },
+    });
+    expect(result.sight.keepLatestFrames).toBe(99);
+  });
+
+  test("rejects a non-integer sight.keepLatestFrames", () => {
+    expect(
+      AssistantConfigSchema.safeParse({ sight: { keepLatestFrames: 2.5 } })
+        .success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({ sight: { keepLatestFrames: "two" } })
+        .success,
+    ).toBe(false);
+  });
+
   // ── commitMessageLLM config ──────────────────────────────────────────
 
   test("default commitMessageLLM values are correct", () => {

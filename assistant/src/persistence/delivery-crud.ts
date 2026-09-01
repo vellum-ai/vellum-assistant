@@ -5,10 +5,21 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  isNotNull,
+  like,
+  ne,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
+import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
@@ -56,8 +67,13 @@ const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
  * Bounded on purpose: the scan runs on the inbound path while the gateway
  * waits for its ack, and reactions land on recent messages, so a cap costs
  * almost no recall and keeps the cost flat as the database grows.
+ *
+ * The candidate set is provenance-bearing rows with no inbound-event link
+ * (the NOT EXISTS in the query): inbound user rows carry `providerMeta` too,
+ * but the inbound-event index already resolves them, so admitting them here
+ * would only shrink the window of assistant posts the cap can reach.
  */
-const OUTBOUND_MESSAGE_ID_MAX_SCAN = 400;
+const OUTBOUND_MESSAGE_ID_MAX_SCAN = 800;
 const PROVIDER_MESSAGE_ID_SCAN_BATCH_SIZE = 200;
 const UNRECONCILED_OUTBOUND_ROW_SCAN = 25;
 
@@ -387,6 +403,24 @@ export function findMessageByProviderMessageId(
             like(messages.metadata, '%"providerMeta"%'),
             like(messages.metadata, '%"slackMeta"%'),
           ),
+          // Rows the inbound-event index resolves are not candidates: this
+          // fallback exists for messages `findMessageBySourceId` cannot
+          // answer (the assistant's pre-table posts, a crash-window inbound
+          // row whose link never landed, and legacy linked rows whose event
+          // carries no source_message_id), and admitting resolvable rows
+          // would burn the scan budget on messages the primary path already
+          // answers.
+          notExists(
+            db
+              .select({ id: channelInboundEvents.id })
+              .from(channelInboundEvents)
+              .where(
+                and(
+                  eq(channelInboundEvents.messageId, messages.id),
+                  isNotNull(channelInboundEvents.sourceMessageId),
+                ),
+              ),
+          ),
         ),
       )
       .orderBy(desc(messages.createdAt))
@@ -470,6 +504,21 @@ export function hasUnreconciledOutboundRow(
           like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
         ),
         like(messages.metadata, '%"providerMeta"%'),
+        // Inbound rows carry `providerMeta` too, and a busy chat's newest
+        // rows are mostly inbound; excluding rows the inbound-event index
+        // resolves keeps this probe's small window counting only rows that
+        // could actually be an unreconciled outbound post.
+        notExists(
+          db
+            .select({ id: channelInboundEvents.id })
+            .from(channelInboundEvents)
+            .where(
+              and(
+                eq(channelInboundEvents.messageId, messages.id),
+                isNotNull(channelInboundEvents.sourceMessageId),
+              ),
+            ),
+        ),
       ),
     )
     .orderBy(desc(messages.createdAt))
@@ -656,6 +705,61 @@ export interface LatestInboundEventReference {
 }
 
 /**
+ * Display name of the external chat a conversation's channel rows report,
+ * from the newest row that carries one. The name is frozen at ingress into
+ * each row's provider metadata, so this is a pure local read: no provider
+ * API call, and a rename converges on the next inbound message. Null when
+ * no row names the chat (DMs, providers without names, pre-capture rows).
+ *
+ * Reads a fixed window of the conversation's newest rows through the
+ * conversation index (backward index scan supplies the rowid order, the
+ * same trick `getLatestInboundEventReference` documents), then parses in
+ * code: no LIKE against the serialized metadata, whose nested escaping
+ * a substring pattern is easy to get wrong. Every channel inbound row
+ * carries the name, so a name deeper than the window only hides behind
+ * a tail of pure assistant/local traffic and reads as absent, which
+ * degrades to the raw-id label.
+ */
+const CONVERSATION_NAME_SCAN_WINDOW = 50;
+
+export function getLatestExternalConversationName(
+  conversationId: string,
+  sourceChannel: string,
+  externalChatId?: string,
+): string | null {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        isNotNull(messages.metadata),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(CONVERSATION_NAME_SCAN_WINDOW)
+    .all();
+  for (const row of rows) {
+    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
+    if (meta?.source !== sourceChannel) {
+      continue;
+    }
+    // A conversation's rows normally all belong to one external chat, but
+    // the name must never come from a different chat than the caller is
+    // labeling (e.g. rows written before a rebind).
+    if (externalChatId && meta.conversationExternalId !== externalChatId) {
+      continue;
+    }
+    const name = meta.conversationName?.trim();
+    if (name) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
  * Find the most recent inbound event for a conversation on a channel.
  * Used to anchor guardian-facing approval cards to the channel message
  * that triggered the request.
@@ -783,6 +887,21 @@ export function storeInboundSlackMetadata(
   slackInbound: SlackInboundMessageMetadata,
 ): void {
   mergeRawPayload(eventId, { slackInbound });
+}
+
+/**
+ * Persist the neutral channel inbound envelope captured at ingress onto the
+ * stored payload, the non-Slack counterpart of
+ * {@link storeInboundSlackMetadata}: the retry sweep replays the turn with
+ * the SAME `channelInbound` the live path used, so the replayed row carries
+ * an identical `providerMeta` envelope. No-ops when the payload was cleared
+ * (e.g. a secret-bearing ingress), so cleared secrets are never resurrected.
+ */
+export function storeInboundChannelMetadata(
+  eventId: string,
+  channelInbound: ProviderMessageMetadata,
+): void {
+  mergeRawPayload(eventId, { channelInbound });
 }
 
 /**

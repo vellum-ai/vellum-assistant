@@ -312,9 +312,6 @@
     "title": "Obtén la app de {appName}",
     "titleGeneric": "Obtén la app de Vellum"
   },
-  "nativeSplash": {
-    "logoAlt": "Vellum"
-  },
   "notFound": {
     "backToAssistant": "Volver a tu asistente",
     "badge": "Error 404",
@@ -659,8 +656,16 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyMacos": "En este Mac puedo controlar aplicaciones y el escritorio por ti.",
+    "computerUseBodyWindows": "En este PC puedo controlar aplicaciones y el escritorio por ti.",
+    "computerUseTitleMacos": "Déjame usar tu Mac",
+    "computerUseTitleWindows": "Déjame usar tu PC",
     "dismiss": "Descartar",
     "nextTip": "Consejo siguiente",
+    "pluginsBodyMacos": "Desde un copiloto de finanzas personales hasta un modo que vive en la muesca de tu MacBook.",
+    "pluginsBodyWindows": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
+    "quickInputBody": "Pulsa {shortcut} para enviarme un mensaje rápido desde cualquier aplicación.",
+    "quickInputBodyWithoutShortcut": "Envíame un mensaje rápido desde cualquier aplicación usando Entrada rápida.",
     "previousTip": "Consejo anterior"
   },
   "ttsProviderForm": {

@@ -101,6 +101,13 @@
     "renameErrorToast": "重新命名未成功。請再試一次。",
     "renameSuccessToast": "向 {newName} 問好！",
     "scheduleCadence": "{cadence} · 下次 {nextRun}",
+    "scheduleGhosts": {
+      "inboxTriageCadence": "每 2 小時",
+      "inboxTriageName": "收件匣整理",
+      "morningBriefingCadence": "每個工作日 8:00",
+      "morningBriefingName": "晨間簡報"
+    },
+    "setUpSchedule": "建立排程",
     "updateAvatarAndName": "更新頭像和名稱",
     "viewMoreSchedules": "{count, plural, other {檢視 {count} 個更多…}}"
   },

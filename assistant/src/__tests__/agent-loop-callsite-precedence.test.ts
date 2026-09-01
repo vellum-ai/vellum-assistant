@@ -175,6 +175,22 @@ describe("AgentLoop — call-site precedence", () => {
 
   test("call-site thinking wins over conversation default when callSite is set", async () => {
     setLlmConfig({
+      // Pinned to a model that can actually be told not to think. Without an
+      // active profile the call site resolves the shipped Balanced body, and
+      // the disabled shape asserted below only exists for models whose
+      // reasoning can be turned off: the normalizer drops a disabled thinking
+      // config for adaptive-thinking-only models (they always reason and 4xx
+      // the opt-out), so this test would assert the Balanced pin's capabilities
+      // rather than call-site precedence.
+      profiles: {
+        "test-anthropic": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-sonnet-5",
+        },
+      },
+      profileOrder: ["test-anthropic"],
+      activeProfile: "test-anthropic",
       default: {
         provider: "anthropic",
         model: "claude-default",

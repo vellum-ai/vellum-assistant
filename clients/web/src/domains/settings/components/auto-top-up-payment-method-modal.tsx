@@ -7,7 +7,6 @@ import {
 } from "@stripe/react-stripe-js";
 import type { SetupIntentResult } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -19,6 +18,10 @@ import {
   setupIntentIdFromClientSecret,
   STRIPE_PK,
 } from "@/domains/settings/billing/stripe-client";
+import {
+  FieldSkeletons,
+  FIELD_STACK_CLASS,
+} from "@/domains/settings/components/field-skeletons";
 import {
   PaymentMethodModalShell,
   type CardOnFile,
@@ -35,6 +38,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
  * Our own terms sentence waits on legal sign-off; while this is false Stripe's
@@ -93,7 +97,8 @@ export interface AutoTopUpPaymentMethodModalProps {
  * Flow:
  *  1. Modal opens, fire `organizationsBillingAutoTopUpSetupIntentCreate`
  *     to fetch a `client_secret`.
- *  2. While pending, render a centered spinner.
+ *  2. While pending, and on through the Stripe iframes' own boot,
+ *     render one field-shaped skeleton.
  *  3. On error, render a `Notice tone="error"` with a "Try again" button
  *     that re-runs the mutation.
  *  4. On success, mount `<SetupCardForm />` inside `<Elements>` and let the
@@ -223,6 +228,24 @@ function AutoTopUpPaymentMethodModalContent({
 
   const clientSecret = setupIntentMutation.data?.client_secret ?? null;
 
+  // A re-open, or a new client secret, boots fresh element instances, so the
+  // skeleton takes the surface back until both report ready again.
+  const [fieldsReady, setFieldsReady] = useState(false);
+  // An element that fails to load never reports ready, so the skeleton would
+  // otherwise hold the surface forever; this settles that wait into a retry.
+  const [fieldsLoadError, setFieldsLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    setFieldsReady(false);
+    setFieldsLoadError(null);
+  }, [open, clientSecret]);
+
+  const handleFieldsLoadError = useCallback((message: string) => {
+    setFieldsLoadError(message);
+    // The form unmounts with the elements it failed to boot, so no later
+    // completeness report can arrive to arm the primary action.
+    setFormComplete(false);
+  }, []);
+
   const theme = useDocumentTheme();
   // react-stripe-js forwards appearance changes to elements.update(), so a
   // theme toggle while the modal is open re-themes the iframes.
@@ -310,33 +333,78 @@ function AutoTopUpPaymentMethodModalContent({
         </div>
       );
     }
-    if (!clientSecret) {
+    if (fieldsLoadError) {
+      // Both the skeleton and the elements go away with this branch: the
+      // failed element will never paint, so nothing is left to reveal.
+      // A retry mints a new client secret, which remounts <Elements> fresh.
       return (
         <div
-          className="flex min-h-[180px] items-center justify-center"
-          data-testid="auto-top-up-pm-modal-spinner"
+          className="space-y-3"
+          data-testid="auto-top-up-pm-modal-fields-error"
         >
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+          <Notice tone="error">{fieldsLoadError}</Notice>
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setFieldsLoadError(null);
+                createSetupIntent({});
+              }}
+            >
+              {t("autoTopUpPaymentMethodModal.tryAgain")}
+            </Button>
+          </div>
         </div>
       );
     }
+    // One skeleton spans the SetupIntent fetch and the iframes' boot: it
+    // stays mounted while the elements arrive underneath, so the shimmer
+    // never restarts mid-wait.
     return (
-      <Elements
-        stripe={getStripePromise()}
-        options={{
-          clientSecret,
-          appearance: stripeAppearance,
-          fonts: STRIPE_FONTS,
-        }}
-      >
-        <SetupCardForm
-          billingAddress={billingAddress}
-          onCompleteChange={setFormComplete}
-          onError={setErrorMessage}
-          onSave={handleSave}
-          onSubmitReady={registerSubmit}
-        />
-      </Elements>
+      <div className="relative">
+        {fieldsReady ? null : <FieldSkeletons />}
+        {clientSecret ? (
+          // Revealed in place: mounting this wrapper at the flip would tear
+          // <Elements> down and back up, destroying the iframes we just waited
+          // for, so `fieldsReady` drives the fade instead. `absolute` keeps the
+          // booting iframes out of the flow so the skeleton sets the height.
+          <div
+            className={cn(
+              FIELD_STACK_CLASS,
+              "transition-opacity duration-200 ease-out motion-reduce:transition-none",
+              fieldsReady
+                ? "opacity-100"
+                : "invisible absolute inset-x-0 top-0 opacity-0",
+            )}
+          >
+            <Elements
+              // A new client secret boots new element instances, and it is
+              // also when `fieldsReady` resets: keying the provider makes
+              // those the same event, so the reset can never outlive the
+              // readiness this form last reported.
+              key={clientSecret}
+              stripe={getStripePromise()}
+              options={{
+                clientSecret,
+                appearance: stripeAppearance,
+                fonts: STRIPE_FONTS,
+                // Our skeleton already covers the iframe boot; Stripe's own
+                // loader would be a second loading language on top of it.
+                loader: "never",
+              }}
+            >
+              <SetupCardForm
+                billingAddress={billingAddress}
+                onCompleteChange={setFormComplete}
+                onFieldsLoadError={handleFieldsLoadError}
+                onFieldsReady={setFieldsReady}
+                onSave={handleSave}
+                onSubmitReady={registerSubmit}
+              />
+            </Elements>
+          </div>
+        ) : null}
+      </div>
     );
   };
 
@@ -415,13 +483,21 @@ function MissingStripeKeyNotice() {
 function SetupCardForm({
   billingAddress,
   onCompleteChange,
-  onError,
+  onFieldsLoadError,
+  onFieldsReady,
   onSave,
   onSubmitReady,
 }: {
   billingAddress: BillingAddress | null;
   onCompleteChange: (complete: boolean) => void;
-  onError: (message: string) => void;
+  /**
+   * An element failed to boot, so it will never report ready. The parent owns
+   * the message: it drops this form for a retry rather than leaving the
+   * skeleton up beside an error line.
+   */
+  onFieldsLoadError: (message: string) => void;
+  /** Both elements have painted, so the parent can drop its skeleton. */
+  onFieldsReady: (ready: boolean) => void;
   onSave: (confirm: () => Promise<SetupIntentResult>) => Promise<void>;
   onSubmitReady: (submit: () => Promise<void>) => void;
 }) {
@@ -437,8 +513,15 @@ function SetupCardForm({
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [addressComplete, setAddressComplete] = useState(false);
 
-  const complete =
-    paymentReady && addressReady && paymentComplete && addressComplete;
+  const ready = paymentReady && addressReady;
+  // Invariant: every mount reports readiness from scratch, so the parent's
+  // `fieldsReady` reset (keyed on [open, clientSecret]) is never left holding
+  // a report from a previous set of elements.
+  useEffect(() => {
+    onFieldsReady(ready);
+  }, [onFieldsReady, ready]);
+
+  const complete = ready && paymentComplete && addressComplete;
   useEffect(() => {
     onCompleteChange(complete);
   }, [complete, onCompleteChange]);
@@ -473,7 +556,9 @@ function SetupCardForm({
         onReady={() => setPaymentReady(true)}
         onChange={(event) => setPaymentComplete(event.complete)}
         onLoadError={() =>
-          onError(t("autoTopUpPaymentMethodModal.paymentFormLoadError"))
+          onFieldsLoadError(
+            t("autoTopUpPaymentMethodModal.paymentFormLoadError"),
+          )
         }
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
@@ -503,7 +588,9 @@ function SetupCardForm({
         onReady={() => setAddressReady(true)}
         onChange={(event) => setAddressComplete(event.complete)}
         onLoadError={() =>
-          onError(t("autoTopUpPaymentMethodModal.addressFormLoadError"))
+          onFieldsLoadError(
+            t("autoTopUpPaymentMethodModal.addressFormLoadError"),
+          )
         }
         options={{
           mode: "billing",

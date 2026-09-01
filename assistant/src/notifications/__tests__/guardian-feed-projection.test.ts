@@ -115,7 +115,7 @@ describe("buildPendingGuardianProjection", () => {
       requesterLabel: "Alice",
       toolName: "linear_graphql",
       sourceChannel: "slack",
-      sourceContextLabel: "Slack #C0123456789",
+      sourceContextLabel: "#C0123456789",
     });
   });
 
@@ -128,6 +128,14 @@ describe("buildPendingGuardianProjection", () => {
     });
     expect(projection?.intent).toBe("question");
     expect(projection?.status).toBe("pending");
+  });
+
+  test("a captured channel name becomes the source context label", () => {
+    const projection = buildPendingGuardianProjection({
+      ...toolApprovalPayload,
+      sourceChatName: "user-feedback",
+    });
+    expect(projection?.sourceContextLabel).toBe("#user-feedback");
   });
 
   test("a sent Slack delivery yields the card deep link", () => {

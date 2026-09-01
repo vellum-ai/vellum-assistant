@@ -38,6 +38,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
+  buildProviderMetaForPersistence,
   buildSlackMetaForPersistence,
   CONVERSATION_BUSY_MESSAGE,
   serializePersistedUserMessageContent,
@@ -146,6 +147,43 @@ export function deriveIngressIdempotencyKey(options?: {
     return `slack:${slack.channelId}:${slack.channelTs}`;
   }
   return undefined;
+}
+
+/**
+ * The transient carrier bag `persistUserMessage` strips back out of the
+ * metadata: the channel ingress envelopes threaded through options.
+ * Undefined when the turn carries neither, so non-channel turns persist no
+ * extra keys.
+ */
+function buildIngressCarrierMetadata(
+  options?: ProcessMessageOptions,
+): Record<string, unknown> | undefined {
+  if (!options?.slackInbound && !options?.channelInbound) {
+    return undefined;
+  }
+  return {
+    ...(options.slackInbound ? { slackInbound: options.slackInbound } : {}),
+    ...(options.channelInbound
+      ? { channelInbound: options.channelInbound }
+      : {}),
+  };
+}
+
+/**
+ * Layer the turn's persisted channel envelopes onto a metadata object:
+ * `slackMeta` for Slack turns, `providerMeta` for every other channel.
+ * At most one is non-null per turn.
+ */
+function withChannelEnvelopes(
+  base: Record<string, unknown>,
+  slackMeta: string | null,
+  providerMeta: string | null,
+): Record<string, unknown> {
+  return {
+    ...base,
+    ...(slackMeta ? { slackMeta } : {}),
+    ...(providerMeta ? { providerMeta } : {}),
+  };
 }
 
 function buildEventEmitter(
@@ -432,9 +470,14 @@ export async function processMessage(
   });
   const slashResult = await resolveSlash(content, slashContext);
 
+  const turnChannel = conversation.getTurnChannelContext()?.userMessageChannel;
   const slackMeta = buildSlackMetaForPersistence({
     slackInbound: options?.slackInbound,
-    turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,
+    turnChannel,
+  });
+  const providerMeta = buildProviderMetaForPersistence({
+    channelInbound: options?.channelInbound,
+    turnChannel,
   });
 
   if (slashResult.kind === "unknown") {
@@ -469,9 +512,11 @@ export async function processMessage(
         : {}),
       ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
     };
-    const userMetaWithSlack = slackMeta
-      ? { ...serverChannelMeta, slackMeta }
-      : serverChannelMeta;
+    const userMetaWithSlack = withChannelEnvelopes(
+      serverChannelMeta,
+      slackMeta,
+      providerMeta,
+    );
     const cleanMsg = await createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
     const persisted = await addMessage(
@@ -566,9 +611,11 @@ export async function processMessage(
           }
         : {}),
     };
-    const compactUserMeta = slackMeta
-      ? { ...compactChannelMeta, slackMeta }
-      : compactChannelMeta;
+    const compactUserMeta = withChannelEnvelopes(
+      compactChannelMeta,
+      slackMeta,
+      providerMeta,
+    );
     const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await addMessage(
       conversationId,
@@ -624,9 +671,11 @@ export async function processMessage(
           }
         : {}),
     };
-    const cleanUserMeta = slackMeta
-      ? { ...cleanChannelMeta, slackMeta }
-      : cleanChannelMeta;
+    const cleanUserMeta = withChannelEnvelopes(
+      cleanChannelMeta,
+      slackMeta,
+      providerMeta,
+    );
     const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await addMessage(
       conversationId,
@@ -660,9 +709,7 @@ export async function processMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = uuidv7();
-  const persistMetadata = options?.slackInbound
-    ? { slackInbound: options.slackInbound }
-    : undefined;
+  const persistMetadata = buildIngressCarrierMetadata(options);
   const ingressKey = deriveIngressIdempotencyKey(options);
   const { id: messageId, deduplicated } = await conversation.persistUserMessage(
     {
@@ -743,9 +790,7 @@ export async function processMessageInBackground(
   const emitEvent = buildEventEmitter(options?.onEvent);
 
   const requestId = uuidv7();
-  const persistMetadata = options?.slackInbound
-    ? { slackInbound: options.slackInbound }
-    : undefined;
+  const persistMetadata = buildIngressCarrierMetadata(options);
   const ingressKey = deriveIngressIdempotencyKey(options);
   const { id: messageId, deduplicated } = await conversation.persistUserMessage(
     {

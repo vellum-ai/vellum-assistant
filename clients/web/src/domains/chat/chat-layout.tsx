@@ -213,7 +213,7 @@ export function ChatLayout({
   useSeedLiveVoiceSnapshot();
 
   // Subscribe to the sidebar conversation list at the layout level so every
-  // chat-layout child route (home, library, contacts, identity, chat)
+  // chat-layout child route (library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
   // `isLoading` (first fetch actually in flight), not `isPending`: the query
@@ -260,7 +260,7 @@ export function ChatLayout({
   // Track processing/attention indicators for every conversation in
   // the sidebar, on every chat-layout child route. Mounted at layout
   // scope so the bus-driven `interaction_resolved` subscriber and the
-  // post-reconnect reconcile sweep stay live across home, library,
+  // post-reconnect reconcile sweep stay live across library,
   // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
     assistantId,
@@ -325,8 +325,8 @@ export function ChatLayout({
   // supplements are present and no explicit `topBarCenter` override
   // exists, ChatLayout renders ChatConversationHeader with conversation
   // actions from the shared useConversationActions instance.
-  // Non-chat routes (e.g. HomePageRoute) write `null` to topBarCenter
-  // and never set supplements, so they get an empty center as before.
+  // Non-chat routes write `null` to topBarCenter and never set
+  // supplements, so they get an empty center as before.
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
@@ -683,7 +683,7 @@ export function ChatLayout({
   // handlers; without them the popover renders empty (every menu item
   // resolves to `null`). The CRUD hook lives at the layout level so the
   // sidebar's action wiring stays live on every chat-layout child route
-  // (home, library, contacts, identity) — not only inside a conversation
+  // (library, contacts, identity), not only inside a conversation
   // where ChatPage is mounted.
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
@@ -866,9 +866,6 @@ export function ChatLayout({
     sidebarToggle: () => {
       toggleSidebar();
     },
-    home: () => {
-      void navigate(routes.home);
-    },
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
@@ -955,7 +952,7 @@ export function ChatLayout({
 
   // Sidebar pinned-app open. The viewer panel only renders under ChatPage
   // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
-  // pinned-app click from home / library / identity / inspector etc. would
+  // pinned-app click from library / identity / inspector etc. would
   // mutate the viewer store with no surface to display against. Navigate
   // to a chat route first when off-chat, then run the shared open flow.
   //

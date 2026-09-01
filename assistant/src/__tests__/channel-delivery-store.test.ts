@@ -176,6 +176,69 @@ describe("channel-delivery-store", () => {
     ).toBeNull();
   });
 
+  test("linked inbound rows are excluded from the provider-id scan; crash-window rows resolve", () => {
+    const chatId = "chat-scan-budget";
+    const minted = recordInbound("telegram", chatId, "evt-linked", {
+      sourceMessageId: "tg-linked-1",
+    });
+    const envelope = (messageId: string) =>
+      JSON.stringify({
+        providerMeta: JSON.stringify({
+          source: "telegram",
+          conversationExternalId: chatId,
+          messageId,
+          eventKind: "message",
+        }),
+      });
+
+    // A normally-ingested inbound row: linked to its event, so the
+    // inbound-event index owns its resolution and the fallback scan must
+    // not spend budget on it.
+    insertMessage("linked-user-row", minted.conversationId, {});
+    getDb()
+      .update(messages)
+      .set({ metadata: envelope("tg-linked-1") })
+      .where(eq(messages.id, "linked-user-row"))
+      .run();
+    linkMessage(minted.eventId, "linked-user-row");
+    expect(
+      findMessageByProviderMessageId("telegram", chatId, "tg-linked-1"),
+    ).toBeNull();
+
+    // A crash-window row: persisted with its envelope but its event link
+    // never landed. The fallback is the only path that can resolve it.
+    insertMessage("orphan-user-row", minted.conversationId, {});
+    getDb()
+      .update(messages)
+      .set({ metadata: envelope("tg-orphan-1") })
+      .where(eq(messages.id, "orphan-user-row"))
+      .run();
+    expect(
+      findMessageByProviderMessageId("telegram", chatId, "tg-orphan-1"),
+    ).toEqual({
+      messageId: "orphan-user-row",
+      conversationId: minted.conversationId,
+    });
+
+    // A legacy linked row whose event carries no source_message_id:
+    // findMessageBySourceId matches only that column, so the fallback must
+    // still admit the row or reactions to it become unresolvable.
+    const legacy = recordInbound("telegram", chatId, "evt-legacy");
+    insertMessage("legacy-user-row", legacy.conversationId, {});
+    getDb()
+      .update(messages)
+      .set({ metadata: envelope("tg-legacy-1") })
+      .where(eq(messages.id, "legacy-user-row"))
+      .run();
+    linkMessage(legacy.eventId, "legacy-user-row");
+    expect(
+      findMessageByProviderMessageId("telegram", chatId, "tg-legacy-1"),
+    ).toEqual({
+      messageId: "legacy-user-row",
+      conversationId: legacy.conversationId,
+    });
+  });
+
   test("the outbound-posts index resolves a post exactly, at any age", () => {
     const chatId = "999000111222333444";
     const minted = recordInbound("discord", chatId, "evt-index-seed");

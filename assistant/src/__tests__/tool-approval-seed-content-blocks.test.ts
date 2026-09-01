@@ -214,7 +214,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     );
     expect(surface.data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — Direct message",
+      value: "Slack · Direct message",
     });
   });
 
@@ -232,7 +232,20 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     );
     expect(surface.data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — #C01ABC",
+      value: "Slack · #C01ABC",
+    });
+  });
+
+  test("Slack channel source prefers the captured channel name", () => {
+    const payload = {
+      ...toolApprovalPayload,
+      sourceChatId: "C01ABC",
+      sourceChatName: "user-feedback",
+    };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "Slack · #user-feedback",
     });
   });
 
@@ -245,7 +258,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.data.body).not.toContain("[View message]");
     expect(surface.data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — Direct message",
+      value: "Slack · Direct message",
     });
   });
 

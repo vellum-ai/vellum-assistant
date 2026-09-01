@@ -1,5 +1,5 @@
 /**
- * Migration 374 creates `channel_outbound_posts`, the provider-id resolution
+ * Migration 375 creates `channel_outbound_posts`, the provider-id resolution
  * index for messages the assistant itself posted: the outbound counterpart
  * of `channel_inbound_events`. Keyed by the (channel, chat, provider id)
  * triple, which is exactly how an inbound reaction or delete addresses a
@@ -13,7 +13,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateCreateChannelOutboundPosts } from "../374-create-channel-outbound-posts.js";
+import { migrateCreateChannelOutboundPosts } from "../375-create-channel-outbound-posts.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

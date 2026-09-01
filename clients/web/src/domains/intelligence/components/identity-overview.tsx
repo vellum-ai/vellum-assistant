@@ -12,6 +12,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRight,
   Brain,
   Calendar,
   ChevronRight,
@@ -134,6 +135,23 @@ const CARD_HOVER_LINE_KEY: Record<
   contacts: "identityOverview.cardHoverLine.contacts",
   channels: "identityOverview.cardHoverLine.channels",
 };
+
+/**
+ * The example schedules the Schedules card outlines while the assistant has
+ * none. "Morning briefing" is the name the create-schedule form already
+ * suggests as its placeholder, so the card teases the same starting point
+ * its destination offers.
+ */
+const SCHEDULE_GHOSTS = [
+  {
+    nameKey: "identityOverview.scheduleGhosts.morningBriefingName",
+    cadenceKey: "identityOverview.scheduleGhosts.morningBriefingCadence",
+  },
+  {
+    nameKey: "identityOverview.scheduleGhosts.inboxTriageName",
+    cadenceKey: "identityOverview.scheduleGhosts.inboxTriageCadence",
+  },
+] as const;
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
 function formatNextRun(nextRunAt: number): string {
@@ -373,7 +391,71 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   );
 }
 
-function SectionCard({
+/**
+ * One row of the Schedules card's preview column. The ghost variant draws
+ * the same shape as a dashed, unfilled outline at reduced opacity, so an
+ * empty card can preview what a filled one looks like without any of its
+ * rows reading as a schedule the user owns.
+ */
+function ScheduleTile({
+  name,
+  cadence,
+  fg,
+  fgMuted,
+  flooded,
+  ghost = false,
+}: {
+  name: string;
+  cadence: string;
+  /** The card's content tone, already resolved for the flood state. */
+  fg: string;
+  /** The card's muted tone, already resolved for the flood state. */
+  fgMuted: string;
+  flooded: boolean;
+  ghost?: boolean;
+}) {
+  return (
+    <span
+      className={`flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-colors duration-300 ${
+        ghost ? "border border-dashed opacity-60" : ""
+      }`}
+      style={
+        ghost
+          ? {
+              borderColor: flooded
+                ? "color-mix(in srgb, var(--card-flood-fg) 45%, transparent)"
+                : "var(--border-base)",
+            }
+          : {
+              // A content-tinted wash (not a surface token) so the tile
+              // visibly lifts off the card in dark themes too.
+              backgroundColor: flooded
+                ? "color-mix(in srgb, var(--card-flood-fg) 12%, transparent)"
+                : "color-mix(in srgb, var(--content-default) 5%, transparent)",
+            }
+      }
+    >
+      <span
+        className={`truncate text-[13px] font-medium transition-colors duration-300 ${
+          ghost ? fgMuted : fg
+        }`}
+      >
+        {name}
+      </span>
+      <span
+        className={`truncate text-[12px] transition-colors duration-300 ${fgMuted}`}
+      >
+        {cadence}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * One bento tile. Exported for the Storybook fixture that reviews the
+ * Schedules card in both its populated and its empty state.
+ */
+export function SectionCard({
   section,
   stat,
   gridArea,
@@ -519,6 +601,16 @@ function SectionCard({
   const isFeatureCard =
     section.key === "personality" || section.key === "schedules";
 
+  // An assistant with no schedules has a stat but no preview list, which
+  // leaves the tall card's whole middle empty. It spends that space on
+  // ghosts of the example schedules instead. `stat === undefined` is the
+  // still-loading card, which stays blank rather than teasing.
+  const showsScheduleGhosts =
+    Boolean(gridArea) &&
+    section.key === "schedules" &&
+    stat !== undefined &&
+    !stat.schedules;
+
   return (
     // The feature cards sit flat on the page (no shadow) with a hairline
     // theme border; the other tiles keep the standard raised card chrome.
@@ -632,31 +724,17 @@ function SectionCard({
         {gridArea && stat?.schedules && stat.schedules.items.length > 0 && (
           <span className="relative flex min-h-0 flex-1 flex-col justify-start gap-2 overflow-hidden py-2">
             {stat.schedules.items.map((schedule) => (
-              <span
+              <ScheduleTile
                 key={schedule.id}
-                className="flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-colors duration-300"
-                style={{
-                  // A content-tinted wash (not a surface token) so the tile
-                  // visibly lifts off the card in dark themes too.
-                  backgroundColor: flooded
-                    ? "color-mix(in srgb, var(--card-flood-fg) 12%, transparent)"
-                    : "color-mix(in srgb, var(--content-default) 5%, transparent)",
-                }}
-              >
-                <span
-                  className={`truncate text-[13px] font-medium transition-colors duration-300 ${fg}`}
-                >
-                  {schedule.name}
-                </span>
-                <span
-                  className={`truncate text-[12px] transition-colors duration-300 ${fgMuted}`}
-                >
-                  {t("identityOverview.scheduleCadence", {
-                    cadence: schedule.cadence,
-                    nextRun: formatNextRun(schedule.nextRunAt),
-                  })}
-                </span>
-              </span>
+                name={schedule.name}
+                cadence={t("identityOverview.scheduleCadence", {
+                  cadence: schedule.cadence,
+                  nextRun: formatNextRun(schedule.nextRunAt),
+                })}
+                fg={fg}
+                fgMuted={fgMuted}
+                flooded={flooded}
+              />
             ))}
             {stat.schedules.more > 0 && (
               <span
@@ -667,6 +745,28 @@ function SectionCard({
                 })}
               </span>
             )}
+          </span>
+        )}
+        {/* With nothing scheduled the same column carries outlines of two
+            example schedules. They are decoration, not data, so the group
+            is hidden from assistive technology and the card's own link
+            stays the only action: a button cannot nest inside an anchor. */}
+        {showsScheduleGhosts && (
+          <span
+            aria-hidden
+            className="relative flex min-h-0 flex-1 flex-col justify-start gap-2 overflow-hidden py-2"
+          >
+            {SCHEDULE_GHOSTS.map((ghost) => (
+              <ScheduleTile
+                key={ghost.nameKey}
+                name={t(ghost.nameKey)}
+                cadence={t(ghost.cadenceKey)}
+                fg={fg}
+                fgMuted={fgMuted}
+                flooded={flooded}
+                ghost
+              />
+            ))}
           </span>
         )}
         {stat?.value !== undefined ? (
@@ -684,10 +784,23 @@ function SectionCard({
             </span>
           </span>
         ) : stat?.text ? (
-          <span
-            className={`relative text-[14px] font-medium italic transition-colors duration-300 ${fg}`}
-          >
-            {stat.text}
+          <span className="relative flex flex-col gap-1">
+            <span
+              className={`text-[14px] font-medium italic transition-colors duration-300 ${fg}`}
+            >
+              {stat.text}
+            </span>
+            {/* An invitation, not a control. The card already links to
+                Schedules, so this names the destination and lets the whole
+                surface remain the click target. */}
+            {showsScheduleGhosts && (
+              <span
+                className={`flex items-center gap-1 text-[13px] font-medium transition-colors duration-300 ${fg}`}
+              >
+                {t("identityOverview.setUpSchedule")}
+                <ArrowRight size={13} aria-hidden />
+              </span>
+            )}
           </span>
         ) : null}
       </Link>

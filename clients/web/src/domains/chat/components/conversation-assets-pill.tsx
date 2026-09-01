@@ -263,16 +263,16 @@ export function ConversationAssetsPill({
       aria-label={ariaLabel}
     />
   ) : (
+    // Desktop: a bare glyph, matching the notifications bell it shares the
+    // header cluster with: same `ghost` + `iconOnly` Button, no `active` fill
+    // and no pill. The count moves to the tooltip and the accessible name,
+    // which is where the bell keeps its own unread count too.
     <Button
       variant="ghost"
-      active
-      leftIcon={layersIcon}
-      className="rounded-full"
-      tintColor="var(--content-default)"
+      iconOnly={layersIcon}
       aria-label={ariaLabel}
-    >
-      {label}
-    </Button>
+      tooltip={label}
+    />
   );
 
   if (isTouchMobile) {

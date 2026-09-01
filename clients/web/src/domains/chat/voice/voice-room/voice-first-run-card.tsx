@@ -74,14 +74,14 @@ import { useTranslation } from "@/i18n";
  * navigates back to the intro rather than cancelling, so a stray keypress
  * can't discard a half-entered API key.
  *
- * `nonDismissible` locks the card to a single forward action — no ✕, backdrop,
- * or Escape. The composer sets it on Capacitor iOS, where the card precedes the
- * live-voice `getUserMedia` alert: per `docs/CAPACITOR.md` § OS permission
- * requests (Apple HIG / App Store Review 5.1.1(iv)) such a pre-prompt must lead
- * straight to the system alert, so a dismissible one is disallowed. Locked,
- * there is no card-level cancel by design — backing out means denying the OS
- * mic prompt (or ✕ once the room opens). The sub-view back arrow is in-modal
- * navigation, not a cancel, so it stays available under the lock.
+ * Dismissible on every platform, Capacitor iOS included. The card precedes the
+ * live-voice `getUserMedia` alert, so `docs/CAPACITOR.md` § OS permission
+ * requests governs it: what that rule forbids is a pre-prompt that stands
+ * between the user and the system alert, and cancelling here never reaches
+ * `getUserMedia` at all — the one path that does ("Start talking") still leads
+ * straight to it. An iOS build once locked the card instead (no ✕ / backdrop /
+ * Escape), which left first-time users with no way out of voice mode short of
+ * answering the OS mic prompt; don't reintroduce it.
  */
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */
@@ -101,19 +101,12 @@ export interface VoiceFirstRunCardProps {
   onStart: () => void;
   /** Cancel: dismissed without starting (does not consume the first run). */
   onDismiss?: () => void;
-  /**
-   * Lock the card: no ✕ / backdrop / Escape, only "Start talking". Set on
-   * Capacitor iOS so the pre-permission card leads straight to the mic alert
-   * (see the module docstring). Defaults to dismissible (web).
-   */
-  nonDismissible?: boolean;
 }
 
 export function VoiceFirstRunCard({
   assistantId,
   onStart,
   onDismiss,
-  nonDismissible = false,
 }: VoiceFirstRunCardProps) {
   const { t } = useTranslation("chat");
   const { components, traits, customImageUrl } =
@@ -186,9 +179,7 @@ export function VoiceFirstRunCard({
           return;
         }
         // On the intro a close is a plain cancel: the first run stays
-        // un-consumed. Inert when locked (those affordances are removed /
-        // prevented below), so `onDismiss` only fires on the dismissible
-        // (web) path.
+        // un-consumed, so the card returns on the next voice entry.
         onDismiss?.();
       }}
     >
@@ -197,22 +188,16 @@ export function VoiceFirstRunCard({
         // Held constant across views: a sub-view that resized the dialog would
         // shift the back arrow and ✕ out from under the pointer.
         className="max-w-[520px]"
-        // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
-        // only way forward is "Start talking" → the mic alert.
-        hideCloseButton={nonDismissible}
-        dismissOnOverlayClick={!nonDismissible}
         onEscapeKeyDown={
           // Inside a sub-view Escape is "go back", never "cancel" — it must not
           // discard a half-entered key. On the intro it keeps its normal
-          // meaning (cancel), or is swallowed entirely under the lock.
+          // meaning (cancel).
           view !== "intro"
             ? (event) => {
                 event.preventDefault();
                 leaveCurrentView();
               }
-            : nonDismissible
-              ? (event) => event.preventDefault()
-              : undefined
+            : undefined
         }
         onKeyDown={
           // Belt to `onEscapeKeyDown`'s suspenders: Radix delivers Escape via
@@ -234,9 +219,6 @@ export function VoiceFirstRunCard({
                 }
               }
             : undefined
-        }
-        onInteractOutside={
-          nonDismissible ? (event) => event.preventDefault() : undefined
         }
       >
         {view === "intro" && (

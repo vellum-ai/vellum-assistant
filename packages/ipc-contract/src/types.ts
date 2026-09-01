@@ -44,7 +44,6 @@ export type VellumCommand =
   | { kind: "logout" }
   | { kind: "rePair" }
   | { kind: "sidebarToggle" }
-  | { kind: "home" }
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
@@ -666,6 +665,7 @@ export interface LockfileAssistant {
   runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
+  onboardedAt?: string;
   organizationId?: string;
   platformAssistantId?: string;
   platformBaseUrl?: string;

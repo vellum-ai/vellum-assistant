@@ -1,8 +1,7 @@
 /**
  * `NotificationsBellDetail` is one notification opened inside the bell in the
- * top bar, which is a different surface from the Activity page's
- * `HomeDetailPanel` even though the two share their body renderers. This is
- * the one that appears under the bell icon.
+ * top bar. It is the only surface a notification's full detail has, so these
+ * stories are where every body kind is seen at its real width.
  *
  * The decorator stands in for the popover the bell renders this into: the
  * same `w-96` box and padding as `notifications-bell.tsx`, so the footer's

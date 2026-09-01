@@ -241,6 +241,10 @@ declare global {
           assistantId: string,
           name: string,
         ): Promise<LockfileWriteResult>;
+        stampLockfileAssistantOnboarded?(
+          assistantId: string,
+          onboardedAt: string,
+        ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
           organizationId?: string,

@@ -20,15 +20,22 @@ const AX_TREE_TAG = "<ax-tree>";
 
 /**
  * Tools whose results are explicit, self-sized reads the model paginates
- * itself: `web_fetch` takes `max_chars`/`start_index` and reports a
- * "Character Window: X-Y of Z", so the model pages by character index against
- * the window it requested. Stubbing such a result at result time hands the
- * model ~a tenth of the window it just sized — and it keeps paging blind
- * against content it never saw. Like the file-read tools, these explicit
- * reads are honored in full for the turn that made them; the post-turn pass
- * still truncates them at turn end, after the model has consumed the content.
+ * itself: each takes `max_chars`/`start_index` and reports where its window
+ * ended (`web_fetch`'s "Character Window: X-Y of Z", the file-read tools'
+ * "[Truncated: characters X-Y of Z]" notice), so the model pages by character
+ * index against the window it requested. Stubbing such a result at result
+ * time would hand the model a fraction of the window it just sized — and it
+ * keeps paging blind against content it never saw. These reads are honored in
+ * full for the turn that made them; the post-turn pass still truncates them
+ * at turn end, after the model has consumed the content. This exemption is
+ * also what lets `READ_CHAR_BUDGET` exceed `THRESHOLD_CHARS` without a fresh
+ * read being stubbed before the model sees it.
  */
-export const RESULT_TIME_SPOOL_EXEMPT_TOOLS = new Set<string>(["web_fetch"]);
+export const RESULT_TIME_SPOOL_EXEMPT_TOOLS = new Set<string>([
+  "web_fetch",
+  "file_read",
+  "host_file_read",
+]);
 
 /**
  * Whether a tool result is eligible for the result-time spool/stub pass: the
@@ -39,12 +46,12 @@ export const RESULT_TIME_SPOOL_EXEMPT_TOOLS = new Set<string>(["web_fetch"]);
  * The spooled-read exemption is what keeps paging possible: a file read is the
  * model's only way to pull spooled content back into context, so stubbing a
  * read of a `.tool-results/` file would write a fresh copy and hand back
- * another stub, putting that content out of reach for good. It is scoped by
- * target path rather than by tool name, because a file read aimed anywhere
- * else is ordinary oversized output with no such circularity, and exempting it
- * keeps a whole file inline on every LLM call for the rest of the turn.
- * Explicit self-sized reads are honored in full; the post-turn pass still
- * truncates them at turn end, after the model has consumed the content.
+ * another stub, putting that content out of reach for good. The file-read
+ * tools are also name-exempt as explicit self-sized reads, but this
+ * path-scoped guarantee stands on its own so spooled content stays reachable
+ * regardless of how the exempt-tools set evolves. Explicit self-sized reads
+ * are honored in full; the post-turn pass still truncates them at turn end,
+ * after the model has consumed the content.
  */
 function isSpoolEligible(
   tr: ToolResultContent,

@@ -12,6 +12,7 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
+import { canScheduleStillRun } from "@/utils/schedules";
 
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
@@ -243,18 +244,6 @@ export interface GroupedSchedules {
   recurring: Schedule[];
   upcomingOneTime: Schedule[];
   pastOneTime: Schedule[];
-}
-
-/**
- * Whether a schedule still has a firing ahead of it. `fired` and `cancelled`
- * are the two terminal states a one-shot lands in; everything else (including
- * a disabled row, which fires again once re-enabled) can still run.
- *
- * This mirrors the rule the daemon applies when re-pinning every schedule onto
- * one profile, so the count offered here is the count that comes back.
- */
-export function canScheduleStillRun(schedule: Schedule): boolean {
-  return schedule.status !== "fired" && schedule.status !== "cancelled";
 }
 
 // Keyed on the lifecycle status, not lastRunAt/nextRunAt alone: a failed

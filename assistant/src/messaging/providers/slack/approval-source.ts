@@ -15,7 +15,10 @@
  * directly.
  */
 
-import { getLatestInboundEventReference } from "../../../persistence/delivery-crud.js";
+import {
+  getLatestExternalConversationName,
+  getLatestInboundEventReference,
+} from "../../../persistence/delivery-crud.js";
 import { getBindingByConversation } from "../../../persistence/external-conversation-store.js";
 import type {
   ApprovalSourceHint,
@@ -26,16 +29,19 @@ import { isSlackTs } from "./message-metadata.js";
 
 function toReference(
   chatId: string,
+  chatName: string | null,
   messageTs: string | undefined,
   threadTs: string | undefined,
 ): ApprovalSourceReference {
+  const named = chatName ? { sourceChatName: chatName } : {};
   // Without a message ts, the thread root is still a valid anchor.
   const anchorTs = messageTs ?? threadTs;
   if (!anchorTs) {
-    return { sourceChatId: chatId };
+    return { sourceChatId: chatId, ...named };
   }
   return {
     sourceChatId: chatId,
+    ...named,
     sourceLink: {
       webUrl: buildSlackPermalink({
         channelId: chatId,
@@ -56,6 +62,11 @@ export function resolveSlackApprovalSource(
   if (hint?.requesterChatId && isSlackTs(hint.sourceMessageId)) {
     return toReference(
       hint.requesterChatId,
+      getLatestExternalConversationName(
+        conversationId,
+        "slack",
+        hint.requesterChatId,
+      ),
       hint.sourceMessageId,
       isSlackTs(hint.sourceThreadId) ? hint.sourceThreadId : undefined,
     );
@@ -83,5 +94,10 @@ export function resolveSlackApprovalSource(
     ? binding.externalThreadId
     : undefined;
 
-  return toReference(chatId, messageTs, threadTs);
+  return toReference(
+    chatId,
+    getLatestExternalConversationName(conversationId, "slack", chatId),
+    messageTs,
+    threadTs,
+  );
 }
