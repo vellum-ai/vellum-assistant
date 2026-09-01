@@ -241,15 +241,38 @@ async function acquireConversation(
       conversation.dispose();
     }
 
-    const pending = conversationCreating.get(conversationId);
-    if (pending) {
+    // Joining is a loop rather than a single look because a flight can decline
+    // to create, and a caller that was asked to create must then re-consult
+    // the map instead of building unconditionally: two creating callers that
+    // fell through together would each build an instance for one id, the
+    // second overwriting the first in the registry and leaving the first to
+    // run outside the shared processing and queue state.
+    //
+    // It terminates. The owner of a flight attaches its own continuation in
+    // the same synchronous run that publishes the flight, so its `finally`
+    // has already removed the entry by the time any joiner resumes, and a
+    // joiner therefore never re-joins the flight it just awaited. What it
+    // finds instead is a newer flight or nothing, and a creating flight only
+    // ever resolves non-null, so joining one returns.
+    for (;;) {
+      const pending = conversationCreating.get(conversationId);
+      if (!pending) {
+        break;
+      }
       const joined = await pending;
-      if (joined || !createIfMissing) {
+      if (!createIfMissing) {
+        // A non-creating acquire answers for the row as it stands when it
+        // answers, never for what an acquire it happened to share flight with
+        // decided to write. The shared flight can belong to a creating caller,
+        // whose own contract is to build the conversation whatever became of
+        // the row, so inheriting its instance would hand back a conversation
+        // that no longer exists. A row that reads present here was written
+        // under that caller's contract, which is not this one's to overrule.
+        return joined && getConversation(conversationId) ? joined : null;
+      }
+      if (joined) {
         return joined;
       }
-      // The acquisition already in flight declined to create. A caller that
-      // was asked to create makes its own attempt rather than reporting an
-      // answer that was never its own.
     }
 
     const storedOptions = conversationOptions.get(conversationId);
