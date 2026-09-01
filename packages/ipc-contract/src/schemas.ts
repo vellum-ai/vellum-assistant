@@ -122,6 +122,10 @@ export const companionContextSchema = z.object({
   // capture having happened, and the only shape that can say that is a whole
   // number that goes up.
   captureCount: z.number().int().nonnegative().default(0),
+  // Optional rather than defaulted, for the reason `watchRetro` is: both values
+  // claim a microphone is doing something, and absence is the only way to say
+  // none is.
+  dictating: z.enum(["listening", "transcribing"]).optional(),
 });
 
 // ---------------------------------------------------------------------------

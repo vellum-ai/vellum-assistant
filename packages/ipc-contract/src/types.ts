@@ -1184,7 +1184,30 @@ export interface CompanionContext {
    * the truthful reading of silence.
    */
   captureCount?: number;
+  /**
+   * What a dictation started from the keyboard has got to, when one is running.
+   *
+   * The surface is the only thing on screen while the user is dictating into
+   * another app, so it is the only thing that can say a microphone is open.
+   * Published rather than inferred for the reason `working` is: the recording
+   * lives in the window that owns it, and the surface's own window has no view
+   * of it.
+   *
+   * Optional and absent means nothing is being dictated, which is the truthful
+   * reading of a publisher that never mentions it.
+   */
+  dictating?: CompanionDictating;
 }
+
+/**
+ * How far a keyboard dictation has got, in the two states the user can act on.
+ *
+ * `listening` is a microphone that is open, which is the one they can still
+ * change by letting go. `transcribing` is the wait afterwards, which they
+ * cannot, and which exists as its own state because it is the stretch where
+ * nothing else says anything is happening.
+ */
+export type CompanionDictating = "listening" | "transcribing";
 
 /**
  * The feature flag key Teach is behind, as the app's window wrote it into
@@ -1245,6 +1268,8 @@ export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
+  /** See {@link CompanionContext.dictating}. */
+  dictating?: CompanionDictating;
   growth: CompanionGrowth;
   /**
    * Which way the typing card unfurls, and with it where the avatar sits inside

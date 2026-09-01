@@ -33,7 +33,6 @@ import {
 import {
   getSystemPermissionsState,
   openSystemPermissionSettings,
-  requestSystemPermission,
 } from "@/runtime/system-permissions";
 import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
@@ -185,9 +184,13 @@ function HoldToDictateCard() {
           checked={enabled}
           onChange={(next: boolean) => {
             setHoldToDictateEnabled(next);
-            // Switching it on is the moment to ask, and the only one.
+            // Switching it on is the moment to ask, and the only one. Opening
+            // the pane rather than only requesting: macOS shows the prompt once
+            // per app and silently does nothing afterwards, so a request alone
+            // leaves anyone who has already dismissed it with a switch that
+            // looks on and a binding that never fires.
             if (next) {
-              void requestSystemPermission("inputMonitoring").then(
+              void openSystemPermissionSettings("inputMonitoring").then(
                 refreshPermission,
               );
             }
