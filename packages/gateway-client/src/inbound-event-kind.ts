@@ -178,6 +178,22 @@ export function resolveInboundReactionPayload(fields: {
 }
 
 /**
+ * Parse Discord's custom-emoji mention form. The form travels the wire as a
+ * reaction's spelling, so more than one package reads it: the daemon rebuilds
+ * a REST path from it when the assistant reacts, and a row stored before the
+ * typed fields recovers its kind from it. One parser, so the two cannot
+ * disagree about what counts as one.
+ */
+export function parseDiscordEmojiMention(
+  emoji: string,
+): { name: string; id: string; animated: boolean } | null {
+  const match = /^<(a?):([^:>]+):(\d+)>$/.exec(emoji);
+  return match
+    ? { name: match[2]!, id: match[3]!, animated: match[1] === "a" }
+    : null;
+}
+
+/**
  * Recover an emoji's kind from its spelling alone. This is the one inference
  * the design permits, and only for what predates the typed fields: a stored
  * row or a replayed retry payload that carries the string and nothing else.
@@ -193,13 +209,13 @@ function classifyLegacyReactionEmoji(
   InboundReactionPayload,
   "emojiKind" | "emojiName" | "emojiId" | "emojiAnimated"
 > {
-  const custom = /^<(a?):([^:>]+):(\d+)>$/.exec(emoji);
+  const custom = parseDiscordEmojiMention(emoji);
   if (custom) {
     return {
       emojiKind: "custom",
-      emojiName: custom[2]!,
-      emojiId: custom[3]!,
-      emojiAnimated: custom[1] === "a",
+      emojiName: custom.name,
+      emojiId: custom.id,
+      emojiAnimated: custom.animated,
     };
   }
   return /^[\w+-]+$/.test(emoji)

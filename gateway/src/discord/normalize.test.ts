@@ -583,9 +583,8 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("a guild emoji named like a standard one is told apart by kind", () => {
     // A guild can name a custom emoji anything, `white_check_mark` included.
-    // Nothing downstream has to notice that from the string's shape: the
-    // kind says it outright, which is the property the mention-form
-    // encoding used to stand in for.
+    // A reader tells the two apart by asking the kind, never by matching the
+    // shape of the spelling.
     const squatter = normalizeDiscordMessageReaction(
       thumbsUp({ emoji: { id: "999888777", name: "white_check_mark" } }),
       { op: "added", ingestId: INGEST_ID, raw: {} },
