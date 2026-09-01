@@ -420,6 +420,38 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  test("a cancelled pointer leaves no suppression behind it", () => {
+    withFakeTimers(() => {
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // The wander raises the suppression, and the browser then takes the
+      // pointer back: a cancelled one fires no click, so this press has
+      // nothing left of its own to spend the flag on.
+      press();
+      fireEvent.pointerMove(shutter(), {
+        pointerId: 1,
+        clientX: 12,
+        clientY: 0,
+      });
+      fireEvent.pointerCancel(shutter(), { pointerId: 1 });
+
+      // A screen reader and voice control both activate as a bare click with
+      // no press in front of it, so nothing else would clear the flag first.
+      fireEvent.click(shutter());
+      expect(taps).toBe(1);
+    });
+  });
+
   test("the pointer being taken away or leaving cancels the hold", () => {
     for (const end of ["cancel", "leave"] as const) {
       withFakeTimers((advanceBy) => {

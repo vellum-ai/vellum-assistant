@@ -413,11 +413,23 @@ export function CameraShutter({
       onPointerMove={handlePointerMove}
       onPointerUp={(event) => {
         onPointerUp?.(event);
+        // Nothing is settled here. Nothing is ever captured, so a release
+        // reaching this handler is one that happened over the button, and a
+        // down and an up that both landed on it fire the click the suppression
+        // exists for. Spending it anywhere but on that click is what would
+        // hand a wandering press its photo back.
         cancelHold();
       }}
       onPointerCancel={(event) => {
         onPointerCancel?.(event);
         cancelHold();
+        // The one end of a press this element hears that is certain to produce
+        // no click: a pointer the browser has taken back fires none. So a
+        // suppression this press raised has nothing left to be spent on, and
+        // left up it would be spent on some later activation, which for a
+        // screen reader or voice control is a bare click with no press in
+        // front of it to clear the flag first.
+        abandonedRef.current = false;
       }}
       onPointerLeave={(event) => {
         onPointerLeave?.(event);
