@@ -49,4 +49,22 @@ describe("getLatestExternalConversationName", () => {
       getLatestExternalConversationName(conversation.id, "telegram"),
     ).toBeNull();
   });
+
+  test("never lends a name from a different external chat", async () => {
+    const conversation = await createConversation({ title: "t" });
+    await addMessage(conversation.id, "user", "hello", {
+      metadata: slackMetaFor("user-feedback"),
+    });
+
+    expect(
+      getLatestExternalConversationName(
+        conversation.id,
+        "slack",
+        "C0123CHANNEL",
+      ),
+    ).toBe("user-feedback");
+    expect(
+      getLatestExternalConversationName(conversation.id, "slack", "C0OTHER"),
+    ).toBeNull();
+  });
 });
