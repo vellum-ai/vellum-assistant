@@ -44,6 +44,7 @@ import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
+  SIGHT_FRAME_SWEEP_CANDIDATE_SQL,
   SWEEP_BACKUP_SUFFIX,
   SWEEP_TEMP_SUFFIX,
   uploadAttachment,
@@ -53,7 +54,7 @@ import {
   addMessage,
   createConversation,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun } from "../persistence/raw-query.js";
 import { isCompleteJpeg } from "../util/image-conversion.js";
@@ -794,6 +795,35 @@ describe("sweepAgedSightFrames", () => {
     expect(storedSizeBytes(frame.attachmentId)).toBe(
       readFileSync(frame.filePath).length,
     );
+  });
+
+  test("reads each candidate page as an index range, not a scan and a sort", () => {
+    // Paging is what makes this load-bearing. The row budget bounds rows
+    // RETURNED, so without an index every page would re-scan the whole
+    // attachments table and re-sort it, and a large install's hourly pass would
+    // pay for that once per page. With `idx_attachments_created_at_id` the age
+    // bound, the keyset continuation, and the ordering are the same index seek,
+    // so a page resumes where the last one stopped.
+    const plan = getSqlite()
+      .prepare(`EXPLAIN QUERY PLAN ${SIGHT_FRAME_SWEEP_CANDIDATE_SQL}`)
+      .all(
+        Date.now(),
+        128 * 1024,
+        1,
+        0,
+        "",
+        '%"sightFrameAttachmentIds"%',
+        200,
+      );
+    const detail = (plan as Array<{ detail: string }>)
+      .map((step) => step.detail)
+      .join("\n");
+
+    expect(detail).toContain("USING INDEX idx_attachments_created_at_id");
+    expect(detail).not.toContain("USE TEMP B-TREE");
+    // `SCAN a` is the whole-table read the index replaces. The subquery's own
+    // steps are SEARCHes on indexes that already existed.
+    expect(detail).not.toMatch(/\bSCAN a\b/);
   });
 
   test("deletes a backup whose base is missing and whose row is gone", async () => {

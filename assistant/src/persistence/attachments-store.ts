@@ -1548,21 +1548,17 @@ export interface SightFrameSweepPage {
  * always starts at the oldest row would hand back the same refusals forever and
  * never reach anything behind them.
  */
-export function selectSightFrameSweepCandidates(options: {
-  createdBefore: number;
-  largerThanBytes: number;
-  limit: number;
-  after?: SightFrameSweepCursor | null;
-}): SightFrameSweepPage {
-  const after = options.after ?? null;
-  const taggedMessageLike = `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`;
-  const rows = rawAll<{
-    id: string;
-    sizeBytes: number;
-    createdAt: number;
-  }>(
-    "attachments:selectSightFrameSweepCandidates",
-    `SELECT
+/**
+ * The candidate page query, hoisted out so a test can put the exact text this
+ * runs through `EXPLAIN QUERY PLAN`. A copy in the test would go stale the first
+ * time the query changed shape, which is precisely when the plan needs checking.
+ *
+ * The bound, the keyset continuation, and the ordering are all carried by
+ * `idx_attachments_created_at_id` (migration 374), so a page is an index-range
+ * continuation rather than a fresh scan and sort of the whole table. `kind` and
+ * `size_bytes` stay residual filters over the rows that range visits.
+ */
+export const SIGHT_FRAME_SWEEP_CANDIDATE_SQL = `SELECT
        a.id AS id,
        a.size_bytes AS sizeBytes,
        a.created_at AS createdAt
@@ -1579,7 +1575,23 @@ export function selectSightFrameSweepCandidates(options: {
            AND m.metadata LIKE ?
        )
      ORDER BY a.created_at ASC, a.id ASC
-     LIMIT ?`,
+     LIMIT ?`;
+
+export function selectSightFrameSweepCandidates(options: {
+  createdBefore: number;
+  largerThanBytes: number;
+  limit: number;
+  after?: SightFrameSweepCursor | null;
+}): SightFrameSweepPage {
+  const after = options.after ?? null;
+  const taggedMessageLike = `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`;
+  const rows = rawAll<{
+    id: string;
+    sizeBytes: number;
+    createdAt: number;
+  }>(
+    "attachments:selectSightFrameSweepCandidates",
+    SIGHT_FRAME_SWEEP_CANDIDATE_SQL,
     options.createdBefore,
     options.largerThanBytes,
     after === null ? null : 1,
