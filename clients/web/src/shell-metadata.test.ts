@@ -36,6 +36,20 @@ const SHELL_INIT = (() => {
   return inline[0]?.textContent ?? "";
 })();
 
+/**
+ * Parses `source` under the Script grammar, the parse goal a `<script>`
+ * element uses, and throws its `SyntaxError` when it does not parse.
+ *
+ * Indirect `eval` is the entry point that supplies that goal, so a top-level
+ * `return` or `new.target` fails here exactly as it does in a browser. The
+ * `if (false)` wrapper makes every statement unreachable, so the source is
+ * parsed and never run: no theme is stamped and no observer is installed.
+ */
+function parseAsScript(source: string): void {
+  const indirectEval = eval;
+  indirectEval(`if (false) {\n${source}\n}`);
+}
+
 function ogTag(property: string): string | null {
   return (
     doc
@@ -145,14 +159,13 @@ describe("SPA shell: boot splash", () => {
     expect(doc.querySelector('script[src*="theme-init"]')).toBeNull();
   });
 
-  // Every other assertion here is a substring check, which a syntactically
-  // broken script still satisfies: a stray fragment pasted into the source
-  // (a commit-message tail, a bad conflict resolution) leaves every expected
-  // string present while the browser throws on load and the whole shell init
-  // never runs. Parsing it is the only assertion that catches that, and the
-  // failure is silent in production because nothing else reads the console.
-  test("the shell init parses as JavaScript", () => {
-    expect(() => new Function(SHELL_INIT)).not.toThrow();
+  // Every other assertion here is a substring check, and a script that does
+  // not parse still contains all of them. The browser answers a syntax error
+  // by running none of the script, which costs the stored theme its stamp
+  // before first paint and the splash its localized label. Both fail
+  // silently, so this assertion is the only one that reports the loss.
+  test("the shell init parses as a browser would parse it", () => {
+    expect(() => parseAsScript(SHELL_INIT)).not.toThrow();
   });
 
   test("its static label is the same string the app's own spinner uses", () => {
