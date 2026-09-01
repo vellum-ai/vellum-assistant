@@ -1436,6 +1436,7 @@
     "addApiKeyTag": "Добавить API-ключ",
     "cancelConnect": "Отменить настройку",
     "changeModel": "Изменить",
+    "changeModelAriaLabel": "Изменить модель, {model}",
     "chooseFromList": "Выбрать из списка",
     "connectedTag": "Подключено",
     "customModelAriaLabel": "Свой ID модели",

@@ -271,6 +271,14 @@ function selectModel(label: string): void {
   clickModelOption(label);
 }
 
+/** The label of the row the open list is marked as set to, if any. */
+function selectedOptionLabel(): string {
+  const chosen = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((option) => option.getAttribute("aria-selected") === "true");
+  return chosen === undefined ? "" : optionLabel(chosen);
+}
+
 /** The provider-first dropdown's trigger, which only the flag-off flow has. */
 function providerTrigger(): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
@@ -568,12 +576,36 @@ describe("the list in the dialog", () => {
     fireEvent.click(getButton("Change"));
 
     expect(pickedModel()).toBeNull();
-    const chosen = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((option) => option.getAttribute("aria-selected") === "true");
-    expect(chosen === undefined ? "" : optionLabel(chosen)).toBe(
-      "Gemini 3.6 Flash",
-    );
+    expect(selectedOptionLabel()).toBe("Gemini 3.6 Flash");
+  });
+
+  test("marks a model it was answered with from behind a fold", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    // Anthropic folds every version past the third away, so the query is the
+    // only way to reach this one.
+    searchModels("Opus 4.8");
+    clickModelOption("Claude Opus 4.8");
+    fireEvent.click(getButton("Change"));
+
+    const rows = sectionRowLabels("Anthropic");
+    expect(rows).toContain("Claude Opus 4.8");
+    expect(selectedOptionLabel()).toBe("Claude Opus 4.8");
+    // The answer is spared the fold, and nothing else is: the rest of the
+    // section is still behind the row that unfolds it.
+    expect(rows).not.toContain("Claude Haiku 4.5");
+    expect(rows).toContain("See more");
+  });
+
+  test("hands focus to the line it stands down to", () => {
+    renderCreate([makeConnection("gemini-key", "gemini")]);
+
+    selectModel("Gemini 3.6 Flash");
+
+    // The search field the pick was made in is gone, so focus has to be put
+    // somewhere: on the document it would restart the Tab walk at the top of
+    // the dialog.
+    expect(document.activeElement).toBe(getButton("Change"));
   });
 
   test("gives way to free text on the custom id, and takes it back", () => {

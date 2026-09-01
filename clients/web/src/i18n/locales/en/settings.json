@@ -1449,6 +1449,7 @@
     "addApiKeyTag": "Add API key",
     "cancelConnect": "Cancel setup",
     "changeModel": "Change",
+    "changeModelAriaLabel": "Change model, {model}",
     "chooseFromList": "Choose from list",
     "connectedTag": "Connected",
     "customModelAriaLabel": "Custom model ID",

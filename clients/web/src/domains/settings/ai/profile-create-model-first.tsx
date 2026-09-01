@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
+import type { OptionListItem } from "@vellumai/design-library/components/option-list";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -12,10 +13,7 @@ import {
   CHATGPT_CONNECTION_PROVIDER,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
-import {
-  ModelFirstModelList,
-  type ModelFirstListRow,
-} from "@/domains/settings/ai/model-first-model-list";
+import { ModelFirstModelList } from "@/domains/settings/ai/model-first-model-list";
 import {
   collapseSectionRows,
   customModelProviderCandidates,
@@ -145,6 +143,22 @@ export function ProfileCreateModelFirst({
   // open, so this is the only state it needs.
   const [browsing, setBrowsing] = useState(false);
 
+  // Answering the Model question unmounts the search field the answer was
+  // given in, and focus does not follow a control that stops existing: it
+  // falls back to the document, and the next Tab restarts at the top of the
+  // dialog. So it is handed on deliberately to the line that takes the list's
+  // place, which is both the first thing after the answer and the way back to
+  // the list.
+  const changeModelRef = useRef<HTMLButtonElement>(null);
+  const focusChangeModel = useRef(false);
+  useLayoutEffect(() => {
+    if (!focusChangeModel.current) {
+      return;
+    }
+    focusChangeModel.current = false;
+    changeModelRef.current?.focus();
+  }, [draft, browsing]);
+
   const [selectedValue, setSelectedValue] = useState(() => {
     if (editor.provider === "") {
       return "";
@@ -255,10 +269,13 @@ export function ProfileCreateModelFirst({
     // height back and the answer stands in its place.
     setBrowsing(false);
     if (value === CUSTOM_MODEL_OPTION_VALUE) {
+      // The free-text field takes the focus itself, being the one control
+      // that still has a question in it.
       editor.setModel("");
       openCandidatesFor({ kind: "custom", modelId: "" });
       return;
     }
+    focusChangeModel.current = true;
     openCandidatesFor({ kind: "catalog", displayName: value });
   }
 
@@ -288,23 +305,28 @@ export function ProfileCreateModelFirst({
     setSetupOpenFor(candidate.value);
   }
 
-  const modelOptions = useMemo<ModelFirstListRow[]>(() => {
-    const rows: ModelFirstListRow[] = [];
+  const modelOptions = useMemo<OptionListItem[]>(() => {
+    const rows: OptionListItem[] = [];
     const modelRow = (
       option: ModelFirstOption,
       group: string,
       state: ModelRowState,
-    ): ModelFirstListRow => ({
+    ): OptionListItem => ({
       value: option.displayName,
       label: option.displayName,
       group,
       folded: state === "folded",
       disclosed: state === "disclosed",
-      meta:
-        option.soleProviderLabel ??
-        t("profileCreateModelFirst.providerCountMeta", {
-          count: option.providerCount,
-        }),
+      suffix: (
+        <PickerMeta
+          text={
+            option.soleProviderLabel ??
+            t("profileCreateModelFirst.providerCountMeta", {
+              count: option.providerCount,
+            })
+          }
+        />
+      ),
     });
     for (const group of groups) {
       const { shown, hidden } = collapseSectionRows(group.options);
@@ -395,8 +417,15 @@ export function ProfileCreateModelFirst({
               {draft.displayName}
             </Typography>
             <Button
+              ref={changeModelRef}
               variant="link"
               size="compact"
+              // Focus lands here the moment the list collapses, so what it
+              // reads out is the model it collapsed to and not the bare word
+              // on the button.
+              aria-label={t("profileCreateModelFirst.changeModelAriaLabel", {
+                model: draft.displayName,
+              })}
               onClick={() => setBrowsing(true)}
             >
               {t("profileCreateModelFirst.changeModel")}
