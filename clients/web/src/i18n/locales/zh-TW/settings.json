@@ -273,7 +273,7 @@
   "autoTopUpPaymentMethodModal": {
     "addSubtitle": "將保留在檔案中，供自動加值和您的專業版方案使用。",
     "addTitle": "新增信用卡",
-    "addressFormLoadError": "無法載入帳單地址表單。請關閉並重新開啟此對話方塊。",
+    "addressFormLoadError": "無法載入帳單地址表單。請再試一次。",
     "cancel": "取消",
     "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
@@ -282,7 +282,8 @@
     "confirmFailed": "無法儲存付款方式。",
     "confirmingWithBank": "正在與您的銀行確認…",
     "declined": "您的銀行拒絕了這張卡。請改用其他卡片，或與銀行聯絡。",
-    "paymentFormLoadError": "無法載入付款表單。請關閉並重新開啟此對話方塊。",
+    "loadingLabel": "正在載入付款欄位",
+    "paymentFormLoadError": "無法載入付款表單。請再試一次。",
     "primaryAdd": "儲存信用卡",
     "primaryReplace": "替換信用卡",
     "primarySubmitting": "正在儲存",

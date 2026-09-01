@@ -261,7 +261,7 @@
   "autoTopUpPaymentMethodModal": {
     "addSubtitle": "Карта сохранится для автопополнения и плана Pro.",
     "addTitle": "Добавить карту",
-    "addressFormLoadError": "Не удалось загрузить форму адреса для оплаты. Закройте окно и откройте его снова.",
+    "addressFormLoadError": "Не удалось загрузить форму адреса для оплаты. Повторите попытку.",
     "cancel": "Отмена",
     "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
@@ -270,7 +270,8 @@
     "confirmFailed": "Не удалось сохранить способ оплаты.",
     "confirmingWithBank": "Подтверждение в банке…",
     "declined": "Банк отклонил эту карту. Попробуйте другую или свяжитесь с банком.",
-    "paymentFormLoadError": "Не удалось загрузить форму оплаты. Закройте окно и откройте его снова.",
+    "loadingLabel": "Загрузка полей оплаты",
+    "paymentFormLoadError": "Не удалось загрузить форму оплаты. Повторите попытку.",
     "primaryAdd": "Сохранить карту",
     "primaryReplace": "Заменить карту",
     "primarySubmitting": "Сохранение",

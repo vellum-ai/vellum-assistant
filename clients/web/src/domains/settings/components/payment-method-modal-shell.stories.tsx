@@ -5,13 +5,16 @@
  * cannot load in Storybook, so the stories pass grey blocks the same height as
  * the Stripe inputs. That keeps the header, card-on-file row, state slot, and
  * footer laid out at the real proportions while the shell stays reviewable
- * without a publishable key.
+ * without a publishable key. The two loading stories are the exception: the
+ * skeleton that covers that boot is our own component, so they render the real
+ * one.
  *
  * Light, dark, and velvet all come from the theme toolbar, so there is no
  * per-theme story.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { FieldSkeletons } from "@/domains/settings/components/field-skeletons";
 import { PaymentMethodModalShell } from "@/domains/settings/components/payment-method-modal-shell";
 
 function FieldPlaceholders() {
@@ -111,5 +114,30 @@ export const SavedFromRedirect: Story = {
     savedCard: { brand: "visa", last4: "1881" },
     autoReloadActive: true,
     headerless: true,
+  },
+};
+
+/**
+ * The wait before any of the above: `FieldSkeletons` is the real component the
+ * modal renders from open until the SetupIntent has landed and both Stripe
+ * iframes report ready, so this story shows the shipped shimmer rather than the
+ * grey stand-ins the other stories use to hold the loaded geometry.
+ */
+export const LoadingFields: Story = {
+  args: {
+    children: <FieldSkeletons />,
+  },
+};
+
+/**
+ * The same wait when a card is already on file: the card row resolves straight
+ * away from config the modal already has, so it sits above fields that are
+ * still booting.
+ */
+export const LoadingFieldsReplace: Story = {
+  args: {
+    mode: "replace",
+    cardOnFile: { brand: "visa", last4: "4242", expMonth: 4, expYear: 2042 },
+    children: <FieldSkeletons />,
   },
 };

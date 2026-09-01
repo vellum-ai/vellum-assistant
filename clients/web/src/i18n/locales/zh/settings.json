@@ -273,7 +273,7 @@
   "autoTopUpPaymentMethodModal": {
     "addSubtitle": "保存后用于自动充值和您的专业版套餐。",
     "addTitle": "添加银行卡",
-    "addressFormLoadError": "未能加载账单地址表单。请关闭并重新打开此对话框。",
+    "addressFormLoadError": "未能加载账单地址表单。请重试。",
     "cancel": "取消",
     "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
@@ -282,7 +282,8 @@
     "confirmFailed": "未能保存付款方式。",
     "confirmingWithBank": "正在与您的银行确认…",
     "declined": "您的银行拒绝了这张卡。请换一张卡，或联系银行。",
-    "paymentFormLoadError": "未能加载付款表单。请关闭并重新打开此对话框。",
+    "loadingLabel": "正在加载付款字段",
+    "paymentFormLoadError": "未能加载付款表单。请重试。",
     "primaryAdd": "保存银行卡",
     "primaryReplace": "替换银行卡",
     "primarySubmitting": "保存中",

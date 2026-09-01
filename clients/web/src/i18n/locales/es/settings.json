@@ -273,7 +273,7 @@
   "autoTopUpPaymentMethodModal": {
     "addSubtitle": "Se guarda para la recarga automática y tu plan Pro.",
     "addTitle": "Añadir una tarjeta",
-    "addressFormLoadError": "No se pudo cargar el formulario de dirección de facturación. Cierra y vuelve a abrir este diálogo.",
+    "addressFormLoadError": "No se pudo cargar el formulario de dirección de facturación. Inténtalo de nuevo.",
     "cancel": "Cancelar",
     "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
@@ -282,7 +282,8 @@
     "confirmFailed": "No se pudo guardar el método de pago.",
     "confirmingWithBank": "Confirmando con tu banco…",
     "declined": "Tu banco rechazó esta tarjeta. Prueba con otra o comunícate con ellos.",
-    "paymentFormLoadError": "No se pudo cargar el formulario de pago. Cierra y vuelve a abrir este diálogo.",
+    "loadingLabel": "Cargando los campos de pago",
+    "paymentFormLoadError": "No se pudo cargar el formulario de pago. Inténtalo de nuevo.",
     "primaryAdd": "Guardar tarjeta",
     "primaryReplace": "Reemplazar tarjeta",
     "primarySubmitting": "Guardando",

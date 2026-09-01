@@ -273,7 +273,7 @@
   "autoTopUpPaymentMethodModal": {
     "addSubtitle": "Kept on file for auto-reload and your Pro plan.",
     "addTitle": "Add a card",
-    "addressFormLoadError": "Failed to load the billing address form. Please close and reopen this dialog.",
+    "addressFormLoadError": "Failed to load the billing address form. Please try again.",
     "cancel": "Cancel",
     "cardOnFile": "{brand} •••• {last4}",
     "cardOnFileExpiry": "· {month} / {year}",
@@ -282,7 +282,8 @@
     "confirmFailed": "Failed to save payment method.",
     "confirmingWithBank": "Confirming with your bank…",
     "declined": "Your bank declined this card. Try another, or contact them.",
-    "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
+    "loadingLabel": "Loading payment fields",
+    "paymentFormLoadError": "Failed to load the payment form. Please try again.",
     "primaryAdd": "Save card",
     "primaryReplace": "Replace card",
     "primarySubmitting": "Saving",
