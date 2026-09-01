@@ -22,6 +22,7 @@
 import type { ReactNode } from "react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
+import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
   GroupActionsMenu,
@@ -29,7 +30,11 @@ import {
 } from "@/domains/chat/components/group-actions-menu";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
-import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
+import {
+  assistantSectionLabel,
+  sectionIcon,
+} from "@/domains/chat/utils/sidebar-section-icon";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
 
 export interface SidebarSectionItemProps {
@@ -76,6 +81,10 @@ export function SidebarSectionItem({
 }: SidebarSectionItemProps) {
   const { conversations, hasMore, loadMore, getAllRows } =
     useSectionConversations(assistantId, section);
+  /* Read here rather than threaded down from the side menu: only one section
+     wants the name, and the same store is what the layout above reads. */
+  const assistantName = useAssistantIdentityStore.use.name();
+  const isAssistantSection = section.type === "assistant";
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -86,11 +95,28 @@ export function SidebarSectionItem({
      One predicate for membership and visibility, or the two drift and this
      recurs at the next section type. */
   const groupMenu = buildGroupMenu(conversations, getAllRows);
+  const label = isAssistantSection
+    ? assistantSectionLabel(assistantName)
+    : section.label;
   return (
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
-      label={section.label}
+      label={label}
+      /* The one section painted in the assistant's own color, so it reads as
+         coming from someone rather than as another bucket. `--avatar-accent`
+         is published on `<html>` by `useAvatarAccentVar` and is *absent* for
+         custom-image and still-loading avatars, so the fallback has to be the
+         surface itself: mixing a percentage of `--surface-lift` into
+         `--surface-lift` is exactly `--surface-lift`, which is what every
+         other card paints. A `transparent` fallback would instead punch a
+         hole in the card. Kept low (7%) because this sits behind
+         conversation rows that still have to read as ordinary rows. */
+      cardClassName={
+        isAssistantSection
+          ? "bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_7%,var(--surface-lift))]"
+          : undefined
+      }
       /* The "…" button and the header's right-click menu both render from
          `groupMenu`. Every section carries it: a section's actions should not
          depend on which kind it is, and Chats and the channels have their own
@@ -107,6 +133,17 @@ export function SidebarSectionItem({
       isLast={isLast}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
+      /* The only section that renders at zero, so the only one with anything
+         to say there. `ConversationNavSection` resolves this as
+         `children ?? <ConversationRowList/>`, so it has to be exactly
+         `undefined` in every other case or a section would lose its rows to
+         an empty node. Passed as a prop rather than as a JSX child for that
+         reason: it keeps the absent case unambiguous. */
+      children={
+        isAssistantSection && conversations.length === 0 ? (
+          <AssistantSectionEmptyState assistantId={assistantId} />
+        ) : undefined
+      }
     />
   );
 }
