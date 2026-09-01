@@ -21,6 +21,9 @@
  * what the model receives is always what is actually on disk.
  */
 
+import { readdirSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+
 import { getConfig } from "../config/loader.js";
 import {
   MAX_SIGHT_SWEEP_AFTER_DAYS,
@@ -30,12 +33,16 @@ import {
 import {
   attachmentShrinkRefusal,
   getAttachmentContent,
+  reclaimAttachmentSweepBackup,
   selectSightFrameSweepCandidates,
   shrinkAttachmentBytes,
   type SightFrameSweepCursor,
+  SWEEP_BACKUP_SUFFIX,
+  SWEEP_TEMP_SUFFIX,
 } from "../persistence/attachments-store.js";
 import { convertImageToJpeg } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
+import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { getDbMigrationReadiness } from "./daemon-readiness.js";
 
 const log = getLogger("sight-frame-storage-sweep");
@@ -83,14 +90,19 @@ const SWEEP_PAGE_SIZE = 200;
 const MAX_ENCODE_ATTEMPTS_PER_PASS = 200;
 
 /**
- * Rows a pass will examine before stopping, whatever it managed to encode.
+ * Rows a pass will READ before stopping, whatever it managed to encode.
  *
- * Refusals are cheap but not free, and the candidate query has no index to ride,
- * so an install whose aged frames are all unrewritable still needs a stop. The
- * cursor below is what makes stopping safe: the next pass resumes here rather
- * than starting over.
+ * Charged against what the queries actually touched, not against the candidates
+ * they yielded. A message that mentions the sight key without naming a given
+ * attachment makes that attachment a prefilter near-miss: it costs a page slot
+ * and a metadata lookup and produces nothing. Counting only candidates would
+ * leave a backlog of those free, so a pass would page and parse the whole
+ * backlog every hour and never notice.
+ *
+ * The cursor below is what makes stopping safe: the next pass resumes where this
+ * one ran out rather than starting over.
  */
-const MAX_ROWS_EXAMINED_PER_PASS = 5_000;
+const MAX_ROWS_READ_PER_PASS = 5_000;
 
 /**
  * Where the last pass stopped, so the next one resumes instead of re-examining
@@ -104,6 +116,26 @@ const MAX_ROWS_EXAMINED_PER_PASS = 5_000;
  * queries once per boot.
  */
 let sweepCursor: SightFrameSweepCursor | null = null;
+
+/**
+ * Conversation directories a pass checks for leftover sweep files.
+ *
+ * The reclaim cannot be driven off the candidate set, which is the whole
+ * problem: a row whose update landed no longer selects, so the pass that shrank
+ * it is the last one that will ever look at it, and a backup left by a process
+ * that died before the unlink would sit there forever. Directories are the only
+ * place a leftover can be found without knowing which row it belonged to, and
+ * they find the ones whose row is gone entirely, which no row-driven probe can.
+ *
+ * Bounded and staged rather than exhaustive. A full walk is a `readdir` per
+ * conversation, and what it is looking for only appears when a process dies
+ * inside a window a few microseconds wide, so 40 directories an hour clears a
+ * few thousand conversations in a couple of days and costs nothing meanwhile.
+ * The staging cursor is in memory, on the same terms as the row cursor above.
+ */
+const MAX_BACKUP_DIRS_PER_PASS = 40;
+
+let backupScanCursor: string | null = null;
 
 /**
  * How often the sweep runs. The window it enforces is measured in days, so an
@@ -152,17 +184,34 @@ export interface SightFrameSweepResult {
   freedBytes: number;
   /** Candidates left alone: shared or foreign file, unreadable, or no smaller. */
   skipped: number;
-  /** Candidate rows this pass looked at, refusals included. */
+  /** Candidates this pass looked at, refusals included. */
   examined: number;
+  /**
+   * Rows this pass's queries read, which is what the row budget is charged
+   * against. Larger than {@link examined} whenever the prefilter admitted an
+   * attachment no linked message actually tags.
+   */
+  rowsRead: number;
+  /** Leftover sweep files this pass reclaimed. */
+  reclaimedBackups: number;
 }
 
 function emptyResult(): SightFrameSweepResult {
-  return { shrunk: 0, freedBytes: 0, skipped: 0, examined: 0 };
+  return {
+    shrunk: 0,
+    freedBytes: 0,
+    skipped: 0,
+    examined: 0,
+    rowsRead: 0,
+    reclaimedBackups: 0,
+  };
 }
 
 export interface SightFrameSweepBounds {
   maxEncodeAttempts?: number;
-  maxRowsExamined?: number;
+  maxRowsRead?: number;
+  maxBackupDirs?: number;
+  pageSize?: number;
 }
 
 /**
@@ -182,7 +231,7 @@ export async function sweepAgedSightFrames(
   }
   const maxEncodeAttempts =
     bounds.maxEncodeAttempts ?? MAX_ENCODE_ATTEMPTS_PER_PASS;
-  const maxRowsExamined = bounds.maxRowsExamined ?? MAX_ROWS_EXAMINED_PER_PASS;
+  const maxRowsRead = bounds.maxRowsRead ?? MAX_ROWS_READ_PER_PASS;
 
   const createdBefore = Date.now() - resolveSightSweepAfterDays() * MS_PER_DAY;
   const result = emptyResult();
@@ -195,13 +244,14 @@ export async function sweepAgedSightFrames(
       page = selectSightFrameSweepCandidates({
         createdBefore,
         largerThanBytes: SWEPT_MAX_BYTES,
-        limit: SWEEP_PAGE_SIZE,
+        limit: bounds.pageSize ?? SWEEP_PAGE_SIZE,
         after: cursor,
       });
     } catch (err) {
       log.warn({ err }, "Could not read aged camera frames");
       break;
     }
+    result.rowsRead += page.rowsRead;
 
     let spentOnThisPage = false;
     for (const candidate of page.candidates) {
@@ -247,9 +297,9 @@ export async function sweepAgedSightFrames(
       break;
     }
 
-    // The whole page was consumed, so step past its tail too: rows the metadata
-    // prefilter matched and the parse rejected are not candidates and would
-    // otherwise be re-read on every pass.
+    // The whole page was consumed, so step past its tail too: attachments the
+    // metadata prefilter admitted and the tag check rejected are not candidates
+    // and would otherwise be re-read on every pass.
     cursor = page.nextCursor ?? cursor;
     if (!page.hasMore) {
       // End of the candidate set. Start the next pass at the head so newly aged
@@ -257,13 +307,20 @@ export async function sweepAgedSightFrames(
       cursor = null;
       break;
     }
-    if (result.examined >= maxRowsExamined) {
+    // Charged against rows READ, so a page that yielded no candidates still
+    // spends the budget it cost. The cursor already names the last attachment
+    // this page examined, so the next pass resumes behind it rather than paying
+    // for the same near-misses again.
+    if (result.rowsRead >= maxRowsRead) {
       break;
     }
   }
 
   sweepCursor = cursor;
-  if (result.shrunk > 0) {
+  result.reclaimedBackups = reclaimSweepLeftovers(
+    bounds.maxBackupDirs ?? MAX_BACKUP_DIRS_PER_PASS,
+  );
+  if (result.shrunk > 0 || result.reclaimedBackups > 0) {
     log.info(result, "Shrank aged camera frames to thumbnail scale");
   }
   return result;
@@ -297,14 +354,94 @@ async function shrinkOneFrame(attachmentId: string): Promise<number | null> {
   return thumbnail.length;
 }
 
+/**
+ * Delete the sweep files a killed process left behind, across a bounded slice of
+ * the store's own attachment directories.
+ *
+ * The staging directory is checked every pass, being one directory; conversation
+ * directories are taken `maxDirs` at a time, resuming by name from where the
+ * last pass stopped and wrapping when the list runs out. Names are stable, so a
+ * conversation created or deleted between passes cannot make the scan skip its
+ * neighbours.
+ *
+ * Whether a backup may go is never this function's call: it hands each one to
+ * {@link reclaimAttachmentSweepBackup}, which keeps the ones a row still needs.
+ * A leftover `.sweep-tmp` needs no such question, being a replacement that never
+ * reached its rename, and this never runs while a shrink is in flight.
+ *
+ * Never throws. Returns how many files it removed.
+ */
+function reclaimSweepLeftovers(maxDirs: number): number {
+  let reclaimed = 0;
+  reclaimed += reclaimLeftoversIn(
+    join(getWorkspaceDir(), "data", "attachments"),
+  );
+
+  const conversationsDir = getConversationsDir();
+  let dirNames: string[];
+  try {
+    dirNames = readdirSync(conversationsDir).sort();
+  } catch {
+    return reclaimed;
+  }
+  const resumeAfter = backupScanCursor;
+  const resumeAt =
+    resumeAfter === null ? 0 : dirNames.findIndex((name) => name > resumeAfter);
+  if (resumeAt === -1) {
+    backupScanCursor = null;
+    return reclaimed;
+  }
+
+  const slice = dirNames.slice(resumeAt, resumeAt + maxDirs);
+  for (const name of slice) {
+    reclaimed += reclaimLeftoversIn(
+      join(conversationsDir, name, "attachments"),
+    );
+  }
+  backupScanCursor =
+    resumeAt + maxDirs >= dirNames.length
+      ? null
+      : (slice[slice.length - 1] ?? null);
+  return reclaimed;
+}
+
+/** One directory's leftovers. Never throws; a directory that is not there has none. */
+function reclaimLeftoversIn(dir: string): number {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let reclaimed = 0;
+  for (const entry of entries) {
+    if (entry.endsWith(SWEEP_BACKUP_SUFFIX)) {
+      if (reclaimAttachmentSweepBackup(join(dir, entry)) === "deleted") {
+        reclaimed += 1;
+      }
+      continue;
+    }
+    if (entry.endsWith(SWEEP_TEMP_SUFFIX)) {
+      try {
+        unlinkSync(join(dir, entry));
+        reclaimed += 1;
+      } catch {
+        /* gone already, or not ours to remove */
+      }
+    }
+  }
+  return reclaimed;
+}
+
 /** The pass cursor, for tests that assert a pass resumed rather than restarted. */
 export function getSightFrameSweepCursorForTest(): SightFrameSweepCursor | null {
   return sweepCursor;
 }
 
-/** Send the next pass back to the head of the candidate set. */
+/** Send the next pass back to the head of the candidate set and the directory scan. */
 export function resetSightFrameSweepCursorForTest(): void {
   sweepCursor = null;
+  backupScanCursor = null;
 }
 
 /** Start the periodic sweep. Idempotent. */

@@ -13,6 +13,7 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -31,8 +32,8 @@ import { getLogger } from "../util/logger.js";
 import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
 import {
+  messageMetadataTagsSightFrame,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
-  sightFrameAttachmentIdsFromMetadata,
 } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
@@ -1501,13 +1502,21 @@ export interface SightFrameSweepCursor {
 export interface SightFrameSweepPage {
   candidates: SightFrameSweepCandidate[];
   /**
-   * Key of the last row the query EXAMINED, which is not always the last
-   * candidate: a row the metadata prefilter matched but the parse rejected has
-   * to be stepped over too, or the next page starts on it again.
+   * Key of the last attachment the page EXAMINED, which is not always the last
+   * candidate: one the prefilter matched and the tag check rejected has to be
+   * stepped over too, or the next page starts on it again.
    */
   nextCursor: SightFrameSweepCursor | null;
-  /** Whether the query filled its page, so more rows may follow. */
+  /** Whether the page filled its limit, so more attachments may follow. */
   hasMore: boolean;
+  /**
+   * Rows the page's queries actually read: the attachments it scanned plus the
+   * linked-message metadata it had to check to tell candidates from prefilter
+   * near-misses. A caller bounding its work per pass charges this rather than
+   * the candidate count, because a backlog of near-misses costs real queries
+   * while producing no candidates at all.
+   */
+  rowsRead: number;
 }
 
 /**
@@ -1520,20 +1529,29 @@ export interface SightFrameSweepPage {
  * because it answers a question about memory. Bytes on disk cost the same
  * whoever was speaking when the camera sampled them.
  *
- * Like the other metadata prefilters, the `LIKE` only narrows: every candidate
- * row is parsed and has to name this attachment before it is returned, so a row
- * that merely mentions the key contributes nothing.
+ * Like the other metadata prefilters, the `LIKE` only narrows: each attachment
+ * the prefilter admits has its linked messages parsed, and it is a candidate
+ * only when one of them actually names it, so a message that merely mentions
+ * the key contributes nothing.
+ *
+ * The prefilter lives inside an `EXISTS` rather than a join, so the page is one
+ * row per ATTACHMENT. A join emits one row per link, and an attachment carried
+ * by several messages would then appear several times under a single
+ * `(created_at, id)` key. A page ending on such a row advances the cursor past
+ * the attachment on the strength of whichever link happened to land last, and
+ * the next page's strict `>` excludes the link that would have qualified it, for
+ * good. A key that names one row is what makes the cursor safe.
  *
  * Age comes from the attachment row's own `created_at`, not the message's. It
  * dates the bytes this row stores, which is what the sweep is bounding: a fork's
  * clone is a second copy written on the day of the fork, however old the frame
  * it depicts.
  *
- * `after` resumes an ascending scan past a row already examined. A caller that
- * cannot act on what it finds (a shared file, a rendering that came out no
- * smaller) has no way to make the row stop matching, so a query that always
- * starts at the oldest row would hand back the same refusals forever and never
- * reach anything behind them.
+ * `after` resumes an ascending scan past an attachment already examined. A
+ * caller that cannot act on what it finds (a shared file, a rendering that came
+ * out no smaller) has no way to make the row stop matching, so a query that
+ * always starts at the oldest row would hand back the same refusals forever and
+ * never reach anything behind them.
  */
 export function selectSightFrameSweepCandidates(options: {
   createdBefore: number;
@@ -1542,64 +1560,147 @@ export function selectSightFrameSweepCandidates(options: {
   after?: SightFrameSweepCursor | null;
 }): SightFrameSweepPage {
   const after = options.after ?? null;
+  const taggedMessageLike = `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`;
   const rows = rawAll<{
     id: string;
     sizeBytes: number;
     createdAt: number;
-    metadata: string | null;
   }>(
     "attachments:selectSightFrameSweepCandidates",
     `SELECT
        a.id AS id,
        a.size_bytes AS sizeBytes,
-       a.created_at AS createdAt,
-       m.metadata AS metadata
+       a.created_at AS createdAt
      FROM attachments a
-     JOIN message_attachments ma ON ma.attachment_id = a.id
-     JOIN messages m ON m.id = ma.message_id
      WHERE a.kind = 'image'
        AND a.created_at < ?
        AND a.size_bytes > ?
-       AND m.metadata LIKE ?
        AND (? IS NULL OR (a.created_at, a.id) > (?, ?))
+       AND EXISTS (
+         SELECT 1
+         FROM message_attachments ma
+         JOIN messages m ON m.id = ma.message_id
+         WHERE ma.attachment_id = a.id
+           AND m.metadata LIKE ?
+       )
      ORDER BY a.created_at ASC, a.id ASC
      LIMIT ?`,
     options.createdBefore,
     options.largerThanBytes,
-    `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`,
     after === null ? null : 1,
     after?.createdAt ?? 0,
     after?.id ?? "",
+    taggedMessageLike,
     options.limit,
   );
 
   const candidates: SightFrameSweepCandidate[] = [];
-  const seen = new Set<string>();
   let nextCursor: SightFrameSweepCursor | null = null;
+  let rowsRead = rows.length;
   for (const row of rows) {
     nextCursor = { createdAt: row.createdAt, id: row.id };
-    if (seen.has(row.id)) {
+    const linked = rawAll<{ metadata: string | null }>(
+      "attachments:sightFrameSweepCandidateTags",
+      `SELECT m.metadata AS metadata
+       FROM message_attachments ma
+       JOIN messages m ON m.id = ma.message_id
+       WHERE ma.attachment_id = ?
+         AND m.metadata LIKE ?`,
+      row.id,
+      taggedMessageLike,
+    );
+    rowsRead += linked.length;
+    const tagged = linked.some((link) =>
+      messageMetadataTagsSightFrame(link.metadata, row.id),
+    );
+    if (!tagged) {
       continue;
     }
-    let tagged: string[];
-    try {
-      tagged = sightFrameAttachmentIdsFromMetadata(
-        JSON.parse(row.metadata ?? "null") as Record<string, unknown> | null,
-      );
-    } catch {
-      continue;
-    }
-    if (!tagged.includes(row.id)) {
-      continue;
-    }
-    seen.add(row.id);
     candidates.push({
       id: row.id,
       sizeBytes: row.sizeBytes,
       createdAt: row.createdAt,
     });
   }
-  return { candidates, nextCursor, hasMore: rows.length === options.limit };
+  return {
+    candidates,
+    nextCursor,
+    hasMore: rows.length === options.limit,
+    rowsRead,
+  };
+}
+
+/**
+ * Sibling of an attachment file holding the bytes a shrink is replacing, until
+ * the row has been updated to describe the replacement. Fixed rather than
+ * random, so one a killed process left behind is reclaimed by the next attempt
+ * on that row rather than accumulating.
+ */
+export const SWEEP_BACKUP_SUFFIX = ".sweep-bak";
+
+/** Sibling a shrink writes its replacement into before renaming it into place. */
+export const SWEEP_TEMP_SUFFIX = ".sweep-tmp";
+
+export type ReclaimBackupResult = "deleted" | "kept" | "failed";
+
+/**
+ * Collect a `.sweep-bak` left behind by a process that died mid-shrink, but only
+ * once the row it belongs to no longer needs it.
+ *
+ * A backup exists exactly between the moment a shrink renames the original aside
+ * and the moment it unlinks it, so which side of the row update the process died
+ * on is what decides whether the bytes are garbage. The row answers that on its
+ * own, by whether it still overstates what is on disk:
+ *
+ *  - NO ROW names the backed-up file. Nothing can ever read it. Garbage.
+ *  - A row OVERSTATES the file in place, so the update never landed. This is the
+ *    crash-convergence state described on {@link shrinkAttachmentBytes}: the row
+ *    still selects, and the next shrink attempt renames over this backup under
+ *    its fixed name. KEEP it, because until that happens it is the only full
+ *    copy of the frame.
+ *  - A row already DESCRIBES the file in place, so the update landed and only
+ *    the unlink was lost. The backup is spent. Garbage.
+ *  - The backed-up file's own base is MISSING, so both renames of a shrink got
+ *    away from it. KEEP: the backup may be the only surviving copy, and
+ *    reclaiming disk is never worth destroying the last one.
+ *
+ * Never call this while a shrink on the same attachment is in flight; the sweep
+ * that drives both runs them in sequence.
+ */
+export function reclaimAttachmentSweepBackup(
+  backupPath: string,
+): ReclaimBackupResult {
+  if (!backupPath.endsWith(SWEEP_BACKUP_SUFFIX)) {
+    return "kept";
+  }
+  const filePath = backupPath.slice(0, -SWEEP_BACKUP_SUFFIX.length);
+  let storedBytes: number;
+  try {
+    storedBytes = statSync(filePath).size;
+  } catch {
+    return "kept";
+  }
+
+  const owners = rawGet<{ rows: number; overstating: number }>(
+    "attachments:sweepBackupOwners",
+    `SELECT
+       COUNT(*) AS rows,
+       COALESCE(SUM(CASE WHEN size_bytes > ? THEN 1 ELSE 0 END), 0) AS overstating
+     FROM attachments
+     WHERE file_path = ?`,
+    storedBytes,
+    filePath,
+  );
+  if (owners && owners.rows > 0 && owners.overstating > 0) {
+    return "kept";
+  }
+
+  try {
+    unlinkSync(backupPath);
+    return "deleted";
+  } catch {
+    return "failed";
+  }
 }
 
 /**
@@ -1698,6 +1799,10 @@ function refusalForRow(row: AttachmentRow): ShrinkAttachmentRefusal | null {
  * so the next pass re-encodes the thumbnail that is actually there, and the
  * not-smaller check compares that against the stale, larger stored size and
  * lets it through. One more pass and the row describes what it stores.
+ *
+ * A process killed in the other window, after the update and before the backup
+ * is unlinked, leaves a full-size backup beside a row that no longer selects.
+ * {@link reclaimAttachmentSweepBackup} is what collects those.
  */
 export function shrinkAttachmentBytes(
   attachmentId: string,
@@ -1739,8 +1844,8 @@ export function shrinkAttachmentBytes(
   }
 
   const filePath = row.filePath;
-  const tmpPath = `${filePath}.sweep-tmp`;
-  const bakPath = `${filePath}.sweep-bak`;
+  const tmpPath = `${filePath}${SWEEP_TEMP_SUFFIX}`;
+  const bakPath = `${filePath}${SWEEP_BACKUP_SUFFIX}`;
   try {
     writeFileSync(tmpPath, bytes);
     renameSync(filePath, bakPath);

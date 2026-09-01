@@ -20,7 +20,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { setDbMigrating, setDbReady } from "../daemon/daemon-readiness.js";
@@ -35,6 +35,7 @@ import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
+  SWEEP_BACKUP_SUFFIX,
   uploadAttachment,
   uploadFileBackedAttachment,
 } from "../persistence/attachments-store.js";
@@ -232,6 +233,50 @@ function storedSizeBytes(attachmentId: string): number {
   return row!.sizeBytes;
 }
 
+/** A pass that found nothing to do and nothing to reclaim. */
+const NOTHING_HAPPENED = {
+  shrunk: 0,
+  freedBytes: 0,
+  skipped: 0,
+  examined: 0,
+  rowsRead: 0,
+  reclaimedBackups: 0,
+};
+
+/**
+ * Attachments the prefilter admits and the tag check rejects: each is linked to
+ * a message that mentions the sight key while naming some other attachment.
+ * They cost a page slot and a metadata lookup apiece and produce no candidate,
+ * which is the population the row budget exists for.
+ */
+async function plantPrefilterNearMisses(count: number): Promise<void> {
+  const conversation = createConversation("Call");
+  const message = await addMessage(conversation.id, "user", "(camera frame)", {
+    skipIndexing: true,
+  });
+  const filePath = join(
+    getConversationsDir(),
+    "2026-01-01T00-00-00.000Z_near-miss",
+    "attachments",
+    "near-miss.jpg",
+  );
+  const createdAt = Date.now() - 30 * DAY_MS;
+  for (let i = 0; i < count; i++) {
+    const id = `near-miss-${String(i).padStart(4, "0")}`;
+    rawRun(
+      "test:plantNearMiss",
+      `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, file_path, created_at)
+       VALUES (?, 'near-miss.jpg', 'image/jpeg', ?, 'image', '', ?, ?)`,
+      id,
+      2 * 1024 * 1024,
+      filePath,
+      createdAt + i,
+    );
+    linkAttachmentWithoutScoping(message.id, id);
+  }
+  tagMessageFrames(message.id, ["names-nobody-here"]);
+}
+
 describe("sweepAgedSightFrames", () => {
   beforeEach(() => {
     resetTables();
@@ -383,12 +428,7 @@ describe("sweepAgedSightFrames", () => {
 
     const result = await sweepAgedSightFrames();
 
-    expect(result).toEqual({
-      shrunk: 0,
-      freedBytes: 0,
-      skipped: 0,
-      examined: 0,
-    });
+    expect(result).toEqual(NOTHING_HAPPENED);
     expect(storedSizeBytes(frame.attachmentId)).toBe(frame.sizeBytes);
   });
 
@@ -404,12 +444,7 @@ describe("sweepAgedSightFrames", () => {
 
     // Nothing is even a candidate the second time: the swept size is what the
     // query bounds on, so an already-shrunk frame is not re-read or re-encoded.
-    expect(second).toEqual({
-      shrunk: 0,
-      freedBytes: 0,
-      skipped: 0,
-      examined: 0,
-    });
+    expect(second).toEqual(NOTHING_HAPPENED);
     expect(storedSizeBytes(frame.attachmentId)).toBe(sweptSize);
     expect(readFileSync(frame.filePath).equals(sweptBytes)).toBe(true);
   });
@@ -509,5 +544,133 @@ describe("sweepAgedSightFrames", () => {
       readFileSync(frame.filePath).length,
     );
     expect(storedSizeBytes(frame.attachmentId)).toBeLessThan(frame.sizeBytes);
+  });
+
+  test("sweeps a frame only its second linked message tags", async () => {
+    // An attachment can hang off several messages, and only one of them need
+    // name it. A page that ended on one of the others used to advance the cursor
+    // past the attachment on that row's say-so, and the next page's strict `>`
+    // then excluded the link that would have qualified it, permanently. The page
+    // is one row per ATTACHMENT now, so no page boundary can fall between an
+    // attachment's own links.
+    const conversation = createConversation("Call");
+    const untagging = await addMessage(
+      conversation.id,
+      "user",
+      "(camera frame)",
+      { skipIndexing: true },
+    );
+    const stored = await attachInlineAttachmentToMessage(
+      untagging.id,
+      0,
+      "sight-frame.jpg",
+      "image/jpeg",
+      await makeFrameJpegBase64(),
+    );
+    // Mentions the key, names somebody else. Linked first, so a page of one
+    // taken from the old join would land on this row.
+    tagMessageFrames(untagging.id, ["names-nobody-here"]);
+
+    const tagging = await addMessage(
+      conversation.id,
+      "user",
+      "(camera frame)",
+      {
+        skipIndexing: true,
+      },
+    );
+    linkAttachmentWithoutScoping(tagging.id, stored.id);
+    tagMessageFrames(tagging.id, [stored.id]);
+    backdateAttachment(stored.id, 30);
+
+    const result = await sweepAgedSightFrames({ pageSize: 1 });
+
+    expect(result.shrunk).toBe(1);
+    expect(storedSizeBytes(stored.id)).toBeLessThan(stored.sizeBytes);
+  });
+
+  test("spends its row budget on prefilter near-misses and stops", async () => {
+    await plantPrefilterNearMisses(60);
+
+    const result = await sweepAgedSightFrames({
+      pageSize: 10,
+      maxRowsRead: 20,
+    });
+
+    // Not one of them is a candidate, so a budget counted in candidates would
+    // never bind and the pass would page the whole backlog every hour.
+    expect(result.examined).toBe(0);
+    expect(result.rowsRead).toBeGreaterThanOrEqual(20);
+    expect(result.rowsRead).toBeLessThan(60);
+    // Stopped part way, with somewhere to resume from rather than a wrap.
+    expect(getSightFrameSweepCursorForTest()).not.toBeNull();
+  });
+
+  test("reclaims a backup whose row already describes the file in place", async () => {
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    await sweepAgedSightFrames();
+    const thumbnail = readFileSync(frame.filePath);
+
+    // What a process killed between the row update and the unlink leaves. The
+    // row reports the thumbnail now, so it never selects again and this pass is
+    // the last one that would ever have looked at it.
+    const orphaned = `${frame.filePath}${SWEEP_BACKUP_SUFFIX}`;
+    writeFileSync(orphaned, Buffer.alloc(frame.sizeBytes, 7));
+
+    // And one whose row is gone entirely, which no row-driven probe would find.
+    const strandedBase = join(
+      getConversationsDir(),
+      "2026-01-01T00-00-00.000Z_stranded",
+      "attachments",
+      "stranded.jpg",
+    );
+    mkdirSync(dirname(strandedBase), { recursive: true });
+    writeFileSync(strandedBase, Buffer.alloc(1024, 3));
+    const stranded = `${strandedBase}${SWEEP_BACKUP_SUFFIX}`;
+    writeFileSync(stranded, Buffer.alloc(4096, 9));
+
+    const result = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
+
+    expect(result.reclaimedBackups).toBe(2);
+    expect(existsSync(orphaned)).toBe(false);
+    expect(existsSync(stranded)).toBe(false);
+    // The frame itself is untouched by the reclaim.
+    expect(readFileSync(frame.filePath).equals(thumbnail)).toBe(true);
+  });
+
+  test("keeps a backup whose row still overstates what is on disk", async () => {
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    await sweepAgedSightFrames();
+    const original = Buffer.alloc(frame.sizeBytes, 7);
+
+    // The other crash window: the rename landed, the row update did not. The
+    // backup is the only full copy left, and the row still selects, so the next
+    // shrink attempt is what reclaims it.
+    const backup = `${frame.filePath}${SWEEP_BACKUP_SUFFIX}`;
+    writeFileSync(backup, original);
+    rawRun(
+      "test:restoreStaleSize",
+      "UPDATE attachments SET size_bytes = ? WHERE id = ?",
+      frame.sizeBytes,
+      frame.attachmentId,
+    );
+
+    // Encode nothing, so the reclaim is the only thing this pass does.
+    const reclaimOnly = await sweepAgedSightFrames({
+      maxEncodeAttempts: 0,
+      maxBackupDirs: 1000,
+    });
+
+    expect(reclaimOnly.reclaimedBackups).toBe(0);
+    expect(existsSync(backup)).toBe(true);
+    expect(readFileSync(backup).equals(original)).toBe(true);
+
+    // Convergence still happens, and takes the backup with it.
+    const converged = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
+    expect(converged.shrunk).toBe(1);
+    expect(storedSizeBytes(frame.attachmentId)).toBe(
+      readFileSync(frame.filePath).length,
+    );
+    expect(existsSync(backup)).toBe(false);
   });
 });
