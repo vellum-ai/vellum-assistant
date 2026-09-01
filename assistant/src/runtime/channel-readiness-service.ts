@@ -348,7 +348,7 @@ const emailProbe: ChannelProbe = {
             name,
             passed: false,
             message:
-              "No inbox address registered. Register one with: assistant email register <username>",
+              "No inbox address registered. Register one with: assistant email register <username>, or configure your own provider (Resend or Mailgun)",
           },
         ];
       case "no_platform":
@@ -357,7 +357,7 @@ const emailProbe: ChannelProbe = {
             name,
             passed: false,
             message:
-              "Platform credentials are not configured, so no managed inbox can be registered. Run: assistant platform connect",
+              "Email is not configured. Connect the platform for a managed inbox (assistant platform connect), or configure your own provider (Resend or Mailgun)",
           },
         ];
       case "unavailable":
