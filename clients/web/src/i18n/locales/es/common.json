@@ -232,22 +232,25 @@
   },
   "discordSetupCreateStep": {
     "inPortal": "En el portal de desarrolladores de Discord:",
-    "stepCreateApp": "Crea una nueva aplicacion.",
-    "stepAppIcon": "Opcional: sube un icono de la app en <strong>General Information</strong>. Descarga abajo el avatar de tu asistente para usarlo.",
-    "stepResetToken": "En la pagina <strong>Bot</strong>, pulsa <strong>Reset Token</strong> y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
-    "stepIntentsOff": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
-    "verificationNote": "Puedes ignorar los avisos de App Verification del portal. Discord solo exige la verificacion para crecer mas alla de 100 servidores, y nada en esta configuracion la necesita.",
+    "stepCreateApp": "Crea una nueva aplicacion. Cualquier nombre sirve.",
+    "stepAppIcon": "Opcional: dale al bot la cara de tu asistente. Descarga el avatar abajo y subelo en <strong>General Information</strong>.",
+    "stepResetToken": "En la pagina <strong>Bot</strong>, pulsa <strong>Reset Token</strong> y copia el token de inmediato. Discord solo lo muestra una vez.",
+    "stepIntentsOff": "Deja apagados los tres interruptores de <strong>Privileged Gateway Intents</strong>. Tu asistente no los necesita: solo lee mensajes directos y mensajes que lo mencionan.",
+    "verificationNoticeTitle": "Ignora la pagina \"Verify your App\"",
+    "verificationNoticeBody": "Discord muestra a cada app nueva una lista de verificacion llena de avisos. Solo importa para bots en mas de 100 servidores, asi que el tuyo no la necesita.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"
   },
   "discordSetupFinishStep": {
     "connectedTitle": "Bot anadido",
-    "connectedBody": "El token del bot esta guardado y el bot ya esta en tu servidor.",
-    "verifyTitle": "Falta un paso: verifica tu identidad",
-    "verifyBody": "Tu cuenta de Discord aun no esta verificada y, por defecto, tu asistente solo responde a contactos de confianza verificados, asi que veria tus menciones pero no las responderia. Di \"verificame en Discord\" en el chat para terminar."
+    "connectedBody": "El token esta guardado y el bot ya esta en tu servidor. La parte de Discord esta lista.",
+    "verifyTitle": "Ultimo paso: confirma que eres tu",
+    "verifyBody": "El bot aun no sabe cual cuenta de Discord es la tuya, asi que no te respondera. Di \"verificame en Discord\" en el chat y tu asistente terminara la configuracion contigo.",
+    "verifiedTitle": "Identidad verificada",
+    "verifiedBody": "El bot conoce tu cuenta de Discord y respondera a tus menciones. Todo listo."
   },
   "discordSetupInviteStep": {
-    "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
+    "instructions": "Tu bot no puede ver ni responder nada hasta que entre en un servidor. Abre el enlace, elige tu servidor y aprueba.",
     "openInvite": "Anadir a un servidor",
     "confirmJoined": "Ya anadi el bot",
     "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."

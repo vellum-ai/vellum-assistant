@@ -37,6 +37,8 @@ mock.module("@/runtime/browser", () => ({
 
 const { DiscordSetupWizard } =
   await import("@/components/discord-setup-wizard");
+const { channelverificationsessionsStatusGetQueryKey } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
 
 const INVITE_URL =
   "https://discord.com/oauth2/authorize?client_id=000000000000000001";
@@ -48,12 +50,17 @@ afterEach(() => {
 
 /**
  * The create step renders `ChannelAvatarDownload`, which reads the avatar
- * raster from the query cache, so these trees need a client.
+ * raster from the query cache, so these trees need a client. Callers that
+ * need cache state (the guardian binding) seed via `prepare`.
  */
-function renderWizard(ui: React.ReactElement) {
+function renderWizard(
+  ui: React.ReactElement,
+  prepare?: (client: QueryClient) => void,
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  prepare?.(client);
   return render(
     <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
   );
@@ -79,7 +86,8 @@ const confirmJoinedButton = () =>
   screen.getByRole("button", { name: /I've added the bot/i });
 const openInviteButton = () =>
   screen.getByRole("button", { name: /Add to a server/i });
-const onFinishStep = () => screen.queryByText(/verify me on Discord/i) !== null;
+const verifyHandoffShown = () =>
+  screen.queryByText(/verify me on Discord/i) !== null;
 
 /** Walk to the invite step the way a user does; there is no prop to jump. */
 function goToInviteStep() {
@@ -94,9 +102,9 @@ describe("DiscordSetupWizard completion handoff", () => {
   test("the create step says the portal's App Verification can be ignored", () => {
     renderWizard(<Harness />);
 
-    // The one line that keeps the portal's "missing 4 criteria" page from
+    // The call-out that keeps the portal's "missing 4 criteria" page from
     // reading as a required step this wizard forgot.
-    expect(screen.queryByText(/App Verification/)).not.toBeNull();
+    expect(screen.queryByText(/Verify your App/)).not.toBeNull();
     expect(screen.queryByText(/100 servers/)).not.toBeNull();
   });
 
@@ -112,7 +120,7 @@ describe("DiscordSetupWizard completion handoff", () => {
       screen.queryByRole("button", { name: /Add to a server/i }),
     ).toBeNull();
     expect(screen.queryByText(/Bot added/i)).not.toBeNull();
-    expect(onFinishStep()).toBe(true);
+    expect(verifyHandoffShown()).toBe(true);
   });
 
   test("opening the invite link opens Discord but does not complete the wizard", () => {
@@ -124,8 +132,30 @@ describe("DiscordSetupWizard completion handoff", () => {
     expect(openedUrls).toEqual([INVITE_URL]);
     // Authorization happens in a Discord popup this app cannot observe, so
     // only the user's own confirmation may complete the flow.
-    expect(onFinishStep()).toBe(false);
+    expect(verifyHandoffShown()).toBe(false);
     expect(confirmJoinedButton()).not.toBeNull();
+  });
+
+  test("an already-verified account is not told to verify again", () => {
+    // Disconnecting Discord clears only the credential, so a reconnecting
+    // guardian can still hold a verified binding. Seeded rather than fetched:
+    // the binding status is read through TanStack Query, and a test owns the
+    // cache.
+    renderWizard(<Harness />, (client) => {
+      client.setQueryData(
+        channelverificationsessionsStatusGetQueryKey({
+          path: { assistant_id: "asst-test" },
+          query: { channel: "discord" },
+        }),
+        { success: true, bound: true },
+      );
+    });
+    goToInviteStep();
+
+    fireEvent.click(confirmJoinedButton());
+
+    expect(screen.queryByText(/You're verified/i)).not.toBeNull();
+    expect(verifyHandoffShown()).toBe(false);
   });
 
   test("without an invite URL there is nothing to confirm", () => {
@@ -136,6 +166,6 @@ describe("DiscordSetupWizard completion handoff", () => {
     expect(
       screen.queryByRole("button", { name: /I've added the bot/i }),
     ).toBeNull();
-    expect(onFinishStep()).toBe(false);
+    expect(verifyHandoffShown()).toBe(false);
   });
 });

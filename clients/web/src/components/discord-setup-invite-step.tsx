@@ -41,7 +41,7 @@ export function DiscordSetupInviteStep({
         {t("discordSetupInviteStep.instructions")}
       </Typography>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="button" onClick={() => onOpenInvite(inviteUrl)}>
           {t("discordSetupInviteStep.openInvite")}
         </Button>

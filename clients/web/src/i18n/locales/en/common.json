@@ -232,22 +232,25 @@
   },
   "discordSetupCreateStep": {
     "inPortal": "In the Discord developer portal:",
-    "stepCreateApp": "Create a new application.",
-    "stepAppIcon": "Optional: upload an app icon on <strong>General Information</strong>. Download your assistant's avatar below to use it.",
-    "stepResetToken": "On the <strong>Bot</strong> page, click <strong>Reset Token</strong> and copy the token straight away: Discord shows it once and there is no way to read it back.",
-    "stepIntentsOff": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
-    "verificationNote": "You can ignore the portal's App Verification prompts. Discord only requires verification to grow past 100 servers, and nothing in this setup needs it.",
+    "stepCreateApp": "Create a new application. Any name works.",
+    "stepAppIcon": "Optional: give the bot your assistant's face. Download the avatar below and upload it on <strong>General Information</strong>.",
+    "stepResetToken": "On the <strong>Bot</strong> page, click <strong>Reset Token</strong> and copy the token right away. Discord only shows it once.",
+    "stepIntentsOff": "Leave all three <strong>Privileged Gateway Intents</strong> switches off. Your assistant doesn't need them: it only reads direct messages and messages that mention it.",
+    "verificationNoticeTitle": "Ignore the \"Verify your App\" page",
+    "verificationNoticeBody": "Discord shows every new app a verification checklist full of warnings. It only matters for bots in more than 100 servers, so yours doesn't need it.",
     "openPortal": "Open Discord portal",
     "continue": "I have my token"
   },
   "discordSetupFinishStep": {
     "connectedTitle": "Bot added",
-    "connectedBody": "Your bot token is saved and the bot is in your server.",
-    "verifyTitle": "One step left: verify your identity",
-    "verifyBody": "Your Discord account is not verified yet, and by default your assistant only answers verified trusted contacts, so it would see your mentions but decline to reply. Say \"verify me on Discord\" in chat to finish."
+    "connectedBody": "The token is saved and the bot is in your server. The Discord side is done.",
+    "verifyTitle": "One last step: verify it's you",
+    "verifyBody": "The bot doesn't know which Discord account is yours yet, so it won't answer you. Say \"verify me on Discord\" in chat and your assistant will finish setup with you.",
+    "verifiedTitle": "You're verified",
+    "verifiedBody": "The bot knows your Discord account, so it will answer your mentions. You're all set."
   },
   "discordSetupInviteStep": {
-    "instructions": "Your bot cannot see anything until it joins a server. This link uses the install settings on your application's Installation page.",
+    "instructions": "Your bot can't see or answer anything until it joins a server. Open the link, pick your server, and approve.",
     "openInvite": "Add to a server",
     "confirmJoined": "I've added the bot",
     "noAppId": "Connect a bot token first, then come back to add it to a server."

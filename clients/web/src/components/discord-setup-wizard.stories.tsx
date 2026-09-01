@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
+import { channelverificationsessionsStatusGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { withAvatar } from "./channel-avatar-story-decorator";
 import { DiscordSetupWizard } from "./discord-setup-wizard";
 
@@ -89,6 +90,31 @@ export const InviteMissingUrl: Story = {
  */
 export const Finish: Story = {
   args: { saveStatus: "success", inviteUrl: INVITE_URL },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /I've added the bot/i }),
+    );
+  },
+};
+
+/**
+ * Step 4 for a guardian whose binding survived a disconnect and reconnect:
+ * already verified, so the handoff warning gives way to a second success.
+ */
+export const FinishVerified: Story = {
+  args: { saveStatus: "success", inviteUrl: INVITE_URL },
+  decorators: [
+    withAvatar(ASSISTANT_ID, true, (client) => {
+      client.setQueryData(
+        channelverificationsessionsStatusGetQueryKey({
+          path: { assistant_id: ASSISTANT_ID },
+          query: { channel: "discord" },
+        }),
+        { success: true, bound: true },
+      );
+    }),
+  ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(

@@ -1,7 +1,7 @@
 import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { ExternalLink } from "lucide-react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Notice, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface DiscordSetupCreateStepProps {
@@ -25,7 +25,7 @@ export interface DiscordSetupCreateStepProps {
  * that mention it.
  *
  * The portal greets a fresh app with a loud App Verification page ("missing
- * 4 criteria"). That gate only applies past 100 servers, so the copy defuses
+ * 4 criteria"). That gate only applies past 100 servers, so a Notice defuses
  * it up front rather than letting it read as a step this wizard forgot.
  */
 export function DiscordSetupCreateStep({
@@ -59,20 +59,24 @@ export function DiscordSetupCreateStep({
             components={{ strong: <strong /> }}
           />
         </li>
-        <li>{t("discordSetupCreateStep.stepIntentsOff")}</li>
+        <li>
+          <Trans
+            i18nKey="discordSetupCreateStep.stepIntentsOff"
+            components={{ strong: <strong /> }}
+          />
+        </li>
       </ol>
+
+      <Notice
+        tone="info"
+        title={t("discordSetupCreateStep.verificationNoticeTitle")}
+      >
+        {t("discordSetupCreateStep.verificationNoticeBody")}
+      </Notice>
 
       <ChannelAvatarDownload assistantId={assistantId} channel="discord" />
 
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-secondary)]"
-      >
-        {t("discordSetupCreateStep.verificationNote")}
-      </Typography>
-
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           variant="primary"

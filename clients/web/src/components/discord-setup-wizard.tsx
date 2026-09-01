@@ -121,7 +121,9 @@ export function DiscordSetupWizard({
         />
       )}
 
-      {stepId === "finish" && <DiscordSetupFinishStep />}
+      {stepId === "finish" && (
+        <DiscordSetupFinishStep assistantId={assistantId} />
+      )}
     </ChannelSetupWizard>
   );
 }

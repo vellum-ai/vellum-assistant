@@ -14,9 +14,14 @@ const AVATAR_DATA_URI =
 /**
  * Story decorator for the channel setup wizards, whose create/token steps
  * render `ChannelAvatarDownload`. Pass `hasAvatar: false` for the state
- * where there is no avatar to offer and the card renders nothing.
+ * where there is no avatar to offer and the card renders nothing. `seed`
+ * stages any further cache state a story needs on the same client.
  */
-export function withAvatar(assistantId: string, hasAvatar: boolean) {
+export function withAvatar(
+  assistantId: string,
+  hasAvatar: boolean,
+  seed?: (client: QueryClient) => void,
+) {
   return function Decorator(Story: () => React.ReactElement) {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -25,6 +30,7 @@ export function withAvatar(assistantId: string, hasAvatar: boolean) {
       avatarRasterQueryKey(assistantId),
       hasAvatar ? AVATAR_DATA_URI : null,
     );
+    seed?.(client);
     return (
       <QueryClientProvider client={client}>
         <Story />

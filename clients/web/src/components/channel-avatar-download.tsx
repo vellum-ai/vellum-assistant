@@ -103,7 +103,7 @@ export function ChannelAvatarDownload({
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-md border border-[color:var(--border-default)] p-3">
+    <div className="flex items-center gap-3">
       <img
         src={imageUrl}
         alt={t("channelAvatarDownload.previewAlt")}
