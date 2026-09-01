@@ -127,6 +127,14 @@ describe("skill_load tool", () => {
     );
   });
 
+  test("description routes Claude Code and Codex mentions to acp", () => {
+    // skill_load is always in the tool list. Naming the agents here is what
+    // makes a mention load ACP instead of treating Claude Code as a competitor.
+    expect(skillLoadTool.description).toContain("Claude Code");
+    expect(skillLoadTool.description).toContain("Codex");
+    expect(skillLoadTool.description).toContain('skill: "acp"');
+  });
+
   test("routes recurring monitoring and reminders to the schedule skill", () => {
     const description = skillLoadTool.description;
     expect(description).toContain('skill: "schedule"');
@@ -397,6 +405,19 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("Skill: App Builder");
     expect(result.content).toContain("Included Skills (immediate): none");
     expect(result.content).toContain('<loaded_skill id="app-builder"');
+  });
+
+  test("bundled acp skill offers a one-time connect when the user names an agent", async () => {
+    const result = await executeSkillLoad({ skill: "acp" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: ACP");
+    expect(result.content).toContain(
+      "When the user names Claude Code or Codex",
+    );
+    expect(result.content).toContain("offer once, in one short sentence");
+    expect(result.content).toContain("Do not spawn unless they accept");
+    expect(result.content).toContain('<loaded_skill id="acp"');
   });
 
   test("bundled phone-calls loads when setup includes are unavailable", async () => {

@@ -38,6 +38,8 @@ import type {
   DictationTranscribeResult,
   DownloadDoneEvent,
   FnPushToTalkResult,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -227,6 +229,13 @@ export interface VellumBridge {
       setVoiceModeChord?(
         activator: VoiceModeChord | null,
       ): Promise<VoiceModeChordRegistrationResult>;
+      /**
+       * Point the hold detector at a modifier set, or clear it with `off`.
+       * Absent on shells whose helper cannot watch the raw keyboard.
+       */
+      setModifierHold?(
+        hold: ModifierHold,
+      ): Promise<ModifierHoldRegistrationResult>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };

@@ -35,6 +35,25 @@ interface InboundEventBase<C extends InboundChannelId> {
   message: {
     content: string;
     conversationExternalId: string;
+    /**
+     * Dedup identity, and the invariant every normalizer owes its channel:
+     * this must name one OCCURRENCE of an event, not one kind of event. Two
+     * distinct acts by the same person differ here; the same act delivered
+     * twice repeats here. Both halves are load-bearing, on both sides of the
+     * handoff: the gateway claims the delivery on
+     * `(sourceChannel, externalChatId, externalMessageId)`
+     * (`db/inbound-dedup-store.ts`) and the daemon records the permanent
+     * event row on the same triple (`recordInbound`), which drops a repeat
+     * before it can write a transcript row or wake a turn.
+     *
+     * Prefer the provider's own per-event id, which is what most channels
+     * have: Telegram `update_id`, Slack `event_id`, a Discord message or
+     * interaction snowflake, an email `Message-ID`. Where the provider names
+     * only the thing acted on and not the act, addressing fields alone (room,
+     * target message, actor, verb) repeat byte for byte on the second
+     * occurrence and dedup it away, so the normalizer supplies a per-event
+     * component of its own. Both reaction families are that case.
+     */
     externalMessageId: string;
     /** The named event family. Producers stamp it on every event; the
      *  flag and sentinel fields below carry each family's payload and

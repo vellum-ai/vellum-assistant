@@ -23,6 +23,17 @@ import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
+import type { SystemPermissionStatus } from "@vellumai/ipc-contract";
+
+import { supportsModifierHold } from "@/runtime/hotkey";
+import {
+  setHoldToDictateEnabled,
+  useHoldToDictateEnabled,
+} from "@/utils/hold-to-dictate";
+import {
+  getSystemPermissionsState,
+  requestSystemPermission,
+} from "@/runtime/system-permissions";
 import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
@@ -118,6 +129,7 @@ export function VoiceSections() {
         <MicrophoneCard />
         <ListeningLanguageCard />
         <VoiceModeShortcutCard />
+        <HoldToDictateCard />
         <ConversationTuningCard />
       </VoiceSection>
 
@@ -125,6 +137,86 @@ export function VoiceSections() {
         <CaptionsCard />
       </VoiceSection>
     </div>
+  );
+}
+
+/**
+ * Hold to dictate, which is the one binding here that reaches outside the app.
+ *
+ * Off until switched on, because arming it costs an Input Monitoring grant: a
+ * feature nobody asked for should not be the reason macOS asks to watch the
+ * keyboard. So the toggle is also where the grant is asked for, which is the
+ * only moment that can ask. A press cannot: noticing the press is the thing
+ * being granted, so a binding with no grant is silent rather than refused, and
+ * a user waiting to be prompted would wait forever.
+ *
+ * Absent on hosts with no helper to watch the raw keyboard, since there is
+ * nothing there to switch on.
+ */
+function HoldToDictateCard() {
+  const { t } = useTranslation("settings");
+  const enabled = useHoldToDictateEnabled();
+  const [inputMonitoring, setInputMonitoring] =
+    useState<SystemPermissionStatus | null>(null);
+
+  const refreshPermission = useCallback(async () => {
+    const state = await getSystemPermissionsState();
+    setInputMonitoring(state?.inputMonitoring.status ?? null);
+  }, []);
+
+  useEffect(() => {
+    void refreshPermission();
+    // The grant is made in System Settings, which sends nothing back. Polling
+    // while the card is on screen is what lets the notice go away by itself
+    // once the user returns, rather than reading stale until the next reload.
+    const timer = setInterval(() => {
+      void refreshPermission();
+    }, 2000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [refreshPermission]);
+
+  if (!supportsModifierHold()) {
+    return null;
+  }
+
+  const granted = inputMonitoring === "granted";
+
+  return (
+    <DetailCard
+      title={t("voicePage.holdToDictateTitle")}
+      subtitle={t("voicePage.holdToDictateSubtitle")}
+    >
+      <div className="flex flex-col gap-4">
+        <Toggle
+          checked={enabled}
+          onChange={(next: boolean) => {
+            setHoldToDictateEnabled(next);
+            // Switching it on is the moment to ask, and the only one: a press
+            // cannot be, since noticing the press is the thing being granted.
+            if (next) {
+              void requestSystemPermission("inputMonitoring").then(
+                refreshPermission,
+              );
+            }
+          }}
+          label={t("voicePage.holdToDictateEnable")}
+        />
+
+        {enabled && !granted && (
+          <span className={labelClasses}>
+            {t("voicePage.holdToDictateNeedsInputMonitoring")}
+          </span>
+        )}
+
+        {enabled && (
+          <span className={labelClasses}>
+            {t("voicePage.holdToDictateVoiceOverNote")}
+          </span>
+        )}
+      </div>
+    </DetailCard>
   );
 }
 

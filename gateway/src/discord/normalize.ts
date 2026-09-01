@@ -194,6 +194,11 @@ export function normalizeDiscordMessageReaction(
   reaction: DiscordMessageReaction,
   options: {
     op: "added" | "removed";
+    /**
+     * Identity of the dispatch that carried this reaction, minted by the
+     * caller at receipt. See the `externalMessageId` note below.
+     */
+    ingestId: string;
     parentChannelId?: string;
     raw: Record<string, unknown>;
   },
@@ -219,14 +224,23 @@ export function normalizeDiscordMessageReaction(
     customEmojiId != null ? `<:${emojiName}:${customEmojiId}>` : emojiName;
   const inThread = options.parentChannelId !== undefined;
   const isDirectMessage = reaction.guild_id === undefined;
-  // The reactor joins the dedup id so two users reacting with the same emoji
-  // on one message stay distinct events, and the op suffix keeps an add and
-  // its removal distinct. A re-add after a removal repeats the add's id and
-  // dedups away downstream, matching the Slack reaction id shape.
+  // The addressing parts (message, emoji, reactor, op) name a reaction, not
+  // one occurrence of one: they repeat byte for byte each time the same person
+  // re-adds the same emoji. `ingestId` separates the occurrences.
+  //
+  // It is minted rather than read off the wire because Discord models a
+  // reaction as membership in a set on the message, not as a document: the
+  // MESSAGE_REACTION_ADD / _REMOVE dispatch carries user_id, channel_id,
+  // message_id, guild_id, emoji, burst and type, with no event id and no
+  // timestamp (`GatewayMessageReactionAddDispatchData` in `discord-api-types`,
+  // cross-checked in `message-schemas.ts`). The dispatch sequence is no
+  // substitute: it is session-scoped and restarts at a fresh IDENTIFY. Minting
+  // once per received dispatch, into the forwarded payload, is what keeps a
+  // retried forward on one id.
   const externalMessageId =
     options.op === "added"
-      ? `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}`
-      : `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}:removed`;
+      ? `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}:${options.ingestId}`
+      : `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}:removed:${options.ingestId}`;
   return {
     version: "v1",
     sourceChannel: "discord",

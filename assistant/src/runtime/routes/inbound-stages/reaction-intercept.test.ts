@@ -70,24 +70,43 @@ mock.module("../../../contacts/contact-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 let recordInboundCalls: Array<{ conversationId?: string }> = [];
-let recordedEvent: { eventId: string; conversationId: string } | null = null;
+// Keyed the way the real `channel_inbound_events` row is keyed, so a test can
+// replay a sequence of events and see which of them the daemon treats as new.
+const inboundStore = new Map<
+  string,
+  { eventId: string; conversationId: string }
+>();
+const inboundKey = (channel: string, chat: string, id: string) =>
+  `${channel}\u0000${chat}\u0000${id}`;
+/** Seed a row so the next delivery of `externalMessageId` reads as a redelivery. */
+function seedRecordedEvent(externalMessageId: string, eventId: string): void {
+  inboundStore.set(inboundKey("slack", SLACK_CHANNEL_ID, externalMessageId), {
+    eventId,
+    conversationId: "conv-target",
+  });
+}
 let outboundTargetConversationId: string | null = null;
 let outboundLookupChannels: string[] = [];
 let storedTarget: { messageId: string; conversationId: string } | null = null;
 mock.module("../../../persistence/delivery-crud.js", () => ({
   recordInbound: (
-    _channel: string,
-    _chat: string,
-    _externalMessageId: string,
+    channel: string,
+    chat: string,
+    externalMessageId: string,
     options?: { conversationId?: string },
   ) => {
     recordInboundCalls.push({ conversationId: options?.conversationId });
-    return {
-      eventId: "evt-1",
+    const key = inboundKey(channel, chat, externalMessageId);
+    const existing = inboundStore.get(key);
+    if (existing) {
+      return { ...existing, accepted: true, duplicate: true };
+    }
+    const row = {
+      eventId: `evt-${inboundStore.size + 1}`,
       conversationId: options?.conversationId ?? "conv-minted",
-      accepted: true,
-      duplicate: false,
     };
+    inboundStore.set(key, row);
+    return { ...row, accepted: true, duplicate: false };
   },
   findMessageBySourceId: () => storedTarget,
   findMessageByProviderMessageId: (sourceChannel: string) => {
@@ -99,7 +118,11 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
         }
       : null;
   },
-  findInboundEvent: () => recordedEvent,
+  findInboundEvent: (
+    channel: string,
+    chat: string,
+    externalMessageId: string,
+  ) => inboundStore.get(inboundKey(channel, chat, externalMessageId)) ?? null,
   clearPayload: () => {},
   storePayload: (eventId: string, payload: Record<string, unknown>) => {
     storedPayloads.push({ eventId, payload });
@@ -204,18 +227,23 @@ function buildParams(overrides: {
   rawSenderId: string;
   trustVerdict?: TrustVerdict;
   op?: "added" | "removed";
+  externalMessageId?: string;
+  sourceChannel?: "slack" | "discord";
 }) {
   msgCounter++;
+  const sourceChannel = overrides.sourceChannel ?? ("slack" as const);
   return {
     reaction: {
       op: overrides.op ?? ("added" as const),
       emoji: "white_check_mark",
       targetMessageId: "1700000000.1",
     },
-    sourceChannel: "slack" as const,
-    sourceInterface: "slack" as const,
+    sourceChannel,
+    sourceInterface: sourceChannel,
     conversationExternalId: SLACK_CHANNEL_ID,
-    externalMessageId: `${SLACK_CHANNEL_ID}:1700000000.1:${msgCounter}`,
+    externalMessageId:
+      overrides.externalMessageId ??
+      `${SLACK_CHANNEL_ID}:1700000000.1:${msgCounter}`,
     rawSenderId: overrides.rawSenderId,
     canonicalSenderId: overrides.rawSenderId,
     actorDisplayName: "Reactor",
@@ -231,7 +259,6 @@ function buildParams(overrides: {
         ? { trustVerdict: overrides.trustVerdict }
         : {}),
     } as never,
-    approvalConversationGenerator: undefined,
   };
 }
 
@@ -242,29 +269,31 @@ function expectDropped(result: Record<string, unknown>): void {
   expect(addMessageCalls).toBe(0);
 }
 
+function resetHarness(): void {
+  ipcCalls = [];
+  guardianDeliveryReads = 0;
+  setMemberVerdictCalls = 0;
+  contactLookups = 0;
+  recordInboundCalls = [];
+  inboundStore.clear();
+  outboundTargetConversationId = null;
+  outboundLookupChannels = [];
+  addMessageCalls = 0;
+  storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
+  // Default target: a user-authored row, so reactions stay passive unless
+  // a test makes the target the assistant's own post.
+  targetRow = {
+    role: "user",
+    content: [{ type: "text", text: "the reacted-to message" }],
+  };
+  dispatchedTurns = [];
+  dispatchThrows = false;
+  storedPayloads.length = 0;
+  markProcessedCalls = 0;
+}
+
 describe("reaction intercept consumes the stamped verdict directly", () => {
-  beforeEach(() => {
-    ipcCalls = [];
-    guardianDeliveryReads = 0;
-    setMemberVerdictCalls = 0;
-    contactLookups = 0;
-    recordInboundCalls = [];
-    recordedEvent = null;
-    outboundTargetConversationId = null;
-    outboundLookupChannels = [];
-    addMessageCalls = 0;
-    storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
-    // Default target: a user-authored row, so reactions stay passive unless
-    // a test makes the target the assistant's own post.
-    targetRow = {
-      role: "user",
-      content: [{ type: "text", text: "the reacted-to message" }],
-    };
-    dispatchedTurns = [];
-    dispatchThrows = false;
-    storedPayloads.length = 0;
-    markProcessedCalls = 0;
-  });
+  beforeEach(resetHarness);
 
   test("a guardian's reaction is a transcript row, not an approval decision", async () => {
     const result = await handleReactionIntercept(
@@ -555,12 +584,14 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   });
 
   test("a redelivered reaction is answered once, before any lookup", async () => {
-    recordedEvent = { eventId: "evt-1", conversationId: "conv-target" };
+    const externalMessageId = `${SLACK_CHANNEL_ID}:1700000000.1:redelivered`;
+    seedRecordedEvent(externalMessageId, "evt-1");
 
     const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: GUARDIAN_VERDICT,
+        externalMessageId,
       }),
     );
 
@@ -629,5 +660,94 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(guardianDeliveryReads).toBe(0);
     expect(setMemberVerdictCalls).toBe(0);
     expect(contactLookups).toBe(0);
+  });
+});
+
+/**
+ * Add, remove, re-add: the sequence whose third event must survive dedup.
+ *
+ * The intercept returns before `persistPassively` on a duplicate, so an id
+ * that repeats across occurrences costs the re-add its transcript row and
+ * leaves the removal as the last recorded state. The ids here are the shapes
+ * the gateway normalizers build (`slack/reaction-normalizer.ts`,
+ * `discord/normalize.ts`), whose per-event component is the trailing segment.
+ */
+describe("a re-added reaction records again", () => {
+  const SLACK_IDS = [
+    `${SLACK_CHANNEL_ID}:1700000000.1:white_check_mark:${MEMBER_USER_ID}:Ev001`,
+    `${SLACK_CHANNEL_ID}:1700000000.1:white_check_mark:${MEMBER_USER_ID}:removed:Ev002`,
+    `${SLACK_CHANNEL_ID}:1700000000.1:white_check_mark:${MEMBER_USER_ID}:Ev003`,
+  ];
+  const DISCORD_IDS = [
+    `1700000000.1:reaction:\u2705:${MEMBER_USER_ID}:dispatch-0`,
+    `1700000000.1:reaction:\u2705:${MEMBER_USER_ID}:removed:dispatch-1`,
+    `1700000000.1:reaction:\u2705:${MEMBER_USER_ID}:dispatch-2`,
+  ];
+
+  beforeEach(resetHarness);
+
+  async function replay(
+    externalMessageIds: string[],
+    ops: Array<"added" | "removed">,
+    sourceChannel: "slack" | "discord" = "slack",
+  ) {
+    const results: Array<Record<string, unknown>> = [];
+    for (const [index, externalMessageId] of externalMessageIds.entries()) {
+      results.push(
+        await handleReactionIntercept(
+          buildParams({
+            rawSenderId: MEMBER_USER_ID,
+            trustVerdict: MEMBER_VERDICT,
+            op: ops[index],
+            externalMessageId,
+            sourceChannel,
+          }),
+        ),
+      );
+    }
+    return results;
+  }
+
+  test("Slack: three events, three transcript rows, none deduped away", async () => {
+    const results = await replay(SLACK_IDS, ["added", "removed", "added"]);
+
+    expect(results.map((result) => result.duplicate)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(inboundStore.size).toBe(3);
+    expect(addMessageCalls).toBe(3);
+  });
+
+  test("Discord: three events, three transcript rows, none deduped away", async () => {
+    const results = await replay(
+      DISCORD_IDS,
+      ["added", "removed", "added"],
+      "discord",
+    );
+
+    expect(results.map((result) => result.duplicate)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(inboundStore.size).toBe(3);
+    expect(addMessageCalls).toBe(3);
+  });
+
+  test("a genuine redelivery of one event still collapses to one", async () => {
+    // What the dedup id is for: the gateway retries a forward with the same
+    // payload, so the same id arrives twice and the second writes nothing.
+    const [first, second] = await replay(
+      [SLACK_IDS[0]!, SLACK_IDS[0]!],
+      ["added", "added"],
+    );
+
+    expect(first!.duplicate).toBe(false);
+    expect(second!.duplicate).toBe(true);
+    expect(second!.eventId).toBe(first!.eventId);
+    expect(inboundStore.size).toBe(1);
+    expect(addMessageCalls).toBe(1);
   });
 });

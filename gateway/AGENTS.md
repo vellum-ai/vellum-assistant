@@ -83,6 +83,7 @@ Gateway inbound events use a channel-discriminated union model (`GatewayInboundE
 
 - **`conversationExternalId`**: Delivery/conversation address (e.g., Telegram chat ID, phone number). Used for conversation binding and message routing. **Not** used for trust classification.
 - **`actorExternalId`**: Sender identity (e.g., Telegram user ID, WhatsApp phone number). Used for trust classification, guardian binding, and ACL enforcement. **Required** for all public channel ingress.
+- **`externalMessageId`**: Dedup identity. It must name one OCCURRENCE of an event, not one kind of event: two distinct acts by the same actor differ here, and the same act delivered twice repeats here. Both halves are load-bearing, because the gateway claims a delivery on `(sourceChannel, externalChatId, externalMessageId)` (`db/inbound-dedup-store.ts`) and the daemon records the permanent event row on the same triple. Prefer the provider's own per-event id (Telegram `update_id`, Slack `event_id`, a Discord snowflake, an email `Message-ID`). Where a provider names only the thing acted on and not the act, as both reaction families do, addressing fields alone (room, target message, actor, verb) repeat byte for byte on the second occurrence and silently dedup it away, so the normalizer must carry a per-event component of its own.
 - **"conversation"** is canonical vocabulary for delivery addresses. "thread" is reserved for provider-specific fields (Slack `thread_ts`, email thread IDs).
 - **"actor"** is canonical vocabulary for sender identity.
 

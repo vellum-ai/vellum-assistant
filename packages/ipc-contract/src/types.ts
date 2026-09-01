@@ -169,19 +169,39 @@ export interface ResolvedHotkey {
 
 export type HotkeyEventState = "down" | "up";
 
-export type VoiceModeChordModifier =
+/** A modifier key a binding can be built from, as the helpers name them. */
+export type KeyboardModifier =
   | "function"
   | "control"
   | "shift"
   | "option"
   | "command";
 
+export type VoiceModeChordModifier = KeyboardModifier;
+
 export type VoiceModeChord =
   | { kind: "off" }
   | { kind: "modifierOnly"; modifiers: VoiceModeChordModifier[] };
 
+/**
+ * Which binding an edge came from, and what a pair of them means.
+ *
+ * `fnPushToTalk` and `voiceModeChord` are completed taps, reported as a
+ * `down`/`up` pair once the keys are already back up: a tap is only known to be
+ * one after it ends, so the pair says "a tap happened" rather than bracketing
+ * anything. Consumers read the `down` and discard the `up`.
+ *
+ * `modifierHold` brackets a hold. `down` arrives while the keys are still down
+ * and `up` when they are not, so the two edges are a span, and something that
+ * has to run for exactly as long as the keys are held can run across it.
+ */
+export type HotkeyEventKind =
+  | "fnPushToTalk"
+  | "voiceModeChord"
+  | "modifierHold";
+
 export interface HotkeyEvent {
-  kind: "fnPushToTalk" | "voiceModeChord";
+  kind: HotkeyEventKind;
   state: HotkeyEventState;
 }
 
@@ -190,6 +210,16 @@ export type FnPushToTalkResult =
   | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
+
+/**
+ * The binding a hold is watched on: every modifier of the set down together,
+ * with nothing else. `off` is a binding the user has cleared.
+ */
+export type ModifierHold =
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+
+export type ModifierHoldRegistrationResult = FnPushToTalkResult;
 
 // ---------------------------------------------------------------------------
 // System permissions
@@ -1154,7 +1184,30 @@ export interface CompanionContext {
    * the truthful reading of silence.
    */
   captureCount?: number;
+  /**
+   * What a dictation started from the keyboard has got to, when one is running.
+   *
+   * The surface is the only thing on screen while the user is dictating into
+   * another app, so it is the only thing that can say a microphone is open.
+   * Published rather than inferred for the reason `working` is: the recording
+   * lives in the window that owns it, and the surface's own window has no view
+   * of it.
+   *
+   * Optional and absent means nothing is being dictated, which is the truthful
+   * reading of a publisher that never mentions it.
+   */
+  dictating?: CompanionDictating;
 }
+
+/**
+ * How far a keyboard dictation has got, in the two states the user can act on.
+ *
+ * `listening` is a microphone that is open, which is the one they can still
+ * change by letting go. `transcribing` is the wait afterwards, which they
+ * cannot, and which exists as its own state because it is the stretch where
+ * nothing else says anything is happening.
+ */
+export type CompanionDictating = "listening" | "transcribing";
 
 /**
  * The feature flag key Teach is behind, as the app's window wrote it into
@@ -1215,6 +1268,8 @@ export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
+  /** See {@link CompanionContext.dictating}. */
+  dictating?: CompanionDictating;
   growth: CompanionGrowth;
   /**
    * Which way the typing card unfurls, and with it where the avatar sits inside

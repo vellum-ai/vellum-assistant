@@ -40,8 +40,14 @@ import {
   stopWatch,
   useWatchStore,
 } from "@/domains/chat/watch/watch-controller";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
-import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
+import { readHoldToDictateEnabled } from "@/utils/hold-to-dictate";
+import type {
+  CompanionContext,
+  CompanionDictating,
+  CompanionTurn,
+} from "@vellumai/ipc-contract";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
@@ -144,6 +150,10 @@ function currentContext(): CompanionContext {
     // count that arrived a push apart from the flag it belongs to would mark a
     // capture against a session the surface has already stopped drawing.
     captureCount: useWatchStore.getState().captureCount,
+    // What a keyboard dictation has got to. Published from here for the reason
+    // `watching` is: the recording runs in this window, and while it runs the
+    // surface is the only thing on screen to say so.
+    dictating: dictatingPhase(),
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
@@ -155,6 +165,28 @@ function currentContext(): CompanionContext {
   };
 }
 
+/**
+ * The dictation the surface should be drawing, or nothing.
+ *
+ * Only a dictation the keyboard started: one begun from a control in the app is
+ * already visible where it was begun, and the surface saying so as well would
+ * be the same fact drawn twice. `processing` is the wait after the keys come
+ * up, which is the stretch with nothing else on screen to explain it.
+ */
+function dictatingPhase(): CompanionDictating | undefined {
+  if (!readHoldToDictateEnabled()) {
+    return undefined;
+  }
+  switch (useVoiceRecordingStore.getState().phase) {
+    case "recording":
+      return "listening";
+    case "processing":
+      return "transcribing";
+    default:
+      return undefined;
+  }
+}
+
 /** Whether two payloads would draw the same card. */
 function sameContext(a: CompanionContext, b: CompanionContext): boolean {
   return (
@@ -163,6 +195,7 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.watching === b.watching &&
     a.watchRetro === b.watchRetro &&
     a.captureCount === b.captureCount &&
+    a.dictating === b.dictating &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
@@ -188,10 +221,15 @@ export function useCompanionMirror(): void {
     // What the last computed context said about the turn, so the subscription
     // below can tell a flip from the store merely being written.
     let working = isWorking();
+    // The same, for the dictation: the store below moves many times a second
+    // while a microphone is open, and only two of those writes change what the
+    // surface draws.
+    let dictating = dictatingPhase();
 
     const sync = (): void => {
       const context = currentContext();
       working = context.working;
+      dictating = context.dictating;
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -239,6 +277,24 @@ export function useCompanionMirror(): void {
     // moves on the stop edge, on the runtime's announcement, and on the user
     // answering, and nothing else here reports any of those.
     const unsubscribeWatchRetro = useWatchRetroStore.subscribe(sync);
+    // The microphone a held key opened. Nothing above reports it: the
+    // recording is this window's, it starts and stops from the keyboard rather
+    // than from anything the conversation knows about, and while it runs the
+    // surface is the only thing on screen saying so.
+    //
+    // Gated on the phase changing rather than on the store being written. It
+    // carries the live audio level and the interim transcript, so it moves
+    // continuously through a recording, and `sync` reselects and remaps the
+    // whole tail on every call.
+    const onDictationMaybeFlipped = (): void => {
+      if (dictatingPhase() === dictating) {
+        return;
+      }
+      sync();
+    };
+    const unsubscribeDictation = useVoiceRecordingStore.subscribe(
+      onDictationMaybeFlipped,
+    );
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published
       // and the surface does not keep a capture indicator over a machine
@@ -255,6 +311,7 @@ export function useCompanionMirror(): void {
       unsubscribeIdentity();
       unsubscribeWatch();
       unsubscribeWatchRetro();
+      unsubscribeDictation();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The tail and the name are left standing:
       // they are a record of what was said, and the surface is still the place

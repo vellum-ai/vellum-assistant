@@ -898,12 +898,20 @@ describe("always-candidate frontmatter parsing", () => {
     // A "configure Claude Code" or "let's do the auth" turn only reaches this
     // skill if the card actually says it covers setup and authentication;
     // delegation-only wording routes those turns to a terminal skill instead.
+    // "names" keeps a mention ("claude code will do it") from falling through
+    // as a competitor reference.
     const { buildSkillContent } =
       await import("../plugins/defaults/memory/substrate/skill-content.js");
     const acp = loadSkillCatalog().find((skill) => skill.id === "acp");
     const card = buildSkillContent(acp!).toLowerCase();
 
-    for (const term of ["set up", "install", "authenticate", "connect"]) {
+    for (const term of [
+      "names",
+      "set up",
+      "install",
+      "authenticate",
+      "connect",
+    ]) {
       expect(card).toContain(term);
     }
   });
