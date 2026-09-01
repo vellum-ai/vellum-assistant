@@ -481,6 +481,8 @@ import { migrateAcpSessionHistoryAuthErrorCode } from "./migrations/370-acp-sess
 import { migrateAcpSessionHistoryAuthErrorCredential } from "./migrations/371-acp-session-history-auth-error-credential.js";
 import { migrateCreateAcpRefusedCredentials } from "./migrations/372-create-acp-refused-credentials.js";
 import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-index.js";
+import { migrateAttachmentsCreatedAtIdIndex } from "./migrations/374-attachments-created-at-id-index.js";
+import { migrateAttachmentsFilePathIndex } from "./migrations/375-attachments-file-path-index.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1596,4 +1598,6 @@ export const migrationSteps: MigrationStep[] = [
   migrateAcpSessionHistoryAuthErrorCredential,
   migrateCreateAcpRefusedCredentials,
   migrateAcpAuthMarkerIndex,
+  migrateAttachmentsCreatedAtIdIndex,
+  migrateAttachmentsFilePathIndex,
 ];

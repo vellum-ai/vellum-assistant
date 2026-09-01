@@ -814,6 +814,7 @@ describe("AssistantConfigSchema", () => {
   test("applies sight defaults", () => {
     expect(AssistantConfigSchema.parse({}).sight).toEqual({
       keepLatestFrames: 2,
+      sweepAfterDays: 7,
     });
   });
 
@@ -841,6 +842,34 @@ describe("AssistantConfigSchema", () => {
     ).toBe(false);
     expect(
       AssistantConfigSchema.safeParse({ sight: { keepLatestFrames: "two" } })
+        .success,
+    ).toBe(false);
+  });
+
+  test("accepts a custom sight.sweepAfterDays", () => {
+    const result = AssistantConfigSchema.parse({
+      sight: { sweepAfterDays: 30 },
+    });
+    expect(result.sight.sweepAfterDays).toBe(30);
+  });
+
+  test("keeps an out-of-range sight.sweepAfterDays for the reader to clamp", () => {
+    // Same policy as keepLatestFrames: the clamp lives at read
+    // (`resolveSightSweepAfterDays`), so an out-of-range window is honored as
+    // far as the guardrail allows instead of silently reverting to the default.
+    const result = AssistantConfigSchema.parse({
+      sight: { sweepAfterDays: 0 },
+    });
+    expect(result.sight.sweepAfterDays).toBe(0);
+  });
+
+  test("rejects a non-integer sight.sweepAfterDays", () => {
+    expect(
+      AssistantConfigSchema.safeParse({ sight: { sweepAfterDays: 1.5 } })
+        .success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({ sight: { sweepAfterDays: "a week" } })
         .success,
     ).toBe(false);
   });

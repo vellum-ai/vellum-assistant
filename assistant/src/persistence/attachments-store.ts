@@ -12,6 +12,8 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -27,8 +29,9 @@ import {
   sniffImageFileMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
+import { messageMetadataTagsSightFrame } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
 import { attachments, messageAttachments } from "./schema.js";
@@ -1421,7 +1424,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
     // destroys another conversation's data, which is what the staging-dir
     // guard in `materializeAttachmentIntoConversation` avoids at the other end
     // of the same window.
-    if (attachmentFilePathStillReferenced(filePath)) {
+    if (attachmentFileIsCanonical(filePath)) {
       continue;
     }
     try {
@@ -1434,13 +1437,615 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   return deletedCount;
 }
 
-/** True while any surviving attachment row still names this file. */
-function attachmentFilePathStillReferenced(filePath: string): boolean {
+/**
+ * The `file_path` questions the shrink and reclaim guards ask, hoisted so a test
+ * can put the exact text through `EXPLAIN QUERY PLAN`. Each is an equality or
+ * `IN` against a bound parameter, which is what lets the partial index in
+ * migration 375 serve them: a null `file_path` satisfies neither.
+ */
+export const ATTACHMENT_FILE_PATH_REFERENCE_SQL = `SELECT COUNT(*) AS refCount FROM attachments WHERE file_path = ?`;
+
+export const ATTACHMENT_SIDECARS_CLAIMED_SQL = `SELECT COUNT(*) AS claimed FROM attachments WHERE file_path IN (?, ?)`;
+
+export const ATTACHMENT_SWEEP_BACKUP_OWNERS_SQL = `SELECT
+       COUNT(*) AS rows,
+       COALESCE(SUM(CASE WHEN size_bytes > ? THEN 1 ELSE 0 END), 0) AS overstating
+     FROM attachments
+     WHERE file_path = ?`;
+
+/** How many attachment rows name this file. */
+function attachmentFilePathReferenceCount(filePath: string): number {
   return (
-    rawGet<{ id: string }>(
-      "attachments:filePathStillReferenced",
-      `SELECT id FROM attachments WHERE file_path = ? LIMIT 1`,
+    rawGet<{ refCount: number }>(
+      "attachments:filePathReferenceCount",
+      ATTACHMENT_FILE_PATH_REFERENCE_SQL,
       filePath,
-    ) !== null
+    )?.refCount ?? 0
   );
+}
+
+/**
+ * True when a file is one the attachment store itself wrote: either a staged
+ * upload or a conversation's own `attachments/` directory.
+ *
+ * `file_path` is not always the store's to rewrite. `uploadFileBackedAttachment`
+ * registers a file by path, and `/attachments/register` accepts any path inside
+ * the workspace, so a row can name a file the user or a tool created and still
+ * owns. Directory identity is the same test
+ * {@link materializeAttachmentIntoConversation} uses to decide whether a file is
+ * already where it belongs.
+ */
+function isStoreOwnedAttachmentFile(filePath: string): boolean {
+  const dir = dirname(filePath);
+  if (dir === join(getWorkspaceDir(), "data", "attachments")) {
+    return true;
+  }
+  return (
+    basename(dir) === "attachments" &&
+    dirname(dirname(dir)) === getConversationsDir()
+  );
+}
+
+export interface SightFrameSweepCandidate {
+  id: string;
+  /** Stored size before the sweep, so a caller can report what it freed. */
+  sizeBytes: number;
+  /**
+   * This row's half of the keyset key. A caller that stops part way through a
+   * page resumes from the candidate it stopped on, not from the page's end.
+   */
+  createdAt: number;
+}
+
+/**
+ * Where a scan of the candidate set stopped. `(created_at, id)` because
+ * `created_at` alone is not unique: frames captured inside the same millisecond
+ * would be skipped or repeated by a cursor that could not tell them apart.
+ */
+export interface SightFrameSweepCursor {
+  createdAt: number;
+  id: string;
+}
+
+export interface SightFrameSweepPage {
+  candidates: SightFrameSweepCandidate[];
+  /**
+   * Key of the last attachment the page VISITED, which is rarely the last
+   * candidate: the page returns every aged attachment in its range, and most of
+   * them are rejected here for not being an image, for already being small, or
+   * for carrying no sight tag. All of them have to be stepped over, or the next
+   * page starts on them again.
+   */
+  nextCursor: SightFrameSweepCursor | null;
+  /** Whether the page filled its limit, so more attachments may follow. */
+  hasMore: boolean;
+  /**
+   * Rows the page's queries read: every attachment it visited, plus the
+   * linked-message metadata it checked for the ones that got that far. The page
+   * visits only what it returns, so this is the true cost of the page and a
+   * caller bounding its work per pass charges this rather than the candidate
+   * count, which says nothing about a range full of rows that qualify for
+   * nothing.
+   */
+  rowsRead: number;
+}
+
+/**
+ * The page query, with `cursorClause` the only thing that varies between the
+ * opening page and a continuation. Everything else is written once, so the two
+ * shapes cannot drift in their select list, ordering, or bounds.
+ *
+ * Deliberately nothing but the index range. `kind`, the size threshold, and the
+ * sight tag are all applied in JS over the rows this returns, because a residual
+ * left in SQL makes `LIMIT` bound rows RETURNED while the walk that produces
+ * them stays unbounded: given a long run of aged rows the residual rejects,
+ * SQLite keeps reading index entries looking for matches it can return. Measured
+ * on 5000 aged non-image rows followed by one image, the residual form read
+ * 5001 index entries to return 1 row, while this form returns exactly the
+ * entries it visits. Every row a page hands back is therefore a row the caller
+ * can charge to its budget, and `LIMIT` bounds the work rather than the yield.
+ *
+ * The cost is more pages on a table where sight frames are a small share of
+ * aged attachments, since a page no longer skips past what it cannot use. The
+ * cursor is what makes that safe: a pass resumes where the last one stopped, so
+ * the extra pages are spread across passes instead of paid all at once.
+ *
+ * Both shapes are hoisted out so a test can put the exact text this runs through
+ * `EXPLAIN QUERY PLAN`. A copy in the test would go stale the first time the
+ * query changed shape, which is precisely when the plan needs checking.
+ */
+function sightFrameSweepPageSql(cursorClause: string): string {
+  return `SELECT
+       a.id AS id,
+       a.size_bytes AS sizeBytes,
+       a.created_at AS createdAt,
+       a.kind AS kind
+     FROM attachments a
+     WHERE a.created_at < ?${cursorClause}
+     ORDER BY a.created_at ASC, a.id ASC
+     LIMIT ?`;
+}
+
+/**
+ * Opening page: the age bound alone, which `idx_attachments_created_at_id`
+ * (migration 374) serves as an index range in cursor order, so there is no sort
+ * step and no row is read that is not returned.
+ */
+export const SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL = sightFrameSweepPageSql("");
+
+/**
+ * Continuation page: a DIRECT tuple comparison against the cursor, deliberately
+ * not wrapped in an `OR` or guarded by a nullable sentinel.
+ *
+ * The predicate has to be one SQLite can turn into the index's lower bound. A
+ * `(? IS NULL OR (a.created_at, a.id) > (?, ?))` shape reads as a plain
+ * expression it cannot, so the plan keeps only `created_at<?`, every
+ * continuation restarts at the oldest eligible entry, and walking a backlog of
+ * pages costs index visits quadratic in the pages walked. Written directly, the
+ * plan becomes `((created_at,id)>(?,?) AND created_at<?)` and a page seeks
+ * straight to where the last one stopped. Two shapes rather than one is the
+ * price of that, which is why they are built from a single fragment above.
+ */
+export const SIGHT_FRAME_SWEEP_CONTINUATION_SQL = sightFrameSweepPageSql(
+  `
+       AND (a.created_at, a.id) > (?, ?)`,
+);
+
+/**
+ * One page of aged attachments, with the sight frames among them picked out.
+ *
+ * The page is an index range over `created_at`; everything that decides whether
+ * a visited row is a candidate happens here, in order of what it costs. `kind`
+ * and the size threshold are read off the returned row. Only what survives both
+ * is worth a metadata probe, and an attachment qualifies when at least one of
+ * the linked messages that probe reads parses to a tag naming it. The parse is
+ * what decides, so a message that merely mentions the key contributes nothing.
+ *
+ * The population is EVERY tagged frame, standalone camera keeps and the frames
+ * that rode a spoken turn alike. That is deliberately wider than
+ * `messageMetadataIsAmbientSightKeep`, which additionally requires `scripted`
+ * because it answers a question about memory. Bytes on disk cost the same
+ * whoever was speaking when the camera sampled them.
+ *
+ * Verification is per attachment rather than per link, which is what keeps the
+ * cursor safe. Asking it of a join would give one row per link, several under a
+ * single `(created_at, id)` key, and a page ending on one of them would advance
+ * the cursor past the attachment on the strength of whichever link landed last,
+ * leaving the link that would have qualified it excluded for good.
+ *
+ * Age comes from the attachment row's own `created_at`, not the message's. It
+ * dates the bytes this row stores, which is what the sweep is bounding: a fork's
+ * clone is a second copy written on the day of the fork, however old the frame
+ * it depicts.
+ *
+ * `after` resumes past an attachment already visited. A caller that cannot act
+ * on what it finds (a shared file, a rendering that came out no smaller) has no
+ * way to make the row stop matching, so a query that always started at the
+ * oldest row would hand back the same refusals forever.
+ */
+/**
+ * How many of a candidate's linked messages the tag check reads.
+ *
+ * A sight frame is linked to essentially one message: the standalone keep row
+ * the camera's gate persisted, or the single spoken turn it rode. Nothing in the
+ * design produces an attachment on hundreds of messages, so a small cap costs a
+ * real frame nothing and stops an attachment with an unusual link count from
+ * turning one candidate into an unbounded read.
+ *
+ * The cap makes this a false NEGATIVE in the pathological case: an attachment
+ * whose sampled links all fail the parse is treated as untagged for this pass.
+ * That is acceptable and bounded. It can only befall a row that is not
+ * keep-shaped to begin with, since a keep's one link names it; the pass moves on
+ * rather than stalling; and the classification is stable rather than random, so
+ * a frame is never half-swept.
+ */
+export const SIGHT_FRAME_TAG_PROBE_LIMIT = 16;
+
+/**
+ * The tag check for one candidate: the messages it hangs off, capped.
+ *
+ * The link filter is the only condition, so `LIMIT` bounds what SQLite VISITS.
+ * Every entry the index yields for this attachment is a row the probe returns,
+ * and the walk stops at the cap. A metadata condition here would make the limit
+ * bound returns instead: an attachment on many ordinary messages would have
+ * every link visited and joined while SQLite hunted for rows it could hand back.
+ * `messageMetadataTagsSightFrame` reads the tag off what comes back, which is
+ * where the decision belongs.
+ *
+ * Unordered, so the cap takes whichever links the index yields first. With one
+ * link in practice there is nothing to order.
+ */
+const SIGHT_FRAME_TAG_PROBE_SQL = `SELECT m.metadata AS metadata
+       FROM message_attachments ma
+       JOIN messages m ON m.id = ma.message_id
+       WHERE ma.attachment_id = ?
+       LIMIT ?`;
+
+export function selectSightFrameSweepCandidates(options: {
+  createdBefore: number;
+  largerThanBytes: number;
+  limit: number;
+  after?: SightFrameSweepCursor | null;
+}): SightFrameSweepPage {
+  const after = options.after ?? null;
+  // Bind order follows clause order, and the cursor clause is the only optional
+  // one, so the limit keeps its position at the tail.
+  const cursorBinds = after === null ? [] : [after.createdAt, after.id];
+  const rows = rawAll<{
+    id: string;
+    sizeBytes: number;
+    createdAt: number;
+    kind: string;
+  }>(
+    after === null
+      ? "attachments:selectSightFrameSweepCandidates:first"
+      : "attachments:selectSightFrameSweepCandidates:continuation",
+    after === null
+      ? SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL
+      : SIGHT_FRAME_SWEEP_CONTINUATION_SQL,
+    options.createdBefore,
+    ...cursorBinds,
+    options.limit,
+  );
+
+  const candidates: SightFrameSweepCandidate[] = [];
+  let nextCursor: SightFrameSweepCursor | null = null;
+  let rowsRead = rows.length;
+  for (const row of rows) {
+    nextCursor = { createdAt: row.createdAt, id: row.id };
+    // Row-local rejections first, and free: they read nothing the page did not
+    // already return, so only a plausible frame ever costs a metadata probe.
+    if (row.kind !== "image" || row.sizeBytes <= options.largerThanBytes) {
+      continue;
+    }
+    const linked = rawAll<{ metadata: string | null }>(
+      "attachments:sightFrameSweepCandidateTags",
+      SIGHT_FRAME_TAG_PROBE_SQL,
+      row.id,
+      SIGHT_FRAME_TAG_PROBE_LIMIT,
+    );
+    rowsRead += linked.length;
+    const tagged = linked.some((link) =>
+      messageMetadataTagsSightFrame(link.metadata, row.id),
+    );
+    if (!tagged) {
+      continue;
+    }
+    candidates.push({
+      id: row.id,
+      sizeBytes: row.sizeBytes,
+      createdAt: row.createdAt,
+    });
+  }
+  return {
+    candidates,
+    nextCursor,
+    hasMore: rows.length === options.limit,
+    rowsRead,
+  };
+}
+
+/**
+ * Sibling of an attachment file holding the bytes a shrink is replacing, until
+ * the row has been updated to describe the replacement. Fixed rather than
+ * random, so one a killed process left behind is reclaimed by the next attempt
+ * on that row rather than accumulating.
+ */
+export const SWEEP_BACKUP_SUFFIX = ".sweep-bak";
+
+/** Sibling a shrink writes its replacement into before renaming it into place. */
+export const SWEEP_TEMP_SUFFIX = ".sweep-tmp";
+
+export type ReclaimBackupResult = "deleted" | "restored" | "kept" | "failed";
+
+/**
+ * True while some attachment row names this exact file as its canonical bytes.
+ *
+ * The suffixes a shrink appends are not reserved. A file the user picked can be
+ * called `holiday.jpg.sweep-bak`, `resolveUniqueFilename` stores it under that
+ * name in the very directory the reclaim scans, and `/attachments/register`
+ * accepts any workspace path at all. So nothing may be deleted for looking like
+ * a sidecar: what settles it is whether a row is pointing at it.
+ */
+export function attachmentFileIsCanonical(filePath: string): boolean {
+  return attachmentFilePathReferenceCount(filePath) > 0;
+}
+
+/**
+ * Deal with a `.sweep-bak` left behind by a process that died mid-shrink.
+ *
+ * A backup exists only between the moment a shrink renames the original aside
+ * and the moment it unlinks it, so where in that window the process died is what
+ * decides the bytes' fate. The rows answer it, in five cases:
+ *
+ *  1. The backup path is ITSELF some row's canonical file, because a filename
+ *     may legitimately end in the suffix. KEEP: this is not a sidecar at all,
+ *     and deleting it would destroy an attachment the transcript still renders.
+ *  2. The base file is MISSING and a row still names it. The crash landed
+ *     between the two renames, so the row points at nothing and
+ *     {@link getAttachmentContent} returns null for good. RESTORE the backup
+ *     over the base: the frame reads again, and its size still exceeds the
+ *     sweep's threshold, so the row stays a candidate and converges normally.
+ *  3. The base file is MISSING and no row names it. The row was deleted while
+ *     its backup was out of place, so nothing can ever read either. Garbage.
+ *  4. A row OVERSTATES the file in place, so the row update never landed. This
+ *     is the crash-convergence state on {@link shrinkAttachmentBytes}: the row
+ *     still selects, and the next shrink attempt renames over this backup under
+ *     its fixed name. KEEP, because until then it is the only full copy.
+ *  5. A row already DESCRIBES the file in place (or no row names it at all), so
+ *     the update landed and only the unlink was lost. The backup is spent.
+ *     Garbage.
+ *
+ * Never call this while a shrink on the same attachment is in flight; the sweep
+ * that drives both runs them in sequence.
+ */
+export function reclaimAttachmentSweepBackup(
+  backupPath: string,
+): ReclaimBackupResult {
+  if (!backupPath.endsWith(SWEEP_BACKUP_SUFFIX)) {
+    return "kept";
+  }
+  if (attachmentFileIsCanonical(backupPath)) {
+    return "kept";
+  }
+  const filePath = backupPath.slice(0, -SWEEP_BACKUP_SUFFIX.length);
+
+  let storedBytes: number | null = null;
+  try {
+    storedBytes = statSync(filePath).size;
+  } catch {
+    storedBytes = null;
+  }
+
+  if (storedBytes === null) {
+    if (!attachmentFileIsCanonical(filePath)) {
+      return deleteSweepLeftover(backupPath);
+    }
+    try {
+      renameSync(backupPath, filePath);
+      return "restored";
+    } catch {
+      return "failed";
+    }
+  }
+
+  const owners = rawGet<{ rows: number; overstating: number }>(
+    "attachments:sweepBackupOwners",
+    ATTACHMENT_SWEEP_BACKUP_OWNERS_SQL,
+    storedBytes,
+    filePath,
+  );
+  if (owners && owners.rows > 0 && owners.overstating > 0) {
+    return "kept";
+  }
+  return deleteSweepLeftover(backupPath);
+}
+
+/**
+ * Remove a file the reclaim has decided is debris, refusing any that a row
+ * claims as its canonical bytes. Callers reach it having already made that
+ * check; it repeats it because deleting an attachment's only copy is the one
+ * mistake this machinery must not be able to make.
+ */
+export function deleteSweepLeftover(path: string): ReclaimBackupResult {
+  if (attachmentFileIsCanonical(path)) {
+    return "kept";
+  }
+  try {
+    unlinkSync(path);
+    return "deleted";
+  } catch {
+    return "failed";
+  }
+}
+
+/**
+ * Why an attachment's bytes are not this store's to rewrite. Every one of these
+ * is decidable from the row alone, before a caller spends anything on producing
+ * a replacement.
+ */
+export type ShrinkAttachmentRefusal =
+  | "not_found"
+  | "no_content"
+  | "shared_file"
+  | "foreign_file"
+  | "sidecar_conflict";
+
+export type ShrinkAttachmentResult =
+  | ShrinkAttachmentRefusal
+  | "shrunk"
+  | "not_smaller"
+  | "write_failed";
+
+/**
+ * The refusals {@link shrinkAttachmentBytes} would answer with, decided without
+ * touching the bytes:
+ *
+ *  - a `file_path` more than one row names. A path is not private to a row (see
+ *    {@link deleteOrphanAttachments}), and rewriting a shared file would rewrite
+ *    the other row's image too. Writing a fresh file and repointing only this
+ *    row would avoid the corruption but strand the original, which nothing
+ *    unlinks until its last row is deleted, so refusing is the option that
+ *    actually bounds storage.
+ *  - a file outside the store's own directories, which may be a file the user
+ *    or a tool still owns.
+ *  - a file whose sidecar names are already some other row's canonical bytes.
+ *    The suffixes are derived, not reserved: a file called `holiday.jpg` and one
+ *    called `holiday.jpg.sweep-bak` can both be real attachments in one
+ *    directory, and shrinking the first would write over the second. Refusing
+ *    costs one frame its shrink; overwriting costs the other its only copy.
+ *  - a row holding neither a file nor inline bytes.
+ *
+ * Exported so a caller that has to PRODUCE the smaller rendering can ask first
+ * and skip the work. The shrink applies the same predicate itself, so the check
+ * is an optimization and never the enforcement.
+ */
+export function attachmentShrinkRefusal(
+  attachmentId: string,
+): ShrinkAttachmentRefusal | null {
+  const row = getAttachmentRow(attachmentId);
+  return row ? refusalForRow(row) : "not_found";
+}
+
+function refusalForRow(row: AttachmentRow): ShrinkAttachmentRefusal | null {
+  if (row.filePath) {
+    if (!isStoreOwnedAttachmentFile(row.filePath)) {
+      return "foreign_file";
+    }
+    if (attachmentFilePathReferenceCount(row.filePath) > 1) {
+      return "shared_file";
+    }
+    if (sweepSidecarsAreClaimed(row.filePath)) {
+      return "sidecar_conflict";
+    }
+    return null;
+  }
+  return row.dataBase64 ? null : "no_content";
+}
+
+/** True when either sidecar name this file would use is another row's canonical file. */
+function sweepSidecarsAreClaimed(filePath: string): boolean {
+  return (
+    (rawGet<{ claimed: number }>(
+      "attachments:sweepSidecarsClaimed",
+      ATTACHMENT_SIDECARS_CLAIMED_SQL,
+      `${filePath}${SWEEP_TEMP_SUFFIX}`,
+      `${filePath}${SWEEP_BACKUP_SUFFIX}`,
+    )?.claimed ?? 0) > 0
+  );
+}
+
+/**
+ * Replace an attachment's stored bytes with a smaller rendering of the same
+ * image, leaving the row, its links, and its message content in place.
+ *
+ * Refuses everything {@link attachmentShrinkRefusal} names, plus bytes that are
+ * not smaller than what is stored, so a rendering that cannot win leaves the
+ * original alone.
+ *
+ * A row still holding its bytes inline is rewritten too, rather than skipped.
+ * That shape is degraded (materialization found nothing readable to copy and
+ * left the staged row as it was), and it is the one shape where the bytes sit in
+ * the database itself, which is the last place an image nobody chose to send
+ * should grow unbounded. Nothing aliases an inline payload the way a file path
+ * can be aliased: a clone copies the string into a row of its own. Its bytes and
+ * their description go into one statement, so there is no window where the row
+ * can disagree with what it holds.
+ *
+ * A file-backed row has no such single statement available, so the order is
+ * chosen for what a failure leaves behind. The original is renamed aside to a
+ * `.sweep-bak` sibling, the replacement is renamed into place, and only then is
+ * the row updated; a throw from that update puts the backup back, so the file
+ * and the row still agree. The backup name is fixed rather than random so that
+ * one left by a killed process is reclaimed by the next attempt on the same row
+ * instead of accumulating. Callers must serialize their calls per attachment;
+ * the sweep that drives this runs one pass at a time.
+ *
+ * NEVER reorder this to update the row first. The window that ordering opens is
+ * the unrecoverable one: a process killed between a DB-first update and the
+ * file rename leaves the row claiming a thumbnail's size while the full-size
+ * file is still there, which puts the row UNDER the size threshold the sweep
+ * selects on, so nothing ever looks at it again and
+ * `/attachments/:id/content` serves that understated size as `Content-Length`
+ * forever.
+ *
+ * The order used here self-heals instead. A process killed after the rename but
+ * before the update leaves a thumbnail on disk under a row still claiming the
+ * original size, which is ABOVE the threshold, so the sweep re-selects the row.
+ * {@link getAttachmentContent} reads the file rather than trusting `sizeBytes`,
+ * so the next pass re-encodes the thumbnail that is actually there, and the
+ * not-smaller check compares that against the stale, larger stored size and
+ * lets it through. One more pass and the row describes what it stores.
+ *
+ * A process killed in the other window, after the update and before the backup
+ * is unlinked, leaves a full-size backup beside a row that no longer selects.
+ * {@link reclaimAttachmentSweepBackup} is what collects those.
+ */
+export function shrinkAttachmentBytes(
+  attachmentId: string,
+  bytes: Uint8Array,
+  mimeType: string,
+): ShrinkAttachmentResult {
+  const row = getAttachmentRow(attachmentId);
+  if (!row) {
+    return "not_found";
+  }
+  const refusal = refusalForRow(row);
+  if (refusal) {
+    return refusal;
+  }
+  if (bytes.length >= row.sizeBytes) {
+    return "not_smaller";
+  }
+
+  const describedBy = {
+    sizeBytes: bytes.length,
+    mimeType,
+    kind: classifyKind(mimeType),
+    originalFilename:
+      mimeType === "image/jpeg" && row.mimeType !== "image/jpeg"
+        ? jpegFilenameFor(row.originalFilename)
+        : row.originalFilename,
+  };
+  const db = getDb();
+
+  if (!row.filePath) {
+    db.update(attachments)
+      .set({
+        ...describedBy,
+        dataBase64: Buffer.from(bytes).toString("base64"),
+      })
+      .where(eq(attachments.id, attachmentId))
+      .run();
+    return "shrunk";
+  }
+
+  const filePath = row.filePath;
+  const tmpPath = `${filePath}${SWEEP_TEMP_SUFFIX}`;
+  const bakPath = `${filePath}${SWEEP_BACKUP_SUFFIX}`;
+  try {
+    writeFileSync(tmpPath, bytes);
+    renameSync(filePath, bakPath);
+    renameSync(tmpPath, filePath);
+  } catch {
+    if (!existsSync(filePath) && existsSync(bakPath)) {
+      try {
+        renameSync(bakPath, filePath);
+      } catch {
+        /* the backup is the original, still readable under its own name */
+      }
+    }
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* nothing was written */
+    }
+    return "write_failed";
+  }
+
+  try {
+    db.update(attachments)
+      .set(describedBy)
+      .where(eq(attachments.id, attachmentId))
+      .run();
+  } catch (err) {
+    let restoreErr: unknown;
+    try {
+      renameSync(bakPath, filePath);
+    } catch (caught) {
+      restoreErr = caught;
+    }
+    getLogger("attachments-store").warn(
+      { err, restoreErr, attachmentId },
+      "Could not record a shrunk attachment's new size; restored its original bytes",
+    );
+    return "write_failed";
+  }
+
+  try {
+    unlinkSync(bakPath);
+  } catch {
+    /* reclaimed by the next attempt on this row */
+  }
+  return "shrunk";
 }

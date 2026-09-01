@@ -31,6 +31,10 @@ import {
   isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
+import {
+  startSightFrameStorageSweep,
+  stopSightFrameStorageSweep,
+} from "../daemon/sight-frame-storage-sweep.js";
 import { makeAddrInUseError } from "../daemon/startup-error.js";
 import {
   createLiveVoiceConnection,
@@ -631,11 +635,19 @@ export class RuntimeHttpServer {
     // and its id returns intact when the plugin is re-enabled.
     startAppPinReconcileSweep();
     log.info("App pin reconcile sweep started");
+
+    // Shrink camera frames past the configured window to thumbnail scale, so a
+    // call that sampled the camera for an hour stops costing the disk its full
+    // resolution forever. Checks readiness itself as well, since its passes are
+    // spaced hours apart and outlive whatever state startup was in.
+    startSightFrameStorageSweep();
+    log.info("Camera frame storage sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopAppPinReconcileSweep();
+    stopSightFrameStorageSweep();
     stopInferenceProfileSessionReaper();
     stopTelegramWebhookHealthSweep();
     stopPluginScheduleReconcileSweep();

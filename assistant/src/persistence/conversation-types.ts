@@ -295,6 +295,34 @@ export function sightFrameAttachmentIdsFromMetadata(
 }
 
 /**
+ * True when a stored `messages.metadata` column tags this particular
+ * attachment as an ambient camera frame.
+ *
+ * The raw-column counterpart to {@link sightFrameAttachmentIdsFromMetadata},
+ * for consumers holding the JSON string a row was written with rather than a
+ * parsed bag. The storage sweep asks it of each message linked to a candidate
+ * attachment, because the SQL prefilter it uses to find candidates can only ask
+ * whether a message mentions the key at all, never which ids it names.
+ *
+ * Unparseable metadata tags nothing. The sweep uses this to decide what it may
+ * rewrite, so a marking that cannot be read has to read as absent.
+ */
+export function messageMetadataTagsSightFrame(
+  metadata: string | null,
+  attachmentId: string,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return sightFrameAttachmentIdsFromMetadata(parsed).includes(attachmentId);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when a stored `messages.metadata` column belongs to a standalone
  * ambient camera keep: a row the call's own gate sampled, which no one spoke.
  *
