@@ -524,6 +524,61 @@ export interface LatestInboundEventReference {
 }
 
 /**
+ * Display name of the external chat a conversation's channel rows report,
+ * from the newest row that carries one. The name is frozen at ingress into
+ * each row's provider metadata, so this is a pure local read: no provider
+ * API call, and a rename converges on the next inbound message. Null when
+ * no row names the chat (DMs, providers without names, pre-capture rows).
+ *
+ * Reads a fixed window of the conversation's newest rows through the
+ * conversation index (backward index scan supplies the rowid order, the
+ * same trick `getLatestInboundEventReference` documents), then parses in
+ * code: no LIKE against the serialized metadata, whose nested escaping
+ * a substring pattern is easy to get wrong. Every channel inbound row
+ * carries the name, so a name deeper than the window only hides behind
+ * a tail of pure assistant/local traffic and reads as absent, which
+ * degrades to the raw-id label.
+ */
+const CONVERSATION_NAME_SCAN_WINDOW = 50;
+
+export function getLatestExternalConversationName(
+  conversationId: string,
+  sourceChannel: string,
+  externalChatId?: string,
+): string | null {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        isNotNull(messages.metadata),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(CONVERSATION_NAME_SCAN_WINDOW)
+    .all();
+  for (const row of rows) {
+    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
+    if (meta?.source !== sourceChannel) {
+      continue;
+    }
+    // A conversation's rows normally all belong to one external chat, but
+    // the name must never come from a different chat than the caller is
+    // labeling (e.g. rows written before a rebind).
+    if (externalChatId && meta.conversationExternalId !== externalChatId) {
+      continue;
+    }
+    const name = meta.conversationName?.trim();
+    if (name) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
  * Find the most recent inbound event for a conversation on a channel.
  * Used to anchor guardian-facing approval cards to the channel message
  * that triggered the request.

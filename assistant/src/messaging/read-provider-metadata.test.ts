@@ -53,6 +53,16 @@ describe("readProviderMetadata", () => {
     expect(meta?.displayName).toBe("Jason");
   });
 
+  it("maps slackMeta.channelName to the neutral conversationName", () => {
+    const metadata = JSON.stringify({
+      slackMeta: JSON.stringify(slackRow({ channelName: "user-feedback" })),
+    });
+
+    expect(readProviderMetadata(metadata)?.conversationName).toBe(
+      "user-feedback",
+    );
+  });
+
   it("maps a reaction's target onto the neutral name", () => {
     const metadata = JSON.stringify({
       slackMeta: JSON.stringify(

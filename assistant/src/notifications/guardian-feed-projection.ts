@@ -42,10 +42,12 @@ import {
 import { getLogger } from "../util/logger.js";
 import {
   buildToolApprovalSourceView,
+  describeSlackChatLabel,
   type GuardianQuestionRequestKind,
   LenientToolApprovalPayloadSchema,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
+  type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationDeliveryResult } from "./types.js";
@@ -177,18 +179,14 @@ function intentFromInstructionMode(
 }
 
 /**
- * Display label for the originating chat, mirroring the wording the
- * in-app approval card's source row uses (`sourceMetadataRow` in
- * `approval-card-data.ts`): Slack chats are named, other channels fall
- * back to the channel id.
+ * Display label for the originating chat: the bare chat label from the
+ * shared derivation (the bell's context line joins it with the tool, so
+ * the channel word would be noise), or the channel id for channels the
+ * view carries no chat facts for.
  */
-function describeApprovalSourceContext(view: {
-  channel: string;
-  chatId?: string | null;
-  isSlackDm: boolean;
-}): string {
-  if (view.channel === "slack" && view.chatId) {
-    return view.isSlackDm ? "Slack direct message" : `Slack #${view.chatId}`;
+function describeApprovalSourceContext(view: ToolApprovalSourceView): string {
+  if (view.channel === "slack") {
+    return describeSlackChatLabel(view) || view.channel;
   }
   return view.channel;
 }
