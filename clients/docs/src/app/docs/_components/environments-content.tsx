@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
@@ -13,7 +14,6 @@ const TOC_ITEMS = [
   { id: "local", label: "Local", level: 2 },
   { id: "user-hosted", label: "User Hosted", level: 2 },
   { id: "gcp", label: "GCP", level: 3 },
-  { id: "aws", label: "AWS", level: 3 },
   { id: "custom", label: "Custom", level: 3 },
   { id: "choosing-an-environment", label: "Choosing an Environment", level: 2 },
 ];
@@ -31,23 +31,22 @@ export function EnvironmentsContent() {
             assistants run in <strong>Vellum Cloud</strong>, our managed
             platform, so you can sign up and go without managing any
             infrastructure. If you&apos;d rather host the runtime yourself, you
-            can run it locally on your Mac or deploy it to your own GCP, AWS, or
-            custom Linux host. The environment you select affects latency,
+            can run it locally on your Mac or deploy it to your own GCP project
+            or custom Linux host. The environment you select affects latency,
             availability, resource limits, and how much control you have over
             the underlying infrastructure.
           </p>
           <p className="mb-6 text-stone-600 dark:text-stone-400">
-            For self-hosted runtimes, you can specify the environment during
-            hatch using the{" "}
+            The{" "}
             <code className="rounded bg-stone-100 px-1.5 py-0.5 font-[family-name:var(--font-dm-mono)] text-sm dark:bg-moss-700">
               --remote
             </code>{" "}
-            flag:
+            flag picks where a hatch runs:
           </p>
-          <div className="mb-6 overflow-x-auto rounded-xl border border-stone-200 bg-moss-950 p-4 dark:border-moss-600/50">
-            <code className="font-[family-name:var(--font-dm-mono)] text-sm text-stone-100">
-              vellum hatch --remote &lt;local | gcp | aws | custom&gt;
-            </code>
+          <div className="mb-6 overflow-x-auto">
+            <pre className="font-[family-name:var(--font-dm-mono)] text-sm">
+<code>{`vellum hatch --remote <local | docker | vellum>`}</code>
+            </pre>
           </div>
         </section>
 
@@ -118,10 +117,10 @@ export function EnvironmentsContent() {
             Useful for development, testing, and privacy-sensitive use cases
             where you want everything on hardware you own.
           </p>
-          <div className="mb-4 overflow-x-auto rounded-xl border border-stone-200 bg-moss-950 p-4 dark:border-moss-600/50">
-            <code className="font-[family-name:var(--font-dm-mono)] text-sm text-stone-100">
-              vellum hatch
-            </code>
+          <div className="mb-4 overflow-x-auto">
+            <pre className="font-[family-name:var(--font-dm-mono)] text-sm">
+<code>{`vellum hatch`}</code>
+            </pre>
           </div>
           <p className="mb-6 text-stone-600 dark:text-stone-400">
             When running locally, the assistant daemon and gateway both start on
@@ -157,8 +156,8 @@ export function EnvironmentsContent() {
             Run the assistant on infrastructure you control. This is useful when
             you need the assistant to stay running independently of your local
             machine, when you need more compute resources, or when you have
-            specific compliance requirements. Three hosting options are
-            supported:
+            specific compliance requirements. You create the machine, install
+            Vellum on it, and hatch there.
           </p>
 
           <div id="gcp" className="mb-8">
@@ -166,47 +165,13 @@ export function EnvironmentsContent() {
               GCP
             </SectionHeading>
             <p className="mb-4 text-stone-600 dark:text-stone-400">
-              Provisions a Google Cloud Compute Engine VM and bootstraps the
-              assistant runtime on it.
-            </p>
-            <div className="mb-4 overflow-x-auto rounded-xl border border-stone-200 bg-moss-950 p-4 dark:border-moss-600/50">
-              <code className="font-[family-name:var(--font-dm-mono)] text-sm text-stone-100">
-                vellum hatch --remote gcp
-              </code>
-            </div>
-            <p className="mb-4 text-stone-600 dark:text-stone-400">
-              Requires{" "}
-              <code className="rounded bg-stone-100 px-1.5 py-0.5 font-[family-name:var(--font-dm-mono)] text-sm dark:bg-moss-700">
-                gcloud
-              </code>{" "}
-              authentication and the{" "}
-              <code className="rounded bg-stone-100 px-1.5 py-0.5 font-[family-name:var(--font-dm-mono)] text-sm dark:bg-moss-700">
-                GCP_PROJECT
-              </code>{" "}
-              and{" "}
-              <code className="rounded bg-stone-100 px-1.5 py-0.5 font-[family-name:var(--font-dm-mono)] text-sm dark:bg-moss-700">
-                GCP_DEFAULT_ZONE
-              </code>{" "}
-              environment variables.
-            </p>
-          </div>
-
-          <div id="aws" className="mb-8">
-            <SectionHeading id="aws" level={3}>
-              AWS
-            </SectionHeading>
-            <p className="mb-4 text-stone-600 dark:text-stone-400">
-              Provisions an AWS EC2 instance and bootstraps the assistant
-              runtime on it.
-            </p>
-            <div className="mb-4 overflow-x-auto rounded-xl border border-stone-200 bg-moss-950 p-4 dark:border-moss-600/50">
-              <code className="font-[family-name:var(--font-dm-mono)] text-sm text-stone-100">
-                vellum hatch --remote aws
-              </code>
-            </div>
-            <p className="mb-4 text-stone-600 dark:text-stone-400">
-              Requires AWS credentials configured via the standard AWS CLI
-              authentication flow.
+              A Compute Engine VM running the assistant runtime, in a project
+              you own.{" "}
+              <Link href="/docs/hosting-options/gcp" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+                GCP
+              </Link>{" "}
+              walks through provisioning the VM, installing Vellum, and reaching
+              the assistant from your other devices.
             </p>
           </div>
 
@@ -215,17 +180,12 @@ export function EnvironmentsContent() {
               Custom
             </SectionHeading>
             <p className="mb-4 text-stone-600 dark:text-stone-400">
-              Deploy the assistant to any machine you can SSH into. Set the{" "}
+              Any machine you can SSH into. Install Vellum on it and run{" "}
               <code className="rounded bg-stone-100 px-1.5 py-0.5 font-[family-name:var(--font-dm-mono)] text-sm dark:bg-moss-700">
-                VELLUM_CUSTOM_HOST
+                vellum hatch
               </code>{" "}
-              environment variable to your target host.
+              there, the same as on a cloud VM.
             </p>
-            <div className="mb-4 overflow-x-auto rounded-xl border border-stone-200 bg-moss-950 p-4 dark:border-moss-600/50">
-              <code className="font-[family-name:var(--font-dm-mono)] text-sm text-stone-100">
-                VELLUM_CUSTOM_HOST=user@hostname vellum hatch --remote custom
-              </code>
-            </div>
             <p className="mb-6 text-stone-600 dark:text-stone-400">
               This option gives you full flexibility. Use any Linux machine
               (on-premises, a VPS, or a VM from any cloud provider) as the
@@ -280,15 +240,6 @@ export function EnvironmentsContent() {
                     Always-on assistant on your own infrastructure
                   </td>
                   <td className="py-3">GCP account, gcloud CLI</td>
-                </tr>
-                <tr>
-                  <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">
-                    AWS
-                  </td>
-                  <td className="py-3 pr-4">
-                    Always-on assistant, AWS-native teams
-                  </td>
-                  <td className="py-3">AWS account, AWS CLI</td>
                 </tr>
                 <tr>
                   <td className="py-3 pr-4 font-medium text-stone-900 dark:text-stone-100">

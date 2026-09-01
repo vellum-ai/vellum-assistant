@@ -18,9 +18,12 @@
     "background": "Segundo plano",
     "system": "Sistema",
     "guardianAction": "Acción del guardián requerida",
-    "guardianQuestion": "Pregunta del guardián"
+    "guardianQuestion": "Pregunta del guardián",
+    "guardianRequest": "Solicitud del guardián"
   },
-  "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
+  "homeRecapRow": {
+    "actionsTitle": "Acciones de la actualización"
+  },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
     "status": {
@@ -39,27 +42,26 @@
     "loadFailed": "No se pudieron cargar las notificaciones.",
     "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
   },
-  "notificationsBellDetail": { "back": "Volver a las notificaciones" },
+  "notificationsBellDetail": {
+    "back": "Volver a las notificaciones"
+  },
   "homeGuardianRequestCard": {
-    "requester": "Solicitado por",
-    "source": "Origen",
     "approve": "Aprobar",
     "reject": "Rechazar",
-    "answerHint": "Responde esta pregunta desde la conversación de origen.",
-    "viewSourceMessage": "Ver mensaje",
-    "openInSlack": "Abrir en Slack",
-    "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
+    "answerHint": "Ve a la conversación para responder esta pregunta.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
     "receipt": {
-      "approved": "Aprobada",
-      "approvedBy": "Aprobada por {name}",
-      "rejected": "Rechazada",
-      "rejectedBy": "Rechazada por {name}",
-      "expired": "Caducada",
-      "superseded": "Reemplazada",
-      "cancelled": "Cancelada",
-      "leftUnverified": "Sin verificar"
-    }
+      "approved": "Solicitud aprobada",
+      "rejected": "Solicitud rechazada",
+      "expired": "Solicitud vencida",
+      "superseded": "Solicitud reemplazada",
+      "leftUnverified": "Sin verificar",
+      "cancelled": "Solicitud cancelada",
+      "alreadyResolved": "Ya resuelta"
+    },
+    "viewSourceThread": "Ver hilo de origen",
+    "toolRequested": "Solicitó ejecutar <code>{toolName}</code>",
+    "toolRequesting": "Solicita ejecutar <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",

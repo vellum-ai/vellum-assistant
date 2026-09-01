@@ -5,7 +5,15 @@
  * layout-mounted controller — plus the session-ownership predicates.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
@@ -45,6 +53,24 @@ beforeEach(() => {
     .getState()
     .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
 });
+
+afterEach(() => {
+  setSystemTime();
+});
+
+/**
+ * Park the clock and hand back the instant it now reads.
+ *
+ * The deadlines below are derived from a `Date.now()` the store reads for
+ * itself, so a case that asserts one exactly has to agree with the store on
+ * what "now" is. Parking the clock is that agreement: without it the two reads
+ * straddle a millisecond boundary often enough to fail.
+ */
+function atAParkedClock(): number {
+  const at = Date.now();
+  setSystemTime(new Date(at));
+  return at;
+}
 
 function makeStarter() {
   return {
@@ -843,7 +869,7 @@ describe("sight frame refusals", () => {
     attachLiveVoiceImage("photo-2", generation);
     attachLiveVoiceImage("photo-3", generation);
     sendLiveVoiceSightFrame("att-1", generation);
-    const at = Date.now();
+    const at = atAParkedClock();
 
     useLiveVoiceStore.getState().reset();
 
@@ -855,7 +881,7 @@ describe("sight frame refusals", () => {
   test("a shorter queue yields a shorter deadline", () => {
     const { generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);
-    const at = Date.now();
+    const at = atAParkedClock();
 
     useLiveVoiceStore.getState().reset();
 
@@ -873,7 +899,7 @@ describe("sight frame refusals", () => {
       attachLiveVoiceImage(`photo-${i}`, generation);
     }
     sendLiveVoiceSightFrame("att-1", generation);
-    const at = Date.now();
+    const at = atAParkedClock();
 
     useLiveVoiceStore.getState().reset();
 
@@ -962,7 +988,7 @@ describe("sight frame refusals", () => {
     attachLiveVoiceImage("photo-1", generation);
     useLiveVoiceStore.getState().notePhotoRejected("failed");
     sendLiveVoiceSightFrame("att-1", generation);
-    const at = Date.now();
+    const at = atAParkedClock();
 
     useLiveVoiceStore.getState().reset();
 

@@ -1631,7 +1631,7 @@
     "customTag": "Свой",
     "customTagTitle": "Созданный провайдер на endpoint, совместимом с OpenAI.",
     "defaultTag": "По умолчанию",
-    "defaultTagTitle": "Встроенные профили (Balanced, Quality, Cost, Speed) используют этого провайдера.",
+    "defaultTagTitle": "Встроенные профили (Balanced, Quality, Budget, Fast) используют этого провайдера.",
     "delete": "Удалить",
     "edit": "Изменить",
     "localTag": "Локальный",

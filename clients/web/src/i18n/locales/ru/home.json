@@ -18,9 +18,12 @@
     "background": "Фон",
     "system": "Система",
     "guardianAction": "Требуется действие опекуна",
-    "guardianQuestion": "Вопрос опекуну"
+    "guardianQuestion": "Вопрос опекуну",
+    "guardianRequest": "Запрос опекуна"
   },
-  "homeRecapRow": { "actionsTitle": "Действия по обновлению" },
+  "homeRecapRow": {
+    "actionsTitle": "Действия по обновлению"
+  },
   "homeToolPermissionCard": {
     "missingScopes": "Не хватает разрешений",
     "status": {
@@ -39,27 +42,26 @@
     "loadFailed": "Не удалось загрузить уведомления.",
     "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
   },
-  "notificationsBellDetail": { "back": "Назад к уведомлениям" },
+  "notificationsBellDetail": {
+    "back": "Назад к уведомлениям"
+  },
   "homeGuardianRequestCard": {
-    "requester": "Запросил",
-    "source": "Источник",
     "approve": "Одобрить",
     "reject": "Отклонить",
-    "answerHint": "Ответьте на этот вопрос в исходной беседе.",
-    "viewSourceMessage": "Просмотреть сообщение",
-    "openInSlack": "Открыть в Slack",
-    "alreadyResolved": "Этот запрос уже был решён на другой поверхности.",
+    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
     "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
     "receipt": {
-      "approved": "Одобрено",
-      "approvedBy": "Одобрено: {name}",
-      "rejected": "Отклонено",
-      "rejectedBy": "Отклонено: {name}",
-      "expired": "Истёк срок",
-      "superseded": "Заменён новым",
-      "cancelled": "Отменён",
-      "leftUnverified": "Оставлен без проверки"
-    }
+      "approved": "Запрос одобрен",
+      "rejected": "Запрос отклонён",
+      "expired": "Срок запроса истёк",
+      "superseded": "Запрос заменён",
+      "leftUnverified": "Осталось непроверенным",
+      "cancelled": "Запрос отменён",
+      "alreadyResolved": "Уже решено"
+    },
+    "viewSourceThread": "Открыть исходный тред",
+    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
+    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",

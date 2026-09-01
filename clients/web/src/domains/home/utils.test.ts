@@ -11,7 +11,7 @@ import {
   getFeedItemScheduleId,
   getFeedItemSkillId,
   getVisibleFeedItems,
-  guardianCategoryLabelKey,
+  guardianLabelKey,
   markAllReadArgs,
   resolveFeedItemTitle,
   sortFeedItems,
@@ -117,7 +117,7 @@ describe("resolveFeedItemTitle", () => {
 });
 
 function guardianItem(
-  status: "pending" | "approved",
+  status: NonNullable<FeedItem["guardianRequest"]>["status"],
   overrides: Partial<FeedItem> = {},
 ): FeedItem {
   return feedItem({
@@ -167,9 +167,13 @@ describe("guardian feed item derivations", () => {
     );
   });
 
-  test("guardian rows name what they need on the category chip", () => {
-    expect(guardianCategoryLabelKey(guardianItem("pending"))).toBe(
+  test("a guardian item is named for what its state asks of the user", () => {
+    expect(guardianLabelKey(guardianItem("pending"))).toBe(
       "category.guardianAction",
+    );
+    // Settled: nothing is needed of anyone, so it is named for what it was.
+    expect(guardianLabelKey(guardianItem("approved"))).toBe(
+      "category.guardianRequest",
     );
     const question = feedItem({
       guardianRequest: {
@@ -179,9 +183,7 @@ describe("guardian feed item derivations", () => {
         status: "pending",
       },
     });
-    expect(guardianCategoryLabelKey(question)).toBe(
-      "category.guardianQuestion",
-    );
-    expect(guardianCategoryLabelKey(feedItem())).toBeNull();
+    expect(guardianLabelKey(question)).toBe("category.guardianQuestion");
+    expect(guardianLabelKey(feedItem())).toBeNull();
   });
 });

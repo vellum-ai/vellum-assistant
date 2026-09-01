@@ -1646,7 +1646,7 @@
     "customTag": "Personalizado",
     "customTagTitle": "Un proveedor que creaste, servido por un endpoint compatible con OpenAI.",
     "defaultTag": "Predeterminado",
-    "defaultTagTitle": "Los perfiles integrados (Balanced, Quality, Cost, Speed) usan este proveedor.",
+    "defaultTagTitle": "Los perfiles integrados (Balanced, Quality, Budget, Fast) usan este proveedor.",
     "delete": "Eliminar",
     "edit": "Editar",
     "localTag": "Local",

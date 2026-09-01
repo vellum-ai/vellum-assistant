@@ -5,6 +5,7 @@ import {
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Typography } from "@vellumai/design-library";
+import { SetupStepList } from "@/components/setup-step-list";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface DiscordSetupCreateStepProps {
@@ -57,7 +58,7 @@ export function DiscordSetupCreateStep({
         {t("discordSetupCreateStep.inPortal")}
       </Typography>
 
-      <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
+      <SetupStepList>
         <li>
           <Trans
             i18nKey="discordSetupCreateStep.stepCreateApp"
@@ -117,7 +118,7 @@ export function DiscordSetupCreateStep({
             components={{ strong: <strong /> }}
           />
         </li>
-      </ol>
+      </SetupStepList>
 
       <div className="flex flex-wrap gap-2">
         <Button

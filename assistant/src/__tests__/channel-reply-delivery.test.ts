@@ -32,6 +32,13 @@ type UpdateMessageMetadataCall = {
 };
 const updateMessageMetadataCalls: UpdateMessageMetadataCall[] = [];
 
+/**
+ * Number of leading `updateMessageMetadata` calls that throw a transient
+ * SQLite error before the mock starts writing. Lets a test assert that a lost
+ * reconciliation write is recovered rather than forfeited.
+ */
+let metadataWriteFailuresRemaining = 0;
+
 /** Per-test override for the synthetic Slack `ts` returned by deliverChannelReply. */
 let nextDeliveryTs: string | null = null;
 
@@ -145,6 +152,14 @@ mock.module("../persistence/conversation-crud.js", () => ({
     messageId: string,
     updates: Record<string, unknown>,
   ) => {
+    if (metadataWriteFailuresRemaining > 0) {
+      metadataWriteFailuresRemaining -= 1;
+      // Shaped like bun:sqlite's error so `withSqliteRetry` classifies it as
+      // transient contention rather than a fatal write.
+      throw Object.assign(new Error("database is locked"), {
+        code: "SQLITE_BUSY",
+      });
+    }
     updateMessageMetadataCalls.push({ messageId, updates });
     const row = conversationMessages.find((m) => m.id === messageId);
     if (!row) {
@@ -192,6 +207,7 @@ describe("channel-reply-delivery", () => {
     conversationMessages.length = 0;
     attachmentsByMessageId.clear();
     updateMessageMetadataCalls.length = 0;
+    metadataWriteFailuresRemaining = 0;
     nextDeliveryTs = null;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContent = {
@@ -796,7 +812,9 @@ describe("channel-reply-delivery", () => {
       attachments,
       startFromSegment: 1,
       messageTs: "1700000000.000055",
-      onMessageTs: (ts) => seenTs.push(ts),
+      onMessageTs: (ts) => {
+        seenTs.push(ts);
+      },
     });
 
     expect(deliveryCalls).toHaveLength(1);
@@ -1263,7 +1281,9 @@ describe("channel-reply-delivery", () => {
         "http://gateway/deliver/slack",
         "assistant-compose",
         {
-          onMessageTs: (ts) => callerTsSeen.push(ts),
+          onMessageTs: (ts) => {
+            callerTsSeen.push(ts);
+          },
         },
       );
 
@@ -1302,6 +1322,101 @@ describe("channel-reply-delivery", () => {
       expect(parsed?.channelId).toBe("C222");
       expect(parsed?.source).toBe("slack");
       expect(parsed?.eventKind).toBe("message");
+    });
+
+    it("retries a reconciliation write that hits transient SQLite contention", async () => {
+      // The stamp is the only durable record of the post's ts: no later sweep
+      // heals a miss once the event is marked delivered, so a SQLITE_BUSY on
+      // the first attempt must not lose it.
+      pushPartialAssistantRow("conv-busy", "msg-busy", "C333");
+      nextDeliveryTs = "1700000800.000444";
+      metadataWriteFailuresRemaining = 1;
+
+      await deliverReplyViaCallback(
+        "conv-busy",
+        "C333",
+        "http://gateway/deliver/slack",
+        "assistant-busy",
+      );
+
+      expect(updateMessageMetadataCalls.length).toBe(1);
+      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
+      const parsed = JSON.parse(merged) as Record<string, unknown>;
+      expect(parsed.channelTs).toBe("1700000800.000444");
+    });
+
+    it("stamps from a later segment when the first segment's write is lost", async () => {
+      // The row records the first ts that reaches a DURABLE write, not the
+      // first ts observed. A first-invocation latch would forfeit channelTs
+      // forever when that write fails, which is the reconciliation gap this
+      // reproduces: the reply posts successfully and the row never gains its
+      // own id, so history projects no `slackMessage` for it.
+      pushPartialAssistantRow("conv-lost", "msg-lost", "C444");
+      renderedHistoryContent = {
+        text: "AlphaBeta",
+        textSegments: ["Alpha", "Beta"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0", "tool:0", "text:1"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700000900.000555";
+      // Exhaust the initial attempt plus every `withSqliteRetry` retry, so the
+      // first segment's reconciliation is genuinely swallowed.
+      metadataWriteFailuresRemaining = 4;
+
+      await deliverReplyViaCallback(
+        "conv-lost",
+        "C444",
+        "http://gateway/deliver/slack",
+        "assistant-lost",
+      );
+
+      // Both segments posted; the surviving write carries the second post's ts
+      // rather than leaving the row without any id of its own.
+      expect(deliveryCalls.length).toBe(2);
+      expect(updateMessageMetadataCalls.length).toBe(1);
+      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
+      const { readSlackMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      expect(readSlackMetadata(merged)).not.toBeNull();
+    });
+
+    it("commits the reconciliation write before posting the next segment", async () => {
+      // `onMessageTs` is awaited, so the row is durable at each segment
+      // boundary. Otherwise a crash between two posts of a split reply loses
+      // the stamp for a message the reader can already see.
+      pushPartialAssistantRow("conv-order", "msg-order", "C555");
+      renderedHistoryContent = {
+        text: "AlphaBeta",
+        textSegments: ["Alpha", "Beta"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0", "tool:0", "text:1"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700001000.000666";
+
+      await deliverReplyViaCallback(
+        "conv-order",
+        "C555",
+        "http://gateway/deliver/slack",
+        "assistant-order",
+      );
+
+      // The row already parses through the strict reader by the time the
+      // second POST goes out, which is what makes the second segment a no-op.
+      const row = conversationMessages.find((m) => m.id === "msg-order");
+      const envelope = JSON.parse(row?.metadata ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      const { readSlackMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      expect(readSlackMetadata(envelope.slackMeta as string)).not.toBeNull();
+      expect(updateMessageMetadataCalls.length).toBe(1);
     });
   });
 });

@@ -164,14 +164,8 @@ export const FeedItemGuardianRequestSchema = z.object({
   sourceContextLabel: z.string().optional(),
   /** Permalink to the originating channel message, when derivable. */
   sourceUrl: z.string().optional(),
-  /** Web URL of the Slack guardian-DM approval card ("Open in Slack"). */
-  slackCardUrl: z.string().optional(),
-  /** slack:// deep link for the same card, preferred on devices with the app. */
-  slackCardAppUrl: z.string().optional(),
   /** Action that resolved the request, for terminal statuses. */
   decidedAction: z.string().optional(),
-  /** Display label of the decider, when the decision came from a person. */
-  decidedByLabel: z.string().optional(),
   /** ISO-8601 time the request reached its terminal status. */
   decidedAt: z.string().optional(),
   /**
