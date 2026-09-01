@@ -583,6 +583,35 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(addMessageCalls).toBe(0);
   });
 
+  test("a reaction on a guardian card neither records nor wakes", async () => {
+    // A legacy channel delivery paired a message row before cards became
+    // projection-only, so such rows are still stored. The row is
+    // assistant-authored, so without the guardian-card gate the wake
+    // predicate would read a reaction on it as a signal addressed to the
+    // assistant. Content is shaped the way `isGuardianCardRow` reads it.
+    targetRow = {
+      role: "assistant",
+      content: [
+        {
+          type: "ui_surface",
+          surfaceId: "tool-approval-req-legacy-1",
+        },
+      ],
+    };
+
+    const result = await handleReactionIntercept(
+      buildParams({
+        rawSenderId: GUARDIAN_USER_ID,
+        trustVerdict: GUARDIAN_VERDICT,
+      }),
+    );
+
+    expect(result.reaction).toBe("dropped_guardian_card");
+    expect(dispatchedTurns.length).toBe(0);
+    expect(recordInboundCalls.length).toBe(0);
+    expect(addMessageCalls).toBe(0);
+  });
+
   test("a redelivered reaction is answered once, before any lookup", async () => {
     const externalMessageId = `${SLACK_CHANNEL_ID}:1700000000.1:redelivered`;
     seedRecordedEvent(externalMessageId, "evt-1");

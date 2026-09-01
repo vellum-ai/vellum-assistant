@@ -44,6 +44,7 @@ import {
   buildSlackReactionMeta,
 } from "../../../messaging/reaction-envelopes.js";
 import { readProviderMetadata } from "../../../messaging/read-provider-metadata.js";
+import { isGuardianCardRow } from "../../../notifications/approval-card-data.js";
 import {
   addMessage,
   getMessageById,
@@ -218,6 +219,23 @@ export async function handleReactionIntercept(
     return { accepted: true, reaction: "dropped_unknown_target" };
   }
 
+  // A guardian card is a delivery projection, not conversation content.
+  // `isGuardianCardRow` is the predicate both history assemblers already use
+  // to keep these rows out of a turn's history; the wake path is the third
+  // reader of the same question. A reaction on a card has nothing to
+  // annotate, and the card is assistant-authored, so without this it would
+  // read as a signal addressed to the assistant and wake a turn. Channel
+  // deliveries persist no row today, but ones paired before the
+  // projection-only policy are still stored.
+  const targetRow = getMessageById(target.messageId, target.conversationId);
+  if (isGuardianCardRow(targetRow?.content)) {
+    log.debug(
+      { sourceChannel, conversationExternalId, reactedMessageTs },
+      "Dropping reaction: reacted message is a guardian card",
+    );
+    return { accepted: true, reaction: "dropped_guardian_card" };
+  }
+
   const result = recordInbound(
     sourceChannel,
     conversationExternalId,
@@ -268,6 +286,7 @@ export async function handleReactionIntercept(
     reaction.op === "added" && replyCallbackUrl && sourceInterface
       ? buildReactionWakeTurn({
           target,
+          targetRow,
           result,
           reaction,
           sourceChannel,
@@ -345,6 +364,7 @@ export async function handleReactionIntercept(
  */
 function buildReactionWakeTurn(params: {
   target: { messageId: string; conversationId: string };
+  targetRow: ReturnType<typeof getMessageById>;
   result: { eventId: string; conversationId: string };
   reaction: InboundReactionPayload;
   sourceChannel: ChannelId;
@@ -358,10 +378,7 @@ function buildReactionWakeTurn(params: {
   chatType: string | undefined;
   persistPassively: () => Promise<void>;
 }): (() => void) | null {
-  const targetRow = getMessageById(
-    params.target.messageId,
-    params.target.conversationId,
-  );
+  const targetRow = params.targetRow;
   if (!targetRow || targetRow.role !== "assistant") {
     return null;
   }
