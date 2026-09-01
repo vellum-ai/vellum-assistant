@@ -84,7 +84,7 @@ export function iconNameForTraits(traits: AvatarIconTraits): string {
  * swapped, and {@link assertUnderscoreSafeIds} keeps that swap reversible.
  */
 export function androidResourceNameForTraits(traits: AvatarIconTraits): string {
-  return `avatar_eyes_${traits.eyeStyle}_${traits.color}`;
+  return iconNameForTraits(traits).replace(/-/g, "_");
 }
 
 /**
