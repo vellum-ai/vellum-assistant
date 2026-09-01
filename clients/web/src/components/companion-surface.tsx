@@ -1,10 +1,8 @@
 import {
-  ArrowUp,
   AudioLines,
   Check,
   Eye,
   EyeOff,
-  Keyboard,
   Mic,
   MicOff,
   ScrollText,
@@ -26,19 +24,13 @@ import type { CompanionDictating } from "@vellumai/ipc-contract";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
-  COMPANION_BASE_MAX_PILL_WIDTH,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
-  CompanionTurn,
   CompanionWatchRetro,
   VoiceActivityControlAction,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
-
-import { MarkdownMessage } from "@vellumai/design-library";
-
-import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { CompanionPeek } from "@/components/companion-peek";
@@ -48,8 +40,8 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
- * app launch, with a pill carrying the voice and type-chat options unfurling
- * beside it, and unfurling the same way while a call runs.
+ * app launch, with a pill carrying the ways to reach it unfurling beside it,
+ * and unfurling the same way while a call runs.
  *
  * **Two elements, and the mascot is the fixed point.** The creature and the
  * pill are siblings with a gap between them rather than one box holding the
@@ -70,8 +62,8 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * contract's helpers and divided back into these units.
  *
  * **Growth needs clearance on the side it runs into**: the gap, and then a pill
- * as wide as {@link COMPANION_BASE_MAX_PILL_WIDTH}, which is what the card
- * draws. A circle parked against the right edge does not have it, and unclamped
+ * as wide as `COMPANION_BASE_MAX_PILL_WIDTH`, which is the host's ceiling. A
+ * circle parked against the right edge does not have it, and unclamped
  * the pill would run straight off the display with the controls the user was
  * reaching for. So the surface flips and grows the other way instead, the way a
  * menu does, through {@link growth}.
@@ -112,9 +104,9 @@ export type CompanionSurfacePhase =
    * reason. A screen reader that hides itself when the pointer leaves is one
    * the user cannot see, and a capture nobody can see is one nobody can stop.
    *
-   * It ranks below `typing` and `call` and above `hover`: a half-typed
-   * sentence and a live call are both something the user is in the middle of.
-   * Being outranked costs the session nothing, because this phase is only what
+   * It ranks below `call` and above `hover`: a live call is something the user
+   * is in the middle of. Being outranked costs the session nothing, because
+   * this phase is only what
    * the pill is showing. Whether the screen is being read is
    * {@link CompanionSurfaceProps.watching}, and that is what the indicator
    * reads.
@@ -145,17 +137,11 @@ export type CompanionSurfacePhase =
    * itself would be a live microphone nobody can see.
    *
    * It outranks `watching` because the user is in the middle of it and it lasts
-   * seconds rather than minutes, and it is outranked by `call` and `typing` for
-   * the reason everything is: those are things they are already inside.
+   * seconds rather than minutes, and it is outranked by `call` for the reason
+   * everything is: that is something they are already inside.
    */
   | "dictating"
-  | "call"
-  /**
-   * Typing: the pill becomes a card carrying a condensed read of the
-   * conversation and somewhere to answer it. The only phase that grows
-   * vertically, which is why it is the only one that stops being a pill.
-   */
-  | "typing";
+  | "call";
 
 /**
  * Which way the pill grows out of the avatar, which holds its place.
@@ -168,8 +154,9 @@ export type CompanionSurfacePhase =
 export type CompanionSurfaceGrowth = "right" | "left";
 
 /**
- * Which way the typing card unfurls out of the composer row, which holds the
- * line the pill occupied.
+ * Which side of the avatar the canvas reserves the card's height on, which is
+ * where the introduction's card is drawn and which edge of the canvas the
+ * avatar is anchored to.
  *
  * `up` is where the surface normally opens: it lives by the Dock, where a card
  * growing downward would grow off the bottom of the screen. `down` is what it
@@ -321,22 +308,21 @@ const TRANSCRIPT_WIDTH = 244;
  * back means resizing the canvas, which is the thing a fixed canvas exists to
  * avoid.
  *
- * The two phases that never reach this are absent from it: `resting` has no
- * pill to measure, and `typing` states {@link CARD_WIDTH} rather than measuring
- * anything.
+ * The one phase that never reaches this is absent from it: `resting` has no
+ * pill to measure.
  */
 export const FALLBACK_WIDTHS: Record<
-  Exclude<CompanionSurfacePhase, "resting" | "typing">,
+  Exclude<CompanionSurfacePhase, "resting">,
   number
 > = {
-  // Three icon-only controls, which is the row as it is first drawn: the labels
+  // Two icon-only controls, which is the row as it is first drawn: the labels
   // are revealed one at a time under the pointer, and on the first frame there
   // is no pointer on any of them yet.
-  hover: 112,
+  hover: 84,
   // The same row of controls hover draws, since the session is run from it
   // rather than from a row of its own, plus the one word the running session
   // pins open on the control holding it.
-  watching: 151,
+  watching: 123,
   // Two labelled controls, both drawn: this row is a question waiting on an
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
@@ -350,45 +336,8 @@ export const FALLBACK_WIDTHS: Record<
   call: 288,
 };
 
-/**
- * The card is a fixed width, unlike the pills.
- *
- * A pill is as wide as its controls and nothing more, so measuring is the only
- * honest answer. A card holds wrapped prose, and prose has no natural width:
- * measuring it would size the card to whatever the last turn happened to say
- * and reflow the whole surface on every message.
- */
-const CARD_WIDTH = COMPANION_BASE_MAX_PILL_WIDTH;
-
-/**
- * The tallest the conversation gets before it scrolls.
- *
- * The card is still a card, not a chat window: it holds a readable stretch of
- * the exchange and the rest is scrolled to, so a long reply can be read in
- * place without the surface growing until it runs off the top of the display.
- * Whatever this is, `COMPANION_BASE_CARD_HEIGHT` in the contract has to be
- * sized to hold it plus the composer row.
- */
-const TURNS_MAX_HEIGHT = 220;
-
-/**
- * One side of one exchange, condensed for the card.
- *
- * The contract's type rather than one of this component's own: the same rows
- * are published by the app's window and pushed through main to get here, and a
- * second declaration is how the two ends come to disagree about what a turn is.
- */
-export type { CompanionTurn };
-
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
-  /**
-   * The tail of the conversation, most recent last. Only the last couple are
-   * drawn; the card is a glance, and the app is where the thread lives.
-   */
-  turns?: CompanionTurn[];
-  /** The assistant's name, for the composer's placeholder. */
-  assistantName?: string;
   /** The assistant's avatar colour. Fills shapes; never carries text. */
   accentHex?: string;
   /**
@@ -488,21 +437,15 @@ export interface CompanionSurfaceProps {
    * Draw a control as though the pointer were on it.
    *
    * Real hover is CSS and needs no help. This is for playback with no pointer
-   * in the room, where the difference between reaching for Talk and reaching
-   * for Type is the whole point of the frame.
+   * in the room, where a hand reaching for Talk is the whole point of the
+   * frame.
    */
-  spotlight?: "talk" | "type";
+  spotlight?: "talk";
   /**
    * Start a live-voice session. Absent leaves Talk inert, which is what
    * Storybook wants: there is no session to start there.
    */
   onTalk?: () => void;
-  /**
-   * Open the composer, which is what Type does. The caller owns the phase, so
-   * this reports the press rather than switching to `typing` here: in the
-   * Electron host the same press also has to lend the window the keyboard.
-   */
-  onType?: () => void;
   /**
    * Start or stop the session that reads the screen, which is what Watch does.
    *
@@ -511,15 +454,6 @@ export interface CompanionSurfaceProps {
    * only one that knows which edge a press is.
    */
   onWatch?: () => void;
-  /**
-   * Send what was typed. The text is the composer's own until it leaves, so
-   * this is the only thing the caller ever sees of it.
-   */
-  onSubmit?: (message: string) => void;
-  /**
-   * Close the composer without sending, which is what Escape asks for.
-   */
-  onCancelTyping?: () => void;
   /**
    * Press the avatar: go back to Vellum, on the conversation the surface
    * belongs to.
@@ -539,9 +473,8 @@ export interface CompanionSurfaceProps {
    * be had by reading the card, and only when the card was open.
    *
    * A running call reports its own turns through {@link call}, so this is what
-   * covers every turn that is not one: a message sent from the composer here,
-   * and anything the user set going in the app before turning back to their own
-   * work.
+   * covers every turn that is not one: anything the user set going in the app
+   * before turning back to their own work.
    */
   working?: boolean;
   /**
@@ -550,10 +483,10 @@ export interface CompanionSurfaceProps {
    * Its own input rather than `phase === "watching"`, and this is the one place
    * on the surface where that separation is not a matter of taste. The phase
    * says what the pill is showing; this says whether the screen is being read,
-   * and they are different questions. A phase is outranked by a half-typed
-   * sentence and by a live call, so an indicator drawn from one would go dark
-   * the moment the user typed or took a call, which is the same capture the
-   * user cannot see with a different trigger. The ring belongs to the session,
+   * and they are different questions. A phase is outranked by a live call, so
+   * an indicator drawn from one would go dark the moment the user took a call,
+   * which is the same capture the user cannot see with a different trigger.
+   * The ring belongs to the session,
    * not to whatever the surface happens to be drawing over it.
    *
    * Absence is not a session, the way `CompanionSurfaceState.watching` has it:
@@ -569,9 +502,8 @@ export interface CompanionSurfaceProps {
    * `pending` while the turn that writes it runs, `ready` once there is a
    * report to open. Its own input rather than something derived from `phase`
    * for the reason {@link CompanionSurfaceProps.watching} is: the phase is
-   * outranked by a call and by a half-typed sentence, and a question the user
-   * has been asked must not silently lose its answer because they picked up the
-   * phone.
+   * outranked by a call, and a question the user has been asked must not
+   * silently lose its answer because they picked up the phone.
    */
   watchRetro?: CompanionWatchRetro;
   /**
@@ -719,8 +651,6 @@ function useObservedCaptures(captureCount: number, watching: boolean): number {
 
 export function CompanionSurface({
   phase,
-  turns = [],
-  assistantName = "your assistant",
   accentHex = DEFAULT_ACCENT,
   avatarSrc,
   character,
@@ -735,10 +665,7 @@ export function CompanionSurface({
   onSurfaceContextMenu,
   spotlight,
   onTalk,
-  onType,
   onWatch,
-  onSubmit,
-  onCancelTyping,
   onAvatarClick,
   working = false,
   watching = false,
@@ -753,15 +680,14 @@ export function CompanionSurface({
   intro,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
-  const typing = phase === "typing";
   /**
    * Whether the summary of a finished session is still being written.
    *
    * Drawn as the session's own ring rather than the assistant's, because it is
    * the same session finishing rather than an unrelated turn: the user pressed
    * stop and the light is still on for what they narrated. Reads off the input
-   * rather than the phase, since a call or an open composer outranks the phase
-   * and the work goes on regardless.
+   * rather than the phase, since a call outranks the phase and the work goes on
+   * regardless.
    */
   const summarizing = watchRetro === "pending";
 
@@ -802,11 +728,9 @@ export function CompanionSurface({
 
   // The body and the clearance at either end of it, and nothing else: the
   // avatar has a box of its own beside the pill rather than a column inside it.
-  const width = typing
-    ? CARD_WIDTH
-    : !expanded
-      ? 0
-      : (contentWidth ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
+  const width = !expanded
+    ? 0
+    : (contentWidth ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
 
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
@@ -837,27 +761,17 @@ export function CompanionSurface({
    */
   const introDrawn = intro !== null && intro !== undefined;
 
-  // The card growing downward draws its composer row first, so the row starts
-  // one options box above the creature's baseline and the card falls away from
-  // it; everything else hangs upward off that baseline.
-  const dropsFromTheRow = typing && cardGrowth === "down";
-
   const style: CSSProperties = {
     width,
     ...placement,
     // **On the creature's visible bottom.** The pill's bottom edge sits on the
-    // bottom of the artwork, and the card keeps that line: its composer row is
-    // the column's last child growing up and its first growing down, so the
-    // row's bottom is that line either way and the mascot does not move when
-    // Type is pressed. The line is the artwork, not the avatar's *box*, which
-    // runs an `INNER_GAP` further down to hold the glow and the bob's slack.
-    // Which way the card stacks is the host's call: parked by the Dock a card
-    // growing down would grow off the bottom of the screen, and at the top of
-    // the display a card growing up has nowhere to be (see
-    // `CompanionSurfaceCardGrowth`). The row is one options box tall, so a card
-    // growing downward starts exactly that far above the line.
-    top: lineAt(cardGrowth, dropsFromTheRow ? baseline - optionsBox : baseline),
-    transform: dropsFromTheRow ? "none" : "translateY(-100%)",
+    // bottom of the artwork, so the two keep one baseline whatever the pill is
+    // carrying. The line is the artwork, not the avatar's *box*, which runs an
+    // `INNER_GAP` further down to hold the glow and the bob's slack. Which edge
+    // of the canvas that line is measured from is the host's call (see
+    // `CompanionSurfaceCardGrowth`).
+    top: lineAt(cardGrowth, baseline),
+    transform: "translateY(-100%)",
     // Settles rather than overshoots. A surface on screen all day should not
     // bounce every time the pointer crosses it.
     transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
@@ -949,21 +863,13 @@ export function CompanionSurface({
         stopping the press, so everything on it that is not a button can be
         grabbed. */}
       <div
-        className={`absolute cursor-grab transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${
-          typing
-            ? // The composer row is the column's last child, so a card growing
-              // downward reverses the column: the row that holds the avatar's
-              // line has to stay on that line, and the turns stack away from
-              // it.
-              `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
-            : // One row in a box whose width animates, so the row is pinned to
-              // the pill's avatar-facing edge. `growth: "left"` anchors the
-              // pill by its right, and a row left-aligned in a box narrower
-              // than itself spills past that edge, across the gap and over the
-              // creature, every time the width lags the content: through the
-              // unfurl and instantly on each label reveal.
-              `flex h-11 items-center rounded-full ${growth === "left" ? "justify-end" : ""}`
-        }`}
+        // One row in a box whose width animates, so the row is pinned to the
+        // pill's avatar-facing edge. `growth: "left"` anchors the pill by its
+        // right, and a row left-aligned in a box narrower than itself spills
+        // past that edge, across the gap and over the creature, every time the
+        // width lags the content: through the unfurl and instantly on each
+        // label reveal.
+        className={`absolute flex h-11 cursor-grab items-center rounded-full transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${growth === "left" ? "justify-end" : ""}`}
         style={style}
         onPointerDown={onSurfacePointerDown}
         onContextMenu={onSurfaceContextMenu}
@@ -974,17 +880,10 @@ export function CompanionSurface({
           as the width grows is what makes the pill unfurl out of the gap
           rather than appear in it. */}
         <span
-          className={`absolute inset-0 border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200 ${
-            // Radius follows the same rule as the gap: the controls are 28pt
-            // so their radius is 14, and 8pt of clearance puts the outer
-            // radius at 22. A pill happens to reach that by being 44 tall;
-            // the card has to say it.
-            typing ? "rounded-[22px]" : "rounded-full"
-          }`}
+          className="absolute inset-0 rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
           style={{ opacity: expanded ? 1 : 0 }}
           aria-hidden
         />
-        {typing && turns.length > 0 && <RecentTurns turns={turns} />}
         {/* The pill's one in-flow row, and where the clearance at either end
           lives. On the row rather than on the pill, so the pill's own box
           goes to nothing at rest while the body inside it keeps being
@@ -993,58 +892,47 @@ export function CompanionSurface({
           className="relative flex h-11 shrink-0 items-center"
           style={{ paddingInline: INNER_GAP }}
         >
-          {typing ? (
-            <Composer
-              assistantName={assistantName}
-              watching={watching}
-              onSubmit={onSubmit}
-              onCancel={onCancelTyping}
-              onWatch={onWatch}
-            />
-          ) : (
-            <div
-              className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
-              ref={contentRef}
-              // Faded out is not gone: the body stays mounted while collapsed
-              // so it can be measured, which would otherwise leave its
-              // controls focusable and announced while nothing is drawn.
-              // `inert` takes them out of the tab order and the accessibility
-              // tree without taking them out of the DOM, so the measurement
-              // still works.
-              inert={!expanded}
-              style={{
-                opacity: expanded ? 1 : 0,
-                // Contents fade after the body has somewhere to put them, so
-                // nothing is ever drawn wider than the pill carrying it.
-                transitionDelay: expanded ? "120ms" : "0ms",
-              }}
-            >
-              {phase === "call" ? (
-                <CallBody
-                  call={call}
-                  watching={watching}
-                  onControl={onControl}
-                  onWatch={onWatch}
-                />
-              ) : phase === "dictating" && dictating !== undefined ? (
-                <DictatingBody
-                  dictating={dictating}
-                  dictationText={dictationText}
-                />
-              ) : phase === "summary" && watchRetro !== undefined ? (
-                <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
-              ) : (
-                <IdleBody
-                  spotlight={spotlight}
-                  watching={watching}
-                  watchEnabled={watchEnabled}
-                  onTalk={onTalk}
-                  onType={onType}
-                  onWatch={onWatch}
-                />
-              )}
-            </div>
-          )}
+          <div
+            className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+            ref={contentRef}
+            // Faded out is not gone: the body stays mounted while collapsed
+            // so it can be measured, which would otherwise leave its
+            // controls focusable and announced while nothing is drawn.
+            // `inert` takes them out of the tab order and the accessibility
+            // tree without taking them out of the DOM, so the measurement
+            // still works.
+            inert={!expanded}
+            style={{
+              opacity: expanded ? 1 : 0,
+              // Contents fade after the body has somewhere to put them, so
+              // nothing is ever drawn wider than the pill carrying it.
+              transitionDelay: expanded ? "120ms" : "0ms",
+            }}
+          >
+            {phase === "call" ? (
+              <CallBody
+                call={call}
+                watching={watching}
+                onControl={onControl}
+                onWatch={onWatch}
+              />
+            ) : phase === "dictating" && dictating !== undefined ? (
+              <DictatingBody
+                dictating={dictating}
+                dictationText={dictationText}
+              />
+            ) : phase === "summary" && watchRetro !== undefined ? (
+              <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
+            ) : (
+              <IdleBody
+                spotlight={spotlight}
+                watching={watching}
+                watchEnabled={watchEnabled}
+                onTalk={onTalk}
+                onWatch={onWatch}
+              />
+            )}
+          </div>
         </div>
       </div>
       {/* Drawn after the pill so the glow, which falls off well past the
@@ -1094,265 +982,6 @@ export function CompanionSurface({
         onClick={onAvatarClick}
       />
       {intro}
-    </div>
-  );
-}
-
-/**
- * The conversation, stacked above the composer.
- *
- * **Scrolled, not clipped.** An exchange the user has on this surface is one
- * they should be able to read on it, so the turns get a viewport of their own
- * and the older ones are scrolled back to rather than truncated. It is still
- * not a transcript: what crosses the bridge is a bounded tail (see the mirror's
- * `TAIL`), and the app is where the whole thread lives.
- *
- * **Pinned to the newest.** The view is anchored at the bottom on every change,
- * because the reason to look at this card is what just arrived, and a streaming
- * reply that scrolled out of sight as it was written would be unreadable
- * exactly when it mattered.
- */
-/**
- * The card's links.
- *
- * The companion's window is created with a `deny-all` navigation policy, so an
- * ordinary `target="_blank"` anchor is refused by the window-open handler and
- * the press does nothing at all. The URL goes to the host instead, which opens
- * it in the user's browser where a link from a floating panel belongs.
- */
-function CompanionLink({
-  href,
-  children,
-}: {
-  href?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      className="underline decoration-white/30 underline-offset-2 hover:decoration-white/60"
-      onClick={(event) => {
-        event.preventDefault();
-        if (href !== undefined) {
-          openCompanionLink(href);
-        }
-      }}
-      // A press on a link is not a grab, the way a press on a control is not.
-      onPointerDown={(event) => {
-        event.stopPropagation();
-      }}
-    >
-      {children}
-    </a>
-  );
-}
-
-const linkComponent = CompanionLink;
-
-function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) {
-      return;
-    }
-    element.scrollTop = element.scrollHeight;
-  }, [turns]);
-
-  return (
-    <div
-      ref={scrollRef}
-      // Selectable, against the surface's `select-none`. That rule is there so
-      // a drag across the controls does not highlight their labels, and this is
-      // the one part of the surface that is prose rather than chrome: an answer
-      // the user may well want to copy out of.
-      className="relative flex flex-col gap-1.5 overflow-y-auto px-3 pt-3 pb-1 select-text"
-      style={{ maxHeight: TURNS_MAX_HEIGHT }}
-    >
-      {/* Sides, as the transcript does it: the user's turn is a bubble pushed
-          right and capped at 80%, the assistant's is plain text filling the
-          width. Matching `transcript-message-body.tsx` matters more than it
-          looks, because this is a condensed read of the same conversation and a
-          reader should not have to work out who said what a second time in a
-          second idiom. */}
-      {turns.map((turn, index) => {
-        const isUser = turn.role === "user";
-        return (
-          <div
-            key={`${turn.role}-${index}`}
-            className={`flex shrink-0 ${isUser ? "justify-end" : "justify-start"}`}
-          >
-            {/* Whole, not clamped. Clamping belonged to a card that showed the
-                last two turns and nothing else; now that the conversation
-                scrolls, a cut-off reply would be text the user can see the top
-                of and has no way to reach the rest of. */}
-            {isUser ? (
-              // The user's own words, exactly as they typed them. Rendering a
-              // person's message as markdown reformats what they wrote back at
-              // them, which the transcript does not do either.
-              <p className="max-w-[80%] rounded-lg bg-white/[0.08] px-2.5 py-1.5 text-[12px] leading-[1.45] whitespace-pre-wrap text-white/75">
-                {turn.text}
-              </p>
-            ) : (
-              // The reply, formatted. The assistant writes markdown, so the
-              // alternative is a card showing the user its asterisks and
-              // backticks while the same reply reads properly in the app.
-              //
-              // The design-library primitive rather than the chat domain's
-              // wrapper: that one carries OAuth link handling, attachments and
-              // inline media, none of which a floating panel can do anything
-              // with. The type scale is pinned down to the card's own 12px,
-              // since the primitive is authored for a full-width transcript.
-              // **`data-theme="dark"` is not a preference here, it is a
-              // statement of fact.** The surface paints its own near-black
-              // body in every theme, and the design library resolves its
-              // content tokens from the nearest `[data-theme]`. Left to the
-              // host's theme, a light-mode user gets `--content-default` at
-              // #24292E on a #17181b card, which is prose they cannot read.
-              <div
-                data-theme="dark"
-                className="companion-markdown min-w-0 text-[12px] leading-[1.45] text-white/85"
-              >
-                <MarkdownMessage
-                  content={turn.text}
-                  linkComponent={linkComponent}
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * Where you type, on the row the avatar is already on.
- *
- * It takes the place of Talk and Type rather than sitting under them, so
- * pressing Type changes what the pill contains without changing what the pill
- * is: empty, focused, or full of text, it is the same elongated single line as
- * the voice states. Growth happens above it, never to it.
- *
- * **It carries the stop control while a watch session runs**, because the card
- * is the one state with no control row of its own and the ring around it says
- * the screen is being read in every state. An indicator the user can see and
- * cannot act on is a worse bargain than no indicator: it names something
- * happening to them and withholds the means to end it. The row is where it fits
- * without cost, since the card is a fixed {@link CARD_WIDTH} and the field
- * takes the space out of its own flexible width rather than out of the card's,
- * and a row added above would push the card past the canvas main sized for it.
- */
-function Composer({
-  assistantName,
-  watching,
-  onSubmit,
-  onCancel,
-  onWatch,
-}: {
-  assistantName: string;
-  /**
-   * Whether a watch session is running, so the card can carry the way to end
-   * it. The card replaces the pill while it is open, and a session the user
-   * cannot stop without first closing the thing they are typing into is a
-   * session they cannot stop.
-   */
-  watching: boolean;
-  onSubmit?: (message: string) => void;
-  onCancel?: () => void;
-  onWatch?: () => void;
-}) {
-  const { t } = useTranslation();
-  // The draft is the composer's own and never leaves except as a submitted
-  // message. Holding it in the page instead would re-render the whole surface,
-  // and the creature animating inside it, on every keystroke.
-  const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const message = draft.trim();
-
-  // The caret goes where the press just asked for one. This component mounts
-  // with the card, so focusing on mount is the whole of it: pressing Type is
-  // pressing "let me type", and a field the user has to click a second time to
-  // use is a field that failed to do what it was asked.
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const send = () => {
-    if (message === "") {
-      return;
-    }
-    setDraft("");
-    onSubmit?.(message);
-  };
-
-  return (
-    // Flush inside the row, which carries the clearance at both ends for the
-    // composer and the control rows alike.
-    <div className="relative flex min-w-0 flex-1 items-center gap-1">
-      <input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        placeholder={t("companionSurface.messagePlaceholder", {
-          name: assistantName,
-        })}
-        onChange={(event) => {
-          setDraft(event.target.value);
-        }}
-        // Enter sends and Escape backs out, which is the whole keyboard here:
-        // the field is one line, so there is no newline to protect.
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            send();
-            return;
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel?.();
-          }
-        }}
-        // A press in the field is not a drag, and the field wants the caret
-        // that press would otherwise be stolen from.
-        onPointerDown={(event) => {
-          event.stopPropagation();
-        }}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 select-text placeholder:text-white/40 focus:outline-none"
-      />
-      {watching && <StopWatchingButton onWatch={onWatch} />}
-      {/* **The way out, and the way on, in one control.** With nothing typed
-          there is nothing to send, so the trailing control is the way back to
-          the pill; the moment there are words it becomes the way to send them.
-          A card whose only control was a dead send arrow would be a state the
-          user could enter and not leave, and a second permanent button for
-          "never mind" would spend a third of the row on the thing the user
-          wants least. */}
-      <button
-        type="button"
-        aria-label={
-          message === ""
-            ? t("companionSurface.goBack")
-            : t("companionSurface.send")
-        }
-        title={
-          message === ""
-            ? t("companionSurface.goBack")
-            : t("companionSurface.send")
-        }
-        onClick={message === "" ? onCancel : send}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-        }}
-        className="grid size-7 shrink-0 place-items-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20"
-      >
-        {message === "" ? (
-          <X className="size-3.5" aria-hidden />
-        ) : (
-          <ArrowUp className="size-3.5" aria-hidden />
-        )}
-      </button>
     </div>
   );
 }
@@ -1667,27 +1296,25 @@ function DictatingBody({
 }
 
 /**
- * Expanded, with the app idle: the ways in.
+ * Expanded, with the app idle: the way in.
  *
- * Verbs throughout. "Talk" and "Type" rather than "Talk" and "Ask", because
- * they are two halves of one choice about how to say something, and a verb pair
- * reads as that where a verb and a question word do not. "Teach" is the third,
- * and the one where the assistant does the looking rather than the user the
- * saying. It is also the one that comes and goes: it is behind a flag of its
- * own, so the row is Talk and Type alone for anyone who does not have it.
+ * Verbs throughout. "Talk" is the door: the surface is a place to be on a call
+ * with the assistant, and everything else it can do is something done from
+ * inside that call. "Teach" is the exception for now, the one where the
+ * assistant does the looking rather than the user the saying. It is behind a
+ * flag of its own, so the row is Talk alone for anyone who does not have it,
+ * and it is on its way into the call row rather than beside the door.
  *
  * **The words are drawn one at a time, under the pointer** (`revealLabel`).
  * This is the row a user meets by resting a hand near the mascot, so it is
- * drawn far more often than it is acted on, and three verbs spelled out at once
- * read as a sentence aimed at someone doing something else. Teach is the
- * loudest of the three for being the least wanted: the flagged, occasional way
- * in, at the same weight as the two the row exists for.
+ * drawn far more often than it is acted on, and verbs spelled out at once read
+ * as a sentence aimed at someone doing something else.
  *
- * Resting as icons keeps the pill to a third of the width its labels want, and
- * revealing one at a time is what keeps the reveal legible: exactly one word is
- * ever on the surface, and it is the one the hand is on.
+ * Resting as icons keeps the pill to a fraction of the width its labels want,
+ * and revealing one at a time is what keeps the reveal legible: exactly one
+ * word is ever on the surface, and it is the one the hand is on.
  *
- * `aria-label` carries the name in every state, so a reader gets all three
+ * `aria-label` carries the name in every state, so a reader gets every control
  * regardless of where the pointer is.
  */
 function IdleBody({
@@ -1695,16 +1322,14 @@ function IdleBody({
   watching = false,
   watchEnabled = false,
   onTalk,
-  onType,
   onWatch,
 }: {
-  spotlight?: "talk" | "type";
+  spotlight?: "talk";
   /** Whether the session Watch starts is already running. */
   watching?: boolean;
   /** Whether Watch is offered at all. See `CompanionSurfaceProps`. */
   watchEnabled?: boolean;
   onTalk?: () => void;
-  onType?: () => void;
   onWatch?: () => void;
 }) {
   const { t } = useTranslation();
@@ -1716,13 +1341,6 @@ function IdleBody({
         revealLabel
         active={spotlight === "talk"}
         onClick={onTalk}
-      />
-      <PillButton
-        icon={<Keyboard className="size-4" />}
-        label={t("companionSurface.type")}
-        revealLabel
-        active={spotlight === "type"}
-        onClick={onType}
       />
       {/* Held down for as long as the session runs, so the row says which
           control is holding the pill open and which press ends it. `pressed`
@@ -1744,7 +1362,7 @@ function IdleBody({
           **The exit outlives the door.** A session running under a flag that
           has since been turned off still reads the screen, so the row that
           would have carried Watch carries the stop instead, the same control
-          the card and the call row draw. Hiding the way in is the whole of what
+          the call row draws. Hiding the way in is the whole of what
           the flag does; leaving a capture with nothing that ends it is not
           something a flag is allowed to cause. */}
       {watchEnabled ? (
@@ -1998,7 +1616,7 @@ function ApprovalBody({
  *
  * One component for the two that draw it, because the label is the whole of
  * what this control says. It carries no words, so an accessible name that
- * drifted between the composer and the call row would be two different controls
+ * drifted between the idle row and the call row would be two different controls
  * to anyone reading the surface rather than looking at it, and this is the
  * control a user reaches for precisely when they want the reading to stop.
  *

@@ -20,11 +20,9 @@ import {
   advanceCompanionIntro,
   getCompanionState,
   moveCompanionBy,
-  setCompanionComposing,
   setCompanionInteractive,
   showCompanionContextMenu,
   startCompanionVoice,
-  submitCompanionMessage,
   subscribeCompanionState,
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
@@ -36,7 +34,6 @@ import type {
   CompanionGrowth,
   CompanionIntroBeat,
   CompanionSurfaceState,
-  CompanionTurn,
   CompanionWatchRetro,
   CompanionDictating,
   VoiceActivityState,
@@ -74,9 +71,10 @@ const DRAG_SLOP = 3;
  */
 export function CompanionSurfacePage() {
   const [growth, setGrowth] = useState<CompanionGrowth>("right");
-  // Which way the card unfurls, and so which canvas edge the avatar is anchored
-  // to. Main's call: it owns the window position and is the only side that
-  // knows how much room the display has above the surface.
+  // Which side of the avatar the canvas reserves the card's height on, and so
+  // which canvas edge the avatar is anchored to. Main's call: it owns the
+  // window position and is the only side that knows how much room the display
+  // has above the surface.
   const [cardGrowth, setCardGrowth] = useState<CompanionCardGrowth>("up");
   // The creature's box in points and the pill's, which are the surface's whole
   // scale between them. Main sizes the window from both, so they arrive with
@@ -90,48 +88,30 @@ export function CompanionSurfacePage() {
     undefined,
   );
   const [dictationText, setDictationText] = useState("");
-  const [turns, setTurns] = useState<CompanionTurn[]>([]);
-  // Empty until the app's window publishes one, which the surface covers with
-  // the component's own fallback wording rather than drawing a blank name.
+  // The assistant's name, for the introduction's first beat. Empty until the
+  // app's window has published one.
   const [assistantName, setAssistantName] = useState("");
-  // Whether a turn is in flight, from the window that owns it. What the surface
-  // draws as its working ring, so the assistant being busy is legible without
-  // opening the card or reading a word of it.
+  // Whether a turn is in flight, from the window that owns the conversation.
   const [working, setWorking] = useState(false);
-  // Whether a session is reading the screen, from the window that owns it.
-  // Held by main and pushed here with everything else, so this window can
-  // reload mid-session without the indicator that says so going dark.
+  // Whether a session is reading the screen. Its own flag rather than a phase,
+  // because the phase is outranked by a call and the capture indicator must
+  // not be: the screen is being read whatever the pill is drawing.
   const [watching, setWatching] = useState(false);
-  // Where the last session's summary has got to, from the window that ran it.
-  // Undefined is the resting answer and the only one that draws nothing: both
-  // of the others are claims that something is happening.
+  // Where the last finished session's summary has got to, or undefined when
+  // there is nothing to say. Its own state for the reason `watching` is.
   const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
     undefined,
   );
-  // How many times the running session has read the screen. Held with the flag
-  // rather than derived from it, because the flag is a state that lasts for
-  // minutes and this is the only account of the discrete moments inside it.
+  // The running session's screen reads, counted. A step is the surface's only
+  // evidence a capture happened, so it arrives with the flag it belongs to.
   const [captureCount, setCaptureCount] = useState(0);
-  // Whether Watch is offered at all, from the only side of this surface that
-  // can know. This window never hydrates a flag store: it has no auth and no
-  // `RootLayout`, so it would sit on registry defaults forever. Main reads the
-  // evaluation the app's window wrote into settings and pushes it here.
+  // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Which beat of the one-time introduction is on screen, or null when none is.
   // Main's, like the session: this window can reload mid-run, and a beat held
   // here would reset to the first one when it did.
   const [intro, setIntro] = useState<CompanionIntroBeat | null>(null);
-  // Whether the composer is open. Local to this page rather than pushed from
-  // main, because nothing outside this window opens or closes it: main is told
-  // about it only so it can lend the window the keyboard.
-  const [typing, setTyping] = useState(false);
-  // Whether this composer has sent anything yet, which is both what decides
-  // between starting a conversation and continuing one, and what tells the card
-  // whether the turns arriving from main are its own. Before the first message
-  // they are whatever the app happens to have open, which is precisely the
-  // conversation this surface has decided not to join.
-  const [started, setStarted] = useState(false);
   // Mirrors what main was last told, so a pointer crossing the pill does not
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
@@ -171,7 +151,6 @@ export function CompanionSurfacePage() {
       );
       setCharacter(state.character);
       setCall(state.call);
-      setTurns(state.turns);
       setAssistantName(state.assistantName);
       setWorking(state.working);
       // Absence is not a session: every state that is not a positive answer
@@ -203,24 +182,14 @@ export function CompanionSurfacePage() {
     return unsubscribe;
   }, []);
 
-  // Never leave the window clickable or holding the keyboard behind us. An
-  // unmount mid-hover would otherwise strand a transparent canvas that eats
-  // every click on that corner of the screen, and an unmount mid-composer a
-  // panel holding key status with nothing left on it to receive a keystroke:
-  // the user's next words would go nowhere.
+  // Never leave the window clickable behind us. An unmount mid-hover would
+  // otherwise strand a transparent canvas that eats every click on that corner
+  // of the screen.
   useEffect(() => {
     return () => {
       setCompanionInteractive(false);
-      setCompanionComposing(false);
     };
   }, []);
-
-  // The window may hold the keyboard for exactly as long as there is a field to
-  // type into, which is the keyboard's half of what `setInteractive` does for
-  // the pointer.
-  useEffect(() => {
-    setCompanionComposing(typing);
-  }, [typing]);
 
   const setInteractive = (next: boolean) => {
     if (interactiveRef.current === next) {
@@ -230,27 +199,10 @@ export function CompanionSurfacePage() {
     setCompanionInteractive(next);
   };
 
-  /**
-   * Close the composer and put the surface back to rest.
-   *
-   * **Hover has to be dropped with it.** Hover is derived from hit-testing the
-   * pointer against the surface's own box on every move, and the box the last
-   * move tested was the card: a panel standing well above the pill. The
-   * moment the card is gone that answer describes a shape that no longer
-   * exists, and nothing corrects it, because the correction is a mouse-move and
-   * the hand that just pressed "go back" is holding still. Left alone the
-   * surface sits in its expanded hover state with the pointer nowhere near it,
-   * and the window stays clickable across a stretch of empty canvas, swallowing
-   * presses meant for the desktop behind it.
-   *
-   * Collapsing to rest is self-correcting instead: the window goes
-   * click-through, which still forwards mouse-move, so a pointer genuinely left
-   * on the pill re-expands it on the next pixel of movement.
-   */
   // Whether the introduction's card is actually on screen. The beat alone does
-  // not settle it: a call or the composer withdraws the card while main is
-  // still holding the run.
-  const introShown = intro !== null && !typing && call === null;
+  // not settle it: a call withdraws the card while main is still holding the
+  // run.
+  const introShown = intro !== null && call === null;
 
   /**
    * Give the desktop back when the introduction's card goes away.
@@ -262,9 +214,9 @@ export function CompanionSurfacePage() {
    * Left alone the window stays clickable across a canvas many times the size
    * of the pill, swallowing presses meant for whatever the user was working in.
    *
-   * The same correction `closeComposer` makes, and self-correcting the same
-   * way: a click-through window still receives forwarded mouse-move, so a
-   * pointer genuinely left on the pill re-arms on the next pixel of movement.
+   * Collapsing to rest is self-correcting instead: a click-through window still
+   * receives forwarded mouse-move, so a pointer genuinely left on the pill
+   * re-arms on the next pixel of movement.
    */
   const introWasShown = useRef(introShown);
   useEffect(() => {
@@ -275,32 +227,17 @@ export function CompanionSurfacePage() {
     introWasShown.current = introShown;
   }, [introShown]);
 
-  const closeComposer = () => {
-    setTyping(false);
-    setHovered(false);
-    setInteractive(false);
-    // The thread is done with the card. Opening Type again starts a fresh one,
-    // which is what makes the surface's conversation the surface's rather than
-    // an ever-growing one the user never chose to be in.
-    setStarted(false);
-  };
-
-  // **An open composer outranks everything, and a running call outranks the
-  // pointer.** The surface is otherwise a circle that only becomes a pill while
-  // it is being pointed at, and a live microphone that hides itself the moment
-  // the pointer leaves is a live microphone the user cannot see. So the call
-  // holds the pill open, and hovering it changes nothing: the controls it wants
-  // are already there.
-  //
-  // The composer sits above even that, because it is the one state holding
-  // something of the user's. A call starting from the app while a sentence is
-  // half-typed must not collapse the card and take the sentence with it.
+  // **A running call outranks the pointer.** The surface is otherwise a circle
+  // that only becomes a pill while it is being pointed at, and a live
+  // microphone that hides itself the moment the pointer leaves is a live
+  // microphone the user cannot see. So the call holds the pill open, and
+  // hovering it changes nothing: the controls it wants are already there.
   //
   // A watch session holds the pill open for the same reason the call does, and
-  // ranks below both: they are things the user is in the middle of, where this
-  // one runs beside whatever they are doing. Being outranked costs the session
-  // nothing, since the phase is only what the pill is drawing and the indicator
-  // reads `watching` instead.
+  // ranks below it: the call is something the user is in the middle of, where
+  // this one runs beside whatever they are doing. Being outranked costs the
+  // session nothing, since the phase is only what the pill is drawing and the
+  // indicator reads `watching` instead.
   //
   // The summary of a finished session sits between the two: it outranks hover
   // because it is a wait the user is owed an answer to and then a question
@@ -309,12 +246,11 @@ export function CompanionSurfacePage() {
   // The introduction sits above the pointer and below everything the user is in
   // the middle of. A beat that names a control has to have that control on
   // screen to name, so it holds the pill open the way a call does; but a run
-  // still going when a call starts or the composer opens must give way, because
-  // those are the user's own business and this is a caption.
+  // still going when a call starts must give way, because the call is the
+  // user's own business and this is a caption.
   const introHeld = introPhase(intro);
-  const phase: CompanionSurfacePhase = typing
-    ? "typing"
-    : call !== null
+  const phase: CompanionSurfacePhase =
+    call !== null
       ? "call"
       : dictating !== undefined
         ? "dictating"
@@ -399,10 +335,6 @@ export function CompanionSurfacePage() {
       {
         avatar: avatar.getBoundingClientRect(),
         pill: pillRect !== null && pillRect.width > 0 ? pillRect : null,
-        // The composer row in screen pixels: one base box at the options
-        // scale, which is the options box itself.
-        rowHeight: optionsBox,
-        cardGrowth,
       },
     );
     // The introduction's card is part of the surface for as long as it is
@@ -495,36 +427,22 @@ export function CompanionSurfacePage() {
         // The creature notices the hand, in every state including mid-call.
         hovered={hovered}
         accentHex={accentHex}
-        // The conversation, as far as the card shows it. Held by main and
-        // pushed with the rest of the state, so it survives this window
-        // reloading mid-exchange.
-        //
-        // Nothing at all until this composer has sent something: what main is
-        // holding until then belongs to whatever conversation the app has open,
-        // and showing it would promise that the message about to be typed joins
-        // it, which is exactly what pressing Type no longer does.
-        turns={started ? turns : []}
-        // The assistant's own name in the composer's placeholder. Undefined
-        // rather than empty, so the component's fallback is what fills the gap
-        // before the app's window has published one.
-        assistantName={assistantName === "" ? undefined : assistantName}
         call={call ?? undefined}
         dictating={dictating}
         dictationText={dictationText}
-        // Unlike the turns, this is drawn whether or not the exchange on the
-        // card is this surface's own: the question it answers is whether the
-        // assistant is busy, and it is busy on someone else's conversation just
-        // as much as on this one.
+        // Whether the assistant is busy, on whatever conversation the app has
+        // open: the surface is its presence on the desktop rather than a view
+        // of one thread.
         working={working}
         // Its own prop rather than something the surface derives from the
-        // phase. The phase above is outranked by `typing` and `call`, and the
-        // indicator and the control that ends the session are not: they
-        // belong to the session, not to whatever the pill is drawing over it.
+        // phase. The phase above is outranked by `call`, and the indicator and
+        // the control that ends the session are not: they belong to the
+        // session, not to whatever the pill is drawing over it.
         watching={watching}
         // Its own prop rather than something derived from the phase, for the
-        // reason `watching` is: a call or an open composer outranks the
-        // phase, and a question the user has been asked must not lose its
-        // answer because they picked up the phone.
+        // reason `watching` is: a call outranks the phase, and a question the
+        // user has been asked must not lose its answer because they picked up
+        // the phone.
         watchRetro={watchRetro}
         // Out through main and into the window that ran the retrospective. A
         // yes raises the app on the report; a no leaves the window where it
@@ -545,15 +463,14 @@ export function CompanionSurfacePage() {
         // user's hand happens to be, so without this the beat names a control
         // the user then has to hunt for among the others.
         spotlight={introSpotlight(intro)}
-        // Beside the pill rather than inside it, on the canvas the typing
-        // card would otherwise use. Null between runs, which is every launch
-        // after the first.
+        // Beside the pill rather than inside it, on the canvas main reserves
+        // for a card. Null between runs, which is every launch after the
+        // first.
         //
-        // **Withdrawn, not ended, by a call or the composer.** Those states
-        // rebuild the pill out of different controls, so a beat captioning
-        // Talk would be labelling a control that is not on screen. Main
-        // still holds the beat, so the run resumes where it was once the user
-        // is done with whatever they were actually doing.
+        // **Withdrawn, not ended, by a call.** That state rebuilds the pill out
+        // of different controls, so a beat captioning Talk would be labelling
+        // a control that is not on screen. Main still holds the beat, so the
+        // run resumes where it was once the call is over.
         intro={
           !introShown || intro === null ? null : (
             <CompanionIntro
@@ -565,10 +482,9 @@ export function CompanionSurfacePage() {
               avatarBox={avatarBox}
               optionsBox={optionsBox}
               accentHex={accentHex}
-              // Same undefined-not-empty rule as the composer's placeholder
-              // above: the first beat introduces the creature by name, and
-              // before the app's window has published one there is no name to
-              // introduce it by.
+              // Undefined rather than empty: the first beat introduces the
+              // creature by name, and before the app's window has published
+              // one there is no name to introduce it by.
               assistantName={assistantName === "" ? undefined : assistantName}
               cardRef={introRef}
               onAdvance={advanceCompanionIntro}
@@ -588,14 +504,9 @@ export function CompanionSurfacePage() {
           // A press on a control is not a grab, and here it must not even arm
           // one: capture retargets the click to whatever holds it, so a press
           // that took capture from a control is a click that control never
-          // sees. The surface's own controls stop the press themselves; the
-          // card's replies are markdown, and the affordances the design library
-          // draws inside them cannot.
-          if (
-            (event.target as Element).closest(
-              "button, a, input, textarea, select, [contenteditable='true']",
-            ) !== null
-          ) {
+          // sees. The surface's own controls stop the press themselves; this
+          // is the guard for anything drawn on it that cannot.
+          if ((event.target as Element).closest("button, a") !== null) {
             return;
           }
           // The window is moved a message at a time, so it trails the hand and
@@ -609,18 +520,13 @@ export function CompanionSurfacePage() {
           draggedRef.current = false;
         }}
         onSurfaceContextMenu={(event) => {
-          // **Text keeps its own menu.** A right-click in the composer, or
-          // on a reply the user has selected, wants Cut/Copy/Paste and the
-          // spelling suggestions the host already provides. Swallowing that
-          // to offer "Small / Medium / Large" would take away the only way
-          // to copy something off this card.
-          const target = event.target as HTMLElement | null;
-          const onEditable =
-            target?.closest("input, textarea, [contenteditable='true']") !==
-            null;
+          // **Selected text keeps its own menu.** A right-click on text the
+          // user has selected wants Copy, which the host already provides.
+          // Swallowing that to offer "Small / Medium / Large" would take away
+          // the only way to copy something off the surface.
           const onSelection =
             (window.getSelection()?.toString().trim().length ?? 0) > 0;
-          if (onEditable || onSelection) {
+          if (onSelection) {
             return;
           }
           event.preventDefault();
@@ -646,28 +552,6 @@ export function CompanionSurfacePage() {
         // does: the session lives in the renderer holding the chat layout,
         // and this page only asks for it. What comes back is `watching`.
         onWatch={toggleCompanionWatch}
-        // Type opens the composer here rather than leaving this window, since
-        // the field it opens is on this surface. What leaves is the message.
-        onType={() => {
-          setTyping(true);
-        }}
-        // Out through main and into whichever renderer holds a conversation to
-        // put it in. **The card stays open**, because this is where the answer
-        // arrives: the turns mirror pushes the sent message back within the
-        // frame and the reply behind it, so the whole exchange reads here
-        // rather than in an app the user deliberately did not go back to.
-        onSubmit={(message) => {
-          // The first message of a composer's life starts the conversation and
-          // the rest continue it. The old tail is dropped on the way out rather
-          // than left to be replaced, so the card never shows the previous
-          // conversation's words underneath the one just sent.
-          if (!started) {
-            setTurns([]);
-            setStarted(true);
-          }
-          submitCompanionMessage(message, !started);
-        }}
-        onCancelTyping={closeComposer}
         // Out through main and back down into whichever renderer holds the
         // session. This page has no session to act on: it draws one.
         onControl={(action, requestId) => {

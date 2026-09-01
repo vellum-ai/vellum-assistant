@@ -385,54 +385,6 @@ export function RootLayout() {
     // its refusal is worth being able to test, and a module is what makes that
     // possible. It takes no arguments, which the handler signature allows.
     toggleWatch: handleToggleWatchCommand,
-    companionSubmit: (command) => {
-      if (command.kind !== "companionSubmit") {
-        return;
-      }
-      // **The surface's own thread.** Opening its composer starts a
-      // conversation rather than sending into whatever the app has selected:
-      // the user reached past the app to a floating avatar, so they are
-      // starting something, not adding to a thread they cannot see. Every
-      // follow-up continues that one.
-      //
-      // Which is the remembered id, not the active conversation, because the
-      // two come apart: pressing the avatar brings the app forward with the
-      // card still open, and picking a different thread there leaves the app's
-      // selection somewhere the card's conversation is not. A follow-up
-      // resolved against the selection would land in the thread the user
-      // happened to open rather than the one they were typing to.
-      //
-      // The id lives in the conversation store because it has to be corrected
-      // from outside this component: the first message goes to a draft id that
-      // the send swaps for the one the server assigns, and a slot left on the
-      // draft would mint a fresh conversation for every follow-up.
-      //
-      // The fallback covers the composer outliving this window's memory of it,
-      // which a reload does: the active conversation is the best guess left.
-      const conversations = useConversationStore.getState();
-      const conversationId = command.startsConversation
-        ? createDraftConversationId()
-        : (conversations.companionConversationId ??
-          conversations.activeConversationId ??
-          createDraftConversationId());
-      conversations.setCompanionConversationId(conversationId);
-      conversations.setActiveConversationId(conversationId);
-      // The `?prompt=` auto-send pathway (`use-auto-send-effects`), with a
-      // relay token so sending the same words twice sends twice instead of
-      // deduping to one. Navigating is also what mounts the chat layout the
-      // send needs, which is why this routes rather than calling a sender.
-      //
-      // The layout is left alone and the window is deliberately not raised,
-      // as with `startVoice`: this command comes from a surface the user
-      // reached for precisely because they are working somewhere else.
-      void navigate(
-        routes.conversationWithPrompt(
-          conversationId,
-          command.message,
-          crypto.randomUUID(),
-        ),
-      );
-    },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);
     },

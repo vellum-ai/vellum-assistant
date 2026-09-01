@@ -2,7 +2,6 @@ import {
   BrowserWindow,
   Menu,
   screen,
-  shell,
   type MenuItemConstructorOptions,
 } from "electron";
 import { z } from "zod";
@@ -98,8 +97,8 @@ const isWatchEnabled = (): boolean =>
 
 /**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
- * launch, expanding on hover into a pill with the voice and type-chat options,
- * and holding that expansion for as long as a call runs. It stays on screen
+ * launch, expanding on hover into a pill carrying the ways to reach it, and
+ * holding that expansion for as long as a call runs. It stays on screen
  * for the app's whole run unless the user hides it via the tray's "Show
  * Companion" item, a choice that persists across launches
  * (`readCompanionHidden` in `window-state.ts`).
@@ -327,16 +326,15 @@ const finishIntro = (): void => {
 let call: VoiceActivityState | null = null;
 
 /**
- * The assistant and the conversation's tail, as the window holding them last
- * published.
+ * What the app's window last published about the assistant: its name, whether
+ * a turn is running, and the sessions it holds.
  *
  * Held here for the same reason the session is: the surface's renderer reloads,
- * and a card that came back empty would read as the exchange the user just had
- * on it having been thrown away.
+ * and a surface that came back with no name and no session would read as both
+ * having been lost.
  */
 let context: CompanionContext = {
   assistantName: "",
-  turns: [],
   working: false,
   watching: false,
   captureCount: 0,
@@ -362,7 +360,6 @@ const currentState = (): CompanionSurfaceState => {
     call,
     intro,
     assistantName: context.assistantName,
-    turns: context.turns,
     working: context.working,
     // `CompanionContext.watching` is optional, so a publisher that omits it is
     // reporting no session of its own. Settled to a boolean here rather than
@@ -821,36 +818,15 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
-   * Type, sent: the message goes to the same renderer Talk's press goes to, and
-   * lands in the conversation that renderer has open.
-   *
-   * The surface holds no conversation and no transport, only the words. What
-   * comes back is the reply, in the app or as a notification, the same as any
-   * other message the user sends.
-   */
-  on(
-    "vellum:companion:submit",
-    z.tuple([z.string(), z.boolean()]),
-    ([message, startsConversation]) => {
-      dispatchWithoutRaising({
-        kind: "companionSubmit",
-        message,
-        startsConversation,
-      });
-    },
-  );
-
-  /**
-   * The assistant and the conversation's tail, from the window holding them,
-   * and with them whether a watch session is running.
+   * The assistant's name and what the window holding it knows about the turn
+   * and the sessions it is running.
    *
    * Published rather than fetched, because main has no conversation of its own
-   * and no transport to fetch one with. The turns arrive already condensed to a
-   * side and some text: see `companionContextSchema`.
+   * and no transport to fetch one with: see `companionContextSchema`.
    *
    * One channel for the whole snapshot rather than one per fact. They describe
    * the same assistant at the same moment, and a surface drawing a stale
-   * `watching` beside a fresh tail is exactly the skew independently-pushed
+   * `watching` beside a fresh name is exactly the skew independently-pushed
    * facts would produce.
    */
   on(
@@ -861,38 +837,6 @@ export const installCompanionWindow = (): void => {
       pushState();
     },
   );
-
-  /**
-   * The composer, opened and closed: the window may hold the keyboard for
-   * exactly that long.
-   *
-   * The counterpart to `setInteractive` above. The window is created
-   * unfocusable so an ordinary press on the pill leaves the keyboard with
-   * whatever app the user is working in, and this is what lends it out.
-   *
-   * **`setFocusable` both ways, and never `blur`.** `blur` is the only call
-   * that makes this window resign key status outright, and on macOS it is
-   * `orderOut` followed by `orderBack`: the surface is taken off screen and put
-   * back at the bottom of its level. That reads exactly as it sounds, as a
-   * flash, and the window comes back without the mouse forwarding that makes it
-   * hit-testable, so the avatar is left sitting there dead. A surface that
-   * breaks itself every time the user backs out of Type is far worse than the
-   * one thing `setFocusable(false)` does not do, which is hand key status back
-   * the instant the composer closes rather than the next time the user clicks
-   * into the app they are working in.
-   */
-  on("vellum:companion:setComposing", z.tuple([z.boolean()]), ([composing]) => {
-    const win = getFloatingWindow(COMPANION_KIND);
-    if (!win || win.isDestroyed()) {
-      return;
-    }
-    if (composing) {
-      win.setFocusable(true);
-      win.focus();
-      return;
-    }
-    win.setFocusable(false);
-  });
 
   /**
    * The avatar, pressed: come forward on the conversation the user was last in.
@@ -950,32 +894,6 @@ export const installCompanionWindow = (): void => {
       ),
     );
     menu.popup({ window: win });
-  });
-
-  /**
-   * A link pressed on the card.
-   *
-   * The surface's window is created `deny-all`, which refuses every top-level
-   * navigation and every `window.open`, so an anchor in a reply cannot follow
-   * itself and a press would otherwise do nothing at all. Main is the side
-   * allowed to open things, so the URL comes here.
-   *
-   * **Only http and https.** The string arrives over IPC and is drawn from
-   * model output, so it is untrusted twice over: `file:` would open anything
-   * on disk the user can read, and a custom scheme would hand the press to
-   * whichever application claims it.
-   */
-  on("vellum:companion:openLink", z.tuple([z.string()]), ([url]) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return;
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return;
-    }
-    void shell.openExternal(parsed.toString());
   });
 
   on("vellum:companion:activate", z.tuple([]), () => {
@@ -1156,16 +1074,18 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
-      // **Unfocusable at rest, like the dictation overlay, but only at rest.**
-      // `type: "panel"` already makes the window non-activating, so clicking it
-      // never brings Vellum forward; this goes further and stops it taking key
-      // status, because a panel that becomes key on any press would hold the
-      // keyboard after a press on Talk and swallow whatever the user typed next
-      // into the app they are actually working in. The surface does host a text
-      // field, and a window that cannot become key cannot receive a keystroke,
-      // so key status is granted for exactly as long as that field is open
-      // (`setComposing`), the way mouse events are granted for exactly as long
-      // as the pointer is on the pill.
+      // **Unfocusable, like the dictation overlay.** `type: "panel"` already
+      // makes the window non-activating, so clicking it never brings Vellum
+      // forward; this goes further and stops it taking key status, because a
+      // panel that becomes key on any press would hold the keyboard after a
+      // press on Talk and swallow whatever the user typed next into the app
+      // they are actually working in. Nothing on the surface takes a
+      // keystroke, so there is no moment key status is owed to it.
+      //
+      // Should that change, lend it with `setFocusable` both ways and never
+      // `blur()`: on macOS `blur` is `orderOut` then `orderBack`, which flashes
+      // the window and brings it back without the mouse forwarding that makes
+      // it hit-testable, leaving the avatar sitting there dead.
       focusable: false,
       movable: true,
       minimizable: false,
