@@ -1,6 +1,6 @@
-import { SetupStepList } from "@/components/setup-step-list";
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
+import { SetupStepList } from "@/components/setup-step-list";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface SlackSetupCreateStepProps {

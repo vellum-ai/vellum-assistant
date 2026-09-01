@@ -1,9 +1,9 @@
-import { SetupStepList } from "@/components/setup-step-list";
 import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
+import { SetupStepList } from "@/components/setup-step-list";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface TelegramSetupCreateStepProps {

@@ -1,4 +1,3 @@
-import { SetupStepList } from "@/components/setup-step-list";
 import {
   ChannelAvatarDownload,
   useAvatarRasterUrl,
@@ -6,6 +5,7 @@ import {
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Typography } from "@vellumai/design-library";
+import { SetupStepList } from "@/components/setup-step-list";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface DiscordSetupCreateStepProps {

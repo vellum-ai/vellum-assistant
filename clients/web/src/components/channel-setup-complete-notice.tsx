@@ -3,15 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Notice } from "@vellumai/design-library";
 import { channelverificationsessionsStatusGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
+import type { BotSetupChannel } from "@/types/channel-types";
 import { getChannelLabel } from "@/utils/channel-presentation";
-
-/** Channels whose setup wizard ends in this notice. */
-export type VerifiableSetupChannel = "discord" | "slack" | "telegram";
 
 export interface ChannelSetupCompleteNoticeProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
-  channel: VerifiableSetupChannel;
+  channel: BotSetupChannel;
   /** What the wizard saved, named in the channel's own terms. */
   savedTitle: string;
   savedBody: string;
@@ -54,12 +52,7 @@ export function ChannelSetupCompleteNotice({
       path: { assistant_id: assistantId },
       query: { channel },
     }),
-    // The route publishes no response schema, so the read stays narrow: one
-    // boolean, false whenever the payload is not the shape the daemon writes.
-    select: (data) =>
-      typeof data === "object" &&
-      data !== null &&
-      (data as { bound?: unknown }).bound === true,
+    select: (data) => data.bound,
   });
   const verified = bindingQuery.data === true;
 
