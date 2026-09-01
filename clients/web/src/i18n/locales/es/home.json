@@ -68,7 +68,6 @@
     "briefingRecipeTitle": "Configurar un resumen matutino",
     "briefingRecipeMeta": "Cada día",
     "briefingRecipeDescription": "Tu primera notificación, mañana a las 8:00.",
-    "briefingRecipePrompt": "Configúrame un resumen matutino: cada día laborable a las 8:00, revisa mi calendario, mi bandeja de entrada y las noticias, y publica un resumen breve en mis notificaciones.",
-    "dismissBriefingRecipe": "Descartar la sugerencia del resumen matutino"
+    "briefingRecipePrompt": "Configúrame un resumen matutino: cada día laborable a las 8:00, revisa mi calendario, mi bandeja de entrada y las noticias, y publica un resumen breve en mis notificaciones."
   }
 }

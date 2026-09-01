@@ -68,7 +68,6 @@
     "briefingRecipeTitle": "Set up a morning briefing",
     "briefingRecipeMeta": "Daily",
     "briefingRecipeDescription": "Your first notification, tomorrow at 8:00.",
-    "briefingRecipePrompt": "Set up a morning briefing for me: every weekday at 8:00, check my calendar, my inbox, and the news, then post a short summary to my notifications.",
-    "dismissBriefingRecipe": "Dismiss the morning briefing suggestion"
+    "briefingRecipePrompt": "Set up a morning briefing for me: every weekday at 8:00, check my calendar, my inbox, and the news, then post a short summary to my notifications."
   }
 }
