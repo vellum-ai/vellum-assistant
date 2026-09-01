@@ -651,7 +651,7 @@ export const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
  * `canAutoRecover` is true for both failure statuses: recovery needs no
  * re-authorization from the user, only a signed-in client to rotate the key.
  */
-async function checkAssistantApiKey(): Promise<CredentialHealthResult | null> {
+export async function checkAssistantApiKey(): Promise<CredentialHealthResult | null> {
   const base: Omit<
     CredentialHealthResult,
     "status" | "details" | "canAutoRecover"

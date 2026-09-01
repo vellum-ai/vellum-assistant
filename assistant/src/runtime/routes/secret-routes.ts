@@ -414,6 +414,24 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           // recovery surfaces asking for a rotation that already happened.
           clearManagedCredentialVerdict();
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
+          // Confirm the replacement actually authenticates, rather than
+          // leaving a rotation to look successful because the old verdict was
+          // dropped. The check records what it finds, so a key that is still
+          // rejected settles back to rejected within this write instead of
+          // reading unknown until the next heartbeat. Detached: verification
+          // is a network round trip and must not block storing the key.
+          void (async () => {
+            try {
+              const { checkAssistantApiKey } =
+                await import("../../credential-health/credential-health-service.js");
+              await checkAssistantApiKey();
+            } catch (err) {
+              log.warn(
+                { err },
+                "Could not verify the managed credential after storing it",
+              );
+            }
+          })();
         }
       } else if (!isTrimmedIdentity) {
         await refreshProvidersForRotatedCredential(service, field);
