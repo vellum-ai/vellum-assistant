@@ -74,6 +74,8 @@
     "unsupportedLabel": "Unavailable"
   },
   "appIcon": {
+    "androidApplyNote": "Alternate icons ship with the app. Android applies your choice once you leave the app, and switching can reset a shortcut you pinned to your home screen.",
+    "androidError": "Android did not change your home screen icon. You can try again.",
     "apply": "Set app icon",
     "change": "Change",
     "color": "Color",
