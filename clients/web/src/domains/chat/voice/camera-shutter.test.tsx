@@ -994,6 +994,220 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  /**
+   * The presses that end where this button is not.
+   *
+   * Nothing is captured, so a finger lifted off the button and a key released
+   * at whatever took focus are ends this element never sees, and none of them
+   * produces a click for it to spend the suppression on. What is left raised
+   * is spent on the next activation instead, and a screen reader's is a bare
+   * click with no press in front of it to clear it first.
+   */
+  describe("ending somewhere else", () => {
+    /** Lift the pointer off the button, where this element cannot hear it. */
+    function releaseElsewhere(): void {
+      fireEvent.pointerLeave(shutter(), { pointerId: 1 });
+      fireEvent.pointerUp(document.body, { pointerId: 1 });
+    }
+
+    test("a wandering press released off the button eats no later activation", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        press();
+        fireEvent.pointerMove(shutter(), {
+          pointerId: 1,
+          clientX: 12,
+          clientY: 0,
+        });
+        releaseElsewhere();
+
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("a fired hold released off the button eats no later activation", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        press();
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+        releaseElsewhere();
+
+        // The press that stops Live is the user's first attempt.
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("another finger lifting elsewhere spends nothing of this press", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // The wander gives this press up, and a second pointer lifts somewhere
+        // else while the first is still down. The suppression belongs to the
+        // pointer that made the press, so this one leaves it alone and the
+        // release over the button is still refused.
+        press();
+        fireEvent.pointerMove(shutter(), {
+          pointerId: 1,
+          clientX: 12,
+          clientY: 0,
+        });
+        fireEvent.pointerUp(document.body, { pointerId: 2 });
+        release();
+        expect(taps).toBe(0);
+
+        press();
+        release();
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("a shutter disabled mid-press eats no later activation", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        const onClick = () => {
+          taps += 1;
+        };
+        const { rerender } = render(
+          <CameraShutter
+            onClick={onClick}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // A disabled button takes no click, and enabling it again replays
+        // none, so the press it interrupted has nothing left to spend on.
+        press();
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+            disabled
+          />,
+        );
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("a keyboard hold released at another element eats no later activation", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        render(
+          <>
+            <CameraShutter
+              onClick={() => {
+                taps += 1;
+              }}
+              onHold={() => {
+                holds += 1;
+              }}
+              ariaLabel="Take photo"
+              testId="s"
+            />
+            <button type="button" data-testid="elsewhere">
+              Elsewhere
+            </button>
+          </>,
+        );
+
+        const elsewhere = screen.getByTestId("elsewhere");
+        shutter().focus();
+        fireEvent.keyDown(shutter(), { key: " " });
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+
+        // Focus moves with the key still down, so the release lands on
+        // whatever took it and this button's own handler never runs.
+        elsewhere.focus();
+        fireEvent.keyUp(elsewhere, { key: " " });
+
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("an unrelated key released elsewhere spends nothing", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // Space is the only key that arms anything here, so a Tab released
+        // while a finger is mid-press is none of this button's business and
+        // must not hand that press its photo back.
+        press();
+        fireEvent.pointerMove(shutter(), {
+          pointerId: 1,
+          clientX: 12,
+          clientY: 0,
+        });
+        fireEvent.keyUp(document.body, { key: "Tab" });
+        release();
+        expect(taps).toBe(0);
+      });
+    });
+  });
+
   test("advertises the hold to a screen reader, and only when offered", () => {
     const { rerender } = render(
       <CameraShutter

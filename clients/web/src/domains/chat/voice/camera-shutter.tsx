@@ -202,16 +202,34 @@ export function CameraShutter({
   }, [cancelHold]);
 
   /**
+   * Which pointer the press underway belongs to, so an end of press can be
+   * told from any other finger's. A keyboard press owns none.
+   */
+  const pressPointerIdRef = useRef<number | null>(null);
+  /**
+   * The end-of-press event this button handled itself.
+   *
+   * A release over the button and one that lands elsewhere are the same event
+   * name from the document's side, and only the second leaves the flags with
+   * no click to be spent on. The button's own handler runs first, since React
+   * listens at its root inside the document, so recording what it saw tells
+   * the two apart without a containment test and without a ref of this
+   * component's own, which a wrapping `Tooltip` already owns.
+   */
+  const handledEndRef = useRef<Event | null>(null);
+
+  /**
    * Nothing of the last press is left to answer for.
    *
    * Both flags exist for the click a release produces, so an end of press that
    * produces none has to spend them itself: left raised they wait for a click
    * that never comes and eat some later activation instead.
    */
-  const settlePress = () => {
+  const settlePress = useCallback(() => {
     heldRef.current = false;
     abandonedRef.current = false;
-  };
+    pressPointerIdRef.current = null;
+  }, []);
 
   /**
    * A new press begins, so whatever the last one was is over.
@@ -299,7 +317,61 @@ export function CameraShutter({
       return;
     }
     abandonPress();
-  }, [abandonPress, disabled, holdOffered]);
+    // A disabled button receives no click, and enabling it again replays none,
+    // so a press caught by this has nothing left to spend its flags on. The
+    // withdrawal on its own is not the same: that button still takes the
+    // release, and the click it fires is what the suppression is for.
+    if (disabled) {
+      settlePress();
+    }
+  }, [abandonPress, disabled, holdOffered, settlePress]);
+
+  /**
+   * The press ended somewhere this button is not.
+   *
+   * Nothing is ever captured, so a finger lifted off the button and a key
+   * released at whatever took focus are both ends this element never sees, and
+   * neither produces a click for it. Left raised through one of those, a flag
+   * waits for a click that is not coming and is spent on the next activation
+   * instead, which for a screen reader or voice control is a bare click with
+   * no press in front of it to clear it first.
+   *
+   * Narrow on purpose. Nothing raised is one ref read and out, which is what
+   * this costs for every release in the app. A pointer end counts only for the
+   * pointer that began the press, so a second finger lifting elsewhere does
+   * not spend a wandering press's suppression before its own release can. A
+   * key end counts only for Space, the one key that arms anything here.
+   */
+  useEffect(() => {
+    const settleIfElsewhere = (event: Event) => {
+      if (!heldRef.current && !abandonedRef.current) {
+        return;
+      }
+      if (event === handledEndRef.current) {
+        return;
+      }
+      if (event instanceof KeyboardEvent) {
+        if (event.key !== " ") {
+          return;
+        }
+      } else if (
+        pressPointerIdRef.current === null ||
+        // The DOM's, qualified because this module's `PointerEvent` is the
+        // React synthetic one it takes in its own handlers.
+        (event as globalThis.PointerEvent).pointerId !==
+          pressPointerIdRef.current
+      ) {
+        return;
+      }
+      settlePress();
+    };
+    document.addEventListener("pointerup", settleIfElsewhere);
+    document.addEventListener("keyup", settleIfElsewhere);
+    return () => {
+      document.removeEventListener("pointerup", settleIfElsewhere);
+      document.removeEventListener("keyup", settleIfElsewhere);
+    };
+  }, [settlePress]);
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // A press that is already over, arriving as its click. Either the hold
@@ -337,6 +409,7 @@ export function CameraShutter({
     // pointer capture retargets that click to whoever holds it, which for a
     // press on a control is the control losing its own tap.
     holdOriginRef.current = { x: event.clientX, y: event.clientY };
+    pressPointerIdRef.current = event.pointerId;
     armHold();
   };
 
@@ -386,6 +459,10 @@ export function CameraShutter({
     if (event.key !== " ") {
       return;
     }
+    // This release is the button's own, so the document listener leaves it to
+    // the handling below rather than reading it as an end that landed
+    // elsewhere.
+    handledEndRef.current = event.nativeEvent;
     // The press this key began is over, whatever is on offer by the time it
     // ends. A fired hold raises a suppression for a click only a pointer
     // release produces, so left up it waits for one that never comes and is
@@ -425,11 +502,13 @@ export function CameraShutter({
       onPointerMove={handlePointerMove}
       onPointerUp={(event) => {
         onPointerUp?.(event);
-        // Nothing is settled here. Nothing is ever captured, so a release
+        // Recorded, not settled. Nothing is ever captured, so a release
         // reaching this handler is one that happened over the button, and a
         // down and an up that both landed on it fire the click the suppression
         // exists for. Spending it anywhere but on that click is what would
-        // hand a wandering press its photo back.
+        // hand a wandering press its photo back, so the document listener is
+        // told to leave this one alone.
+        handledEndRef.current = event.nativeEvent;
         cancelHold();
       }}
       onPointerCancel={(event) => {
