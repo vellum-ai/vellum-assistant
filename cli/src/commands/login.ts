@@ -10,6 +10,7 @@ import {
   saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
+import { resolveAssistantApiKeyForInjection } from "../lib/assistant-api-key-resolution";
 import { computeDeviceId } from "../lib/guardian-token";
 import { openBrowser } from "../lib/open-browser";
 import {
@@ -20,10 +21,7 @@ import {
   fetchPlatformAssistants,
   getPlatformUrl,
   injectCredentialsIntoAssistant,
-  readGatewayAssistantApiKeyStatus,
-  readGatewayCredential,
   readPlatformToken,
-  reprovisionAssistantApiKey,
   savePlatformToken,
 } from "../lib/platform-client";
 import { syncCloudAssistants } from "../lib/sync-cloud-assistants";
@@ -406,47 +404,21 @@ export async function login(): Promise<void> {
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
 
-        // Resolve the API key to inject, mirroring the macOS app's
-        // LocalAssistantBootstrapService 3-step flow:
-        // 1. Use fresh key from registration (first-time only)
-        // 2. Use existing key from the daemon's credential store
-        // 3. Reprovision (rotate) when no usable key exists. Rotation is
-        //    gated on the gateway confirming the key is absent or rejected,
-        //    never on it being merely unreachable, so a login during an
-        //    outage cannot rotate a key it then fails to store.
-        //
-        // A stored key the platform has rejected is not usable, so step 2
-        // must skip it. Reusing it would make this command look like a repair
-        // while re-injecting the exact credential that is failing.
-        let assistantApiKey = registration.assistant_api_key;
-        if (!assistantApiKey) {
-          const cached = await readGatewayCredential(
-            entry.runtimeUrl,
-            "vellum:assistant_api_key",
-            entry.bearerToken,
-          );
-          const keyStatus = await readGatewayAssistantApiKeyStatus(
-            entry.runtimeUrl,
-            entry.bearerToken,
-          );
-          const cachedKeyRejected = keyStatus === "rejected";
-          if (cached.value && !cachedKeyRejected) {
-            assistantApiKey = cached.value;
-          } else if (!cached.unreachable) {
-            console.log(
-              cachedKeyRejected
-                ? "Stored API key was rejected by Vellum. Provisioning a replacement..."
-                : "No API key available locally, reprovisioning...",
-            );
-            const reprovision = await reprovisionAssistantApiKey(
-              token,
-              orgId,
-              clientInstallationId,
-              entry.assistantId,
-              "cli",
-            );
-            assistantApiKey = reprovision.provisioning.assistant_api_key;
-          }
+        // Which key to hand the assistant, and why. Shared with teleport so
+        // the two injection paths cannot drift.
+        const resolved = await resolveAssistantApiKeyForInjection({
+          registrationApiKey: registration.assistant_api_key,
+          runtimeUrl: entry.runtimeUrl,
+          bearerToken: entry.bearerToken,
+          token,
+          organizationId: orgId,
+          clientInstallationId,
+          runtimeAssistantId: entry.assistantId,
+          clientPlatform: "cli",
+        });
+        const assistantApiKey = resolved.apiKey;
+        if (resolved.source === "reprovisioned") {
+          console.log("Provisioning a replacement API key...");
         }
 
         // Inject credentials into the running assistant via the gateway,
