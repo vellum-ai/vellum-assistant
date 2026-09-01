@@ -21,7 +21,7 @@
  * what the model receives is always what is actually on disk.
  */
 
-import { readdirSync, unlinkSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
@@ -32,8 +32,10 @@ import {
 } from "../config/schemas/sight.js";
 import {
   attachmentShrinkRefusal,
+  deleteSweepLeftover,
   getAttachmentContent,
   reclaimAttachmentSweepBackup,
+  type ReclaimBackupResult,
   selectSightFrameSweepCandidates,
   shrinkAttachmentBytes,
   type SightFrameSweepCursor,
@@ -192,8 +194,17 @@ export interface SightFrameSweepResult {
    * attachment no linked message actually tags.
    */
   rowsRead: number;
-  /** Leftover sweep files this pass reclaimed. */
-  reclaimedBackups: number;
+  /** What the directory scan did with the sweep files a crash left behind. */
+  leftovers: SweepLeftoverTally;
+}
+
+export interface SweepLeftoverTally {
+  /** Files removed as debris. */
+  deleted: number;
+  /** Backups renamed over a base file a crash left missing. */
+  restored: number;
+  /** Files left alone: a row still needs them, or one claims them outright. */
+  skipped: number;
 }
 
 function emptyResult(): SightFrameSweepResult {
@@ -203,7 +214,7 @@ function emptyResult(): SightFrameSweepResult {
     skipped: 0,
     examined: 0,
     rowsRead: 0,
-    reclaimedBackups: 0,
+    leftovers: { deleted: 0, restored: 0, skipped: 0 },
   };
 }
 
@@ -317,10 +328,14 @@ export async function sweepAgedSightFrames(
   }
 
   sweepCursor = cursor;
-  result.reclaimedBackups = reclaimSweepLeftovers(
+  result.leftovers = reclaimSweepLeftovers(
     bounds.maxBackupDirs ?? MAX_BACKUP_DIRS_PER_PASS,
   );
-  if (result.shrunk > 0 || result.reclaimedBackups > 0) {
+  if (
+    result.shrunk > 0 ||
+    result.leftovers.deleted > 0 ||
+    result.leftovers.restored > 0
+  ) {
     log.info(result, "Shrank aged camera frames to thumbnail scale");
   }
   return result;
@@ -355,8 +370,8 @@ async function shrinkOneFrame(attachmentId: string): Promise<number | null> {
 }
 
 /**
- * Delete the sweep files a killed process left behind, across a bounded slice of
- * the store's own attachment directories.
+ * Deal with the sweep files a killed process left behind, across a bounded slice
+ * of the store's own attachment directories.
  *
  * The staging directory is checked every pass, being one directory; conversation
  * directories are taken `maxDirs` at a time, resuming by name from where the
@@ -364,73 +379,87 @@ async function shrinkOneFrame(attachmentId: string): Promise<number | null> {
  * conversation created or deleted between passes cannot make the scan skip its
  * neighbours.
  *
- * Whether a backup may go is never this function's call: it hands each one to
- * {@link reclaimAttachmentSweepBackup}, which keeps the ones a row still needs.
- * A leftover `.sweep-tmp` needs no such question, being a replacement that never
- * reached its rename, and this never runs while a shrink is in flight.
+ * What happens to a file is never decided by its name. The suffixes are derived
+ * from an attachment's own path, not reserved, so a file the user picked can
+ * carry one; every deletion goes through the store, which refuses any path a row
+ * claims as its canonical bytes.
  *
- * Never throws. Returns how many files it removed.
+ * Never throws. Returns what it deleted, restored, and left alone.
  */
-function reclaimSweepLeftovers(maxDirs: number): number {
-  let reclaimed = 0;
-  reclaimed += reclaimLeftoversIn(
-    join(getWorkspaceDir(), "data", "attachments"),
-  );
+function reclaimSweepLeftovers(maxDirs: number): SweepLeftoverTally {
+  const tally: SweepLeftoverTally = { deleted: 0, restored: 0, skipped: 0 };
+  reclaimLeftoversIn(join(getWorkspaceDir(), "data", "attachments"), tally);
 
   const conversationsDir = getConversationsDir();
   let dirNames: string[];
   try {
     dirNames = readdirSync(conversationsDir).sort();
   } catch {
-    return reclaimed;
+    return tally;
   }
   const resumeAfter = backupScanCursor;
   const resumeAt =
     resumeAfter === null ? 0 : dirNames.findIndex((name) => name > resumeAfter);
   if (resumeAt === -1) {
     backupScanCursor = null;
-    return reclaimed;
+    return tally;
   }
 
   const slice = dirNames.slice(resumeAt, resumeAt + maxDirs);
   for (const name of slice) {
-    reclaimed += reclaimLeftoversIn(
-      join(conversationsDir, name, "attachments"),
-    );
+    reclaimLeftoversIn(join(conversationsDir, name, "attachments"), tally);
   }
   backupScanCursor =
     resumeAt + maxDirs >= dirNames.length
       ? null
       : (slice[slice.length - 1] ?? null);
-  return reclaimed;
+  return tally;
 }
 
 /** One directory's leftovers. Never throws; a directory that is not there has none. */
-function reclaimLeftoversIn(dir: string): number {
+function reclaimLeftoversIn(dir: string, tally: SweepLeftoverTally): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
   } catch {
-    return 0;
+    return;
   }
-  let reclaimed = 0;
+
+  // Backups first. One of them may put a missing base file back, and a temp
+  // beside that base is only debris once the base it was going to replace is
+  // there to compare it against.
   for (const entry of entries) {
-    if (entry.endsWith(SWEEP_BACKUP_SUFFIX)) {
-      if (reclaimAttachmentSweepBackup(join(dir, entry)) === "deleted") {
-        reclaimed += 1;
-      }
+    if (!entry.endsWith(SWEEP_BACKUP_SUFFIX)) {
       continue;
     }
-    if (entry.endsWith(SWEEP_TEMP_SUFFIX)) {
-      try {
-        unlinkSync(join(dir, entry));
-        reclaimed += 1;
-      } catch {
-        /* gone already, or not ours to remove */
-      }
-    }
+    recordLeftoverOutcome(
+      reclaimAttachmentSweepBackup(join(dir, entry)),
+      tally,
+    );
   }
-  return reclaimed;
+
+  // A temp is a replacement that never reached its rename, so nothing wants it,
+  // and this never runs while a shrink is in flight. The store still refuses to
+  // unlink one that is some row's canonical file.
+  for (const entry of entries) {
+    if (!entry.endsWith(SWEEP_TEMP_SUFFIX)) {
+      continue;
+    }
+    recordLeftoverOutcome(deleteSweepLeftover(join(dir, entry)), tally);
+  }
+}
+
+function recordLeftoverOutcome(
+  outcome: ReclaimBackupResult,
+  tally: SweepLeftoverTally,
+): void {
+  if (outcome === "deleted") {
+    tally.deleted += 1;
+  } else if (outcome === "restored") {
+    tally.restored += 1;
+  } else if (outcome === "kept") {
+    tally.skipped += 1;
+  }
 }
 
 /** The pass cursor, for tests that assert a pass resumed rather than restarted. */

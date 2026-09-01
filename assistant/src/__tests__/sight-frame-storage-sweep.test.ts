@@ -9,18 +9,27 @@
  * does: an untagged attachment, a frame inside the window, and a file more than
  * one row names.
  *
- * Two properties are about the pass rather than the frame, and both are failures
- * of the shape where nothing looks broken. A pass has to walk PAST the frames it
- * cannot rewrite, or a wall of them at the oldest end starves every frame behind
- * it and storage grows again. And a row update that throws after the new bytes
- * landed has to put the original back, or the row overstates a size the content
- * route serves as `Content-Length`.
+ * The rest are about the pass rather than the frame, and all of them are
+ * failures of the shape where nothing looks broken. A pass has to walk PAST the
+ * frames it cannot rewrite, or a wall of them at the oldest end starves every
+ * frame behind it and storage grows again. A row update that throws after the
+ * new bytes landed has to put the original back, or the row overstates a size
+ * the content route serves as `Content-Length`. And the files a killed process
+ * leaves mid-shrink have to be judged by the rows that point at them rather than
+ * by their names, which are derived from an attachment's own path and can
+ * therefore belong to a real attachment.
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { setDbMigrating, setDbReady } from "../daemon/daemon-readiness.js";
@@ -36,6 +45,7 @@ import {
   getAttachmentMetadataForMessage,
   getFilePathForAttachment,
   SWEEP_BACKUP_SUFFIX,
+  SWEEP_TEMP_SUFFIX,
   uploadAttachment,
   uploadFileBackedAttachment,
 } from "../persistence/attachments-store.js";
@@ -233,6 +243,31 @@ function storedSizeBytes(attachmentId: string): number {
   return row!.sizeBytes;
 }
 
+/**
+ * A real file with a row naming it as its canonical bytes, for names that
+ * collide with the sweep's own sidecar suffixes.
+ */
+function plantCanonicalFile(
+  dir: string,
+  filename: string,
+): { id: string; path: string; bytes: Buffer } {
+  const path = join(dir, filename);
+  const bytes = Buffer.alloc(2048, 5);
+  writeFileSync(path, bytes);
+  const id = `canonical-${filename}`;
+  rawRun(
+    "test:plantCanonicalFile",
+    `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, file_path, created_at)
+     VALUES (?, ?, 'image/jpeg', ?, 'image', '', ?, ?)`,
+    id,
+    filename,
+    bytes.length,
+    path,
+    Date.now(),
+  );
+  return { id, path, bytes };
+}
+
 /** A pass that found nothing to do and nothing to reclaim. */
 const NOTHING_HAPPENED = {
   shrunk: 0,
@@ -240,7 +275,7 @@ const NOTHING_HAPPENED = {
   skipped: 0,
   examined: 0,
   rowsRead: 0,
-  reclaimedBackups: 0,
+  leftovers: { deleted: 0, restored: 0, skipped: 0 },
 };
 
 /**
@@ -631,7 +666,7 @@ describe("sweepAgedSightFrames", () => {
 
     const result = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
 
-    expect(result.reclaimedBackups).toBe(2);
+    expect(result.leftovers.deleted).toBe(2);
     expect(existsSync(orphaned)).toBe(false);
     expect(existsSync(stranded)).toBe(false);
     // The frame itself is untouched by the reclaim.
@@ -661,7 +696,8 @@ describe("sweepAgedSightFrames", () => {
       maxBackupDirs: 1000,
     });
 
-    expect(reclaimOnly.reclaimedBackups).toBe(0);
+    expect(reclaimOnly.leftovers.deleted).toBe(0);
+    expect(reclaimOnly.leftovers.skipped).toBeGreaterThanOrEqual(1);
     expect(existsSync(backup)).toBe(true);
     expect(readFileSync(backup).equals(original)).toBe(true);
 
@@ -671,6 +707,109 @@ describe("sweepAgedSightFrames", () => {
     expect(storedSizeBytes(frame.attachmentId)).toBe(
       readFileSync(frame.filePath).length,
     );
+    expect(existsSync(backup)).toBe(false);
+  });
+
+  test("leaves alone a stored file whose own name ends in a sweep suffix", async () => {
+    // The suffixes are derived from an attachment's path, not reserved. A user
+    // can pick a file called `holiday.jpg.sweep-tmp`, the store keeps the name,
+    // and it lands in a directory the reclaim scans. Deleting it on the strength
+    // of its name destroys canonical bytes a row and a transcript still point at.
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    const dir = dirname(frame.filePath);
+    const namedLikeTemp = plantCanonicalFile(
+      dir,
+      `holiday.jpg${SWEEP_TEMP_SUFFIX}`,
+    );
+    const namedLikeBackup = plantCanonicalFile(
+      dir,
+      `holiday.jpg${SWEEP_BACKUP_SUFFIX}`,
+    );
+
+    const result = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
+
+    expect(result.leftovers.deleted).toBe(0);
+    expect(result.leftovers.skipped).toBe(2);
+    expect(readFileSync(namedLikeTemp.path).equals(namedLikeTemp.bytes)).toBe(
+      true,
+    );
+    expect(
+      readFileSync(namedLikeBackup.path).equals(namedLikeBackup.bytes),
+    ).toBe(true);
+    expect(getAttachmentContent(namedLikeTemp.id)?.length).toBe(
+      namedLikeTemp.bytes.length,
+    );
+  });
+
+  test("refuses to shrink a frame whose sidecar names are already taken", async () => {
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    const original = readFileSync(frame.filePath);
+    // Another row's canonical bytes sitting exactly where this frame's backup
+    // would go. Writing there would take that attachment's only copy.
+    const squatter = plantCanonicalFile(
+      dirname(frame.filePath),
+      `${basename(frame.filePath)}${SWEEP_BACKUP_SUFFIX}`,
+    );
+
+    const result = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
+
+    expect(result.shrunk).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(readFileSync(frame.filePath).equals(original)).toBe(true);
+    expect(readFileSync(squatter.path).equals(squatter.bytes)).toBe(true);
+  });
+
+  test("restores a base file a crash left missing between the two renames", async () => {
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    const original = readFileSync(frame.filePath);
+
+    // The window between the renames: the original is aside under the backup
+    // name, the replacement is written but not promoted, and the row points at
+    // nothing at all.
+    const backup = `${frame.filePath}${SWEEP_BACKUP_SUFFIX}`;
+    const temp = `${frame.filePath}${SWEEP_TEMP_SUFFIX}`;
+    renameSync(frame.filePath, backup);
+    writeFileSync(temp, Buffer.alloc(4096, 1));
+    expect(getAttachmentContent(frame.attachmentId)).toBeNull();
+
+    const reclaimOnly = await sweepAgedSightFrames({
+      maxEncodeAttempts: 0,
+      maxBackupDirs: 1000,
+    });
+
+    // Keeping the backup where it lay would have left the frame unreadable for
+    // as long as the row survived, since nothing else ever puts it back.
+    expect(reclaimOnly.leftovers.restored).toBe(1);
+    expect(readFileSync(frame.filePath).equals(original)).toBe(true);
+    expect(existsSync(backup)).toBe(false);
+    // The temp beside it is debris once the base it would have replaced is back.
+    expect(existsSync(temp)).toBe(false);
+    expect(getAttachmentContent(frame.attachmentId)?.length).toBe(
+      original.length,
+    );
+
+    // Readable again and still over the threshold, so the sweep finishes it.
+    const converged = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
+    expect(converged.shrunk).toBe(1);
+    expect(storedSizeBytes(frame.attachmentId)).toBe(
+      readFileSync(frame.filePath).length,
+    );
+  });
+
+  test("deletes a backup whose base is missing and whose row is gone", async () => {
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    const backup = `${frame.filePath}${SWEEP_BACKUP_SUFFIX}`;
+    renameSync(frame.filePath, backup);
+    rawRun(
+      "test:dropAttachmentRow",
+      "DELETE FROM attachments WHERE id = ?",
+      frame.attachmentId,
+    );
+
+    const result = await sweepAgedSightFrames({ maxBackupDirs: 1000 });
+
+    expect(result.leftovers.restored).toBe(0);
+    expect(result.leftovers.deleted).toBe(1);
     expect(existsSync(backup)).toBe(false);
   });
 });

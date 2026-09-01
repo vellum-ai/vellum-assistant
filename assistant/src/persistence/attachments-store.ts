@@ -1427,7 +1427,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
     // destroys another conversation's data, which is what the staging-dir
     // guard in `materializeAttachmentIntoConversation` avoids at the other end
     // of the same window.
-    if (attachmentFilePathStillReferenced(filePath)) {
+    if (attachmentFileIsCanonical(filePath)) {
       continue;
     }
     try {
@@ -1438,11 +1438,6 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   }
 
   return deletedCount;
-}
-
-/** True while any surviving attachment row still names this file. */
-function attachmentFilePathStillReferenced(filePath: string): boolean {
-  return attachmentFilePathReferenceCount(filePath) > 0;
 }
 
 /** How many attachment rows name this file. */
@@ -1641,28 +1636,45 @@ export const SWEEP_BACKUP_SUFFIX = ".sweep-bak";
 /** Sibling a shrink writes its replacement into before renaming it into place. */
 export const SWEEP_TEMP_SUFFIX = ".sweep-tmp";
 
-export type ReclaimBackupResult = "deleted" | "kept" | "failed";
+export type ReclaimBackupResult = "deleted" | "restored" | "kept" | "failed";
 
 /**
- * Collect a `.sweep-bak` left behind by a process that died mid-shrink, but only
- * once the row it belongs to no longer needs it.
+ * True while some attachment row names this exact file as its canonical bytes.
  *
- * A backup exists exactly between the moment a shrink renames the original aside
- * and the moment it unlinks it, so which side of the row update the process died
- * on is what decides whether the bytes are garbage. The row answers that on its
- * own, by whether it still overstates what is on disk:
+ * The suffixes a shrink appends are not reserved. A file the user picked can be
+ * called `holiday.jpg.sweep-bak`, `resolveUniqueFilename` stores it under that
+ * name in the very directory the reclaim scans, and `/attachments/register`
+ * accepts any workspace path at all. So nothing may be deleted for looking like
+ * a sidecar: what settles it is whether a row is pointing at it.
+ */
+export function attachmentFileIsCanonical(filePath: string): boolean {
+  return attachmentFilePathReferenceCount(filePath) > 0;
+}
+
+/**
+ * Deal with a `.sweep-bak` left behind by a process that died mid-shrink.
  *
- *  - NO ROW names the backed-up file. Nothing can ever read it. Garbage.
- *  - A row OVERSTATES the file in place, so the update never landed. This is the
- *    crash-convergence state described on {@link shrinkAttachmentBytes}: the row
- *    still selects, and the next shrink attempt renames over this backup under
- *    its fixed name. KEEP it, because until that happens it is the only full
- *    copy of the frame.
- *  - A row already DESCRIBES the file in place, so the update landed and only
- *    the unlink was lost. The backup is spent. Garbage.
- *  - The backed-up file's own base is MISSING, so both renames of a shrink got
- *    away from it. KEEP: the backup may be the only surviving copy, and
- *    reclaiming disk is never worth destroying the last one.
+ * A backup exists only between the moment a shrink renames the original aside
+ * and the moment it unlinks it, so where in that window the process died is what
+ * decides the bytes' fate. The rows answer it, in five cases:
+ *
+ *  1. The backup path is ITSELF some row's canonical file, because a filename
+ *     may legitimately end in the suffix. KEEP: this is not a sidecar at all,
+ *     and deleting it would destroy an attachment the transcript still renders.
+ *  2. The base file is MISSING and a row still names it. The crash landed
+ *     between the two renames, so the row points at nothing and
+ *     {@link getAttachmentContent} returns null for good. RESTORE the backup
+ *     over the base: the frame reads again, and its size still exceeds the
+ *     sweep's threshold, so the row stays a candidate and converges normally.
+ *  3. The base file is MISSING and no row names it. The row was deleted while
+ *     its backup was out of place, so nothing can ever read either. Garbage.
+ *  4. A row OVERSTATES the file in place, so the row update never landed. This
+ *     is the crash-convergence state on {@link shrinkAttachmentBytes}: the row
+ *     still selects, and the next shrink attempt renames over this backup under
+ *     its fixed name. KEEP, because until then it is the only full copy.
+ *  5. A row already DESCRIBES the file in place (or no row names it at all), so
+ *     the update landed and only the unlink was lost. The backup is spent.
+ *     Garbage.
  *
  * Never call this while a shrink on the same attachment is in flight; the sweep
  * that drives both runs them in sequence.
@@ -1673,12 +1685,28 @@ export function reclaimAttachmentSweepBackup(
   if (!backupPath.endsWith(SWEEP_BACKUP_SUFFIX)) {
     return "kept";
   }
+  if (attachmentFileIsCanonical(backupPath)) {
+    return "kept";
+  }
   const filePath = backupPath.slice(0, -SWEEP_BACKUP_SUFFIX.length);
-  let storedBytes: number;
+
+  let storedBytes: number | null = null;
   try {
     storedBytes = statSync(filePath).size;
   } catch {
-    return "kept";
+    storedBytes = null;
+  }
+
+  if (storedBytes === null) {
+    if (!attachmentFileIsCanonical(filePath)) {
+      return deleteSweepLeftover(backupPath);
+    }
+    try {
+      renameSync(backupPath, filePath);
+      return "restored";
+    } catch {
+      return "failed";
+    }
   }
 
   const owners = rawGet<{ rows: number; overstating: number }>(
@@ -1694,9 +1722,21 @@ export function reclaimAttachmentSweepBackup(
   if (owners && owners.rows > 0 && owners.overstating > 0) {
     return "kept";
   }
+  return deleteSweepLeftover(backupPath);
+}
 
+/**
+ * Remove a file the reclaim has decided is debris, refusing any that a row
+ * claims as its canonical bytes. Callers reach it having already made that
+ * check; it repeats it because deleting an attachment's only copy is the one
+ * mistake this machinery must not be able to make.
+ */
+export function deleteSweepLeftover(path: string): ReclaimBackupResult {
+  if (attachmentFileIsCanonical(path)) {
+    return "kept";
+  }
   try {
-    unlinkSync(backupPath);
+    unlinkSync(path);
     return "deleted";
   } catch {
     return "failed";
@@ -1712,7 +1752,8 @@ export type ShrinkAttachmentRefusal =
   | "not_found"
   | "no_content"
   | "shared_file"
-  | "foreign_file";
+  | "foreign_file"
+  | "sidecar_conflict";
 
 export type ShrinkAttachmentResult =
   | ShrinkAttachmentRefusal
@@ -1732,6 +1773,11 @@ export type ShrinkAttachmentResult =
  *    actually bounds storage.
  *  - a file outside the store's own directories, which may be a file the user
  *    or a tool still owns.
+ *  - a file whose sidecar names are already some other row's canonical bytes.
+ *    The suffixes are derived, not reserved: a file called `holiday.jpg` and one
+ *    called `holiday.jpg.sweep-bak` can both be real attachments in one
+ *    directory, and shrinking the first would write over the second. Refusing
+ *    costs one frame its shrink; overwriting costs the other its only copy.
  *  - a row holding neither a file nor inline bytes.
  *
  * Exported so a caller that has to PRODUCE the smaller rendering can ask first
@@ -1753,9 +1799,24 @@ function refusalForRow(row: AttachmentRow): ShrinkAttachmentRefusal | null {
     if (attachmentFilePathReferenceCount(row.filePath) > 1) {
       return "shared_file";
     }
+    if (sweepSidecarsAreClaimed(row.filePath)) {
+      return "sidecar_conflict";
+    }
     return null;
   }
   return row.dataBase64 ? null : "no_content";
+}
+
+/** True when either sidecar name this file would use is another row's canonical file. */
+function sweepSidecarsAreClaimed(filePath: string): boolean {
+  return (
+    (rawGet<{ claimed: number }>(
+      "attachments:sweepSidecarsClaimed",
+      `SELECT COUNT(*) AS claimed FROM attachments WHERE file_path IN (?, ?)`,
+      `${filePath}${SWEEP_TEMP_SUFFIX}`,
+      `${filePath}${SWEEP_BACKUP_SUFFIX}`,
+    )?.claimed ?? 0) > 0
+  );
 }
 
 /**
