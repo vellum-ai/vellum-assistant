@@ -29,16 +29,19 @@
  * there is no label to sweep. See {@link ShimmerSurface}.
  */
 
-import { Circle, CircleCheck } from "lucide-react";
+import { CircleCheck } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 import { AdaptivePopover } from "@/domains/chat/components/adaptive-popover";
 import { SideControlPresence } from "@/domains/chat/components/side-control-presence";
 import { SideControlButton } from "@/domains/chat/components/side-control-button";
+import { StepProgressRing } from "@/domains/chat/components/step-progress-ring";
+import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import {
   parseTaskProgress,
   TaskProgressBody,
+  taskProgressCounter,
 } from "@/domains/chat/components/surfaces/card-surface";
 import { useLatestTaskProgress } from "@/domains/chat/hooks/use-latest-task-progress";
 import { useProgressAckStore } from "@/domains/chat/progress-ack-store";
@@ -100,13 +103,15 @@ export function ProgressCard() {
   // otherwise unmount the panel mid-interaction.
   const visible = progress != null && (isRunning || !acknowledged || open);
 
-  // The control names its own state: a running plan reads "Progress", a
-  // settled one "Finished". The glyph follows, an open circle while the work is
-  // outstanding and a check once it is not, so the pill says the same thing
-  // twice over rather than leaving the label to carry it alone.
+  // The control names its own state: a running plan reads "Progress", a settled
+  // one "Finished". The glyph carries the same distinction, and while running
+  // it carries the plan's position too.
   const label = isRunning
     ? t("progressRail.title")
     : t("progressRail.titleFinished");
+  const counter = progress
+    ? taskProgressCounter(progress.steps)
+    : { current: 0, total: 0 };
 
   const trigger = (
     // `leftIcon` rather than `iconOnly`, so the glyph and the label share the
@@ -114,14 +119,28 @@ export function ProgressCard() {
     // accessible name is that same label, since an `aria-label` that disagreed
     // with the visible text would leave the two audiences reading different
     // states.
+    //
+    // `loading` is left off: the sweep belongs to the label alone here, not to
+    // the whole pill, so the ring stays readable while it runs.
     <SideControlButton
-      loading={isRunning}
       aria-label={label}
       data-testid="progress-card-toggle"
-      leftIcon={isRunning ? <Circle /> : <CircleCheck />}
+      leftIcon={
+        isRunning ? (
+          <StepProgressRing current={counter.current} total={counter.total} />
+        ) : (
+          <CircleCheck />
+        )
+      }
       className="px-3"
     >
-      {label}
+      {isRunning ? (
+        <StreamingShimmerText data-testid="progress-label-shimmer">
+          {label}
+        </StreamingShimmerText>
+      ) : (
+        label
+      )}
     </SideControlButton>
   );
 

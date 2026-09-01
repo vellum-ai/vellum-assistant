@@ -2,9 +2,9 @@
  * What the progress pill says about the plan behind it.
  *
  * The trigger names its own state, so the label, the glyph and the loading
- * sweep all have to agree with the plan: "Progress" with an open circle and a
- * sweep while work is outstanding, "Finished" with a check and no sweep once it
- * is not.
+ * sweep all have to agree with the plan: "Progress" with a step ring and a
+ * shimmering label while work is outstanding, "Finished" with a check and a
+ * label at rest once it is not.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -23,9 +23,9 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   useTouchMobile: () => false,
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
-mock.module("@/domains/chat/components/shimmer-surface", () => ({
-  ShimmerSurface: () => <span data-testid="shimmer-surface" />,
-}));
+// The label's sweep animates through the Web Animations API, which the test
+// DOM does not implement; the component still renders its span, so the testid
+// is enough to assert which state the label is in.
 
 const sdkStub = async () => ({ data: undefined });
 const realSdkPath = new URL(
@@ -110,14 +110,18 @@ afterEach(() => {
 });
 
 describe("ProgressCard trigger", () => {
-  test("a running plan reads Progress and sweeps", () => {
+  test("a running plan reads Progress, shimmers, and rings its position", () => {
     seedPlan("in_progress", [{ label: "Step 1", status: "in_progress" }]);
     renderCard();
 
     expect(screen.getByTestId("progress-card-toggle").textContent).toContain(
       "Progress",
     );
-    expect(screen.queryByTestId("shimmer-surface")).not.toBeNull();
+    expect(screen.queryByTestId("progress-label-shimmer")).not.toBeNull();
+    // The ring stands in for the glyph while running: one arc over its track.
+    expect(
+      screen.getByTestId("progress-card-toggle").querySelectorAll("circle"),
+    ).toHaveLength(2);
   });
 
   test("a finished plan reads Finished and does not sweep", () => {
@@ -127,7 +131,7 @@ describe("ProgressCard trigger", () => {
     expect(screen.getByTestId("progress-card-toggle").textContent).toContain(
       "Finished",
     );
-    expect(screen.queryByTestId("shimmer-surface")).toBeNull();
+    expect(screen.queryByTestId("progress-label-shimmer")).toBeNull();
   });
 
   test("a terminal card settles even with a step left in flight", () => {
@@ -143,7 +147,7 @@ describe("ProgressCard trigger", () => {
     expect(screen.getByTestId("progress-card-toggle").textContent).toContain(
       "Finished",
     );
-    expect(screen.queryByTestId("shimmer-surface")).toBeNull();
+    expect(screen.queryByTestId("progress-label-shimmer")).toBeNull();
   });
 
   test("a step in flight counts as running when the card says nothing", () => {
@@ -155,6 +159,6 @@ describe("ProgressCard trigger", () => {
     expect(screen.getByTestId("progress-card-toggle").textContent).toContain(
       "Progress",
     );
-    expect(screen.queryByTestId("shimmer-surface")).not.toBeNull();
+    expect(screen.queryByTestId("progress-label-shimmer")).not.toBeNull();
   });
 });
