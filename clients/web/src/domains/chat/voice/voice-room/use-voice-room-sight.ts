@@ -343,10 +343,10 @@ export function useVoiceRoomSight(
     for (const attachmentId of sightFrameRefusal.reclaim) {
       reclaimUpload(attachmentId);
     }
+    const displayed = heldRef.current?.attachmentId;
     if (
       sightFrameRefusal.unsupported ||
-      (sightFrameRefusal.retract !== null &&
-        sightFrameRefusal.retract === heldRef.current?.attachmentId)
+      (displayed !== undefined && sightFrameRefusal.retract.includes(displayed))
     ) {
       hold(null);
     }

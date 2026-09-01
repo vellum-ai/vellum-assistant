@@ -492,6 +492,40 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
     expect(view.result.current.heldFrame).toBeNull();
   });
 
+  test("gives back every upload when two refusals land before one consume", async () => {
+    // Both keeps are already sent when the assistant starts refusing, and the
+    // two errors arrive together. A payload that replaced the one before it
+    // would strand the first upload for good: this assistant stored neither
+    // and reclaims neither.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    await act(async () => {
+      pendingUploads[0]!({ ok: true, id: "att-one" });
+      pendingUploads[1]!({ ok: true, id: "att-two" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(controls.sightFrame.mock.calls).toEqual([["att-one"], ["att-two"]]);
+
+    await act(async () => {
+      const store = useLiveVoiceStore.getState();
+      store.noteSightFrameRefused(true);
+      store.noteSightFrameRefused(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-one");
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-two");
+    expect(view.result.current.heldFrame).toBeNull();
+  });
+
   test("the sampler keeps running while the session is latched", async () => {
     renderSight();
     act(() => {

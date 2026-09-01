@@ -646,20 +646,33 @@ export interface LiveVoiceActions {
  *   never reclaim them, so all of them are the client's to give back. An
  *   assistant that understands the frame reclaims its own failures, so
  *   deleting after one of those would race it.
- * - `retract` names the displayed keep only when the refusal cannot be about
- *   anything else: exactly one send is outstanding. A refused keep with a
- *   newer one behind it is the ordinary case and must NOT retract anything,
- *   since the surface already shows the newer frame. The case this exists for
- *   is the lone keep that fails with nothing behind it, where the surface
- *   would otherwise go on claiming a view that never reached the transcript.
+ * - `retract` names a keep only when the refusal cannot be about anything
+ *   else: exactly one send was outstanding. A refused keep with a newer one
+ *   behind it is the ordinary case and must NOT retract anything, since the
+ *   surface already shows the newer frame. The case this exists for is the
+ *   lone keep that fails with nothing behind it, where the surface would
+ *   otherwise go on claiming a view that never reached the transcript.
+ *
+ * Refusals ACCUMULATE until one consumer takes them. Two errors can land
+ * between renders (two delayed responses arriving together, or a room that is
+ * not mounted to consume the first), and each field merges in the direction
+ * that cannot lose work: `reclaim` and `retract` union, `unsupported` ORs. A
+ * payload that replaced the one before it would strand exactly the uploads the
+ * first refusal was reporting, permanently, since nothing else collects them.
+ *
+ * `retract` is a set for the same reason and not only for symmetry: the
+ * count-of-one rule reads `outstandingSightFrames`, which the FIRST refusal
+ * already emptied, so a second refusal arriving before a consume computes an
+ * empty retraction. Overwriting with it would drop the retraction the first
+ * one earned.
  */
 export interface LiveVoiceSightFrameRefusal {
   /** The assistant has no handler for the frame, so the session gives up. */
   readonly unsupported: boolean;
   /** Uploads nothing else will ever collect. */
   readonly reclaim: readonly string[];
-  /** The displayed keep this refusal provably invalidated, else null. */
-  readonly retract: string | null;
+  /** Displayed keeps these refusals provably invalidated. */
+  readonly retract: readonly string[];
 }
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
@@ -826,6 +839,19 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   noteSightFrameRefused: (unsupported) =>
     set((s) => {
       const outstanding = s.outstandingSightFrames;
+      const pending = s.sightFrameRefusal;
+      // Fold onto whatever is still waiting to be consumed rather than
+      // replacing it. See {@link LiveVoiceSightFrameRefusal}.
+      const fold = (
+        next: LiveVoiceSightFrameRefusal,
+      ): LiveVoiceSightFrameRefusal =>
+        pending === null
+          ? next
+          : {
+              unsupported: pending.unsupported || next.unsupported,
+              reclaim: [...new Set([...pending.reclaim, ...next.reclaim])],
+              retract: [...new Set([...pending.retract, ...next.retract])],
+            };
       if (unsupported) {
         // Every id in flight is an orphan: this assistant stored none of them
         // and reclaims nothing. The latch stops the next keep before it
@@ -833,20 +859,20 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
         return {
           sightFramesUnsupported: true,
           outstandingSightFrames: [],
-          sightFrameRefusal: {
+          sightFrameRefusal: fold({
             unsupported: true,
             reclaim: outstanding,
-            retract: null,
-          },
+            retract: [],
+          }),
         };
       }
       return {
         outstandingSightFrames: outstanding.slice(1),
-        sightFrameRefusal: {
+        sightFrameRefusal: fold({
           unsupported: false,
           reclaim: [],
-          retract: outstanding.length === 1 ? (outstanding[0] ?? null) : null,
-        },
+          retract: outstanding.length === 1 ? outstanding.slice(0, 1) : [],
+        }),
       };
     }),
   clearSightFrameRefusal: () => set({ sightFrameRefusal: null }),
@@ -884,6 +910,19 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       sessionGeneration: opts?.sessionContinues
         ? s.sessionGeneration
         : s.sessionGeneration + 1,
+      // A refusal nobody has consumed survives a reconnect and dies with the
+      // session. Inside one session the room is still mounted on the same
+      // assistant, so it consumes on the other side of the gap and the
+      // uploads are given back. Across a session boundary the room has
+      // unmounted, so nothing would consume it anyway, and the next session
+      // can be bound to a DIFFERENT assistant, where consuming it would aim a
+      // delete at an assistant that never held those rows. Carrying it there
+      // risks a wrong delete to save a reclaim nobody was going to perform.
+      //
+      // `sightFramesUnsupported` deliberately does NOT carry either way: the
+      // latch is about the assistant that just answered, and a reconnect can
+      // land on an upgraded one.
+      sightFrameRefusal: opts?.sessionContinues ? s.sightFrameRefusal : null,
     })),
 }));
 

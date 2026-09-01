@@ -628,7 +628,7 @@ describe("sight frame refusals", () => {
     expect(state.sightFrameRefusal).toEqual({
       unsupported: true,
       reclaim: ["att-1"],
-      retract: null,
+      retract: [],
     });
     // And nothing further is sent, which is the orphan-per-keep this closes.
     controls.sightFrame.mockClear();
@@ -660,9 +660,9 @@ describe("sight frame refusals", () => {
 
     // Nothing else it could be about: the surface would otherwise go on
     // showing a view that never reached the transcript.
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toBe(
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toEqual([
       "att-1",
-    );
+    ]);
   });
 
   test("a refusal with a newer keep behind it retracts nothing", () => {
@@ -676,7 +676,102 @@ describe("sight frame refusals", () => {
     // The error carries no attachment id, so this could be either keep. The
     // ordinary reading is the older one, and the surface already shows the
     // newer, so leaving it alone is right.
-    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toBeNull();
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toEqual([]);
+  });
+
+  test("refusals nobody has consumed accumulate rather than replace", () => {
+    // Two errors landing before the room consumes the first: delayed
+    // responses arriving together, or a room not mounted to consume. A
+    // payload that replaced the one before it would strand the first
+    // refusal's uploads for good, since nothing else ever collects them.
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    sendLiveVoiceSightFrame("att-2", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    expect(useLiveVoiceStore.getState().sightFrameRefusal).toEqual({
+      unsupported: true,
+      reclaim: ["att-1", "att-2"],
+      retract: [],
+    });
+  });
+
+  test("a second refusal cannot drop the first one's retraction", () => {
+    // The count-of-one rule reads the outstanding ledger, which the first
+    // refusal already emptied, so the second computes an empty retraction.
+    // Overwriting with it would leave the surface showing a keep that never
+    // reached the transcript.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toEqual([
+      "att-1",
+    ]);
+  });
+
+  test("an unsupported refusal outranks a routine one in the same batch", () => {
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    sendLiveVoiceSightFrame("att-2", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    const refusal = useLiveVoiceStore.getState().sightFrameRefusal;
+    expect(refusal?.unsupported).toBe(true);
+    // The routine refusal consumed the older id, and the unsupported one
+    // strands what was left.
+    expect(refusal?.reclaim).toEqual(["att-2"]);
+  });
+
+  test("consuming takes the whole merged set at once", () => {
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().clearSightFrameRefusal();
+
+    expect(useLiveVoiceStore.getState().sightFrameRefusal).toBeNull();
+  });
+
+  test("an unconsumed refusal survives a reconnect", () => {
+    // The room is still mounted on the same assistant across the gap, so it
+    // consumes on the other side and the uploads are given back.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.reclaim).toEqual([
+      "att-1",
+    ]);
+  });
+
+  test("an unconsumed refusal dies with the session", () => {
+    // Ending a call unmounts the room, so nothing would consume it anyway,
+    // and the next session can be bound to a different assistant, where
+    // consuming it would aim a delete at one that never held those rows.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(useLiveVoiceStore.getState().sightFrameRefusal).toBeNull();
   });
 
   test("a reconnect clears the latch, so an upgraded assistant is tried again", () => {
