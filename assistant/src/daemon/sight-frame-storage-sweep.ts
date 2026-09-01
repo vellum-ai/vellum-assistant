@@ -21,7 +21,7 @@
  * what the model receives is always what is actually on disk.
  */
 
-import { readdirSync } from "node:fs";
+import { type Dir, opendirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
@@ -139,6 +139,22 @@ let sweepCursor: SightFrameSweepCursor | null = null;
  */
 const MAX_BACKUP_DIRS_PER_PASS = 40;
 
+/**
+ * Directory entries a pass reads before it stops opening more directories.
+ *
+ * The directory cap alone bounds nothing: one conversation's `attachments/`
+ * holds a file per frame, so a call that kept the camera up all day leaves tens
+ * of thousands in a single directory, and catch-up mode would re-read them every
+ * few minutes. Charged across the whole pass, so a slice of ordinary
+ * conversations costs almost nothing and one enormous conversation ends the
+ * pass rather than being paid for alongside 39 others.
+ *
+ * The directory in progress is always finished, so the real bound is this plus
+ * one directory's tail. Matching {@link MAX_ROWS_READ_PER_PASS} keeps the two
+ * halves of a pass in the same order of magnitude.
+ */
+const MAX_LEFTOVER_ENTRIES_PER_PASS = 5_000;
+
 let backupScanCursor: string | null = null;
 
 /**
@@ -208,6 +224,10 @@ let sweepTimer: ReturnType<typeof setTimeout> | null = null;
 let sweepScheduled = false;
 let sweepInProgress = false;
 
+/** The delay the last scheduling decision used, and the last failure it caught. */
+let lastScheduledDelayMs: number | null = null;
+let lastSweepFailure: unknown = null;
+
 /**
  * The workspace's `sight.sweepAfterDays`, clamped to
  * [{@link MIN_SIGHT_SWEEP_AFTER_DAYS}, {@link MAX_SIGHT_SWEEP_AFTER_DAYS}].
@@ -260,6 +280,11 @@ export interface SweepLeftoverTally {
   restored: number;
   /** Files left alone: a row still needs them, or one claims them outright. */
   skipped: number;
+  /**
+   * Directory entries the scan read. What the entry budget is charged against,
+   * because a directory count says nothing about the size of the directories.
+   */
+  entriesScanned: number;
 }
 
 function emptyResult(): SightFrameSweepResult {
@@ -269,7 +294,7 @@ function emptyResult(): SightFrameSweepResult {
     skipped: 0,
     examined: 0,
     rowsRead: 0,
-    leftovers: { deleted: 0, restored: 0, skipped: 0 },
+    leftovers: { deleted: 0, restored: 0, skipped: 0, entriesScanned: 0 },
     stoppedOnBudget: false,
   };
 }
@@ -278,6 +303,7 @@ export interface SightFrameSweepBounds {
   maxEncodeAttempts?: number;
   maxRowsRead?: number;
   maxBackupDirs?: number;
+  maxLeftoverEntries?: number;
   pageSize?: number;
 }
 
@@ -285,7 +311,12 @@ export interface SightFrameSweepBounds {
  * Shrink aged camera frames, walking the candidate set from where the last pass
  * stopped until it runs out of rows or spends this pass's bounds.
  *
- * Never throws: a sweep that cannot run is a sweep that runs next hour.
+ * Best effort rather than infallible. Reading candidates is guarded, so a
+ * database that cannot answer ends the pass quietly, but the per-candidate store
+ * calls and the leftover scan can still throw. {@link runSweepPass} is where
+ * that is caught, because it is the boundary a timer calls and the only place
+ * that can promise the schedule survives; guarding each inner call instead would
+ * be a list nobody can keep complete.
  *
  * The bounds are parameters only so tests can make a pass stop early. Production
  * callers take the defaults.
@@ -388,6 +419,7 @@ export async function sweepAgedSightFrames(
   sweepCursor = cursor;
   result.leftovers = reclaimSweepLeftovers(
     bounds.maxBackupDirs ?? MAX_BACKUP_DIRS_PER_PASS,
+    bounds.maxLeftoverEntries ?? MAX_LEFTOVER_ENTRIES_PER_PASS,
   );
   if (
     result.shrunk > 0 ||
@@ -432,20 +464,44 @@ async function shrinkOneFrame(attachmentId: string): Promise<number | null> {
  * of the store's own attachment directories.
  *
  * The staging directory is checked every pass, being one directory; conversation
- * directories are taken `maxDirs` at a time, resuming by name from where the
+ * directories are taken from the cached listing, resuming by name from where the
  * last pass stopped and wrapping when the list runs out. Names are stable, so a
  * conversation created or deleted between passes cannot make the scan skip its
  * neighbours.
+ *
+ * Two bounds, because a directory count alone does not bound work: a call that
+ * kept the camera up all day leaves tens of thousands of files in one
+ * conversation's `attachments/`, and in catch-up mode this runs every few
+ * minutes. `maxDirs` caps how many directories a pass opens, and
+ * `maxEntries` stops it opening more once that many directory entries have been
+ * read. The directory it has already started is always finished, so the bound is
+ * `maxEntries` plus the tail of one directory, and no directory is ever left
+ * half read.
+ *
+ * Finishing rather than resuming mid-directory is deliberate. Resuming would
+ * need a stable position inside a directory, and iteration order there is
+ * filesystem-defined and reshuffles when files are added or removed, so an
+ * offset could silently skip a sidecar. Finishing costs one directory's tail and
+ * needs no such assumption.
  *
  * What happens to a file is never decided by its name. The suffixes are derived
  * from an attachment's own path, not reserved, so a file the user picked can
  * carry one; every deletion goes through the store, which refuses any path a row
  * claims as its canonical bytes.
  *
- * Never throws. Returns what it deleted, restored, and left alone.
+ * Best effort: a directory it cannot read contributes nothing. A store call that
+ * throws propagates to the pass boundary, which logs it and keeps the schedule.
  */
-function reclaimSweepLeftovers(maxDirs: number): SweepLeftoverTally {
-  const tally: SweepLeftoverTally = { deleted: 0, restored: 0, skipped: 0 };
+function reclaimSweepLeftovers(
+  maxDirs: number,
+  maxEntries: number,
+): SweepLeftoverTally {
+  const tally: SweepLeftoverTally = {
+    deleted: 0,
+    restored: 0,
+    skipped: 0,
+    entriesScanned: 0,
+  };
   reclaimLeftoversIn(join(getWorkspaceDir(), "data", "attachments"), tally);
 
   const conversationsDir = getConversationsDir();
@@ -469,32 +525,70 @@ function reclaimSweepLeftovers(maxDirs: number): SweepLeftoverTally {
   }
 
   const slice = dirNames.slice(resumeAt, resumeAt + maxDirs);
+  let lastVisited: string | null = null;
   for (const name of slice) {
     reclaimLeftoversIn(join(conversationsDir, name, "attachments"), tally);
+    lastVisited = name;
+    if (tally.entriesScanned >= maxEntries) {
+      break;
+    }
   }
+  // A pass that stopped on the entry budget has more of this slice left, so the
+  // cursor holds where it actually got to. Only running the slice out means the
+  // listing is spent, and only then does reaching its end wrap the cycle.
+  const finishedSlice = lastVisited === slice[slice.length - 1];
   backupScanCursor =
-    resumeAt + maxDirs >= dirNames.length
-      ? null
-      : (slice[slice.length - 1] ?? null);
+    finishedSlice && resumeAt + maxDirs >= dirNames.length ? null : lastVisited;
   return tally;
 }
 
-/** One directory's leftovers. Never throws; a directory that is not there has none. */
+/**
+ * One directory's leftovers, read as a stream.
+ *
+ * A conversation that kept the camera up accumulates a file per frame, so this
+ * reads the directory rather than materializing its listing: `opendir` hands
+ * back entries a buffer at a time, and only the two sidecar suffixes are
+ * collected. What it holds is therefore the sidecars, of which a healthy install
+ * has none, instead of every filename in the directory.
+ *
+ * Collecting before acting is what preserves the order the two kinds need.
+ * Backups go first, because one of them may put a missing base file back, and a
+ * temp beside that base is only debris once the base it would have replaced is
+ * there to compare against.
+ *
+ * A directory it cannot read contributes nothing, and a conversation that never
+ * had an attachment has no such directory at all. Opening is lazy, so the read
+ * is where a missing one surfaces and both share one guard.
+ */
 function reclaimLeftoversIn(dir: string, tally: SweepLeftoverTally): void {
-  let entries: string[];
+  const backups: string[] = [];
+  const temps: string[] = [];
+  let handle: Dir | null = null;
   try {
-    entries = readdirSync(dir);
+    handle = opendirSync(dir);
+    for (
+      let entry = handle.readSync();
+      entry !== null;
+      entry = handle.readSync()
+    ) {
+      tally.entriesScanned += 1;
+      if (entry.name.endsWith(SWEEP_BACKUP_SUFFIX)) {
+        backups.push(entry.name);
+      } else if (entry.name.endsWith(SWEEP_TEMP_SUFFIX)) {
+        temps.push(entry.name);
+      }
+    }
   } catch {
     return;
+  } finally {
+    try {
+      handle?.closeSync();
+    } catch {
+      /* already closed by whatever ended the read */
+    }
   }
 
-  // Backups first. One of them may put a missing base file back, and a temp
-  // beside that base is only debris once the base it was going to replace is
-  // there to compare it against.
-  for (const entry of entries) {
-    if (!entry.endsWith(SWEEP_BACKUP_SUFFIX)) {
-      continue;
-    }
+  for (const entry of backups) {
     recordLeftoverOutcome(
       reclaimAttachmentSweepBackup(join(dir, entry)),
       tally,
@@ -504,10 +598,7 @@ function reclaimLeftoversIn(dir: string, tally: SweepLeftoverTally): void {
   // A temp is a replacement that never reached its rename, so nothing wants it,
   // and this never runs while a shrink is in flight. The store still refuses to
   // unlink one that is some row's canonical file.
-  for (const entry of entries) {
-    if (!entry.endsWith(SWEEP_TEMP_SUFFIX)) {
-      continue;
-    }
+  for (const entry of temps) {
     recordLeftoverOutcome(deleteSweepLeftover(join(dir, entry)), tally);
   }
 }
@@ -536,6 +627,26 @@ export function resetSightFrameSweepCursorForTest(): void {
   backupScanCursor = null;
   backupScanDirNames = null;
   backupScanEnumerations = 0;
+  lastScheduledDelayMs = null;
+  lastSweepFailure = null;
+}
+
+/**
+ * Run one pass exactly as the timer does, for tests that assert what a pass
+ * leaves behind for the schedule rather than what it returns.
+ */
+export function runSightFrameSweepPassForTest(): Promise<void> {
+  return runSweepPass();
+}
+
+/** The delay the last completed pass scheduled its successor on. */
+export function getSightFrameSweepScheduledDelayForTest(): number | null {
+  return lastScheduledDelayMs;
+}
+
+/** The failure the last pass caught at its boundary, if any. */
+export function getSightFrameSweepLastFailureForTest(): unknown {
+  return lastSweepFailure;
 }
 
 /**
@@ -585,13 +696,28 @@ function scheduleNextSweep(delayMs: number): void {
   if (!sweepScheduled) {
     return;
   }
+  lastScheduledDelayMs = delayMs;
   sweepTimer = setTimeout(() => {
     sweepTimer = null;
     void runSweepPass();
   }, delayMs);
 }
 
-/** One pass, then the next is scheduled on the cadence that pass earned. */
+/**
+ * One pass, then the next is scheduled on the cadence that pass earned.
+ *
+ * The catch is the whole point of this function. A timer fires it with `void`,
+ * so nothing is awaiting the promise it returns, and a throw from anywhere
+ * inside the pass would surface as an unhandled rejection. The daemon treats
+ * those as fatal (`daemon/shutdown-handlers.ts` routes `unhandledRejection`
+ * into `handleFatalError`, which sets a failing exit code and runs `shutdown()`),
+ * so a background sweep hiccup would take the assistant down with it, and the
+ * next pass would never be scheduled either way.
+ *
+ * A failure therefore reschedules on the RESTING cadence, never catch-up. A
+ * fault that recurs (an unreadable database, a directory the process cannot
+ * open) would otherwise retry every few minutes forever.
+ */
 async function runSweepPass(): Promise<void> {
   if (sweepInProgress) {
     scheduleNextSweep(SWEEP_INTERVAL_MS);
@@ -601,6 +727,9 @@ async function runSweepPass(): Promise<void> {
   let delayMs = SWEEP_INTERVAL_MS;
   try {
     delayMs = sweepDelayAfter(await sweepAgedSightFrames());
+  } catch (err) {
+    lastSweepFailure = err;
+    log.error({ err }, "Camera frame storage sweep failed");
   } finally {
     sweepInProgress = false;
   }

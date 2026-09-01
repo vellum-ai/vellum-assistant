@@ -26,6 +26,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,7 +39,12 @@ import {
   getSightFrameSweepBackupCursorForTest,
   getSightFrameSweepCursorForTest,
   getSightFrameSweepDirEnumerationsForTest,
+  getSightFrameSweepLastFailureForTest,
+  getSightFrameSweepScheduledDelayForTest,
   resetSightFrameSweepCursorForTest,
+  runSightFrameSweepPassForTest,
+  startSightFrameStorageSweep,
+  stopSightFrameStorageSweep,
   SWEEP_INTERVAL_MS,
   sweepAgedSightFrames,
   sweepDelayAfter,
@@ -319,6 +325,31 @@ function queryPlanFor(sql: string, binds: Array<string | number>): string {
   return plan.map((step) => step.detail).join("\n");
 }
 
+/**
+ * A conversation attachments directory holding `fileCount` ordinary files, the
+ * shape a call that kept the camera up all day leaves behind.
+ */
+function plantCrowdedAttachmentsDir(
+  dirName: string,
+  fileCount: number,
+): string {
+  const dir = join(getConversationsDir(), dirName, "attachments");
+  mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < fileCount; i++) {
+    writeFileSync(join(dir, `frame-${String(i).padStart(4, "0")}.jpg`), "x");
+  }
+  return dir;
+}
+
+/** A base file and an unowned backup beside it: debris the reclaim should collect. */
+function plantOrphanBackup(dir: string): string {
+  const base = join(dir, "orphan.jpg");
+  writeFileSync(base, "base");
+  const backup = `${base}${SWEEP_BACKUP_SUFFIX}`;
+  writeFileSync(backup, "backup");
+  return backup;
+}
+
 /** A pass that found nothing to do and nothing to reclaim. */
 const NOTHING_HAPPENED = {
   shrunk: 0,
@@ -326,7 +357,7 @@ const NOTHING_HAPPENED = {
   skipped: 0,
   examined: 0,
   rowsRead: 0,
-  leftovers: { deleted: 0, restored: 0, skipped: 0 },
+  leftovers: { deleted: 0, restored: 0, skipped: 0, entriesScanned: 0 },
   stoppedOnBudget: false,
 };
 
@@ -1007,6 +1038,61 @@ describe("sweepAgedSightFrames", () => {
 
     await sweepAgedSightFrames({ maxBackupDirs: 1 });
     expect(getSightFrameSweepDirEnumerationsForTest()).toBe(2);
+  });
+
+  test("spreads a crowded attachments directory across passes", async () => {
+    // A directory cap bounds directories, not work. One conversation's
+    // attachments dir holds a file per frame, so a day of camera leaves tens of
+    // thousands in it, and catch-up mode would re-read them every few minutes.
+    // Names chosen to sort ahead of every other conversation this file creates,
+    // so the pass reaches them first.
+    plantCrowdedAttachmentsDir("0000-crowded-a", 30);
+    const second = plantCrowdedAttachmentsDir("0000-crowded-b", 30);
+    const backup = plantOrphanBackup(second);
+
+    const first = await sweepAgedSightFrames({ maxLeftoverEntries: 10 });
+
+    // The first directory is finished, then the pass stops rather than paying
+    // for the next one. Finishing beats resuming mid-directory: entry order is
+    // filesystem-defined and reshuffles on writes, so an offset could skip a
+    // sidecar.
+    expect(first.leftovers.entriesScanned).toBeGreaterThanOrEqual(30);
+    expect(first.leftovers.entriesScanned).toBeLessThan(60);
+    expect(existsSync(backup)).toBe(true);
+
+    const next = await sweepAgedSightFrames({ maxLeftoverEntries: 10 });
+
+    // Resumed at the directory the last pass stopped before, and reclaimed what
+    // was waiting there.
+    expect(next.leftovers.deleted).toBe(1);
+    expect(existsSync(backup)).toBe(false);
+  });
+
+  test("survives a failure inside a pass and stays scheduled", async () => {
+    // The timer fires a pass with `void`, so a throw anywhere inside it would
+    // surface as an unhandled rejection, and shutdown-handlers routes those into
+    // handleFatalError: a background sweep hiccup would take the assistant down
+    // and no further pass would ever be scheduled.
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    const stranded = plantOrphanBackup(dirname(frame.filePath));
+
+    // Every store call throws once the table it reads is not there. The
+    // candidate read is guarded and ends the pass quietly; the leftover scan's
+    // is not, and is what used to escape.
+    getDb().run("ALTER TABLE attachments RENAME TO attachments_hidden");
+    startSightFrameStorageSweep();
+    try {
+      await expect(runSightFrameSweepPassForTest()).resolves.toBeUndefined();
+      expect(getSightFrameSweepLastFailureForTest()).toBeInstanceOf(Error);
+      // Resting, never catch-up: a fault that recurs must not hot-loop.
+      expect(getSightFrameSweepScheduledDelayForTest()).toBe(SWEEP_INTERVAL_MS);
+    } finally {
+      stopSightFrameStorageSweep();
+      getDb().run("ALTER TABLE attachments_hidden RENAME TO attachments");
+      // The pass threw before reclaiming it, and directories outlive the row
+      // resets between tests, so clear it rather than leaving it for a later one.
+      rmSync(stranded, { force: true });
+    }
   });
 
   test("deletes a backup whose base is missing and whose row is gone", async () => {

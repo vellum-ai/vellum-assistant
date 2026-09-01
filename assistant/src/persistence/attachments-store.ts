@@ -1628,14 +1628,15 @@ export const SIGHT_FRAME_TAG_PROBE_LIMIT = 16;
 /**
  * The tag check for one candidate: the messages it hangs off, capped.
  *
- * The `LIKE` prefilter that used to sit here is gone on purpose. As a residual
- * it made `LIMIT` bound rows RETURNED while the walk stayed unbounded, exactly
- * as it did on the page query: an attachment linked to many ordinary messages
- * would have every link visited and joined in the hunt for matches to return.
- * Without it the limit bounds the visit, and `messageMetadataTagsSightFrame` was
- * always the authority anyway, the prefilter only ever narrowing ahead of it.
+ * The link filter is the only condition, so `LIMIT` bounds what SQLite VISITS.
+ * Every entry the index yields for this attachment is a row the probe returns,
+ * and the walk stops at the cap. A metadata condition here would make the limit
+ * bound returns instead: an attachment on many ordinary messages would have
+ * every link visited and joined while SQLite hunted for rows it could hand back.
+ * `messageMetadataTagsSightFrame` reads the tag off what comes back, which is
+ * where the decision belongs.
  *
- * Unordered, so the cap samples whichever links the index yields first. With one
+ * Unordered, so the cap takes whichever links the index yields first. With one
  * link in practice there is nothing to order.
  */
 const SIGHT_FRAME_TAG_PROBE_SQL = `SELECT m.metadata AS metadata
