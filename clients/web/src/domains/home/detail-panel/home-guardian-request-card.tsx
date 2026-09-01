@@ -1,17 +1,5 @@
-import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useTranslation } from "@/i18n";
-import { captureError } from "@/lib/sentry/capture-error";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { handleNativeAnchorClick } from "@/utils/native-anchor";
-import { formatRelativeDate } from "@/utils/format-date";
-import {
-  type FeedItem,
-  type FeedItemGuardianRequest,
-  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
-} from "@vellumai/assistant-api";
-import { Button, Tag, Typography } from "@vellumai/design-library";
-import type { TagTone } from "@vellumai/design-library/components/tag";
-import { toast } from "@vellumai/design-library/components/toast";
+import { type ReactNode } from "react";
+
 import {
   CheckCircle,
   CircleSlash,
@@ -20,9 +8,39 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-import { type ReactNode } from "react";
+
+import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { formatRelativeDate } from "@/utils/format-date";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import {
+  type FeedItem,
+  type FeedItemGuardianRequest,
+  GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+} from "@vellumai/assistant-api";
+import { Button, Tag, Typography } from "@vellumai/design-library";
+import type { TagTone } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import { resolveFeedItemTitle } from "../utils";
+
+/** The ask, set in a recessed block so it reads as the quoted request. */
+const SUMMARY_BLOCK_CLASS = [
+  "rounded-[var(--radius-md)] bg-[var(--surface-sunken)]",
+  "p-[var(--app-spacing-md)] leading-normal text-[var(--content-secondary)]",
+].join(" ");
+
+/**
+ * The tool's identifier, set as the code it is. One token per role rather
+ * than a `dark:` pair: `dark:` does not match the velvet theme, so a pair
+ * would leave velvet on the light value.
+ */
+const TOOL_NAME_CLASS = [
+  "rounded bg-[var(--surface-base)] px-1.5 py-0.5",
+  "font-mono text-body-small-default text-[var(--content-secondary)]",
+].join(" ");
 
 export interface HomeGuardianRequestCardProps {
   item: FeedItem;
@@ -94,6 +112,17 @@ export function HomeGuardianRequestCard({
   const showsApprovalButtons =
     isPending && guardianRequest.intent === "approval";
 
+  const receipt = isPending
+    ? null
+    : resolvedElsewhere
+      ? ALREADY_RESOLVED_RECEIPT
+      : receiptView(
+          decidedLocally
+            ? { ...guardianRequest, status: decidedLocally }
+            : guardianRequest,
+        );
+  const ReceiptIcon = receipt?.icon;
+
   const metaLine = [
     guardianRequest.sourceContextLabel,
     guardianRequest.requesterLabel,
@@ -124,10 +153,7 @@ export function HomeGuardianRequestCard({
         ) : null}
       </div>
 
-      <Typography
-        variant="body-medium-default"
-        className="rounded-[var(--radius-md)] bg-[var(--surface-hover)] p-[var(--app-spacing-md)] leading-normal text-[var(--content-secondary)]"
-      >
+      <Typography variant="body-medium-default" className={SUMMARY_BLOCK_CLASS}>
         {item.summary}
       </Typography>
 
@@ -145,29 +171,15 @@ export function HomeGuardianRequestCard({
               ? t("homeGuardianRequestCard.toolRequesting")
               : t("homeGuardianRequestCard.toolRequested")}
           </Typography>
-          <code className="rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
-            {guardianRequest.toolName}
-          </code>
+          <code className={TOOL_NAME_CLASS}>{guardianRequest.toolName}</code>
         </div>
       ) : null}
 
-      {!isPending ? (
+      {receipt && ReceiptIcon ? (
         <div data-testid="guardian-request-receipt">
-          {(() => {
-            const receipt = resolvedElsewhere
-              ? ALREADY_RESOLVED_RECEIPT
-              : receiptView(
-                  decidedLocally
-                    ? { ...guardianRequest, status: decidedLocally }
-                    : guardianRequest,
-                );
-            const Icon = receipt.icon;
-            return (
-              <Tag tone={receipt.tone} leftIcon={<Icon />}>
-                {t(receipt.labelKey)}
-              </Tag>
-            );
-          })()}
+          <Tag tone={receipt.tone} leftIcon={<ReceiptIcon />}>
+            {t(receipt.labelKey)}
+          </Tag>
         </div>
       ) : null}
 

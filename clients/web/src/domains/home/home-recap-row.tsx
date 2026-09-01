@@ -13,7 +13,6 @@ import {
 import {
   cn,
   CrossfadeStack,
-  Tag,
   Typography,
   type TypographyVariant,
 } from "@vellumai/design-library";
@@ -256,10 +255,16 @@ export function HomeRecapRow({
           {showsMetaRow ? (
             <>
               {attentionPillKey ? (
-                // No dot inside this pill: the row's own unread marker sits
-                // in the gutter beside it, and two amber dots on one line
-                // read as one signal repeated rather than two facts.
-                <Tag tone="warning">{t(attentionPillKey)}</Tag>
+                // Plain text, not the pill the detail is titled by: the row
+                // behind it already carries the attention hue, so a pill
+                // would tint against its own colour and read as nothing but
+                // the padding around the words.
+                <Typography
+                  variant="body-small-emphasised"
+                  className="text-[var(--content-default)]"
+                >
+                  {t(attentionPillKey)}
+                </Typography>
               ) : (
                 <FeedCategoryChip
                   category={item.category}
