@@ -5,6 +5,9 @@
  * it through the real hook against a stand-in shell, so what they pin is the
  * round trip, from a press to a re-read of the home screen.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   act,
@@ -25,13 +28,50 @@ import type { AvatarState } from "@/types/avatar";
 const TRAITS = { bodyShape: "blob", eyeStyle: "goofy", color: "teal" };
 const AVATAR_ICON = "avatar-eyes-goofy-teal";
 
+/** Where the Icon Composer bundles the shells ship live. */
+const ICON_BUNDLE_DIR = join(import.meta.dir, "../../../../../ios/App/App");
+
+/** One entry of a bundle's root `fill-specializations` array. */
+interface FillSpecialization {
+  appearance?: string;
+  value?: { solid?: string };
+}
+
 /**
- * The fills the Dev and Staging Icon Composer bundles declare, verbatim.
- * Literals rather than a read off the row, so a coordinate drifting from
- * `clients/ios/App/App/AppIcon-Dev.icon` or `AppIcon-Staging.icon` fails here.
+ * The `color(display-p3 ...)` a bundle's own ground reads as, taken off the
+ * bundle rather than named here, so a fill edited in Icon Composer fails this
+ * file instead of leaving the thumbnail depicting a color no shell installs.
+ * The entry carrying no `appearance` is the default one; every appearance in
+ * these bundles pins the same fill.
  */
-const DEV_GROUND_P3 = "color(display-p3 1 0.53333 0.78824)";
-const STAGING_GROUND_P3 = "color(display-p3 0.91373 0.78824 0.10196)";
+function bundleGroundP3(bundle: string): string {
+  const path = join(ICON_BUNDLE_DIR, bundle, "icon.json");
+  const specializations: FillSpecialization[] =
+    JSON.parse(readFileSync(path, "utf8"))["fill-specializations"] ?? [];
+  const solid = specializations.find(
+    (entry) => entry.appearance === undefined,
+  )?.value?.solid;
+  if (typeof solid !== "string") {
+    throw new Error(`${bundle} declares no default solid fill`);
+  }
+  const coordinates = solid.startsWith("display-p3:")
+    ? solid.slice("display-p3:".length).split(",")
+    : [];
+  if (coordinates.length !== 4) {
+    throw new Error(`${bundle} fill is not display-p3 R,G,B,A: ${solid}`);
+  }
+  const channels = coordinates.slice(0, 3).map((coordinate) => {
+    const channel = Number(coordinate);
+    if (!Number.isFinite(channel)) {
+      throw new Error(`${bundle} fill has a non-numeric channel: ${solid}`);
+    }
+    return channel;
+  });
+  return `color(display-p3 ${channels.join(" ")})`;
+}
+
+const DEV_GROUND_P3 = bundleGroundP3("AppIcon-Dev.icon");
+const STAGING_GROUND_P3 = bundleGroundP3("AppIcon-Staging.icon");
 
 const CHARACTER: AvatarState = {
   kind: "character",
