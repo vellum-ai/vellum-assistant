@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 // `composeSvg` is the trait→SVG compositor; mock it so the precedence logic is
-// tested in isolation. A `throw` simulates unknown trait IDs, the documented
-// "no character avatar" fall-through.
+// tested in isolation. `null` is the documented "no character avatar"
+// fall-through for unknown trait IDs.
 const composeSvgMock = mock(
-  (..._args: unknown[]): string => "<svg>character</svg>",
+  (..._args: unknown[]): string | null => "<svg>character</svg>",
 );
 mock.module("@/utils/avatar-svg-compositor", () => ({
   composeSvg: composeSvgMock,
@@ -84,10 +84,8 @@ describe("resolveAvatarRender", () => {
     expect(composeSvgMock).not.toHaveBeenCalled();
   });
 
-  test("falls through to the custom image when composeSvg throws", () => {
-    composeSvgMock.mockImplementation(() => {
-      throw new Error("unknown trait id");
-    });
+  test("falls through to the custom image when composeSvg returns null", () => {
+    composeSvgMock.mockReturnValue(null);
     const result = resolveAvatarRender(
       "https://example.com/custom.png",
       components,
@@ -106,10 +104,8 @@ describe("resolveAvatarRender", () => {
     });
   });
 
-  test("resolves to none when composeSvg throws and there is no custom image", () => {
-    composeSvgMock.mockImplementation(() => {
-      throw new Error("unknown trait id");
-    });
+  test("resolves to none when composeSvg returns null and there is no custom image", () => {
+    composeSvgMock.mockReturnValue(null);
     expect(resolveAvatarRender(null, components, traits, 512)).toEqual({
       kind: "none",
     });
