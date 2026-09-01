@@ -541,62 +541,6 @@ describe("server frame dispatch", () => {
     ]);
   });
 
-  test("attachFrame parks a camera frame while the session is active", async () => {
-    const { client, ws } = await ready();
-
-    expect(client.attachFrame("att-1")).toBe(true);
-    expect(ws.sentJson.at(-1)).toEqual({
-      type: "attach_frame",
-      attachmentId: "att-1",
-    });
-  });
-
-  test("attachFrame unparks with a null id", async () => {
-    // What a closing viewfinder sends, so the session stops holding a view of
-    // something the user can no longer see.
-    const { client, ws } = await ready();
-
-    expect(client.attachFrame(null)).toBe(true);
-    expect(ws.sentJson.at(-1)).toEqual({
-      type: "attach_frame",
-      attachmentId: null,
-    });
-  });
-
-  test("a rejected attach_frame is swallowed, not filed as a settings or session error", async () => {
-    // The bucket problem: an `unknown_type` from a stale build would otherwise
-    // latch config updates off, and the daemon's own recoverable refusal would
-    // otherwise reach the controller and disturb the turn the frame was meant
-    // to ride.
-    const { client, ws } = await ready();
-    const errors: unknown[] = [];
-    client.on("error", (e) => errors.push(e));
-
-    client.attachFrame("att-1");
-    ws.receive({
-      type: "error",
-      seq: 10,
-      code: "invalid_frame",
-      message: "Could not attach that camera frame to the conversation.",
-      frameType: "attach_frame",
-      recoverable: true,
-    });
-    ws.receive({
-      type: "error",
-      seq: 11,
-      code: "unknown_type",
-      message: "Unknown live voice client frame type: attach_frame",
-      frameType: "attach_frame",
-    });
-
-    expect(errors).toEqual([]);
-    expect(ws.closed).toBe(false);
-    // The settings frame is untouched: neither rejection was about it.
-    const sentBefore = ws.sentJson.length;
-    client.updateConfig({ silenceThresholdMs: 1600 });
-    expect(ws.sentJson.length).toBe(sentBefore + 1);
-  });
-
   test("sightFrame shares a kept camera frame while the session is active", async () => {
     const { client, ws } = await ready();
 

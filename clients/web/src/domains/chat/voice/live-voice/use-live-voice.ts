@@ -661,20 +661,10 @@ export function useLiveVoice(
   }, []);
 
   /**
-   * Park a sampled camera frame for the next turn, or unpark with `null`.
-   * Returns whether it reached the transport, which the caller may ignore: a
-   * frame dropped in the reconnect gap is replaced by the next keep a few
-   * seconds later, and unlike a photo nobody pressed anything to produce it.
-   */
-  const attachFrame = useCallback((attachmentId: string | null): boolean => {
-    return sessionRef.current?.client.attachFrame(attachmentId) ?? false;
-  }, []);
-
-  /**
    * Share a kept camera frame, which the daemon persists as its own message.
-   * Returns whether it reached the transport, which the caller may ignore for
-   * the same reason a parked frame's false is ignorable: nobody pressed
-   * anything, and the next keep is a few seconds away. A frame dropped in the
+   * Returns whether it reached the transport, which the caller may ignore
+   * where a photo's false has to be surfaced: nobody pressed anything, and the
+   * next keep is a few seconds away. A frame dropped in the
    * reconnect gap is right to drop, since the fresh session is the one that
    * would persist it and the moment it belonged to has passed.
    */
@@ -778,7 +768,6 @@ export function useLiveVoice(
         setOutputMuted,
         updateConfig,
         attachImage,
-        attachFrame,
         sightFrame,
       });
 
@@ -1312,7 +1301,6 @@ export function useLiveVoice(
                 setOutputMuted,
                 updateConfig,
                 attachImage,
-                attachFrame,
                 sightFrame,
               });
               console.warn(
@@ -1382,7 +1370,6 @@ export function useLiveVoice(
               setOutputMuted,
               updateConfig,
               attachImage,
-              attachFrame,
               sightFrame,
             });
             console.warn(
@@ -1436,7 +1423,6 @@ export function useLiveVoice(
       setOutputMuted,
       updateConfig,
       attachImage,
-      attachFrame,
       sightFrame,
       createPlayer,
     ],
