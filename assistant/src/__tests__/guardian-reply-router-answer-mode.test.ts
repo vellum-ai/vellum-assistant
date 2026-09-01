@@ -90,7 +90,6 @@ function makeRequest(
 function makeContext(overrides: Record<string, unknown> = {}) {
   return {
     messageText: "",
-    channel: "telegram",
     actor: {
       actorPrincipalId: "prin-guardian",
       actorExternalUserId: "tg-guardian",

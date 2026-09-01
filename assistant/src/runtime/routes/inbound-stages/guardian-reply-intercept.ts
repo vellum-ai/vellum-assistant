@@ -151,7 +151,6 @@ export async function handleGuardianReplyIntercept(
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
-    channel: sourceChannel,
     actor: {
       actorPrincipalId: guardianPrincipalId ?? undefined,
       actorExternalUserId: canonicalSenderId ?? rawSenderId!,

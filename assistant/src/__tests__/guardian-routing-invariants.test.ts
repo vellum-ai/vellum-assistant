@@ -106,7 +106,6 @@ function replyCtx(
 ): GuardianReplyContext {
   return {
     messageText: "",
-    channel: "telegram",
     actor: guardianActor(),
     conversationId: "conv-test",
     ...overrides,
@@ -1509,7 +1508,6 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        channel: "telegram",
         actor: guardianActor({ guardianPrincipalId: "different-principal" }),
         conversationId: "conv-guardian-chat",
         pendingScope: { mode: "scoped", requestIds: [req.id] },
@@ -1544,7 +1542,6 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
-        channel: "telegram",
         actor: guardianActor({ actorExternalUserId: "guardian-tg-user" }),
         conversationId: "conv-guardian-chat",
         // pendingScope omitted — no delivery hints
@@ -1704,7 +1701,6 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
 
     const result = await routeGuardianReply({
       messageText: "C0D3A5 approve",
-      channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
       pendingScope: { mode: "scoped", requestIds: [req.id] },
@@ -1743,7 +1739,6 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
 
     const result = await routeGuardianReply({
       messageText: "please approve this request",
-      channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
       pendingScope: { mode: "scoped", requestIds: [req.id] },

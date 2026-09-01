@@ -599,7 +599,6 @@ async function tryConsumeGuardianReply(params: {
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
-    channel: sourceChannel,
     actor: {
       actorPrincipalId: verifiedActorPrincipalId,
       actorExternalUserId: verifiedActorExternalUserId,

@@ -91,8 +91,6 @@ export type GuardianPendingScope =
 export interface GuardianReplyContext {
   /** The raw message text (trimmed). */
   messageText: string;
-  /** Source channel (telegram, whatsapp, etc.). */
-  channel: string;
   /** Actor identity context for the sender. */
   actor: ActorContext;
   /**
