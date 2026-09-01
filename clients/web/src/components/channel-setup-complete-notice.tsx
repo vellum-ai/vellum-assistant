@@ -6,6 +6,29 @@ import { useTranslation } from "@/i18n";
 import type { BotSetupChannel } from "@/types/channel-types";
 import { getChannelLabel } from "@/utils/channel-presentation";
 
+/**
+ * Whether a stored guardian binding still names the right person after the
+ * channel's credentials are replaced.
+ *
+ * A binding is keyed by channel alone, with nothing tying it to the
+ * credentials that created it. Discord snowflakes and Telegram user ids are
+ * global, so reconnecting a different bot leaves the binding naming the same
+ * human. A Slack member id is relative to its workspace, so reconnecting a
+ * different workspace leaves a binding naming a stranger: inbound trust
+ * resolves the new workspace's address, it matches nothing, and the assistant
+ * declines the guardian's messages. Claiming "You're verified" there would be
+ * the reassurance that hides it, so Slack keeps the hand-off until the
+ * guardian re-verifies, which is what it showed before this notice existed.
+ *
+ * The real fix is to bind a verification to the credentials it was performed
+ * against, which is a gateway contact-store change rather than a client one.
+ */
+const BINDING_SURVIVES_RECONNECT: Record<BotSetupChannel, boolean> = {
+  discord: true,
+  telegram: true,
+  slack: false,
+};
+
 export interface ChannelSetupCompleteNoticeProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
@@ -53,6 +76,7 @@ export function ChannelSetupCompleteNotice({
       query: { channel },
     }),
     select: (data) => data.bound,
+    enabled: BINDING_SURVIVES_RECONNECT[channel],
   });
   const verified = bindingQuery.data === true;
 
