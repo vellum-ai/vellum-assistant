@@ -41,6 +41,14 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
  * same approach with the colour palette, for the same reason. Filtered to
  * the four scale families so unrelated `@utility` entries (for example
  * `text-optical-center`) are not treated as variants.
+ *
+ * Transitional. This rule guards the class-string form, which `<Typography>`
+ * makes unnecessary: its `variant` prop is a typed union, so a wrong name is
+ * a compile error and none of this machinery is needed. Class strings are
+ * only unavoidable for variant-prefixing (`max-md:text-body-large-default`),
+ * which is 7 of ~1,430 usages here. The direction is to converge on the
+ * component and let this rule shrink to covering that remainder — so treat it
+ * as a net under the old path, not an endorsement of it.
  */
 const TYPOGRAPHY_VARIANTS = [
   ...readFileSync(

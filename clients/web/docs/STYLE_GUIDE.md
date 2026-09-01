@@ -258,13 +258,24 @@ matches no CSS at all, and the element silently falls back to the inherited
 16px/400 rather than failing. This is not hypothetical: it reached 193 call
 sites in the platform admin tree before anyone noticed, and 92 here.
 
-`no-restricted-syntax` errors on any `text-{title,body,label,chat}-*` class
-that isn't one of them. The rule parses `tokens.css` at lint time, so it
-tracks the real utilities instead of a list that can drift.
+### `<Typography>` is the preferred form; the class is the fallback
 
-Prefer `<Typography variant="…">` where you're writing a component anyway —
-the variant prop is a typed union, so a misspelling is a compile error rather
-than a lint one.
+Reach for `<Typography variant="…">` first, and `asChild` when the element is
+outside its `as` union (`<th>`, `<td>`, `<a href>`). The variant prop is a
+typed union, so a wrong name is a compile error in your editor. A class string
+is just a string: nothing checks it at the point of use, which is how 92 dead
+classes accumulated here and 193 in the platform admin tree.
+
+The class form stays available for the case a prop genuinely can't express —
+variant-prefixing for responsive or state changes,
+`max-md:text-body-large-default`. That is currently **7 of ~1,430** class-string
+usages in this app, so treat it as the exception it is rather than the default.
+
+`no-restricted-syntax` errors on any `text-{title,body,label,chat}-*` class
+that isn't a real variant, parsing `tokens.css` at lint time so it tracks the
+real utilities rather than a list that can drift. Note what that rule is: a
+guard on the fallback path, not the reason the fallback is fine. New code
+should not need it.
 
 ### Check the leading before text that wraps
 
