@@ -6,13 +6,17 @@
  * plan in flight while carrying the same fraction the panel's "3 of 4" counter
  * states.
  *
- * The arc is `currentColor`, so it inherits the label beside it and needs no
- * colour of its own. The track is a fixed low-contrast tone: it has to stay
- * legible against the accent wash that sweeps the pill during the entrance.
+ * The arc is the assistant's own accent, the same colour its avatar and the
+ * loading sweeps carry, so the fraction reads as the assistant's work rather
+ * than as neutral chrome. The track is a fixed low-contrast tone: it has to
+ * stay legible against the accent wash that sweeps the pill during the
+ * entrance.
  *
  * `total` of zero draws the bare track, which is the honest picture of a plan
  * with no steps to count.
  */
+
+import { AVATAR_ACCENT } from "@/domains/chat/components/streaming-shimmer-text";
 
 const SIZE_PX = 14;
 const STROKE_PX = 2;
@@ -55,7 +59,7 @@ export function StepProgressRing({
           cx={center}
           cy={center}
           r={RADIUS}
-          stroke="currentColor"
+          stroke={AVATAR_ACCENT}
           strokeWidth={STROKE_PX}
           strokeLinecap="round"
           // Dash the full circumference and offset by the unfilled remainder,
