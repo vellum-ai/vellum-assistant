@@ -34,11 +34,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { setDbMigrating, setDbReady } from "../daemon/daemon-readiness.js";
 import {
+  CATCH_UP_SWEEP_DELAY_MS,
   getSightFrameSweepBackupCursorForTest,
   getSightFrameSweepCursorForTest,
   getSightFrameSweepDirEnumerationsForTest,
   resetSightFrameSweepCursorForTest,
+  SWEEP_INTERVAL_MS,
   sweepAgedSightFrames,
+  sweepDelayAfter,
 } from "../daemon/sight-frame-storage-sweep.js";
 import {
   attachInlineAttachmentToMessage,
@@ -48,6 +51,7 @@ import {
   getFilePathForAttachment,
   SIGHT_FRAME_SWEEP_CONTINUATION_SQL,
   SIGHT_FRAME_SWEEP_FIRST_PAGE_SQL,
+  SIGHT_FRAME_TAG_PROBE_LIMIT,
   SWEEP_BACKUP_SUFFIX,
   SWEEP_TEMP_SUFFIX,
   uploadAttachment,
@@ -323,6 +327,7 @@ const NOTHING_HAPPENED = {
   examined: 0,
   rowsRead: 0,
   leftovers: { deleted: 0, restored: 0, skipped: 0 },
+  stoppedOnBudget: false,
 };
 
 /**
@@ -882,9 +887,8 @@ describe("sweepAgedSightFrames", () => {
 
     expect(result.shrunk).toBe(0);
     expect(result.examined).toBe(0);
-    // Two pages of ten. Every visited row is counted, and no metadata probe
-    // happens at all, because nothing survives the kind and size checks that a
-    // probe would follow.
+    // One page of ten rows plus the ten links its tag checks read, which spends
+    // the budget exactly. Every visit is counted, the probe's included.
     expect(result.rowsRead).toBe(20);
     // Stopped part way with somewhere to resume from, not a wrap.
     expect(getSightFrameSweepCursorForTest()).not.toBeNull();
@@ -895,10 +899,63 @@ describe("sweepAgedSightFrames", () => {
 
     const result = await sweepAgedSightFrames({ pageSize: 100 });
 
-    // One page covering all twelve, each visited and each counted.
-    expect(result.rowsRead).toBe(12);
+    // One page covering all twelve, plus the one linked message each of them
+    // costs the tag check. Every visit is charged, the probe's included.
+    expect(result.rowsRead).toBe(24);
     expect(result.examined).toBe(0);
     expect(getSightFrameSweepCursorForTest()).toBeNull();
+  });
+
+  test("caps the links one candidate's tag check reads", async () => {
+    // A frame hangs off one message by construction, so the cap costs a real
+    // one nothing. What it stops is an attachment with an unusual link count
+    // turning a single candidate into an unbounded read, invisible to the
+    // budget because only the survivors used to be counted.
+    const frame = await plantFrame({ ageDays: 30, tagged: true });
+    const extraLinks = SIGHT_FRAME_TAG_PROBE_LIMIT * 3;
+    for (let i = 0; i < extraLinks; i++) {
+      const extra = await addMessage(frame.conversationId, "user", "turn", {
+        skipIndexing: true,
+      });
+      rawRun(
+        "test:extraSightLink",
+        "INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at) VALUES (?, ?, ?, 0, ?)",
+        `extra-link-${i}`,
+        extra.id,
+        frame.attachmentId,
+        Date.now(),
+      );
+      tagMessageFrames(extra.id, [frame.attachmentId]);
+    }
+
+    const result = await sweepAgedSightFrames();
+
+    // Still verified, and still swept.
+    expect(result.shrunk).toBe(1);
+    // One page row plus the capped probe, not one row per link.
+    expect(result.rowsRead).toBe(1 + SIGHT_FRAME_TAG_PROBE_LIMIT);
+  });
+
+  test("comes back on the catch-up cadence only while work is left", async () => {
+    // The gate will not keep two frames inside five seconds, so a call with the
+    // camera up all hour persists at most 720. A pass attempts 200, so at the
+    // resting cadence the backlog would grow faster than it drains; the
+    // catch-up cadence turns that into 2400 an hour against a ceiling of 720.
+    const frames = [
+      await plantFrame({ ageDays: 30, tagged: true }),
+      await plantFrame({ ageDays: 20, tagged: true }),
+    ];
+    expect(frames).toHaveLength(2);
+
+    const spent = await sweepAgedSightFrames({ maxEncodeAttempts: 1 });
+    expect(spent.stoppedOnBudget).toBe(true);
+    expect(sweepDelayAfter(spent)).toBe(CATCH_UP_SWEEP_DELAY_MS);
+
+    // Draining the rest leaves nothing behind, so the sweep goes back to
+    // resting rather than spinning at the short delay forever.
+    const drained = await sweepAgedSightFrames();
+    expect(drained.stoppedOnBudget).toBe(false);
+    expect(sweepDelayAfter(drained)).toBe(SWEEP_INTERVAL_MS);
   });
 
   test("seeks a continuation page straight to the cursor", () => {

@@ -31,10 +31,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
-import {
-  messageMetadataTagsSightFrame,
-  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
-} from "./conversation-types.js";
+import { messageMetadataTagsSightFrame } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
 import { attachments, messageAttachments } from "./schema.js";
@@ -1584,10 +1581,9 @@ export const SIGHT_FRAME_SWEEP_CONTINUATION_SQL = sightFrameSweepPageSql(
  * The page is an index range over `created_at`; everything that decides whether
  * a visited row is a candidate happens here, in order of what it costs. `kind`
  * and the size threshold are read off the returned row. Only what survives both
- * is worth a metadata probe, and an attachment qualifies when at least one
- * linked message parses to a tag naming it: the `LIKE` in that probe narrows,
- * the parse decides, so a message that merely mentions the key contributes
- * nothing.
+ * is worth a metadata probe, and an attachment qualifies when at least one of
+ * the linked messages that probe reads parses to a tag naming it. The parse is
+ * what decides, so a message that merely mentions the key contributes nothing.
  *
  * The population is EVERY tagged frame, standalone camera keeps and the frames
  * that rode a spoken turn alike. That is deliberately wider than
@@ -1611,6 +1607,43 @@ export const SIGHT_FRAME_SWEEP_CONTINUATION_SQL = sightFrameSweepPageSql(
  * way to make the row stop matching, so a query that always started at the
  * oldest row would hand back the same refusals forever.
  */
+/**
+ * How many of a candidate's linked messages the tag check reads.
+ *
+ * A sight frame is linked to essentially one message: the standalone keep row
+ * the camera's gate persisted, or the single spoken turn it rode. Nothing in the
+ * design produces an attachment on hundreds of messages, so a small cap costs a
+ * real frame nothing and stops an attachment with an unusual link count from
+ * turning one candidate into an unbounded read.
+ *
+ * The cap makes this a false NEGATIVE in the pathological case: an attachment
+ * whose sampled links all fail the parse is treated as untagged for this pass.
+ * That is acceptable and bounded. It can only befall a row that is not
+ * keep-shaped to begin with, since a keep's one link names it; the pass moves on
+ * rather than stalling; and the classification is stable rather than random, so
+ * a frame is never half-swept.
+ */
+export const SIGHT_FRAME_TAG_PROBE_LIMIT = 16;
+
+/**
+ * The tag check for one candidate: the messages it hangs off, capped.
+ *
+ * The `LIKE` prefilter that used to sit here is gone on purpose. As a residual
+ * it made `LIMIT` bound rows RETURNED while the walk stayed unbounded, exactly
+ * as it did on the page query: an attachment linked to many ordinary messages
+ * would have every link visited and joined in the hunt for matches to return.
+ * Without it the limit bounds the visit, and `messageMetadataTagsSightFrame` was
+ * always the authority anyway, the prefilter only ever narrowing ahead of it.
+ *
+ * Unordered, so the cap samples whichever links the index yields first. With one
+ * link in practice there is nothing to order.
+ */
+const SIGHT_FRAME_TAG_PROBE_SQL = `SELECT m.metadata AS metadata
+       FROM message_attachments ma
+       JOIN messages m ON m.id = ma.message_id
+       WHERE ma.attachment_id = ?
+       LIMIT ?`;
+
 export function selectSightFrameSweepCandidates(options: {
   createdBefore: number;
   largerThanBytes: number;
@@ -1618,7 +1651,6 @@ export function selectSightFrameSweepCandidates(options: {
   after?: SightFrameSweepCursor | null;
 }): SightFrameSweepPage {
   const after = options.after ?? null;
-  const taggedMessageLike = `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`;
   // Bind order follows clause order, and the cursor clause is the only optional
   // one, so the limit keeps its position at the tail.
   const cursorBinds = after === null ? [] : [after.createdAt, after.id];
@@ -1651,13 +1683,9 @@ export function selectSightFrameSweepCandidates(options: {
     }
     const linked = rawAll<{ metadata: string | null }>(
       "attachments:sightFrameSweepCandidateTags",
-      `SELECT m.metadata AS metadata
-       FROM message_attachments ma
-       JOIN messages m ON m.id = ma.message_id
-       WHERE ma.attachment_id = ?
-         AND m.metadata LIKE ?`,
+      SIGHT_FRAME_TAG_PROBE_SQL,
       row.id,
-      taggedMessageLike,
+      SIGHT_FRAME_TAG_PROBE_LIMIT,
     );
     rowsRead += linked.length;
     const tagged = linked.some((link) =>

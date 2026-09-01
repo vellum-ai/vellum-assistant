@@ -14,9 +14,9 @@ const INDEX = "idx_attachments_created_at_id";
  * and a pass over a large install re-paid for both on each page.
  *
  * The two columns in cursor order serve all three at once. The bound and the
- * continuation are the same index seek, the ordering falls out of the index, and
- * the sweep's other predicates (`kind`, `size_bytes`) stay cheap residuals on
- * rows the range already visited.
+ * continuation are the same index seek, and the ordering falls out of the index.
+ * The sweep asks nothing else of SQL: it decides what is a frame worth shrinking
+ * over the rows this range returns, so a page visits only what it hands back.
  *
  * Deliberately NOT partial. A `WHERE kind = 'image'` variant is usable, since
  * the sweep's `kind` predicate is a literal SQLite can prove the implication

@@ -64,8 +64,8 @@ const SWEPT_JPEG_QUALITY = 60;
  * a new marker because the alternatives are worse: pixel dimensions would mean
  * decoding every candidate on every tick just to ask whether to skip it, and a
  * marker on the message would mean writing the metadata this sweep is otherwise
- * careful never to touch. It doubles as the query's bounding predicate, so a
- * pass over an install with nothing left to shrink matches no rows at all.
+ * careful never to touch. A frame under it is not a candidate, so a pass over an
+ * install with nothing left to shrink walks its aged rows and encodes none.
  *
  * Comfortably above what {@link SWEPT_MAX_DIMENSION_PX} at
  * {@link SWEPT_JPEG_QUALITY} produces (tens of KB), so a swept frame lands well
@@ -85,9 +85,11 @@ const SWEEP_PAGE_SIZE = 200;
  * of those to reach work it can actually do; producing a thumbnail costs real
  * CPU, and a frame that comes out no smaller costs it for nothing.
  *
- * 200 frames an hour is far more than a camera generates, so the bound only ever
- * binds on a backlog, which is exactly when a pass should stop and let the next
- * one continue.
+ * It is a bound on ONE PASS, not on throughput. 200 is below what a call with
+ * the camera up can persist in an hour, which is why hitting it moves the sweep
+ * to {@link CATCH_UP_SWEEP_DELAY_MS} rather than raising it: keeping a single
+ * pass short is what keeps it off the event loop, and passes are cheap to
+ * repeat.
  */
 const MAX_ENCODE_ATTEMPTS_PER_PASS = 200;
 
@@ -165,13 +167,33 @@ let backupScanDirNames: string[] | null = null;
 let backupScanEnumerations = 0;
 
 /**
- * How often the sweep runs. The window it enforces is measured in days, so an
- * hourly cadence is far finer than the guarantee needs; it is what bounds the
- * cost of the pass, whose candidate query has no index to ride (neither
- * `attachments.created_at` nor `messages.metadata` carries one) and therefore
- * scans a table each time.
+ * The resting cadence, for when the last pass found everything it needed.
+ *
+ * The window being enforced is measured in days, so hourly is already far finer
+ * than the guarantee needs, and a pass that finds nothing is a handful of
+ * indexed range reads. There is no cost pressure here; this is simply how often
+ * it is worth asking.
  */
-const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+export const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * The cadence while a backlog is draining, chosen so the drain outruns the
+ * fastest the camera can fill it.
+ *
+ * The gate that keeps frames will not keep two inside five seconds
+ * (`clients/web/src/lib/camera/frame-gate.ts`), so a call with the camera up all
+ * hour persists at most 720 frames in that hour. At the resting cadence a pass
+ * attempts {@link MAX_ENCODE_ATTEMPTS_PER_PASS}, which is 200 an hour: less than
+ * the ceiling, so a sustained heavy call would grow the backlog faster than the
+ * sweep drained it and the storage bound would be one in name only. Five minutes
+ * gives 12 passes an hour, so 2400 encodes against a ceiling of 720, and the
+ * backlog shrinks under any workload the client can produce.
+ *
+ * This changes only the SCHEDULE. Per-pass bounds are untouched, because they
+ * are what keeps one pass off the event loop, and a shorter gap between bounded
+ * passes is the safe way to add throughput.
+ */
+export const CATCH_UP_SWEEP_DELAY_MS = 5 * 60 * 1000;
 
 /**
  * Delay before the first pass. A desktop assistant is restarted often enough
@@ -180,8 +202,10 @@ const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
  */
 const FIRST_SWEEP_DELAY_MS = 60_000;
 
-let firstSweepTimer: ReturnType<typeof setTimeout> | null = null;
-let sweepTimer: ReturnType<typeof setInterval> | null = null;
+// One timer at a time: each pass schedules the next when it finishes, which is
+// what lets the gap between them depend on what the last one found.
+let sweepTimer: ReturnType<typeof setTimeout> | null = null;
+let sweepScheduled = false;
 let sweepInProgress = false;
 
 /**
@@ -215,12 +239,18 @@ export interface SightFrameSweepResult {
   examined: number;
   /**
    * Rows this pass's queries read, which is what the row budget is charged
-   * against. Larger than {@link examined} whenever the prefilter admitted an
-   * attachment no linked message actually tags.
+   * against. Larger than {@link examined} because a page returns every aged
+   * attachment in its range, most of which qualify for nothing.
    */
   rowsRead: number;
   /** What the directory scan did with the sweep files a crash left behind. */
   leftovers: SweepLeftoverTally;
+  /**
+   * Whether the pass stopped on one of its bounds rather than running out of
+   * rows, which means work is left and the cursor points at it. The scheduler
+   * reads this to decide whether to come back soon or rest.
+   */
+  stoppedOnBudget: boolean;
 }
 
 export interface SweepLeftoverTally {
@@ -240,6 +270,7 @@ function emptyResult(): SightFrameSweepResult {
     examined: 0,
     rowsRead: 0,
     leftovers: { deleted: 0, restored: 0, skipped: 0 },
+    stoppedOnBudget: false,
   };
 }
 
@@ -330,12 +361,13 @@ export async function sweepAgedSightFrames(
       }
     }
     if (spentOnThisPage) {
+      result.stoppedOnBudget = true;
       break;
     }
 
-    // The whole page was consumed, so step past its tail too: attachments the
-    // metadata prefilter admitted and the tag check rejected are not candidates
-    // and would otherwise be re-read on every pass.
+    // The whole page was consumed, so step past its tail too: the aged rows that
+    // are not frames worth shrinking are not candidates, and would otherwise be
+    // re-read on every pass.
     cursor = page.nextCursor ?? cursor;
     if (!page.hasMore) {
       // End of the candidate set. Start the next pass at the head so newly aged
@@ -345,9 +377,10 @@ export async function sweepAgedSightFrames(
     }
     // Charged against rows READ, so a page that yielded no candidates still
     // spends the budget it cost. The cursor already names the last attachment
-    // this page examined, so the next pass resumes behind it rather than paying
-    // for the same near-misses again.
+    // this page visited, so the next pass resumes behind it rather than paying
+    // for the same rows again.
     if (result.rowsRead >= maxRowsRead) {
+      result.stoppedOnBudget = true;
       break;
     }
   }
@@ -518,42 +551,58 @@ export function getSightFrameSweepBackupCursorForTest(): string | null {
   return backupScanCursor;
 }
 
+/**
+ * How long to wait after a pass before running the next one.
+ *
+ * A pass that stopped on a bound left work behind and the cursor pointing at it,
+ * so the backlog is draining and the sweep leans into it. A pass that ran out of
+ * rows is caught up, and goes back to resting.
+ */
+export function sweepDelayAfter(result: SightFrameSweepResult): number {
+  return result.stoppedOnBudget ? CATCH_UP_SWEEP_DELAY_MS : SWEEP_INTERVAL_MS;
+}
+
 /** Start the periodic sweep. Idempotent. */
 export function startSightFrameStorageSweep(): void {
-  if (sweepTimer || firstSweepTimer) {
+  if (sweepScheduled) {
     return;
   }
-  firstSweepTimer = setTimeout(() => {
-    firstSweepTimer = null;
-    void runSweepPass();
-  }, FIRST_SWEEP_DELAY_MS);
-  sweepTimer = setInterval(() => {
-    void runSweepPass();
-  }, SWEEP_INTERVAL_MS);
+  sweepScheduled = true;
+  scheduleNextSweep(FIRST_SWEEP_DELAY_MS);
 }
 
 /** Stop the periodic sweep. Used in tests and shutdown. */
 export function stopSightFrameStorageSweep(): void {
-  if (firstSweepTimer) {
-    clearTimeout(firstSweepTimer);
-    firstSweepTimer = null;
-  }
+  sweepScheduled = false;
   if (sweepTimer) {
-    clearInterval(sweepTimer);
+    clearTimeout(sweepTimer);
     sweepTimer = null;
   }
   sweepInProgress = false;
 }
 
-/** One pass, skipped while the previous one is still re-encoding. */
+function scheduleNextSweep(delayMs: number): void {
+  if (!sweepScheduled) {
+    return;
+  }
+  sweepTimer = setTimeout(() => {
+    sweepTimer = null;
+    void runSweepPass();
+  }, delayMs);
+}
+
+/** One pass, then the next is scheduled on the cadence that pass earned. */
 async function runSweepPass(): Promise<void> {
   if (sweepInProgress) {
+    scheduleNextSweep(SWEEP_INTERVAL_MS);
     return;
   }
   sweepInProgress = true;
+  let delayMs = SWEEP_INTERVAL_MS;
   try {
-    await sweepAgedSightFrames();
+    delayMs = sweepDelayAfter(await sweepAgedSightFrames());
   } finally {
     sweepInProgress = false;
   }
+  scheduleNextSweep(delayMs);
 }
