@@ -6,9 +6,9 @@
  * decoupling route handlers and IPC callbacks from the DaemonServer
  * class.
  *
- * The {@link getOrCreateConversation} function owns the full
- * creation/reuse lifecycle — provider wiring, rate limiting, system
- * prompt assembly, and DB hydration. Idle eviction lives in
+ * {@link getOrCreateConversation} and {@link getConversationIfExists} share
+ * one body that owns the full creation/reuse lifecycle: provider wiring, rate
+ * limiting, system prompt assembly, and DB hydration. Idle eviction lives in
  * `conversation-evictor`.
  */
 
@@ -128,8 +128,8 @@ function clearConversationOptions(): void {
 
 // ── Conversation lifecycle ─────────────────────────────────────────
 
-/** Dedup guard: in-flight creation promises keyed by conversation ID. */
-const conversationCreating = new Map<string, Promise<Conversation>>();
+/** Dedup guard: in-flight acquisitions keyed by conversation ID. */
+const conversationCreating = new Map<string, Promise<Conversation | null>>();
 
 function applyTransportMetadata(
   conversation: Conversation,
@@ -163,6 +163,47 @@ export async function getOrCreateConversation(
   conversationId: string,
   options?: ConversationCreateOptions,
 ): Promise<Conversation> {
+  // Null is the non-creating acquire's answer and nobody else's.
+  return (await acquireConversation(conversationId, options, true))!;
+}
+
+/**
+ * Acquire an active conversation, or null when no `conversations` row backs it.
+ *
+ * For a caller whose work is only meaningful inside a conversation that still
+ * exists: a queued job whose conversation can be deleted between the moment it
+ * was accepted and the moment it runs. {@link getOrCreateConversation} would
+ * write the row back for it, which resurrects a conversation the user deleted.
+ *
+ * Distinct from the two cheaper reads it sits above:
+ * `findConversation` returns only an instance already in memory, and the
+ * persistence layer's `getConversation` returns only the row. This builds and
+ * hydrates the instance the way the creating acquire does, and answers null
+ * exactly where that one would insert.
+ */
+export function getConversationIfExists(
+  conversationId: string,
+  options?: ConversationCreateOptions,
+): Promise<Conversation | null> {
+  return acquireConversation(conversationId, options, false);
+}
+
+/**
+ * The body both acquires share. `createIfMissing` decides one thing: whether a
+ * missing row is written or reported.
+ */
+async function acquireConversation(
+  conversationId: string,
+  options: ConversationCreateOptions | undefined,
+  createIfMissing: boolean,
+): Promise<Conversation | null> {
+  // A caller that will not create wants nothing to do with a conversation
+  // whose row is gone, resident instance or not. Also spares an already-gone
+  // conversation the provider and tool setup below.
+  if (!createIfMissing && !getConversation(conversationId)) {
+    return null;
+  }
+
   let conversation = findConversation(conversationId);
 
   // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
@@ -202,8 +243,13 @@ export async function getOrCreateConversation(
 
     const pending = conversationCreating.get(conversationId);
     if (pending) {
-      conversation = await pending;
-      return conversation;
+      const joined = await pending;
+      if (joined || !createIfMissing) {
+        return joined;
+      }
+      // The acquisition already in flight declined to create. A caller that
+      // was asked to create makes its own attempt rather than reporting an
+      // answer that was never its own.
     }
 
     const storedOptions = conversationOptions.get(conversationId);
@@ -237,6 +283,14 @@ export async function getOrCreateConversation(
 
       const { initializeTools } = await import("../tools/registry.js");
       await initializeTools();
+
+      // Provider resolution, the system prompt, and tool setup all await, and
+      // a delete can land in any of them. This is the last instant before the
+      // row insert below and nothing between the two awaits, so a non-creating
+      // acquire that reads the row gone here never writes it back.
+      if (!createIfMissing && !getConversation(conversationId)) {
+        return null;
+      }
 
       const newConversation = new Conversation(
         conversationId,
@@ -315,11 +369,16 @@ export async function getOrCreateConversation(
     })();
 
     conversationCreating.set(conversationId, createPromise);
+    let acquired: Conversation | null;
     try {
-      conversation = await createPromise;
+      acquired = await createPromise;
     } finally {
       conversationCreating.delete(conversationId);
     }
+    if (!acquired) {
+      return null;
+    }
+    conversation = acquired;
     touchConversation(conversationId);
   } else {
     if (!conversation.isProcessing()) {
@@ -330,7 +389,7 @@ export async function getOrCreateConversation(
     }
     touchConversation(conversationId);
   }
-  return conversation;
+  return conversation ?? null;
 }
 
 /**
