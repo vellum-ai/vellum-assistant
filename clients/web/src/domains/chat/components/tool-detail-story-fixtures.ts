@@ -17,21 +17,25 @@
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
- * Base payload every fixture spreads, so a story states only the fields it is
- * actually exercising and new required fields land in one place.
+ * Defaults every fixture spreads, so a fixture states only the fields it is
+ * actually exercising and a new required field lands in one place.
  */
 const BASE = {
-  toolCallId: "tc-fixture",
-  toolName: "bash",
-  title: "Working",
   activity: "",
   input: {},
   status: "completed",
-} satisfies ToolDetailPayload;
+} satisfies Partial<ToolDetailPayload>;
 
-/** Build a payload from `BASE`, keeping `ToolDetailPayload` checked at the call site. */
-function payload(overrides: Partial<ToolDetailPayload>): ToolDetailPayload {
-  return { ...BASE, ...overrides };
+/**
+ * Build a payload from `BASE`. The three identity fields are required rather
+ * than defaulted: a placeholder tool name would let a fixture that forgot to
+ * name its tool render as some other tool's story without failing anything.
+ */
+function payload(
+  identity: Pick<ToolDetailPayload, "toolCallId" | "toolName" | "title"> &
+    Partial<ToolDetailPayload>,
+): ToolDetailPayload {
+  return { ...BASE, ...identity };
 }
 
 // ---------------------------------------------------------------------------
@@ -446,11 +450,10 @@ export const largeOutputDetail: ToolDetailPayload = payload({
     activity: "Listing the dependency tree",
     command: "bun pm ls --all",
   },
-  result: Array.from(
-    { length: 400 },
-    (_, i) =>
-      `├── @vellumai/package-${String(i).padStart(3, "0")}@1.${i % 20}.${i % 7} resolved to node_modules/@vellumai/package-${String(i).padStart(3, "0")}`,
-  ).join("\n"),
+  result: Array.from({ length: 400 }, (_, i) => {
+    const name = `@vellumai/package-${String(i).padStart(3, "0")}`;
+    return `├── ${name}@1.${i % 20}.${i % 7} resolved to node_modules/${name}`;
+  }).join("\n"),
   riskLevel: "low",
 });
 
@@ -473,15 +476,15 @@ export const minimalDetail: ToolDetailPayload = payload({
 //
 // `getRiskNoticeTone` and `getRiskBadgeWeakStyle` recognise low, medium, high
 // and workspace, and fall through to a neutral "Unknown" for anything else.
-// Only low and medium had stories before this catalogue.
 // ---------------------------------------------------------------------------
 
-/** Build a risk variant of `bashDetail` without restating the rest of it. */
-export function riskVariant(
-  riskLevel: string | undefined,
-  toolCallId: string,
-): ToolDetailPayload {
-  return { ...bashDetail, toolCallId, riskLevel };
+/** A `bashDetail` at one risk level, keyed so each level is its own call. */
+export function riskVariant(riskLevel: string | undefined): ToolDetailPayload {
+  return {
+    ...bashDetail,
+    toolCallId: `tc-risk-${riskLevel ?? "absent"}`,
+    riskLevel,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -493,7 +496,7 @@ export function riskVariant(
  * markdown followed by the machine-facing "## Available Tools" manifest that
  * `formatToolSchemas` emits, and the `<loaded_skill />` trailer.
  */
-export const skillLoadResult = [
+const skillLoadResult = [
   "Skill: App Builder",
   "ID: app-builder",
   "Description: Build persistent apps in the user's Library.",
@@ -561,6 +564,14 @@ export const skillLoadLongDetail: ToolDetailPayload = {
       "## Workflow",
     ].join("\n"),
   ),
+};
+
+/** `skill_load` still in flight, before the instruction body lands. */
+export const skillLoadRunningDetail: ToolDetailPayload = {
+  ...skillLoadDetail,
+  toolCallId: "tc-skill-load-running",
+  result: undefined,
+  status: "running",
 };
 
 /** A failed `skill_load`, whose error should read as prose. */

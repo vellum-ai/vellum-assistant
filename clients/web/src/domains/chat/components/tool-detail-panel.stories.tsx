@@ -24,6 +24,7 @@ import {
   skillLoadDetail,
   skillLoadErrorDetail,
   skillLoadLongDetail,
+  skillLoadRunningDetail,
   subagentSpawnDetail,
   thinkingDetail,
   unknownToolDetail,
@@ -88,7 +89,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Empty output | FileReadEmptyOutput | `hasResult` is false for `""`, so Output disappears rather than reporting an empty file. |
  * | Very large output | LargeOutput | The generic `CodeBlock` does not clamp, and the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | |
- * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | Only low and medium had stories before this catalogue. |
+ * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | Every level the risk helpers recognise, plus absent and unrecognised. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
  *
  * ## Suggested order for follow-up design slices
@@ -272,17 +273,17 @@ export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
 
 /** Low risk: success tone, with the tolerance hint. */
 export const RiskLow: Story = {
-  args: { detail: riskVariant("low", "tc-risk-low") },
+  args: { detail: riskVariant("low") },
 };
 
 /** Medium risk: warning tone. */
 export const RiskMedium: Story = {
-  args: { detail: riskVariant("medium", "tc-risk-medium") },
+  args: { detail: riskVariant("medium") },
 };
 
-/** High risk: error tone. Had no story before this catalogue. */
+/** High risk: error tone. */
 export const RiskHigh: Story = {
-  args: { detail: riskVariant("high", "tc-risk-high") },
+  args: { detail: riskVariant("high") },
 };
 
 /**
@@ -290,7 +291,7 @@ export const RiskHigh: Story = {
  * tolerance hint, since it is not a tolerance tier.
  */
 export const RiskWorkspace: Story = {
-  args: { detail: riskVariant("workspace", "tc-risk-workspace") },
+  args: { detail: riskVariant("workspace") },
 };
 
 /**
@@ -298,12 +299,12 @@ export const RiskWorkspace: Story = {
  * label is the raw string, capitalised.
  */
 export const RiskUnknown: Story = {
-  args: { detail: riskVariant("elevated", "tc-risk-unknown") },
+  args: { detail: riskVariant("elevated") },
 };
 
 /** No risk assessment at all, which suppresses the notice entirely. */
 export const RiskAbsent: Story = {
-  args: { detail: riskVariant(undefined, "tc-risk-absent") },
+  args: { detail: riskVariant(undefined) },
 };
 
 // ---------------------------------------------------------------------------
@@ -331,9 +332,7 @@ export const SkillLoadError: Story = { args: { detail: skillLoadErrorDetail } };
 
 /** `skill_load` still in flight, before the instruction body lands. */
 export const SkillLoadRunning: Story = {
-  args: {
-    detail: { ...skillLoadDetail, result: undefined, status: "running" },
-  },
+  args: { detail: skillLoadRunningDetail },
 };
 
 /**
