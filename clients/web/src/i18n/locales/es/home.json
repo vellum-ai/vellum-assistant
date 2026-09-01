@@ -46,7 +46,6 @@
     "approve": "Aprobar",
     "reject": "Rechazar",
     "answerHint": "Responde esta pregunta desde la conversación de origen.",
-    "viewSourceMessage": "Ver mensaje",
     "openInSlack": "Abrir en Slack",
     "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",

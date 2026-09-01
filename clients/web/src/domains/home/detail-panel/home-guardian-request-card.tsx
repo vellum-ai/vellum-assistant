@@ -11,6 +11,9 @@ import {
 import { Button, Typography } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { FeedCategoryChip } from "../feed-category-chip";
+import { guardianCategoryLabelKey } from "../utils";
+
 export interface HomeGuardianRequestCardProps {
   item: FeedItem;
 }
@@ -86,6 +89,13 @@ export function HomeGuardianRequestCard({
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
+      <div>
+        <FeedCategoryChip
+          category={item.category}
+          labelKey={guardianCategoryLabelKey(item) ?? undefined}
+        />
+      </div>
+
       <Typography
         variant="body-medium-default"
         className="text-[var(--content-secondary)]"
@@ -104,6 +114,7 @@ export function HomeGuardianRequestCard({
         <MetadataRow
           label={t("homeGuardianRequestCard.source")}
           value={contextLine}
+          href={guardianRequest.sourceUrl}
         />
       ) : null}
 
@@ -152,20 +163,12 @@ export function HomeGuardianRequestCard({
         </Typography>
       ) : null}
 
-      {guardianRequest.sourceUrl || guardianRequest.slackCardUrl ? (
+      {guardianRequest.slackCardUrl ? (
         <div className="flex flex-wrap gap-[var(--app-spacing-sm)]">
-          {guardianRequest.sourceUrl ? (
-            <ExternalLinkButton
-              href={guardianRequest.sourceUrl}
-              label={t("homeGuardianRequestCard.viewSourceMessage")}
-            />
-          ) : null}
-          {guardianRequest.slackCardUrl ? (
-            <ExternalLinkButton
-              href={guardianRequest.slackCardUrl}
-              label={t("homeGuardianRequestCard.openInSlack")}
-            />
-          ) : null}
+          <ExternalLinkButton
+            href={guardianRequest.slackCardUrl}
+            label={t("homeGuardianRequestCard.openInSlack")}
+          />
         </div>
       ) : null}
     </div>
@@ -175,9 +178,11 @@ export function HomeGuardianRequestCard({
 interface MetadataRowProps {
   label: string;
   value: string;
+  /** Makes the value an external link to the originating message. */
+  href?: string;
 }
 
-function MetadataRow({ label, value }: MetadataRowProps) {
+function MetadataRow({ label, value, href }: MetadataRowProps) {
   return (
     <div className="flex items-baseline gap-[var(--app-spacing-sm)]">
       <Typography
@@ -186,12 +191,24 @@ function MetadataRow({ label, value }: MetadataRowProps) {
       >
         {label}
       </Typography>
-      <Typography
-        variant="body-small-default"
-        className="min-w-0 truncate text-[var(--content-tertiary)]"
-      >
-        {value}
-      </Typography>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => handleNativeAnchorClick(event, href)}
+          className="min-w-0 truncate text-[var(--content-tertiary)] underline underline-offset-2 hover:text-[var(--content-default)]"
+        >
+          <Typography variant="body-small-default">{value}</Typography>
+        </a>
+      ) : (
+        <Typography
+          variant="body-small-default"
+          className="min-w-0 truncate text-[var(--content-tertiary)]"
+        >
+          {value}
+        </Typography>
+      )}
     </div>
   );
 }

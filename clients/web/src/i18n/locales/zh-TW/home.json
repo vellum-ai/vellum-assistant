@@ -50,7 +50,6 @@
     "approve": "核准",
     "reject": "拒絕",
     "answerHint": "請在來源對話中回答這個問題。",
-    "viewSourceMessage": "檢視訊息",
     "openInSlack": "在 Slack 中開啟",
     "alreadyResolved": "此請求已在其他介面解決。",
     "decisionFailed": "無法送出決定。請再試一次。",

@@ -133,6 +133,7 @@ export function HomeRecapRow({
   const longPress = useLongPressSheet({ shouldSkip: skipRowControls });
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
+  const guardianLabelKey = guardianCategoryLabelKey(item) ?? undefined;
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
@@ -235,7 +236,7 @@ export function HomeRecapRow({
             <>
               <FeedCategoryChip
                 category={item.category}
-                labelKey={guardianCategoryLabelKey(item) ?? undefined}
+                labelKey={guardianLabelKey}
               />
 
               {sourceLabel !== null && (
@@ -246,6 +247,17 @@ export function HomeRecapRow({
                   {sourceLabel}
                 </Typography>
               )}
+            </>
+          ) : guardianLabelKey ? (
+            // A guardian item announces what it needs even at compact
+            // density: the callout is information, not decoration, and
+            // the compact row is the bell's only rendering.
+            <>
+              <FeedCategoryChip
+                category={item.category}
+                labelKey={guardianLabelKey}
+              />
+              {titleLine}
             </>
           ) : (
             titleLine

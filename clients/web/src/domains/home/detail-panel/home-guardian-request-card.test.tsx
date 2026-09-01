@@ -86,6 +86,7 @@ describe("HomeGuardianRequestCard", () => {
     );
 
     expect(screen.getByText("Alice")).toBeTruthy();
+    expect(screen.getByText("Guardian action needed")).toBeTruthy();
     expect(
       screen.getByText("linear_graphql · Slack #user-feedback"),
     ).toBeTruthy();
