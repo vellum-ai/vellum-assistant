@@ -14,12 +14,13 @@
  *
  * The committed resources are XML rather than an image format nobody can read,
  * which makes them tempting to hand-edit. Everything below exists so an edit
- * that the generator would not have produced fails here.
+ * that the generator would not have produced fails here. The same goes for the
+ * generator-owned `<activity-alias>` block in `AndroidManifest.xml`.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,9 +36,11 @@ import {
   type IconSetScope,
 } from "../avatar-icon-core.js";
 import {
+  ANDROID_MANIFEST_PATH,
   ANDROID_RES_DIR,
   generateAndroidAvatarIcons,
   ownedResourcePaths,
+  renderManifestWithIconAliases,
 } from "../generate-android-avatar-icons.js";
 
 /** Scope of the resource set checked into the repo. Narrowing it is a code change. */
@@ -70,6 +73,18 @@ const GROUP_ATTRS = [
 ] as const;
 
 type GroupTransform = Record<(typeof GROUP_ATTRS)[number], string>;
+
+/** Comments fencing the generator-owned region of the manifest. */
+const ALIAS_BLOCK_BEGIN = "<!-- avatar-icon-aliases:begin -->";
+const ALIAS_BLOCK_END = "<!-- avatar-icon-aliases:end -->";
+
+/** Number of icons the picker offers, and so of aliases the manifest declares. */
+const EXPECTED_ALIAS_COUNT = 54;
+
+const LAUNCHER_ACTION = '<action android:name="android.intent.action.MAIN" />';
+const LAUNCHER_CATEGORY =
+  '<category android:name="android.intent.category.LAUNCHER" />';
+const SHORTCUTS_META_DATA_NAME = 'android:name="android.app.shortcuts"';
 
 const tempDirs: string[] = [];
 
@@ -182,14 +197,127 @@ function expectedResourcePaths(): string[] {
   ].sort();
 }
 
+function committedManifest(): string {
+  return readFileSync(ANDROID_MANIFEST_PATH, "utf8");
+}
+
+/** The owned region of a manifest, opening marker line through closing marker. */
+function aliasBlockOf(manifest: string): string {
+  const beginAt = manifest.indexOf(ALIAS_BLOCK_BEGIN);
+  const endAt = manifest.indexOf(ALIAS_BLOCK_END);
+  if (beginAt < 0 || endAt < beginAt) {
+    throw new Error("The manifest has no avatar-icon-aliases block");
+  }
+  return manifest.slice(
+    manifest.lastIndexOf("\n", beginAt) + 1,
+    endAt + ALIAS_BLOCK_END.length,
+  );
+}
+
+/** An element's attributes without those of anything nested inside it. */
+function openingTagOf(element: string): string {
+  const tag = /^[ \t]*<[\w-]+(?:\s[^>]*)?>/.exec(element)?.[0];
+  if (!tag) {
+    throw new Error(`No opening tag in: ${element.slice(0, 80)}`);
+  }
+  return tag;
+}
+
+function attribute(element: string, name: string): string | undefined {
+  return new RegExp(`android:${name}="([^"]*)"`).exec(
+    openingTagOf(element),
+  )?.[1];
+}
+
+function mainActivityOf(manifest: string): string {
+  const element = /^[ \t]*<activity(?:\s[^>]*)?>[\s\S]*?<\/activity>/m.exec(
+    manifest,
+  )?.[0];
+  if (!element || attribute(element, "name") !== ".MainActivity") {
+    throw new Error("The manifest has no .MainActivity element");
+  }
+  return element;
+}
+
+function aliasElementsOf(manifest: string): string[] {
+  return (
+    aliasBlockOf(manifest).match(
+      /^[ \t]*<activity-alias(?:\s[^>]*)?>[\s\S]*?<\/activity-alias>/gm,
+    ) ?? []
+  );
+}
+
+/** Trims each line so nesting depth stays out of a content comparison. */
+function normalizeIndentation(element: string): string {
+  return element
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n");
+}
+
+function intentFiltersOf(element: string): string[] {
+  return (
+    element.match(
+      /^[ \t]*<intent-filter(?:\s[^>]*)?>[\s\S]*?<\/intent-filter>/gm,
+    ) ?? []
+  ).map(normalizeIndentation);
+}
+
+function metaDataOf(element: string): string[] {
+  return (element.match(/^[ \t]*<meta-data\s[^>]*\/>/gm) ?? []).map(
+    normalizeIndentation,
+  );
+}
+
+interface FreshGeneration {
+  resDir: string;
+  manifestPath: string;
+}
+
+let freshGeneration: FreshGeneration | undefined;
+
+/**
+ * One generator run into a throwaway tree, shared by every test that reads it.
+ * Rasterizing nine eye styles is the slow part, so it happens once.
+ */
+function generateFresh(): FreshGeneration {
+  if (freshGeneration) {
+    return freshGeneration;
+  }
+  const root = mkdtempSync(join(tmpdir(), "android-avatar-icons-"));
+  tempDirs.push(root);
+  const resDir = join(root, "res");
+  const manifestPath = join(root, "AndroidManifest.xml");
+  copyFileSync(ANDROID_MANIFEST_PATH, manifestPath);
+  generateAndroidAvatarIcons({ resDir, manifestPath, scope: COMMITTED_SCOPE });
+  freshGeneration = { resDir, manifestPath };
+  return freshGeneration;
+}
+
 describe("committed Android avatar icons", () => {
   test(
     "match a fresh generation",
     () => {
-      const resDir = mkdtempSync(join(tmpdir(), "android-avatar-icons-"));
-      tempDirs.push(resDir);
-      generateAndroidAvatarIcons({ resDir, scope: COMMITTED_SCOPE });
-      expect(snapshot(ANDROID_RES_DIR)).toEqual(snapshot(resDir));
+      expect(snapshot(ANDROID_RES_DIR)).toEqual(
+        snapshot(generateFresh().resDir),
+      );
+    },
+    GENERATION_TIMEOUT_MS,
+  );
+
+  test(
+    "survive a second generator run untouched",
+    () => {
+      const { resDir, manifestPath } = generateFresh();
+      const resources = snapshot(resDir);
+      const manifest = readFileSync(manifestPath, "utf8");
+      generateAndroidAvatarIcons({
+        resDir,
+        manifestPath,
+        scope: COMMITTED_SCOPE,
+      });
+      expect(snapshot(resDir)).toEqual(resources);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifest);
     },
     GENERATION_TIMEOUT_MS,
   );
@@ -363,4 +491,112 @@ describe("alternate icon sizing", () => {
     },
     GENERATION_TIMEOUT_MS,
   );
+});
+
+describe("the manifest activity-alias block", () => {
+  const manifest = committedManifest();
+  const mainActivity = mainActivityOf(manifest);
+  const aliases = aliasElementsOf(manifest);
+
+  test("matches a fresh render of the committed manifest", () => {
+    expect(renderManifestWithIconAliases(manifest, COMMITTED_SCOPE)).toBe(
+      manifest,
+    );
+  });
+
+  /**
+   * Rendering replaces the block when the markers are there and creates it
+   * directly after `.MainActivity` when they are not, so stripping the block and
+   * rendering again has to land it back exactly where it was.
+   */
+  test("is recreated in place after being deleted", () => {
+    const withoutBlock = manifest.replace(`\n\n${aliasBlockOf(manifest)}`, "");
+    expect(withoutBlock).not.toContain(ALIAS_BLOCK_BEGIN);
+    expect(renderManifestWithIconAliases(withoutBlock, COMMITTED_SCOPE)).toBe(
+      manifest,
+    );
+  });
+
+  test("declares one alias per icon, in generation order", () => {
+    expect(aliases.map((alias) => attribute(alias, "name"))).toEqual(
+      traitCombinations(COMMITTED_SCOPE).map(
+        (traits) => `.icon.${androidResourceNameForTraits(traits)}`,
+      ),
+    );
+    expect(aliases).toHaveLength(EXPECTED_ALIAS_COUNT);
+  });
+
+  /**
+   * At rest `.MainActivity` is the only enabled launcher component, so a fresh
+   * install or an update behaves exactly as it does without the block. The
+   * picker is what enables one alias, and it disables `.MainActivity` in the
+   * same edit.
+   */
+  test("leaves every alias disabled", () => {
+    for (const alias of aliases) {
+      expect(attribute(alias, "enabled")).toBe("false");
+    }
+  });
+
+  test("points every alias at MainActivity and at its own icon", () => {
+    for (const alias of aliases) {
+      const resource = attribute(alias, "name")?.replace(".icon.", "");
+      expect(attribute(alias, "targetActivity")).toBe(".MainActivity");
+      expect(attribute(alias, "exported")).toBe("true");
+      expect(attribute(alias, "label")).toBe("@string/app_name");
+      expect(attribute(alias, "icon")).toBe(`@mipmap/${resource}`);
+      expect(attribute(alias, "roundIcon")).toBe(`@mipmap/${resource}`);
+    }
+  });
+
+  /**
+   * Whichever component is enabled is the one that receives launches, deep
+   * links, and shortcut taps, so an alias missing a filter would drop that entry
+   * point for everyone who picked its icon.
+   */
+  test("clones MainActivity's intent filters exactly", () => {
+    const expected = [...intentFiltersOf(mainActivity)].sort();
+    expect(expected.length).toBeGreaterThan(1);
+    for (const alias of aliases) {
+      expect([...intentFiltersOf(alias)].sort()).toEqual(expected);
+    }
+  });
+
+  test("clones MainActivity's meta-data, the static shortcuts included", () => {
+    const expected = [...metaDataOf(mainActivity)].sort();
+    expect(
+      expected.filter((meta) => meta.includes(SHORTCUTS_META_DATA_NAME)),
+    ).toHaveLength(1);
+    for (const alias of aliases) {
+      expect([...metaDataOf(alias)].sort()).toEqual(expected);
+    }
+  });
+});
+
+describe("MainActivity", () => {
+  const mainActivity = mainActivityOf(committedManifest());
+
+  /**
+   * The generator owns the alias block and nothing else. `.MainActivity` is the
+   * one launcher component enabled at rest, and the aliases target it, so it
+   * stays hand-maintained and outside the generated region.
+   */
+  test("stays the enabled launcher component the generator never touches", () => {
+    expect(attribute(mainActivity, "name")).toBe(".MainActivity");
+    expect(attribute(mainActivity, "exported")).toBe("true");
+    expect(attribute(mainActivity, "launchMode")).toBe("singleTask");
+    expect(attribute(mainActivity, "label")).toBe("@string/app_name");
+    expect(attribute(mainActivity, "theme")).toBe(
+      "@style/AppTheme.NoActionBarLaunch",
+    );
+    expect(openingTagOf(mainActivity)).not.toContain("android:enabled");
+  });
+
+  test("keeps its MAIN/LAUNCHER intent filter", () => {
+    const launcher = intentFiltersOf(mainActivity).filter(
+      (filter) =>
+        filter.includes(LAUNCHER_ACTION) && filter.includes(LAUNCHER_CATEGORY),
+    );
+    expect(launcher).toHaveLength(1);
+  });
 });

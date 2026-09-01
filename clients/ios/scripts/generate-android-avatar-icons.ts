@@ -32,12 +32,23 @@
  * The background colors are their own `values/avatar_icon_colors.xml` rather
  * than the flavor-owned `launcher_background`: an alternate icon looks the same
  * in every flavor, and only the default launcher icon changes with the build.
+ *
+ * A fifth piece lives outside `res`: the generator also owns the
+ * `avatar-icon-aliases` marker block in `AndroidManifest.xml`, which declares
+ * one disabled `<activity-alias>` per icon. Android picks the launcher icon off
+ * the enabled launcher component, so switching icons means enabling one alias
+ * and disabling the rest. Each alias is a clone of `.MainActivity`'s launcher,
+ * deep-link, and shortcuts surface, read out of the manifest rather than spelled
+ * out here, so a new deep link reaches every alias on the next run. Cloning is
+ * what keeps those links and the static shortcuts working while an alias, not
+ * `.MainActivity`, is the enabled component.
  */
 
 import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -59,15 +70,22 @@ import {
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
 
-/** Committed output location, regenerated wholesale on every run. */
-export const ANDROID_RES_DIR = join(
+const ANDROID_MAIN_SRC_DIR = join(
   REPO_ROOT,
   "clients",
   "android",
   "app",
   "src",
   "main",
-  "res",
+);
+
+/** Committed output location, regenerated wholesale on every run. */
+export const ANDROID_RES_DIR = join(ANDROID_MAIN_SRC_DIR, "res");
+
+/** Manifest holding the generator-owned `<activity-alias>` block. */
+export const ANDROID_MANIFEST_PATH = join(
+  ANDROID_MAIN_SRC_DIR,
+  "AndroidManifest.xml",
 );
 
 const GENERATOR_SCRIPT = "clients/ios/scripts/generate-android-avatar-icons.ts";
@@ -104,8 +122,28 @@ const OWNED_FILE_PREFIX = "avatar_eyes_";
 
 const COLORS_RESOURCE_PATH = "values/avatar_icon_colors.xml";
 
+/** Comments fencing the manifest region this generator rewrites. */
+const ALIAS_BLOCK_BEGIN = "<!-- avatar-icon-aliases:begin -->";
+const ALIAS_BLOCK_END = "<!-- avatar-icon-aliases:end -->";
+
+/**
+ * Manifest-relative name of the activity the aliases point at, and the
+ * sub-package their own names sit under. The names resolve against the manifest
+ * package, so an alias is `<applicationId>/ai.vellum.assistant.icon.<resource>`
+ * at runtime, which is what the plugin toggling them has to address.
+ */
+const MAIN_ACTIVITY_NAME = ".MainActivity";
+const ALIAS_NAME_PREFIX = ".icon.";
+
+/** Child elements of `.MainActivity` every alias has to reproduce. */
+const LAUNCHER_ACTION = '<action android:name="android.intent.action.MAIN" />';
+const LAUNCHER_CATEGORY =
+  '<category android:name="android.intent.category.LAUNCHER" />';
+const SHORTCUTS_META_DATA_NAME = 'android:name="android.app.shortcuts"';
+
 export interface GenerateAndroidAvatarIconsOptions {
   resDir: string;
+  manifestPath: string;
   scope: IconSetScope;
 }
 
@@ -134,8 +172,8 @@ export function ownedResourcePaths(resDir: string): string[] {
 }
 
 /**
- * Writes every owned resource, returning their paths relative to `resDir` in
- * sorted order.
+ * Writes every owned resource and rewrites the manifest's alias block,
+ * returning the resource paths relative to `resDir` in sorted order.
  */
 export function generateAndroidAvatarIcons(
   options: GenerateAndroidAvatarIconsOptions,
@@ -187,6 +225,14 @@ export function generateAndroidAvatarIcons(
       ),
     );
   }
+
+  writeFileSync(
+    options.manifestPath,
+    renderManifestWithIconAliases(
+      readFileSync(options.manifestPath, "utf8"),
+      options.scope,
+    ),
+  );
 
   return written.sort();
 }
@@ -398,16 +444,163 @@ function buildColorsXml(): string {
   ]);
 }
 
+interface ManifestElement {
+  /** The element's full text, opening tag through closing tag. */
+  text: string;
+  /** Whitespace the element's opening tag is indented by. */
+  indent: string;
+  /** Offset just past the closing tag, where the alias block goes. */
+  end: number;
+}
+
+/**
+ * The `.MainActivity` element. `<activity(?:\s[^>]*)?>` cannot match
+ * `<activity-alias`, and `</activity>` cannot match `</activity-alias>`, so the
+ * aliases sitting next to it are never mistaken for it.
+ */
+function findMainActivity(manifest: string): ManifestElement {
+  const pattern = /^([ \t]*)<activity(?:\s[^>]*)?>[\s\S]*?<\/activity>/gm;
+  for (const match of manifest.matchAll(pattern)) {
+    if (!match[0].includes(`android:name="${MAIN_ACTIVITY_NAME}"`)) {
+      continue;
+    }
+    return {
+      text: match[0],
+      indent: match[1] ?? "",
+      end: match.index + match[0].length,
+    };
+  }
+  throw new Error(
+    `No <activity android:name="${MAIN_ACTIVITY_NAME}"> element in the manifest.`,
+  );
+}
+
+/**
+ * `.MainActivity`'s intent filters and meta-data, verbatim and in document
+ * order. Reading them out of the manifest is what makes a new deep link reach
+ * every alias on the next run instead of silently applying to the default
+ * launcher component alone.
+ */
+function mainActivityClonedChildren(mainActivity: ManifestElement): string[] {
+  const pattern =
+    /^[ \t]*(?:<intent-filter(?:\s[^>]*)?>[\s\S]*?<\/intent-filter>|<meta-data\s[^>]*\/>)/gm;
+  const children = mainActivity.text.match(pattern) ?? [];
+
+  const hasLauncherFilter = children.some(
+    (child) =>
+      child.includes(LAUNCHER_ACTION) && child.includes(LAUNCHER_CATEGORY),
+  );
+  if (!hasLauncherFilter) {
+    throw new Error(
+      `${MAIN_ACTIVITY_NAME} has no MAIN/LAUNCHER intent filter to clone.`,
+    );
+  }
+  if (!children.some((child) => child.includes(SHORTCUTS_META_DATA_NAME))) {
+    throw new Error(
+      `${MAIN_ACTIVITY_NAME} has no ${SHORTCUTS_META_DATA_NAME} meta-data to clone.`,
+    );
+  }
+  return children;
+}
+
+/**
+ * One alias per icon, disabled so that `.MainActivity` stays the sole enabled
+ * launcher component until the picker enables one. Exactly one launcher-bearing
+ * component is enabled at a time, so a fresh install and an update both behave
+ * the way they do without the block, and an existing home screen pin survives.
+ */
+function buildActivityAlias(
+  traits: AvatarIconTraits,
+  children: string[],
+  indent: string,
+): string[] {
+  const name = androidResourceNameForTraits(traits);
+  return [
+    `${indent}<activity-alias`,
+    `${indent}    android:name="${ALIAS_NAME_PREFIX}${name}"`,
+    `${indent}    android:targetActivity="${MAIN_ACTIVITY_NAME}"`,
+    `${indent}    android:enabled="false"`,
+    `${indent}    android:exported="true"`,
+    `${indent}    android:icon="@mipmap/${name}"`,
+    `${indent}    android:roundIcon="@mipmap/${name}"`,
+    `${indent}    android:label="@string/app_name">`,
+    "",
+    ...children.flatMap((child) => [child, ""]),
+    `${indent}</activity-alias>`,
+  ];
+}
+
+function buildAliasBlock(
+  mainActivity: ManifestElement,
+  combinations: AvatarIconTraits[],
+): string {
+  const indent = mainActivity.indent;
+  const children = mainActivityClonedChildren(mainActivity);
+  return [
+    `${indent}${ALIAS_BLOCK_BEGIN}`,
+    `${indent}<!--`,
+    `${indent}    Generated by ${GENERATOR_SCRIPT}.`,
+    `${indent}    Do not edit by hand.`,
+    `${indent}-->`,
+    "",
+    ...combinations.flatMap((traits) => [
+      ...buildActivityAlias(traits, children, indent),
+      "",
+    ]),
+    `${indent}${ALIAS_BLOCK_END}`,
+  ].join("\n");
+}
+
+function findAliasBlock(
+  manifest: string,
+): { start: number; end: number } | undefined {
+  const beginAt = manifest.indexOf(ALIAS_BLOCK_BEGIN);
+  if (beginAt < 0) {
+    return undefined;
+  }
+  const endAt = manifest.indexOf(ALIAS_BLOCK_END, beginAt);
+  if (endAt < 0) {
+    throw new Error(
+      `Manifest has ${ALIAS_BLOCK_BEGIN} without a matching ${ALIAS_BLOCK_END}.`,
+    );
+  }
+  return {
+    start: manifest.lastIndexOf("\n", beginAt) + 1,
+    end: endAt + ALIAS_BLOCK_END.length,
+  };
+}
+
+/**
+ * The manifest with its alias block rewritten, leaving every other byte,
+ * `.MainActivity` included, exactly where it was. The block is created directly
+ * after `.MainActivity` the first time and replaced in place after that, so
+ * rendering an already-rendered manifest returns it unchanged.
+ */
+export function renderManifestWithIconAliases(
+  manifest: string,
+  scope: IconSetScope,
+): string {
+  const mainActivity = findMainActivity(manifest);
+  const block = buildAliasBlock(mainActivity, traitCombinations(scope));
+  const existing = findAliasBlock(manifest);
+  if (existing) {
+    return `${manifest.slice(0, existing.start)}${block}${manifest.slice(existing.end)}`;
+  }
+  return `${manifest.slice(0, mainActivity.end)}\n\n${block}${manifest.slice(mainActivity.end)}`;
+}
+
 function main(argv: string[]): void {
   // Full is the committed state, so a bare run reproduces what is checked in.
   const scope: IconSetScope = argv.includes("--pilot") ? "pilot" : "full";
   const written = generateAndroidAvatarIcons({
     resDir: ANDROID_RES_DIR,
+    manifestPath: ANDROID_MANIFEST_PATH,
     scope,
   });
   console.log(
     `Generated ${written.length} ${scope} Android icon resources in ${ANDROID_RES_DIR}`,
   );
+  console.log(`Rewrote the alias block in ${ANDROID_MANIFEST_PATH}`);
 }
 
 if (import.meta.main) {
