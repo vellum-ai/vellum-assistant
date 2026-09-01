@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 
@@ -122,7 +122,9 @@ describe("useInvalidApiKeyRecovery", () => {
       expect(result.current.canUseDefaultModel).toBe(true);
     });
 
-    await result.current.useDefaultModel();
+    await act(async () => {
+      await result.current.useDefaultModel();
+    });
 
     expect(inferenceprofilePut).toHaveBeenCalledWith({
       path: { assistant_id: "asst-1", id: "conv-xyz" },
@@ -153,7 +155,9 @@ describe("useInvalidApiKeyRecovery", () => {
       expect(result.current.canUseDefaultModel).toBe(true);
     });
 
-    await result.current.useDefaultModel();
+    await act(async () => {
+      await result.current.useDefaultModel();
+    });
 
     expect(inferenceprofilePut).not.toHaveBeenCalled();
     expect(setPendingDraftProfile).toHaveBeenCalledWith("draft-xyz", "balanced");

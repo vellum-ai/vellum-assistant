@@ -28,8 +28,8 @@ import { badRequestMessage } from "@/utils/api-errors";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export interface UseInvalidApiKeyRecoveryArgs {
-  assistantId: string | null;
-  conversationId: string | undefined;
+  assistantId: string | null | undefined;
+  conversationId: string | null | undefined;
   isDraft: boolean;
 }
 
