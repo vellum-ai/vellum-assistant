@@ -48,10 +48,7 @@ import {
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
-import {
-  getManagedUpstream,
-  VELLUM_MANAGED_PROVIDER,
-} from "./vellum-model-routing.js";
+import { isVellumProviderModel } from "./vellum-model-routing.js";
 import type { ProvidersConfig } from "./registry.js";
 import { shouldUseNativeWebSearch } from "./registry.js";
 import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
@@ -360,13 +357,9 @@ export class CallSiteRoutingProvider implements Provider {
           ...(profileName ? { profileName } : {}),
         };
       }
-      // Vellum-hosted GPU models have no other proxy. Falling back to the
-      // default transport (typically Fireworks) sends them through the wrong
-      // rate-card preflight and the platform rejects them as unsupported.
-      if (
-        resolved.model &&
-        getManagedUpstream(resolved.model) === VELLUM_MANAGED_PROVIDER
-      ) {
+      // VellumProvider is the only adapter for this model. The default
+      // transport cannot serve it.
+      if (resolved.model && isVellumProviderModel(resolved.model)) {
         throw new ConnectionResolutionError(
           connectionName,
           "adapter_unavailable",

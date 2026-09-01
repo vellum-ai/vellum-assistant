@@ -66,6 +66,14 @@ export function isVellumManagedConnection(conn: { provider: string }): boolean {
   return conn.provider === VELLUM_MANAGED_PROVIDER;
 }
 
+/**
+ * True when `VellumProvider` is the catalog owner of this model id.
+ * That is the GPU adapter, not a `<provider>/<model>` routing string.
+ */
+export function isVellumProviderModel(model: string): boolean {
+  return isModelInCatalog(VELLUM_MANAGED_PROVIDER, model);
+}
+
 export interface VellumModelRoute {
   /** Upstream provider id, e.g. "fireworks". Always a managed-routable id. */
   provider: string;

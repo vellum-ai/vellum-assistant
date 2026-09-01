@@ -95,7 +95,7 @@ describe("vellum connection mismatch handling", () => {
     expect(resolveCalls[0].opts.providerOverride).toBe("fireworks");
   });
 
-  test("a leftover fireworks declaration still routes a GPU model through vellum", async () => {
+  test("a VellumProvider catalog model selects the vellum upstream when expectedProvider is fireworks", async () => {
     fakeConnections.set("vellum", vellumConn);
     const provider = await tryResolveProviderForConnectionName(
       "vellum",
