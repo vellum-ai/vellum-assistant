@@ -1,5 +1,5 @@
 /**
- * Puts a bundled iOS home-screen icon on the device, on request.
+ * Puts a bundled home-screen icon on the device, on request.
  *
  * The hook only ever acts on a user gesture. iOS shows a system alert the app
  * cannot suppress on every icon swap, so `apply` and `reset` are the two
@@ -16,9 +16,11 @@
  * name is bundled and not already applied. Together they drive the one-tap
  * "match my avatar" shortcut beside the picker.
  *
- * The whole surface reports `enabled: false`, and therefore draws nothing, off
- * native iOS, with the `ios-avatar-app-icon` flag off, or when the installed
- * shell answers `supported: false` (`docs/CAPACITOR.md` § The skew rule).
+ * The whole surface reports `enabled: false`, and therefore draws nothing,
+ * outside the native mobile shells, with the running shell's own flag off
+ * (`ios-avatar-app-icon` on iOS, `android-avatar-app-icon` on Android), or when
+ * the installed shell answers `supported: false` (`docs/CAPACITOR.md` § The
+ * skew rule).
  *
  * The shell's answer is one fact about one device, so it lives in
  * {@link useAppIconStore} rather than in per-instance state: an apply from one
@@ -29,7 +31,10 @@ import { useCallback, useEffect } from "react";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getAppIconState, setAppIcon } from "@/runtime/app-icon";
-import { useIsNativeIOS } from "@/runtime/platform-detection";
+import {
+  useIsNativeAndroid,
+  useIsNativeIOS,
+} from "@/runtime/platform-detection";
 import { APP_ICON_UNSUPPORTED, useAppIconStore } from "@/stores/app-icon-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { resolveAppIconTarget } from "@/utils/avatar-app-icon";
@@ -62,8 +67,14 @@ const NO_ICONS: string[] = [];
 
 export function useAppIconSync(assistantId: string | null): AppIconSync {
   const isNativeIOS = useIsNativeIOS();
-  const flagEnabled = useClientFeatureFlagStore.use.iosAvatarAppIcon();
-  const gateOpen = isNativeIOS && flagEnabled;
+  const isNativeAndroid = useIsNativeAndroid();
+  const iosFlagEnabled = useClientFeatureFlagStore.use.iosAvatarAppIcon();
+  const androidFlagEnabled =
+    useClientFeatureFlagStore.use.androidAvatarAppIcon();
+  // A flag per shell, so either platform can ship while the other waits, and
+  // one platform's rollout never opens the other's.
+  const gateOpen =
+    (isNativeIOS && iosFlagEnabled) || (isNativeAndroid && androidFlagEnabled);
 
   const { state } = useAssistantAvatar(assistantId);
   const iconState = useAppIconStore.use.snapshot();
@@ -85,9 +96,10 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
     void refresh();
   }, [refresh]);
 
-  // The user can put the default icon back from iOS Settings while the app is
-  // backgrounded, so the snapshot taken at mount goes stale. Re-read the
-  // shell's answer on every foreground rather than trusting it.
+  // The icon can move while the app is backgrounded: iOS Settings can put the
+  // default back, and Android applies a pending swap as the app leaves the
+  // foreground. Re-read the shell's answer on every foreground rather than
+  // trusting the snapshot taken at mount.
   useBusSubscription("app.resume", () => {
     void refresh();
   });
