@@ -811,3 +811,52 @@ describe("native audio session", () => {
     expect(h.renderCount()).toBe(renders);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Camera-frame cleanup outlives the room
+// ---------------------------------------------------------------------------
+
+/**
+ * The room's sight surface is unmounted whenever the room is minimized, so the
+ * duty to give back a refused upload cannot live there. It is mounted here,
+ * beside the session, and this pins the wiring: without it the queue would sit
+ * untouched until a session teardown discarded it, stranding the uploads.
+ *
+ * Asserts the drain rather than the delete, so the case stays about lifetime
+ * and needs no stub for the attachment API.
+ */
+describe("camera-frame reclaim runs at session scope", () => {
+  test("drains a refused upload with no room mounted", async () => {
+    const { view } = renderPersistentController();
+
+    await act(async () => {
+      const store = useLiveVoiceStore.getState();
+      store.setSessionContext("asst_sight", "conv_sight");
+      store.noteSightFrameSent("att-1");
+      store.noteSightFrameRefused(true);
+      await Promise.resolve();
+    });
+
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
+    view.unmount();
+  });
+
+  test("leaves a routine refusal's frames alone", async () => {
+    const { view } = renderPersistentController();
+
+    await act(async () => {
+      const store = useLiveVoiceStore.getState();
+      // The queue is deliberately not session state, so an earlier case's
+      // entries would otherwise still be sitting in it.
+      store.takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
+      store.setSessionContext("asst_sight", "conv_sight");
+      store.noteSightFrameSent("att-1");
+      store.noteSightFrameRefused(false);
+      await Promise.resolve();
+    });
+
+    // Nothing was queued: that assistant reclaims what it could not persist.
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
+    view.unmount();
+  });
+});

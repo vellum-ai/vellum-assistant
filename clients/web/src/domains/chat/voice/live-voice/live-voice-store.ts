@@ -212,17 +212,17 @@ export interface LiveVoiceSessionControls {
    */
   attachImage: (attachmentId: string) => boolean;
   /**
-   * Park a camera frame the viewfinder sampled, by the id its upload already
-   * returned, so the next turn carries it. Latest wins: a second frame
-   * replaces the first, because what matters is what the camera was pointed at
-   * when the user spoke. `null` unparks, for a viewfinder that has closed.
+   * Share a camera frame the viewfinder's gate kept, by the id its upload
+   * already returned. The daemon persists it as its own user message straight
+   * away, so the transcript carries every keep in the order they arrived and
+   * nothing is staged for a later turn to pick up.
    *
    * Returns whether it reached the session. Unlike `attachImage` a false needs
-   * no report: nobody pressed anything, and the next keep parks a newer frame.
+   * no report: nobody pressed anything, and the next keep sends a newer frame.
    *
-   * Callers must gate on `useSupportsSightFrames`.
+   * Callers must gate on `useSupportsSightStream`.
    */
-  attachFrame: (attachmentId: string | null) => boolean;
+  sightFrame: (attachmentId: string) => boolean;
 }
 
 /**
@@ -324,6 +324,67 @@ export interface LiveVoiceState {
   photoRejectedSeq: number;
   /** Why the last photo was refused, for the room's wording. */
   photoRejectedReason: "unsupported" | "failed" | null;
+  /**
+   * Set once the assistant answers a kept camera frame with `unknown_type`,
+   * meaning it has no `sight_frame` handler at all.
+   *
+   * The runtime backstop for a mis-gated assistant, whatever produced the
+   * mis-gating. `use-supports-sight-stream.ts` pins a version floor, but no
+   * version floor can be airtight: a dev release dispatched by hand from a
+   * stale ref stamps a fresh timestamp onto a pre-merge commit, and the
+   * comparator weighs the timestamp ahead of the sha, so such a build clears
+   * any floor. Without this latch each keep against it uploads an attachment,
+   * is refused, and leaves that attachment behind for good, because an
+   * assistant that never understood the frame never reclaims it either.
+   *
+   * Session-scoped: it lives in {@link INITIAL_SESSION_STATE}, so a reconnect
+   * (which resets with `sessionContinues`) tries again against whatever
+   * assistant answers next.
+   */
+  sightFramesUnsupported: boolean;
+  /**
+   * Ids of kept frames sent to the assistant with no verdict yet, newest last,
+   * capped at {@link SIGHT_FRAME_LEDGER_CAP}.
+   *
+   * An assistant that persisted a keep answers with nothing at all, so the
+   * only exact retirement is an error frame naming the attachment. An
+   * assistant that echoes no id leaves nothing to correlate, so its refusal
+   * retracts every claim in this ledger and retires none of them.
+   */
+  outstandingSightFrames: readonly string[];
+  /** Ids the cap pushed off the ledger, newest last, capped the same way. */
+  prunedSightFrames: readonly string[];
+  /**
+   * Photos sent to the assistant with no verdict yet.
+   *
+   * A count rather than ids: nothing here needs to know WHICH photo, only how
+   * many standalone persists can be queued ahead of a keep, since the daemon
+   * runs them one at a time and never supersedes a photo. Only a refusal
+   * retires one, so this over-counts the ones that quietly persisted, which
+   * only ever lengthens a wait. See `queueUnacknowledgedSightFrames`.
+   */
+  outstandingPhotoSends: number;
+  /**
+   * Uploads to give back, accumulating until the session-lifetime reclaimer
+   * drains them.
+   *
+   * Deliberately NOT session state: it is not reset with a session, because
+   * the refusal that fills it can land while the room is minimized (so the
+   * room's hook is unmounted and cannot consume) and the call can then end
+   * before anything drains. A queue that a session teardown could discard
+   * would strand exactly the uploads it is meant to collect.
+   */
+  sightFramesToReclaim: readonly SightFrameReclaim[];
+  /**
+   * Displayed keeps a refusal invalidated, accumulating until the room's sight
+   * surface consumes them.
+   *
+   * Session state, unlike the reclaim queue: a retraction is about a thumbnail
+   * on screen, and a session that ended took its thumbnail with it. Separate
+   * from the queue so each has exactly one consumer and neither can clear work
+   * belonging to the other.
+   */
+  sightFrameRetractions: readonly string[];
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
@@ -529,6 +590,47 @@ export interface LiveVoiceActions {
   setConversationId: (conversationId: string) => void;
   /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
   notePhotoRejected: (reason: "unsupported" | "failed") => void;
+  /** Record a photo that reached the transport. */
+  notePhotoSent: () => void;
+  /** Record a kept frame that reached the transport. */
+  noteSightFrameSent: (attachmentId: string) => void;
+  /**
+   * Record that the assistant refused a kept frame, and work out what it costs.
+   *
+   * `attachmentId` is the id the error named, when the assistant echoes one.
+   * With it, retirement and retraction are exact. Without it (any assistant at
+   * the current version floor) there is nothing to correlate, so the refusal
+   * takes down every outstanding claim and retires none of them.
+   */
+  noteSightFrameRefused: (
+    unsupported: boolean,
+    attachmentId?: string | null,
+  ) => void;
+  /**
+   * Remove the reclaims whose time has come and hand them back, in one state
+   * transition. Entries still waiting on their `notBefore` stay queued.
+   *
+   * The only way to empty the queue, deliberately. A clear that did not return
+   * what it removed could drop an entry queued between a consumer reading the
+   * queue and acting on it, and that entry would be an upload nothing ever
+   * deletes. Taking makes the invariant structural: whatever leaves the queue
+   * is in the caller's hands, and whatever arrives after a take is still
+   * queued for the next one.
+   *
+   * Leaves the state untouched when nothing is due, so a consumer keyed on the
+   * queue is not woken by its own no-op.
+   */
+  takeDueSightFrameReclaims: (now: number) => readonly SightFrameReclaim[];
+  /**
+   * Remove every queued retraction and hand it back, in one state transition.
+   *
+   * The only way to empty it, for the same reason
+   * {@link takeDueSightFrameReclaims} is: a clear that did not return what it
+   * removed could drop a retraction queued between a consumer reading the list
+   * and acting on it, and the surface would go on showing a frame that never
+   * reached the transcript.
+   */
+  takeSightFrameRetractions: () => readonly string[];
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -587,6 +689,54 @@ export interface LiveVoiceActions {
    */
   reset: (opts?: { sessionContinues?: boolean }) => void;
 }
+
+/**
+ * An upload nothing will ever collect, paired with the assistant holding it.
+ *
+ * The pair rather than the id alone because this queue outlives the session
+ * that produced it. Draining is a cleanup duty, not session state: it must
+ * survive a session ending (the room unmounts the moment a call ends, and a
+ * minimized room is not mounted at all), and it must never aim a delete at
+ * whichever assistant happens to be current when the drain runs.
+ */
+export interface SightFrameReclaim {
+  readonly assistantId: string;
+  readonly attachmentId: string;
+  /**
+   * The conversation whose serialized persist queue the deadline waits out.
+   * Carried so a later send can tell whether it joined this queue or an
+   * unrelated conversation's; absent on refusal-routed entries, which carry
+   * no deadline to move.
+   */
+  readonly conversationId?: string;
+  /**
+   * Epoch milliseconds before which this must not be deleted, when it has to
+   * wait at all. See {@link PER_JOB_CEILING_MS}.
+   */
+  readonly notBefore?: number;
+}
+
+/**
+ * The longest one standalone-image persist can take on the daemon.
+ *
+ * Each of them waits up to `PROCESSING_WAIT_MS` (30s in
+ * `assistant/src/live-voice/live-voice-photo.ts`) for the conversation's
+ * processing lock before giving up, and then writes. 35s covers that wait plus
+ * the write.
+ */
+export const PER_JOB_CEILING_MS = 35_000;
+
+/**
+ * How many kept frames the outstanding ledger remembers, and how many pruned
+ * ids it keeps behind it.
+ *
+ * A send is only ever retired by an error naming it, because an accepted keep
+ * is answered with nothing and an unnamed refusal cannot say which send it
+ * retires. Without a bound the ledger would grow for the length of a call.
+ * The cap is memory hygiene and nothing else: see `noteSightFrameSent` for
+ * why a pruned id cannot become a wrong deletion.
+ */
+const SIGHT_FRAME_LEDGER_CAP = 8;
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 
@@ -681,7 +831,7 @@ export function isLiveVoiceSessionOwnedBy(
  */
 const INITIAL_SESSION_STATE: Omit<
   LiveVoiceState,
-  "starter" | "sessionGeneration"
+  "starter" | "sessionGeneration" | "sightFramesToReclaim"
 > = {
   state: "idle",
   firstRunCardOpen: false,
@@ -696,6 +846,11 @@ const INITIAL_SESSION_STATE: Omit<
   startedConversationId: null,
   photoRejectedSeq: 0,
   photoRejectedReason: null,
+  sightFramesUnsupported: false,
+  outstandingSightFrames: [],
+  prunedSightFrames: [],
+  outstandingPhotoSends: 0,
+  sightFrameRetractions: [],
   controls: null,
   utteranceOpen: false,
   partialTranscript: "",
@@ -714,10 +869,128 @@ const INITIAL_SESSION_STATE: Omit<
   errorRecovery: null,
 };
 
+/** Append reclaims not already queued, so a repeated refusal cannot duplicate. */
+function mergeSightFrameReclaims(
+  queued: readonly SightFrameReclaim[],
+  next: readonly SightFrameReclaim[],
+): readonly SightFrameReclaim[] {
+  const seen = new Set(queued.map((r) => `${r.assistantId}/${r.attachmentId}`));
+  return [
+    ...queued,
+    ...next.filter((r) => !seen.has(`${r.assistantId}/${r.attachmentId}`)),
+  ];
+}
+
+/**
+ * Push every waiting reclaim out by one job's worth of time.
+ *
+ * A send that goes out while reset-routed entries are still waiting lands
+ * BEHIND the jobs they are waiting on, when it joins the same conversation
+ * queue, so it moves their deadline by exactly what it adds. The daemon
+ * serializes standalone persists per conversation, so a send in a different
+ * conversation joins a different queue and moves nothing: extending across
+ * conversations would let an active call's steady keeps hold an unrelated
+ * orphan's deadline open for as long as the call runs. Event-driven and
+ * bounded: one job's worth per send that actually happened, and an entry with
+ * no deadline (a refusal routed it) is never given one.
+ */
+function extendPendingSightFrameReclaims(
+  queued: readonly SightFrameReclaim[],
+  conversationId: string | null,
+): readonly SightFrameReclaim[] {
+  if (conversationId === null) {
+    return queued;
+  }
+  if (
+    !queued.some(
+      (entry) =>
+        entry.notBefore !== undefined &&
+        entry.conversationId === conversationId,
+    )
+  ) {
+    return queued;
+  }
+  return queued.map((entry) =>
+    entry.notBefore === undefined || entry.conversationId !== conversationId
+      ? entry
+      : {
+          ...entry,
+          notBefore: entry.notBefore + PER_JOB_CEILING_MS,
+        },
+  );
+}
+
+/**
+ * The uploads a session boundary leaves unaccounted for.
+ *
+ * Reaching the transport is not an acknowledgement that anything was stored.
+ * A socket that closes between the send and the persist takes the frame with
+ * it, and the assistant answers nothing either way, so at a session boundary
+ * every id still in the ledger is one nobody can say landed.
+ *
+ * They are queued for deletion rather than dropped, which is the same trade
+ * the latch-time prune makes. Most of them DID persist and were simply never
+ * acknowledged, and a delete aimed at a persisted frame is refused by the
+ * daemon's link-awareness, so the cost is a burst of refused deletes bounded
+ * by the ledger cap and its prunes. The alternative costs an upload that
+ * genuinely was lost, kept for good, since nothing else collects an
+ * attachment no message links.
+ *
+ * The race with a persist still running is benign in both directions. A
+ * delete that lands first leaves the persist unable to resolve the
+ * attachment, which fails that frame and reclaims nothing; one that lands
+ * after the persist has read the row cannot take the bytes back out of the
+ * message being written.
+ */
+function queueUnacknowledgedSightFrames(
+  state: LiveVoiceState,
+): readonly SightFrameReclaim[] {
+  const assistantId = state.assistantId;
+  const unacknowledged = [
+    ...new Set([...state.prunedSightFrames, ...state.outstandingSightFrames]),
+  ];
+  if (assistantId === null || unacknowledged.length === 0) {
+    return state.sightFramesToReclaim;
+  }
+  // Not before the daemon has had time to finish whatever it still had queued.
+  //
+  // The daemon runs standalone-image persists one at a time and never
+  // supersedes a photo, so a keep can sit behind an arbitrary number of them,
+  // and a fixed wait would be a guess. It does not have to be: this client is
+  // the SOLE producer of that queue. Only `attach_image` and `sight_frame`
+  // feed it (`live-voice-session.ts` dispatches them to `persistPhoto` and
+  // `persistSightFrame`, the only two callers of the queue), both arrive on
+  // one session's socket, and the daemon runs a single live-voice session at a
+  // time. So the ledgers below enumerate everything that can possibly be
+  // queued ahead, and the ceiling is that count plus this job, each at
+  // `PER_JOB_CEILING_MS`.
+  //
+  // It over-counts on purpose: a photo that already persisted is still
+  // counted, because nothing acknowledges one. Over-counting only ever waits
+  // longer, which is the safe direction: a delete that fires while the
+  // persist is still queued takes the frame with it, while one that waits
+  // out jobs long finished merely leaves a lost upload uncollected for a
+  // while. No cap trims the wait for the same reason, since any cap under
+  // the queue's true drain time reopens the early delete.
+  const queuedAhead = state.outstandingPhotoSends + unacknowledged.length;
+  const notBefore = Date.now() + (queuedAhead + 1) * PER_JOB_CEILING_MS;
+  const conversationId = state.conversationId ?? undefined;
+  return mergeSightFrameReclaims(
+    state.sightFramesToReclaim,
+    unacknowledged.map((attachmentId) => ({
+      assistantId,
+      attachmentId,
+      conversationId,
+      notBefore,
+    })),
+  );
+}
+
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
   sessionGeneration: 0,
+  sightFramesToReclaim: [],
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -741,7 +1014,142 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set((state) => ({
       photoRejectedSeq: state.photoRejectedSeq + 1,
       photoRejectedReason: reason,
+      // Answered for, so it can no longer be queued ahead of anything.
+      outstandingPhotoSends: Math.max(0, state.outstandingPhotoSends - 1),
     })),
+  // The cap drops the OLDEST id, and a dropped id cannot become a wrong
+  // deletion. Overflow only happens against an assistant that is answering
+  // nothing, which is an assistant persisting the keeps; one that cannot take
+  // the frame refuses the very first send, long before eight are in flight.
+  // The pruned ids are kept anyway, and unioned into the reclaim queue if the
+  // latch does fire, so nothing is dropped silently. Reclaiming a pruned id is
+  // safe even when the assistant did persist it: the attachment delete is
+  // refused for a row a message links.
+  notePhotoSent: () =>
+    set((s) => ({
+      outstandingPhotoSends: s.outstandingPhotoSends + 1,
+      sightFramesToReclaim: extendPendingSightFrameReclaims(
+        s.sightFramesToReclaim,
+        s.conversationId,
+      ),
+    })),
+  noteSightFrameSent: (attachmentId) =>
+    set((s) => {
+      // This send joins its conversation's queue, so it moves the deadline of
+      // exactly the reclaims waiting on that queue.
+      const sightFramesToReclaim = extendPendingSightFrameReclaims(
+        s.sightFramesToReclaim,
+        s.conversationId,
+      );
+      const appended = [...s.outstandingSightFrames, attachmentId];
+      if (appended.length <= SIGHT_FRAME_LEDGER_CAP) {
+        return { outstandingSightFrames: appended, sightFramesToReclaim };
+      }
+      const overflow = appended.length - SIGHT_FRAME_LEDGER_CAP;
+      return {
+        outstandingSightFrames: appended.slice(overflow),
+        prunedSightFrames: [
+          ...s.prunedSightFrames,
+          ...appended.slice(0, overflow),
+        ].slice(-SIGHT_FRAME_LEDGER_CAP),
+        sightFramesToReclaim,
+      };
+    }),
+  noteSightFrameRefused: (unsupported, attachmentId = null) =>
+    set((s) => {
+      const outstanding = s.outstandingSightFrames;
+      if (unsupported) {
+        // Nothing this assistant was sent was stored, and it reclaims nothing,
+        // so every id still accounted for is the client's to give back. The
+        // named id joins them: an assistant that echoes one may be naming a
+        // send the cap already pruned.
+        const orphans = [
+          ...new Set([
+            ...s.prunedSightFrames,
+            ...outstanding,
+            ...(attachmentId === null ? [] : [attachmentId]),
+          ]),
+        ];
+        const assistantId = s.assistantId;
+        return {
+          sightFramesUnsupported: true,
+          outstandingSightFrames: [],
+          prunedSightFrames: [],
+          sightFramesToReclaim:
+            assistantId === null
+              ? s.sightFramesToReclaim
+              : mergeSightFrameReclaims(
+                  s.sightFramesToReclaim,
+                  orphans.map((id) => ({ assistantId, attachmentId: id })),
+                ),
+        };
+      }
+      if (attachmentId !== null) {
+        // Exact: the error names its own frame, so the ledger retires that
+        // entry wherever it sits and the retraction speaks for that keep alone,
+        // regardless of how many older sends are still unanswered.
+        return {
+          outstandingSightFrames: outstanding.filter(
+            (id) => id !== attachmentId,
+          ),
+          prunedSightFrames: s.prunedSightFrames.filter(
+            (id) => id !== attachmentId,
+          ),
+          sightFrameRetractions: [
+            ...new Set([...s.sightFrameRetractions, attachmentId]),
+          ],
+        };
+      }
+      // Fallback for an assistant that names nothing: the refusal is about
+      // exactly one unanswered send, with nothing to say which, so the only
+      // honest answer for the surface is to take down every claim it might be
+      // about. A retraction for a keep that quietly persisted costs only the
+      // shared flash, since the frame itself sits in the transcript; leaving
+      // the refused keep's flash up claims the call shared a frame it did
+      // not. The ledgers keep every entry: retiring a guess would exempt it
+      // from the reset-time reclaim, and that reclaim is what sorts the
+      // persisted from the lost, refusing the delete for a frame a message
+      // links and collecting the one nothing does.
+      return {
+        sightFrameRetractions: [
+          ...new Set([
+            ...s.sightFrameRetractions,
+            ...s.prunedSightFrames,
+            ...outstanding,
+          ]),
+        ],
+      };
+    }),
+  takeDueSightFrameReclaims: (now) => {
+    let taken: readonly SightFrameReclaim[] = [];
+    // Read and split inside one updater, so nothing can be appended between
+    // the two halves.
+    set((s) => {
+      const due = s.sightFramesToReclaim.filter(
+        (entry) => entry.notBefore === undefined || entry.notBefore <= now,
+      );
+      if (due.length === 0) {
+        return {};
+      }
+      taken = due;
+      return {
+        sightFramesToReclaim: s.sightFramesToReclaim.filter(
+          (entry) => entry.notBefore !== undefined && entry.notBefore > now,
+        ),
+      };
+    });
+    return taken;
+  },
+  takeSightFrameRetractions: () => {
+    let taken: readonly string[] = [];
+    // Read and emptied inside one updater, so nothing can be appended between
+    // the two halves.
+    set((s) => {
+      taken = s.sightFrameRetractions;
+      return { sightFrameRetractions: [] };
+    });
+    return taken;
+  },
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
@@ -776,6 +1184,17 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       sessionGeneration: opts?.sessionContinues
         ? s.sessionGeneration
         : s.sessionGeneration + 1,
+      // `sightFramesToReclaim` is absent from INITIAL_SESSION_STATE on purpose
+      // and so survives this: a queue a teardown could discard would strand
+      // the uploads it exists to collect. It also GROWS here, because the
+      // ledgers this replaces hold sends nobody ever acknowledged. Both reset
+      // kinds route them the same way, deliberately in the reset itself, so a
+      // third kind cannot be added that forgets to.
+      //
+      // `sightFramesUnsupported` is the opposite and does reset, because the
+      // latch is about the assistant that just answered and a reconnect can
+      // land on an upgraded one.
+      sightFramesToReclaim: queueUnacknowledgedSightFrames(s),
     })),
 }));
 
@@ -978,29 +1397,41 @@ export function attachLiveVoiceImage(
   if (state.sessionGeneration !== sessionGeneration) {
     return false;
   }
-  return state.controls?.attachImage(attachmentId) ?? false;
+  const sent = state.controls?.attachImage(attachmentId) ?? false;
+  if (sent) {
+    state.notePhotoSent();
+  }
+  return sent;
 }
 
 /**
- * Park a sampled camera frame on the active session, by attachment id, so the
- * next turn carries it, or unpark the session's slot with `null`.
+ * Share a kept camera frame with the active session, by attachment id, so the
+ * daemon persists it into the conversation as its own message.
  * `sessionGeneration` is the generation read when the frame was captured: the
  * upload between the keep and this call can outlive the session it was sampled
- * in, and a frame from an ended session is refused here rather than parked on
- * whichever session is current. An unpark carries the same generation for the
- * same reason: it speaks for one session's slot, never its successor's.
- * Returns whether it reached that session. Module-level for the same
- * stable-identity reasons as {@link endLiveVoiceSession}.
+ * in, and a frame from an ended session is refused here rather than persisted
+ * into whichever conversation is current. Returns whether it reached that
+ * session. Module-level for the same stable-identity reasons as
+ * {@link endLiveVoiceSession}.
  */
-export function attachLiveVoiceFrame(
-  attachmentId: string | null,
+export function sendLiveVoiceSightFrame(
+  attachmentId: string,
   sessionGeneration: number,
 ): boolean {
   const state = useLiveVoiceStore.getState();
   if (state.sessionGeneration !== sessionGeneration) {
     return false;
   }
-  return state.controls?.attachFrame(attachmentId) ?? false;
+  // An assistant that answered `unknown_type` once answers it every time, and
+  // each attempt strands another attachment. See {@link sightFramesUnsupported}.
+  if (state.sightFramesUnsupported) {
+    return false;
+  }
+  const sent = state.controls?.sightFrame(attachmentId) ?? false;
+  if (sent) {
+    state.noteSightFrameSent(attachmentId);
+  }
+  return sent;
 }
 
 /**

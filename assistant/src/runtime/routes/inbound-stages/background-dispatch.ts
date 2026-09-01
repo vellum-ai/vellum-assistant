@@ -19,6 +19,7 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {
   channelActivityRefreshMs,
   setChannelActivity,
@@ -27,6 +28,7 @@ import {
 import {
   getSiblingStreamedReplyTs,
   linkMessage,
+  storeInboundChannelMetadata,
   storeInboundSlackMetadata,
   storeReplyMessageId,
   storeStreamedReplyTs,
@@ -110,6 +112,12 @@ export interface BackgroundProcessingParams {
    * `slackMeta` envelope for the chronological renderer.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Neutral per-row channel envelope for non-Slack channels, the counterpart
+   * of `slackInbound`: threaded through to `persistUserMessage` so the row
+   * is tagged with `providerMeta` and can say which external message it is.
+   */
+  channelInbound?: ProviderMessageMetadata;
 }
 
 /**
@@ -141,15 +149,21 @@ export function processChannelMessageInBackground(
     clientTimezone,
     slackBotMentioned,
     slackInbound,
+    channelInbound,
   } = params;
 
-  // Capture the Slack ingress metadata onto the stored payload up front — before
-  // the admission wait or any processing — so if the daemon dies mid-wait or
-  // mid-turn, the retry sweep replays with the SAME `slackInbound` this turn
-  // used. That keeps the derived idempotency key identical (the replay dedups
-  // against a turn this attempt already persisted) and carries full slackMeta.
+  // Capture the channel ingress metadata onto the stored payload up front,
+  // before the admission wait or any processing, so if the daemon dies
+  // mid-wait or mid-turn, the retry sweep replays with the SAME envelope this
+  // turn used. For Slack that keeps the derived idempotency key identical
+  // (the replay dedups against a turn this attempt already persisted) and
+  // carries full slackMeta; for every other channel it carries the same
+  // `providerMeta` onto the replayed row.
   if (slackInbound) {
     storeInboundSlackMetadata(eventId, slackInbound);
+  }
+  if (channelInbound) {
+    storeInboundChannelMetadata(eventId, channelInbound);
   }
 
   // Defer the whole turn + delivery until the conversation's processing lock is
@@ -252,6 +266,7 @@ export function processChannelMessageInBackground(
           ...(displayContent !== undefined ? { displayContent } : {}),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackInbound ? { slackInbound } : {}),
+          ...(channelInbound ? { channelInbound } : {}),
           onEvent: observeAgentEvent,
           sourceChannel,
           sourceInterface,

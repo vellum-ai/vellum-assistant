@@ -661,13 +661,15 @@ export function useLiveVoice(
   }, []);
 
   /**
-   * Park a sampled camera frame for the next turn, or unpark with `null`.
-   * Returns whether it reached the transport, which the caller may ignore: a
-   * frame dropped in the reconnect gap is replaced by the next keep a few
-   * seconds later, and unlike a photo nobody pressed anything to produce it.
+   * Share a kept camera frame, which the daemon persists as its own message.
+   * Returns whether it reached the transport, which the caller may ignore
+   * where a photo's false has to be surfaced: nobody pressed anything, and the
+   * next keep is a few seconds away. A frame dropped in the
+   * reconnect gap is right to drop, since the fresh session is the one that
+   * would persist it and the moment it belonged to has passed.
    */
-  const attachFrame = useCallback((attachmentId: string | null): boolean => {
-    return sessionRef.current?.client.attachFrame(attachmentId) ?? false;
+  const sightFrame = useCallback((attachmentId: string): boolean => {
+    return sessionRef.current?.client.sightFrame(attachmentId) ?? false;
   }, []);
 
   const createPlayer = useCallback(
@@ -766,7 +768,7 @@ export function useLiveVoice(
         setOutputMuted,
         updateConfig,
         attachImage,
-        attachFrame,
+        sightFrame,
       });
 
       const opts = optionsRef.current;
@@ -1229,6 +1231,17 @@ export function useLiveVoice(
           // room retract the thumbnail it has already shown as sent.
           useLiveVoiceStore.getState().notePhotoRejected(rejected.reason);
         }),
+        client.on("sightFrameRejected", (rejected) => {
+          if (!live()) {
+            return;
+          }
+          // The room's sight surface is the only thing that can act on this:
+          // it owns the uploads and the frame on screen. The store works out
+          // which of the two the refusal calls for.
+          useLiveVoiceStore
+            .getState()
+            .noteSightFrameRefused(rejected.unsupported, rejected.attachmentId);
+        }),
         client.on("busy", (frame) => {
           if (!live()) {
             return;
@@ -1299,7 +1312,7 @@ export function useLiveVoice(
                 setOutputMuted,
                 updateConfig,
                 attachImage,
-                attachFrame,
+                sightFrame,
               });
               console.warn(
                 `live-voice: initial connect failed (${err.reason}); retrying ` +
@@ -1368,7 +1381,7 @@ export function useLiveVoice(
               setOutputMuted,
               updateConfig,
               attachImage,
-              attachFrame,
+              sightFrame,
             });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
@@ -1421,7 +1434,7 @@ export function useLiveVoice(
       setOutputMuted,
       updateConfig,
       attachImage,
-      attachFrame,
+      sightFrame,
       createPlayer,
     ],
   );

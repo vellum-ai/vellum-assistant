@@ -15,6 +15,10 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  type ProviderMessageMetadata,
+  providerMessageMetadataSchema,
+} from "../messaging/provider-message-metadata.js";
 import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
   clearPayload,
@@ -196,6 +200,68 @@ function buildReplaySlackInbound(params: {
     channelTs,
     ...(Array.isArray(appContext?.entities) && appContext.entities.length > 0
       ? { appContext }
+      : {}),
+  };
+}
+
+/**
+ * Read the neutral `channelInbound` envelope the live path captured onto the
+ * payload (via `storeInboundChannelMetadata`), the non-Slack counterpart of
+ * {@link parseStoredSlackInbound}: the EXACT envelope the live turn used, so
+ * the replayed row carries an identical `providerMeta`.
+ */
+function parseStoredChannelInbound(
+  value: unknown,
+): ProviderMessageMetadata | undefined {
+  const parsed = providerMessageMetadataSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Fallback when the payload carries no captured `channelInbound`, the
+ * non-Slack counterpart of {@link buildReplaySlackInbound}: reconstruct the
+ * envelope from what the payload has always carried, so a crash between
+ * `storePayload` and `storeInboundChannelMetadata` recovers the same row a
+ * live turn would have persisted. `messageId` mirrors the live
+ * `sourceMessageId ?? externalMessageId` derivation; `displayName` mirrors
+ * the live `actorDisplayName ?? actorUsername` (stored as the payload's
+ * `senderName` / `senderUsername`); `actorExternalId` comes from the same
+ * trust context the live envelope read.
+ */
+function buildReplayChannelInbound(params: {
+  sourceChannel: ChannelId;
+  externalChatId: string | undefined;
+  sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
+  externalMessageId: string | undefined;
+  senderDisplayName: string | undefined;
+  actorExternalId: string | undefined;
+}): ProviderMessageMetadata | undefined {
+  if (params.sourceChannel === "slack" || !params.externalChatId) {
+    return undefined;
+  }
+  const messageId =
+    (typeof params.sourceMetadata?.messageId === "string"
+      ? params.sourceMetadata.messageId
+      : undefined) ?? params.externalMessageId;
+  if (!messageId) {
+    return undefined;
+  }
+  const threadId =
+    typeof params.sourceMetadata?.threadId === "string" &&
+    params.sourceMetadata.threadId.trim().length > 0
+      ? params.sourceMetadata.threadId.trim()
+      : undefined;
+  return {
+    source: params.sourceChannel,
+    conversationExternalId: params.externalChatId,
+    messageId,
+    eventKind: "message",
+    ...(threadId ? { threadId } : {}),
+    ...(params.senderDisplayName
+      ? { displayName: params.senderDisplayName }
+      : {}),
+    ...(params.actorExternalId
+      ? { actorExternalId: params.actorExternalId }
       : {}),
   };
 }
@@ -428,6 +494,26 @@ export async function sweepFailedEvents(
         sourceMetadata,
         externalMessageId,
       });
+    // Empty strings fall through to the username, mirroring the live
+    // `actorDisplayName ?? actorUsername` derivation (`"" ?? x` would not).
+    const storedSenderName =
+      typeof payload.senderName === "string" && payload.senderName
+        ? payload.senderName
+        : undefined;
+    const storedSenderUsername =
+      typeof payload.senderUsername === "string" && payload.senderUsername
+        ? payload.senderUsername
+        : undefined;
+    const replayChannelInbound =
+      parseStoredChannelInbound(payload.channelInbound) ??
+      buildReplayChannelInbound({
+        sourceChannel,
+        externalChatId,
+        sourceMetadata,
+        externalMessageId,
+        senderDisplayName: storedSenderName ?? storedSenderUsername,
+        actorExternalId: trustContext.requesterExternalUserId,
+      });
     // The captured `slackInbound` carries the sender's Slack `app_context`, so
     // the replayed turn is prepared with the same context block the live turn
     // rendered. Payloads predating the capture simply have none.
@@ -462,6 +548,10 @@ export async function sweepFailedEvents(
       ...(prepared.displayContent !== undefined
         ? { displayContent: prepared.displayContent }
         : {}),
+      // Not idempotency-bearing (the derived key reads only `slackInbound`),
+      // so it is shared with the incomplete-turn re-run below: the completing
+      // row should carry the same `providerMeta` a live turn would.
+      ...(replayChannelInbound ? { channelInbound: replayChannelInbound } : {}),
     };
 
     let userMessageId: string | undefined;

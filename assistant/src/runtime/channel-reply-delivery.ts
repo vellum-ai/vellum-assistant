@@ -12,6 +12,7 @@ import {
   getMessages,
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { recordOutboundPost } from "../persistence/delivery-crud.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
@@ -389,8 +390,8 @@ async function deliverPersistedAssistantMessageViaCallback(
   // The assistant row is written BEFORE the gateway POST, so its pre-send
   // envelope names no id of its own: a Slack row's partial `slackMeta` lacks
   // `channelTs` and reads as null through `readSlackMetadata`, and a
-  // neutral-envelope row lacks the `messageId` a later reaction
-  // naming it resolves by. A reply split into several segments reports one
+  // neutral-envelope row lacks the `messageId` a later reaction or
+  // delete naming it resolves by. A reply split into several segments reports one
   // id per posted provider message, all reconciled onto this one row; see
   // `makeSentMessageIdReconciler` for the per-envelope rules.
   const reconcileOnMessageTs = makeSentMessageIdReconciler(msg.id);
@@ -497,7 +498,7 @@ export async function deliverReplyViaCallback(
  * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` plus
  * `additionalMessageIds` for a row carrying the neutral envelope (Discord
  * today, any transport whose delivery result reports the sent id). The
- * back-filled ids are what let a later reaction naming the
+ * back-filled ids are what let a later reaction or delete naming the
  * assistant's own post resolve back to this row.
  *
  * Behavior:
@@ -539,7 +540,7 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
       const slackMetaRaw =
         typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
       if (slackMetaRaw === null) {
-        reconcileProviderMessageId(messageId, envelope, ts);
+        reconcileProviderMessageId(messageId, row.conversationId, envelope, ts);
         return;
       }
       if (slackApplied) {
@@ -597,6 +598,7 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
  */
 function reconcileProviderMessageId(
   messageId: string,
+  conversationId: string,
   envelope: Record<string, unknown>,
   ts: string,
 ): void {
@@ -604,6 +606,17 @@ function reconcileProviderMessageId(
   if (providerMeta === null) {
     return;
   }
+  // Every reported id lands in the `channel_outbound_posts` index (the
+  // resolution contract) as well as on the envelope (the row's
+  // self-description). One writer for both, so they cannot drift; the
+  // insert is conflict-ignoring, so a redelivered id is a no-op there too.
+  recordOutboundPost({
+    sourceChannel: providerMeta.source,
+    externalChatId: providerMeta.conversationExternalId,
+    providerMessageId: ts,
+    messageId,
+    conversationId,
+  });
   if (providerMeta.messageId === undefined) {
     updateMessageMetadata(messageId, {
       providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),

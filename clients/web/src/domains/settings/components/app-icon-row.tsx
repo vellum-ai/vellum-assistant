@@ -33,26 +33,50 @@ import { Button } from "@vellumai/design-library/components/button";
 /** Size of the row's thumbnail, sitting beside a single-line control. */
 const ROW_PREVIEW_SIZE = 32;
 
+/** A shell's icon ground, in both gamuts a renderer might take it in. */
+interface IconGround {
+  /** The fill the shell's Icon Composer bundle declares. */
+  displayP3: string;
+  /** sRGB stand-in, for a renderer that cannot parse `color()`. */
+  srgb: string;
+}
+
+/**
+ * Vellum Dev draws its icon on pink, `clients/ios/App/App/AppIcon-Dev.icon`.
+ *
+ * That bundle declares its fill in display-p3 and holds sRGB channels there
+ * rather than the conversion `clients/ios/README.md` asks for, so the installed
+ * icon is the more saturated of the two on a wide-gamut screen. Naming the same
+ * coordinates keeps the thumbnail from undershooting the icon it depicts;
+ * {@link APP_ICON_GROUNDS} carries only the sRGB reading.
+ */
+const DEV_GROUND: IconGround = {
+  displayP3: "color(display-p3 1 0.53333 0.78824)",
+  srgb: APP_ICON_GROUNDS.dev,
+};
+
+/** Vellum Staging's yellow, read the same way off `AppIcon-Staging.icon`. */
+const STAGING_GROUND: IconGround = {
+  displayP3: "color(display-p3 0.91373 0.78824 0.10196)",
+  srgb: APP_ICON_GROUNDS.staging,
+};
+
 /**
  * Ground the primary icon is drawn on in the shells that do not ship the
  * production one, keyed by the shell's own environment.
  *
- * Vellum Dev draws its icon on pink and Vellum Staging on yellow
- * (`clients/ios/App/App/AppIcon-Dev.icon` and `AppIcon-Staging.icon`), so a
- * thumbnail standing in for "no alternate applied" follows the shell it is
- * running in or it depicts an icon that is on nobody's home screen. The
- * grounds themselves are the ones {@link APP_ICON_GROUNDS} already carries for
- * the widget previews, which is where the Icon Composer fills are converted.
- *
- * It is the shell that is asked and not `VITE_SENTRY_ENVIRONMENT`, because the
- * icon belongs to the installed build while that variable names the web
- * deploy: a Staging shell loading a dev server would otherwise draw pink under
- * a yellow icon. Production is absent: the catalog green
- * {@link DEFAULT_APP_ICON_TRAITS} names is already that shell's ground.
+ * A thumbnail standing in for "no alternate applied" follows the shell it is
+ * running in or it depicts an icon that is on nobody's home screen. It is the
+ * shell that is asked and not `VITE_SENTRY_ENVIRONMENT`, because the icon
+ * belongs to the installed build while that variable names the web deploy: a
+ * Staging shell loading a dev server would otherwise draw pink under a yellow
+ * icon. Production is absent: the catalog green
+ * {@link DEFAULT_APP_ICON_TRAITS} names is already that shell's ground, and its
+ * bundle carries a true conversion of it.
  */
-const PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, string>> = {
-  dev: APP_ICON_GROUNDS.dev,
-  staging: APP_ICON_GROUNDS.staging,
+const PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, IconGround>> = {
+  dev: DEV_GROUND,
+  staging: STAGING_GROUND,
 };
 
 /**
@@ -61,11 +85,27 @@ const PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, string>> = {
  * `clients/ios/README.md` runs on the App Dev scheme, so it takes the same
  * pink.
  */
-const WEB_ENV_PRIMARY_ICON_GROUND: Record<string, string> = {
-  local: APP_ICON_GROUNDS.dev,
-  dev: APP_ICON_GROUNDS.dev,
-  staging: APP_ICON_GROUNDS.staging,
+const WEB_ENV_PRIMARY_ICON_GROUND: Record<string, IconGround> = {
+  local: DEV_GROUND,
+  dev: DEV_GROUND,
+  staging: STAGING_GROUND,
 };
+
+/** Whether the renderer parses a CSS Color 4 `color()` at all. */
+function supportsDisplayP3(): boolean {
+  if (typeof CSS === "undefined" || typeof CSS.supports !== "function") {
+    return false;
+  }
+  return CSS.supports("color", "color(display-p3 1 1 1)");
+}
+
+/** A ground in the widest gamut the renderer can take it in. */
+function groundFill(ground: IconGround | undefined): string | undefined {
+  if (!ground) {
+    return undefined;
+  }
+  return supportsDisplayP3() ? ground.displayP3 : ground.srgb;
+}
 
 /**
  * Ground the running shell's primary icon carries, undefined on production and
@@ -76,12 +116,14 @@ function primaryIconGround(
   shell: ShellEnvironment | null | undefined,
 ): string | undefined {
   if (shell) {
-    return PRIMARY_ICON_GROUND[shell];
+    return groundFill(PRIMARY_ICON_GROUND[shell]);
   }
   if (shell === null) {
-    return WEB_ENV_PRIMARY_ICON_GROUND[
-      import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local"
-    ];
+    return groundFill(
+      WEB_ENV_PRIMARY_ICON_GROUND[
+        import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local"
+      ],
+    );
   }
   return undefined;
 }
@@ -140,7 +182,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
             eyeStyle={traits.eyeStyle}
             color={traits.color}
             primary={isPrimary}
-            fieldColorHex={
+            fieldColor={
               isPrimary ? primaryIconGround(shellEnvironment) : undefined
             }
             size={ROW_PREVIEW_SIZE}

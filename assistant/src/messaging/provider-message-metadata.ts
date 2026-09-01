@@ -55,13 +55,6 @@ export const providerMessageMetadataSchema = z
      */
     conversationExternalId: z.string(),
     /**
-     * Display name of the external chat, when the provider reported one at
-     * ingress (e.g. a Slack channel's name, without the `#`). Absent for
-     * DMs and for providers that never report one; never synthesized from
-     * `conversationExternalId`.
-     */
-    conversationName: z.string().optional(),
-    /**
      * Provider id of this row itself. Absent on a reaction, which no channel
      * gives an id of its own: a reaction event names the chat, the message it
      * was attached to, the actor and the emoji, and nothing identifies the
@@ -72,7 +65,7 @@ export const providerMessageMetadataSchema = z
      * Provider ids of the further posts this row's delivery produced beyond
      * `messageId`: one stored reply split at tool boundaries or length
      * limits posts several provider messages, and they all belong to this
-     * one row. A reaction naming any of them resolves here.
+     * one row. A reaction or delete naming any of them resolves here.
      */
     additionalMessageIds: z.array(z.string()).optional(),
     /**
@@ -96,7 +89,19 @@ export const providerMessageMetadataSchema = z
     eventKind: z.enum(["message", "reaction"]),
     reaction: providerReactionMetadataSchema.optional(),
     editedAt: z.number().optional(),
+    /**
+     * The row is no longer visible on the channel: every provider post it
+     * produced has been deleted. Readers treat this as the whole row's
+     * deletion mark, as before rows could name several posts.
+     */
     deletedAt: z.number().optional(),
+    /**
+     * Provider ids among `messageId`/`additionalMessageIds` whose posts have
+     * been deleted on the channel. A split reply can lose one post while the
+     * others stay visible, so deletion is tracked per id; `deletedAt` is
+     * stamped only once every id is here.
+     */
+    deletedMessageIds: z.array(z.string()).optional(),
   })
   .passthrough();
 

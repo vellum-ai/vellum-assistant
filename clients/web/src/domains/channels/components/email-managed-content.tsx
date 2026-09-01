@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DomainField } from "@/domains/channels/components/domain-field";
 import {
   assistantsDomainsCreateMutation,
@@ -20,6 +21,10 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  channelsReadinessGetQueryKey,
+  channelsReadinessRefreshPostMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
@@ -158,6 +163,7 @@ export function EmailManagedContent({
   const deleteDomain = useMutation(assistantsDomainsDestroyMutation());
   const registerAddress = useMutation(assistantsEmailAddressesCreateMutation());
   const deleteAddress = useMutation(assistantsEmailAddressesDestroyMutation());
+  const refreshReadiness = useMutation(channelsReadinessRefreshPostMutation());
 
   const invalidateEmailQueries = useCallback(() => {
     const path = { assistant_id: assistantId };
@@ -180,6 +186,33 @@ export function EmailManagedContent({
       queryKey: assistantsListQueryKey(),
     });
   }, [address?.id, assistantId, queryClient]);
+
+  // The channel list's Connected / Not connected badge reads the daemon's
+  // readiness snapshot, whose inbox check the daemon caches for minutes.
+  // Address changes here go straight to the platform, so the daemon must be
+  // told to re-check or the badge keeps the pre-change answer for the TTL.
+  // Keyed on the ACTIVE assistant id, not this component's `assistantId`
+  // prop: the prop is the platform UUID the platform routes need, while the
+  // daemon readiness query in `useAssistantChannels` is cached under the
+  // active id (a local slug on self-hosted assistants).
+  const activeAssistantId = useActiveAssistantId();
+  const refreshReadinessMutateAsync = refreshReadiness.mutateAsync;
+  const refreshChannelReadiness = useCallback(() => {
+    void refreshReadinessMutateAsync({
+      path: { assistant_id: activeAssistantId },
+      body: { channel: "email" },
+    })
+      .catch(() => {
+        // Best-effort: the readiness poll converges after the daemon TTL.
+      })
+      .finally(() => {
+        void queryClient.invalidateQueries({
+          queryKey: channelsReadinessGetQueryKey({
+            path: { assistant_id: activeAssistantId },
+          }),
+        });
+      });
+  }, [activeAssistantId, queryClient, refreshReadinessMutateAsync]);
 
   // -- Handlers --------------------------------------------------------------
   const handleRegisterDomain = useCallback(async () => {
@@ -234,6 +267,7 @@ export function EmailManagedContent({
       setUsernameDraft("");
       setUsernameError(null);
       invalidateEmailQueries();
+      refreshChannelReadiness();
       toast.success(t("emailManagedContent.emailCreatedToast"));
     } catch (err) {
       setUsernameError(
@@ -244,7 +278,14 @@ export function EmailManagedContent({
         ),
       );
     }
-  }, [assistantId, invalidateEmailQueries, registerAddress, usernameDraft, t]);
+  }, [
+    assistantId,
+    invalidateEmailQueries,
+    refreshChannelReadiness,
+    registerAddress,
+    usernameDraft,
+    t,
+  ]);
 
   const handleDeleteAddress = useCallback(async () => {
     if (!address?.id) {
@@ -256,12 +297,20 @@ export function EmailManagedContent({
         path: { assistant_id: assistantId, id: address.id },
       });
       invalidateEmailQueries();
+      refreshChannelReadiness();
       toast.success(t("emailManagedContent.emailRemovedToast"));
     } catch (err) {
       captureError(err, { context: "email_address_delete" });
       toast.error(t("emailManagedContent.emailRemoveFailedToast"));
     }
-  }, [address?.id, assistantId, deleteAddress, invalidateEmailQueries, t]);
+  }, [
+    address?.id,
+    assistantId,
+    deleteAddress,
+    invalidateEmailQueries,
+    refreshChannelReadiness,
+    t,
+  ]);
 
   const handleDeleteDomain = useCallback(async () => {
     if (!domain?.id) {

@@ -199,6 +199,9 @@ export function HatchingScreen() {
       hatchTraits.color,
       320,
     );
+    if (!svg) {
+      return "";
+    }
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }, [hatchTraits]);
   const [phase, setPhase] = useState<HatchPhase>("initializing");

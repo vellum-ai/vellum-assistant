@@ -15,10 +15,7 @@
  * directly.
  */
 
-import {
-  getLatestExternalConversationName,
-  getLatestInboundEventReference,
-} from "../../../persistence/delivery-crud.js";
+import { getLatestInboundEventReference } from "../../../persistence/delivery-crud.js";
 import { getBindingByConversation } from "../../../persistence/external-conversation-store.js";
 import type {
   ApprovalSourceHint,
@@ -56,25 +53,30 @@ export function resolveSlackApprovalSource(
   conversationId: string,
   hint: ApprovalSourceHint | undefined,
 ): ApprovalSourceReference | null {
+  const rawBinding = getBindingByConversation(conversationId);
+  const binding = rawBinding?.sourceChannel === "slack" ? rawBinding : null;
+
+  // The chat's display name lives on the binding row, which ingress
+  // upserts from every inbound message. Matched by chat id so a binding
+  // that moved to another chat never lends its name.
+  const chatNameFor = (chatId: string): string | null =>
+    binding?.externalChatId === chatId
+      ? binding.externalChatName?.trim() || null
+      : null;
+
   // Exact provenance from the turn's trust context. An absent thread id here
   // is authoritative (the message arrived at the chat root), so no binding
-  // lookup is needed.
+  // lookup is needed for the reference itself.
   if (hint?.requesterChatId && isSlackTs(hint.sourceMessageId)) {
     return toReference(
       hint.requesterChatId,
-      getLatestExternalConversationName(
-        conversationId,
-        "slack",
-        hint.requesterChatId,
-      ),
+      chatNameFor(hint.requesterChatId),
       hint.sourceMessageId,
       isSlackTs(hint.sourceThreadId) ? hint.sourceThreadId : undefined,
     );
   }
 
   const inbound = getLatestInboundEventReference(conversationId, "slack");
-  const rawBinding = getBindingByConversation(conversationId);
-  const binding = rawBinding?.sourceChannel === "slack" ? rawBinding : null;
 
   const chatId =
     hint?.requesterChatId ?? inbound?.externalChatId ?? binding?.externalChatId;
@@ -94,10 +96,5 @@ export function resolveSlackApprovalSource(
     ? binding.externalThreadId
     : undefined;
 
-  return toReference(
-    chatId,
-    getLatestExternalConversationName(conversationId, "slack", chatId),
-    messageTs,
-    threadTs,
-  );
+  return toReference(chatId, chatNameFor(chatId), messageTs, threadTs);
 }

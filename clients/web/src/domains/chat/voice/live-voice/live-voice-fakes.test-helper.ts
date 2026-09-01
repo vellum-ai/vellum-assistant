@@ -356,7 +356,7 @@ export function makeControlsSpies() {
     // Defaults to delivered. The reconnect-gap case (false) is asserted by the
     // tests that care, so the common path stays uncluttered.
     attachImage: mock((_attachmentId: string) => true),
-    attachFrame: mock((_attachmentId: string | null) => true),
+    sightFrame: mock((_attachmentId: string) => true),
   } satisfies LiveVoiceSessionControls;
 }
 

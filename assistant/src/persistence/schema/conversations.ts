@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -307,3 +308,41 @@ export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+/**
+ * Provider-id index for messages the assistant itself posted: the outbound
+ * counterpart of `channelInboundEvents`' provider-id resolution. One stored
+ * reply fans out to many provider posts, and a reaction or deletion names a
+ * post, so resolution is keyed by the (channel, chat, provider id) triple.
+ * Written by the post-send reconciliation alongside the row's `providerMeta`
+ * envelope, which remains the row's self-description; this table is the
+ * derived index over its id facts.
+ */
+export const channelOutboundPosts = sqliteTable(
+  "channel_outbound_posts",
+  {
+    sourceChannel: text("source_channel").notNull(),
+    externalChatId: text("external_chat_id").notNull(),
+    providerMessageId: text("provider_message_id").notNull(),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.sourceChannel,
+        table.externalChatId,
+        table.providerMessageId,
+      ],
+    }),
+    index("idx_channel_outbound_posts_message_id").on(table.messageId),
+    index("idx_channel_outbound_posts_conversation_id").on(
+      table.conversationId,
+    ),
+  ],
+);

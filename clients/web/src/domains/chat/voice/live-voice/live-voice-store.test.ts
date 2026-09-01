@@ -9,7 +9,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
-  attachLiveVoiceFrame,
   attachLiveVoiceImage,
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
@@ -22,7 +21,9 @@ import {
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
+  PER_JOB_CEILING_MS,
   restoreVoiceRoom,
+  sendLiveVoiceSightFrame,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   subscribeSettledLiveVoiceState,
@@ -38,6 +39,11 @@ beforeEach(() => {
   // reset() deliberately preserves the starter (mount-scoped); clear it
   // explicitly so tests can't leak a registered starter into each other.
   useLiveVoiceStore.getState().setStarter(null);
+  // It preserves the reclaim queue for the same kind of reason (a cleanup duty
+  // that must outlive the session), so that needs draining here too.
+  useLiveVoiceStore
+    .getState()
+    .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
 });
 
 function makeStarter() {
@@ -577,38 +583,543 @@ describe("attachLiveVoiceImage", () => {
   });
 });
 
-describe("attachLiveVoiceFrame", () => {
-  test("parks a frame sampled in the session that still runs", () => {
+describe("sendLiveVoiceSightFrame", () => {
+  test("shares a frame kept in the session that still runs", () => {
     const controls = makeControlsSpies();
     useLiveVoiceStore.getState().setControls(controls);
-    const sampled = useLiveVoiceStore.getState().sessionGeneration;
+    const kept = useLiveVoiceStore.getState().sessionGeneration;
 
-    expect(attachLiveVoiceFrame("att-1", sampled)).toBe(true);
-    expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
+    expect(sendLiveVoiceSightFrame("att-1", kept)).toBe(true);
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
   });
 
-  test("refuses a frame sampled in a session that ended", () => {
-    // Same rule as a photo's, and it matters more here: nobody pressed
-    // anything, so a frame landing in the wrong call would show the assistant
-    // a view from a conversation the user has already left.
+  test("refuses a frame kept in a session that ended", () => {
+    // The daemon persists this into whichever conversation the session it
+    // reaches is bound to, so a late upload landing in the successor would put
+    // a view from a call the user has already left into a different one.
     useLiveVoiceStore.getState().setControls(makeControlsSpies());
-    const sampled = useLiveVoiceStore.getState().sessionGeneration;
+    const kept = useLiveVoiceStore.getState().sessionGeneration;
 
     useLiveVoiceStore.getState().reset();
     const successor = makeControlsSpies();
     useLiveVoiceStore.getState().setControls(successor);
 
-    expect(attachLiveVoiceFrame("att-1", sampled)).toBe(false);
-    expect(successor.attachFrame).not.toHaveBeenCalled();
+    expect(sendLiveVoiceSightFrame("att-1", kept)).toBe(false);
+    expect(successor.sightFrame).not.toHaveBeenCalled();
   });
 
   test("reports false when no session has registered controls", () => {
     expect(
-      attachLiveVoiceFrame(
+      sendLiveVoiceSightFrame(
         "att-1",
         useLiveVoiceStore.getState().sessionGeneration,
       ),
     ).toBe(false);
+  });
+});
+
+describe("sight frame refusals", () => {
+  /** Seed a session bound to an assistant, so reclaims name one. */
+  function sightSession() {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_sight");
+    useLiveVoiceStore.getState().setControls(controls);
+    return {
+      controls,
+      generation: useLiveVoiceStore.getState().sessionGeneration,
+    };
+  }
+
+  const reclaimed = () =>
+    useLiveVoiceStore
+      .getState()
+      .sightFramesToReclaim.map((r) => r.attachmentId);
+
+  test("an unsupported refusal latches the session and queues every id", () => {
+    const { controls, generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    const state = useLiveVoiceStore.getState();
+    expect(state.sightFramesUnsupported).toBe(true);
+    // Every id in flight is the client's to give back: this assistant stored
+    // none of them and reclaims nothing. The queue names the assistant so a
+    // drain after the call still deletes against the right one.
+    expect(state.sightFramesToReclaim).toEqual([
+      { assistantId: "asst_sight", attachmentId: "att-1" },
+    ]);
+    // And nothing further is sent, which is the orphan-per-keep this closes.
+    controls.sightFrame.mockClear();
+    expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(false);
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+  });
+
+  test("a routine refusal does not latch or queue anything", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    expect(useLiveVoiceStore.getState().sightFramesUnsupported).toBe(false);
+    // The assistant reclaims what it could not persist, so deleting here would
+    // race it over a row this client no longer owns.
+    expect(reclaimed()).toEqual([]);
+    expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(true);
+  });
+
+  test("a lone outstanding keep's refusal retracts it", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([
+      "att-1",
+    ]);
+  });
+
+  test("a refusal with a newer keep behind it takes every claim down", () => {
+    // Naming nothing, the refusal could be either keep. A persisted keep's
+    // frame sits in the transcript whether its flash shows or not, while the
+    // refused keep's flash claims a share that never happened, so every claim
+    // it might be about comes down.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+  });
+
+  test("an unnamed refusal retires nothing, so reset reclaims every send", () => {
+    // The refusal answered for one send without saying which. Guessing a
+    // retirement would exempt that send from the reset-time reclaim, and the
+    // link-aware delete there is what can actually tell them apart: it is
+    // refused for the keep a message holds and collects the one that was
+    // refused before it ever became one.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+    expect(useLiveVoiceStore.getState().outstandingSightFrames).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1", "att-2"]);
+  });
+
+  test("an echoed attachment id retracts exactly, past older sends", () => {
+    // What the fallback cannot do. Successful keeps are answered with nothing,
+    // so the ledger keeps filling and the positional rule goes quiet for the
+    // rest of the call; an id on the error frame is decidable whatever else is
+    // outstanding.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+    sendLiveVoiceSightFrame("att-3", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-3");
+
+    const state = useLiveVoiceStore.getState();
+    expect(state.sightFrameRetractions).toEqual(["att-3"]);
+    // Retired exactly, wherever it sat, rather than by position.
+    expect(state.outstandingSightFrames).toEqual(["att-1", "att-2"]);
+  });
+
+  test("retractions accumulate until the surface consumes them", () => {
+    // A second refusal re-answers for the same unretired ledger; the set is
+    // what keeps it from duplicating the first answer, and appending rather
+    // than overwriting is what keeps it from erasing one not yet consumed.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([
+      "att-1",
+    ]);
+  });
+
+  test("reclaims accumulate across refusals nobody has drained", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true, "att-3");
+
+    expect(reclaimed()).toEqual(["att-1", "att-2", "att-3"]);
+  });
+
+  test("the outstanding ledger is capped, and pruned ids still get reclaimed", () => {
+    // The cap is memory hygiene: without it the ledger grows for the length of
+    // a call, since an accepted keep is answered with nothing. A pruned id is
+    // not forgotten, because an assistant that turns out to take nothing must
+    // still give every upload back.
+    const { generation } = sightSession();
+    for (let i = 1; i <= 11; i++) {
+      sendLiveVoiceSightFrame(`att-${i}`, generation);
+    }
+
+    expect(useLiveVoiceStore.getState().outstandingSightFrames).toEqual([
+      "att-4",
+      "att-5",
+      "att-6",
+      "att-7",
+      "att-8",
+      "att-9",
+      "att-10",
+      "att-11",
+    ]);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    expect(reclaimed()).toEqual([
+      "att-1",
+      "att-2",
+      "att-3",
+      "att-4",
+      "att-5",
+      "att-6",
+      "att-7",
+      "att-8",
+      "att-9",
+      "att-10",
+      "att-11",
+    ]);
+  });
+
+  test("the reclaim queue survives the session that filled it", () => {
+    // The case a room-owned drain cannot cover: minimized, the room is not
+    // mounted, so the refusal lands with nobody to act on it and the call then
+    // ends. A queue a teardown could discard would strand those uploads.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1"]);
+  });
+
+  test("reset-routed reclaims wait, refusal-routed ones do not", () => {
+    // A refusal means the assistant is done with the frame. A reset means
+    // nobody answered, and the daemon may still be about to persist it, so
+    // that one waits for the link-aware delete to be able to tell them apart.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-refused", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    // Recorded directly: the latch refuses further sends, and what matters
+    // here is a ledger entry nobody answered for sitting beside a refused one.
+    useLiveVoiceStore.getState().noteSightFrameSent("att-unanswered");
+
+    useLiveVoiceStore.getState().reset();
+
+    const queue = useLiveVoiceStore.getState().sightFramesToReclaim;
+    expect(queue.find((e) => e.attachmentId === "att-refused")?.notBefore).toBe(
+      undefined,
+    );
+    expect(
+      queue.find((e) => e.attachmentId === "att-unanswered")?.notBefore,
+    ).toBeGreaterThan(Date.now());
+  });
+
+  test("the deadline scales with what can be queued ahead", () => {
+    // The daemon runs standalone persists one at a time and never supersedes a
+    // photo, so a keep can sit behind any number of them. This client is the
+    // only producer of that queue, so its own ledgers are the count.
+    const { generation } = sightSession();
+    attachLiveVoiceImage("photo-1", generation);
+    attachLiveVoiceImage("photo-2", generation);
+    attachLiveVoiceImage("photo-3", generation);
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    // Three photos and one keep ahead, plus the job itself.
+    const entry = useLiveVoiceStore.getState().sightFramesToReclaim[0];
+    expect(entry?.notBefore).toBe(at + 5 * PER_JOB_CEILING_MS);
+  });
+
+  test("a shorter queue yields a shorter deadline", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(at + 2 * PER_JOB_CEILING_MS);
+  });
+
+  test("the deadline keeps scaling however long the queue got", () => {
+    // 400 photos ahead is over three hours of serialized persists. The delete
+    // waits all of it out: any shorter deadline can fire while the persist is
+    // still queued and take the frame with it.
+    const { generation } = sightSession();
+    for (let i = 0; i < 400; i++) {
+      attachLiveVoiceImage(`photo-${i}`, generation);
+    }
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(at + 402 * PER_JOB_CEILING_MS);
+  });
+
+  test("a send after the reset pushes the waiting reclaims out", () => {
+    // A reconnect's new photo lands BEHIND the jobs those reclaims are waiting
+    // on, in the same conversation queue, so it moves their deadline with it.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const before =
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
+
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_sight");
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    attachLiveVoiceImage(
+      "photo-after",
+      useLiveVoiceStore.getState().sessionGeneration,
+    );
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(before + PER_JOB_CEILING_MS);
+  });
+
+  test("a keep sent after the reset pushes them out too", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const before =
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
+
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_sight");
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    sendLiveVoiceSightFrame(
+      "att-after",
+      useLiveVoiceStore.getState().sessionGeneration,
+    );
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(before + PER_JOB_CEILING_MS);
+  });
+
+  test("a send in another conversation moves no deadline", () => {
+    // The daemon serializes persists per conversation, so a keep sent on a
+    // later call in a different conversation lands behind nothing these
+    // reclaims wait on. Steady keeps there must not hold this orphan's
+    // deadline open for the length of that call.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const before =
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]!.notBefore!;
+
+    useLiveVoiceStore.getState().setSessionContext("asst_sight", "conv_other");
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    sendLiveVoiceSightFrame(
+      "att-other",
+      useLiveVoiceStore.getState().sessionGeneration,
+    );
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(before);
+  });
+
+  test("a send never gives a refusal-routed reclaim a deadline", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    useLiveVoiceStore.getState().notePhotoSent();
+
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBeUndefined();
+  });
+
+  test("a refused photo stops counting toward the deadline", () => {
+    const { generation } = sightSession();
+    attachLiveVoiceImage("photo-1", generation);
+    useLiveVoiceStore.getState().notePhotoRejected("failed");
+    sendLiveVoiceSightFrame("att-1", generation);
+    const at = Date.now();
+
+    useLiveVoiceStore.getState().reset();
+
+    // The assistant answered for the photo, so only the keep is ahead.
+    expect(
+      useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
+    ).toBe(at + 2 * PER_JOB_CEILING_MS);
+  });
+
+  test("taking leaves behind what is not due yet", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset();
+
+    const takenEarly = useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Date.now());
+
+    expect(takenEarly).toEqual([]);
+    expect(reclaimed()).toEqual(["att-1"]);
+
+    const takenLate = useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Date.now() + 2 * PER_JOB_CEILING_MS + 1);
+
+    expect(takenLate.map((e) => e.attachmentId)).toEqual(["att-1"]);
+    expect(reclaimed()).toEqual([]);
+  });
+
+  test("a take with nothing due leaves the queue's identity alone", () => {
+    // The reclaimer keys on this array, so a no-op take that handed back a new
+    // one would wake it in a loop.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset();
+    const before = useLiveVoiceStore.getState().sightFramesToReclaim;
+
+    useLiveVoiceStore.getState().takeDueSightFrameReclaims(Date.now());
+
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toBe(before);
+  });
+
+  test("a reconnect queues the sends nobody acknowledged", () => {
+    // Reaching the transport says nothing about persistence. A socket that
+    // closes between the send and the write takes the frame with it, and the
+    // assistant answers nothing either way.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+
+    expect(reclaimed()).toEqual(["att-1", "att-2"]);
+  });
+
+  test("a terminal reset queues them the same way", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1"]);
+  });
+
+  test("pruned sends are queued at a reset too", () => {
+    const { generation } = sightSession();
+    for (let i = 1; i <= 10; i++) {
+      sendLiveVoiceSightFrame(`att-${i}`, generation);
+    }
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toHaveLength(10);
+    expect(reclaimed()).toContain("att-1");
+    expect(reclaimed()).toContain("att-10");
+  });
+
+  test("a retracted send is not queued at a reset", () => {
+    // The assistant answered for it, so it reclaims that attachment itself
+    // and a delete from here would race it.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(false, "att-1");
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual([]);
+  });
+
+  test("an already queued id is not queued twice by a reset", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    expect(reclaimed()).toEqual(["att-1"]);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1"]);
+  });
+
+  test("a reset with no session assistant queues nothing", () => {
+    // Nothing to aim a delete at, and an id with no assistant is not
+    // actionable.
+    useLiveVoiceStore.getState().noteSightFrameSent("att-1");
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual([]);
+  });
+
+  test("a reconnect clears the latch, so an upgraded assistant is tried again", () => {
+    const { controls, generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    // What the controller does when it re-enters its connect flow: the
+    // generation holds, the session state does not.
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    useLiveVoiceStore.getState().setControls(controls);
+
+    expect(useLiveVoiceStore.getState().sightFramesUnsupported).toBe(false);
+    expect(sendLiveVoiceSightFrame("att-2", generation)).toBe(true);
+  });
+
+  test("taking returns exactly what it removes", () => {
+    // The only way to empty the queue, so that nothing can leave it without
+    // reaching a deleter.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    const taken = useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
+
+    expect(taken).toEqual([
+      { assistantId: "asst_sight", attachmentId: "att-1" },
+    ]);
+    expect(reclaimed()).toEqual([]);
+  });
+
+  test("a reclaim queued after a take is still there for the next one", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
+
+    useLiveVoiceStore.getState().noteSightFrameSent("att-2");
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    expect(
+      useLiveVoiceStore
+        .getState()
+        .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER),
+    ).toEqual([{ assistantId: "asst_sight", attachmentId: "att-2" }]);
   });
 });
 
