@@ -38,7 +38,6 @@ const OPTIMISTIC_COMPLETION_SURFACE_TYPES = [
   "table",
   "browser_view",
   "task_preferences",
-  "watch_retro",
 ];
 
 interface SupersededInteractionCleanupContext {

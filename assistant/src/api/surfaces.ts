@@ -527,6 +527,13 @@ export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
  * A watch retrospective: what a teach session recorded, and the few things the
  * recording could not settle.
  *
+ * Carried as the `templateData` of a `card` surface under the `watch_retro`
+ * template, rather than as a surface type of its own. A renderer that does not
+ * know the template still knows `card`, so it draws the surface's `title`,
+ * `subtitle` and `body` instead of an unsupported-surface notice: the retro is
+ * the whole of what a finished session gives the user, so it has to survive a
+ * client older than the template.
+ *
  * Rendered as a paged card, one thing per page: the record first, then a page
  * per question. That shape is the payload's only real constraint: a question
  * list long enough to scroll is a questionnaire, so `questions` is capped at
@@ -680,7 +687,6 @@ export const SURFACE_TYPES = [
   "call_summary",
   "visual",
   "voice_picker",
-  "watch_retro",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
@@ -739,8 +745,7 @@ export type SurfaceData =
   | FileUploadSurfaceData
   | DocumentPreviewSurfaceData
   | WorkResultSurfaceData
-  | VisualSurfaceData
-  | WatchRetroSurfaceData;
+  | VisualSurfaceData;
 
 /**
  * Per-type `data` payload shapes, keyed by surface type. This is the
@@ -777,7 +782,6 @@ export interface SurfaceDataByType {
   call_summary: Record<string, unknown>;
   visual: VisualSurfaceData;
   voice_picker: Record<string, unknown>;
-  watch_retro: WatchRetroSurfaceData;
 }
 
 /** Any surface `data` payload, including the opaque (non-renderable) types. */
@@ -812,7 +816,6 @@ export const SURFACE_DATA_SCHEMAS: {
   call_summary: z.record(z.string(), z.unknown()),
   visual: VisualSurfaceDataSchema,
   voice_picker: z.record(z.string(), z.unknown()),
-  watch_retro: WatchRetroSurfaceDataSchema,
 };
 
 /**

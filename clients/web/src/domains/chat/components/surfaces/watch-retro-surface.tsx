@@ -20,6 +20,13 @@ import { cn } from "@/utils/misc";
  * a page of its own, so the card is short enough to read at a glance and the
  * questions are never a list to work through.
  *
+ * **A `card` template rather than a surface type.** `CardSurface` routes here
+ * on `data.template`, so a renderer that predates the template still draws the
+ * surface's `title`, `subtitle` and `body` instead of an unsupported-surface
+ * notice. The retro is the whole of what a finished session gives the user and
+ * the turn writes no prose beside it, so it has to survive a client older than
+ * this file.
+ *
  * **The record leads, and the paging is what allows that.** A question on its
  * own page is not competing with the steps for attention, and the record is
  * what a user needs in order to answer anything else. The two go together: the
@@ -39,6 +46,8 @@ import { cn } from "@/utils/misc";
 
 interface WatchRetroSurfaceProps {
   surface: Surface;
+  /** The card's `data.templateData`, which is where the report lives. */
+  templateData: unknown;
   onAction: (
     surfaceId: string,
     actionId: string,
@@ -128,6 +137,7 @@ function usableQuestions(
 
 export function WatchRetroSurface({
   surface,
+  templateData,
   onAction,
 }: WatchRetroSurfaceProps) {
   const { t } = useTranslation("chat");
@@ -136,9 +146,9 @@ export function WatchRetroSurface({
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
   const data = useMemo<WatchRetroSurfaceData>(() => {
-    const parsed = WatchRetroSurfaceDataSchema.safeParse(surface.data);
+    const parsed = WatchRetroSurfaceDataSchema.safeParse(templateData);
     return parsed.success ? parsed.data : { task: "", steps: [] };
-  }, [surface.data]);
+  }, [templateData]);
 
   const questions = useMemo(
     () => usableQuestions(data.questions ?? []),
@@ -171,6 +181,11 @@ export function WatchRetroSurface({
           answers: questions.map(
             (question) => collected[question.id] ?? defaultAnswerFor(question),
           ),
+          // Asked for explicitly: the card rides an ordinary `card` surface,
+          // which the daemon does not treat as one-shot, and every page's
+          // answer goes out in this one payload. Without it the card would
+          // stay answerable after it had been answered.
+          _completeSurface: true,
         });
       } finally {
         // Released unconditionally, matching `SurfaceContainer`. A rejection is

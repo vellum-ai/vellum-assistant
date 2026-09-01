@@ -51,8 +51,19 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * What the retro reports, and the shape it reports in.
  *
  * **It is a card, not a turn of prose.** The turn ends in one `ui_show` of a
- * `watch_retro` surface, which the client draws as a paged card: the record on
- * the first page, one question per page after it.
+ * `card` surface under the `watch_retro` template, which the client draws as a
+ * paged card: the record on the first page, one question per page after it.
+ *
+ * **A template rather than a surface type of its own, so an older client still
+ * gets the report.** The macOS app ships its own renderer and floats its CLI to
+ * the npm `latest` tag (`clients/macos/src/main/cli-installer.ts`), so this
+ * assistant runs behind renderers that predate it. One that does not recognize
+ * a surface *type* renders an unsupported-surface notice and nothing else; one
+ * that does not recognize a card *template* still renders the card, falling
+ * back to `title`, `subtitle` and `body`. The card is the entire account of the
+ * session and the instructions below allow no prose beside it, so the degraded
+ * path has to carry the record rather than an error. That is what `body` is
+ * for, and why it repeats in prose what `templateData` carries in structure.
  *
  * **The record leads, and the paging is what allows that.** A question on its
  * own page is not competing with the account for attention, the progress bar
@@ -125,15 +136,17 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  */
 const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you do anything else, and follow it. Do not author or scaffold a skill yet: the card below is the alignment its first step calls for, and the answers come back before anything is written.
 
-Then make exactly one \`ui_show\` call, with \`surface_type: "watch_retro"\` and \`await_action: false\`. That call is the last thing you do this turn. Nothing follows it: no prose, no sign-off, no note about what you loaded, no further tool call. Show the card whether or not the skill loaded; if it did not, add one short sentence to \`coverage\` saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
+Then make exactly one \`ui_show\` call, with \`surface_type: "card"\` and \`data.template: "watch_retro"\`, and \`await_action: false\`. That call is the last thing you do this turn. Nothing follows it: no prose, no sign-off, no note about what you loaded, no further tool call. Show the card whether or not the skill loaded; if it did not, add one short sentence to \`templateData.coverage\` saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
 
-The payload:
+\`data.templateData\` carries the report:
 
 - \`task\`: the task in one line, named the way the user would name it.
 - \`purpose\`: one sentence on what it is for. This is the only sentence on the card.
 - \`steps\`: the steps in order, as short imperative fragments: "Open the Sentry issue", not "You opened the Sentry issue from the alert email". Three to eight of them. Concrete enough to follow, carrying no purpose of their own.
-- \`eyebrow\`: the session's own facts, e.g. "Watched 4 min · 11 screens".
-- \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything.
+- \`eyebrow\`: the session's own facts, e.g. "Watched 4 min, 11 screens".
+- \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything. Give each one an \`id\` no other question on this card uses.
+
+Set \`data.title\`, \`data.subtitle\` and \`data.body\` as well, from the same material: the task, its purpose, and the steps as a numbered list. A client too old to know this template renders those three and nothing else, so they are the whole report for that reader. Keep them consistent with \`templateData\`; do not put the questions in \`body\`, which that reader has no way to answer.
 
 Every question is answerable in one tap and every one is skippable, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
 
@@ -168,8 +181,8 @@ function coverageNotice(render: WatchTimelineRender): string {
   return `This is a partial recording. The session logged ${render.totalEntries} entries and the timeline below carries only the ${render.entries.length} most recent of them, so the first ${dropped} are missing entirely. Treat the beginning of the task as something to ask about rather than something to state. What is here may also be cut short in places. Say plainly what you could not read instead of filling it in.`;
 }
 
-/** The surface the retro reports through. */
-const WATCH_RETRO_SURFACE_TYPE = "watch_retro";
+/** The card template the retro reports through. */
+const WATCH_RETRO_TEMPLATE = "watch_retro";
 
 /** The element the recording is fenced in. */
 const TIMELINE_TAG = "watch-timeline";
@@ -439,13 +452,13 @@ function messageIds(conversationId: string): ReadonlySet<string> {
  *
  * **The card counts, and on the ordinary path it is the only thing that does.**
  * The retro's whole output is one `ui_show`, which persists as a `ui_surface`
- * block and leaves no prose behind. Text alone was the test while the report
- * was two markdown headings; kept as the only test, it would read every
+ * block and leaves no prose behind, so a text-only test would read every
  * successful retro as having produced nothing, fail the dispatch, and leave the
  * conversation unsurfaced: the user presses stop, waits out the turn, and is
  * told there is nothing to show while the report sits in a thread they cannot
- * see. Text still counts, so a retro that also wrote something is a report on
- * the same terms it always was.
+ * see. The template is what is matched on rather than the surface type, since
+ * the retro rides an ordinary `card` and a `card` alone says nothing about
+ * whether this session was reported on. Text still counts on its own.
  */
 function hasReport(
   conversationId: string,
@@ -462,7 +475,7 @@ function hasReport(
       (block) =>
         (block.type === "text" && block.text.trim().length > 0) ||
         (block.type === "ui_surface" &&
-          block.surfaceType === WATCH_RETRO_SURFACE_TYPE),
+          block.data?.template === WATCH_RETRO_TEMPLATE),
     );
   });
 }

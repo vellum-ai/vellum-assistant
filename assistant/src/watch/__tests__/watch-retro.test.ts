@@ -120,7 +120,7 @@ function recordingDispatch(
  * why it gets a helper of its own: `recordingDispatch` leaves a text message,
  * so every test built on it would pass whether or not the card counts.
  */
-function cardOnlyDispatch(surfaceType = "watch_retro") {
+function cardOnlyDispatch(template: string | undefined = "watch_retro") {
   const calls: { conversationId: string; prompt: string }[] = [];
   const dispatch = async (
     conversationId: string,
@@ -129,8 +129,12 @@ function cardOnlyDispatch(surfaceType = "watch_retro") {
     calls.push({ conversationId, prompt });
     const surfaceId = `watch-retro-${randomUUID()}`;
     const data = {
-      task: "Filing the receipt",
-      steps: ["Open the inbox", "Save the attachment"],
+      title: "Filing the receipt",
+      ...(template === undefined ? {} : { template }),
+      templateData: {
+        task: "Filing the receipt",
+        steps: ["Open the inbox", "Save the attachment"],
+      },
     };
     await addMessage(
       conversationId,
@@ -140,9 +144,9 @@ function cardOnlyDispatch(surfaceType = "watch_retro") {
           type: "tool_use",
           id: `toolu_${randomUUID()}`,
           name: "ui_show",
-          input: { surface_type: surfaceType, data },
+          input: { surface_type: "card", data },
         },
-        { type: "ui_surface", surfaceId, surfaceType, data },
+        { type: "ui_surface", surfaceId, surfaceType: "card", data },
       ]),
       { skipIndexing: true },
     );
@@ -271,7 +275,8 @@ describe("watch retrospective", () => {
     // One card, and the record is its first page. Order carries no priority
     // once each question owns a page, so the record leads without costing the
     // questions anything.
-    expect(prompt).toContain('surface_type: "watch_retro"');
+    expect(prompt).toContain('surface_type: "card"');
+    expect(prompt).toContain('data.template: "watch_retro"');
     expect(prompt).toContain("`steps`");
     expect(prompt.indexOf("`steps`")).toBeLessThan(
       prompt.indexOf("`questions`"),
@@ -347,7 +352,7 @@ describe("watch retrospective", () => {
     expect(prompt).toContain("Load the `skill-management` skill first");
     expect(
       prompt.indexOf("Load the `skill-management` skill first"),
-    ).toBeLessThan(prompt.indexOf('surface_type: "watch_retro"'));
+    ).toBeLessThan(prompt.indexOf('surface_type: "card"'));
     expect(prompt).toContain("That call is the last thing you do this turn");
     expect(prompt).toContain("no sign-off");
     expect(prompt).toContain("no further tool call");
@@ -407,15 +412,15 @@ describe("watch retrospective", () => {
     expect(getConversation(summary.conversationId)!.surfacedAt).not.toBeNull();
   });
 
-  test("does not count some other surface as the report", async () => {
+  test("does not count some other card as the report", async () => {
     const summary = recordSession(["filing the receipt"]);
     const { dispatch } = cardOnlyDispatch("task_progress");
 
-    const result = await runWatchRetro(summary, { dispatch });
-
     // A turn that put up a progress card and then stopped has told the user
-    // nothing about their session. Counting any surface would make the report
-    // test a check that the turn touched the UI at all.
+    // nothing about their session. The retro rides an ordinary `card`, so the
+    // template is what has to be matched: counting the surface type would make
+    // this a check that the turn drew any card at all.
+    const result = await runWatchRetro(summary, { dispatch });
     expect(result).toEqual({ status: "failed", reason: "no_report" });
     expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
   });

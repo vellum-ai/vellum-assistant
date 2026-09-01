@@ -18,58 +18,72 @@ import {
   waitFor,
 } from "@testing-library/react";
 
+import { CardSurface } from "@/domains/chat/components/surfaces/card-surface";
 import type { Surface } from "@/domains/chat/types/types";
-import { WatchRetroSurface } from "@/domains/chat/components/surfaces/watch-retro-surface";
 
 afterEach(() => {
   cleanup();
 });
 
-function surface(overrides: Record<string, unknown> = {}): Surface {
+/**
+ * Rendered through `CardSurface` rather than by importing the component
+ * directly, because the template dispatch is part of what is under test: the
+ * retro rides an ordinary `card`, and a renderer that does not match the
+ * template has to fall through to a readable card rather than an error.
+ */
+function surface(
+  templateOverrides: Record<string, unknown> = {},
+  dataOverrides: Record<string, unknown> = {},
+): Surface {
   return {
     surfaceId: "surface-watch-1",
-    surfaceType: "watch_retro",
+    surfaceType: "card",
     data: {
-      task: "Filing a Linear bug from a Sentry alert",
-      purpose: "So an overnight crash has a ticket by morning.",
-      eyebrow: "Watched 4 min · 11 screens",
-      steps: ["Open the Sentry issue", "New Linear issue in JARVIS"],
-      questions: [
-        {
-          id: "trigger",
-          kind: "fill",
-          prompt: "What would you say to start this?",
-          suggestion: "file this Sentry bug",
-        },
-        {
-          id: "priority",
-          kind: "pick",
-          prompt: "You set this one to High. What decides that?",
-          options: [
-            { id: "events", label: "Over 100 events", note: "my reading" },
-            { id: "customer", label: "It hit a customer" },
-          ],
-        },
-        {
-          id: "resolve",
-          kind: "gate",
-          prompt: "Resolving the Sentry issue, on my own?",
-          options: [
-            { id: "ask", label: "Ask me first" },
-            { id: "go", label: "Go ahead" },
-          ],
-        },
-      ],
-      ...overrides,
+      title: "Filing a Linear bug from a Sentry alert",
+      subtitle: "So an overnight crash has a ticket by morning.",
+      body: "1. Open the Sentry issue\n2. New Linear issue in JARVIS",
+      template: "watch_retro",
+      templateData: {
+        task: "Filing a Linear bug from a Sentry alert",
+        purpose: "So an overnight crash has a ticket by morning.",
+        eyebrow: "Watched 4 min · 11 screens",
+        steps: ["Open the Sentry issue", "New Linear issue in JARVIS"],
+        questions: [
+          {
+            id: "trigger",
+            kind: "fill",
+            prompt: "What would you say to start this?",
+            suggestion: "file this Sentry bug",
+          },
+          {
+            id: "priority",
+            kind: "pick",
+            prompt: "You set this one to High. What decides that?",
+            options: [
+              { id: "events", label: "Over 100 events", note: "my reading" },
+              { id: "customer", label: "It hit a customer" },
+            ],
+          },
+          {
+            id: "resolve",
+            kind: "gate",
+            prompt: "Resolving the Sentry issue, on my own?",
+            options: [
+              { id: "ask", label: "Ask me first" },
+              { id: "go", label: "Go ahead" },
+            ],
+          },
+        ],
+        ...templateOverrides,
+      },
+      ...dataOverrides,
     },
   } as Surface;
 }
 
 describe("WatchRetroSurface", () => {
   test("opens on the record, with no question beside it", () => {
-    render(
-      <WatchRetroSurface surface={surface()} onAction={() => undefined} />,
-    );
+    render(<CardSurface surface={surface()} onAction={() => undefined} />);
 
     expect(
       screen.getByText("Filing a Linear bug from a Sentry alert"),
@@ -86,7 +100,7 @@ describe("WatchRetroSurface", () => {
   test("submits a default for every page the user skips", async () => {
     const calls: { actionId: string; data?: Record<string, unknown> }[] = [];
     render(
-      <WatchRetroSurface
+      <CardSurface
         surface={surface()}
         onAction={(_surfaceId, actionId, data) => {
           calls.push({ actionId, data });
@@ -101,6 +115,9 @@ describe("WatchRetroSurface", () => {
     fireEvent.click(screen.getByText("Skip"));
 
     expect(calls).toHaveLength(1);
+    // A `card` is not one-shot daemon-side, so the card has to ask to be
+    // completed or it stays answerable after it has been answered.
+    expect(calls[0]!.data!._completeSurface).toBe(true);
     const answers = calls[0]!.data!.answers as {
       questionId: string;
       answer: string;
@@ -137,7 +154,7 @@ describe("WatchRetroSurface", () => {
   test("commits a pick on tap and moves to the next page", () => {
     const calls: { actionId: string; data?: Record<string, unknown> }[] = [];
     render(
-      <WatchRetroSurface
+      <CardSurface
         surface={surface()}
         onAction={(_surfaceId, actionId, data) => {
           calls.push({ actionId, data });
@@ -173,7 +190,7 @@ describe("WatchRetroSurface", () => {
   test("renders a question-less recording as a one-page card", () => {
     const calls: string[] = [];
     render(
-      <WatchRetroSurface
+      <CardSurface
         surface={surface({ questions: [] })}
         onAction={(_surfaceId, actionId) => {
           calls.push(actionId);
@@ -187,10 +204,34 @@ describe("WatchRetroSurface", () => {
     expect(calls).toEqual(["answer"]);
   });
 
+  test("falls back to a readable card when the template is not recognized", () => {
+    // Exactly the path an older renderer takes: it has no `watch_retro` branch,
+    // so the surface falls through to the plain card. The macOS app ships its
+    // own renderer and floats its CLI to npm `latest`, so that client is a real
+    // one, and the retro is the whole of what a finished session gives the
+    // user. Dropping the template here reproduces its code path.
+    render(
+      <CardSurface
+        surface={surface({}, { template: undefined })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText("Filing a Linear bug from a Sentry alert"),
+    ).toBeDefined();
+    expect(
+      screen.getByText("So an overnight crash has a ticket by morning."),
+    ).toBeDefined();
+    expect(screen.getByText(/Open the Sentry issue/)).toBeDefined();
+    // Never the dead end a bespoke surface type would have produced.
+    expect(screen.queryByText(/Unsupported surface type/)).toBeNull();
+  });
+
   test("stays usable when a submission fails", async () => {
     let attempts = 0;
     render(
-      <WatchRetroSurface
+      <CardSurface
         surface={surface({ questions: [] })}
         onAction={() => {
           attempts += 1;
@@ -217,7 +258,7 @@ describe("WatchRetroSurface", () => {
   test("keeps one page per question id when the payload repeats one", () => {
     const calls: { data?: Record<string, unknown> }[] = [];
     render(
-      <WatchRetroSurface
+      <CardSurface
         surface={surface({
           questions: [
             {
@@ -261,7 +302,7 @@ describe("WatchRetroSurface", () => {
 
   test("drops a pick that carries nothing to pick from", () => {
     render(
-      <WatchRetroSurface
+      <CardSurface
         surface={surface({
           questions: [
             { id: "bare", kind: "pick", prompt: "What decides this?" },

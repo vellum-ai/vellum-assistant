@@ -212,20 +212,6 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
         ? null
         : '`data.channel` must be one of "slack", "telegram", "discord", "phone"',
   },
-  watch_retro: {
-    // Like `voice_picker`, the steering lives in `purpose`: that is the only
-    // part of a cold type the model ever sees, and this surface exists for
-    // exactly one turn. Without the directive it would be a renderer nobody
-    // invokes, or worse, a card shown at the end of an ordinary conversation.
-    purpose:
-      "the end-of-session report for a Watch (teach mode) recording, and ONLY that; show it once, as the last thing the retrospective turn does, never in an ordinary conversation",
-    shape:
-      '{ task, purpose?, steps: [string], eyebrow?, coverage?, questions?: [{ id, kind: "fill"|"pick"|"gate", prompt, eyebrow?, suggestion?, options?: [{ id, label, note? }] }] }. Renders as a paged card: the record first, then one page per question. `steps` are imperative fragments ("Open the Sentry issue"), not sentences. At most 3 questions, each answerable in one tap. `fill` is a single pre-filled text field and there is at most one, for the trigger phrase. `pick` and `gate` need 2-4 options and THE FIRST OPTION IS THE DEFAULT: on a `pick` that is the reading the recording supports, on a `gate` it is the cautious answer. Never ask a yes/no whose "no" carries no information: if you cannot name the alternatives, do not ask',
-    missingContent: (data) =>
-      isNonEmptyString(data.task)
-        ? null
-        : "`data.task` must name the task the session recorded",
-  },
   voice_picker: {
     // The steering lives in `purpose` because that is the only part of a cold
     // type the model ever sees: `shape` ships solely inside a teaching error,
