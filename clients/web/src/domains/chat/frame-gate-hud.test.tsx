@@ -67,20 +67,38 @@ function flushFrames(): void {
   }
 }
 
-/** Feed one decision through and let the panel see it. */
+/**
+ * Feed one decision through and let the panel see it.
+ *
+ * `novelty` is null on the frames the gate judged with nothing kept to score
+ * against, which is what tells the panel which branch to draw.
+ */
 function judge(
   surface: FrameGateDebugSurface,
-  reason: "novel" | "rate-floor" | "warmup",
+  reason: "novel" | "rate-floor" | "warmup" | "first",
   keep: boolean,
+  novelty: number | null = 0.9,
 ): void {
   act(() => {
     recordFrameGateDecision(
       surface,
-      { keep, reason, motion: 0.02, novelty: 0.9, detail: 22 },
+      { keep, reason, motion: 0.02, novelty, detail: 22 },
       performance.now(),
     );
     flushFrames();
   });
+}
+
+/** The step rows on screen, in the order the panel lists them. */
+function renderedSteps(): string[] {
+  return screen
+    .getAllByTestId(/^frame-gate-hud-step-/)
+    .map((element) =>
+      (element.getAttribute("data-testid") ?? "").replace(
+        "frame-gate-hud-step-",
+        "",
+      ),
+    );
 }
 
 beforeEach(() => {
@@ -188,6 +206,67 @@ describe("FrameGateHud readout", () => {
         .getByTestId("frame-gate-hud-step-novel")
         .getAttribute("data-decided"),
     ).toBe("true");
+  });
+});
+
+describe("FrameGateHud decision order", () => {
+  test("lists the checks the gate runs once it has a baseline", () => {
+    render(<FrameGateHud surface="composer" />);
+    judge("composer", "novel", true);
+
+    expect(renderedSteps()).toEqual([
+      "warmup",
+      "featureless",
+      "rate-floor",
+      "moving",
+      "heartbeat",
+      "novel",
+      "unchanged",
+    ]);
+  });
+
+  test("lists the shorter path for a frame judged with no baseline", () => {
+    render(<FrameGateHud surface="composer" />);
+    judge("composer", "first", true, null);
+
+    // The floor and the settle check are above the keep, which is the order
+    // the gate runs them in on this branch, and the checks that score against
+    // a kept frame are not on it at all.
+    expect(renderedSteps()).toEqual([
+      "warmup",
+      "featureless",
+      "rate-floor",
+      "moving",
+      "first",
+    ]);
+    expect(
+      screen
+        .getByTestId("frame-gate-hud-step-first")
+        .getAttribute("data-decided"),
+    ).toBe("true");
+  });
+
+  test("a floor skip with no baseline highlights the floor, not the keep", () => {
+    render(<FrameGateHud surface="composer" />);
+    judge("composer", "rate-floor", false, null);
+
+    expect(renderedSteps()).toEqual([
+      "warmup",
+      "featureless",
+      "rate-floor",
+      "moving",
+      "first",
+    ]);
+    expect(
+      screen
+        .getByTestId("frame-gate-hud-step-rate-floor")
+        .getAttribute("data-decided"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByTestId("frame-gate-hud-step-first")
+        .getAttribute("data-decided"),
+    ).toBeNull();
   });
 });
 

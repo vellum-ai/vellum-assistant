@@ -33,10 +33,10 @@ import { useCameraGateHudEnabled } from "@/hooks/use-camera-gate-hud";
 import { useTranslation } from "@/i18n";
 import {
   DEFAULT_FRAME_GATE_OPTIONS,
+  frameGateDecisionPath,
   type FrameGateReason,
 } from "@/lib/camera/frame-gate";
 import {
-  FRAME_GATE_DECISION_ORDER,
   FRAME_GATE_OVERRIDE_KEYS,
   FRAME_GATE_SLIDER_BOUNDS,
   getFrameGateDebugSnapshot,
@@ -249,6 +249,7 @@ export function FrameGateHud({ surface, className, style }: FrameGateHudProps) {
   }
 
   const absentLabel = t("frameGateHud.valueAbsent");
+  const decisionPath = frameGateDecisionPath(latest);
 
   return (
     <div
@@ -306,18 +307,20 @@ export function FrameGateHud({ surface, className, style }: FrameGateHudProps) {
         />
       </div>
 
-      {/* The gate's checks in the order it runs them, so the highlighted row
-          says not only what decided the frame but everything it got past
-          first. The count beside each one is how often it has decided. */}
+      {/* The checks this frame was actually put through, in the order the gate
+          ran them, so the highlighted row says not only what decided the frame
+          but everything it got past first. The branch the gate took decides
+          which checks are listed: before its first keep it has no baseline to
+          score against, so the novelty checks are not on the frame's path at
+          all. The count beside each one is how often it has decided. */}
       <div className="flex flex-col gap-1">
         <span className="text-[10px] uppercase tracking-wide text-white/60">
           {t("frameGateHud.decisionOrder")}
         </span>
         <ol className="flex flex-col">
-          {FRAME_GATE_DECISION_ORDER.map((reason, index) => {
+          {decisionPath.map((reason, index) => {
             const decided = reason === latest.reason;
-            const unreached =
-              index > FRAME_GATE_DECISION_ORDER.indexOf(latest.reason);
+            const unreached = index > decisionPath.indexOf(latest.reason);
             return (
               <li
                 key={reason}

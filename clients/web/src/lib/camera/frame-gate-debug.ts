@@ -47,30 +47,10 @@ import {
 export type FrameGateDebugSurface = "composer" | "voice";
 
 /**
- * The gate's checks in the order `offer()` runs them, named by the reason each
- * one reports. The panel highlights the entry matching the latest decision, so
- * this array is the decision order the reader sees.
- *
- * `first` sits above `rate-floor` because it is the branch taken while nothing
- * has been kept yet, which is read before the floor that governs every later
- * keep. Its own floor check reports `rate-floor` like any other.
- */
-export const FRAME_GATE_DECISION_ORDER = [
-  "warmup",
-  "featureless",
-  "first",
-  "rate-floor",
-  "moving",
-  "heartbeat",
-  "novel",
-  "unchanged",
-] as const satisfies readonly FrameGateReason[];
-
-/**
  * Zero for every reason, rebuilt per call so no caller can write into another's
- * counters. Spelled as a full record rather than derived from
- * {@link FRAME_GATE_DECISION_ORDER} so a reason added to the gate fails to
- * compile here instead of silently counting nothing.
+ * counters. Spelled as a full record rather than derived from a list of reasons
+ * so a reason added to the gate fails to compile here instead of silently
+ * counting nothing.
  */
 function emptyReasonCounts(): Record<FrameGateReason, number> {
   return {
