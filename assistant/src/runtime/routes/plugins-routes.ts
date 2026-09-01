@@ -26,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { COMPANION_ENTRYPOINT_ID_MAX_LENGTH } from "@vellumai/service-contracts/companion-entrypoints";
 import { z } from "zod";
 
 import {
@@ -92,6 +93,8 @@ import {
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
+import { parsePluginManifest } from "../../plugins/external-plugin-loader.js";
+import { isInsidePluginRoot } from "../../plugins/installed-plugin-dirs.js";
 import {
   deactivatePluginForUpdate,
   reconcilePluginSourcesNow,
@@ -118,6 +121,24 @@ import { RouteResponse } from "./types.js";
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
+
+const pluginCompanionEntrypointSchema = z.object({
+  id: z
+    .string()
+    .describe(
+      "Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the assistant, so a client never has to build it.",
+    ),
+  label: z.string().describe("Short control label the client draws."),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Author-declared icon name; absent when the plugin declares none.",
+    ),
+  prompt: z
+    .string()
+    .describe("Message text to submit when the control is pressed."),
+});
 
 const pluginInfoSchema = z.object({
   id: z
@@ -173,6 +194,12 @@ const pluginInfoSchema = z.object({
     .optional()
     .describe(
       "Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for the bundled-icon endpoint.",
+    ),
+  entrypoints: z
+    .array(pluginCompanionEntrypointSchema)
+    .optional()
+    .describe(
+      "Companion-surface controls the plugin contributes, from its `package.json` `companionEntrypoints`. Omitted entirely when the plugin declares none, and never returned for a disabled plugin. An individual control whose namespaced id would exceed the companion surface's id bound is left out; the rest still come through.",
     ),
 });
 
@@ -766,6 +793,14 @@ function logPluginCatalogUnavailable(
   );
 }
 
+/** Wire shape for one contributed control. Mirrors {@link pluginCompanionEntrypointSchema}. */
+interface PluginCompanionEntrypointView {
+  id: string;
+  label: string;
+  icon?: string;
+  prompt: string;
+}
+
 interface PluginView {
   id: string;
   name: string;
@@ -778,6 +813,7 @@ interface PluginView {
   icon?: string;
   hasIcon: boolean;
   iconVersion?: string;
+  entrypoints?: PluginCompanionEntrypointView[];
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -804,6 +840,82 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
     view.iconVersion = entry.iconVersion;
   }
   return view;
+}
+
+/**
+ * Attach each plugin's contributed companion entrypoints, read from its
+ * `package.json` through the loader's own validated parser so the route and
+ * the running plugin agree on what a well-formed declaration is.
+ *
+ * Ids are namespaced as `<pluginId>:<entrypointId>` here rather than by the
+ * client: it makes them unique across plugins by construction, and no consumer
+ * has to know the composition rule. A disabled plugin contributes nothing (its
+ * prompts would submit into a surface the plugin cannot serve), and a plugin
+ * declaring none keeps the field absent rather than carrying an empty array.
+ *
+ * A plugin directory the loader would refuse contributes nothing either. The
+ * listing follows a symlinked entry wherever it points, while boot discovery
+ * only activates a directory that resolves inside the plugins root, so the
+ * loader's own containment predicate ({@link isInsidePluginRoot}) runs here
+ * too: without it the companion could draw controls whose prompts have no
+ * plugin surface behind them.
+ *
+ * A composed id longer than {@link COMPANION_ENTRYPOINT_ID_MAX_LENGTH} is
+ * dropped on its own. Nothing caps a plugin's directory name, so a long enough
+ * one plus a legal 40-character entrypoint id composes past the bound the
+ * companion validates its whole context snapshot against, where a single
+ * over-long id would take every other plugin's entrypoints down with it. The
+ * plugin stays listed and keeps whichever of its entrypoints do fit.
+ */
+async function attachCompanionEntrypoints(
+  plugins: PluginView[],
+): Promise<PluginView[]> {
+  const pluginsDir = getWorkspacePluginsDir();
+  return Promise.all(
+    plugins.map(async (plugin) => {
+      if (!plugin.enabled || !isInsidePluginRoot(plugin.path, pluginsDir)) {
+        return plugin;
+      }
+      // `quiet` because an unreadable or schema-invalid `package.json` is
+      // already surfaced on this entry's `issues`; the list must not error.
+      const manifest = await parsePluginManifest(plugin.path, { quiet: true });
+      const declared = manifest?.companionEntrypoints;
+      if (declared === undefined || declared.length === 0) {
+        return plugin;
+      }
+      const entrypoints = declared.flatMap((entry) => {
+        const id = `${plugin.id}:${entry.id}`;
+        if (id.length > COMPANION_ENTRYPOINT_ID_MAX_LENGTH) {
+          // Warn rather than drop silently: the plugin is well-formed and its
+          // author cannot see the composed id, so the only clue that a control
+          // is missing from the surface is this line.
+          log.warn(
+            {
+              pluginId: plugin.id,
+              entrypointId: entry.id,
+              idLength: id.length,
+            },
+            "Namespaced companion entrypoint id exceeds the surface's cap; dropping the entrypoint",
+          );
+          return [];
+        }
+        return [
+          {
+            id,
+            label: entry.label,
+            prompt: entry.prompt,
+            ...(entry.icon !== undefined ? { icon: entry.icon } : {}),
+          },
+        ];
+      });
+      // Same shape as declaring none: an empty array would have the client
+      // reason about a plugin that contributes nothing.
+      if (entrypoints.length === 0) {
+        return plugin;
+      }
+      return { ...plugin, entrypoints };
+    }),
+  );
 }
 
 /**
@@ -1032,7 +1144,13 @@ async function handleListPlugins({
     list = list.filter((p) => (p.category ?? UNCATEGORIZED) === category);
   }
 
-  return { plugins: list, categoryCounts, totalCount };
+  // Read the contributed entrypoints last, over the filtered list only, so a
+  // narrow query never pays a manifest read for a plugin it drops.
+  return {
+    plugins: await attachCompanionEntrypoints(list),
+    categoryCounts,
+    totalCount,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1748,7 +1866,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List installed plugins",
     description:
-      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.",
+      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list. An enabled plugin that declares `companionEntrypoints` in its `package.json` also carries `entrypoints`, each id already namespaced as `<pluginId>:<entrypointId>`; the field is omitted for a plugin that declares none and for a disabled plugin.",
     tags: ["plugins"],
     queryParams: [
       {

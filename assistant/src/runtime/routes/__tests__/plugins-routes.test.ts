@@ -12,6 +12,13 @@
  *   - `categoryCounts` / `totalCount` computed before the `?category=` filter
  *   - `?category=` filters the list while counts stay unfiltered
  *   - A catalog fetch failure degrades `category` to null without erroring
+ *   - `entrypoints` read from the plugin's `companionEntrypoints`, ids
+ *     namespaced `<pluginId>:<entrypointId>`; omitted for a plugin declaring
+ *     none, for a disabled plugin, and for a plugin directory that resolves
+ *     outside the plugins root (the loader would refuse to activate it)
+ *   - A single `entrypoints` entry whose namespaced id would exceed the
+ *     companion's id cap is dropped on its own, leaving the plugin listed and
+ *     its other entrypoints intact
  *
  * GET /v1/plugins/search (catalog search):
  *   - Resolves the catalog for `?ref=` and filters it by `?q=`
@@ -56,9 +63,11 @@
  * here we mock them to isolate the route's wiring logic.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { COMPANION_ENTRYPOINT_ID_MAX_LENGTH } from "@vellumai/service-contracts/companion-entrypoints";
 
 import {
   type DiffPluginDeps,
@@ -925,6 +934,178 @@ describe("GET /v1/plugins", () => {
     // The plugin is still counted (under "system"), just not reachable as
     // "memory" — counts match visible rows.
     expect(result.categoryCounts).toEqual({ system: 1 });
+  });
+
+  describe("companion entrypoints", () => {
+    const created: string[] = [];
+
+    afterEach(() => {
+      for (const dir of created.splice(0)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    /**
+     * Materialize `<workspacePlugins>/<name>/package.json` and return an
+     * `InstalledPluginInfo` pointing at it, so the route's real
+     * `parsePluginManifest` read is exercised rather than mocked.
+     */
+    function pluginWithManifest(
+      name: string,
+      pkg: Record<string, unknown>,
+    ): InstalledPluginInfo {
+      const dir = join(getWorkspacePluginsDir(), name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name, ...pkg }),
+      );
+      created.push(dir);
+      return pluginEntry({
+        name,
+        target: dir,
+        packageJson: { name, version: "1.0.0" },
+      });
+    }
+
+    test("returns declared entrypoints with ids namespaced by plugin id", async () => {
+      installedFixture = [
+        pluginWithManifest("notes", {
+          companionEntrypoints: [
+            {
+              id: "new-note",
+              label: "New note",
+              icon: "pencil",
+              prompt: "Start a new note",
+            },
+            { id: "daily", label: "Daily", prompt: "Show me today's notes" },
+          ],
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      expect(entry?.entrypoints).toEqual([
+        {
+          id: "notes:new-note",
+          label: "New note",
+          icon: "pencil",
+          prompt: "Start a new note",
+        },
+        // No `icon` declared → omitted from the wire object, not null.
+        { id: "notes:daily", label: "Daily", prompt: "Show me today's notes" },
+      ]);
+    });
+
+    test("omits the field for a plugin that declares none", async () => {
+      installedFixture = [
+        pluginWithManifest("plain", {}),
+        // An explicitly empty declaration is "none contributed" too: absence is
+        // the contract, so no plugin ever carries an empty array.
+        pluginWithManifest("empty", { companionEntrypoints: [] }),
+      ];
+
+      const byId = new Map((await invoke()).plugins.map((p) => [p.id, p]));
+      expect("entrypoints" in byId.get("plain")!).toBe(false);
+      expect("entrypoints" in byId.get("empty")!).toBe(false);
+    });
+
+    test("contributes nothing for a disabled plugin", async () => {
+      installedFixture = [
+        pluginWithManifest("notes", {
+          companionEntrypoints: [
+            { id: "new-note", label: "New note", prompt: "Start a new note" },
+          ],
+        }),
+      ];
+      disabledFixture.add("notes");
+
+      const [entry] = (await invoke()).plugins;
+      expect(entry?.enabled).toBe(false);
+      expect("entrypoints" in entry!).toBe(false);
+    });
+
+    test("drops only the entry whose namespaced id exceeds the cap", async () => {
+      // A legal 40-character entrypoint id under a directory name this long
+      // composes one character past the cap the companion validates its whole
+      // context snapshot against. Nothing bounds the directory name, so the
+      // composition is where the bound has to be enforced.
+      const overCapId = "a".repeat(40);
+      const name = "n".repeat(
+        COMPANION_ENTRYPOINT_ID_MAX_LENGTH - overCapId.length,
+      );
+      installedFixture = [
+        pluginWithManifest(name, {
+          companionEntrypoints: [
+            { id: overCapId, label: "Too long", prompt: "Never drawn" },
+            { id: "go", label: "Go", prompt: "Do the thing" },
+          ],
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      // Still listed and enabled, and the entry that fits still comes through:
+      // one over-long id must not cost the plugin its other controls.
+      expect(entry?.enabled).toBe(true);
+      expect(entry?.entrypoints).toEqual([
+        { id: `${name}:go`, label: "Go", prompt: "Do the thing" },
+      ]);
+    });
+
+    test("omits the field when every namespaced id exceeds the cap", async () => {
+      const overCapId = "a".repeat(40);
+      const name = "n".repeat(
+        COMPANION_ENTRYPOINT_ID_MAX_LENGTH - overCapId.length,
+      );
+      installedFixture = [
+        pluginWithManifest(name, {
+          companionEntrypoints: [
+            { id: overCapId, label: "Too long", prompt: "Never drawn" },
+          ],
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      expect(entry?.enabled).toBe(true);
+      // Absence, not an empty array: same shape as declaring none.
+      expect("entrypoints" in entry!).toBe(false);
+    });
+
+    test("contributes nothing for a directory resolving outside the plugin root", async () => {
+      // The listing follows a symlinked entry wherever it points, but boot
+      // discovery rejects a plugin directory that resolves outside `plugins/`.
+      // Such a plugin can never activate, so its declared controls would
+      // submit prompts into a surface nothing serves.
+      const pluginsDir = getWorkspacePluginsDir();
+      mkdirSync(pluginsDir, { recursive: true });
+      const outside = join(pluginsDir, "..", "outside-plugins");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(
+        join(outside, "package.json"),
+        JSON.stringify({
+          name: "escapee",
+          companionEntrypoints: [
+            { id: "go", label: "Go", prompt: "Do the thing" },
+          ],
+        }),
+      );
+      const link = join(pluginsDir, "escapee");
+      symlinkSync(outside, link, "dir");
+      // Remove the target before the link so neither cleanup follows it.
+      created.push(outside, link);
+
+      installedFixture = [
+        pluginEntry({
+          name: "escapee",
+          target: link,
+          packageJson: { name: "escapee", version: "1.0.0" },
+        }),
+      ];
+
+      const [entry] = (await invoke()).plugins;
+      // Still listed and enabled: only the entrypoints are withheld.
+      expect(entry?.enabled).toBe(true);
+      expect("entrypoints" in entry!).toBe(false);
+    });
   });
 });
 
@@ -2759,7 +2940,9 @@ describe("POST /v1/plugins/:name/disable", () => {
       toggleResult(name, "disable"),
     );
 
-    const result = await invokeDisable({ pathParams: { name: "simple-memory" } });
+    const result = await invokeDisable({
+      pathParams: { name: "simple-memory" },
+    });
 
     expect(result).toEqual({ ok: true });
     expect(disablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");

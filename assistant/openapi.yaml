@@ -24750,7 +24750,10 @@ paths:
         and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for
         non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the
         category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while
-        leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.
+        leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list. An
+        enabled plugin that declares `companionEntrypoints` in its `package.json` also carries `entrypoints`, each id
+        already namespaced as `<pluginId>:<entrypointId>`; the field is omitted for a plugin that declares none and for
+        a disabled plugin.
       tags:
         - plugins
       parameters:
@@ -24828,6 +24831,35 @@ paths:
                             Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for
                             the bundled-icon endpoint.
                           type: string
+                        entrypoints:
+                          description:
+                            Companion-surface controls the plugin contributes, from its `package.json` `companionEntrypoints`. Omitted
+                            entirely when the plugin declares none, and never returned for a disabled plugin. An
+                            individual control whose namespaced id would exceed the companion surface's id bound is left
+                            out; the rest still come through.
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                description:
+                                  Globally unique entrypoint id, namespaced as `<pluginId>:<entrypointId>`. Already composed by the
+                                  assistant, so a client never has to build it.
+                              label:
+                                type: string
+                                description: Short control label the client draws.
+                              icon:
+                                description: Author-declared icon name; absent when the plugin declares none.
+                                type: string
+                              prompt:
+                                type: string
+                                description: Message text to submit when the control is pressed.
+                            required:
+                              - id
+                              - label
+                              - prompt
+                            additionalProperties: false
                       required:
                         - id
                         - name
