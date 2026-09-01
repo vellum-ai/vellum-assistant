@@ -296,8 +296,7 @@ describe("CredentialBroker.serverUse", () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain("No tools are currently allowed");
-      expect(result.reason).toContain("in-app secure prompt");
-      expect(result.reason).not.toContain("assistant credentials prompt");
+      expect(result.reason).toContain("assistant credentials prompt");
     });
 
     test("denies when credential has domain restrictions even if tool matches", async () => {

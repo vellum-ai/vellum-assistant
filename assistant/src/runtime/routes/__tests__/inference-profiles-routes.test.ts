@@ -396,12 +396,13 @@ describe("inference-profile writes are availability-aware", () => {
     managedProxyEnabled = false;
     secureKeyResult = { value: undefined, unreachable: false };
     const promise = call("inference_profiles_create", { body: geminiBody });
-    await expect(promise).rejects.toThrow(/in-app secure prompt/);
-    await expect(promise).rejects.toThrow(/never ask for the key in chat/);
-    await expect(promise).rejects.not.toThrow(/assistant credentials prompt/);
+    await expect(promise).rejects.toThrow(
+      /assistant credentials prompt --service gemini --field api_key/,
+    );
     await expect(promise).rejects.toThrow(
       /assistant inference providers create gemini-personal --provider gemini --credential credential\/gemini\/api_key/,
     );
+    await expect(promise).rejects.toThrow(/never ask for the key in chat/);
     expect(persistedProfiles()).toEqual({});
   });
 
@@ -410,8 +411,9 @@ describe("inference-profile writes are availability-aware", () => {
     seedKeyedConnection("gemini");
     secureKeyResult = { value: undefined, unreachable: false };
     const promise = call("inference_profiles_create", { body: geminiBody });
-    await expect(promise).rejects.toThrow(/in-app secure prompt/);
-    await expect(promise).rejects.not.toThrow(/assistant credentials prompt/);
+    await expect(promise).rejects.toThrow(
+      /assistant credentials prompt --service gemini --field api_key/,
+    );
     // The connection already exists — a `providers create` would collide.
     await expect(promise).rejects.not.toThrow(/inference providers create/);
     expect(persistedProfiles()).toEqual({});

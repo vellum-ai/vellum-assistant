@@ -3,7 +3,6 @@ import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { consumeSynthesisResponse } from "../tts/stream-read.js";
 import { getLogger } from "../util/logger.js";
-import { securePromptGuidance } from "../util/secure-prompt-guidance.js";
 
 const log = getLogger("fish-audio-client");
 
@@ -45,8 +44,7 @@ export async function synthesizeWithFishAudio(
   );
   if (!apiKey) {
     throw new Error(
-      "Fish Audio API key not configured. " +
-        securePromptGuidance({ service: "fish-audio", field: "api_key" }),
+      'Fish Audio API key not configured. Collect it via: assistant credentials prompt --service fish-audio --field api_key --label "Fish Audio API Key"',
     );
   }
 

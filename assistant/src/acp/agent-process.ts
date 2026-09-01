@@ -20,7 +20,6 @@ import type {
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
-import { securePromptGuidance } from "../util/secure-prompt-guidance.js";
 import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
 import type { AcpAgentConfig } from "./types.js";
 
@@ -291,17 +290,18 @@ export class AcpAgentProcess {
       const method = this.selectEnvVarAuthMethod();
       if (!method) {
         // Typed so the session manager can tell an auth failure from a crash
-        // and surface a re-authentication path. Env-var advice only helps when
-        // an env_var method exists to satisfy. For terminal-login-only
-        // adapters, sending the user after a CLI workaround chases a
-        // credential the app repairs on its own.
+        // and surface a re-authentication path. The remediation text is split
+        // by what the agent advertises: env-var and `credentials prompt`
+        // advice only helps when an env_var method exists to satisfy, and for
+        // terminal-login-only adapters it sends the user chasing a CLI
+        // workaround for a credential the app repairs on its own.
         throw new AcpAuthRequiredError(
           this.agentId,
           this.hasEnvVarAuthMethod()
             ? `ACP agent "${this.agentId}" requires authentication. ` +
                 `Advertised methods: ${this.describeAuthMethods()}. ` +
                 "Set the required env var under acp.agents.<id>.env in config.json, " +
-                `or ${securePromptGuidance({ service: "acp", capitalize: false })}`
+                "or collect it securely via 'assistant credentials prompt --service acp --field <field> --label \"<label>\"'."
             : `ACP agent "${this.agentId}" requires authentication and its ` +
                 "stored credential was not accepted. Advertised methods: " +
                 `${this.describeAuthMethods()}. None can be completed headlessly, ` +

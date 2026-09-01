@@ -4,10 +4,6 @@ import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  DO_NOT_SHOW_CREDENTIALS_CLI,
-  securePromptGuidance,
-} from "../../util/secure-prompt-guidance.js";
 import { truncate } from "../../util/truncate.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { credentialBroker } from "../credentials/broker.js";
@@ -2418,13 +2414,13 @@ export async function executeBrowserFillCredential(
         reason.includes("no stored value")
       ) {
         return {
-          content: `No credential stored for ${service}/${field}. ${securePromptGuidance({ service, field })} Include ${BROWSER_FILL_CAPABILITY} in the credential's allowed tools.`,
+          content: `No credential stored for ${service}/${field}. Collect it via \`assistant credentials prompt --service ${service} --field ${field} --label <label> --allowed-tools ${BROWSER_FILL_CAPABILITY}\` first (\`--allowed-tools\` sets the credential's full allowed-tools list).`,
           isError: true,
         };
       }
       if (reason.includes("not allowed to use credential")) {
         return {
-          content: `Policy denied: ${reason} If this tool should have access, re-collect the credential through the in-app secure prompt. Grant every tool that should keep access, plus ${BROWSER_FILL_CAPABILITY}. The allowed-tools list is replaced, not merged. ${DO_NOT_SHOW_CREDENTIALS_CLI}`,
+          content: `Policy denied: ${reason} If this tool should have access, run \`assistant credentials prompt --service ${service} --field ${field} --label <label> --allowed-tools <tools>\` (re-collects the value securely). Note: \`--allowed-tools\` REPLACES the credential's stored list, so pass every tool that should keep access — all currently allowed tools plus ${BROWSER_FILL_CAPABILITY}. See the current list with \`assistant credentials list --search ${service}\`.`,
           isError: true,
         };
       }
