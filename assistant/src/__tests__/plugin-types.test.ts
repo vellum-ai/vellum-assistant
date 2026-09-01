@@ -42,6 +42,14 @@ describe("plugin core types", () => {
       credentialKeyPatterns: [
         { label: "Example API token", pattern: "^ex_tkn_[A-Za-z0-9]{24}$" },
       ],
+      companionEntrypoints: [
+        {
+          id: "start-run",
+          label: "Run",
+          icon: "play",
+          prompt: "Start a new run",
+        },
+      ],
     };
 
     const sampleTool: Tool = {
