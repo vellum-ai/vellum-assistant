@@ -71,12 +71,13 @@ The general rule is to test the feature itself — see [MDN: Implementing featur
 
 ### OS permission requests on iOS
 
-Any UI that gates a browser API which triggers an OS permission alert (`getUserMedia`, `Notification.requestPermission`, geolocation, etc.) must, on Capacitor iOS, either:
+Any UI that gates a browser API which triggers an OS permission alert (`getUserMedia`, `Notification.requestPermission`, geolocation, etc.) must, on Capacitor iOS, have **exactly one path that reaches the gated API, and it must lead straight to the system alert**. A pre-prompt may not stand between the user and the alert: no "Allow"/"Deny" of its own, no third choice that fakes the OS decision, no re-asking after a denial.
 
-- **skip rendering** so the API call fires directly into the system alert, OR
-- **render with zero exit affordances** — no Cancel button, no auto-rendered close-X, no backdrop dismiss, no Escape key.
+Cancelling is not such a path, so **pre-permission UI keeps its ordinary exit affordances** — ✕, backdrop dismiss, Escape. Those abandon the flow rather than route around the alert. Do not lock a pre-prompt to a single forward action: a modal with no way out strands anyone who opened the feature just to look at it, and reads closer to *forcing* consent, which is what [Guideline 5.1.1(iv)](https://developer.apple.com/app-store/review/guidelines/#5.1.1) actually targets. Apple's [HIG — Requesting permission](https://developer.apple.com/design/human-interface-guidelines/requesting-permission) asks you to explain *why* before the alert; it does not ask you to trap the user.
 
-Apple's [HIG — Requesting permission](https://developer.apple.com/design/human-interface-guidelines/requesting-permission) and [App Store Review Guideline 5.1.1(iv)](https://developer.apple.com/app-store/review/guidelines/#5.1.1) require any pre-prompt screen to lead directly to the alert. Pair `isXSupported()` capability checks with `useIsNativePlatform()` for any pre-permission UI: capability detection alone is not sufficient.
+The voice-mode first-run card ([`voice-first-run-card.tsx`](../src/domains/chat/voice/voice-room/voice-first-run-card.tsx)) is the worked example: "Start talking" goes straight to `getUserMedia`, and every other exit cancels without touching it.
+
+Pair `isXSupported()` capability checks with `useIsNativePlatform()` for any pre-permission UI: capability detection alone is not sufficient.
 
 ### Keyboard-only affordances on touch devices
 
