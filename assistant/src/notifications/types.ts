@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import type { DeliverableChannelId } from "../channels/config.js";
 import { AccessRequestPayloadSchema } from "./access-request-copy.js";
+import { TierSchema } from "./filter/tier.js";
 import { ToolApprovalSourceViewSchema } from "./guardian-question-mode.js";
 import { UrgencySchema } from "./urgency.js";
 
@@ -99,6 +100,10 @@ export const ChannelDeliveryPayloadSchema = z.object({
   deepLinkTarget: z.record(z.string(), z.unknown()).optional(),
   contextPayload: z.record(z.string(), z.unknown()).optional(),
   urgency: UrgencySchema,
+  /** Attention tier for this delivery, set only by the filter path. Adapters
+   *  prefer it over `urgency`; producers that do not go through the filter
+   *  leave it unset and keep the urgency-derived behavior. */
+  tier: TierSchema.optional(),
   approvalContext: ApprovalUIMetadataSchema.optional(),
   accessRequestContext: AccessRequestPayloadSchema.optional(),
   /** Source reference for a tool-approval card, projected once by the

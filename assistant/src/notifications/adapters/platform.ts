@@ -6,6 +6,12 @@
  * notification out to registered device tokens for the bound user. Provider
  * feature gates return 202 with `{ skipped: "flag_off" }` when no provider runs.
  *
+ * Every dispatch here renders as an APNs/FCM alert, and the endpoint exposes
+ * no silent variant, so this channel always interrupts the device. The
+ * broadcaster keeps inbox-only attention tiers off it for that reason: a
+ * delivery that must not claim attention goes out over the vellum channel
+ * alone.
+ *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so the platform can
  * scope native fan-out to guardian-bound devices, mirroring the macOS adapter.

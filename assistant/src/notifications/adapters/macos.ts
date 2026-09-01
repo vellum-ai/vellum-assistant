@@ -6,10 +6,20 @@
  * client uses for two distinct purposes: paired-conversation bookkeeping
  * (mark-unseen + history catch-up, fallback dedup) and posting an OS
  * banner via `UNUserNotificationCenter`. The banner posting is gated by
- * the `silent` flag — set to true for non-urgent (`low`/`medium`) signals
- * so the notification center inbox still receives the entry but the OS
- * does not surface a push banner. Urgent signals (`high`/`critical`)
- * broadcast with `silent: false` and fire the banner.
+ * the `silent` flag.
+ *
+ * `resolveSilent` owns that decision, shared with the broadcaster's
+ * `notification_conversation_created` event so a paired delivery cannot
+ * carry two contradictory banner instructions. `payload.tier` takes
+ * precedence when the filter path set one: Suppress and Hint are silent,
+ * Offer and Response fire the banner. Offer and Response deliver identically
+ * here because Electron's Notification API exposes no `interruptionLevel` to
+ * distinguish them, and a Suppress payload should never reach an adapter at
+ * all -- the broadcaster drops it before dispatch. A payload with no tier
+ * falls back to urgency: non-urgent (`low`/`medium`) signals are silent so
+ * the notification center inbox still receives the entry but the OS does not
+ * surface a push banner, and urgent signals (`high`/`critical`) broadcast
+ * with `silent: false` and fire the banner.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so that only clients
@@ -23,6 +33,7 @@ import type { InterfaceId } from "../../channels/types.js";
 import { updateMessageContent } from "../../persistence/conversation-crud.js";
 import { publishConversationMessagesChanged } from "../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../../util/logger.js";
+import { resolveSilent } from "../filter/tier.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -99,8 +110,7 @@ export class VellumAdapter implements ChannelAdapter {
           ? guardianPrincipalId
           : undefined;
 
-      const silent =
-        payload.urgency !== "high" && payload.urgency !== "critical";
+      const silent = resolveSilent(payload.tier, payload.urgency);
 
       this.broadcast({
         type: "notification_intent",

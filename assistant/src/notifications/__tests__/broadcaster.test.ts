@@ -7,6 +7,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../../api/index.js";
+import type { ConversationCreatedInfo } from "../broadcaster.js";
 import type { PairingResult } from "../conversation-pairing.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
@@ -16,7 +18,9 @@ import type {
   ChannelDestination,
   DeliveryResult,
   NotificationDecision,
+  NotificationDeliveryResult,
 } from "../types.js";
+import type { Urgency } from "../urgency.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────
 //
@@ -72,16 +76,25 @@ mock.module("../deliveries-store.js", () => ({
   findDeliveryByDecisionAndChannel: () => undefined,
 }));
 
-mock.module("../adapters/macos.js", () => ({
-  isGuardianSensitiveEvent: () => false,
-}));
-
 // Mock conversation-crud so deep-link fallback tests can control which
-// conversation ids resolve to real rows.
+// conversation ids resolve to real rows. Only getConversation is stubbed;
+// keeping the rest real means the mock is harmless if it leaks into another
+// file under a shared run.
+const realConversationCrud =
+  await import("../../persistence/conversation-crud.js");
 let knownConversations: Set<string> = new Set();
 mock.module("../../persistence/conversation-crud.js", () => ({
+  ...realConversationCrud,
   getConversation: (id: string) =>
     knownConversations.has(id) ? { id } : undefined,
+}));
+
+// Stub only isGuardianSensitiveEvent; keep the real VellumAdapter so this
+// mock is harmless if it leaks into another file under a shared run.
+const realMacosAdapter = await import("../adapters/macos.js");
+mock.module("../adapters/macos.js", () => ({
+  ...realMacosAdapter,
+  isGuardianSensitiveEvent: () => false,
 }));
 
 // Mock destination-resolver so platform channel tests get a destination
@@ -761,5 +774,361 @@ describe("NotificationBroadcaster question option actions", () => {
       "approve_once",
       "reject",
     ]);
+  });
+});
+
+describe("NotificationBroadcaster tier projection", () => {
+  function tierDecision(): NotificationDecision {
+    return makeDecision({
+      selectedChannels: ["vellum"],
+      renderedCopy: { vellum: { title: "Title", body: "Body" } },
+    });
+  }
+
+  test("projects a routing-hint tier onto the payload", async () => {
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "offer" } }),
+      tierDecision(),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.tier).toBe("offer");
+  });
+
+  test("a signal with no routing hints carries no tier", async () => {
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(makeSignal(), tierDecision());
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.tier).toBeUndefined();
+  });
+
+  test("a routing hint that is not a tier is dropped rather than passed through", async () => {
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "urgent", preferred: "slack" } }),
+      tierDecision(),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.tier).toBeUndefined();
+  });
+});
+
+describe("NotificationBroadcaster suppress tier", () => {
+  function suppressDecision(): NotificationDecision {
+    return makeDecision({
+      selectedChannels: ["vellum", "platform"],
+      renderedCopy: {
+        vellum: { title: "Title", body: "Body" },
+        platform: { title: "Title", body: "Body" },
+      },
+    });
+  }
+
+  test("dispatches to no channel", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      suppressDecision(),
+    );
+
+    expect(vellum.sends.length).toBe(0);
+    expect(platform.sends.length).toBe(0);
+  });
+
+  test("records every selected channel as skipped, never failed", async () => {
+    // A suppressed signal was never attempted, so it must not read as a
+    // delivery that could be retried into existence.
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      suppressDecision(),
+    );
+
+    expect(results.length).toBe(2);
+    expect(results.map((r) => r.status)).toEqual(["skipped", "skipped"]);
+    expect(results.map((r) => r.channel).sort()).toEqual([
+      "platform",
+      "vellum",
+    ]);
+    for (const result of results) {
+      expect(result.errorMessage).toContain("suppress");
+    }
+  });
+
+  test("appends the skipped results to a caller's results sink", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter]);
+    const sink: NotificationDeliveryResult[] = [];
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+      { resultsSink: sink },
+    );
+
+    expect(results).toBe(sink);
+    expect(sink.length).toBe(1);
+    expect(sink[0]?.status).toBe("skipped");
+  });
+
+  test("pairs no conversation and emits no conversation-created event", async () => {
+    // "Do not surface at all" also means no sidebar entry appears.
+    pairingByChannel = {
+      vellum: {
+        conversationId: "conv-suppressed",
+        messageId: "msg-1",
+        strategy: "start_new_conversation",
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      },
+    };
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter]);
+    const created: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => {
+      created.push(info);
+    });
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "suppress" } }),
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+      {
+        onConversationCreated: (info) => {
+          created.push(info);
+        },
+      },
+    );
+
+    expect(created.length).toBe(0);
+  });
+
+  test("a non-suppress tier still dispatches", async () => {
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "hint" } }),
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+    );
+
+    expect(vellum.sends.length).toBe(1);
+    expect(results[0]?.status).toBe("sent");
+  });
+});
+
+describe("NotificationBroadcaster inbox-only tiers", () => {
+  /**
+   * A tier that claims no attention is still delivered: the vellum inbox
+   * entry appears, and the platform channel, whose only rendering is a device
+   * alert, is left out.
+   */
+  async function broadcast(
+    tier?: string,
+    urgency: Urgency = "high",
+  ): Promise<{
+    vellum: ReturnType<typeof makeCapturingAdapter>;
+    platform: ReturnType<typeof makeCapturingAdapter>;
+    results: NotificationDeliveryResult[];
+  }> {
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({
+        attentionHints: {
+          requiresAction: false,
+          urgency,
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        ...(tier ? { routingHints: { tier } } : {}),
+      }),
+      makeDecision({
+        selectedChannels: ["vellum", "platform"],
+        renderedCopy: {
+          vellum: { title: "Title", body: "Body" },
+          platform: { title: "Title", body: "Body" },
+        },
+      }),
+    );
+
+    return { vellum, platform, results };
+  }
+
+  test("a hint is delivered on vellum and reaches no device push", async () => {
+    const { vellum, platform, results } = await broadcast("hint");
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.tier).toBe("hint");
+    expect(platform.sends.length).toBe(0);
+
+    expect(results.find((r) => r.channel === "vellum")?.status).toBe("sent");
+    const skipped = results.find((r) => r.channel === "platform");
+    expect(skipped?.status).toBe("skipped");
+    expect(skipped?.errorMessage).toContain("hint");
+  });
+
+  test("an offer pushes to the device", async () => {
+    const { vellum, platform } = await broadcast("offer");
+
+    expect(vellum.sends.length).toBe(1);
+    expect(platform.sends.length).toBe(1);
+  });
+
+  test("a response pushes to the device", async () => {
+    const { vellum, platform } = await broadcast("response");
+
+    expect(vellum.sends.length).toBe(1);
+    expect(platform.sends.length).toBe(1);
+  });
+
+  test("a signal with no tier pushes at every urgency", async () => {
+    // The drop is tier-driven: an untiered signal keeps every channel the
+    // decision selected, however its urgency reads.
+    for (const urgency of ["low", "medium", "high", "critical"] as Urgency[]) {
+      const { vellum, platform, results } = await broadcast(undefined, urgency);
+
+      expect(vellum.sends.length).toBe(1);
+      expect(platform.sends.length).toBe(1);
+      expect(results.map((r) => r.status)).toEqual(["sent", "sent"]);
+    }
+  });
+});
+
+describe("NotificationBroadcaster paired silence", () => {
+  /**
+   * Runs a real VellumAdapter so the assertion compares the two events a
+   * client actually receives: `notification_intent.silent` and
+   * `ConversationCreatedInfo.silent`. They must never disagree -- a client
+   * using the conversation-created event for a fallback banner would
+   * otherwise surface a hint or hide an offer.
+   */
+  async function broadcastPaired(
+    urgency: Urgency,
+    tier?: string,
+  ): Promise<{ intentSilent?: boolean; conversationSilent?: boolean }> {
+    pairingByChannel = {
+      vellum: {
+        conversationId: "conv-paired",
+        messageId: "msg-1",
+        strategy: "start_new_conversation",
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      },
+    };
+    const events: AssistantEvent[] = [];
+    const adapter = new realMacosAdapter.VellumAdapter((event) => {
+      events.push(event);
+    });
+    const broadcaster = new NotificationBroadcaster([adapter]);
+    const created: ConversationCreatedInfo[] = [];
+
+    const signal = makeSignal({
+      attentionHints: {
+        requiresAction: false,
+        urgency,
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      ...(tier ? { routingHints: { tier } } : {}),
+    });
+
+    await broadcaster.broadcastDecision(
+      signal,
+      makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: { vellum: { title: "Title", body: "Body" } },
+      }),
+      {
+        onConversationCreated: (info) => {
+          created.push(info);
+        },
+      },
+    );
+
+    expect(events.length).toBe(1);
+    expect(created.length).toBe(1);
+    return {
+      intentSilent: (events[0] as { silent?: boolean }).silent,
+      conversationSilent: created[0]?.silent,
+    };
+  }
+
+  test("hint at a critical urgency is silent on both events", async () => {
+    const { intentSilent, conversationSilent } = await broadcastPaired(
+      "critical",
+      "hint",
+    );
+    expect(intentSilent).toBe(true);
+    expect(conversationSilent).toBe(true);
+  });
+
+  test("offer at a low urgency banners on both events", async () => {
+    const { intentSilent, conversationSilent } = await broadcastPaired(
+      "low",
+      "offer",
+    );
+    expect(intentSilent).toBe(false);
+    expect(conversationSilent).toBe(false);
+  });
+
+  test("response at a low urgency banners on both events", async () => {
+    const { intentSilent, conversationSilent } = await broadcastPaired(
+      "low",
+      "response",
+    );
+    expect(intentSilent).toBe(false);
+    expect(conversationSilent).toBe(false);
+  });
+
+  test("no tier keeps both events on the urgency-derived value", async () => {
+    // The regression guard: a signal without a tier retains urgency-derived
+    // behavior on both events.
+    const expected: [Urgency, boolean][] = [
+      ["low", true],
+      ["medium", true],
+      ["high", false],
+      ["critical", false],
+    ];
+    for (const [urgency, silent] of expected) {
+      const { intentSilent, conversationSilent } =
+        await broadcastPaired(urgency);
+      expect(intentSilent).toBe(silent);
+      expect(conversationSilent).toBe(silent);
+    }
   });
 });

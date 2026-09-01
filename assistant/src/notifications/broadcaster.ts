@@ -7,6 +7,11 @@
  *   2. Pulls rendered copy from the decision (or falls back to copy-composer)
  *   3. Dispatches through the channel adapter
  *   4. Records a delivery audit row in the deliveries-store
+ *
+ * A signal whose attention tier is `suppress` never enters that loop: it is
+ * dropped up front and every selected channel is reported skipped. A tier
+ * that claims no attention (`hint`) enters it without the channels that can
+ * only interrupt, so it is delivered without reaching a device alert.
  */
 
 import { v4 as uuid } from "uuid";
@@ -32,6 +37,13 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
+import {
+  resolveSilent,
+  type Tier,
+  tierClaimsAttention,
+  tierFromRoutingHints,
+  tierShouldNotify,
+} from "./filter/tier.js";
 import {
   buildQuestionAnswerActions,
   buildToolApprovalSourceView,
@@ -194,6 +206,25 @@ function resolveQuestionOptionsContext(
   };
 }
 
+/**
+ * Attention tier carried on `routingHints.tier` by the filter path, resolved
+ * once per broadcast: it backstops the broadcast on `tierShouldNotify`,
+ * decides the shared `silent` value, and rides the payload so channel
+ * adapters read it instead of re-parsing routing hints. Producers that do not
+ * go through the filter carry no tier and keep their urgency-derived
+ * delivery.
+ */
+function resolveTier(signal: NotificationSignal): Tier | undefined {
+  return tierFromRoutingHints(signal.routingHints);
+}
+
+/**
+ * Channels whose only rendering claims attention. `PlatformPushAdapter` asks
+ * the platform for an APNs/FCM alert, and that endpoint exposes no silent
+ * variant, so every delivery over it buzzes the device.
+ */
+const ATTENTION_ONLY_CHANNELS: readonly NotificationChannel[] = ["platform"];
+
 /** Callback invoked immediately when a vellum notification conversation is created. */
 export interface ConversationCreatedInfo {
   conversationId: string;
@@ -206,8 +237,10 @@ export interface ConversationCreatedInfo {
   /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
   source?: string;
   /**
-   * Mirrors the vellum adapter's `silent` flag. When true the client
-   * must skip the fallback OS banner — the sidebar entry still appears.
+   * The same `silent` flag the vellum adapter puts on `notification_intent`,
+   * derived once per broadcast by `resolveSilent` so the two events cannot
+   * disagree. When true the client must skip the fallback OS banner: the
+   * sidebar entry still appears.
    */
   silent: boolean;
 }
@@ -309,13 +342,65 @@ export class NotificationBroadcaster {
     decision: NotificationDecision,
     options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
+    const tier = resolveTier(signal);
+
+    // A `suppress` tier means "do not surface at all", so no channel is
+    // dispatched: not the vellum intent, not a device push, not a
+    // channel-native message.
+    //
+    // This is a backstop, not the gate. `emitNotificationSignal` drops a
+    // suppressed signal before it reaches dispatch, because the broadcaster
+    // only owns the channel surfaces and suppression has to hold for the
+    // others too (the home feed mirror above all). What this keeps is the
+    // class-level invariant: `NotificationBroadcaster` is constructed
+    // directly in places other than the pipeline, and none of them should be
+    // able to push a suppressed signal onto a channel. It cannot double-count
+    // a delivery, because a signal that reaches here already skipped the
+    // pipeline gate.
+    //
+    // The channels are reported skipped rather than failed: nothing was
+    // attempted, so nothing is worth retrying.
+    if (tier && !tierShouldNotify(tier)) {
+      const suppressed: NotificationDeliveryResult[] =
+        options?.resultsSink ?? [];
+      for (const channel of decision.selectedChannels) {
+        suppressed.push({
+          channel,
+          destination: "",
+          status: "skipped",
+          errorMessage: `Suppressed by attention tier: ${tier}`,
+        });
+      }
+      log.info(
+        {
+          signalId: signal.signalId,
+          tier,
+          channels: decision.selectedChannels,
+        },
+        "Attention tier is suppress -- dispatching to no channel",
+      );
+      return suppressed;
+    }
+
+    const silent = resolveSilent(tier, signal.attentionHints.urgency);
+
+    // A tier that claims no attention is inbox-only: delivered, but never
+    // interrupting. Channels that can only interrupt are dropped from the
+    // dispatch list, so a `hint` still lands in the vellum inbox with
+    // `silent: true` while the device stays quiet. The drop is tier-driven
+    // only: a signal carrying no tier keeps every channel the decision
+    // selected, however its urgency reads.
+    const quietTier = tier !== undefined && !tierClaimsAttention(tier);
+    const dispatchChannels = quietTier
+      ? decision.selectedChannels.filter(
+          (channel) => !ATTENTION_ONLY_CHANNELS.includes(channel),
+        )
+      : decision.selectedChannels;
+
     // Pull the guardian list once so the resolver stays pure. A null list
     // (gateway unreachable) falls back to the local contacts read.
     const guardians = await getGuardianDelivery();
-    const destinations = resolveDestinations(
-      decision.selectedChannels,
-      guardians,
-    );
+    const destinations = resolveDestinations(dispatchChannels, guardians);
 
     // Ensure vellum is processed first so the notification_conversation_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
@@ -332,7 +417,7 @@ export class NotificationBroadcaster {
       }
       return 2;
     };
-    const orderedChannels = [...decision.selectedChannels].sort(
+    const orderedChannels = [...dispatchChannels].sort(
       (a, b) => dispatchRank(a) - dispatchRank(b),
     );
 
@@ -350,6 +435,26 @@ export class NotificationBroadcaster {
         ? parseAccessRequestPayload(signal.contextPayload)
         : undefined;
     const results: NotificationDeliveryResult[] = options?.resultsSink ?? [];
+
+    // Nothing was attempted on a dropped channel, so it reads as skipped
+    // rather than failed: there is no delivery for a retry to recover.
+    if (quietTier) {
+      for (const channel of decision.selectedChannels) {
+        if (dispatchChannels.includes(channel)) {
+          continue;
+        }
+        log.info(
+          { signalId: signal.signalId, tier, channel },
+          "Attention tier claims no attention -- channel dropped",
+        );
+        results.push({
+          channel,
+          destination: "",
+          status: "skipped",
+          errorMessage: `Attention tier ${tier} claims no attention: ${channel} can only interrupt`,
+        });
+      }
+    }
 
     // Vellum pairing carried forward for the platform channel's deep link.
     // A single-pass carry is safe because orderedChannels sorts vellum first.
@@ -599,9 +704,6 @@ export class NotificationBroadcaster {
 
           const conversationTitle =
             copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
-          const conversationSilent =
-            signal.attentionHints.urgency !== "high" &&
-            signal.attentionHints.urgency !== "critical";
           const info: ConversationCreatedInfo = {
             conversationId: pairing.conversationId,
             title: conversationTitle,
@@ -609,7 +711,9 @@ export class NotificationBroadcaster {
             targetGuardianPrincipalId,
             groupId: signal.conversationMetadata?.groupId,
             source: signal.conversationMetadata?.source,
-            silent: conversationSilent,
+            // The same value the vellum adapter puts on `notification_intent`,
+            // derived once above so the two events cannot disagree.
+            silent,
           };
 
           // The per-dispatch onConversationCreated callback fires whenever a vellum
@@ -661,6 +765,7 @@ export class NotificationBroadcaster {
           deepLinkTarget,
           contextPayload: signal.contextPayload,
           urgency: signal.attentionHints.urgency,
+          tier,
           approvalContext,
           accessRequestContext,
           toolApprovalSource,
