@@ -753,11 +753,17 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
 });
 
 /**
- * Monotonic timestamp source for message ordering. Two messages saved within
- * the same millisecond (e.g., tool_results user message + assistant message in
- * message_complete) would get the same Date.now(), making their reload order
- * non-deterministic. This counter ensures every call returns a strictly
- * increasing value so insertion order is always preserved.
+ * Monotonic timestamp source for message ordering and conversation creation.
+ * Two messages saved within the same millisecond (e.g., tool_results user
+ * message + assistant message in message_complete) would get the same
+ * Date.now(), making their reload order non-deterministic. This counter
+ * ensures every call returns a strictly increasing value so insertion order is
+ * always preserved.
+ *
+ * Conversation rows draw from it for a second reason: `created_at` is what
+ * tells one incarnation of an id from another, so two creations in one
+ * millisecond must not be able to collide. Sharing the counter with messages
+ * costs nothing, both wanting the same "never twice the same value" guarantee.
  */
 let lastTimestamp = 0;
 function monotonicNow(): number {
@@ -1073,7 +1079,12 @@ export function createConversation(
       },
 ) {
   const db = getDb();
-  const now = Date.now();
+  // Monotonic, because `created_at` is a conversation's incarnation identity:
+  // callers holding work for an id compare against the stamp they were
+  // accepted for, so a row deleted and written back under that id has to carry
+  // a later one even when both land in the same millisecond. Per process is
+  // the scope that matters, the holders being in-memory and gone on a restart.
+  const now = monotonicNow();
   const initialSeq = getCurrentSeq();
   const opts =
     typeof titleOrOpts === "string"

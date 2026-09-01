@@ -313,6 +313,14 @@ async function acquireProcessingFlag(conversation: {
  * them ever holds the flag. Never throws. An image that cannot be stored must
  * not take the call down with it, and the caller reports the failure to the
  * user instead.
+ *
+ * The incarnation the image is accepted for is read here, synchronously,
+ * before anything is queued, and every later check answers for that one value.
+ * Reading it inside the job instead would read whatever holds the id by the
+ * time the job runs: the chain can hold a frame behind another image for as
+ * long as a turn runs, and a conversation deleted and recreated in that time
+ * would be captured as the incarnation the frame was taken in, leaving every
+ * check comparing the replacement against itself.
  */
 function persistStandaloneImage(
   conversationId: string,
@@ -323,15 +331,55 @@ function persistStandaloneImage(
     "attachments" | "requestId" | "insertPrecondition"
   >,
 ): Promise<LiveVoicePhotoResult> {
+  const incarnation = getConversation(conversationId)?.createdAt ?? null;
+  if (incarnation === null) {
+    log.warn(
+      { conversationId, attachmentId, kind },
+      "Standalone image dropped: it names no conversation",
+    );
+    if (kind === "sight_frame") {
+      reclaimDroppedFrame(attachmentId);
+    }
+    return Promise.resolve({ ok: false });
+  }
   return enqueueStandaloneImagePersist(conversationId, attachmentId, kind, () =>
-    writeStandaloneImage(conversationId, attachmentId, kind, persistOptions),
+    writeStandaloneImage(
+      conversationId,
+      attachmentId,
+      kind,
+      incarnation,
+      persistOptions,
+    ),
   );
+}
+
+/**
+ * Report and give up on an image whose conversation is no longer the
+ * incarnation it was accepted for.
+ *
+ * Keeps only, per {@link reclaimDroppedFrame}: a photo that failed to land is
+ * the user's to retry rather than the daemon's to delete.
+ */
+function dropReplacedImage(
+  conversationId: string,
+  attachmentId: string,
+  kind: "photo" | "sight_frame",
+): LiveVoicePhotoResult {
+  log.warn(
+    { conversationId, attachmentId, kind },
+    "Standalone image dropped: its conversation was replaced before the write",
+  );
+  if (kind === "sight_frame") {
+    reclaimDroppedFrame(attachmentId);
+  }
+  return { ok: false };
 }
 
 async function writeStandaloneImage(
   conversationId: string,
   attachmentId: string,
   kind: "photo" | "sight_frame",
+  incarnation: number,
   persistOptions: Omit<
     PersistMessageOptions,
     "attachments" | "requestId" | "insertPrecondition"
@@ -370,9 +418,13 @@ async function writeStandaloneImage(
       return { ok: false };
     }
 
-    // The conversation the acquire just validated. Nothing awaits between its
-    // own last read and this one, so this is that same incarnation.
-    const incarnation = getConversation(conversationId)?.createdAt ?? null;
+    // The acquire answers for the row it found, which for a job the chain held
+    // behind another image can be a conversation created under this id since.
+    // Asked before the idle wait so a replacement is answered now rather than
+    // after holding a stranger's lock for the length of a turn.
+    if (!isSameIncarnation(conversationId, incarnation)) {
+      return dropReplacedImage(conversationId, attachmentId, kind);
+    }
 
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
@@ -398,14 +450,7 @@ async function writeStandaloneImage(
       // The same question rides the persist below as its insert precondition,
       // which is what covers a replacement landing while the write runs.
       if (!isSameIncarnation(conversationId, incarnation)) {
-        log.warn(
-          { conversationId, attachmentId, kind },
-          "Standalone image dropped: its conversation was replaced while it waited",
-        );
-        if (kind === "sight_frame") {
-          reclaimDroppedFrame(attachmentId);
-        }
-        return { ok: false };
+        return dropReplacedImage(conversationId, attachmentId, kind);
       }
 
       const persisted = await persistQueuedMessageBody(conversation, {

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 import {
   createMockProvider,
@@ -841,6 +841,71 @@ describe("standalone image persists are serialized per conversation", () => {
     }
   });
 
+  test("a keep waiting its turn in the chain does not land in a replacement", async () => {
+    // The incarnation a frame is accepted for is read before it is queued, not
+    // when its job starts. The chain can hold a keep behind another image for
+    // as long as a turn runs, and a job that read the id when it began would
+    // read the replacement and then check it against itself.
+    const live = liveConversation("Live voice keep queued behind another");
+    const holder = await uploadFrame("chain-holder.png");
+    const queued = await uploadFrame("chain-queued.png");
+    try {
+      // A turn the first keep waits out, which is what keeps the second one
+      // chained rather than started.
+      live.activeConversation.setProcessing(true);
+      const holderKeep = persistAmbientSightFrame(live.id, holder, "voice");
+      await sleep(30);
+      const queuedKeep = persistAmbientSightFrame(live.id, queued, "voice");
+
+      // The same id, naming a conversation neither frame was taken in.
+      deleteConversationRows(live.id);
+      createConversation({ id: live.id, title: "Recreated" });
+      live.activeConversation.setProcessing(false);
+
+      expect(await holderKeep).toEqual({ ok: false });
+      expect(await queuedKeep).toEqual({ ok: false });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(holder)).toBe(false);
+      expect(frameStored(queued)).toBe(false);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("a keep is refused by a conversation recreated in the same millisecond", async () => {
+    // `created_at` is the whole of an incarnation's identity, so two rows
+    // stamped from one wall-clock millisecond would read as the same
+    // conversation and every fence would pass. The stamp is issued
+    // monotonically, which is what keeps the two apart.
+    const live = liveConversation("Live voice same millisecond recreate");
+    try {
+      const frame = await uploadFrame("same-millisecond.png");
+      const takenIn = getConversation(live.id)!.createdAt;
+
+      live.activeConversation.setProcessing(true);
+      const keep = persistAmbientSightFrame(live.id, frame, "voice");
+      await sleep(30);
+
+      const clock = spyOn(Date, "now").mockReturnValue(takenIn);
+      try {
+        deleteConversationRows(live.id);
+        createConversation({ id: live.id, title: "Recreated" });
+      } finally {
+        clock.mockRestore();
+      }
+      expect(getConversation(live.id)!.createdAt).not.toBe(takenIn);
+
+      live.activeConversation.setProcessing(false);
+
+      expect(await keep).toEqual({ ok: false });
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(frame)).toBe(false);
+    } finally {
+      live.dispose();
+    }
+  });
+
   test("a keep does not land in a conversation replaced during its write", async () => {
     // The check before the persist answers only for the moment it ran. The
     // persist then materializes the frame and builds its content, all awaited,
@@ -850,9 +915,6 @@ describe("standalone image persists are serialized per conversation", () => {
     const live = liveConversation("Live voice keep replaced mid-write");
     try {
       const frame = await uploadFrame("mid-write.png");
-      // Incarnation identity is `created_at`, so the recreate has to land in a
-      // later millisecond than the original to be a replacement at all.
-      await sleep(2);
 
       duringPersistBeforeInsert = () => {
         deleteConversationRows(live.id);

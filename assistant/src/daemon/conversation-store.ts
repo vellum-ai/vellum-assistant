@@ -197,10 +197,19 @@ export function getConversationIfExists(
  * Whether the conversation is still the incarnation the caller was asked about.
  *
  * `created_at` is stamped at insert and nothing else rewrites it, so a row
- * deleted and written back under the same id carries a different one. Bare
- * existence cannot answer this: a caller sharing flight with a creating acquire
- * can find a row that acquire wrote moments ago and read it as the one it was
- * asked about, and so can one that held an instance across a wait.
+ * deleted and written back under the same id carries a different one.
+ * `createConversation` issues that stamp monotonically per process, which is
+ * what makes the two distinguishable even when they land in the same
+ * millisecond. Bare existence cannot answer this: a caller sharing flight with
+ * a creating acquire can find a row that acquire wrote moments ago and read it
+ * as the one it was asked about, and so can one that held an instance across a
+ * wait.
+ *
+ * A conversation restored from its on-disk view (the recovery migration, the
+ * `db repair` backfill) is written back with the stamp its meta file records,
+ * so it answers as the incarnation it is rather than as a new one. Both
+ * restores skip an id whose row is present, so neither can displace a live
+ * conversation this way.
  *
  * Exported for callers that keep working after their acquire returns: holding
  * the instance says nothing about the row still being the one behind it.
