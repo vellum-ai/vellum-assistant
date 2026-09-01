@@ -84,7 +84,7 @@ mock.module("@/domains/chat/api/messages", () => ({
 
 const { useVoiceRoomSight } = await import("./use-voice-room-sight");
 const { publish } = await import("@/lib/event-bus");
-const { useLiveVoiceStore } =
+const { minimizeVoiceRoom, restoreVoiceRoom, useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
   await import("@/domains/chat/voice/live-voice/live-voice-fakes.test-helper");
@@ -886,6 +886,79 @@ describe("useVoiceRoomSight: sharing a keep", () => {
       ASSISTANT_ID,
       "att-camera-closed",
     );
+  });
+
+  test("refuses a frame still uploading when the room is dismissed", async () => {
+    // Minimizing does not unmount the room: the overlay plays an exit
+    // animation first, so the teardown that would void this frame is an
+    // animation away and the upload lands long before it.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    // The chevron, Escape, the sheet's drag and the assistant's own
+    // `minimize_room` frame are all this one call.
+    minimizeVoiceRoom();
+    pendingUploads[0]!({ ok: true, id: "att-minimized" });
+    await resumeUploadBeforeRender();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(view.result.current.live).toBe(false);
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-minimized",
+    );
+  });
+
+  test("a dismissal taken back leaves the room on photo, and its next hold samples", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    // Restoring inside the exit animation is the one case the room comes back
+    // without ever unmounting. What it comes back to is photo: the consent the
+    // dismissal spent is not handed back with the room.
+    act(() => {
+      minimizeVoiceRoom();
+    });
+    expect(view.result.current.live).toBe(false);
+    act(() => {
+      restoreVoiceRoom();
+    });
+    expect(view.result.current.live).toBe(false);
+
+    // And a fresh hold is a fresh consent, which samples like any other.
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    await keepFrame();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+  });
+
+  test("dismissing a room that is only on photo costs the next Live nothing", async () => {
+    const { view } = renderSight({ live: false });
+
+    // Nothing is being sampled, so there is no run to withdraw and the flag's
+    // early return makes the dismissal free.
+    act(() => {
+      minimizeVoiceRoom();
+      restoreVoiceRoom();
+    });
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    await keepFrame();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
   });
 
   test("revoking with nothing being sampled costs the next Live nothing", async () => {

@@ -104,6 +104,7 @@ import { useTranslation } from "@/i18n";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -614,6 +615,19 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     revokeCaptureConsent();
     close();
   }, [close, revokeCaptureConsent]);
+  // The room also goes without anyone dismissing it: the owning composer
+  // leaving the screen, the conversation being switched under the session, the
+  // session ending. This overlay stays mounted through its exit animation in
+  // every one of those, so the teardown that voids a frame in flight is an
+  // animation away, and none of them is one store write to sit inside. The
+  // commit that starts the exit is the earliest they can be answered.
+  const roomVisible = useIsVoiceRoomVisible();
+  useLayoutEffect(() => {
+    if (roomVisible) {
+      return;
+    }
+    setLive(false);
+  }, [roomVisible, setLive]);
   // One value for what the camera is doing, read by the pill, the shutter, the
   // hint and the announcement alike, so no two of them can disagree about it.
   const cameraMode = live ? "live" : "photo";

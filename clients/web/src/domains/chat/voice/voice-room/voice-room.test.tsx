@@ -44,6 +44,7 @@ import {
   seedLiveVoiceSession,
 } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -2461,6 +2462,24 @@ describe("VoiceRoom: camera", () => {
       // What a reconnect clearing the latch gives back is the hook's to say,
       // and `use-voice-room-sight.test.tsx` says it: the session lifecycle a
       // reset drives is the thing this room is mounted on.
+    });
+
+    test("dismissing the room ends Live before the room has gone", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      // What the chevron, Escape and the sheet's drag all reach.
+      await act(async () => {
+        minimizeVoiceRoom();
+      });
+
+      // The overlay is still here, playing its exit: `AnimatePresence` keeps
+      // it mounted, so its teardown is an animation away. Live is already
+      // down, which is what stops a frame still uploading from being shared
+      // with the call after the room was put away.
+      expect(shutter()).not.toBeNull();
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
     });
 
     test("backgrounding the app ends Live", async () => {

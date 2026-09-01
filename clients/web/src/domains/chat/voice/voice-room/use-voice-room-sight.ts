@@ -377,6 +377,32 @@ export function useVoiceRoomSight(
     setLiveState(false);
   });
 
+  // Dismissing the room ends Live too, and for the same reason: the viewfinder
+  // the consent was given to is gone, and the room coming back is a fresh ask.
+  //
+  // It cannot be left to the teardown. The overlay plays an exit animation
+  // before it unmounts, so the sampler cleanup behind a dismissal is a whole
+  // animation away, and a frame whose upload lands inside it would be shared
+  // with the call after the user put the room away. Lowering the mode as well
+  // as revoking is what keeps a dismissal the user takes back mid-animation
+  // honest: the room returns on photo rather than to a stream whose consent
+  // has already been spent.
+  //
+  // The store rather than a wrapped control, which is the shape the camera's
+  // close could not have: the chevron, Escape, the sheet's own drag, an
+  // assistant-driven `minimize_room` frame and the reconnect path all reach
+  // one `set()`, and zustand runs its subscribers inside it, so this lands in
+  // the tick the user acted in with no wrapper for a caller to miss.
+  useEffect(() => {
+    return useLiveVoiceStore.subscribe((state, previous) => {
+      if (!state.roomMinimized || previous.roomMinimized) {
+        return;
+      }
+      revokeCaptureConsent();
+      setLiveState(false);
+    });
+  }, [revokeCaptureConsent]);
+
   /**
    * Replace the frame on screen, giving back whatever preview it displaced.
    * Revoking is not bookkeeping: each preview holds a decoded full-resolution
