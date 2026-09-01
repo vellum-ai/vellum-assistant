@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let invalidatedChannels: string[];
 
-mock.module("../../daemon/handlers/config-channels.js", () => ({
+mock.module("../daemon/handlers/config-channels.js", () => ({
   getReadinessService: () => ({
     invalidateChannel: (channel: string) => {
       invalidatedChannels.push(channel);
@@ -16,7 +16,7 @@ mock.module("../../daemon/handlers/config-channels.js", () => ({
   }),
 }));
 
-import { invalidateEmailReadinessForByoCredential } from "./store.js";
+import { invalidateEmailReadinessForByoCredential } from "./byo-email-credential.js";
 
 describe("invalidateEmailReadinessForByoCredential", () => {
   beforeEach(() => {

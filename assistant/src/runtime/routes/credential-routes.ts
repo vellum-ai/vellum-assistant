@@ -23,6 +23,7 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { buildForChatSentinel } from "../../daemon/chat-credential-redaction.js";
+import { invalidateEmailReadinessForByoCredential } from "../../email/byo-email-credential.js";
 import {
   disconnectOAuthProvider,
   getConnectionByProvider,
@@ -47,7 +48,6 @@ import {
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import {
   CredentialStorageError,
-  invalidateEmailReadinessForByoCredential,
   InvalidCredentialInputError,
   storeCredentialValue,
 } from "../../tools/credentials/store.js";

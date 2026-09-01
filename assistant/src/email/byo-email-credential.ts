@@ -14,11 +14,20 @@
 
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("byo-email-credential");
 
 export const BYO_EMAIL_CREDENTIAL_SERVICES = ["resend", "mailgun"] as const;
 
 export type ByoEmailCredentialService =
   (typeof BYO_EMAIL_CREDENTIAL_SERVICES)[number];
+
+export function isByoEmailCredentialService(
+  service: string,
+): service is ByoEmailCredentialService {
+  return BYO_EMAIL_CREDENTIAL_SERVICES.some((s) => s === service);
+}
 
 /**
  * The first BYO email provider whose API key is stored, or `undefined` when
@@ -34,4 +43,34 @@ export async function resolveConfiguredByoEmailService(): Promise<
     }
   }
   return undefined;
+}
+
+/**
+ * A stored or deleted BYO email provider key changes the email channel's
+ * readiness verdict, and that check lives in the readiness service's
+ * TTL-cached remote bucket; drop the cached snapshot so the next readiness
+ * read re-evaluates instead of serving the pre-write answer for the rest of
+ * the TTL. Called from the credential write and delete paths. Best-effort:
+ * the credential change already succeeded, and a missed invalidation
+ * self-heals when the TTL lapses.
+ */
+export async function invalidateEmailReadinessForByoCredential(
+  service: string,
+): Promise<void> {
+  if (!isByoEmailCredentialService(service)) {
+    return;
+  }
+  try {
+    // Lazily imported: the readiness service sits in the daemon handler
+    // graph, which credential writers (CLI, plugin API) should not load
+    // unless a BYO email key actually changed.
+    const { getReadinessService } =
+      await import("../daemon/handlers/config-channels.js");
+    getReadinessService().invalidateChannel("email");
+  } catch (err) {
+    log.warn(
+      { err, service },
+      "Credential change succeeded, but email readiness invalidation failed",
+    );
+  }
 }
