@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { type FeedItem, feedItemSchema, parseFeedFile } from "../feed-types.js";
+import {
+  type FeedItem,
+  feedItemAwaitsUserAction,
+  feedItemSchema,
+  parseFeedFile,
+} from "../feed-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -318,5 +323,61 @@ describe("parseFeedFile", () => {
       updatedAt: NOW_ISO,
     });
     expect(parsed.items[0]?.noteworthy).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// feedItemAwaitsUserAction
+// ---------------------------------------------------------------------------
+
+describe("feedItemAwaitsUserAction", () => {
+  const REMEDIATION = {
+    action: "reprovision_managed_credential" as const,
+    label: "Restore access",
+  };
+
+  test("an item carrying a repair awaits the user", () => {
+    expect(
+      feedItemAwaitsUserAction({ status: "new", remediation: REMEDIATION }),
+    ).toBe(true);
+  });
+
+  test("a pending guardian request awaits the user", () => {
+    expect(
+      feedItemAwaitsUserAction({
+        status: "new",
+        guardianRequest: {
+          requestId: "r1",
+          kind: "tool_approval",
+          intent: "approval",
+          status: "pending",
+        },
+      }),
+    ).toBe(true);
+  });
+
+  // The repair stays on the item as the record of what fixed it, so a callout
+  // keyed on the remediation being described would never clear. It keys on the
+  // item having been dealt with instead.
+  test("a repaired item stops awaiting, though it still carries the repair", () => {
+    expect(
+      feedItemAwaitsUserAction({
+        status: "acted_on",
+        remediation: REMEDIATION,
+      }),
+    ).toBe(false);
+  });
+
+  test("a dismissed item awaits nothing", () => {
+    expect(
+      feedItemAwaitsUserAction({
+        status: "dismissed",
+        remediation: REMEDIATION,
+      }),
+    ).toBe(false);
+  });
+
+  test("an item with nothing to do awaits nothing", () => {
+    expect(feedItemAwaitsUserAction({ status: "new" })).toBe(false);
   });
 });

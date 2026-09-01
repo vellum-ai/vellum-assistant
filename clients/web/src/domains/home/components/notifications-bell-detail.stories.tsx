@@ -112,6 +112,43 @@ export const ManagedInferenceCredentialRejected: Story = {
  * link to it next to the jump back to the conversation the change came from.
  */
 /**
+ * The same notification after the repair ran.
+ *
+ * The counterpart to the pending story above, and the same transition a
+ * decided guardian request makes: the item is marked acted on, so the callout
+ * gives way to the plain title, the receipt replaces the description of what
+ * is wrong, and the footer offers no button for a thing already fixed. It
+ * reads this way on every later visit, not just in the session that ran it.
+ */
+export const ManagedInferenceCredentialRestored: Story = {
+  args: {
+    entityLinks: [],
+    item: feedItem({
+      id: "credential-health-vellum-restored",
+      status: "acted_on",
+      title: "Vellum-managed models paused",
+      summary:
+        "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused.",
+      category: "security",
+      urgency: "medium",
+      detailPanel: { kind: "toolPermission" },
+      remediation: {
+        action: "reprovision_managed_credential",
+        label: "Restore access",
+      },
+      metadata: {
+        provider: "vellum",
+        providerLabel: "Vellum-managed models",
+        status: "revoked",
+        details:
+          "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused.",
+        missingScopes: [],
+      },
+    }),
+  },
+};
+
+/**
  * The same notification with a title longer than the header can seat.
  *
  * Authored titles should not need this, but a title can also be composed at

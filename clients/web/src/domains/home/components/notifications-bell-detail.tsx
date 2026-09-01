@@ -1,4 +1,6 @@
-import { ChevronLeft } from "lucide-react";
+import { useCallback } from "react";
+
+import { CheckCircle, ChevronLeft } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
 import {
@@ -113,7 +115,12 @@ export function NotificationsBellDetail({
   // While the request waits its title is the callout, as a pill. A settled
   // request needs nothing of anyone, so the same name reads as plain text.
   const isTitleAwaitingAction = feedItemAwaitsUserAction(item);
-  const remediation = useFeedRemediation(item);
+  // Marking the item acted on is what turns the button into a receipt and
+  // drops the callout, the same transition a decided guardian request makes.
+  const handleRemediationResolved = useCallback(() => {
+    onUpdateStatus(item.id, "acted_on");
+  }, [item.id, onUpdateStatus]);
+  const remediation = useFeedRemediation(item, handleRemediationResolved);
 
   // The lists start loading when this view opens, so validation has a pending
   // state a warm-cache surface would not have. Every
@@ -217,13 +224,20 @@ export function NotificationsBellDetail({
           with the content it is about.
         */}
         {remediation?.isDone ? (
-          <Typography
-            variant="body-medium-default"
-            className="mt-[var(--app-spacing-md)] text-[var(--content-secondary)]"
-            data-testid="feed-remediation-done"
+          <div
+            data-testid="feed-remediation-receipt"
+            className="mt-[var(--app-spacing-md)] flex flex-wrap items-center gap-[var(--app-spacing-sm)]"
           >
-            {t("feedRemediation.done")}
-          </Typography>
+            <Tag tone="positive" leftIcon={<CheckCircle />}>
+              {t("feedRemediation.receipt")}
+            </Tag>
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("feedRemediation.done")}
+            </Typography>
+          </div>
         ) : null}
         {remediation?.error ? (
           <Typography

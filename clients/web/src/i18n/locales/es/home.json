@@ -22,9 +22,10 @@
     "guardianRequest": "Solicitud del guardián"
   },
   "feedRemediation": {
-    "done": "Restaurado. Los modelos gestionados por Vellum vuelven a funcionar.",
-    "running": "Restaurando...",
-    "failed": "No se pudo restaurar: {{reason}}"
+    "done": "Los modelos gestionados por Vellum vuelven a funcionar.",
+    "failed": "No se pudo restaurar: {{reason}}",
+    "receipt": "Restaurado",
+    "running": "Restaurando..."
   },
   "homeGuardianRequestCard": {
     "approve": "Aprobar",

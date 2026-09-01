@@ -316,8 +316,15 @@ export function isPendingGuardianFeedItem(
  * do would teach readers to ignore it.
  */
 export function feedItemAwaitsUserAction(
-  item: Pick<FeedItem, "guardianRequest" | "remediation">,
+  item: Pick<FeedItem, "guardianRequest" | "remediation" | "status">,
 ): boolean {
+  // An item already acted on or dismissed wants nothing, whatever it carries.
+  // A repair is the case that needs this: its remediation stays on the item as
+  // the record of what fixed it, so the callout has to key on the item having
+  // been dealt with rather than on the repair still being described.
+  if (item.status === "acted_on" || item.status === "dismissed") {
+    return false;
+  }
   return isPendingGuardianFeedItem(item) || item.remediation !== undefined;
 }
 

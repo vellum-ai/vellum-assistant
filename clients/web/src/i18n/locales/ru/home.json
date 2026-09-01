@@ -22,9 +22,10 @@
     "guardianRequest": "Запрос опекуна"
   },
   "feedRemediation": {
-    "done": "Восстановлено. Модели под управлением Vellum снова работают.",
-    "running": "Восстановление...",
-    "failed": "Не удалось восстановить: {{reason}}"
+    "done": "Модели под управлением Vellum снова работают.",
+    "failed": "Не удалось восстановить: {{reason}}",
+    "receipt": "Восстановлено",
+    "running": "Восстановление..."
   },
   "homeGuardianRequestCard": {
     "approve": "Одобрить",

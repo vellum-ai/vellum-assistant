@@ -6,7 +6,7 @@ import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
 import {
-  isPendingGuardianFeedItem,
+  feedItemAwaitsUserAction,
   type FeedItem,
   type FeedItemStatus,
 } from "@vellumai/assistant-api";
@@ -137,7 +137,10 @@ export function HomeRecapRow({
   const longPress = useLongPressSheet({ shouldSkip: skipRowControls });
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
-  const needsAttention = isPendingGuardianFeedItem(item);
+  // Any item still waiting on the reader, which is a pending guardian request
+  // or an unrepaired condition carrying a fix. Both drop the emphasis once
+  // they are settled, so a resolved row reads like the notifications around it.
+  const needsAttention = feedItemAwaitsUserAction(item);
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel

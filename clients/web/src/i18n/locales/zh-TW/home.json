@@ -22,9 +22,10 @@
     "guardianRequest": "監護人請求"
   },
   "feedRemediation": {
-    "done": "已復原。由 Vellum 託管的模型重新可用。",
-    "running": "正在復原...",
-    "failed": "無法復原：{{reason}}"
+    "done": "由 Vellum 託管的模型重新可用。",
+    "failed": "無法復原：{{reason}}",
+    "receipt": "已復原",
+    "running": "正在復原..."
   },
   "homeGuardianRequestCard": {
     "approve": "核准",

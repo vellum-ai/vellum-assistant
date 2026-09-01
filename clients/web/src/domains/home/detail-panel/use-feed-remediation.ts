@@ -33,10 +33,17 @@ export interface FeedRemediationController {
 }
 
 export function useFeedRemediation(
-  item: Pick<FeedItem, "remediation">,
+  item: Pick<FeedItem, "remediation" | "status">,
+  /**
+   * Records that the repair succeeded, so the outcome survives the panel
+   * closing. A settled repair is item state for the same reason a settled
+   * guardian decision is: the reader who comes back later needs to see the
+   * receipt, not the button they already pressed.
+   */
+  onResolved?: () => void,
 ): FeedRemediationController | null {
   const [isRunning, setIsRunning] = useState(false);
-  const [isDone, setIsDone] = useState(false);
+  const [resolvedHere, setResolvedHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const remediation = item.remediation;
@@ -53,7 +60,8 @@ export function useFeedRemediation(
     setError(null);
     void handler(params)
       .then(() => {
-        setIsDone(true);
+        setResolvedHere(true);
+        onResolved?.();
       })
       .catch((cause: unknown) => {
         // The reason is the useful half: "sign in to Vellum" and "the
@@ -64,11 +72,15 @@ export function useFeedRemediation(
       .finally(() => {
         setIsRunning(false);
       });
-  }, [handler, params]);
+  }, [handler, params, onResolved]);
 
   if (!remediation || !handler) {
     return null;
   }
+
+  // Reads as done from either side: this session ran it, or the item came back
+  // already marked, which is what a reader sees on any later visit.
+  const isDone = resolvedHere || item.status === "acted_on";
 
   return { label: remediation.label, isRunning, isDone, error, run };
 }
