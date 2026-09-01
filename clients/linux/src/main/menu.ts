@@ -113,7 +113,6 @@ export const buildLinuxMenu = ({
     label: "View",
     submenu: [
       commandItem("Toggle Sidebar", { kind: "sidebarToggle" }),
-      commandItem("Home", { kind: "home" }),
       commandItem("Command Palette...", { kind: "commandPalette" }),
       { type: "separator" },
       { role: "reload" },

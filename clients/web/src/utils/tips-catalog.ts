@@ -67,6 +67,7 @@ export const TIPS_CATALOG: readonly Tip[] = [
     desktopCopy: {
       macos: { body: "tipCard.pluginsBodyMacos" },
       windows: { body: "tipCard.pluginsBodyWindows" },
+      linux: { body: "tipCard.pluginsBodyLinux" },
     },
     learnMore: { label: "Browse plugins", to: routes.plugins },
     gates: { requiresPluginsSurface: true },
@@ -134,6 +135,10 @@ export const TIPS_CATALOG: readonly Tip[] = [
       windows: {
         title: "tipCard.computerUseTitleWindows",
         body: "tipCard.computerUseBodyWindows",
+      },
+      linux: {
+        title: "tipCard.computerUseTitleLinux",
+        body: "tipCard.computerUseBodyLinux",
       },
     },
     gates: { requiresElectron: true },

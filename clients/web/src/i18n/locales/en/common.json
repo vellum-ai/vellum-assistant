@@ -680,12 +680,15 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyLinux": "On this computer I can work with files, the terminal, and the browser.",
     "computerUseBodyMacos": "On this Mac I can control apps and the desktop for you.",
     "computerUseBodyWindows": "On this PC I can control apps and the desktop for you.",
+    "computerUseTitleLinux": "Let me use this computer",
     "computerUseTitleMacos": "Let me use your Mac",
     "computerUseTitleWindows": "Let me use your PC",
     "dismiss": "Dismiss",
     "nextTip": "Next tip",
+    "pluginsBodyLinux": "From a personal-finance copilot to a daily family briefing.",
     "pluginsBodyMacos": "From a personal-finance copilot to a mode that lives in your MacBook notch.",
     "pluginsBodyWindows": "From a personal-finance copilot to a daily family briefing.",
     "quickInputBody": "Press {shortcut} to send me a quick message from any app.",

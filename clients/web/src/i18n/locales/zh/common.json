@@ -680,12 +680,15 @@
     "velvet": "丝绒"
   },
   "tipCard": {
+    "computerUseBodyLinux": "在这台电脑上，我可以处理文件、终端和浏览器。",
     "computerUseBodyMacos": "在此 Mac 上，我可以为您控制应用和桌面。",
     "computerUseBodyWindows": "在此电脑上，我可以为您控制应用和桌面。",
+    "computerUseTitleLinux": "让我使用这台电脑",
     "computerUseTitleMacos": "让我使用您的 Mac",
     "computerUseTitleWindows": "让我使用您的电脑",
     "dismiss": "关闭",
     "nextTip": "下一条提示",
+    "pluginsBodyLinux": "从个人理财副驾驶到每日家庭简报。",
     "pluginsBodyMacos": "从个人理财副驾驶到常驻 MacBook 刘海区域的模式。",
     "pluginsBodyWindows": "从个人理财副驾驶到每日家庭简报。",
     "quickInputBody": "按 {shortcut} 即可从任何应用向我发送快捷消息。",
