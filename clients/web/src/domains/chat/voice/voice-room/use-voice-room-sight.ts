@@ -202,18 +202,53 @@ export function useVoiceRoomSight(
   const nextSendSeqRef = useRef(0);
   const parkedSendsRef = useRef(new Map<number, PendingSightSend | null>());
   /**
-   * Which camera and transport this capture chain feeds. Bumped when sampling
-   * stops, when the camera flips, and when the transport drops into a
-   * reconnect, so a capture that was already encoding can tell that the world
-   * it was headed for is gone.
+   * Which camera and transport this capture chain feeds. Bumped when consent
+   * is withdrawn, when sampling stops, when the camera flips, and when the
+   * transport drops into a reconnect, so a capture that was already encoding
+   * can tell that the world it was headed for is gone.
    *
-   * The session generation covers none of the three: each leaves the logical
-   * call running, a flip deliberately keeps the sampler on the same element,
+   * The session generation covers none of them: each leaves the logical call
+   * running, a flip deliberately keeps the sampler on the same element,
    * and a reconnect deliberately keeps the generation, so a stalled upload
    * from before any of them could otherwise be persisted as a view of what the
    * call is looking at.
    */
   const captureEpochRef = useRef(0);
+  /**
+   * Whether what the loop is producing right now is still consented to.
+   *
+   * `active` says the same thing a render later, which is a render too late
+   * for a boundary: the sampler's own callbacks and the uploads it has started
+   * both run inside the gap between the tap and the effect that stops it.
+   * Raised where a sampling run starts, lowered the moment consent goes.
+   */
+  const captureConsentedRef = useRef(false);
+
+  /**
+   * Take consent back from every frame the camera has produced but not yet
+   * shared, in the same tick as the act that takes it back.
+   *
+   * Stopping Live only schedules a re-render. The epoch bump that voids the
+   * work in flight rides the sampler effect's cleanup, which runs after that
+   * render, so an upload resolving inside the gap passes the guard it is
+   * checked against and is shared with the call after the user said stop. The
+   * bump happens here instead, when the user acts: every capture already
+   * started fails the guard on its way out, and the flag stops one the loop
+   * would otherwise begin before it is torn down.
+   *
+   * Parked sends are left to refuse themselves at that same guard, and the
+   * cleanup behind this hands their uploads back. Nothing but a real sampling
+   * run to revoke gets past the first line, so a refused raise, a stop of
+   * something already stopped, and an ordinary re-render all cost nothing: an
+   * epoch churned for one of those would void a capture nobody withdrew.
+   */
+  const revokeCaptureConsent = useCallback(() => {
+    if (!captureConsentedRef.current) {
+      return;
+    }
+    captureConsentedRef.current = false;
+    captureEpochRef.current += 1;
+  }, []);
 
   // All five, so the feature is absent rather than half-present: a flag off is
   // not shipped, an assistant that predates `sight_frame` answers every keep
@@ -262,10 +297,20 @@ export function useVoiceRoomSight(
    * watches, so a request made while Live is already unavailable changes
    * nothing it re-runs on and would leave the flag raised until the next real
    * transition. The refusal belongs at the ask.
+   *
+   * Leaving takes consent with it here rather than in the render that follows,
+   * for the reason `revokeCaptureConsent` gives: the tap is the boundary, not
+   * the commit after it.
    */
-  const setLive = useCallback((next: boolean) => {
-    setLiveState(next && liveAllowedRef.current);
-  }, []);
+  const setLive = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        revokeCaptureConsent();
+      }
+      setLiveState(next && liveAllowedRef.current);
+    },
+    [revokeCaptureConsent],
+  );
 
   // Live never outlives what makes it honest. The viewfinder closing takes the
   // consent away, and availability going (a flag, an assistant, the latch, or
@@ -276,8 +321,9 @@ export function useVoiceRoomSight(
     if (cameraOpen && liveAvailable) {
       return;
     }
+    revokeCaptureConsent();
     setLiveState(false);
-  }, [cameraOpen, liveAvailable]);
+  }, [cameraOpen, liveAvailable, revokeCaptureConsent]);
 
   // Backgrounding ends Live, rather than pausing it.
   //
@@ -293,6 +339,7 @@ export function useVoiceRoomSight(
   // which is what the iOS shell needs (see docs/EVENT_BUS.md, and the
   // composer's sight store, which gives its camera back on the same event).
   useBusSubscription("app.hidden", () => {
+    revokeCaptureConsent();
     setLiveState(false);
   });
 
@@ -410,6 +457,13 @@ export function useVoiceRoomSight(
       if (!assistantId) {
         return;
       }
+      // Consent is already gone, and the loop has not been torn down yet. The
+      // epoch cannot speak for this one: a capture beginning after the bump
+      // reads the new number and would pass the guard on the way out, so a
+      // frame taken after the user said stop is refused before it is taken.
+      if (!captureConsentedRef.current) {
+        return;
+      }
       // Nothing this assistant is told about lands, and each attempt would
       // strand another upload, so the sampler runs on and every keep is
       // dropped here. See `sightFramesUnsupported` on the live-voice store.
@@ -519,6 +573,10 @@ export function useVoiceRoomSight(
     if (!video) {
       return;
     }
+    // The run this consent was given for. Raised here rather than derived from
+    // `active`, which a capture in a torn-down loop still reads as the value of
+    // the render it started in.
+    captureConsentedRef.current = true;
     const gate = createFrameGate(DEFAULT_FRAME_GATE_OPTIONS);
     gate.reset(performance.now());
     gateRef.current = gate;
@@ -533,17 +591,24 @@ export function useVoiceRoomSight(
     });
     sampler.start(video);
     return () => {
-      // The epoch bump is what stops a frame from a viewfinder the user has
-      // put away being persisted when its upload lands, which is the whole of
-      // what closing has to guarantee: nothing is staged for a later turn to
-      // pick up, so there is nothing to take back.
-      captureEpochRef.current += 1;
+      // What voids the work in flight for every other way a run can end: an
+      // unmount, a closed room, a `<video>` swapped under it. The revocation
+      // is the bump, so a run the user ended finds it already spent and this
+      // is a no-op against captures that have failed their guard once already.
+      revokeCaptureConsent();
       rebaseSendOrder();
       sampler.stop();
       gateRef.current = null;
       hold(null);
     };
-  }, [active, captureAndHold, hold, rebaseSendOrder, videoRef]);
+  }, [
+    active,
+    captureAndHold,
+    hold,
+    rebaseSendOrder,
+    revokeCaptureConsent,
+    videoRef,
+  ]);
 
   // A flip points the camera somewhere else entirely and mirrors it, so every
   // score against the old baseline is meaningless and every capture still

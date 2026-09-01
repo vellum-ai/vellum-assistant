@@ -116,6 +116,23 @@ async function flush(): Promise<void> {
 }
 
 /**
+ * Resume a settled upload without letting React commit anything.
+ *
+ * The consent cases below live in the gap between the act that ends Live and
+ * the render it schedules: an upload landing there is exactly the frame that
+ * must not be shared. `act` closes that gap by flushing the effects, so it is
+ * deliberately not used, and only the microtasks the upload's own `await`
+ * chain resumes on are drained. React can commit a render in one of these; it
+ * cannot run a passive effect, which is where the teardown that used to be the
+ * only thing voiding the frame lives.
+ */
+async function resumeUploadBeforeRender(): Promise<void> {
+  for (let tick = 0; tick < 8; tick += 1) {
+    await Promise.resolve();
+  }
+}
+
+/**
  * What a case can change between renders.
  *
  * `nativePreview` is optional, and left out by every case that is not about
@@ -779,6 +796,118 @@ describe("useVoiceRoomSight: sharing a keep", () => {
       ASSISTANT_ID,
       "att-orphan",
     );
+  });
+
+  test("refuses a frame still uploading when the shutter stops Live", async () => {
+    // The boundary the whole feature rests on. Stopping Live only schedules a
+    // render, and the upload resolves inside the gap before it, so a frame
+    // shared here is one the call is shown after the user said stop.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    // The tap, which is what the room's shutter runs on a press while live,
+    // and the upload landing in the gap it opens. Outside `act` on purpose:
+    // see `resumeUploadBeforeRender`.
+    view.result.current.setLive(false);
+    pendingUploads[0]!({ ok: true, id: "att-stopped" });
+    await resumeUploadBeforeRender();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    // Then let the render and its effects land, so the rest is read off a
+    // settled surface rather than mid-commit.
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+    // Nothing else collects a row whose message was never written.
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-stopped",
+    );
+  });
+
+  test("refuses a frame still uploading when the app is put away", async () => {
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    // The same boundary reached without a gesture. The bus delivers this
+    // synchronously, and the frame in flight is on the far side of it.
+    publish("app.hidden", { signal: "visibility" });
+    pendingUploads[0]!({ ok: true, id: "att-hidden" });
+    await resumeUploadBeforeRender();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-hidden",
+    );
+  });
+
+  test("refuses a frame still uploading when Live stops being available", async () => {
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    // Availability going is the third way consent ends, and it ends it for the
+    // same reason: the preview the frame came from is not the one on screen.
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "environment",
+        nativePreview: true,
+      });
+    });
+    await act(async () => {
+      pendingUploads[0]!({ ok: true, id: "att-unavailable" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-unavailable",
+    );
+  });
+
+  test("a frame that landed before the stop is shared, and the next Live sends its own", async () => {
+    const { view } = renderSight();
+
+    // Consent covered this one: it left while Live was running, and stopping
+    // afterwards takes nothing back that the call has already been shown.
+    await keepFrame();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    // And the boundary is per Live, not for the rest of the call: a fresh hold
+    // is a fresh consent, and the frames it produces go.
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    await keepFrame();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
   });
 
   test("refuses a frame whose camera closed under the upload", async () => {
