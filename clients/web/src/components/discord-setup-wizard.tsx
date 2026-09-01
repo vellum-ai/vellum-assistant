@@ -7,6 +7,7 @@ import {
 } from "@/components/channel-setup-wizard";
 import { DiscordSetupConnectStep } from "@/components/discord-setup-connect-step";
 import { DiscordSetupCreateStep } from "@/components/discord-setup-create-step";
+import { DiscordSetupFinishStep } from "@/components/discord-setup-finish-step";
 import { DiscordSetupInviteStep } from "@/components/discord-setup-invite-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useTranslation } from "@/i18n";
@@ -16,7 +17,7 @@ export type { MutationStatus };
 
 const DISCORD_PORTAL_URL = "https://discord.com/developers/applications";
 
-const WIZARD_STEP_IDS = ["create", "connect", "invite"] as const;
+const WIZARD_STEP_IDS = ["create", "connect", "invite", "finish"] as const;
 
 export interface DiscordSetupWizardProps {
   /** Assistant the setup panel was opened for. */
@@ -29,11 +30,15 @@ export interface DiscordSetupWizardProps {
 }
 
 /**
- * Guided setup for connecting a Discord bot, paced across three steps.
+ * Guided setup for connecting a Discord bot, paced across four steps.
  *
- * One more step than Telegram because a Discord bot is not reachable until it
- * has been invited to a server, and one fewer beat than Slack because there is
- * a single token rather than a pair.
+ * More steps than Telegram because a Discord bot is not reachable until it
+ * has been invited to a server, and joining is only observable as the user's
+ * own confirmation: Discord authorizes in a popup this app cannot see, and
+ * the token is dropped after save rather than kept around to poll with. The
+ * finish step lives here rather than in the invite step because it completes
+ * the whole wizard, and both surfaces that mount this component keep it
+ * mounted after the token saves, so wizard-owned completion reaches both.
  */
 export function DiscordSetupWizard({
   assistantId,
@@ -48,6 +53,7 @@ export function DiscordSetupWizard({
       { id: "create", label: t("discordSetupWizard.stepCreate") },
       { id: "connect", label: t("discordSetupWizard.stepConnect") },
       { id: "invite", label: t("discordSetupWizard.stepInvite") },
+      { id: "finish", label: t("discordSetupWizard.stepFinish") },
     ],
     [t],
   );
@@ -74,6 +80,8 @@ export function DiscordSetupWizard({
   }, []);
 
   const handleContinueToConnect = useCallback(() => goTo("connect"), [goTo]);
+
+  const handleConfirmJoined = useCallback(() => goTo("finish"), [goTo]);
 
   const handleSave = useCallback(() => {
     onSave?.(botToken.trim());
@@ -109,8 +117,11 @@ export function DiscordSetupWizard({
         <DiscordSetupInviteStep
           {...(inviteUrl ? { inviteUrl } : {})}
           onOpenInvite={handleOpenInvite}
+          onConfirmJoined={handleConfirmJoined}
         />
       )}
+
+      {stepId === "finish" && <DiscordSetupFinishStep />}
     </ChannelSetupWizard>
   );
 }

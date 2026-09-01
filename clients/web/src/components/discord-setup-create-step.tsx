@@ -20,6 +20,10 @@ export interface DiscordSetupCreateStepProps {
  * GUILD_MESSAGES and DIRECT_MESSAGES only, and every message it acts on falls
  * inside Discord's Message Content exemptions: DMs with the app, and messages
  * that mention it.
+ *
+ * The portal greets a fresh app with a loud App Verification page ("missing
+ * 4 criteria"). That gate only applies past 100 servers, so the copy defuses
+ * it up front rather than letting it read as a step this wizard forgot.
  */
 export function DiscordSetupCreateStep({
   assistantId,
@@ -47,6 +51,14 @@ export function DiscordSetupCreateStep({
         className="text-[color:var(--content-secondary)]"
       >
         {t("discordSetupCreateStep.intentsNote")}
+      </Typography>
+
+      <Typography
+        as="p"
+        variant="body-small-default"
+        className="text-[color:var(--content-secondary)]"
+      >
+        {t("discordSetupCreateStep.verificationNote")}
       </Typography>
 
       <ChannelAvatarDownload assistantId={assistantId} channel="discord" />

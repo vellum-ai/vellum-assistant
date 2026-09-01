@@ -233,19 +233,28 @@
   "discordSetupCreateStep": {
     "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
     "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "verificationNote": "Puedes ignorar los avisos de App Verification del portal. Discord solo exige la verificacion para crecer mas alla de 100 servidores, y nada en esta configuracion la necesita.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"
+  },
+  "discordSetupFinishStep": {
+    "connectedTitle": "Bot anadido",
+    "connectedBody": "El token del bot esta guardado y el bot ya esta en tu servidor.",
+    "verifyTitle": "Falta un paso: verifica tu identidad",
+    "verifyBody": "Tu cuenta de Discord aun no esta verificada y, por defecto, tu asistente solo responde a contactos de confianza verificados, asi que veria tus menciones pero no las responderia. Di \"verificame en Discord\" en el chat para terminar."
   },
   "discordSetupInviteStep": {
     "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
     "openInvite": "Anadir a un servidor",
+    "confirmJoined": "Ya anadi el bot",
     "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "Crear app",
     "stepConnect": "Conectar",
-    "stepInvite": "Anadir al servidor"
+    "stepInvite": "Anadir al servidor",
+    "stepFinish": "Finalizar"
   },
   "diskPressureBanner": {
     "acknowledge": "Reconocer",
