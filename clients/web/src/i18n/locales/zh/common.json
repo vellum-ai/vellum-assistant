@@ -231,8 +231,11 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "打开 Discord 开发者门户并创建一个新应用程序。在其 <resetLine>机器人</resetLine> 页面上，点击“重置令牌”并立即复制令牌：Discord 只显示一次，之后无法再次查看。",
-    "intentsNote": "关闭所有三个特权网关意图。您的助手只读取直接消息和提及它的消息，Discord 将这些消息排除在“消息内容”意图之外。",
+    "inPortal": "在 Discord 开发者门户中：",
+    "stepCreateApp": "创建一个新应用程序。",
+    "stepAppIcon": "可选：在<strong>一般信息</strong>页面上传应用图标。可在下方下载您助手的头像来使用。",
+    "stepResetToken": "在<strong>机器人</strong>页面上，点击<strong>重置令牌</strong>并立即复制令牌：Discord 只显示一次，之后无法再次查看。",
+    "stepIntentsOff": "关闭所有三个特权网关意图。您的助手只读取直接消息和提及它的消息，Discord 将这些消息排除在“消息内容”意图之外。",
     "verificationNote": "您可以忽略门户中的“应用验证”提示。只有当应用超过 100 个服务器时 Discord 才要求验证，此设置不需要它。",
     "openPortal": "打开 Discord 门户",
     "continue": "我已拥有令牌"

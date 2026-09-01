@@ -231,8 +231,11 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
-    "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "inPortal": "En el portal de desarrolladores de Discord:",
+    "stepCreateApp": "Crea una nueva aplicacion.",
+    "stepAppIcon": "Opcional: sube un icono de la app en <strong>General Information</strong>. Descarga abajo el avatar de tu asistente para usarlo.",
+    "stepResetToken": "En la pagina <strong>Bot</strong>, pulsa <strong>Reset Token</strong> y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
+    "stepIntentsOff": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
     "verificationNote": "Puedes ignorar los avisos de App Verification del portal. Discord solo exige la verificacion para crecer mas alla de 100 servidores, y nada en esta configuracion la necesita.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"

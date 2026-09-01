@@ -231,8 +231,11 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Open the Discord developer portal and create a new application. On its <resetLine>Bot</resetLine> page, click Reset Token and copy the token straight away: Discord shows it once and there is no way to read it back.",
-    "intentsNote": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
+    "inPortal": "In the Discord developer portal:",
+    "stepCreateApp": "Create a new application.",
+    "stepAppIcon": "Optional: upload an app icon on <strong>General Information</strong>. Download your assistant's avatar below to use it.",
+    "stepResetToken": "On the <strong>Bot</strong> page, click <strong>Reset Token</strong> and copy the token straight away: Discord shows it once and there is no way to read it back.",
+    "stepIntentsOff": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
     "verificationNote": "You can ignore the portal's App Verification prompts. Discord only requires verification to grow past 100 servers, and nothing in this setup needs it.",
     "openPortal": "Open Discord portal",
     "continue": "I have my token"

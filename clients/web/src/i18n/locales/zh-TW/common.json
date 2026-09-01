@@ -231,8 +231,11 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "開啟 Discord 開發者入口網站並建立新的應用程式。在其 <resetLine>機器人</resetLine> 頁面上，點擊「重設金鑰」並立即複製金鑰：Discord 只會顯示一次，之後無法再次讀取。",
-    "intentsNote": "關閉所有三個特權閘道意圖。您的助理只會讀取直接訊息和提及它的訊息，Discord 將這些訊息排除在「訊息內容」意圖之外。",
+    "inPortal": "在 Discord 開發者入口網站中：",
+    "stepCreateApp": "建立新的應用程式。",
+    "stepAppIcon": "可選：在<strong>一般資訊</strong>頁面上傳應用程式圖示。可在下方下載您助理的頭像來使用。",
+    "stepResetToken": "在<strong>機器人</strong>頁面上，點擊<strong>重設金鑰</strong>並立即複製金鑰：Discord 只會顯示一次，之後無法再次讀取。",
+    "stepIntentsOff": "關閉所有三個特權閘道意圖。您的助理只會讀取直接訊息和提及它的訊息，Discord 將這些訊息排除在「訊息內容」意圖之外。",
     "verificationNote": "您可以忽略入口網站中的「應用程式驗證」提示。只有當應用程式超過 100 個伺服器時 Discord 才要求驗證，此設定不需要它。",
     "openPortal": "開啟 Discord 入口網站",
     "continue": "我已擁有金鑰"

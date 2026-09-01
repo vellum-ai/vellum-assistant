@@ -1,4 +1,6 @@
 import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
+import { ExternalLink } from "lucide-react";
+
 import { Button, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
@@ -10,7 +12,8 @@ export interface DiscordSetupCreateStepProps {
 }
 
 /**
- * Create the application and collect its token.
+ * Create the application and collect its token, laid out as the ordered list
+ * of portal actions the user performs, matching the Telegram create step.
  *
  * Discord shows a bot token once, at the moment it is generated, and offers
  * no way to read it back, so the copy tells someone to bring it here before
@@ -39,19 +42,27 @@ export function DiscordSetupCreateStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        <Trans
-          i18nKey="discordSetupCreateStep.instructions"
-          components={{ resetLine: <strong /> }}
-        />
+        {t("discordSetupCreateStep.inPortal")}
       </Typography>
 
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-secondary)]"
-      >
-        {t("discordSetupCreateStep.intentsNote")}
-      </Typography>
+      <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
+        <li>{t("discordSetupCreateStep.stepCreateApp")}</li>
+        <li>
+          <Trans
+            i18nKey="discordSetupCreateStep.stepAppIcon"
+            components={{ strong: <strong /> }}
+          />
+        </li>
+        <li>
+          <Trans
+            i18nKey="discordSetupCreateStep.stepResetToken"
+            components={{ strong: <strong /> }}
+          />
+        </li>
+        <li>{t("discordSetupCreateStep.stepIntentsOff")}</li>
+      </ol>
+
+      <ChannelAvatarDownload assistantId={assistantId} channel="discord" />
 
       <Typography
         as="p"
@@ -61,13 +72,16 @@ export function DiscordSetupCreateStep({
         {t("discordSetupCreateStep.verificationNote")}
       </Typography>
 
-      <ChannelAvatarDownload assistantId={assistantId} channel="discord" />
-
       <div className="flex gap-2">
-        <Button type="button" variant="outlined" onClick={onOpenPortal}>
+        <Button
+          type="button"
+          variant="primary"
+          onClick={onOpenPortal}
+          rightIcon={<ExternalLink aria-hidden className="size-4" />}
+        >
           {t("discordSetupCreateStep.openPortal")}
         </Button>
-        <Button type="button" onClick={onContinue}>
+        <Button type="button" variant="outlined" onClick={onContinue}>
           {t("discordSetupCreateStep.continue")}
         </Button>
       </div>

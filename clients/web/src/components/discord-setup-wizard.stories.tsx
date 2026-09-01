@@ -1,18 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
+import { withAvatar } from "./channel-avatar-story-decorator";
 import { DiscordSetupWizard } from "./discord-setup-wizard";
+
+const ASSISTANT_ID = "asst_story";
 
 const meta: Meta<typeof DiscordSetupWizard> = {
   title: "Contacts/DiscordSetupWizard",
   component: DiscordSetupWizard,
   args: {
-    assistantId: "asst_story",
+    assistantId: ASSISTANT_ID,
   },
   // 400px matches the drawer this renders in: `chat-content-layout.tsx` mounts
   // the channel setup panel in an `AnimatedRightDrawer` with `defaultWidth` and
   // `minWidth` both 400.
   decorators: [
+    withAvatar(ASSISTANT_ID, true),
     (Story) => (
       <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
