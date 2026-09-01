@@ -41,6 +41,7 @@ import { MarkdownMessage } from "@vellumai/design-library";
 import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { CompanionBristle } from "@/components/companion-bristle";
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -263,6 +264,12 @@ const RESTING_HEIGHT = 10;
  * of from the marker.
  */
 const RESTING_RIM = 2;
+
+/**
+ * The rim's colour. One statement, because the bristle's features wear the
+ * same edge and two hexes that drifted would read as two materials.
+ */
+const RESTING_RIM_HEX = "#17181b";
 
 /**
  * The capsule's box: the accent the user sees, plus that rim on every side.
@@ -1476,7 +1483,34 @@ function Avatar({
         the shape is for. The rim it does wear is dark and is not decoration, it
         is what keeps the working ring legible; see {@link RESTING_RIM}. The
         shadow stays, since it is what holds any of this against a desktop the
-        surface does not own. */}
+        surface does not own.
+
+        **Once in a while it bristles.** The creature's own features poke out
+        of the capsule and settle back, drawn behind it so they grow out of the
+        shape rather than appear on it; see `CompanionBristle`. Only for a
+        composed creature: a custom image has no shape to bristle in. Rides the
+        capsule's transform and fade, so it is drawn at the capsule's one size
+        on every setting and goes with it when the creature comes out. */}
+      {character !== undefined ? (
+        <CompanionBristle
+          bodyShape={character.bodyShape}
+          accentHex={accentHex}
+          rimHex={RESTING_RIM_HEX}
+          capsule={{
+            width: AVATAR_IMAGE,
+            height: RESTING_HEIGHT,
+            rim: RESTING_RIM,
+          }}
+          // A working creature holds a focused pose, and stops blinking for the
+          // same reason. The ring is carrying the state; nothing else should.
+          enabled={collapsed && !busy}
+          className="absolute top-1/2 left-1/2 drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-opacity duration-200"
+          style={{
+            transform: `translate(-50%, -50%) scale(${restingScale})`,
+            opacity: collapsed ? 1 : 0,
+          }}
+        />
+      ) : null}
       <div
         className="absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
         style={{
@@ -1486,7 +1520,7 @@ function Avatar({
           background: accentHex,
           // Drawn as a border rather than an outline so it is inside the box,
           // which is what leaves the ring the whole annulus outside.
-          border: `${RESTING_RIM}px solid #17181b`,
+          border: `${RESTING_RIM}px solid ${RESTING_RIM_HEX}`,
           opacity: collapsed ? 1 : 0,
         }}
         aria-hidden

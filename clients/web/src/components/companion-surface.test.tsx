@@ -2,7 +2,10 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import * as motionReact from "motion/react";
 
-import { COMPANION_BASE_MAX_PILL_WIDTH } from "@vellumai/ipc-contract";
+import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_MAX_PILL_WIDTH,
+} from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 
 /**
@@ -1732,9 +1735,7 @@ describe("the avatar's resting collapse", () => {
    * circling the empty box the capsule sits in.
    */
   test("rides the ring on the shape, not on the box", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" working />,
-    );
+    const { container } = render(<CompanionSurface phase="resting" working />);
 
     expect(ringOf(container)?.parentElement).toBe(shapeOf(container));
   });
@@ -1787,12 +1788,65 @@ describe("the avatar's resting collapse", () => {
 
   /** The creature fades with it rather than being cut, and comes back whole. */
   test("fades the creature out at rest and back in expanded", () => {
-    const { container: resting } = render(
-      <CompanionSurface phase="resting" />,
-    );
+    const { container: resting } = render(<CompanionSurface phase="resting" />);
     expect(bobOf(resting)?.parentElement?.style.opacity).toBe("0");
 
     const { container: hovered } = render(<CompanionSurface phase="hover" />);
     expect(bobOf(hovered)?.parentElement?.style.opacity).toBe("1");
+  });
+});
+
+/** The capsule's bristle, which is drawn only for a composed creature. */
+const bristleOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(".companion-bristle");
+
+describe("the resting capsule's bristle", () => {
+  const CHARACTER = { bodyShape: "urchin", eyeStyle: "curious", color: "teal" };
+
+  test("is there at rest for a composed creature", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" character={CHARACTER} />,
+    );
+    expect(bristleOf(container)).not.toBeNull();
+    expect(bristleOf(container)?.style.opacity).toBe("1");
+  });
+
+  /** A custom image has no body shape, so there is nothing to bristle in. */
+  test("is absent for a custom image", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarSrc="data:image/png;base64," />,
+    );
+    expect(bristleOf(container)).toBeNull();
+  });
+
+  /**
+   * The creature is out of the capsule, and the capsule has faded where it
+   * stands; the bristle goes with it rather than firing over the creature.
+   */
+  test("fades with the capsule once the creature is out", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" character={CHARACTER} />,
+    );
+    expect(bristleOf(container)?.style.opacity).toBe("0");
+  });
+
+  /** Rides the capsule's transform, so it is drawn at the capsule's one size. */
+  test("counters the creature's scale the way the capsule does", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        character={CHARACTER}
+        avatarBox={COMPANION_BASE_AVATAR_BOX * 2}
+      />,
+    );
+    expect(bristleOf(container)?.style.transform).toContain("scale(0.5)");
+  });
+
+  test("is not drawn for a reader who asked for stillness", () => {
+    reducedMotion = true;
+    const { container } = render(
+      <CompanionSurface phase="resting" character={CHARACTER} />,
+    );
+    expect(bristleOf(container)).toBeNull();
   });
 });
