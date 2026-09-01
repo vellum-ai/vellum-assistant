@@ -617,9 +617,8 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    *
    * Optional, and no other error path populates it: a parse failure has no
    * id to name, and the other frames carrying an attachment have at most one
-   * in flight, which `frameType` already identifies. Daemons predating the
-   * field never send it either, so a client reading it absent falls back to
-   * whatever it did before and nothing gates on its presence.
+   * in flight, which `frameType` already identifies. Clients must tolerate
+   * an absent id and must not gate any behavior on its presence.
    */
   readonly attachmentId?: string;
 }
