@@ -90,7 +90,7 @@ export interface PluginCredentialKeyPattern {
  *
  * Data rather than code. Clients resolve `icon` against their own fixed set of
  * names and fall back when it is unknown, so a plugin never chooses what is
- * drawn — only which of the host's icons is picked.
+ * drawn, only which of the host's icons is picked.
  */
 export interface PluginCompanionEntrypoint {
   /** Stable kebab-case id, unique within the plugin. */

@@ -277,6 +277,14 @@ describe("companionEntrypoints manifest field", () => {
       ],
     ],
     ["a missing prompt", [{ id: "start-run", label: "Run" }]],
+    [
+      "a whitespace-only label",
+      [{ id: "start-run", label: "   ", prompt: "Start a new run" }],
+    ],
+    [
+      "a whitespace-only prompt",
+      [{ id: "start-run", label: "Run", prompt: " \n\t " }],
+    ],
   ])(
     "malformed declaration (%s) degrades to undefined without blocking load",
     async (_desc, malformed) => {

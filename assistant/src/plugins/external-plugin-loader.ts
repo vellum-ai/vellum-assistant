@@ -170,6 +170,13 @@ const COMPANION_ENTRYPOINT_LIMITS = {
 /** Stable kebab-case: lowercase alphanumeric groups joined by single dashes. */
 const COMPANION_ENTRYPOINT_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * At least one non-whitespace character. A label of only spaces draws a blank
+ * control and a prompt of only spaces submits no message, so both are
+ * malformed rather than merely nonempty.
+ */
+const COMPANION_ENTRYPOINT_NON_BLANK_PATTERN = /\S/;
+
 const CompanionEntrypointsSchema = z
   .array(
     z.object({
@@ -177,7 +184,10 @@ const CompanionEntrypointsSchema = z
         .string()
         .max(COMPANION_ENTRYPOINT_LIMITS.maxIdLength)
         .regex(COMPANION_ENTRYPOINT_ID_PATTERN),
-      label: z.string().min(1).max(COMPANION_ENTRYPOINT_LIMITS.maxLabelLength),
+      label: z
+        .string()
+        .max(COMPANION_ENTRYPOINT_LIMITS.maxLabelLength)
+        .regex(COMPANION_ENTRYPOINT_NON_BLANK_PATTERN),
       icon: z
         .string()
         .min(1)
@@ -185,15 +195,15 @@ const CompanionEntrypointsSchema = z
         .optional(),
       prompt: z
         .string()
-        .min(1)
-        .max(COMPANION_ENTRYPOINT_LIMITS.maxPromptLength),
+        .max(COMPANION_ENTRYPOINT_LIMITS.maxPromptLength)
+        .regex(COMPANION_ENTRYPOINT_NON_BLANK_PATTERN),
     }),
   )
   .max(COMPANION_ENTRYPOINT_LIMITS.maxEntrypointsPerPlugin);
 
 /**
  * Shape-validate a raw `companionEntrypoints` value from a plugin
- * `package.json`. Ids must be unique within the plugin — a repeat is dropped
+ * `package.json`. Ids must be unique within the plugin: a repeat is dropped
  * rather than rejected, since the first declaration is unambiguous and the
  * plugin is otherwise well-formed. A malformed value degrades to `undefined`
  * with a logged warning and must never fail plugin load (daemon startup
@@ -210,7 +220,7 @@ function parseCompanionEntrypoints(
   if (!parsed.success) {
     log.warn(
       { pluginDir, err: parsed.error },
-      `package.json at ${pluginDir} has a malformed companionEntrypoints field — ignoring it`,
+      `package.json at ${pluginDir} has a malformed companionEntrypoints field, ignoring it`,
     );
     return undefined;
   }
@@ -597,7 +607,7 @@ export async function parsePluginPresentation(
 
 /**
  * The manifest fields {@link parsePluginManifest} can read from a
- * `package.json` alone — everything else on {@link PluginManifest} comes from
+ * `package.json` alone. Everything else on {@link PluginManifest} comes from
  * surface files the full loader imports.
  */
 export type ParsedPluginManifest = Pick<
