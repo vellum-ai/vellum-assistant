@@ -197,6 +197,10 @@ export function startDictationStream(
   let held: ArrayBuffer[] = [];
   // When the caller asked for the flush, so the close can say how long it took.
   let stopRequestedAt: number | null = null;
+  // Whether the runtime ended the session itself, which after a stop is it
+  // saying the flush is done. Any other way out is a failure, whatever text
+  // had been committed by then.
+  let closedByServer = false;
   // Settled by `teardown`, which every way out of the session runs through.
   let settleStop: ((text: string | null) => void) | null = null;
   const stopped = new Promise<string | null>((resolve) => {
@@ -212,7 +216,11 @@ export function startDictationStream(
       if (closed) {
         return;
       }
-      if (ws !== null && ws.readyState === WebSocket.OPEN) {
+      // Until `ready`, not until the socket opens. The runtime discards audio
+      // that arrives before its transcriber is up, and that is the same
+      // moment it sends `ready`, so a frame sent on `open` lands in the gap
+      // and is the opening words gone for a second reason.
+      if (live && ws !== null && ws.readyState === WebSocket.OPEN) {
         ws.send(buf);
         return;
       }
@@ -225,7 +233,11 @@ export function startDictationStream(
       return;
     }
     closed = true;
-    const wasLive = live;
+    // Only a session that was asked to stop and then closed of its own accord
+    // has finished its transcript. One that errored or dropped mid-way has a
+    // prefix of one, and a prefix handed over as the whole would be inserted
+    // as the whole: the caller cannot tell the two apart, so this has to.
+    const finished = live && stopRequestedAt !== null && closedByServer;
     live = false;
     held = [];
     capture.shutdown();
@@ -240,23 +252,14 @@ export function startDictationStream(
         // Already closing — nothing to clean up.
       }
     }
-    settleStop?.(wasLive ? committedText : null);
+    settleStop?.(finished ? committedText : null);
   };
 
   const attach = (socket: WebSocket): void => {
     ws = socket;
 
     socket.addEventListener("open", () => {
-      if (closed) {
-        return;
-      }
-      console.info(
-        `dictation-stream: open after ${Date.now() - startedAt}ms, releasing ${held.length} held chunks`,
-      );
-      for (const buf of held) {
-        socket.send(buf);
-      }
-      held = [];
+      console.info(`dictation-stream: open after ${Date.now() - startedAt}ms`);
     });
 
     socket.addEventListener("message", (event) => {
@@ -279,8 +282,12 @@ export function startDictationStream(
         case "ready":
           live = true;
           console.info(
-            `dictation-stream: ready after ${Date.now() - startedAt}ms`,
+            `dictation-stream: ready after ${Date.now() - startedAt}ms, releasing ${held.length} held chunks`,
           );
+          for (const buf of held) {
+            socket.send(buf);
+          }
+          held = [];
           return;
         case "partial":
           if (typeof message.text === "string") {
@@ -307,6 +314,7 @@ export function startDictationStream(
           console.info(
             `dictation-stream: closed by server ${stopRequestedAt === null ? "unprompted" : `${Date.now() - stopRequestedAt}ms after stop`}, committedChars=${committedText.length}`,
           );
+          closedByServer = true;
           teardown();
           return;
         default:

@@ -196,13 +196,18 @@ describe("startDictationStream", () => {
 
   /**
    * The socket is a token mint away for a managed assistant, and the speaker
-   * is not waiting for it. Capture starts at once and what it hears is held,
-   * then released the moment the socket opens, so a dictation that begins the
-   * instant a key goes down keeps its opening words.
+   * is not waiting for it. Capture starts at once and what it hears is held
+   * until the runtime says `ready`, so a dictation that begins the instant a
+   * key goes down keeps its opening words.
+   *
+   * `ready` and not the socket opening: the runtime discards audio that
+   * arrives before its transcriber is up, and that is the same moment it
+   * sends `ready`. A frame released on `open` lands in that gap.
    */
-  test("captures from the start and releases held audio when the socket opens", async () => {
+  test("captures from the start and releases held audio on ready, not open", async () => {
     const { ws, captureFake } = await startWithFakes();
     const early = new ArrayBuffer(4);
+    const between = new ArrayBuffer(6);
     const late = new ArrayBuffer(8);
 
     expect(captureFake.calls.started).toBe(1);
@@ -210,10 +215,60 @@ describe("startDictationStream", () => {
     expect(ws.sent).toHaveLength(0);
 
     ws.serverOpen();
-    expect(ws.sent).toEqual([early]);
+    captureFake.pushChunk(between);
+    expect(ws.sent).toHaveLength(0);
+
+    ws.serverMessage({ type: "ready" });
+    expect(ws.sent).toEqual([early, between]);
 
     captureFake.pushChunk(late);
-    expect(ws.sent).toEqual([early, late]);
+    expect(ws.sent).toEqual([early, between, late]);
+  });
+
+  /**
+   * A session that dropped mid-way has a prefix of a transcript, and a prefix
+   * handed over as the whole is inserted as the whole. The caller cannot tell
+   * the two apart, so the stop resolves null for anything but a flush the
+   * runtime finished, and the recording is transcribed some other way.
+   */
+  test("an unprompted close after finals resolves null, not the prefix", async () => {
+    const { handle, ws } = await startWithFakes();
+    ws.serverOpen();
+    ws.serverMessage({ type: "ready" });
+    ws.serverMessage({ type: "final", text: "the first half", seq: 0 });
+
+    // The runtime went away on its own: nobody asked it to stop.
+    ws.serverMessage({ type: "closed" });
+
+    expect(await handle.stop()).toBeNull();
+  });
+
+  test("an error after finals resolves null, not the prefix", async () => {
+    const { handle, ws } = await startWithFakes();
+    ws.serverOpen();
+    ws.serverMessage({ type: "ready" });
+    ws.serverMessage({ type: "final", text: "the first half", seq: 0 });
+
+    ws.serverMessage({
+      type: "error",
+      category: "provider-error",
+      message: "gone",
+    });
+
+    expect(await handle.stop()).toBeNull();
+  });
+
+  /** And a socket that drops after a stop was sent is a failed flush, not a finished one. */
+  test("a socket dropping after the stop resolves null", async () => {
+    const { handle, ws } = await startWithFakes();
+    ws.serverOpen();
+    ws.serverMessage({ type: "ready" });
+    ws.serverMessage({ type: "final", text: "words.", seq: 0 });
+
+    const stopped = handle.stop();
+    ws.close(1006);
+
+    expect(await stopped).toBeNull();
   });
 
   test("composes partial and final transcripts as they arrive", async () => {
