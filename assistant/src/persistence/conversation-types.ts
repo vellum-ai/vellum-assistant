@@ -82,10 +82,7 @@ export function isBackgroundConversationType(
  * columns into one label.
  */
 export type ConversationKind =
-  | "user"
-  | "background"
-  | "background_memory_consolidation"
-  | "scheduled";
+  "user" | "background" | "background_memory_consolidation" | "scheduled";
 
 /**
  * Single classifier shared by the LLM-context routes and the notification
@@ -448,6 +445,21 @@ export function isReplyPushIneligibleUserMessage(
  */
 export const UNGROUPED_GROUP_ID = "system:all";
 export const PINNED_GROUP_ID = "system:pinned";
+
+/**
+ * The section holding the conversations the assistant started on its own:
+ * every thread the notification pipeline materialized
+ * (`source = 'notification'`, see `notifications/conversation-pairing.ts`).
+ *
+ * A pseudo-group in the same sense as {@link UNGROUPED_GROUP_ID}: no row
+ * carries it in `group_id`. Those conversations are filed nowhere (NULL
+ * `group_id`, native `origin_channel`), which is exactly why they land in
+ * Chats today; membership is decided by `source`, not by the column this id
+ * names. It is spelled as a group id anyway so a client selects the section
+ * through the `groupId` parameter every other section already uses, rather
+ * than through a filter only this one section knows about.
+ */
+export const ASSISTANT_INITIATED_GROUP_ID = "system:assistant";
 
 /**
  * The `origin_channel` value for a conversation started in Vellum itself

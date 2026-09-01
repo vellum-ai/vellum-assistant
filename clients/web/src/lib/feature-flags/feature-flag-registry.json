@@ -37,6 +37,15 @@
       "values": ["off", "on"]
     },
     {
+      "id": "assistant-initiated-threads",
+      "scope": "both",
+      "key": "assistant-initiated-threads",
+      "label": "Assistant-Initiated Threads",
+      "description": "Gates the sidebar section collecting the conversations the assistant started on its own (the `source='notification'` rows every notification delivery already materializes). When on, the daemon emits an `assistant` row from the section index and withholds those conversations from the Chats bucket, and the web client renders them as their own avatar-tinted section. When off, they stay in Chats and no `assistant` row is emitted, which is the shipped behavior. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
