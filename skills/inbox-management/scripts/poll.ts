@@ -1,33 +1,41 @@
 /**
- * Inbox-management poll. Runs as a script-mode schedule and escalates to the
- * assistant only when new INBOX or SENT mail arrives. Existing leftover mail
- * is baselined, not re-judged. Gmail is read via `assistant oauth request`,
- * so no OAuth token ever touches this script.
+ * Inbox-management poll. Runs as a script-mode schedule and wakes the
+ * assistant only when there is new inbox mail or a sent thread that has
+ * become stale. Gmail is read via `assistant oauth request`.
  *
- * State is kept per mailbox: a historyId watermark plus a ledger of already
- * reported message ids. State commits before the digest is escalated, so a
- * retried or restarted run never escalates the same message twice.
- *
- * Flags, baked into the schedule command at install:
- *   --account <email>    mailbox to poll; repeat to watch several. Omitted,
- *                        the single auto-resolved connection is polled.
- *   --lookback <dur>     first-sync backfill window (90m/4h/2d/1w or seconds)
+ * State is a JSON file next to the schedule (same idea as gmail-prefs), not
+ * a SQLite database. Watermark, pending overflow ids, and follow-up
+ * candidates live there. Delivered digest ids are marked reported only after
+ * a successful wake so overflow and failed wakes are retried.
  */
 
-import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 
 import {
+  DIGEST_CAP,
   PIPELINE_HINT,
+  accountState,
   classifyLabelIds,
   collectAddedMessageIds,
+  dropFollowups,
+  dueFollowups,
+  expiredFollowups,
+  filterUnreported,
   flagValue,
   flagValues,
-  isEscalatable,
+  isImmediateWork,
+  isSentCandidate,
+  markReported,
   parseLookbackSeconds,
-  shouldEscalate,
+  parsePollState,
+  pruneReported,
+  rememberFollowups,
+  takeDigestSlice,
+  uniqueIds,
+  type FollowupCandidate,
   type MailBucket,
+  type PollState,
 } from "./poll-lib.ts";
 
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -35,9 +43,8 @@ const PAGE_SIZE = 100;
 const MAX_IDS = 1000;
 const META_CAP = 200;
 const META_CONCURRENCY = 6;
-const DIGEST_CAP = 50;
-const LEDGER_RETENTION_SEC = 30 * 86400;
 const EXPIRY_CATCHUP_QUERY = "(in:inbox OR in:sent) newer_than:1d";
+const STATE_FILE = "state.json";
 
 function workspaceEnv(): { workspace: string; scheduleId: string } {
   const workspace = process.env.VELLUM_WORKSPACE_DIR;
@@ -58,7 +65,6 @@ function parseLookbackFlag(argv: string[]): number {
   return parseLookbackSeconds(lookbackFlag);
 }
 
-/** Run fn over items with at most `limit` in flight at once. */
 async function mapConcurrent<T, R>(
   items: T[],
   limit: number,
@@ -86,66 +92,26 @@ async function ensureGitignore(scheduleDir: string): Promise<void> {
   }
 }
 
-function openDb(stateDir: string): Database {
+function statePath(stateDir: string): string {
+  return `${stateDir}/${STATE_FILE}`;
+}
+
+function loadState(stateDir: string): PollState {
   mkdirSync(stateDir, { recursive: true });
-  const db = new Database(`${stateDir}/state.db`);
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS accounts (
-       email TEXT PRIMARY KEY,
-       history_id TEXT NOT NULL
-     );
-     CREATE TABLE IF NOT EXISTS reported (
-       account TEXT NOT NULL,
-       id TEXT NOT NULL,
-       reported_at INTEGER NOT NULL,
-       PRIMARY KEY (account, id)
-     );`,
-  );
-  return db;
+  const path = statePath(stateDir);
+  if (!existsSync(path)) {
+    return parsePollState(null);
+  }
+  try {
+    return parsePollState(JSON.parse(readFileSync(path, "utf-8")));
+  } catch {
+    return parsePollState(null);
+  }
 }
 
-function getAccountHistoryId(db: Database, email: string): string | null {
-  const row = db
-    .query<{ history_id: string }, [string]>(
-      "SELECT history_id FROM accounts WHERE email = ?",
-    )
-    .get(email);
-  return row?.history_id ?? null;
-}
-
-function filterUnreported(
-  db: Database,
-  email: string,
-  ids: string[],
-): string[] {
-  const exists = db.query<{ id: string }, [string, string]>(
-    "SELECT id FROM reported WHERE account = ? AND id = ?",
-  );
-  return ids.filter((id) => !exists.get(email, id));
-}
-
-/** Advance one account's watermark and ledger atomically. Runs before escalation. */
-function commitAccount(
-  db: Database,
-  email: string,
-  historyId: string,
-  ids: string[],
-): void {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const insert = db.query(
-    "INSERT OR IGNORE INTO reported (account, id, reported_at) VALUES (?, ?, ?)",
-  );
-  db.transaction(() => {
-    db.query(
-      "INSERT OR REPLACE INTO accounts (email, history_id) VALUES (?, ?)",
-    ).run(email, historyId);
-    for (const id of ids) {
-      insert.run(email, id, nowSec);
-    }
-    db.query("DELETE FROM reported WHERE reported_at < ?").run(
-      nowSec - LEDGER_RETENTION_SEC,
-    );
-  })();
+function saveState(stateDir: string, state: PollState): void {
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(statePath(stateDir), `${JSON.stringify(state, null, 2)}\n`);
 }
 
 class GmailStatusError extends Error {
@@ -231,11 +197,6 @@ async function getProfile(
   };
 }
 
-/**
- * New message ids after the given historyId (all labels). With records, the
- * returned watermark is the last processed record's id, never the mailbox's
- * current historyId, which would skip the remainder of a truncated drain.
- */
 async function listHistoryIds(
   startHistoryId: string,
   account: string | undefined,
@@ -325,7 +286,7 @@ interface DigestEntry {
   snippet: string;
   internalDate: number;
   bucket: MailBucket;
-  labelIds: string[];
+  kind: "new" | "followup";
 }
 
 async function buildDigestEntries(
@@ -355,19 +316,35 @@ async function buildDigestEntries(
       snippet: msg.snippet ?? "",
       internalDate: Number(msg.internalDate ?? 0),
       bucket: classifyLabelIds(labelIds),
-      labelIds,
+      kind: "new" as const,
     };
   });
 }
 
-/** Open a fresh conversation and wake it with the fenced digest. */
-async function escalate(
-  entries: DigestEntry[],
-  totals: Array<{ account: string; new: number }>,
-): Promise<string> {
-  entries.sort((a, b) => b.internalDate - a.internalDate);
-  const digest = entries.slice(0, DIGEST_CAP);
-  const total = totals.reduce((n, t) => n + t.new, 0);
+async function latestThreadMessageId(
+  threadId: string,
+  account: string | undefined,
+): Promise<string | null> {
+  try {
+    const thread = await gmailGet<{
+      messages?: Array<{ id: string }>;
+    }>(`${GMAIL_BASE}/threads/${threadId}?format=minimal`, account);
+    const messages = thread.messages ?? [];
+    return messages.length > 0 ? messages[messages.length - 1].id : null;
+  } catch (err) {
+    if (err instanceof GmailStatusError && err.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function escalate(payload: {
+  delivered: DigestEntry[];
+  followups: DigestEntry[];
+  inbox: DigestEntry[];
+  pending: number;
+}): Promise<string> {
   const conv = await cli<{ ok: boolean; id: string }>([
     "conversations",
     "new",
@@ -384,18 +361,18 @@ async function escalate(
     PIPELINE_HINT,
     "--external-content",
     JSON.stringify({
-      total,
-      showing: digest.length,
-      accounts: totals,
-      inbox: digest.filter((e) => e.bucket === "inbox" || e.bucket === "both"),
-      sent: digest.filter((e) => e.bucket === "sent" || e.bucket === "both"),
-      messages: digest,
+      total: payload.delivered.length,
+      showing: payload.delivered.length,
+      pending: payload.pending,
+      followups: payload.followups,
+      inbox: payload.inbox,
+      messages: payload.delivered,
     }),
     "--json",
   ]);
   if (!wake.invoked) {
     throw new Error(
-      `wake skipped (${wake.reason ?? "unknown"}): digest of ${total} message(s) was not delivered`,
+      `wake skipped (${wake.reason ?? "unknown"}): digest of ${payload.delivered.length} message(s) was not delivered`,
     );
   }
   return conv.id;
@@ -414,115 +391,253 @@ function friendlyError(err: unknown): string {
 interface AccountResult {
   account: string;
   new: number;
+  followups: number;
+  pending: number;
   baselined?: boolean;
   rebaselined?: boolean;
   truncated?: boolean;
   error?: string;
 }
 
-async function syncAccount(
-  db: Database,
-  account: string | undefined,
-  lookbackSec: number,
-): Promise<{ result: AccountResult; entries: DigestEntry[] }> {
-  const profile = await getProfile(account);
-  const email = profile.emailAddress;
-  const stored = getAccountHistoryId(db, email);
+interface AccountSync {
+  email: string;
+  oauthAccount: string | undefined;
+  result: AccountResult;
+  inbox: DigestEntry[];
+  dueFollowups: FollowupCandidate[];
+  unbuiltIds: string[];
+}
 
-  if (!stored) {
-    let ids: string[] = [];
-    let truncated = false;
+async function syncAccount(
+  state: PollState,
+  oauthAccount: string | undefined,
+  lookbackSec: number,
+  nowMs: number,
+): Promise<AccountSync> {
+  const profile = await getProfile(oauthAccount);
+  const email = profile.emailAddress;
+  const account = accountState(state, email);
+  const nowSec = Math.floor(nowMs / 1000);
+  pruneReported(account, nowSec);
+
+  let ids: string[] = [];
+  let truncated = false;
+  let baselined = false;
+  let rebaselined = false;
+
+  if (!account.historyId) {
+    baselined = true;
+    account.historyId = profile.historyId;
     if (lookbackSec > 0) {
-      const since = Math.floor(Date.now() / 1000) - lookbackSec;
+      const since = Math.floor(nowMs / 1000) - lookbackSec;
       ({ ids, truncated } = await searchIds(
         `(in:inbox OR in:sent) after:${since}`,
-        account,
+        oauthAccount,
       ));
     }
-    commitAccount(db, email, profile.historyId, ids);
-    const built =
-      ids.length > 0 ? await buildDigestEntries(ids, account, email) : [];
-    const entries = built.filter((e) => isEscalatable(e.bucket));
-    return {
-      result: {
-        account: email,
-        new: entries.length,
-        baselined: true,
-        truncated,
-      },
-      entries,
-    };
-  }
-
-  let ids: string[];
-  let watermark: string;
-  let truncated = false;
-  let rebaselined = false;
-  try {
-    ({ ids, watermark, truncated } = await listHistoryIds(stored, account));
-  } catch (err) {
-    if (err instanceof GmailStatusError && err.status === 404) {
-      rebaselined = true;
-      watermark = profile.historyId;
-      ({ ids, truncated } = await searchIds(EXPIRY_CATCHUP_QUERY, account));
-    } else {
-      throw err;
+  } else {
+    let watermark = account.historyId;
+    try {
+      ({ ids, watermark, truncated } = await listHistoryIds(
+        account.historyId,
+        oauthAccount,
+      ));
+    } catch (err) {
+      if (err instanceof GmailStatusError && err.status === 404) {
+        rebaselined = true;
+        watermark = profile.historyId;
+        ({ ids, truncated } = await searchIds(
+          EXPIRY_CATCHUP_QUERY,
+          oauthAccount,
+        ));
+      } else {
+        throw err;
+      }
     }
+    account.historyId = watermark;
   }
 
-  const fresh = filterUnreported(db, email, ids);
-  commitAccount(db, email, watermark, fresh);
+  const fresh = filterUnreported(account, ids);
+  const workIds = uniqueIds([...account.pending, ...fresh]).filter(
+    (id) => account.reported[id] === undefined,
+  );
   const built =
-    fresh.length > 0 ? await buildDigestEntries(fresh, account, email) : [];
-  const entries = built.filter((e) => isEscalatable(e.bucket));
+    workIds.length > 0
+      ? await buildDigestEntries(workIds, oauthAccount, email)
+      : [];
+
+  const builtIds = new Set(built.map((entry) => entry.id));
+  const unbuiltIds = workIds.filter((id) => !builtIds.has(id));
+  const inbox = built.filter((entry) => isImmediateWork(entry.bucket));
+  const sent = built.filter((entry) => isSentCandidate(entry.bucket));
+  rememberFollowups(
+    account,
+    sent.map((entry) => ({
+      id: entry.id,
+      threadId: entry.threadId,
+      sentAt: entry.internalDate || nowMs,
+      subject: entry.subject,
+    })),
+  );
+  dropFollowups(
+    account,
+    expiredFollowups(account.followups, nowMs).map((row) => row.id),
+  );
+
+  const due: FollowupCandidate[] = [];
+  const replied: string[] = [];
+  for (const candidate of dueFollowups(account.followups, nowMs)) {
+    const latest = await latestThreadMessageId(
+      candidate.threadId,
+      oauthAccount,
+    );
+    if (latest !== candidate.id) {
+      replied.push(candidate.id);
+      continue;
+    }
+    due.push(candidate);
+  }
+  dropFollowups(account, replied);
+
   return {
-    result: { account: email, new: entries.length, truncated, rebaselined },
-    entries,
+    email,
+    oauthAccount,
+    result: {
+      account: email,
+      new: inbox.length,
+      followups: due.length,
+      pending: 0,
+      baselined,
+      rebaselined,
+      truncated,
+    },
+    inbox,
+    dueFollowups: due,
+    unbuiltIds,
   };
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {
   const { workspace, scheduleId } = workspaceEnv();
   const scheduleDir = `${workspace}/schedules/${scheduleId}`;
+  const stateDir = `${scheduleDir}/state`;
   const lookbackSec = parseLookbackFlag(argv);
   const accountFlags = flagValues(argv, "--account");
+  const nowMs = Date.now();
 
-  const db = openDb(`${scheduleDir}/state`);
   await ensureGitignore(scheduleDir);
+  const state = loadState(stateDir);
 
   const passes: Array<string | undefined> =
     accountFlags.length > 0 ? accountFlags : [undefined];
   const results: AccountResult[] = [];
-  const entries: DigestEntry[] = [];
+  const syncs: AccountSync[] = [];
   let anyError = false;
 
-  for (const account of passes) {
+  for (const oauthAccount of passes) {
     try {
-      const synced = await syncAccount(db, account, lookbackSec);
-      results.push(synced.result);
-      entries.push(...synced.entries);
+      const synced = await syncAccount(state, oauthAccount, lookbackSec, nowMs);
+      syncs.push(synced);
     } catch (err) {
       anyError = true;
       results.push({
-        account: account ?? "(default connection)",
+        account: oauthAccount ?? "(default connection)",
         new: 0,
+        followups: 0,
+        pending: 0,
         error: friendlyError(err),
       });
     }
   }
 
+  const inbox = syncs
+    .flatMap((row) => row.inbox)
+    .sort((a, b) => b.internalDate - a.internalDate);
+  const followupEntries: DigestEntry[] = syncs.flatMap((row) =>
+    row.dueFollowups.map((candidate) => ({
+      account: row.email,
+      id: candidate.id,
+      threadId: candidate.threadId,
+      from: "",
+      subject: candidate.subject,
+      date: new Date(candidate.sentAt).toISOString(),
+      snippet: "",
+      internalDate: candidate.sentAt,
+      bucket: "sent" as const,
+      kind: "followup" as const,
+    })),
+  );
+  const { delivered, overflowIds } = takeDigestSlice(
+    followupEntries,
+    inbox,
+    DIGEST_CAP,
+  );
+  const overflow = new Set(overflowIds);
+  const deliveredIds = new Set(delivered.map((entry) => entry.id));
+
+  for (const synced of syncs) {
+    const account = accountState(state, synced.email);
+    const accountOverflow = synced.inbox
+      .map((entry) => entry.id)
+      .filter((id) => overflow.has(id));
+    const accountDelivered = synced.inbox
+      .map((entry) => entry.id)
+      .filter((id) => deliveredIds.has(id))
+      .concat(
+        synced.dueFollowups
+          .map((row) => row.id)
+          .filter((id) => deliveredIds.has(id)),
+      );
+    account.pending = uniqueIds([
+      ...accountDelivered,
+      ...accountOverflow,
+      ...synced.unbuiltIds,
+    ]);
+    synced.result.pending = accountOverflow.length + synced.unbuiltIds.length;
+    results.push(synced.result);
+  }
+  saveState(stateDir, state);
+
   let conversationId: string | undefined;
-  if (shouldEscalate(entries)) {
-    const totals = results
-      .filter((r) => r.new > 0)
-      .map((r) => ({ account: r.account, new: r.new }));
-    conversationId = await escalate(entries, totals);
+  if (delivered.length > 0) {
+    try {
+      conversationId = await escalate({
+        delivered,
+        followups: delivered.filter((entry) => entry.kind === "followup"),
+        inbox: delivered.filter((entry) => entry.kind === "new"),
+        pending: overflowIds.length,
+      });
+      const nowSec = Math.floor(nowMs / 1000);
+      for (const synced of syncs) {
+        const account = accountState(state, synced.email);
+        const deliveredForAccount = delivered
+          .filter((entry) => entry.account === synced.email)
+          .map((entry) => entry.id);
+        markReported(account, deliveredForAccount, nowSec);
+        account.pending = account.pending.filter(
+          (id) => !deliveredForAccount.includes(id),
+        );
+        dropFollowups(
+          account,
+          deliveredForAccount.filter((id) =>
+            synced.dueFollowups.some((row) => row.id === id),
+          ),
+        );
+        pruneReported(account, nowSec);
+      }
+      saveState(stateDir, state);
+    } catch (err) {
+      anyError = true;
+      console.error(friendlyError(err));
+    }
   }
 
   console.log(
     JSON.stringify({
       ok: !anyError,
       new: results.reduce((n, r) => n + r.new, 0),
+      followups: results.reduce((n, r) => n + r.followups, 0),
+      pending: results.reduce((n, r) => n + r.pending, 0),
       accounts: results,
       conversationId,
     }),
