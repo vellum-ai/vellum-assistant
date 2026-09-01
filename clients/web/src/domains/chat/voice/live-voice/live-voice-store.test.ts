@@ -21,6 +21,7 @@ import {
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
+  RECLAIM_SETTLE_DELAY_MS,
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
   setLiveVoiceMuted,
@@ -40,7 +41,9 @@ beforeEach(() => {
   useLiveVoiceStore.getState().setStarter(null);
   // It preserves the reclaim queue for the same kind of reason (a cleanup duty
   // that must outlive the session), so that needs draining here too.
-  useLiveVoiceStore.getState().takeSightFramesToReclaim();
+  useLiveVoiceStore
+    .getState()
+    .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
 });
 
 function makeStarter() {
@@ -783,6 +786,61 @@ describe("sight frame refusals", () => {
     expect(reclaimed()).toEqual(["att-1"]);
   });
 
+  test("reset-routed reclaims wait, refusal-routed ones do not", () => {
+    // A refusal means the assistant is done with the frame. A reset means
+    // nobody answered, and the daemon may still be about to persist it, so
+    // that one waits for the link-aware delete to be able to tell them apart.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-refused", generation);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    // Recorded directly: the latch refuses further sends, and what matters
+    // here is a ledger entry nobody answered for sitting beside a refused one.
+    useLiveVoiceStore.getState().noteSightFrameSent("att-unanswered");
+
+    useLiveVoiceStore.getState().reset();
+
+    const queue = useLiveVoiceStore.getState().sightFramesToReclaim;
+    expect(queue.find((e) => e.attachmentId === "att-refused")?.notBefore).toBe(
+      undefined,
+    );
+    expect(
+      queue.find((e) => e.attachmentId === "att-unanswered")?.notBefore,
+    ).toBeGreaterThan(Date.now());
+  });
+
+  test("taking leaves behind what is not due yet", () => {
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset();
+
+    const takenEarly = useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Date.now());
+
+    expect(takenEarly).toEqual([]);
+    expect(reclaimed()).toEqual(["att-1"]);
+
+    const takenLate = useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Date.now() + RECLAIM_SETTLE_DELAY_MS + 1);
+
+    expect(takenLate.map((e) => e.attachmentId)).toEqual(["att-1"]);
+    expect(reclaimed()).toEqual([]);
+  });
+
+  test("a take with nothing due leaves the queue's identity alone", () => {
+    // The reclaimer keys on this array, so a no-op take that handed back a new
+    // one would wake it in a loop.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    useLiveVoiceStore.getState().reset();
+    const before = useLiveVoiceStore.getState().sightFramesToReclaim;
+
+    useLiveVoiceStore.getState().takeDueSightFrameReclaims(Date.now());
+
+    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toBe(before);
+  });
+
   test("a reconnect queues the sends nobody acknowledged", () => {
     // Reaching the transport says nothing about persistence. A socket that
     // closes between the send and the write takes the frame with it, and the
@@ -872,7 +930,9 @@ describe("sight frame refusals", () => {
     sendLiveVoiceSightFrame("att-1", generation);
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
-    const taken = useLiveVoiceStore.getState().takeSightFramesToReclaim();
+    const taken = useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
 
     expect(taken).toEqual([
       { assistantId: "asst_sight", attachmentId: "att-1" },
@@ -884,14 +944,18 @@ describe("sight frame refusals", () => {
     const { generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
-    useLiveVoiceStore.getState().takeSightFramesToReclaim();
+    useLiveVoiceStore
+      .getState()
+      .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
 
     useLiveVoiceStore.getState().noteSightFrameSent("att-2");
     useLiveVoiceStore.getState().noteSightFrameRefused(true);
 
-    expect(useLiveVoiceStore.getState().takeSightFramesToReclaim()).toEqual([
-      { assistantId: "asst_sight", attachmentId: "att-2" },
-    ]);
+    expect(
+      useLiveVoiceStore
+        .getState()
+        .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER),
+    ).toEqual([{ assistantId: "asst_sight", attachmentId: "att-2" }]);
   });
 });
 

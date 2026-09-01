@@ -178,7 +178,9 @@ beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   // The reclaim queue is deliberately not session state, and a reset now feeds
   // it the sends nobody acknowledged, so it has to be drained between cases.
-  useLiveVoiceStore.getState().takeSightFramesToReclaim();
+  useLiveVoiceStore
+    .getState()
+    .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
   controls = makeControlsSpies();
   seedLiveVoiceSession("listening", {
     assistantId: ASSISTANT_ID,

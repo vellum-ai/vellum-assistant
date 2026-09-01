@@ -6,7 +6,16 @@
  * deleting, which is one call to a faked API.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { useEffect } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
@@ -16,7 +25,7 @@ const deleteChatAttachment = mock(
 mock.module("@/domains/chat/api/messages", () => ({ deleteChatAttachment }));
 
 const { useSightFrameReclaimer } = await import("./use-sight-frame-reclaimer");
-const { useLiveVoiceStore, sendLiveVoiceSightFrame } =
+const { useLiveVoiceStore, sendLiveVoiceSightFrame, RECLAIM_SETTLE_DELAY_MS } =
   await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
   await import("./live-voice-fakes.test-helper");
@@ -37,12 +46,42 @@ function startSession() {
 beforeEach(() => {
   deleteChatAttachment.mockClear();
   useLiveVoiceStore.getState().reset();
-  useLiveVoiceStore.getState().takeSightFramesToReclaim();
+  useLiveVoiceStore
+    .getState()
+    .takeDueSightFrameReclaims(Number.MAX_SAFE_INTEGER);
 });
 
 afterEach(() => {
   cleanup();
+  setSystemTime();
+  jest.useRealTimers();
 });
+
+/**
+ * Run `body` on a clock this test owns.
+ *
+ * Scoped rather than global: fake timers freeze the ordinary `setTimeout(0)`
+ * settles the other cases wait on, so only the cases about the delay take
+ * them, and those settle with microtasks alone.
+ */
+async function onAFakeClock(
+  body: (advanceBy: (ms: number) => void) => Promise<void>,
+): Promise<void> {
+  const base = new Date("2026-09-01T00:00:00Z");
+  setSystemTime(base);
+  jest.useFakeTimers();
+  let elapsed = 0;
+  try {
+    await body((ms) => {
+      elapsed += ms;
+      setSystemTime(new Date(base.getTime() + elapsed));
+      jest.advanceTimersByTime(ms);
+    });
+  } finally {
+    jest.useRealTimers();
+    setSystemTime();
+  }
+}
 
 describe("useSightFrameReclaimer", () => {
   test("gives back an upload the assistant refused but never stored", async () => {
@@ -141,36 +180,102 @@ describe("useSightFrameReclaimer", () => {
     expect(generation).toBe(useLiveVoiceStore.getState().sessionGeneration);
   });
 
-  test("drains the sends a reconnect left unacknowledged", async () => {
-    // The end-to-end of the reset routing: the socket closed after the frames
-    // went out, nobody ever said whether they landed, and the drain runs at
-    // session scope so a minimized room changes nothing.
-    const generation = startSession();
-    renderHook(() => useSightFrameReclaimer());
-    sendLiveVoiceSightFrame("att-1", generation);
-    sendLiveVoiceSightFrame("att-2", generation);
+  test("holds a reconnect's unacknowledged sends until they settle", async () => {
+    // The daemon persists one image at a time per conversation, so a keep can
+    // still be queued behind another when the socket closes. Deleting straight
+    // away would make its persist find nothing and drop a frame that was going
+    // to land, with no open socket left to say so.
+    await onAFakeClock(async (advanceBy) => {
+      const generation = startSession();
+      renderHook(() => useSightFrameReclaimer());
+      sendLiveVoiceSightFrame("att-1", generation);
+      sendLiveVoiceSightFrame("att-2", generation);
 
-    await act(async () => {
-      useLiveVoiceStore.getState().reset({ sessionContinues: true });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await act(async () => {
+        useLiveVoiceStore.getState().reset({ sessionContinues: true });
+        await Promise.resolve();
+      });
+
+      expect(deleteChatAttachment).not.toHaveBeenCalled();
+      expect(useLiveVoiceStore.getState().sightFramesToReclaim).toHaveLength(2);
+
+      // Once the daemon has had its time, the link-aware delete decides: a
+      // frame that persisted meanwhile is refused, one that was lost is
+      // collected.
+      await act(async () => {
+        advanceBy(RECLAIM_SETTLE_DELAY_MS + 1_000);
+        await Promise.resolve();
+      });
+
+      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
+      expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
     });
-
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
-    expect(useLiveVoiceStore.getState().sightFramesToReclaim).toEqual([]);
   });
 
-  test("drains them after a terminal reset too", async () => {
-    const generation = startSession();
-    renderHook(() => useSightFrameReclaimer());
-    sendLiveVoiceSightFrame("att-1", generation);
+  test("holds a terminal reset's the same way", async () => {
+    await onAFakeClock(async (advanceBy) => {
+      const generation = startSession();
+      renderHook(() => useSightFrameReclaimer());
+      sendLiveVoiceSightFrame("att-1", generation);
 
-    await act(async () => {
-      useLiveVoiceStore.getState().reset();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await act(async () => {
+        useLiveVoiceStore.getState().reset();
+        await Promise.resolve();
+      });
+      expect(deleteChatAttachment).not.toHaveBeenCalled();
+
+      await act(async () => {
+        advanceBy(RECLAIM_SETTLE_DELAY_MS + 1_000);
+        await Promise.resolve();
+      });
+
+      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
     });
+  });
 
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+  test("stops arming once the queue is empty", async () => {
+    await onAFakeClock(async (advanceBy) => {
+      const generation = startSession();
+      renderHook(() => useSightFrameReclaimer());
+      sendLiveVoiceSightFrame("att-1", generation);
+      await act(async () => {
+        useLiveVoiceStore.getState().reset();
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        advanceBy(RECLAIM_SETTLE_DELAY_MS + 1_000);
+        await Promise.resolve();
+      });
+      expect(deleteChatAttachment).toHaveBeenCalledTimes(1);
+
+      // Nothing is queued, so nothing is waiting to fire: running the clock on
+      // must not re-issue the delete this already made.
+      await act(async () => {
+        advanceBy(RECLAIM_SETTLE_DELAY_MS * 4);
+        await Promise.resolve();
+      });
+
+      expect(deleteChatAttachment).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("a refusal-routed reclaim does not wait", async () => {
+    // The assistant answered for these and reclaimed its own side, so there is
+    // nothing left to settle and no reason to hold them.
+    await onAFakeClock(async () => {
+      const generation = startSession();
+      renderHook(() => useSightFrameReclaimer());
+      sendLiveVoiceSightFrame("att-1", generation);
+
+      await act(async () => {
+        useLiveVoiceStore.getState().noteSightFrameRefused(true);
+        await Promise.resolve();
+      });
+
+      expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    });
   });
 
   test("a routine refusal queues nothing to delete", async () => {

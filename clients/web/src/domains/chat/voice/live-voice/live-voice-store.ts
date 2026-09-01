@@ -595,7 +595,8 @@ export interface LiveVoiceActions {
     attachmentId?: string | null,
   ) => void;
   /**
-   * Remove every queued reclaim and hand it back, in one state transition.
+   * Remove the reclaims whose time has come and hand them back, in one state
+   * transition. Entries still waiting on their `notBefore` stay queued.
    *
    * The only way to empty the queue, deliberately. A clear that did not return
    * what it removed could drop an entry queued between a consumer reading the
@@ -603,13 +604,16 @@ export interface LiveVoiceActions {
    * deletes. Taking makes the invariant structural: whatever leaves the queue
    * is in the caller's hands, and whatever arrives after a take is still
    * queued for the next one.
+   *
+   * Leaves the state untouched when nothing is due, so a consumer keyed on the
+   * queue is not woken by its own no-op.
    */
-  takeSightFramesToReclaim: () => readonly SightFrameReclaim[];
+  takeDueSightFrameReclaims: (now: number) => readonly SightFrameReclaim[];
   /**
    * Remove every queued retraction and hand it back, in one state transition.
    *
    * The only way to empty it, for the same reason
-   * {@link takeSightFramesToReclaim} is: a clear that did not return what it
+   * {@link takeDueSightFrameReclaims} is: a clear that did not return what it
    * removed could drop a retraction queued between a consumer reading the list
    * and acting on it, and the surface would go on showing a frame that never
    * reached the transcript.
@@ -686,7 +690,38 @@ export interface LiveVoiceActions {
 export interface SightFrameReclaim {
   readonly assistantId: string;
   readonly attachmentId: string;
+  /**
+   * Epoch milliseconds before which this must not be deleted, when it has to
+   * wait at all. See {@link RECLAIM_SETTLE_DELAY_MS}.
+   */
+  readonly notBefore?: number;
 }
+
+/**
+ * How long a reset-routed reclaim waits before the delete goes out.
+ *
+ * A refusal-routed reclaim needs no wait: the assistant answered, so it is
+ * done with the frame. A reset-routed one is the opposite, an id nobody
+ * answered for, and the assistant may still be about to persist it. Its
+ * persists run one at a time per conversation, and a job that has not started
+ * has not yet read the attachment, so deleting immediately would make the
+ * daemon find nothing and drop a frame that was going to land, with no open
+ * socket left to say so.
+ *
+ * Waiting instead lets the daemon finish and hands the decision to the
+ * link-aware delete it already has: a frame that persisted in the meantime is
+ * refused, and one that was genuinely lost is collected. The ceiling to cover
+ * is the job ahead burning its own lock wait (`PROCESSING_WAIT_MS`, 30s in
+ * `assistant/src/live-voice/live-voice-photo.ts`) plus this job's, plus the
+ * persist itself. 90s covers that with margin.
+ *
+ * Accepted residue: an app quit before the wait elapses leaves those uploads
+ * unreclaimed, which is exactly where they stood before any of this, bounded
+ * by the ledger cap, and a later session cannot take them on because the
+ * queue names the assistant and session that held them, so they age out with
+ * the conversation.
+ */
+export const RECLAIM_SETTLE_DELAY_MS = 90_000;
 
 /**
  * How many kept frames the outstanding ledger remembers, and how many pruned
@@ -874,9 +909,16 @@ function queueUnacknowledgedSightFrames(
   if (assistantId === null || unacknowledged.length === 0) {
     return state.sightFramesToReclaim;
   }
+  // Not before the daemon has had time to finish whatever it still had queued
+  // for this conversation. See {@link RECLAIM_SETTLE_DELAY_MS}.
+  const notBefore = Date.now() + RECLAIM_SETTLE_DELAY_MS;
   return mergeSightFrameReclaims(
     state.sightFramesToReclaim,
-    unacknowledged.map((attachmentId) => ({ assistantId, attachmentId })),
+    unacknowledged.map((attachmentId) => ({
+      assistantId,
+      attachmentId,
+      notBefore,
+    })),
   );
 }
 
@@ -990,13 +1032,23 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
             : s.sightFrameRetractions,
       };
     }),
-  takeSightFramesToReclaim: () => {
+  takeDueSightFrameReclaims: (now) => {
     let taken: readonly SightFrameReclaim[] = [];
-    // Read and emptied inside one updater, so nothing can be appended between
+    // Read and split inside one updater, so nothing can be appended between
     // the two halves.
     set((s) => {
-      taken = s.sightFramesToReclaim;
-      return { sightFramesToReclaim: [] };
+      const due = s.sightFramesToReclaim.filter(
+        (entry) => entry.notBefore === undefined || entry.notBefore <= now,
+      );
+      if (due.length === 0) {
+        return {};
+      }
+      taken = due;
+      return {
+        sightFramesToReclaim: s.sightFramesToReclaim.filter(
+          (entry) => entry.notBefore !== undefined && entry.notBefore > now,
+        ),
+      };
     });
     return taken;
   },
