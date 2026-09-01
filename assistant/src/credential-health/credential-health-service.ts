@@ -78,6 +78,13 @@ export type CredentialHealthStatus =
 export interface CredentialHealthResult {
   connectionId: string;
   provider: string;
+  /**
+   * Reader-facing name for the credential, when its provider id is not one.
+   * Set only where the id names the vendor rather than the thing that broke,
+   * so notification copy and the detail card read the same name from one
+   * source instead of each keeping a literal.
+   */
+  displayName?: string;
   accountInfo: string | null;
   status: CredentialHealthStatus;
   details: string;
@@ -631,6 +638,13 @@ async function checkManagedProvider(
 export const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
 
 /**
+ * Reader-facing name for the managed credential. Its provider id is the
+ * vendor, not the capability that stops working, so every surface that names
+ * it to a person reads this instead.
+ */
+export const MANAGED_INFERENCE_DISPLAY_NAME = "Vellum managed inference";
+
+/**
  * Health of the platform-provisioned assistant API key, the credential that
  * authenticates Vellum-managed inference.
  *
@@ -658,6 +672,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
   > = {
     connectionId: ASSISTANT_API_KEY_CONNECTION_ID,
     provider: "vellum",
+    displayName: MANAGED_INFERENCE_DISPLAY_NAME,
     accountInfo: null,
     missingScopes: [],
   };

@@ -85,6 +85,11 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
     );
   }
 
+  // The producer names the credential when its provider id would not read as
+  // one to a person (the Vellum-managed inference credential, whose id is the
+  // vendor). Falls back to the id, which is the product name for every OAuth
+  // connection.
+  const providerLabel = (metadata?.providerLabel as string) || provider;
   const accountInfo = (metadata?.accountInfo as string) ?? null;
   const status = (metadata?.status as string) ?? "unreachable";
   const statusKey = statusLabelKey(status);
@@ -96,7 +101,7 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
       <Typography variant="title-small" as="h3">
-        {provider}
+        {providerLabel}
       </Typography>
 
       {accountInfo ? (

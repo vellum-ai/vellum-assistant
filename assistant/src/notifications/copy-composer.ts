@@ -184,6 +184,9 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
    */
   "credential.health_alert": (payload) => {
     const provider = sanitizedPayloadField(payload.provider, "an account");
+    // The producer names the credential when its provider id would not read
+    // as one, so the name here is never a second literal to keep in step.
+    const label = sanitizedPayloadField(payload.providerLabel, provider);
     // `details` is a sentence, not an identity field, so it goes through the
     // preview sanitizer that keeps prose intact.
     const details =
@@ -204,11 +207,11 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     return {
       title:
         status === "missing_scopes"
-          ? `New permissions needed: ${provider}`
-          : `Reconnect needed: ${provider}`,
+          ? `New permissions needed: ${label}`
+          : `Reconnect needed: ${label}`,
       body:
         details ??
-        `The credential for ${provider} is no longer valid, so work that needs it is paused.`,
+        `The credential for ${label} is no longer valid, so work that needs it is paused.`,
     };
   },
 

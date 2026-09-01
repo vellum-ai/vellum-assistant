@@ -742,6 +742,7 @@ export class HeartbeatService {
       connectionId: string;
       provider: string;
       accountInfo: string | null;
+      displayName?: string;
       status: string;
       details: string;
       missingScopes: string[];
@@ -779,6 +780,12 @@ export class HeartbeatService {
           },
           contextPayload: {
             provider: result.provider,
+            // Reader-facing name when the provider id is not one. Carried so
+            // the notification copy and the detail card name the credential
+            // identically without either keeping its own literal.
+            ...(result.displayName !== undefined
+              ? { providerLabel: result.displayName }
+              : {}),
             accountInfo: result.accountInfo,
             status: result.status,
             details: result.details,

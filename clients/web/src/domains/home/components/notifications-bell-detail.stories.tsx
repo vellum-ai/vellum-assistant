@@ -68,6 +68,38 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
+ * A rejected Vellum-managed inference credential, opened.
+ *
+ * The credential card is what the panel renders for `credential.health_alert`:
+ * the credential's name, a status dot in the negative tone for a revoked
+ * credential, and the health check's own sentence about what happens next.
+ * The heading reads the producer-supplied name rather than the provider id,
+ * which for this credential is the vendor and not the thing that stopped.
+ */
+export const ManagedInferenceCredentialRejected: Story = {
+  args: {
+    entityLinks: [],
+    item: feedItem({
+      id: "credential-health-vellum",
+      title: "Vellum inference interrupted",
+      summary:
+        "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+      category: "security",
+      urgency: "high",
+      detailPanel: { kind: "toolPermission" },
+      metadata: {
+        provider: "vellum",
+        providerLabel: "Vellum managed inference",
+        status: "revoked",
+        details:
+          "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+        missingScopes: [],
+      },
+    }),
+  },
+};
+
+/**
  * A background pass rewrote a skill the user already had. The notification
  * names the skill in its title but cannot show it, so the footer carries a
  * link to it next to the jump back to the conversation the change came from.
