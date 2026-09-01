@@ -2251,7 +2251,6 @@ jobs:
 
   release-windows:
     needs: [compute-version, register-release, build-chrome-extension]
-    if: vars.WINDOWS_DEV_RELEASE_ENABLED == 'true'
     permissions:
       contents: read
       id-token: write
