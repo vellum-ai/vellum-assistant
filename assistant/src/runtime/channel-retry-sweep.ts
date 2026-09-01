@@ -494,6 +494,16 @@ export async function sweepFailedEvents(
         sourceMetadata,
         externalMessageId,
       });
+    // Empty strings fall through to the username, mirroring the live
+    // `actorDisplayName ?? actorUsername` derivation (`"" ?? x` would not).
+    const storedSenderName =
+      typeof payload.senderName === "string" && payload.senderName
+        ? payload.senderName
+        : undefined;
+    const storedSenderUsername =
+      typeof payload.senderUsername === "string" && payload.senderUsername
+        ? payload.senderUsername
+        : undefined;
     const replayChannelInbound =
       parseStoredChannelInbound(payload.channelInbound) ??
       buildReplayChannelInbound({
@@ -501,13 +511,7 @@ export async function sweepFailedEvents(
         externalChatId,
         sourceMetadata,
         externalMessageId,
-        senderDisplayName:
-          (typeof payload.senderName === "string" && payload.senderName
-            ? payload.senderName
-            : undefined) ??
-          (typeof payload.senderUsername === "string" && payload.senderUsername
-            ? payload.senderUsername
-            : undefined),
+        senderDisplayName: storedSenderName ?? storedSenderUsername,
         actorExternalId: trustContext.requesterExternalUserId,
       });
     // The captured `slackInbound` carries the sender's Slack `app_context`, so
