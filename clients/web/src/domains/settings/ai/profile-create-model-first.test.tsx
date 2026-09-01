@@ -11,6 +11,8 @@
  *
  * Coverage:
  *  - flag off leaves the provider-first flow exactly as it was,
+ *  - the model list is inline in the dialog, and collapses to what it was
+ *    answered with,
  *  - one model row per model, annotated with who serves it,
  *  - a single connected route is stated rather than offered,
  *  - several routes become cards, connected ones first and pre-selected,
@@ -25,11 +27,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-
-import {
-  SEARCHABLE_SELECT_MENU_MIN_REACH,
-  SEARCHABLE_SELECT_MENU_REACH,
-} from "@vellumai/design-library/components/searchable-select";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
@@ -152,7 +149,7 @@ function renderCreate(
   return saveCalls;
 }
 
-/** The field stack, which is where the dialog's reserve for the list sits. */
+/** The field stack, which is the whole of what the dialog's body holds. */
 function fieldStack(): HTMLElement {
   const stack = document.querySelector<HTMLElement>(
     '[data-testid="model-first-fields"]',
@@ -163,14 +160,24 @@ function fieldStack(): HTMLElement {
   return stack;
 }
 
-function modelField(): HTMLInputElement {
-  const field = document.querySelector<HTMLInputElement>(
+/** The search field of the inline list, present exactly while the list is. */
+function findModelField(): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>(
     'input[role="combobox"][aria-label="Model"]',
   );
+}
+
+function modelField(): HTMLInputElement {
+  const field = findModelField();
   if (!field) {
     throw new Error("expected the Model field");
   }
   return field;
+}
+
+/** The line the list collapses to once it has been answered. */
+function pickedModel(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-testid="picked-model"]');
 }
 
 /** An option row's label, excluding any right-aligned suffix meta. */
@@ -182,8 +189,15 @@ function optionLabel(option: Element): string {
   ).trim();
 }
 
+/**
+ * Put the list back on screen. It is there of its own accord until a model
+ * answers it, after which the line it collapsed to is what reopens it.
+ */
 function openModelList(): void {
-  fireEvent.focus(modelField());
+  if (findModelField()) {
+    return;
+  }
+  fireEvent.click(getButton("Change"));
 }
 
 function modelRows(): { label: string; meta: string }[] {
@@ -255,6 +269,17 @@ function clickModelOption(label: string): void {
 function selectModel(label: string): void {
   searchModels(label);
   clickModelOption(label);
+}
+
+/** The provider-first dropdown's trigger, which only the flag-off flow has. */
+function providerTrigger(): HTMLButtonElement {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
+  );
+  if (!trigger) {
+    throw new Error("expected the Provider dropdown trigger");
+  }
+  return trigger;
 }
 
 function candidateCards(): HTMLElement[] {
@@ -513,39 +538,53 @@ describe("the model list", () => {
   });
 });
 
-describe("the room the dialog keeps for the open list", () => {
-  test("is reserved while the Model field is the whole of it", () => {
+describe("the list in the dialog", () => {
+  test("is on screen with nothing opened, and reserves no room", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    // The list is portaled, so the dialog holds it only because the stack
-    // under the field says how far it reaches.
-    expect(
-      Number.parseInt(fieldStack().style.minHeight, 10),
-    ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_REACH);
+    // Nothing is clicked first: the list is the question, so it is already
+    // there. Being in the dialog rather than over it, it also asks the dialog
+    // for no height it is not using.
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+    expect(fieldStack().style.minHeight).toBe("");
   });
 
-  test("still stands once a model answers the question", () => {
+  test("stands down to the model it was answered with", () => {
     renderCreate([makeConnection("gemini-key", "gemini")]);
 
     selectModel("Gemini 3.6 Flash");
 
-    // The field outlives the question, so the list can be reopened over
-    // whatever the answer put under it. A sole connected route is the
-    // shortest of those, and giving the room back here is what let a
-    // reopened list cover the dialog's own footer.
+    // The rows give the dialog its height back, so the provider step and
+    // Advanced are reachable without scrolling past a list nobody is reading.
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(pickedModel()?.textContent).toContain("Gemini 3.6 Flash");
     expect(candidateCards().length).toBe(1);
-    expect(
-      Number.parseInt(fieldStack().style.minHeight, 10),
-    ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_MIN_REACH);
   });
 
-  test("is given back to the custom id, which has no list to open", () => {
+  test("comes back on Change, marking the model it stood down to", () => {
+    renderCreate([makeConnection("gemini-key", "gemini")]);
+
+    selectModel("Gemini 3.6 Flash");
+    fireEvent.click(getButton("Change"));
+
+    expect(pickedModel()).toBeNull();
+    const chosen = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.getAttribute("aria-selected") === "true");
+    expect(chosen === undefined ? "" : optionLabel(chosen)).toBe(
+      "Gemini 3.6 Flash",
+    );
+  });
+
+  test("gives way to free text on the custom id, and takes it back", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    openModelList();
     clickModelOption("Enter a custom model ID…");
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(hasInputWithPlaceholder("provider/model-id")).toBe(true);
 
-    expect(fieldStack().style.minHeight).toBe("");
+    fireEvent.click(getButton("Choose from list"));
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
   });
 });
 
@@ -611,6 +650,29 @@ describe("the provider step", () => {
     });
     expect(saveCalls[0].entry.provider).toBe("openrouter");
     expect(saveCalls[0].entry.model).toBe("anthropic/claude-opus-5");
+  });
+
+  test("calls the Vellum route Recommended, which only this flow does", () => {
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+
+    selectModel("Claude Opus 5");
+
+    // The question here is which route to send a model through, and for
+    // someone who has connected nothing else that route is the answer.
+    expect(candidateCard("vellum").textContent).toContain("Recommended");
+    expect(candidateCard("vellum").textContent).not.toContain("Managed");
+
+    // The provider-first picker asks which provider to use, where the same
+    // entry means what it has always meant. The two must not be unified.
+    cleanup();
+    setModelFirstFlag(false);
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    fireEvent.click(providerTrigger());
+    const vellumRow = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => optionLabel(option) === "Vellum");
+    expect(vellumRow?.textContent).toContain("Managed");
+    expect(vellumRow?.textContent).not.toContain("Recommended");
   });
 
   test("names the key a route with siblings would use", () => {
