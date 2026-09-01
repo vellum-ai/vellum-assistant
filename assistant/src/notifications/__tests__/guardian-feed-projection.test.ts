@@ -138,16 +138,6 @@ describe("buildPendingGuardianProjection", () => {
     expect(projection?.sourceContextLabel).toBe("#user-feedback");
   });
 
-  test("a sent Slack delivery yields the card deep link", () => {
-    const projection = buildPendingGuardianProjection(toolApprovalPayload, {
-      channel: "slack",
-      destination: "D0AAAAAAAAA",
-      status: "sent",
-      messageId: "1725100000.000100",
-    });
-    expect(projection?.slackCardUrl).toContain("D0AAAAAAAAA");
-  });
-
   test("a payload without a requestId projects nothing", () => {
     expect(
       buildPendingGuardianProjection({ requestKind: "tool_approval" }),
@@ -162,7 +152,6 @@ describe("buildPendingGuardianProjection", () => {
         sourceChannel: "telegram",
         senderIdentifier: "Alice",
       },
-      undefined,
       "access_request",
     );
     expect(projection).toMatchObject({

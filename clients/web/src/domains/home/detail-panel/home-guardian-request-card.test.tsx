@@ -148,9 +148,9 @@ describe("HomeGuardianRequestCard", () => {
           item: guardianItem(projection),
         }),
       );
-      expect(screen.getByTestId("guardian-request-receipt").textContent).toBe(
-        expected,
-      );
+      expect(
+        screen.getByTestId("guardian-request-receipt").textContent,
+      ).toContain(expected);
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
       // A settled request states the decision in the past tense. Only the

@@ -13792,10 +13792,6 @@ paths:
                               type: string
                             sourceUrl:
                               type: string
-                            slackCardUrl:
-                              type: string
-                            slackCardAppUrl:
-                              type: string
                             decidedAction:
                               type: string
                             decidedAt:
@@ -14030,10 +14026,6 @@ paths:
                       sourceContextLabel:
                         type: string
                       sourceUrl:
-                        type: string
-                      slackCardUrl:
-                        type: string
-                      slackCardAppUrl:
                         type: string
                       decidedAction:
                         type: string
@@ -14363,10 +14355,6 @@ paths:
                             sourceContextLabel:
                               type: string
                             sourceUrl:
-                              type: string
-                            slackCardUrl:
-                              type: string
-                            slackCardAppUrl:
                               type: string
                             decidedAction:
                               type: string
@@ -22998,10 +22986,6 @@ paths:
                           sourceContextLabel:
                             type: string
                           sourceUrl:
-                            type: string
-                          slackCardUrl:
-                            type: string
-                          slackCardAppUrl:
                             type: string
                           decidedAction:
                             type: string

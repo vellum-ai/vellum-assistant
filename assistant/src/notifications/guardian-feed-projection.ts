@@ -28,13 +28,11 @@ import {
   type GuardianRequestWire,
   listGuardianRequests,
 } from "../channels/gateway-guardian-requests.js";
-import { getConfig } from "../config/loader.js";
 import {
   appendFeedItem,
   patchFeedItemContent,
   readHomeFeed,
 } from "../home/feed-writer.js";
-import { buildSlackMessageDeepLinks } from "../messaging/providers/slack/deep-link.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildToolApprovalSourceView,
@@ -46,7 +44,6 @@ import {
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
 import { readPayloadString } from "./notification-utils.js";
-import type { NotificationDeliveryResult } from "./types.js";
 
 const log = getLogger("guardian-feed-projection");
 
@@ -92,15 +89,9 @@ export function requestIdFromGuardianFeedItemId(itemId: string): string | null {
  * Build the pending `guardianRequest` projection for a `guardian.question`
  * signal's feed item. Returns null when the payload does not carry the
  * request id the projection is keyed by.
- *
- * `slackDelivery` is the signal's Slack delivery outcome, when one
- * shipped: its destination chat + message ts locate the guardian-DM
- * approval card, and the derived deep links are what the client's
- * "Open in Slack" affordance opens.
  */
 export function buildPendingGuardianProjection(
   contextPayload: unknown,
-  slackDelivery?: NotificationDeliveryResult,
   fallbackKind?: GuardianQuestionRequestKind,
 ): FeedItemGuardianRequest | null {
   // Access-request payloads predate the kind registry and carry no
@@ -128,7 +119,6 @@ export function buildPendingGuardianProjection(
   );
 
   const sourceView = buildToolApprovalSourceView(payload);
-  const slackLinks = buildSlackCardLinks(slackDelivery);
   // Access-request payloads name their requester differently.
   const requesterLabel =
     payload.requesterIdentifier?.trim() ||
@@ -147,8 +137,6 @@ export function buildPendingGuardianProjection(
       ? { sourceContextLabel: describeApprovalSourceContext(sourceView) }
       : {}),
     ...(sourceView?.permalink ? { sourceUrl: sourceView.permalink } : {}),
-    ...(slackLinks?.webUrl ? { slackCardUrl: slackLinks.webUrl } : {}),
-    ...(slackLinks?.appUrl ? { slackCardAppUrl: slackLinks.appUrl } : {}),
   };
 }
 
@@ -175,27 +163,6 @@ function describeApprovalSourceContext(view: ToolApprovalSourceView): string {
     return describeSlackChatLabel(view) || view.channel;
   }
   return view.channel;
-}
-
-/** Deep links to the Slack guardian-DM approval card, when one shipped. */
-function buildSlackCardLinks(
-  slackDelivery?: NotificationDeliveryResult,
-): { appUrl?: string; webUrl?: string } | undefined {
-  if (
-    !slackDelivery ||
-    slackDelivery.status !== "sent" ||
-    !slackDelivery.destination ||
-    !slackDelivery.messageId
-  ) {
-    return undefined;
-  }
-  const slackConfig = getConfig().slack;
-  return buildSlackMessageDeepLinks({
-    teamId: slackConfig?.teamId,
-    teamUrl: slackConfig?.teamUrl,
-    channelId: slackDelivery.destination,
-    messageTs: slackDelivery.messageId,
-  });
 }
 
 export interface GuardianFeedReceiptParams {

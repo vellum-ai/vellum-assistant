@@ -12,8 +12,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NotificationsBellList } from "@/domains/home/components/notifications-bell-list";
 import { feedItem } from "@/domains/home/feed-test-fixtures";
 
-/** The bell's own content budget: five compact cards plus their gaps. */
-const PANEL_LIST_MAX_HEIGHT = "397px";
+import { PANEL_CONTENT_HEIGHT } from "./notifications-bell";
 
 const UPDATES = [
   feedItem({
@@ -71,7 +70,7 @@ const meta = {
   component: NotificationsBellList,
   parameters: { layout: "padded" },
   args: {
-    maxHeight: PANEL_LIST_MAX_HEIGHT,
+    maxHeight: PANEL_CONTENT_HEIGHT,
     onSelect: () => {},
     onDismiss: () => {},
     onToggleRead: () => {},

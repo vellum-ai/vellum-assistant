@@ -138,39 +138,33 @@ export function HomeRecapRow({
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
   const needsAttention = isPendingGuardianFeedItem(item);
-  /* A waiting request is named on its first line, the same name the panel
-     it opens is titled by, which puts the ask on its own line under it. */
-  const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
-  const showsMetaRow = densityStyle.showsMetaRow || attentionLabelKey !== null;
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
       : null;
 
-  /* A guardian request's own title is the generic name of the kind of
-     request ("Guardian Question"), which is what the label line already
-     says; the ask itself is in the body. So the ask takes the title line,
-     and the label above it carries the naming. */
-  const showsAskAsTitle = attentionLabelKey !== null && item.summary !== "";
+  /* A waiting request takes the row's two lines like any other item, with
+     different content in them: it is named by what it asks of the user,
+     since its own title is the generic name of the kind of request, and
+     the ask itself (which lives in the body) reads underneath. */
+  const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
 
   // Both memoized: each parses the summary as markdown, and the feed re-renders
   // every card whenever its filter changes.
   const title = useMemo(
     () =>
-      showsAskAsTitle
-        ? flattenSummary(item.summary)
+      attentionLabelKey
+        ? t(attentionLabelKey)
         : resolveFeedItemTitle({ title: item.title, summary: item.summary }),
-    [showsAskAsTitle, item.title, item.summary],
+    [attentionLabelKey, t, item.title, item.summary],
   );
 
-  /* Under the ask, a guardian row names where the request came from rather
-     than repeating the body the ask was taken from. */
-  const guardianContext = showsAskAsTitle
-    ? (item.guardianRequest?.sourceContextLabel ?? null)
-    : null;
   const preview = useMemo(
-    () => guardianContext ?? resolvePreview(title, item.summary),
-    [guardianContext, title, item.summary],
+    () =>
+      attentionLabelKey
+        ? flattenSummary(item.summary)
+        : resolvePreview(title, item.summary),
+    [attentionLabelKey, title, item.summary],
   );
 
   // leading-snug: the title-small token is line-height:1, and line-clamp's
@@ -183,7 +177,9 @@ export function HomeRecapRow({
         "leading-snug text-[var(--content-default)]",
         // On the first line the title has to yield to the timestamp beside it,
         // so it shrinks and ellipsizes rather than pushing the timestamp out.
-        showsMetaRow ? densityStyle.clamp : "min-w-0 flex-1 truncate",
+        densityStyle.showsMetaRow
+          ? densityStyle.clamp
+          : "min-w-0 flex-1 truncate",
       )}
     >
       {title}
@@ -261,22 +257,9 @@ export function HomeRecapRow({
         )}
       >
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
-          {showsMetaRow ? (
+          {densityStyle.showsMetaRow ? (
             <>
-              {attentionLabelKey ? (
-                // Plain text, not the pill the detail is titled by: the row
-                // behind it already carries the attention hue, so a pill
-                // would tint against its own colour and read as nothing but
-                // the padding around the words.
-                <Typography
-                  variant="body-small-emphasised"
-                  className="text-[var(--content-default)]"
-                >
-                  {t(attentionLabelKey)}
-                </Typography>
-              ) : (
-                <FeedCategoryChip category={item.category} />
-              )}
+              <FeedCategoryChip category={item.category} />
 
               {sourceLabel !== null && (
                 <Typography
@@ -312,7 +295,7 @@ export function HomeRecapRow({
           )}
         </div>
 
-        {showsMetaRow && titleLine}
+        {densityStyle.showsMetaRow && titleLine}
 
         {preview !== null && (
           <Typography

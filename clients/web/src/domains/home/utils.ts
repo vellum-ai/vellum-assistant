@@ -8,8 +8,8 @@ import { flattenSummary } from "./feed-preview";
 
 /**
  * Sort feed items: pending guardian items first (they block the
- * assistant on the user, so they are the "Needs attention" head of any
- * list), then by priority descending, then by createdAt descending.
+ * assistant on the user, so they head any list), then by priority
+ * descending, then by createdAt descending.
  */
 export function sortFeedItems(items: FeedItem[]): FeedItem[] {
   return [...items].sort((a, b) => {

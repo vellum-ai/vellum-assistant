@@ -109,9 +109,8 @@ export function NotificationsBellDetail({
   const panelTitle = guardianTitleKey
     ? t(guardianTitleKey)
     : resolveFeedItemTitle(item);
-  // While the request waits, its title is the callout, in the pill the bell's
-  // "Needs attention" section uses. A settled request needs nothing, so the
-  // same name reads as plain text.
+  // While the request waits its title is the callout, as a pill. A settled
+  // request needs nothing of anyone, so the same name reads as plain text.
   const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
 
   // The lists start loading when this view opens, so validation has a pending
@@ -152,8 +151,9 @@ export function NotificationsBellDetail({
           aria-label={t("notificationsBellDetail.back")}
         />
         {isTitleAwaitingAction ? (
-          <h2 className="flex min-w-0 flex-1 items-center">
+          <h2 className="flex min-w-0 flex-1 items-center overflow-hidden">
             <Tag
+              className="min-w-0 overflow-hidden text-ellipsis"
               tone="warning"
               leftIcon={
                 <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />

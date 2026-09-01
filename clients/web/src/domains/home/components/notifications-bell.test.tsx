@@ -533,17 +533,23 @@ describe("NotificationsBell guardian rows", () => {
     const titles = screen
       .getAllByTestId("home-recap-row-title")
       .map((node) => node.textContent);
-    // The ask takes the title line, never the generic "Guardian Question".
-    expect(titles[0]).toBe("Alice asked the assistant to look up an issue");
+    // Named by what it asks of the user, never by the daemon's generic
+    // "Guardian Question", with the ask itself on the line below.
+    expect(titles[0]).toBe("Guardian action needed");
     expect(titles[1]).toBe("Watcher job failed");
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
   });
 
-  test("the guardian row's second line names the source context", async () => {
+  test("the guardian row's second line carries the ask", async () => {
     feedRef.items = [guardianBellItem()];
 
     await openBell();
 
-    expect(screen.getByText("Slack #user-feedback")).toBeTruthy();
+    expect(
+      screen.getByText("Alice asked the assistant to look up an issue"),
+    ).toBeTruthy();
   });
 
   test("only the waiting row carries the attention treatment", async () => {

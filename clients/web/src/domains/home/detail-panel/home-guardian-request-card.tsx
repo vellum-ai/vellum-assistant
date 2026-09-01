@@ -24,8 +24,6 @@ import { Button, Tag, Typography } from "@vellumai/design-library";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { resolveFeedItemTitle } from "../utils";
-
 /** The ask, set in a recessed block so it reads as the quoted request. */
 const SUMMARY_BLOCK_CLASS = [
   "rounded-[var(--radius-md)] bg-[var(--surface-sunken)]",
@@ -50,9 +48,9 @@ export interface HomeGuardianRequestCardProps {
  * Detail card for the canonical guardian-request feed item.
  *
  * Everything renders off the item's `guardianRequest` projection, which
- * the daemon keeps aligned with the gateway-owned request: the title and
- * source line say what and where, and the summary carries the
- * plain-language ask. A `pending` approval offers Approve/Reject through the canonical
+ * the daemon keeps aligned with the gateway-owned request: the source
+ * line says where it came from and the summary carries the ask itself.
+ * A `pending` approval offers Approve/Reject through the canonical
  * decision route, a `pending` question points at the source conversation
  * (the host panel's "Go to Conversation" link is the way there), and a
  * terminal status renders as a receipt in place of the buttons. A
@@ -133,25 +131,15 @@ export function HomeGuardianRequestCard({
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
-      {/* No status pill at the top: the panel title carries the callout
-          while the request waits. The outcome tag below appears only once
-          the request is settled. */}
-      <div className="flex flex-col gap-[var(--app-spacing-xxs)]">
-        <Typography
-          variant="title-small"
-          className="leading-snug text-[var(--content-default)]"
-        >
-          {resolveFeedItemTitle(item)}
-        </Typography>
-        {metaLine ? (
-          <Typography
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {metaLine}
-          </Typography>
-        ) : null}
-      </div>
+      {/* No title and no status pill here. The panel header above names the
+          request, the same way it titles every other notification, and the
+          ask itself reads as the quoted block below. */}
+      <Typography
+        variant="body-small-default"
+        className="text-[var(--content-tertiary)]"
+      >
+        {metaLine}
+      </Typography>
 
       <Typography variant="body-medium-default" className={SUMMARY_BLOCK_CLASS}>
         {item.summary}
@@ -179,11 +167,25 @@ export function HomeGuardianRequestCard({
         </Typography>
       ) : null}
 
+      {/* The meta line dates the request; a decision can land days later,
+          so the receipt carries its own time rather than letting the
+          request's stand for both. */}
       {receipt && ReceiptIcon ? (
-        <div data-testid="guardian-request-receipt">
+        <div
+          data-testid="guardian-request-receipt"
+          className="flex flex-wrap items-center gap-[var(--app-spacing-sm)]"
+        >
           <Tag tone={receipt.tone} leftIcon={<ReceiptIcon />}>
             {t(receipt.labelKey)}
           </Tag>
+          {guardianRequest.decidedAt ? (
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-tertiary)]"
+            >
+              {formatRelativeDate(guardianRequest.decidedAt)}
+            </Typography>
+          ) : null}
         </div>
       ) : null}
 
@@ -221,7 +223,7 @@ export function HomeGuardianRequestCard({
       {guardianRequest.sourceUrl ? (
         <ExternalTextLink
           href={guardianRequest.sourceUrl}
-          icon={<ExternalLink className="size-3.5" />}
+          icon={<ExternalLink className="size-2.5" />}
           label={t("homeGuardianRequestCard.viewSourceThread")}
         />
       ) : null}

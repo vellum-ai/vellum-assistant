@@ -47,7 +47,7 @@ import { NotificationsBellList } from "./notifications-bell-list";
 // 5 * 73 + 4 * 8 = 397. The list takes it as a cap, so a short feed draws a
 // short panel and older notifications stay reachable by scrolling. The detail
 // takes it as a fixed height, so every notification renders in the same frame.
-const PANEL_CONTENT_HEIGHT = "397px";
+export const PANEL_CONTENT_HEIGHT = "397px";
 
 // Ceiling on that budget, so a viewport too short to seat it shrinks the
 // content region instead of running the popover off the bottom edge. The
