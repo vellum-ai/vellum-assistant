@@ -31,9 +31,9 @@ describe("sight stream version gate", () => {
   });
 
   test("admits a dev build published after it", () => {
-    // The row `0.11.8` breaks: a build packaged from `main` today has the
-    // handler and reports a 0.11.7 base, so a 0.11.8 floor would leave the
-    // feature dark on exactly the builds it was written for.
+    // A handler-bearing dev build reports the floor's own base, so a floor at
+    // the next stable base would leave the feature dark on exactly the builds
+    // that carry the handler.
     expect(
       versionSupports("0.11.7-dev.202609010300.abcdef01", MIN_VERSION),
     ).toBe(true);
@@ -42,28 +42,25 @@ describe("sight stream version gate", () => {
     ).toBe(true);
   });
 
-  test("excludes a pre-merge sha stamped after the merge minute", () => {
-    // The reason the floor is a published build rather than the minute after
-    // the merge. Dev versions are stamped when the workflow's compute-version
-    // step runs, not when the run was dispatched, so a run queued for a
-    // pre-merge sha can emerge stamped past the merge and has no handler. A
-    // bare-minute floor such as `0.11.7-dev.202609010135` admits this on the
-    // extra-segment rule; the published floor does not.
+  test("excludes a handler-less build stamped after the floor's minute", () => {
+    // Dev versions are stamped when the release workflow computes them, not
+    // when the run was dispatched, so a handler-less build can carry a stamp
+    // later than the floor's minute. A bare-minute floor admits it on the
+    // extra-segment rule; a floor naming a whole published build does not.
     expect(
       versionSupports("0.11.7-dev.202609010140.deadbee", MIN_VERSION),
     ).toBe(false);
   });
 
   test("excludes a dev build from before the handler merged", () => {
-    // The row `0.11.7-dev.0` breaks. The 2026-08-27 cut through the merge is a
-    // window of 0.11.7 dev builds with no handler, and a floor that reads as
-    // "any dev build of 0.11.7" would send them a frame every few seconds that
-    // each one refuses.
+    // Handler-less dev builds share the floor's base, so a floor that reads
+    // as "any dev build of this base" would send them a frame every few
+    // seconds that each one refuses.
     expect(
       versionSupports("0.11.7-dev.202608310000.abcdef01", MIN_VERSION),
     ).toBe(false);
-    // The merge minute and the minute after it, neither of which published
-    // anything: the 01:34 run on the merge commit failed.
+    // Builds stamped just below the floor's minute are excluded by the
+    // timestamp comparison alone.
     expect(
       versionSupports("0.11.7-dev.202609010134.abcdef01", MIN_VERSION),
     ).toBe(false);
@@ -73,8 +70,8 @@ describe("sight stream version gate", () => {
   });
 
   test("excludes the 0.11.7 stable release", () => {
-    // Cut 2026-08-27, before the handler existed. Excluded by the `dev` suffix
-    // alone, since a dev build outranks its own base's release.
+    // The same-base stable release predates the handler. Excluded by the
+    // `dev` suffix alone, since a dev build outranks its own base's release.
     expect(versionSupports("0.11.7", MIN_VERSION)).toBe(false);
   });
 
