@@ -4,8 +4,8 @@
  * A `suppress` tier means "do not surface at all", and `emitNotificationSignal`
  * drives more than one surface: channel dispatch is one, the home feed mirror
  * is another. The gate therefore sits in the pipeline, above both, rather than
- * inside the broadcaster -- a broadcaster-only gate stopped the channels and
- * still let the home feed publish a visible card.
+ * inside the broadcaster: a broadcaster-only gate reaches the channels and
+ * leaves the home feed free to publish a visible card.
  *
  * The gate runs after the decision stage, so a suppressed signal keeps its
  * full audit trail: the `notification_events` row and the
@@ -19,7 +19,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { NotificationSignal } from "../signal.js";
-import type { NotificationDecision } from "../types.js";
+import type { NotificationChannel, NotificationDecision } from "../types.js";
+import type { Urgency } from "../urgency.js";
 
 const dispatchDecisionMock = mock();
 const homeFeedWriteMock = mock();
@@ -33,13 +34,15 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: () => undefined,
 }));
 
+let platformConfigured = false;
+
 mock.module("../../platform/client.js", () => ({
   VellumPlatformClient: class {
     static async create(): Promise<null> {
       return null;
     }
   },
-  isPlatformClientConfigured: async () => false,
+  isPlatformClientConfigured: async () => platformConfigured,
 }));
 
 mock.module("../broadcaster.js", () => ({
@@ -114,7 +117,7 @@ const { emitNotificationSignal } = await import("../emit-signal.js");
  * mirror fire, so the control case proves the gate is what stops it in the
  * suppress case and not some unrelated filter.
  */
-function emit(tier?: string) {
+function emit(tier?: string, urgency: Urgency = "medium") {
   const params: EmitSignalParams<string> = {
     sourceEventName: "activity.completed",
     sourceChannel: "scheduler",
@@ -122,13 +125,21 @@ function emit(tier?: string) {
     contextPayload: { title: "Background job finished" },
     attentionHints: {
       requiresAction: false,
-      urgency: "medium",
+      urgency,
       isAsyncBackground: true,
       visibleInSourceNow: false,
     },
     ...(tier ? { routingHints: { tier } } : {}),
   };
   return emitNotificationSignal(params);
+}
+
+/** The channels the urgency floor handed to dispatch on the last emit. */
+function dispatchedChannels(): NotificationChannel[] {
+  const decision = dispatchDecisionMock.mock.calls[0]?.[1] as
+    | NotificationDecision
+    | undefined;
+  return decision?.selectedChannels ?? [];
 }
 
 beforeEach(() => {
@@ -143,6 +154,7 @@ beforeEach(() => {
   });
   homeFeedWriteMock.mockReset();
   homeFeedWriteMock.mockResolvedValue(null);
+  platformConfigured = false;
 });
 
 describe("emitNotificationSignal attention-tier gate", () => {
@@ -201,5 +213,34 @@ describe("emitNotificationSignal attention-tier gate", () => {
     expect(dispatchDecisionMock).toHaveBeenCalledTimes(1);
     expect(homeFeedWriteMock).toHaveBeenCalledTimes(1);
     expect(result.dispatched).toBe(true);
+  });
+});
+
+describe("emitNotificationSignal urgency floor and attention tier", () => {
+  beforeEach(() => {
+    // The floor only forces a push when the daemon is bound to a platform
+    // assistant, so every case here has to look bound.
+    platformConfigured = true;
+  });
+
+  test("a hint keeps the in-app channel and gains no device push", async () => {
+    // The scheduler files hints at a high urgency, and the platform endpoint
+    // renders every dispatch as a device alert: an inbox-only tier must not
+    // be forced onto it.
+    await emit("hint", "high");
+
+    expect(dispatchedChannels()).toEqual(["vellum"]);
+  });
+
+  test("an offer gains the forced device push", async () => {
+    await emit("offer", "high");
+
+    expect(dispatchedChannels().sort()).toEqual(["platform", "vellum"]);
+  });
+
+  test("a signal with no tier gains the forced device push", async () => {
+    await emit(undefined, "high");
+
+    expect(dispatchedChannels().sort()).toEqual(["platform", "vellum"]);
   });
 });

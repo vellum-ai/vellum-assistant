@@ -2,7 +2,7 @@
  * Tier is the notification filter's first-class attention concept; `Urgency`
  * stays the transport. These tests pin the mapping between the two and the
  * delivery behavior it produces, including the guarantee that a payload
- * carrying no tier is delivered exactly as it was before Tier existed.
+ * carrying no tier retains urgency-derived behavior.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -203,8 +203,8 @@ describe("vellum adapter tier precedence", () => {
   });
 
   test("no tier keeps the urgency-derived behavior for every urgency", async () => {
-    // The regression guard: every producer that does not go through the
-    // filter must deliver byte-identically to how it did before Tier existed.
+    // The regression guard: a payload without a tier retains urgency-derived
+    // behavior at every urgency.
     const expected: [Urgency, boolean][] = [
       ["low", true],
       ["medium", true],

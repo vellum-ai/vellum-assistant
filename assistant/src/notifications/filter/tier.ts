@@ -71,10 +71,18 @@ const TIER_CLAIMS_ATTENTION: Record<Tier, boolean> = {
 };
 
 /**
+ * Whether a tier may interrupt: an OS banner, a device alert. False for
+ * `suppress` and `hint`, which are filed without claiming attention.
+ */
+export function tierClaimsAttention(tier: Tier): boolean {
+  return TIER_CLAIMS_ATTENTION[tier];
+}
+
+/**
  * Whether a delivery must stay silent: the inbox entry still appears, the OS
  * banner does not. Tier decides when the filter path set one; otherwise the
- * urgency scale does, so producers that never reach the filter deliver
- * exactly as they did before Tier existed.
+ * urgency scale does, so a payload without a tier retains urgency-derived
+ * behavior.
  *
  * This is the single definition of that decision. The vellum adapter's
  * `notification_intent` and the broadcaster's
@@ -86,7 +94,7 @@ export function resolveSilent(
   urgency: Urgency,
 ): boolean {
   if (tier) {
-    return !TIER_CLAIMS_ATTENTION[tier];
+    return !tierClaimsAttention(tier);
   }
   return urgency !== "high" && urgency !== "critical";
 }

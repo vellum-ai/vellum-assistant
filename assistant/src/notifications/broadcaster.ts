@@ -9,7 +9,9 @@
  *   4. Records a delivery audit row in the deliveries-store
  *
  * A signal whose attention tier is `suppress` never enters that loop: it is
- * dropped up front and every selected channel is reported skipped.
+ * dropped up front and every selected channel is reported skipped. A tier
+ * that claims no attention (`hint`) enters it without the channels that can
+ * only interrupt, so it is delivered without reaching a device alert.
  */
 
 import { v4 as uuid } from "uuid";
@@ -38,6 +40,7 @@ import { resolveDestinations } from "./destination-resolver.js";
 import {
   resolveSilent,
   type Tier,
+  tierClaimsAttention,
   tierFromRoutingHints,
   tierShouldNotify,
 } from "./filter/tier.js";
@@ -215,6 +218,13 @@ function resolveTier(signal: NotificationSignal): Tier | undefined {
   return tierFromRoutingHints(signal.routingHints);
 }
 
+/**
+ * Channels whose only rendering claims attention. `PlatformPushAdapter` asks
+ * the platform for an APNs/FCM alert, and that endpoint exposes no silent
+ * variant, so every delivery over it buzzes the device.
+ */
+const ATTENTION_ONLY_CHANNELS: readonly NotificationChannel[] = ["platform"];
+
 /** Callback invoked immediately when a vellum notification conversation is created. */
 export interface ConversationCreatedInfo {
   conversationId: string;
@@ -229,7 +239,7 @@ export interface ConversationCreatedInfo {
   /**
    * The same `silent` flag the vellum adapter puts on `notification_intent`,
    * derived once per broadcast by `resolveSilent` so the two events cannot
-   * disagree. When true the client must skip the fallback OS banner — the
+   * disagree. When true the client must skip the fallback OS banner: the
    * sidebar entry still appears.
    */
   silent: boolean;
@@ -374,13 +384,23 @@ export class NotificationBroadcaster {
 
     const silent = resolveSilent(tier, signal.attentionHints.urgency);
 
+    // A tier that claims no attention is inbox-only: delivered, but never
+    // interrupting. Channels that can only interrupt are dropped from the
+    // dispatch list, so a `hint` still lands in the vellum inbox with
+    // `silent: true` while the device stays quiet. The drop is tier-driven
+    // only: a signal carrying no tier keeps every channel the decision
+    // selected, however its urgency reads.
+    const quietTier = tier !== undefined && !tierClaimsAttention(tier);
+    const dispatchChannels = quietTier
+      ? decision.selectedChannels.filter(
+          (channel) => !ATTENTION_ONLY_CHANNELS.includes(channel),
+        )
+      : decision.selectedChannels;
+
     // Pull the guardian list once so the resolver stays pure. A null list
     // (gateway unreachable) falls back to the local contacts read.
     const guardians = await getGuardianDelivery();
-    const destinations = resolveDestinations(
-      decision.selectedChannels,
-      guardians,
-    );
+    const destinations = resolveDestinations(dispatchChannels, guardians);
 
     // Ensure vellum is processed first so the notification_conversation_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
@@ -397,7 +417,7 @@ export class NotificationBroadcaster {
       }
       return 2;
     };
-    const orderedChannels = [...decision.selectedChannels].sort(
+    const orderedChannels = [...dispatchChannels].sort(
       (a, b) => dispatchRank(a) - dispatchRank(b),
     );
 
@@ -415,6 +435,26 @@ export class NotificationBroadcaster {
         ? parseAccessRequestPayload(signal.contextPayload)
         : undefined;
     const results: NotificationDeliveryResult[] = options?.resultsSink ?? [];
+
+    // Nothing was attempted on a dropped channel, so it reads as skipped
+    // rather than failed: there is no delivery for a retry to recover.
+    if (quietTier) {
+      for (const channel of decision.selectedChannels) {
+        if (dispatchChannels.includes(channel)) {
+          continue;
+        }
+        log.info(
+          { signalId: signal.signalId, tier, channel },
+          "Attention tier claims no attention -- channel dropped",
+        );
+        results.push({
+          channel,
+          destination: "",
+          status: "skipped",
+          errorMessage: `Attention tier ${tier} claims no attention: ${channel} can only interrupt`,
+        });
+      }
+    }
 
     // Vellum pairing carried forward for the platform channel's deep link.
     // A single-pass carry is safe because orderedChannels sorts vellum first.

@@ -946,6 +946,89 @@ describe("NotificationBroadcaster suppress tier", () => {
   });
 });
 
+describe("NotificationBroadcaster inbox-only tiers", () => {
+  /**
+   * A tier that claims no attention is still delivered: the vellum inbox
+   * entry appears, and the platform channel, whose only rendering is a device
+   * alert, is left out.
+   */
+  async function broadcast(
+    tier?: string,
+    urgency: Urgency = "high",
+  ): Promise<{
+    vellum: ReturnType<typeof makeCapturingAdapter>;
+    platform: ReturnType<typeof makeCapturingAdapter>;
+    results: NotificationDeliveryResult[];
+  }> {
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal({
+        attentionHints: {
+          requiresAction: false,
+          urgency,
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        ...(tier ? { routingHints: { tier } } : {}),
+      }),
+      makeDecision({
+        selectedChannels: ["vellum", "platform"],
+        renderedCopy: {
+          vellum: { title: "Title", body: "Body" },
+          platform: { title: "Title", body: "Body" },
+        },
+      }),
+    );
+
+    return { vellum, platform, results };
+  }
+
+  test("a hint is delivered on vellum and reaches no device push", async () => {
+    const { vellum, platform, results } = await broadcast("hint");
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.tier).toBe("hint");
+    expect(platform.sends.length).toBe(0);
+
+    expect(results.find((r) => r.channel === "vellum")?.status).toBe("sent");
+    const skipped = results.find((r) => r.channel === "platform");
+    expect(skipped?.status).toBe("skipped");
+    expect(skipped?.errorMessage).toContain("hint");
+  });
+
+  test("an offer pushes to the device", async () => {
+    const { vellum, platform } = await broadcast("offer");
+
+    expect(vellum.sends.length).toBe(1);
+    expect(platform.sends.length).toBe(1);
+  });
+
+  test("a response pushes to the device", async () => {
+    const { vellum, platform } = await broadcast("response");
+
+    expect(vellum.sends.length).toBe(1);
+    expect(platform.sends.length).toBe(1);
+  });
+
+  test("a signal with no tier pushes at every urgency", async () => {
+    // The drop is tier-driven: an untiered signal keeps every channel the
+    // decision selected, however its urgency reads.
+    for (const urgency of ["low", "medium", "high", "critical"] as Urgency[]) {
+      const { vellum, platform, results } = await broadcast(undefined, urgency);
+
+      expect(vellum.sends.length).toBe(1);
+      expect(platform.sends.length).toBe(1);
+      expect(results.map((r) => r.status)).toEqual(["sent", "sent"]);
+    }
+  });
+});
+
 describe("NotificationBroadcaster paired silence", () => {
   /**
    * Runs a real VellumAdapter so the assertion compares the two events a
@@ -1033,8 +1116,8 @@ describe("NotificationBroadcaster paired silence", () => {
   });
 
   test("no tier keeps both events on the urgency-derived value", async () => {
-    // The regression guard: a producer that never reaches the filter must
-    // deliver exactly as it did before Tier existed, on both events.
+    // The regression guard: a signal without a tier retains urgency-derived
+    // behavior on both events.
     const expected: [Urgency, boolean][] = [
       ["low", true],
       ["medium", true],

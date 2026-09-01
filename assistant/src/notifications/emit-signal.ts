@@ -39,7 +39,11 @@ import {
   runDeterministicChecks,
 } from "./deterministic-checks.js";
 import { createEvent, setEventDedupeKey } from "./events-store.js";
-import { tierFromRoutingHints, tierShouldNotify } from "./filter/tier.js";
+import {
+  tierClaimsAttention,
+  tierFromRoutingHints,
+  tierShouldNotify,
+} from "./filter/tier.js";
 import { writeHomeFeedItemForSignal } from "./home-feed-side-effect.js";
 import { dispatchDecision } from "./runtime-dispatch.js";
 import type {
@@ -391,9 +395,9 @@ export async function emitNotificationSignal<TEventName extends string>(
     // at all", and this pipeline drives more than one surface: channel
     // dispatch is one, the home feed mirror in step 5 is another. Gating
     // inside the broadcaster could only ever stop the surfaces the
-    // broadcaster owns, and a suppressed signal still reached the home feed
-    // that way, so the drop is a pipeline-level verdict taken above every
-    // side effect. Every surface added later inherits it for free.
+    // broadcaster owns, and a suppressed signal would still reach the home
+    // feed that way, so the drop is a pipeline-level verdict taken above
+    // every side effect. Every surface added later inherits it for free.
     //
     // Placed after `evaluateSignal`, which persists the decision row: the
     // `notification_events` and `notification_decisions` rows both survive
@@ -440,7 +444,10 @@ export async function emitNotificationSignal<TEventName extends string>(
     // platform credentials and an assistant id -- on unbound daemons the
     // dispatch can never succeed and would write a failed delivery row per
     // signal. The probe is deadline-bounded internally, so a slow credential
-    // backend cannot stall the urgent dispatch.
+    // backend cannot stall the urgent dispatch. A tier that claims no
+    // attention is exempt from the push: the platform endpoint renders every
+    // dispatch as a device alert, and an inbox-only tier must not reach one.
+    // Urgency alone still forces both channels when a signal carries no tier.
     //
     // Vellum PREPENDS and platform APPENDS: the broadcaster re-sorts by
     // dispatch rank, so selection order only matters to single_channel
@@ -461,6 +468,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       }
       if (
         !selectedChannels.includes("platform") &&
+        (tier === undefined || tierClaimsAttention(tier)) &&
         (await isPlatformClientConfigured())
       ) {
         selectedChannels.push("platform");
