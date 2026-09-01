@@ -157,9 +157,9 @@ export function ProfileCreateModelFirst({
     [groups],
   );
 
-  // Sections the user has unfolded. A section stays unfolded for the rest of
-  // the visit: folding it back under them would move the row they were about
-  // to click.
+  // Sections the user has unfolded. The control that unfolds one sits on its
+  // heading rather than under its rows, so folding it back is a deliberate
+  // second press on the same control and never moves what is under the hand.
   const [unfoldedGroups, setUnfoldedGroups] = useState<readonly string[]>([]);
 
   // "Save As New" opens create mode on a profile that already has a provider
@@ -286,7 +286,9 @@ export function ProfileCreateModelFirst({
       // Acts on the list rather than answering it, so the draft is untouched.
       const group = value.slice(SEE_MORE_PREFIX.length);
       setUnfoldedGroups((previous) =>
-        previous.includes(group) ? previous : [...previous, group],
+        previous.includes(group)
+          ? previous.filter((key) => key !== group)
+          : [...previous, group],
       );
       return;
     }
@@ -345,12 +347,15 @@ export function ProfileCreateModelFirst({
           modelRow(option, group.label, unfolded ? "disclosed" : "folded"),
         );
       }
-      if (hidden.length > 0 && !unfolded) {
+      if (hidden.length > 0) {
         rows.push({
           value: `${SEE_MORE_PREFIX}${group.key}`,
-          label: t("profileCreateModelFirst.seeMore"),
+          label: unfolded
+            ? t("profileCreateModelFirst.seeLess")
+            : t("profileCreateModelFirst.seeMore"),
           group: group.label,
           listAction: true,
+          expanded: unfolded,
         });
       }
     }

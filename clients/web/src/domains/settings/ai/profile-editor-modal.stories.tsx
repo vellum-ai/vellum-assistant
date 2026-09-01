@@ -254,8 +254,9 @@ export const CreateModelFirstCustomId: Story = {
 };
 
 /**
- * A section with the rest of its models revealed: the block the unfold row
- * opened is set off by a hairline, and the list stays where the user left it.
+ * A section with the rest of its models revealed: the block its heading's own
+ * disclosure opened is set off by a hairline, and the list stays where the
+ * user left it.
  */
 export const CreateModelFirstSeeMore: Story = {
   args: { mode: "create" },

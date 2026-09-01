@@ -204,20 +204,25 @@ function modelOptionLabels(): string[] {
   ).map(optionLabel);
 }
 
+/** A section's own name, which its heading carries beside its disclosure. */
+function headingName(group: Element): string {
+  return (
+    group.querySelector('[data-slot="combobox-group-name"]')?.textContent ?? ""
+  ).trim();
+}
+
 /** Section headings on the open list, in order. */
 function groupHeadings(): string[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
-  ).map((group) => (group.firstElementChild?.textContent ?? "").trim());
+  ).map(headingName);
 }
 
 /** Row labels inside one section, which is where a label is unambiguous. */
 function sectionRowLabels(heading: string): string[] {
   const section = Array.from(
     document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
-  ).find(
-    (group) => (group.firstElementChild?.textContent ?? "").trim() === heading,
-  );
+  ).find((group) => headingName(group) === heading);
   if (!section) {
     throw new Error(
       `expected a "${heading}" section - saw ${groupHeadings().join(", ")}`,
@@ -226,6 +231,20 @@ function sectionRowLabels(heading: string): string[] {
   return Array.from(
     section.querySelectorAll<HTMLElement>('[role="option"]'),
   ).map(optionLabel);
+}
+
+/** One section's disclosure, which its heading carries. */
+function sectionAction(heading: string): HTMLElement {
+  const section = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
+  ).find((group) => headingName(group) === heading);
+  const action = section
+    ?.querySelector('[data-slot="combobox-group-label"]')
+    ?.querySelector<HTMLElement>('[role="option"]');
+  if (!action) {
+    throw new Error(`expected a disclosure on the "${heading}" heading`);
+  }
+  return action;
 }
 
 /** Type into the model field, which is the list's own search box. */
@@ -478,23 +497,38 @@ describe("the model list", () => {
     renderCreate([makeConnection("anthropic-personal")]);
     openModelList();
 
-    // Three rows and the unfold row, whatever the section holds behind it.
+    // The disclosure sits on the heading, ahead of the three rows the section
+    // offers, whatever it holds behind it.
     expect(sectionRowLabels("Anthropic")).toEqual([
+      "See more",
       "Claude Fable 5",
       "Claude Opus 5",
       "Claude Sonnet 5",
-      "See more",
     ]);
+    expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
 
     clickModelOption("See more");
 
     // The list stays open on the row that was just acted on, and the rest of
-    // the section takes the place of the row that stood in for it.
+    // the section follows the three it already offered.
     expect(sectionRowLabels("Anthropic")).toContain("Claude Haiku 4.5");
     expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 4.8");
-    expect(sectionRowLabels("Anthropic")).not.toContain("See more");
     // Unfolding is not an answer: no model is chosen by it.
     expect(getSaveBtn().disabled).toBe(true);
+
+    // The same control folds the section back up.
+    expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    clickModelOption("See less");
+    expect(sectionRowLabels("Anthropic")).toEqual([
+      "See more",
+      "Claude Fable 5",
+      "Claude Opus 5",
+      "Claude Sonnet 5",
+    ]);
   });
 
   test("a query reaches a folded model and drops the unfold row", () => {

@@ -1448,6 +1448,7 @@
     "modelResultsAnnouncement": "{count, plural, one {# модель доступна} few {# модели доступны} many {# моделей доступно} other {# модели доступно}}. Стрелки вверх и вниз для перехода, Enter для выбора.",
     "providerLabel": "Провайдер",
     "recommendedMeta": "Рекомендуется",
+    "seeLess": "Свернуть",
     "seeMore": "Показать ещё",
     "setUpTag": "Настроить",
     "signInTag": "Войти",
