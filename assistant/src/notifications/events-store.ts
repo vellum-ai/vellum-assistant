@@ -6,7 +6,7 @@
  * and context payload. Decision/delivery records are tracked separately.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
 import { notificationEvents } from "../persistence/schema/index.js";
@@ -137,4 +137,38 @@ export function listEvents(
     .all();
 
   return rows.map(rowToEvent);
+}
+
+/**
+ * True when any notification event was recorded against `sourceContextId` at
+ * or after `sinceMs`.
+ *
+ * The schedule-result producer's "did this run already speak for itself?"
+ * probe. A run's conversation id is the `sourceContextId` every notification
+ * the run emits carries — `assistant notifications send` resolves it from
+ * `__CONVERSATION_ID` — so a hit means the agent notified on its own and the
+ * fallback must stay quiet.
+ *
+ * The `sinceMs` bound is load-bearing rather than an optimization: a recurring
+ * schedule with `reuseConversation` runs every firing in the same conversation,
+ * so an unbounded probe would see last week's notification and silence every
+ * run after the first.
+ */
+export function hasEventForSourceContextSince(
+  sourceContextId: string,
+  sinceMs: number,
+): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: notificationEvents.id })
+    .from(notificationEvents)
+    .where(
+      and(
+        eq(notificationEvents.sourceContextId, sourceContextId),
+        gte(notificationEvents.createdAt, sinceMs),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
