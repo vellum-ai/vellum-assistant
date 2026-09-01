@@ -145,6 +145,7 @@ import {
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
 import { CameraShutter } from "@/domains/chat/voice/camera-shutter";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
@@ -967,6 +968,25 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             style={{ background: CAMERA_SCRIM_BOTTOM }}
           />
         </>
+      ) : null}
+
+      {/* The frame gate's tuning readout for this viewfinder.
+
+          Above the scrims at `z-[3]` and below the connect card at `z-20`, so
+          it reads over the frame without covering the one surface that needs a
+          press. Parked on the left below the chrome band: the shutter column
+          and the thumbnail band own the floor, and the status pill owns the
+          top centre. Inside `inset-0` because the room clips.
+
+          Camera-only and web-only. The native preview sits behind a
+          transparent web view and is sampled in Swift, so there are no
+          decisions here to read. */}
+      {cameraOpen && !camera.native ? (
+        <FrameGateHud
+          surface="voice"
+          className="absolute top-[calc(var(--room-chrome-top)+2.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
+          style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
+        />
       ) : null}
 
       {/* Optional live transcript, rendered into the room's two text zones —
