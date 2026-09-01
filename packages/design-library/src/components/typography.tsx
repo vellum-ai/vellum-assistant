@@ -1,5 +1,6 @@
+import { Slot } from "@radix-ui/react-slot";
 import {
-  createElement,
+  type ElementType,
   type HTMLAttributes,
   type ReactNode,
   type Ref,
@@ -57,6 +58,7 @@ export interface TypographyProps extends HTMLAttributes<HTMLElement> {
   children?: ReactNode;
   htmlFor?: string;
   ref?: Ref<HTMLElement>;
+  asChild?: boolean;
 }
 
 export function Typography({
@@ -65,16 +67,18 @@ export function Typography({
   className,
   children,
   ref,
+  asChild = false,
   ...rest
 }: TypographyProps) {
-  return createElement(
-    as,
-    {
-      ...rest,
-      ref,
-      "data-slot": "typography",
-      className: cn(VARIANT_CLASS[variant], className),
-    },
-    children,
+  const Comp: ElementType = asChild ? Slot : as;
+  return (
+    <Comp
+      {...rest}
+      ref={ref}
+      data-slot="typography"
+      className={cn(VARIANT_CLASS[variant], className)}
+    >
+      {children}
+    </Comp>
   );
 }
