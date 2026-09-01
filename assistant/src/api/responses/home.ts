@@ -126,6 +126,18 @@ export type FeedRemediationAction = z.infer<typeof FeedRemediationActionSchema>;
 export const FeedRemediationSchema = z.object({
   action: FeedRemediationActionSchema,
   label: z.string(),
+  /**
+   * Which instance the fix applies to, when the condition can occur more than
+   * once. A workspace has one managed inference credential, but several OAuth
+   * connections and several channels, so a repair for those has to say which
+   * one it repairs or it cannot be offered at all.
+   *
+   * Free-form because each action's handler is the only thing that reads it
+   * and the only thing that can validate it. Keep the keys stable, since a
+   * client that shipped before an action gained a parameter still sends what
+   * it was given.
+   */
+  params: z.record(z.string(), z.string()).optional(),
 });
 export type FeedRemediation = z.infer<typeof FeedRemediationSchema>;
 

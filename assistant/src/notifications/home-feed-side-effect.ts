@@ -483,7 +483,7 @@ function deriveRemediation(
     // Names the outcome, not the mechanism. "Reprovision the credential"
     // describes what the platform does; the reader cares that inference works
     // again.
-    label: "Restore Vellum inference",
+    label: "Restore Vellum AI",
   };
 }
 

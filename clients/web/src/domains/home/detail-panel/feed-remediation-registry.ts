@@ -19,10 +19,22 @@
 import { recoverLocalAssistantPlatformCredential } from "@/lib/local-platform-identity";
 import type { FeedRemediationAction } from "@vellumai/assistant-api";
 
-export type FeedRemediationHandler = () => Promise<void>;
+/**
+ * Performs one fix. Receives the item's `params`, which name the instance to
+ * repair; a handler for a condition that can only occur once ignores them.
+ *
+ * Reports failure by throwing, and the message it throws is shown to the
+ * reader, so it names the thing the reader has to resolve (sign in, start the
+ * assistant) rather than an internal cause.
+ */
+export type FeedRemediationHandler = (
+  params: Record<string, string>,
+) => Promise<void>;
 
 const HANDLERS: Partial<Record<FeedRemediationAction, FeedRemediationHandler>> =
   {
+    // A workspace has exactly one managed inference credential, so this fix
+    // needs no parameters to say which one it repairs.
     reprovision_managed_credential: async () => {
       await recoverLocalAssistantPlatformCredential();
     },

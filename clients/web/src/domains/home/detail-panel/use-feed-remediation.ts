@@ -18,6 +18,9 @@ import type { FeedItem } from "@vellumai/assistant-api";
 
 import { resolveFeedRemediationHandler } from "./feed-remediation-registry";
 
+/** Stable identity, so a param-less remediation does not rebuild `run`. */
+const EMPTY_PARAMS: Record<string, string> = {};
+
 export interface FeedRemediationController {
   /** Producer-authored button label, which names the outcome of the fix. */
   label: string;
@@ -40,6 +43,7 @@ export function useFeedRemediation(
   const handler = remediation
     ? resolveFeedRemediationHandler(remediation.action)
     : null;
+  const params = remediation?.params ?? EMPTY_PARAMS;
 
   const run = useCallback(() => {
     if (!handler) {
@@ -47,7 +51,7 @@ export function useFeedRemediation(
     }
     setIsRunning(true);
     setError(null);
-    void handler()
+    void handler(params)
       .then(() => {
         setIsDone(true);
       })
@@ -60,7 +64,7 @@ export function useFeedRemediation(
       .finally(() => {
         setIsRunning(false);
       });
-  }, [handler]);
+  }, [handler, params]);
 
   if (!remediation || !handler) {
     return null;

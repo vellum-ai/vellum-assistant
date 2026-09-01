@@ -197,10 +197,10 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
 
     if (provider === MANAGED_INFERENCE_PROVIDER) {
       return {
-        title: "Vellum inference interrupted",
+        title: "Vellum AI is paused",
         body:
           details ??
-          "The Vellum managed inference credential is not working, so chat and background work that use it are paused.",
+          "Vellum lost access to its AI models, so chat and background tasks are paused.",
       };
     }
 

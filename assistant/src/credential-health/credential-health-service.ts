@@ -648,7 +648,7 @@ export const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
  * vendor, not the capability that stops working, so every surface that names
  * it to a person reads this instead.
  */
-export const MANAGED_INFERENCE_DISPLAY_NAME = "Vellum managed inference";
+export const MANAGED_INFERENCE_DISPLAY_NAME = "Vellum AI";
 
 /**
  * Health of the platform-provisioned assistant API key, the credential that
@@ -712,7 +712,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       ...base,
       status: "missing_token",
       details:
-        "No Vellum managed inference credential is stored. Sign in to Vellum to provision one.",
+        "Vellum has no access to its AI models yet. Sign in to Vellum to set it up.",
       canAutoRecover: true,
     };
   }
@@ -743,7 +743,7 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
       // reconnect something would describe work they do not do, and would go
       // stale the moment it succeeds.
       details:
-        "Vellum's managed inference credential stopped working, so chat and background work that use it are paused. Restoring it takes a moment and changes nothing else.",
+        "Vellum lost access to its AI models, so chat and background tasks are paused. Restoring takes a moment and will not affect anything else.",
       canAutoRecover: true,
     };
   }

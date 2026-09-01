@@ -84,22 +84,22 @@ export const ManagedInferenceCredentialRejected: Story = {
     entityLinks: [],
     item: feedItem({
       id: "credential-health-vellum",
-      title: "Vellum inference interrupted",
+      title: "Vellum AI is paused",
       summary:
-        "Vellum's managed inference credential stopped working, so chat and background work that use it are paused.",
+        "Vellum lost access to its AI models, so chat and background tasks are paused.",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "toolPermission" },
       remediation: {
         action: "reprovision_managed_credential",
-        label: "Restore Vellum inference",
+        label: "Restore Vellum AI",
       },
       metadata: {
         provider: "vellum",
-        providerLabel: "Vellum managed inference",
+        providerLabel: "Vellum AI",
         status: "revoked",
         details:
-          "Vellum's managed inference credential stopped working, so chat and background work that use it are paused. Restoring it takes a moment and changes nothing else.",
+          "Vellum lost access to its AI models, so chat and background tasks are paused. Restoring takes a moment and will not affect anything else.",
         missingScopes: [],
       },
     }),

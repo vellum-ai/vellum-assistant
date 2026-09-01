@@ -12,6 +12,20 @@ Approval-card **source references** (the link back to the channel message that t
 
 Guardian-request card rows are **not conversation history**. Only the vellum delivery persists a message row (`pairDeliveryWithConversation` pins it to the conversation the request is _about_, via `buildVellumCardAffinity`); channel guardian cards are delivery projections and pair no conversation at all, with the gateway delivery row (chat id + channel-native message id) as their only persisted envelope. `isGuardianCardRow` in `approval-card-data.ts` is the single definition of which rows are guardian cards (including rows channel deliveries paired before the projection-only policy), derived from the card's own `ui_surface` id rather than a stored marker so old rows need no backfill. **Both** history assemblers must consult it -- `Conversation.loadFromDb` and `loadSlackChronologicalContext`, which re-reads rows rather than using `this.messages` -- or the unfiltered one replays the card between a parked turn's `tool_use` and its `tool_result` and history repair destroys the real result. Surface state is exempt on purpose: the card's buttons must still route after a restart. Full rationale in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md).
 
+## Notifications that want something from the reader
+
+Three shapes, and picking the wrong one is what produces per-condition cards:
+
+| Shape      | The reader                                                                                             | Carried by                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| **Decide** | picks between named choices; the system is blocked until they do                                       | the guardian-request pipeline (`guardianRequest`) |
+| **Repair** | asks for one known operation to be performed                                                           | `remediation` (below)                             |
+| **Go**     | has to do something we cannot do for them (add credits, free disk, grant consent in someone else's UI) | `entityLinks` / `actions[]`                       |
+
+They share a presentation on purpose: `feedItemAwaitsUserAction()` gives all of them the same callout, and their control sits in the same footer action group. Do not invent a fourth attention treatment for a new condition; work out which of the three it is first.
+
+The boundary between **Repair** and **Go** is whether the client can complete it unattended. Re-provisioning a credential is a repair. Anything that needs a consent window, a payment, or a decision inside another product is a **Go**, even when a client could technically start it.
+
 ## Notifications that carry a fix
 
 A notification reporting something broken **MUST** offer the repair as a `remediation` on its feed item, never as a card built for that one condition. `FeedRemediationSchema` (`api/responses/home.ts`) is the contract: the producer names a fix and authors its label, and renderers look the name up and render. Same ownership split as guardian card actions -- built once, centrally; renderers render -- extended to conditions that are not requests.
@@ -24,6 +38,8 @@ The attach point is `deriveRemediation()` in `home-feed-side-effect.ts`, beside 
 2. a branch in `deriveRemediation()`,
 3. a handler in the client's remediation registry (`domains/home/detail-panel/feed-remediation-registry.ts` in the web client).
 
+**Name the instance in `params` whenever the condition can occur more than once.** A workspace has one managed inference credential, so its repair needs none; OAuth connections and channels come in multiples, and a repair that cannot say which one it repairs cannot be offered at all. `telegram.webhook_health_alert` is the nearest un-served case and is parameterized this way.
+
 Rules that keep this from decaying into per-condition cards:
 
 - **Producers declare, renderers never infer.** `deriveRemediation()` reads a field the producer already publishes saying its condition is client-repairable (e.g. the credential health check's `clientRecoveryAction`). A renderer that pattern-matches payload fields to decide which button to draw is the thing this replaces.
@@ -31,4 +47,6 @@ Rules that keep this from decaying into per-condition cards:
 - **The producer owns the label**, because it is the side that knows what the fix does. Renderers compose only the states the button itself has (running, done, failed).
 - **A handler reports failure by throwing**, and its message is shown to the reader, so it names what the reader must resolve ("sign in to Vellum") rather than an internal cause.
 - **An item carrying a remediation is awaiting the user.** `feedItemAwaitsUserAction()` covers both it and a pending guardian request, so both take the same callout. Do not add a second attention treatment.
+- **Copy names the reader's experience, not the mechanism.** The producer authors both the label and the body, so internal vocabulary reaching a surface is a producer bug, not a rendering one. "Vellum AI is paused" is the condition; "the managed inference credential was rejected" is our word for its cause.
+- **Say each thing once.** The panel header names the notification and the footer carries its time, so a card repeating either is noise. A card's meta line carries identity the header does not already give (the account a connection belongs to), and is omitted when there is none.
 - **Withhold diagnostic status labels when a remediation is present.** Raw status vocabulary is actionable only when the reader picks the fix from it; once one button covers every status, the label is jargon at best and misattributed blame at worst (a credential the user never connected reading "Revoked").

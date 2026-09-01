@@ -1,5 +1,4 @@
 import { useTranslation } from "@/i18n";
-import { formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem } from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
 
@@ -88,11 +87,6 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
     );
   }
 
-  // The producer names the credential when its provider id would not read as
-  // one to a person (the Vellum-managed inference credential, whose id is the
-  // vendor). Falls back to the id, which is the product name for every OAuth
-  // connection.
-  const providerLabel = (metadata?.providerLabel as string) || provider;
   const accountInfo = (metadata?.accountInfo as string) ?? null;
   const status = (metadata?.status as string) ?? "unreachable";
   const statusKey = statusLabelKey(status);
@@ -101,26 +95,23 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
     ? (metadata.missingScopes as string[])
     : [];
 
-  // The panel header already names the notification, so the credential is
-  // identified on the meta line rather than in a heading of its own. A second
-  // title under the first reads as two headers for one thing, which is why the
-  // guardian card renders none either.
-  const metaLine = [
-    providerLabel,
-    accountInfo,
-    formatRelativeDate(item.timestamp),
-  ]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
+  // Identity the header does not already give, and nothing else. The panel
+  // header names the notification (which names the provider) and the footer
+  // carries its time, so repeating either here is noise. What is left is the
+  // account a connection belongs to, and a credential with no account of its
+  // own contributes nothing and gets no line at all.
+  const metaLine = accountInfo;
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
-      <Typography
-        variant="body-small-default"
-        className="text-[var(--content-tertiary)]"
-      >
-        {metaLine}
-      </Typography>
+      {metaLine ? (
+        <Typography
+          variant="body-small-default"
+          className="text-[var(--content-tertiary)]"
+        >
+          {metaLine}
+        </Typography>
+      ) : null}
 
       {/*
         The raw health status is what an OAuth connection's fix turns on:
