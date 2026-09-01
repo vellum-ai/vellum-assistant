@@ -110,3 +110,24 @@ describe("Typography asChild", () => {
     expect(html).toContain('data-slot="typography"');
   });
 });
+
+describe("Typography asChild prop precedence", () => {
+  test("a child's own data-slot wins, and the variant class still merges", () => {
+    // Radix Slot gives the child precedence on ordinary props, so composing
+    // Typography around something that already identifies itself keeps the
+    // child's identity. Styling does not depend on the marker: the variant
+    // class merges either way, so only a `[data-slot="typography"]` selector
+    // stops matching. Button and Card compose the same way.
+    const html = renderToStaticMarkup(
+      <Typography asChild variant="body-small-default">
+        <button data-slot="button" className="px-2">
+          Go
+        </button>
+      </Typography>,
+    );
+    expect(html).toContain('data-slot="button"');
+    expect(html).not.toContain('data-slot="typography"');
+    expect(html).toContain("text-body-small-default");
+    expect(html).toContain("px-2");
+  });
+});
