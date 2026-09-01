@@ -148,16 +148,15 @@ const NATIVE_MOBILE_LIST_TOP_FADE =
 /**
  * Rounds the overlay scrollport's bottom edge onto the section card's own
  * corners. The scrollport ends above the floating column (see the body's
- * margin reserve), so a list taller than the drawer is cut there rather than
- * drawn through the pills - and a straight cut left the card with two square
- * corners whenever it had more rows below the fold.
+ * margin reserve), so a list taller than the drawer is cut at that edge, and
+ * the cut carries the card's radius so the card reads as a card at any scroll
+ * position rather than as two square corners.
  *
  * The inset is the scrollport's own horizontal padding, which is exactly
  * where the card's edges sit, so the clip lands on the card and nothing else.
  * `clip-path` rather than a `border-radius`: the scrollport's box is wider
  * than the card (it cancels the sheet's padding with `-mx-3` so the scrollbar
- * rides the sheet edge), so rounding its corners would curve 12px clear of
- * the card and leave the cut looking square.
+ * rides the sheet edge), so its corners curve 12px clear of the card.
  */
 const OVERLAY_LIST_ROUNDED_CLIP =
   "[clip-path:inset(0_var(--side-menu-inset)_0_var(--side-menu-inset)_round_0_0_var(--radius-xl)_var(--radius-xl))]";
@@ -302,9 +301,9 @@ export function AssistantSideMenu({
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
-  // scrollable body, so the body reserves matching bottom padding to keep the
-  // last conversation rows scrollable clear of it. Measured (not static)
-  // because the tip card appears/disappears and its copy length varies.
+  // sheet's bottom, so the body's own box stops above it and the last
+  // conversation rows scroll clear. Measured (not static) because the tip
+  // card appears/disappears and its copy length varies.
   // The scrollport the flat "All" list virtualizes against. State, not a ref,
   // because the list only mounts once the node exists and has to re-render
   // when it does.
@@ -621,13 +620,11 @@ export function AssistantSideMenu({
                      less the inset the body already has, leaves exactly the
                      second step as clearance under the last row.
 
-                     A margin rather than padding: the reserve has to end the
-                     scrollport, not sit inside it. Padding is part of the
-                     scrollable box, so a card taller than the drawer drew its
-                     rows through the column and the pills read as floating on
-                     the Chats card instead of on the sheet. Ending the
-                     scrollport above the column clips those rows at the band
-                     instead, and the last one still scrolls into view. */
+                     A margin, so the reserve ends the scrollport rather than
+                     sitting inside it: padding belongs to the scrollable box,
+                     and a card taller than the drawer paints through it. The
+                     scrollport's own edge is what keeps rows off the column,
+                     and the last row still scrolls into view above it. */
                   "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
                   marginBottom:
                     "calc(var(--overlay-bottom-column-h) + 2rem - var(--side-menu-inset) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
