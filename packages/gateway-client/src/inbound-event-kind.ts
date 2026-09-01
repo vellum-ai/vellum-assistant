@@ -74,16 +74,43 @@ export function inboundEventRefersToAnotherMessage(
   return kind !== "message";
 }
 
+/**
+ * Which namespace a channel drew a reaction's emoji from, said rather than
+ * inferred from how the emoji was spelled. Modelled on Zulip's
+ * `reaction_type`, which is the only one of the four systems surveyed that
+ * separates the namespace from the name.
+ *
+ * `shortcode` is a name in the channel's own namespace whose kind the
+ * channel does not disclose: Slack sends `+1` for the standard emoji and
+ * `blob_wave` for a workspace upload with nothing to tell them apart, and
+ * only the workspace token can resolve the second. It is therefore a
+ * distinct kind from `unicode`, not a stand-in for an unknown one.
+ */
+export type ReactionEmojiKind = "unicode" | "shortcode" | "custom";
+
 /** The structured payload of a reaction event. */
 export interface InboundReactionPayload {
   op: "added" | "removed";
   /**
-   * The emoji as the channel names it: Slack a colon-name ("+1"), Telegram
-   * and Discord the unicode character, a Discord custom emoji its name.
-   * Decision vocabulary is product policy resolved in the daemon, never
-   * normalized here.
+   * The emoji in the channel's own spelling, which is what the channel's
+   * write path and the model both consume: Discord's outbound route parses
+   * a custom emoji back out of its `<:name:id>` mention form. Kept as the
+   * wire's token rather than replaced by the typed fields below, because
+   * the dedup id embeds it and the model hands it back to `react_to_message`
+   * verbatim.
    */
   emoji: string;
+  /** Which namespace {@link emoji} was drawn from. */
+  emojiKind: ReactionEmojiKind;
+  /**
+   * The emoji's name in that namespace: the character itself for `unicode`,
+   * the bare name for `shortcode` and `custom`. Never the mention form.
+   */
+  emojiName: string;
+  /** The channel's id for a `custom` emoji, absent for every other kind. */
+  emojiId?: string;
+  /** Whether a `custom` emoji animates. Absent for every other kind. */
+  emojiAnimated?: boolean;
   /**
    * Provider id of the message reacted to, in the same namespace as
    * `source.messageId`.
@@ -101,15 +128,33 @@ export interface InboundReactionPayload {
  */
 export function resolveInboundReactionPayload(fields: {
   eventKind?: string;
-  reaction?: InboundReactionPayload;
+  reaction?: Omit<InboundReactionPayload, "emojiKind" | "emojiName"> &
+    Partial<Pick<InboundReactionPayload, "emojiKind" | "emojiName">>;
   callbackData?: string;
   sourceMetadata?: { messageId?: string };
 }): InboundReactionPayload | null {
   if (fields.reaction) {
     const { op, emoji, targetMessageId } = fields.reaction;
-    return emoji.length > 0 && targetMessageId.length > 0
-      ? { op, emoji, targetMessageId }
-      : null;
+    if (emoji.length === 0 || targetMessageId.length === 0) {
+      return null;
+    }
+    // A row stored before the typed fields existed carries the spelling
+    // only, so its kind is recovered the one way left: from the string.
+    const typed =
+      fields.reaction.emojiKind !== undefined &&
+      fields.reaction.emojiName !== undefined
+        ? {
+            emojiKind: fields.reaction.emojiKind,
+            emojiName: fields.reaction.emojiName,
+            ...(fields.reaction.emojiId !== undefined
+              ? { emojiId: fields.reaction.emojiId }
+              : {}),
+            ...(fields.reaction.emojiAnimated !== undefined
+              ? { emojiAnimated: fields.reaction.emojiAnimated }
+              : {}),
+          }
+        : classifyLegacyReactionEmoji(emoji);
+    return { op, emoji, targetMessageId, ...typed };
   }
   const cb = fields.callbackData;
   const target = fields.sourceMetadata?.messageId;
@@ -123,6 +168,41 @@ export function resolveInboundReactionPayload(fields: {
   }
   const emoji = cb.slice(cb.indexOf(":") + 1);
   return emoji.length > 0
-    ? { op: removed ? "removed" : "added", emoji, targetMessageId: target }
+    ? {
+        op: removed ? "removed" : "added",
+        emoji,
+        targetMessageId: target,
+        ...classifyLegacyReactionEmoji(emoji),
+      }
     : null;
+}
+
+/**
+ * Recover an emoji's kind from its spelling alone. This is the one inference
+ * the design permits, and only for what predates the typed fields: a stored
+ * row or a replayed retry payload that carries the string and nothing else.
+ * New events say their kind, so nothing on the live path calls this.
+ *
+ * A mention form is unambiguous. Past that the two remaining kinds are told
+ * apart by whether the string is a name at all: a channel's shortcode is
+ * ASCII word characters, and anything else is the character itself.
+ */
+function classifyLegacyReactionEmoji(
+  emoji: string,
+): Pick<
+  InboundReactionPayload,
+  "emojiKind" | "emojiName" | "emojiId" | "emojiAnimated"
+> {
+  const custom = /^<(a?):([^:>]+):(\d+)>$/.exec(emoji);
+  if (custom) {
+    return {
+      emojiKind: "custom",
+      emojiName: custom[2]!,
+      emojiId: custom[3]!,
+      emojiAnimated: custom[1] === "a",
+    };
+  }
+  return /^[\w+-]+$/.test(emoji)
+    ? { emojiKind: "shortcode", emojiName: emoji }
+    : { emojiKind: "unicode", emojiName: emoji };
 }

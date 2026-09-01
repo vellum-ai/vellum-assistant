@@ -8,12 +8,26 @@
  * writes the neutral shape `readProviderMetadata` serves to channel-agnostic
  * readers.
  */
+import type { InboundReactionPayload } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "../channels/types.js";
 import type { ProviderMessageMetadata } from "./provider-message-metadata.js";
 import type { SlackMessageMetadata } from "./providers/slack/message-metadata.js";
 import { writeSlackMetadata } from "./providers/slack/message-metadata.js";
 
-export interface ReactionEnvelopeFacts {
+/**
+ * The emoji's typed identity, as the inbound payload declares it. Optional
+ * because the assistant's own reaction carries only the spelling it chose:
+ * it names an emoji rather than reporting one a channel described.
+ */
+type ReactionEmojiFacts = Partial<
+  Pick<
+    InboundReactionPayload,
+    "emojiKind" | "emojiName" | "emojiId" | "emojiAnimated"
+  >
+>;
+
+export interface ReactionEnvelopeFacts extends ReactionEmojiFacts {
   channel: ChannelId;
   /** Provider id of the chat the reaction belongs to. */
   chatId: string;
@@ -25,6 +39,18 @@ export interface ReactionEnvelopeFacts {
   actorExternalId?: string;
   /** Absent on the assistant's own reactions. */
   actorDisplayName?: string;
+}
+
+/** The typed emoji fields a facts bag actually carries, omitting the rest. */
+function reactionEmojiFacts(facts: ReactionEnvelopeFacts): ReactionEmojiFacts {
+  return {
+    ...(facts.emojiKind !== undefined ? { emojiKind: facts.emojiKind } : {}),
+    ...(facts.emojiName !== undefined ? { emojiName: facts.emojiName } : {}),
+    ...(facts.emojiId !== undefined ? { emojiId: facts.emojiId } : {}),
+    ...(facts.emojiAnimated !== undefined
+      ? { emojiAnimated: facts.emojiAnimated }
+      : {}),
+  };
 }
 
 export function buildNeutralReactionMeta(
@@ -41,6 +67,7 @@ export function buildNeutralReactionMeta(
     reaction: {
       targetMessageId: facts.targetMessageId,
       emoji: facts.emoji,
+      ...reactionEmojiFacts(facts),
       op: facts.op,
       ...(facts.actorDisplayName
         ? { actorDisplayName: facts.actorDisplayName }

@@ -220,8 +220,26 @@ export function normalizeDiscordMessageReaction(
     return null;
   }
   const customEmojiId = reaction.emoji?.id;
+  // The spelling is kept exactly as it has always been derived, including
+  // the non-animated mention form for an animated emoji. Two consumers
+  // depend on the bytes: the dedup id embeds it, so a redelivery mid-deploy
+  // would otherwise record twice, and the outbound route parses it back to
+  // `name:id`. What animation the emoji has rides in the typed fields, which
+  // are the ones a reader is meant to consult.
   const emoji =
     customEmojiId != null ? `<:${emojiName}:${customEmojiId}>` : emojiName;
+  // Discord says which namespace it drew from: an id means a guild upload,
+  // and its absence means the name IS the character. Nothing downstream has
+  // to recover that from the string.
+  const emojiFields =
+    customEmojiId != null
+      ? {
+          emojiKind: "custom" as const,
+          emojiName,
+          emojiId: customEmojiId,
+          emojiAnimated: reaction.emoji?.animated === true,
+        }
+      : { emojiKind: "unicode" as const, emojiName };
   const inThread = options.parentChannelId !== undefined;
   const isDirectMessage = reaction.guild_id === undefined;
   // The addressing parts (message, emoji, reactor, op) name a reaction, not
@@ -254,6 +272,7 @@ export function normalizeDiscordMessageReaction(
       reaction: {
         op: options.op,
         emoji,
+        ...emojiFields,
         targetMessageId: reaction.message_id,
       },
     },

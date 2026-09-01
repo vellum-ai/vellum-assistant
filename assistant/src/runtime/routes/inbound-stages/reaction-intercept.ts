@@ -566,6 +566,14 @@ function reactionFacts(params: {
     chatId: params.conversationExternalId,
     targetMessageId: params.reactedMessageTs,
     emoji: params.reaction.emoji,
+    emojiKind: params.reaction.emojiKind,
+    emojiName: params.reaction.emojiName,
+    ...(params.reaction.emojiId !== undefined
+      ? { emojiId: params.reaction.emojiId }
+      : {}),
+    ...(params.reaction.emojiAnimated !== undefined
+      ? { emojiAnimated: params.reaction.emojiAnimated }
+      : {}),
     op: params.reaction.op,
     ...(params.actorExternalId
       ? { actorExternalId: params.actorExternalId }

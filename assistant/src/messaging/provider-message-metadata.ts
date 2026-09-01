@@ -40,7 +40,27 @@ const providerReactionMetadataSchema = z.object({
    * namespace as `messageId`. Resolution is keyed on it, so it is required.
    */
   targetMessageId: z.string(),
+  /**
+   * The emoji in the channel's own spelling. Kept because the channel's
+   * write path consumes it and the model hands it back verbatim; the typed
+   * fields beside it are what a reader consults.
+   */
   emoji: z.string(),
+  /**
+   * Which namespace the emoji was drawn from, as the channel said it. These
+   * are declared rather than left to the envelope's passthrough: the outer
+   * schema passes unknown keys through, but this nested one strips them, so
+   * an undeclared field here writes fine and reads back as nothing, with no
+   * error at either end.
+   *
+   * Optional because rows written before these fields exist carry only the
+   * spelling. A reader wanting the kind for such a row recovers it through
+   * `resolveInboundReactionPayload`, which owns that inference.
+   */
+  emojiKind: z.enum(["unicode", "shortcode", "custom"]).optional(),
+  emojiName: z.string().optional(),
+  emojiId: z.string().optional(),
+  emojiAnimated: z.boolean().optional(),
   op: z.enum(["added", "removed"]),
   actorDisplayName: z.string().optional(),
 });
