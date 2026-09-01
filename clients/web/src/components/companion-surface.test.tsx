@@ -5,6 +5,8 @@ import * as motionReact from "motion/react";
 import { COMPANION_BASE_MAX_PILL_WIDTH } from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 
+import { t } from "@/i18n";
+
 /**
  * The reduced-motion answer, so one case can render the surface as a reader who
  * has asked for stillness sees it. Spread over the real module rather than
@@ -18,7 +20,7 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP } =
+const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP, buildIdleRowItems } =
   await import("./companion-surface");
 
 afterEach(() => {
@@ -1045,6 +1047,27 @@ describe("the companion surface's Watch flag", () => {
     expect(
       container.querySelector('button[aria-label="Stop teaching"]'),
     ).toBeNull();
+  });
+});
+
+/**
+ * The idle row as data, before anything draws it.
+ *
+ * The rendering cases above hold what a user sees; this holds the list they see
+ * it from, which is the thing a contributed entrypoint will later be appended
+ * to. Reading the composition here rather than off the DOM is what keeps the
+ * order and the flag's effect stated once, in the place they are decided.
+ */
+describe("the companion surface's idle row items", () => {
+  const keysOf = (watchEnabled: boolean): string[] =>
+    buildIdleRowItems({ t, watchEnabled }).map((item) => item.key);
+
+  test("is Talk, Type, then Teach when Watch is offered", () => {
+    expect(keysOf(true)).toEqual(["talk", "type", "teach"]);
+  });
+
+  test("is Talk and Type alone when it is not", () => {
+    expect(keysOf(false)).toEqual(["talk", "type"]);
   });
 });
 
