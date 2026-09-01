@@ -234,10 +234,12 @@
   },
   "discordSetupCreateStep": {
     "inPortal": "在 Discord 开发者门户中：",
-    "stepCreateApp": "创建一个新应用程序，名称随意。",
-    "stepAppIcon": "可选：让机器人使用您助手的形象。下载头像，并在<strong>一般信息</strong>页面上传。",
-    "stepResetToken": "在<strong>机器人</strong>页面点击<strong>重置令牌</strong>并立即复制令牌。Discord 只显示一次。",
-    "stepIntentsOff": "保持三个<strong>特权网关意图</strong>开关全部关闭。您的助手不需要它们：它只读取私信和提及它的消息。",
+    "stepCreateApp": "点击<strong>New Application</strong>，并用您助手的名字命名应用：",
+    "copyName": "复制名称",
+    "copied": "已复制！",
+    "stepAppIcon": "可选：下载头像，然后在<strong>一般信息</strong>页面上传为应用图标。",
+    "stepResetToken": "前往应用菜单中的<strong>机器人</strong>页面，点击<strong>重置令牌</strong>并立即复制令牌。Discord 只显示一次。",
+    "stepIntentsOff": "在同一页面，保持三个<strong>特权网关意图</strong>开关全部关闭。您的助手不需要它们：它只读取私信和提及它的消息。",
     "openPortal": "打开 Discord 门户",
     "continue": "我已拥有令牌"
   },
@@ -262,7 +264,8 @@
     "stepCreate": "创建应用",
     "stepConnect": "连接",
     "stepInvite": "添加到服务器",
-    "stepFinish": "完成"
+    "stepFinish": "完成",
+    "copyError": "无法复制名称。请改为在 Discord 中输入。"
   },
   "diskPressureBanner": {
     "acknowledge": "确认",

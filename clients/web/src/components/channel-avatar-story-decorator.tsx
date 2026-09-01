@@ -8,7 +8,7 @@ import { avatarRasterQueryKey } from "./channel-avatar-download";
  * the component reads its file through TanStack Query, and a story owns that
  * cache.
  */
-const AVATAR_DATA_URI =
+export const STORY_AVATAR_DATA_URI =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+s9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 /**
@@ -28,7 +28,7 @@ export function withAvatar(
     });
     client.setQueryData(
       avatarRasterQueryKey(assistantId),
-      hasAvatar ? AVATAR_DATA_URI : null,
+      hasAvatar ? STORY_AVATAR_DATA_URI : null,
     );
     seed?.(client);
     return (

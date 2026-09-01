@@ -76,13 +76,13 @@ export interface ChannelAvatarDownloadProps {
  * kind and a workspace whose raster has not been written yet. An absent
  * suggestion is better than a broken thumbnail beside a dead control.
  */
-export function ChannelAvatarDownload({
-  assistantId,
-  channel,
-  compact = false,
-}: ChannelAvatarDownloadProps) {
-  const { t } = useTranslation();
-
+/**
+ * The avatar raster as an object URL, or null when there is none to offer
+ * (the `none` avatar kind, or a workspace whose raster has not been written
+ * yet). Shared with steps that mention the download, so an instruction can
+ * disappear together with the control it describes.
+ */
+export function useAvatarRasterUrl(assistantId: string): string | null {
   const { data: imageUrl } = useQuery<string | null>({
     queryKey: avatarRasterQueryKey(assistantId),
     queryFn: async () => {
@@ -95,6 +95,17 @@ export function ChannelAvatarDownload({
     },
     staleTime: Infinity,
   });
+  return imageUrl ?? null;
+}
+
+export function ChannelAvatarDownload({
+  assistantId,
+  channel,
+  compact = false,
+}: ChannelAvatarDownloadProps) {
+  const { t } = useTranslation();
+
+  const imageUrl = useAvatarRasterUrl(assistantId);
 
   const handleDownload = useCallback(async () => {
     if (!imageUrl) {

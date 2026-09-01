@@ -10,7 +10,7 @@
  *
  * All token values are synthetic fixtures.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
@@ -42,6 +42,22 @@ const { channelverificationsessionsStatusGetQueryKey } =
 
 const INVITE_URL =
   "https://discord.com/oauth2/authorize?client_id=000000000000000001";
+const ASSISTANT_NAME = "Example Assistant";
+
+let clipboardWrites: string[] = [];
+
+beforeEach(() => {
+  clipboardWrites = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: (text: string) => {
+        clipboardWrites.push(text);
+        return Promise.resolve();
+      },
+    },
+  });
+});
 
 afterEach(() => {
   openedUrls = [];
@@ -75,6 +91,7 @@ function Harness() {
   return (
     <DiscordSetupWizard
       assistantId="asst-test"
+      assistantName={ASSISTANT_NAME}
       saveStatus={status}
       onSave={() => setStatus("success")}
       inviteUrl={INVITE_URL}
@@ -99,6 +116,15 @@ function goToInviteStep() {
 }
 
 describe("DiscordSetupWizard completion handoff", () => {
+  test("copying the suggested app name does not navigate", () => {
+    renderWizard(<Harness />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Copy name/i }));
+
+    expect(clipboardWrites).toEqual([ASSISTANT_NAME]);
+    expect(screen.queryByLabelText(/Bot token/i)).toBeNull();
+  });
+
   test("the connect step says the portal's App Verification can be ignored", () => {
     renderWizard(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: /I have my token/i }));
@@ -167,6 +193,7 @@ describe("DiscordSetupWizard completion handoff", () => {
     renderWizard(
       <DiscordSetupWizard
         assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
         saveStatus="success"
         inviteUrl={INVITE_URL}
         onVerifyRequest={() => {
@@ -184,7 +211,11 @@ describe("DiscordSetupWizard completion handoff", () => {
 
   test("without an invite URL there is nothing to confirm", () => {
     renderWizard(
-      <DiscordSetupWizard assistantId="asst-test" saveStatus="success" />,
+      <DiscordSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+        saveStatus="success"
+      />,
     );
 
     expect(

@@ -53,10 +53,12 @@
   },
   "discordSetupCreateStep": {
     "inPortal": "На портале разработчиков Discord:",
-    "stepCreateApp": "Создайте новое приложение. Название может быть любым.",
-    "stepAppIcon": "По желанию: пусть бот выглядит как ваш ассистент. Скачайте аватар и загрузите его на странице <strong>General Information</strong>.",
-    "stepResetToken": "На странице <strong>Bot</strong> нажмите <strong>Reset Token</strong> и сразу скопируйте токен. Discord показывает его только один раз.",
-    "stepIntentsOff": "Оставьте все три переключателя <strong>Privileged Gateway Intents</strong> выключенными. Ассистенту они не нужны: он читает только личные сообщения и сообщения с упоминанием.",
+    "stepCreateApp": "Нажмите <strong>New Application</strong> и назовите приложение именем ассистента:",
+    "copyName": "Скопировать имя",
+    "copied": "Скопировано!",
+    "stepAppIcon": "Необязательно: скачайте аватар и загрузите его на странице <strong>General Information</strong> как значок приложения.",
+    "stepResetToken": "Перейдите на страницу <strong>Bot</strong> в меню приложения, нажмите <strong>Reset Token</strong> и сразу скопируйте токен. Discord показывает его только один раз.",
+    "stepIntentsOff": "На той же странице оставьте все три переключателя <strong>Privileged Gateway Intents</strong> выключенными. Ассистенту они не нужны: он читает только личные сообщения и сообщения с упоминанием.",
     "openPortal": "Открыть портал Discord",
     "continue": "Токен у меня есть"
   },
@@ -81,7 +83,8 @@
     "stepCreate": "Создать приложение",
     "stepConnect": "Подключить",
     "stepInvite": "Добавить на сервер",
-    "stepFinish": "Завершение"
+    "stepFinish": "Завершение",
+    "copyError": "Не удалось скопировать имя. Введите его в Discord вручную."
   },
   "domainVerificationChip": {
     "checkingDomain": "Проверка домена…",

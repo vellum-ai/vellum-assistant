@@ -180,6 +180,7 @@ export function ChannelSetupPanel({
       ) : payload.channel === "discord" ? (
         <DiscordSetupWizard
           assistantId={payload.assistantId}
+          assistantName={payload.assistantName}
           saveStatus={saveDiscord.status}
           saveError={saveDiscord.error?.message ?? null}
           onSave={(botToken) => saveDiscord.mutate(botToken)}

@@ -10,6 +10,7 @@ import { DiscordSetupCreateStep } from "@/components/discord-setup-create-step";
 import { DiscordSetupFinishStep } from "@/components/discord-setup-finish-step";
 import { DiscordSetupInviteStep } from "@/components/discord-setup-invite-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 
@@ -22,6 +23,8 @@ const WIZARD_STEP_IDS = ["create", "connect", "invite", "finish"] as const;
 export interface DiscordSetupWizardProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
+  /** Suggested app name, offered to copy when the portal asks for one. */
+  assistantName: string;
   onSave?: (botToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
@@ -48,6 +51,7 @@ export interface DiscordSetupWizardProps {
  */
 export function DiscordSetupWizard({
   assistantId,
+  assistantName,
   onSave,
   saveStatus = "idle",
   saveError = null,
@@ -78,6 +82,14 @@ export function DiscordSetupWizard({
     }
   }, [saveStatus, goTo]);
 
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: t("discordSetupWizard.copyError"),
+  });
+
+  const handleCopyName = useCallback(() => {
+    copy(assistantName);
+  }, [copy, assistantName]);
+
   const handleOpenPortal = useCallback(() => {
     void openExternalUrl(DISCORD_PORTAL_URL);
   }, []);
@@ -105,6 +117,9 @@ export function DiscordSetupWizard({
       {stepId === "create" && (
         <DiscordSetupCreateStep
           assistantId={assistantId}
+          suggestedName={assistantName}
+          copied={copied}
+          onCopyName={handleCopyName}
           onOpenPortal={handleOpenPortal}
           onContinue={handleContinueToConnect}
         />

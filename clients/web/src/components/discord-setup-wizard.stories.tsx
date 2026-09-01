@@ -12,6 +12,7 @@ const meta: Meta<typeof DiscordSetupWizard> = {
   component: DiscordSetupWizard,
   args: {
     assistantId: ASSISTANT_ID,
+    assistantName: "Example Assistant",
   },
   // 400px matches the drawer this renders in: `chat-content-layout.tsx` mounts
   // the channel setup panel in an `AnimatedRightDrawer` with `defaultWidth` and

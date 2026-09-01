@@ -1,5 +1,8 @@
-import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
-import { ExternalLink } from "lucide-react";
+import {
+  ChannelAvatarDownload,
+  useAvatarRasterUrl,
+} from "@/components/channel-avatar-download";
+import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
@@ -7,14 +10,19 @@ import { Trans, useTranslation } from "@/i18n";
 export interface DiscordSetupCreateStepProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
+  /** Suggested app name, offered to copy when the portal asks for one. */
+  suggestedName: string;
+  copied: boolean;
+  onCopyName: () => void;
   onOpenPortal: () => void;
   onContinue: () => void;
 }
 
 /**
  * Create the application and collect its token, laid out as the ordered list
- * of portal actions the user performs, matching the Telegram create step.
- * The avatar download rides inside the icon step it belongs to.
+ * of portal actions the user performs: location first, one action per step,
+ * the portal's own labels in bold. The name to copy and the avatar to
+ * download ride inside the steps they belong to.
  *
  * Discord shows a bot token once, at the moment it is generated, and offers
  * no way to read it back, so the copy tells someone to bring it here before
@@ -27,10 +35,17 @@ export interface DiscordSetupCreateStepProps {
  */
 export function DiscordSetupCreateStep({
   assistantId,
+  suggestedName,
+  copied,
+  onCopyName,
   onOpenPortal,
   onContinue,
 }: DiscordSetupCreateStepProps) {
   const { t } = useTranslation();
+  // The icon step exists only while there is an avatar to download: an
+  // instruction to download nothing reads as a broken step, and the app
+  // icon is optional anyway.
+  const avatarUrl = useAvatarRasterUrl(assistantId);
 
   return (
     <div className="flex flex-col gap-4">
@@ -43,20 +58,53 @@ export function DiscordSetupCreateStep({
       </Typography>
 
       <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
-        <li>{t("discordSetupCreateStep.stepCreateApp")}</li>
         <li>
           <Trans
-            i18nKey="discordSetupCreateStep.stepAppIcon"
+            i18nKey="discordSetupCreateStep.stepCreateApp"
             components={{ strong: <strong /> }}
           />
-          <div className="mt-1.5 mb-1">
-            <ChannelAvatarDownload
-              assistantId={assistantId}
-              channel="discord"
-              compact
-            />
+          <div className="mt-1.5 mb-1 flex flex-wrap items-center gap-2">
+            <Typography
+              as="span"
+              variant="body-medium-default"
+              className="rounded bg-[var(--surface-overlay)] px-1.5 py-0.5 text-[color:var(--content-strong)]"
+            >
+              {suggestedName}
+            </Typography>
+            <Button
+              type="button"
+              variant="outlined"
+              size="compact"
+              onClick={onCopyName}
+              leftIcon={
+                copied ? (
+                  <Check aria-hidden className="size-4" />
+                ) : (
+                  <ClipboardCopy aria-hidden className="size-4" />
+                )
+              }
+            >
+              {copied
+                ? t("discordSetupCreateStep.copied")
+                : t("discordSetupCreateStep.copyName")}
+            </Button>
           </div>
         </li>
+        {avatarUrl ? (
+          <li>
+            <Trans
+              i18nKey="discordSetupCreateStep.stepAppIcon"
+              components={{ strong: <strong /> }}
+            />
+            <div className="mt-1.5 mb-1">
+              <ChannelAvatarDownload
+                assistantId={assistantId}
+                channel="discord"
+                compact
+              />
+            </div>
+          </li>
+        ) : null}
         <li>
           <Trans
             i18nKey="discordSetupCreateStep.stepResetToken"
