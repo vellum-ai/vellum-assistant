@@ -34,14 +34,20 @@
  * in every flavor, and only the default launcher icon changes with the build.
  *
  * A fifth piece lives outside `res`: the generator also owns the
- * `avatar-icon-aliases` marker block in `AndroidManifest.xml`, which declares
- * one disabled `<activity-alias>` per icon. Android picks the launcher icon off
- * the enabled launcher component, so switching icons means enabling one alias
- * and disabling the rest. Each alias is a clone of `.MainActivity`'s launcher,
- * deep-link, and shortcuts surface, read out of the manifest rather than spelled
- * out here, so a new deep link reaches every alias on the next run. Cloning is
- * what keeps those links and the static shortcuts working while an alias, not
- * `.MainActivity`, is the enabled component.
+ * `avatar-icon-aliases` marker block in `AndroidManifest.xml`. Every launcher
+ * entry is an `<activity-alias>` targeting `.MainActivity`: an enabled
+ * `.icon.primary` carrying the default launcher artwork, then one disabled alias
+ * per avatar icon. Android reads the launcher icon off the enabled launcher
+ * component, so switching icons enables one alias and disables the rest, and
+ * `.MainActivity` is never toggled.
+ *
+ * `.MainActivity` therefore owns no MAIN/LAUNCHER filter, and owns every
+ * deep-link filter and the static shortcuts `<meta-data>` alone. An alias
+ * carries the MAIN/LAUNCHER filter and a copy of that shortcuts `<meta-data>`,
+ * read out of the manifest rather than spelled out here. The shortcut,
+ * notification, and Quick Settings intents name `.MainActivity`'s class
+ * explicitly, and it is always enabled, so they resolve whichever icon is
+ * picked.
  */
 
 import {
@@ -135,10 +141,17 @@ const ALIAS_BLOCK_END = "<!-- avatar-icon-aliases:end -->";
 const MAIN_ACTIVITY_NAME = ".MainActivity";
 const ALIAS_NAME_PREFIX = ".icon.";
 
-/** Child elements of `.MainActivity` every alias has to reproduce. */
+/** Alias resource name of the launcher entry drawn with the default artwork. */
+const PRIMARY_ALIAS_RESOURCE = "primary";
+
+/** Hand-maintained default launcher icons, which the primary alias draws. */
+const DEFAULT_LAUNCHER_ICON = "@mipmap/ic_launcher";
+const DEFAULT_LAUNCHER_ROUND_ICON = "@mipmap/ic_launcher_round";
+
 const LAUNCHER_ACTION = '<action android:name="android.intent.action.MAIN" />';
 const LAUNCHER_CATEGORY =
   '<category android:name="android.intent.category.LAUNCHER" />';
+const VIEW_ACTION = '<action android:name="android.intent.action.VIEW" />';
 const SHORTCUTS_META_DATA_NAME = 'android:name="android.app.shortcuts"';
 
 export interface GenerateAndroidAvatarIconsOptions {
@@ -476,12 +489,13 @@ function findMainActivity(manifest: string): ManifestElement {
 }
 
 /**
- * `.MainActivity`'s intent filters and meta-data, verbatim and in document
- * order. Reading them out of the manifest is what makes a new deep link reach
- * every alias on the next run instead of silently applying to the default
- * launcher component alone.
+ * The shortcuts `<meta-data>` every alias carries, verbatim, once
+ * `.MainActivity` is confirmed to be shaped the way the alias block depends on:
+ * no launcher entry of its own, the static shortcuts still declared, and the
+ * deep links it is the sole receiver of still present. Reading the element out
+ * of the manifest is what keeps the aliases in step with a shortcuts change.
  */
-function mainActivityClonedChildren(mainActivity: ManifestElement): string[] {
+function shortcutsMetaDataOf(mainActivity: ManifestElement): string {
   const pattern =
     /^[ \t]*(?:<intent-filter(?:\s[^>]*)?>[\s\S]*?<\/intent-filter>|<meta-data\s[^>]*\/>)/gm;
   const children = mainActivity.text.match(pattern) ?? [];
@@ -490,39 +504,83 @@ function mainActivityClonedChildren(mainActivity: ManifestElement): string[] {
     (child) =>
       child.includes(LAUNCHER_ACTION) && child.includes(LAUNCHER_CATEGORY),
   );
-  if (!hasLauncherFilter) {
+  if (hasLauncherFilter) {
     throw new Error(
-      `${MAIN_ACTIVITY_NAME} has no MAIN/LAUNCHER intent filter to clone.`,
+      `${MAIN_ACTIVITY_NAME} declares a MAIN/LAUNCHER intent filter. The launcher entry belongs to ${ALIAS_NAME_PREFIX}${PRIMARY_ALIAS_RESOURCE}, and a second one puts two entries in the launcher.`,
     );
   }
-  if (!children.some((child) => child.includes(SHORTCUTS_META_DATA_NAME))) {
+  if (!children.some((child) => child.includes(VIEW_ACTION))) {
+    throw new Error(
+      `${MAIN_ACTIVITY_NAME} has no deep-link VIEW intent filter. Deep links resolve through it alone.`,
+    );
+  }
+  const shortcutsMetaData = children.find((child) =>
+    child.includes(SHORTCUTS_META_DATA_NAME),
+  );
+  if (!shortcutsMetaData) {
     throw new Error(
       `${MAIN_ACTIVITY_NAME} has no ${SHORTCUTS_META_DATA_NAME} meta-data to clone.`,
     );
   }
-  return children;
+  return shortcutsMetaData;
+}
+
+function launcherIntentFilter(indent: string): string {
+  return [
+    `${indent}<intent-filter>`,
+    `${indent}    ${LAUNCHER_ACTION}`,
+    `${indent}    ${LAUNCHER_CATEGORY}`,
+    `${indent}</intent-filter>`,
+  ].join("\n");
+}
+
+interface AliasSpec {
+  /** Manifest-relative name, `.icon.` prefix included. */
+  name: string;
+  enabled: boolean;
+  icon: string;
+  roundIcon: string;
 }
 
 /**
- * One alias per icon, disabled so that `.MainActivity` stays the sole enabled
- * launcher component until the picker enables one. Exactly one launcher-bearing
- * component is enabled at a time, so a fresh install and an update both behave
- * the way they do without the block, and an existing home screen pin survives.
+ * Every launcher component the app declares: the primary alias, enabled and
+ * drawn with the default launcher artwork, then one disabled alias per avatar
+ * icon. Exactly one of them is enabled at a time, and it is always an alias, so
+ * `.MainActivity` never has to be touched to change the icon.
  */
+function aliasSpecs(combinations: AvatarIconTraits[]): AliasSpec[] {
+  return [
+    {
+      name: `${ALIAS_NAME_PREFIX}${PRIMARY_ALIAS_RESOURCE}`,
+      enabled: true,
+      icon: DEFAULT_LAUNCHER_ICON,
+      roundIcon: DEFAULT_LAUNCHER_ROUND_ICON,
+    },
+    ...combinations.map((traits) => {
+      const name = androidResourceNameForTraits(traits);
+      return {
+        name: `${ALIAS_NAME_PREFIX}${name}`,
+        enabled: false,
+        icon: `@mipmap/${name}`,
+        roundIcon: `@mipmap/${name}`,
+      };
+    }),
+  ];
+}
+
 function buildActivityAlias(
-  traits: AvatarIconTraits,
+  spec: AliasSpec,
   children: string[],
   indent: string,
 ): string[] {
-  const name = androidResourceNameForTraits(traits);
   return [
     `${indent}<activity-alias`,
-    `${indent}    android:name="${ALIAS_NAME_PREFIX}${name}"`,
+    `${indent}    android:name="${spec.name}"`,
     `${indent}    android:targetActivity="${MAIN_ACTIVITY_NAME}"`,
-    `${indent}    android:enabled="false"`,
+    `${indent}    android:enabled="${spec.enabled}"`,
     `${indent}    android:exported="true"`,
-    `${indent}    android:icon="@mipmap/${name}"`,
-    `${indent}    android:roundIcon="@mipmap/${name}"`,
+    `${indent}    android:icon="${spec.icon}"`,
+    `${indent}    android:roundIcon="${spec.roundIcon}"`,
     `${indent}    android:label="@string/app_name">`,
     "",
     ...children.flatMap((child) => [child, ""]),
@@ -535,7 +593,10 @@ function buildAliasBlock(
   combinations: AvatarIconTraits[],
 ): string {
   const indent = mainActivity.indent;
-  const children = mainActivityClonedChildren(mainActivity);
+  const children = [
+    launcherIntentFilter(`${indent}    `),
+    shortcutsMetaDataOf(mainActivity),
+  ];
   return [
     `${indent}${ALIAS_BLOCK_BEGIN}`,
     `${indent}<!--`,
@@ -543,8 +604,8 @@ function buildAliasBlock(
     `${indent}    Do not edit by hand.`,
     `${indent}-->`,
     "",
-    ...combinations.flatMap((traits) => [
-      ...buildActivityAlias(traits, children, indent),
+    ...aliasSpecs(combinations).flatMap((spec) => [
+      ...buildActivityAlias(spec, children, indent),
       "",
     ]),
     `${indent}${ALIAS_BLOCK_END}`,
