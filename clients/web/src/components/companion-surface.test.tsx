@@ -454,6 +454,19 @@ const avatarOf = (container: HTMLElement): HTMLElement => {
   return found;
 };
 
+/**
+ * The shape drawn inside that box: the creature's whole box while the surface
+ * is expanded, a thin capsule at rest. The box's first child, and the node the
+ * working ring is drawn around, so the ring hugs whichever of the two it is.
+ */
+const shapeOf = (container: HTMLElement): HTMLElement => {
+  const found = avatarOf(container).firstElementChild as HTMLElement | null;
+  if (found === null) {
+    throw new Error("Expected the avatar's shape to render");
+  }
+  return found;
+};
+
 describe("the companion surface's anchor in the canvas", () => {
   test("grows up by default, which is where the surface normally lives", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
@@ -700,8 +713,8 @@ describe("the companion surface at two sizes", () => {
 
   /**
    * The creature's own node carries the difference and nothing else does. It
-   * has to be that node rather than the wrapper below it, which owns the bob's
-   * `transform`: two transforms on one node leave one of them out.
+   * has to be that node rather than either wrapper below it: the collapse owns
+   * a `transform` and so does the bob, and two on one node leave one out.
    */
   test("scales the creature by the difference between the two boxes", () => {
     const { container } = render(
@@ -710,7 +723,9 @@ describe("the companion surface at two sizes", () => {
     expect(avatarOf(container).style.transform).toBe(
       "translate(-50%, -50%) scale(2.5)",
     );
-    expect(bobOf(container)?.parentElement).toBe(avatarOf(container));
+    expect(bobOf(container)?.parentElement?.parentElement).toBe(
+      avatarOf(container),
+    );
   });
 
   test("scales it down the same way beside a larger pill", () => {
@@ -1527,11 +1542,31 @@ describe("the resting avatar's idle motion", () => {
     expect(bobOf(container)?.querySelector("svg")).not.toBeNull();
   });
 
-  /** The wrapper sits inside the avatar's box, which nothing else may move. */
-  test("keeps the avatar box as the wrapper's parent", () => {
+  /**
+   * The wrapper sits inside the avatar's box, which nothing else may move.
+   *
+   * One node further down than it used to be: the collapse that tucks the
+   * creature into the capsule is a `transform` of its own, so it takes a
+   * wrapper rather than riding the bob and silently replacing it. Both are
+   * asserted, since the thing that must hold is the whole chain from the box
+   * the host measures down to the artwork.
+   */
+  test("keeps the avatar box above the wrapper, one node up", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    expect(bobOf(container)?.parentElement?.className).toContain("size-11");
+    const bob = bobOf(container);
+    const collapse = bob?.parentElement;
+    expect(collapse?.className).toContain("transition-[opacity,transform]");
+    expect(collapse?.parentElement?.className).toContain("size-11");
+  });
+
+  /** Each transform on a node of its own, which is the whole point of them. */
+  test("gives the collapse and the bob separate nodes", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    const collapse = bobOf(container)?.parentElement;
+    expect(collapse?.style.transform).toBe("scale(0.35)");
+    expect(bobOf(container)?.style.transform).toBe("");
   });
 
   /**
@@ -1572,5 +1607,74 @@ describe("the resting avatar's idle motion", () => {
 
     expect(bobOf(container)?.style.animation).toBe("");
     expect(glowOf(container)?.style.animation).toBe("");
+  });
+});
+
+/**
+ * The resting collapse.
+ *
+ * At rest this surface is a marker rather than a mascot: it sits over whatever
+ * the user is working in all day, so the creature gives way to a thin capsule
+ * and comes back the moment anything opens the pill.
+ *
+ * What must not move with it is the box the shape is drawn in. That box is the
+ * drag handle, the point the host positions the window around, and the rect the
+ * pointer is hit-tested against, so a collapse that shrank it would move the
+ * anchor every drag and clamp is measured from.
+ */
+describe("the avatar's resting collapse", () => {
+  test("draws a capsule at rest", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    const shape = shapeOf(container);
+    expect(shape.style.width).toBe("28px");
+    expect(shape.style.height).toBe("10px");
+  });
+
+  test("draws the whole box once anything opens the pill", () => {
+    for (const phase of PHASES.filter((it) => it !== "resting")) {
+      const { container } = render(<CompanionSurface phase={phase} />);
+
+      const shape = shapeOf(container);
+      expect(shape.style.width).toBe("44px");
+      expect(shape.style.height).toBe("44px");
+    }
+  });
+
+  /**
+   * The box the host measures is the same box in every phase. This is the one
+   * assertion here that is about the window rather than the drawing: shrink it
+   * and every drag, clamp and growth flip is measured from a different point.
+   */
+  test("never resizes the box the shape is drawn in", () => {
+    for (const phase of PHASES) {
+      const { container } = render(<CompanionSurface phase={phase} />);
+
+      expect(avatarOf(container).className).toContain("size-11");
+    }
+  });
+
+  /**
+   * A ring is a statement about the shape it is drawn around, so a turn
+   * running while the surface is at rest lights the capsule rather than
+   * circling the empty box the capsule sits in.
+   */
+  test("rides the ring on the shape, not on the box", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" working />,
+    );
+
+    expect(ringOf(container)?.parentElement).toBe(shapeOf(container));
+  });
+
+  /** The creature fades with it rather than being cut, and comes back whole. */
+  test("fades the creature out at rest and back in expanded", () => {
+    const { container: resting } = render(
+      <CompanionSurface phase="resting" />,
+    );
+    expect(bobOf(resting)?.parentElement?.style.opacity).toBe("0");
+
+    const { container: hovered } = render(<CompanionSurface phase="hover" />);
+    expect(bobOf(hovered)?.parentElement?.style.opacity).toBe("1");
   });
 });
