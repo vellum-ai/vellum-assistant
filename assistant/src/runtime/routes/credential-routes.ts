@@ -47,6 +47,7 @@ import {
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import {
   CredentialStorageError,
+  invalidateEmailReadinessForByoCredential,
   InvalidCredentialInputError,
   storeCredentialValue,
 } from "../../tools/credentials/store.js";
@@ -550,6 +551,8 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   }
 
   invalidateConnectionsAfterCredentialDelete(affectedConnections);
+
+  await invalidateEmailReadinessForByoCredential(service);
 
   return { service, field, affectedConnections };
 }

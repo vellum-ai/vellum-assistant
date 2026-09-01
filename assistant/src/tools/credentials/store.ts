@@ -28,6 +28,7 @@ import {
   ACP_SERVICE,
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
+import { BYO_EMAIL_CREDENTIAL_SERVICES } from "../../email/byo-email-credential.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { normalizeSecretValue } from "../../security/secret-normalize.js";
 import {
@@ -176,5 +177,33 @@ export async function storeCredentialValue(
     );
   }
 
+  await invalidateEmailReadinessForByoCredential(service);
+
   return { credentialId: metadata.credentialId, service, field };
+}
+
+/**
+ * A stored or deleted "your own" email provider key changes the email
+ * channel's readiness verdict, and that check lives in the readiness
+ * service's TTL-cached remote bucket; drop the cached snapshot so the next
+ * readiness read re-evaluates instead of serving the pre-write answer for
+ * the rest of the TTL. Best-effort: the credential write already succeeded,
+ * and a missed invalidation self-heals when the TTL lapses.
+ */
+export async function invalidateEmailReadinessForByoCredential(
+  service: string,
+): Promise<void> {
+  if (!(BYO_EMAIL_CREDENTIAL_SERVICES as readonly string[]).includes(service)) {
+    return;
+  }
+  try {
+    const { getReadinessService } =
+      await import("../../daemon/handlers/config-channels.js");
+    getReadinessService().invalidateChannel("email");
+  } catch (err) {
+    log.warn(
+      { err, service },
+      "Credential write succeeded, but email readiness invalidation failed",
+    );
+  }
 }
