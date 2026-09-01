@@ -168,12 +168,17 @@ export async function getOrCreateConversation(
 }
 
 /**
- * Acquire an active conversation, or null when no `conversations` row backs it.
+ * Acquire an active conversation, or null when the one asked about is gone.
  *
  * For a caller whose work is only meaningful inside a conversation that still
  * exists: a queued job whose conversation can be deleted between the moment it
  * was accepted and the moment it runs. {@link getOrCreateConversation} would
  * write the row back for it, which resurrects a conversation the user deleted.
+ *
+ * The question it answers is about one incarnation, not about an id. A row
+ * deleted and written back under the same id is a different conversation, and
+ * this reports it as gone rather than persisting into a stranger that inherited
+ * the name.
  *
  * Distinct from the two cheaper reads it sits above:
  * `findConversation` returns only an instance already in memory, and the
@@ -189,6 +194,26 @@ export function getConversationIfExists(
 }
 
 /**
+ * Whether the conversation is still the incarnation a non-creating acquire was
+ * asked about.
+ *
+ * `created_at` is stamped at insert and nothing else rewrites it, so a row
+ * deleted and written back under the same id carries a different one. Bare
+ * existence cannot answer this: an acquire sharing flight with a creating
+ * caller can find a row that caller wrote moments ago and read it as the one
+ * it was asked about.
+ */
+function isSameIncarnation(
+  conversationId: string,
+  createdAt: number | null,
+): boolean {
+  return (
+    createdAt !== null &&
+    getConversation(conversationId)?.createdAt === createdAt
+  );
+}
+
+/**
  * The body both acquires share. `createIfMissing` decides one thing: whether a
  * missing row is written or reported.
  */
@@ -199,9 +224,14 @@ async function acquireConversation(
 ): Promise<Conversation | null> {
   // A caller that will not create wants nothing to do with a conversation
   // whose row is gone, resident instance or not. Also spares an already-gone
-  // conversation the provider and tool setup below.
-  if (!createIfMissing && !getConversation(conversationId)) {
-    return null;
+  // conversation the provider and tool setup below. The row it finds is the
+  // incarnation every later acceptance point below answers for.
+  let incarnation: number | null = null;
+  if (!createIfMissing) {
+    incarnation = getConversation(conversationId)?.createdAt ?? null;
+    if (incarnation === null) {
+      return null;
+    }
   }
 
   let conversation = findConversation(conversationId);
@@ -261,14 +291,17 @@ async function acquireConversation(
       }
       const joined = await pending;
       if (!createIfMissing) {
-        // A non-creating acquire answers for the row as it stands when it
-        // answers, never for what an acquire it happened to share flight with
+        // A non-creating acquire answers for the incarnation it was asked
+        // about, never for what an acquire it happened to share flight with
         // decided to write. The shared flight can belong to a creating caller,
         // whose own contract is to build the conversation whatever became of
-        // the row, so inheriting its instance would hand back a conversation
-        // that no longer exists. A row that reads present here was written
-        // under that caller's contract, which is not this one's to overrule.
-        return joined && getConversation(conversationId) ? joined : null;
+        // the row, and a delete during that caller's setup is answered by
+        // writing a fresh row under the same id. Present is therefore not the
+        // question: that row is a different conversation, and this caller was
+        // never asked to persist into it.
+        return joined && isSameIncarnation(conversationId, incarnation)
+          ? joined
+          : null;
       }
       if (joined) {
         return joined;
@@ -310,8 +343,8 @@ async function acquireConversation(
       // Provider resolution, the system prompt, and tool setup all await, and
       // a delete can land in any of them. This is the last instant before the
       // row insert below and nothing between the two awaits, so a non-creating
-      // acquire that reads the row gone here never writes it back.
-      if (!createIfMissing && !getConversation(conversationId)) {
+      // acquire that finds its incarnation gone here never writes it back.
+      if (!createIfMissing && !isSameIncarnation(conversationId, incarnation)) {
         return null;
       }
 
@@ -386,6 +419,15 @@ async function acquireConversation(
       // leaves it unset rather than inheriting whatever was open last time.
       if (options?.transport) {
         newConversation.applyVisibleAppFromTransport(options.transport);
+      }
+      // Hydration awaits, so a delete can land between the check that let this
+      // build and the registry write. Registering then leaves an active
+      // conversation with no row behind it, which later session work finds and
+      // reuses. The creating path keeps its own window: it cannot answer null,
+      // and a caller that was asked to build owns what it built.
+      if (!createIfMissing && !isSameIncarnation(conversationId, incarnation)) {
+        newConversation.dispose();
+        return null;
       }
       setConversation(conversationId, newConversation);
       return newConversation;

@@ -17,7 +17,7 @@
  * decision inside the acquire (`createConversation` /
  * `ensureConversationExists`) rather than the surrounding provider wiring.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { Message } from "../providers/types.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -61,11 +61,24 @@ setConfig("memory", { enabled: false, v2: { enabled: false } });
 let conversationRowPresent = false;
 
 /**
+ * The `created_at` the row reads with, which is what tells one incarnation of
+ * an id from the next. Every write below stamps a fresh one, the way an insert
+ * does.
+ */
+let conversationCreatedAt = 1000;
+
+/**
  * Set to model a delete that lands while the acquire is awaiting its setup
  * work: the row reads present when the acquire starts and gone by the time it
  * would insert.
  */
 let deleteDuringSetup = false;
+
+/**
+ * Set to model a delete that lands while the acquire is hydrating the instance
+ * it just built, which is the window before it reaches the registry.
+ */
+let deleteDuringHydration = false;
 
 /**
  * Set to hold an acquire inside its setup work until the test resolves it,
@@ -115,17 +128,28 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
+/** Write the row the way an insert does, under a fresh `created_at`. */
+function writeConversationRow(): void {
+  conversationRowPresent = true;
+  conversationCreatedAt += 1;
+}
+
 // The row-creation spies. `getConversation` answers from
 // `conversationRowPresent`, which starts false so the conversation reads as
-// brand-new: the branch that would create a row.
-// Both write the row, so both leave it readable, which is what lets a test
-// tell an acquire that re-created a conversation from one that did not.
+// brand-new: the branch that would create a row. Both spies leave the row
+// readable under a `created_at` of their own, which is what lets a test tell
+// the conversation an acquire was asked about from one written since.
 const mockCreateConversation = mock((_opts?: unknown) => {
-  conversationRowPresent = true;
+  writeConversationRow();
   return { id: "conv-x" };
 });
 const mockEnsureConversationExists = mock((_id: string) => {
-  conversationRowPresent = true;
+  // Matches the real one, which reports false and writes nothing when the row
+  // is already there.
+  if (conversationRowPresent) {
+    return false;
+  }
+  writeConversationRow();
   return true;
 });
 
@@ -133,8 +157,16 @@ mock.module("../persistence/conversation-crud.js", () => ({
   ADOPTABLE_CONVERSATION_ID_RE: /^[A-Za-z0-9_-]{1,128}$/,
   createConversation: mockCreateConversation,
   ensureConversationExists: mockEnsureConversationExists,
-  getConversation: (id: string) => (conversationRowPresent ? { id } : null),
-  getMessages: () => [],
+  getConversation: (id: string) =>
+    conversationRowPresent ? { id, createdAt: conversationCreatedAt } : null,
+  getMessages: () => {
+    // Read by `loadFromDb`, which the acquire awaits after building the
+    // instance and before it reaches the registry.
+    if (deleteDuringHydration) {
+      conversationRowPresent = false;
+    }
+    return [];
+  },
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
 }));
@@ -186,6 +218,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
+import { Conversation } from "../daemon/conversation.js";
 import {
   conversationCount,
   findConversation,
@@ -201,7 +234,9 @@ function resetAcquireState(): void {
   mockCreateConversation.mockClear();
   mockEnsureConversationExists.mockClear();
   conversationRowPresent = false;
+  conversationCreatedAt += 1;
   deleteDuringSetup = false;
+  deleteDuringHydration = false;
   holdSetup = null;
 }
 
@@ -299,6 +334,57 @@ describe("getConversationIfExists", () => {
     expect(await observing).toBeNull();
     expect(mockEnsureConversationExists).not.toHaveBeenCalled();
     expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  test("does not accept a row the acquire it joined wrote back", async () => {
+    // The creating caller it shares flight with writes the row back when the
+    // delete lands inside that caller's setup, so by the time this one looks
+    // the id names a row again. Reading presence alone cannot tell that row
+    // from the one this caller was asked about, and persisting into it would
+    // put the frame in a conversation created after the deletion.
+    resetAcquireState();
+    conversationRowPresent = true;
+    let releaseSetup = () => {};
+    holdSetup = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    const creating = getOrCreateConversation("recreated-conversation");
+    const observing = getConversationIfExists("recreated-conversation");
+
+    conversationRowPresent = false;
+    releaseSetup();
+
+    // The creating caller builds whatever became of the row, which is its own
+    // contract and unchanged.
+    expect(await creating).not.toBeNull();
+    expect(mockEnsureConversationExists).toHaveBeenCalledTimes(1);
+    expect(conversationRowPresent).toBe(true);
+
+    expect(await observing).toBeNull();
+  });
+
+  test("disposes rather than registers an instance whose row went away", async () => {
+    // Hydration awaits, so the row can go between the read that let this build
+    // and the registry write. Registering leaves an active conversation with
+    // no row behind it, which later session work finds and reuses.
+    resetAcquireState();
+    conversationRowPresent = true;
+    deleteDuringHydration = true;
+    const disposeSpy = spyOn(Conversation.prototype, "dispose");
+
+    try {
+      expect(await getConversationIfExists("hydrated-conversation")).toBeNull();
+
+      expect(findConversation("hydrated-conversation")).toBeUndefined();
+      expect(conversationCount()).toBe(0);
+      expect(conversationRowPresent).toBe(false);
+      // The instance it built is torn down rather than left to leak its
+      // timers and proxies.
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      disposeSpy.mockRestore();
+    }
   });
 });
 
