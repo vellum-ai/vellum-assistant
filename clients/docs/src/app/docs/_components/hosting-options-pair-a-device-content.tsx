@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { CodeTabs } from "@/app/docs/_components/code-tabs";
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
@@ -9,6 +10,7 @@ import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 const TOC_ITEMS = [
   { id: "overview", label: "Overview", level: 2 },
   { id: "before-you-start", label: "Before you start", level: 2 },
+  { id: "install-nginx", label: "Install nginx", level: 2 },
   { id: "set-up-a-tunnel", label: "Set up a tunnel provider", level: 2 },
   { id: "ngrok", label: "ngrok", level: 3 },
   { id: "tailscale", label: "Tailscale", level: 3 },
@@ -77,26 +79,58 @@ export function HostingOptionsPairADeviceContent() {
           <SectionHeading id="before-you-start" level={2}>
             Before you start
           </SectionHeading>
-          <p className={paraClass}>On the computer that hosts your assistant:</p>
-          <ul className="mb-0 list-disc space-y-2 pl-6 text-stone-600 dark:text-stone-400">
-            <li>
-              <strong>Make sure it&apos;s running.</strong>{" "}
-              <code className={codeClass}>vellum ps</code> to check,{" "}
-              <code className={codeClass}>vellum wake</code> to start it. No
-              assistant yet? See{" "}
-              <Link href="/docs/hosting-options/local-hosting" className={linkClass}>
-                Local hosting
-              </Link>
-              .
-            </li>
-            <li>
-              <strong>Install nginx.</strong>{" "}
-              Tunnels run through it, and Vellum starts it for you but
-              won&apos;t install it:{" "}
-              <code className={codeClass}>brew install nginx</code> on macOS,{" "}
-              <code className={codeClass}>sudo apt install nginx</code> on Linux.
-            </li>
-          </ul>
+          <p className={lastParaClass}>
+            Your assistant has to be running on the computer that hosts it.{" "}
+            <code className={codeClass}>vellum ps</code> to check,{" "}
+            <code className={codeClass}>vellum wake</code> to start it. No
+            assistant yet? See{" "}
+            <Link href="/docs/hosting-options/local-hosting" className={linkClass}>
+              Local hosting
+            </Link>
+            .
+          </p>
+        </section>
+
+        <section id="install-nginx" className="mt-12">
+          <SectionHeading id="install-nginx" level={2}>
+            Install nginx
+          </SectionHeading>
+          <p className={paraClass}>
+            Tunnels run through nginx. Vellum starts it for you, but
+            won&apos;t install it. Run this on the computer hosting your
+            assistant.
+          </p>
+          <CodeTabs
+            label="Operating system"
+            tabs={[
+              {
+                id: "macos",
+                label: "macOS",
+                content: (
+                  <div className="overflow-x-auto">
+                    <pre className={preClass}>
+<code>{`brew install nginx`}</code>
+                    </pre>
+                  </div>
+                ),
+              },
+              {
+                id: "linux",
+                label: "Linux",
+                content: (
+                  <div className="overflow-x-auto">
+                    <pre className={preClass}>
+<code>{`sudo apt-get update
+sudo apt-get install -y nginx
+
+# nginx lands in /usr/sbin, which isn't on PATH for non-root users
+echo 'export PATH="$PATH:/usr/sbin"' >> ~/.bashrc && source ~/.bashrc`}</code>
+                    </pre>
+                  </div>
+                ),
+              },
+            ]}
+          />
         </section>
 
         <section id="set-up-a-tunnel" className="mt-12">
@@ -137,16 +171,63 @@ export function HostingOptionsPairADeviceContent() {
                 .
               </li>
               <li>
-                <strong>Install the agent.</strong>{" "}
-                <code className={codeClass}>brew install ngrok/ngrok/ngrok</code>{" "}
-                on macOS, or{" "}
-                <code className={codeClass}>sudo snap install ngrok</code> on
-                Linux.
+                <strong className="block">Install the agent.</strong>
+                <CodeTabs
+                  label="Operating system"
+                  tabs={[
+                    {
+                      id: "macos",
+                      label: "macOS",
+                      content: (
+                        <div className="overflow-x-auto">
+                          <pre className={preClass}>
+<code>{`# Install ngrok
+brew install ngrok/ngrok/ngrok
+
+# Confirm it's there
+ngrok --version`}</code>
+                          </pre>
+                        </div>
+                      ),
+                    },
+                    {
+                      id: "linux",
+                      label: "Linux",
+                      content: (
+                        <div className="overflow-x-auto">
+                          <pre className={preClass}>
+<code>{`# ngrok ships as a snap. Ubuntu Desktop has snapd already, but
+# Debian and most server images don't.
+sudo apt update
+sudo apt install -y snapd
+
+# Install ngrok
+sudo snap install ngrok
+
+# snap links binaries into /snap/bin, which isn't on PATH by default
+echo 'export PATH="$PATH:/snap/bin"' >> ~/.bashrc && source ~/.bashrc
+
+# Confirm it's there
+ngrok --version`}</code>
+                          </pre>
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
               </li>
               <li>
                 <strong>Add your authtoken</strong>{" "}
-                from the <span className={uiClass}>Your Authtoken</span> page in
-                the dashboard:
+                from the{" "}
+                <Link
+                  href="https://dashboard.ngrok.com/get-started/your-authtoken"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  Your Authtoken
+                </Link>{" "}
+                page in the dashboard:
                 <div className="mt-3 overflow-x-auto">
                   <pre className={preClass}>
 <code>{`ngrok config add-authtoken <your-token>`}</code>
@@ -154,14 +235,22 @@ export function HostingOptionsPairADeviceContent() {
                 </div>
               </li>
               <li>
-                <strong>Claim a static domain.</strong>{" "}
-                Optional, but it saves re-pairing later. Without one, ngrok
-                issues a new URL each time the tunnel restarts, and paired
-                devices keep pointing at the old one. A reboot, a Ctrl+C, or a{" "}
-                <code className={codeClass}>vellum wake</code>{" "}
-                all restart it.
-                Note the domain you pick; you&apos;ll pass it to Vellum in the
-                next section.
+                <strong>(Optional) Claim a static domain.</strong>{" "}
+                Without one, ngrok issues a new URL every time the tunnel
+                restarts, and your paired devices keep pointing at the old one.
+                Restarts are easy to trigger: a reboot, a Ctrl+C, or a{" "}
+                <code className={codeClass}>vellum wake</code>. Reserving a
+                domain on the{" "}
+                <Link
+                  href="https://dashboard.ngrok.com/domains"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  Domains
+                </Link>{" "}
+                page saves you re-pairing each time. Note the one you pick;
+                you&apos;ll pass it to Vellum in the next section.
               </li>
             </ol>
           </div>
@@ -210,43 +299,41 @@ export function HostingOptionsPairADeviceContent() {
             Start the tunnel
           </SectionHeading>
           <p className={paraClass}>
-            Run this on the computer hosting the assistant. For ngrok, pass the
-            domain you reserved:
+            Run this on the computer hosting the assistant. For ngrok, pass{" "}
+            <Link
+              href="https://dashboard.ngrok.com/domains"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={linkClass}
+            >
+              the domain
+            </Link>{" "}
+            you reserved:
           </p>
           <div className={blockClass}>
             <pre className={preClass}>
-<code>{`vellum tunnel --provider ngrok --domain your-assistant.ngrok.app`}</code>
+<code>{`vellum tunnel --provider ngrok --domain your-assistant.ngrok.app -d`}</code>
             </pre>
           </div>
           <p className={paraClass}>For Tailscale:</p>
           <div className={blockClass}>
             <pre className={preClass}>
-<code>{`vellum tunnel --provider tailscale`}</code>
+<code>{`vellum tunnel --provider tailscale -d`}</code>
             </pre>
           </div>
           <p className={paraClass}>
-            Either way the command prints{" "}
-            <code className={codeClass}>Tunnel established:</code> followed by
-            the address your devices will use, and saves that address so the
-            pairing steps below fill it in for you.
+            <code className={codeClass}>-d</code>{" "}
+            runs the tunnel in the background, so it survives closing the
+            terminal. It has to stay up for as long as you want remote access.
           </p>
-          <p className={paraClass}>
-            The tunnel has to stay up for as long as you want remote access. To
-            keep it running without leaving a terminal open, add{" "}
-            <code className={codeClass}>-d</code>:
-          </p>
-          <div className={blockClass}>
-            <pre className={preClass}>
-<code>{`vellum tunnel --provider ngrok -d`}</code>
-            </pre>
-          </div>
           <p className={lastParaClass}>
-            It waits for the tunnel to come up, then prints the address, where
-            it is logging, and the{" "}
+            Either way the command waits for the tunnel to come up, then prints{" "}
+            <code className={codeClass}>Tunnel established:</code> with the
+            address your devices will use, where it is logging, and the{" "}
             <code className={codeClass}>kill</code>{" "}
-            command that stops it again.
-            Vellum remembers your ngrok domain after the first run, which is why
-            this one doesn&apos;t repeat{" "}
+            command that stops it again. Vellum saves that address so the
+            pairing steps below fill it in for you, and remembers your ngrok
+            domain so later runs don&apos;t need{" "}
             <code className={codeClass}>--domain</code>.
           </p>
         </section>

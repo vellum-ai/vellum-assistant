@@ -143,9 +143,9 @@ gcloud services enable compute.googleapis.com`}</code>
               <strong>Install Vellum and its dependencies.</strong>
               <div className="mt-3 overflow-x-auto">
                 <pre className={preClass}>
-<code>{`# Install nginx in case you want to set up remote access to your assistant later
+<code>{`# Bun's installer needs curl and unzip
 sudo apt-get update
-sudo apt-get install -y curl unzip git nginx
+sudo apt-get install -y curl unzip git
 
 # Vellum ships as a Bun package, so Bun needs to be installed
 curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"

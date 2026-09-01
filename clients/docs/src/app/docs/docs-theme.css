@@ -253,6 +253,65 @@ html:has(.docs-shell) {
   border-radius: 0;
 }
 
+/* Segmented control for alternate versions of a step, e.g. macOS vs Linux. */
+.docs-shell .docs-code-tabs {
+  margin-top: 0.75rem;
+}
+
+.docs-shell .docs-code-tabs-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-bottom: 0.5rem;
+  padding: 3px;
+  border: 1px solid var(--docs-border);
+  border-radius: 10px;
+  background: var(--docs-sidebar-bg);
+}
+
+.docs-shell .docs-code-tabs-list:hover {
+  border-color: var(--docs-border-strong);
+}
+
+.docs-shell .docs-code-tabs-tab {
+  padding: 0.25rem 0.7rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--docs-text-subtle);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.docs-shell .docs-code-tabs-tab:hover {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-code-tabs-tab.is-active {
+  background: var(--docs-surface);
+  color: var(--docs-accent);
+}
+
+.docs-shell .docs-code-tabs-tab:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -1px;
+}
+
+.docs-shell .docs-code-tabs-panel[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-shell .docs-code-tabs-tab {
+    transition: none;
+  }
+}
+
 /* Copy-to-clipboard button, injected by CodeBlockCopy. The wrapper sits
    around the scroll container so the button stays put on wide blocks. */
 .docs-shell .docs-codeblock {
