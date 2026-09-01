@@ -166,6 +166,15 @@ function HoldToDictateCard() {
 
   useEffect(() => {
     void refreshPermission();
+    // The grant is made in System Settings, which sends nothing back. Polling
+    // while the card is on screen is what lets the notice go away by itself
+    // once the user returns, rather than reading stale until the next reload.
+    const timer = setInterval(() => {
+      void refreshPermission();
+    }, 2000);
+    return () => {
+      clearInterval(timer);
+    };
   }, [refreshPermission]);
 
   if (!supportsModifierHold()) {

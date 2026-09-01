@@ -2187,7 +2187,7 @@
     "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
     "holdToDictateEnable": "Enable hold to dictate",
     "holdToDictateGrantInputMonitoring": "Allow Input Monitoring",
-    "holdToDictateNeedsInputMonitoring": "Vellum needs Input Monitoring to notice the keys being held.",
+    "holdToDictateNeedsInputMonitoring": "Vellum needs Input Monitoring to notice the keys being held. Turn on “Vellum Helper” in the list, then restart Vellum: the grant only reaches a helper that started after it.",
     "holdToDictateOpenSettings": "Open System Settings",
     "holdToDictateSubtitle": "Hold Control and Option from any app, speak, and let go. What you said lands at your cursor.",
     "holdToDictateTitle": "Hold to Dictate",
