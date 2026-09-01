@@ -210,11 +210,47 @@ describe("the bristle on screen", () => {
     await waitFor(() => {
       expect(featuresOf(container).length).toBeGreaterThan(1);
     });
-    const delays = featuresOf(container).map(
-      (path) => path.style.animationDelay,
+    const places = featuresOf(container).map((path) =>
+      path.style.getPropertyValue("--bristle-index"),
     );
-    expect(new Set(delays).size).toBe(delays.length);
-    expect(delays[0]).toBe("0ms");
+    expect(places).toEqual(places.map((_, index) => String(index)));
+  });
+
+  /** For the stories: the vocabulary at full stretch, with no clock at all. */
+  test("held, draws every feature at once and schedules nothing", async () => {
+    const { container } = render(
+      <CompanionBristle
+        bodyShape="ninja"
+        accentHex="#4C9B50"
+        rimHex="#17181b"
+        capsule={CAPSULE}
+        enabled
+        held
+        interval={FAST}
+      />,
+    );
+    expect(featuresOf(container)).toHaveLength(bristleFor("ninja")!.length);
+    const first = featuresOf(container)[0]!;
+    expect(first.style.transform).toBe("scaleY(1)");
+    expect(first.style.animation).toBe("none");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    // No clock ran: the same element is still the one on screen.
+    expect(featuresOf(container)[0]).toBe(first);
+  });
+
+  test("draws what it is handed over the shape's own vocabulary", () => {
+    const { container } = render(
+      <CompanionBristle
+        bodyShape="urchin"
+        features={[{ kind: "puff", at: 0.5, side: "top", reach: 4, width: 6 }]}
+        accentHex="#4C9B50"
+        rimHex="#17181b"
+        capsule={CAPSULE}
+        enabled
+        held
+      />,
+    );
+    expect(featuresOf(container)).toHaveLength(1);
   });
 
   /**

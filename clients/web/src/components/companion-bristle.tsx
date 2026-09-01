@@ -72,9 +72,6 @@ const BASE_INSET = 3;
  */
 export const BRISTLE_DURATION_MS = 900;
 
-/** The delay between one feature starting and the next, in milliseconds. */
-const STAGGER_MS = 35;
-
 /**
  * The vocabulary. Each is one closed path in a local frame with the base's
  * centre at the origin and growth along negative y.
@@ -315,16 +312,23 @@ export const bristleBox = (
 
 export function CompanionBristle({
   bodyShape,
+  features: featuresOverride,
   accentHex,
   rimHex,
   capsule,
   enabled,
+  held = false,
   interval = BRISTLE_INTERVAL_SECONDS,
   className,
   style,
 }: {
   /** The catalog id of the creature's body shape. */
   bodyShape: string;
+  /**
+   * What to draw instead of the shape's own vocabulary. For the stories that
+   * put alternatives side by side; the surface never passes it.
+   */
+  features?: readonly BristleFeature[];
   accentHex: string;
   /** The capsule's own rim colour, so the features wear the same edge. */
   rimHex: string;
@@ -335,6 +339,12 @@ export function CompanionBristle({
    * a focused pose, and it stops blinking for the same reason.
    */
   enabled: boolean;
+  /**
+   * Draw every feature at full stretch and keep it there, with no clock. For
+   * looking at the vocabulary rather than the motion; the surface never
+   * passes it.
+   */
+  held?: boolean;
   interval?: BristleInterval;
   className?: string;
   style?: CSSProperties;
@@ -343,9 +353,9 @@ export function CompanionBristle({
   // stillness there is none. The stylesheet holds the features flat too; this
   // is what keeps the timer from running at all.
   const reduce = useReducedMotion();
-  const features = bristleFor(bodyShape);
+  const features = featuresOverride ?? bristleFor(bodyShape);
   const count = useBristle(
-    enabled && !reduce && features !== undefined,
+    enabled && !held && !reduce && features !== undefined,
     interval,
   );
 
@@ -369,7 +379,7 @@ export function CompanionBristle({
       {/* Keyed by the count so each bristle remounts the features and replays
         the one-shot travel. Nothing is drawn before the first: the features
         start flat, but a node that has never fired has nothing to say. */}
-      {count > 0 ? (
+      {count > 0 || held ? (
         <g key={count}>
           {features.map((feature, index) => {
             const x = capsule.rim + feature.at * capsule.width;
@@ -388,7 +398,14 @@ export function CompanionBristle({
                   strokeWidth={capsule.rim}
                   strokeLinejoin="round"
                   paintOrder="stroke"
-                  style={{ animationDelay: `${index * STAGGER_MS}ms` }}
+                  style={
+                    held
+                      ? { animation: "none", transform: "scaleY(1)" }
+                      : // Its place in the stagger. The stylesheet turns it
+                        // into a delay, so the spacing is stated once, beside
+                        // the travel it spaces out.
+                        { ["--bristle-index" as string]: index }
+                  }
                 />
               </g>
             );

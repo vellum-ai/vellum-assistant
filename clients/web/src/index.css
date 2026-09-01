@@ -321,6 +321,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   transform-box: fill-box;
   transform-origin: 50% 100%;
   animation: companion-bristle 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* Each feature starts a beat after the one before it, so the set ripples
+     rather than snapping up as one. The component states each feature's place;
+     the spacing is here beside the travel it spaces out. */
+  animation-delay: calc(var(--bristle-index, 0) * var(--bristle-stagger, 35ms));
 }
 
 /* Held flat rather than held out: a bristle is travel and nothing else, so
