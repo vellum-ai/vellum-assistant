@@ -283,6 +283,25 @@ export const conversationCompactionEvents = sqliteTable(
   ],
 );
 
+/**
+ * Lifecycle of a channel inbound event's reply delivery. `pending` is the only
+ * non-terminal value, so every path that finishes a turn has to move the row
+ * off it, including the paths that finish WITHOUT delivering: recovery reads a
+ * lingering `pending` as a reply still owed. See `runtime/AGENTS.md`.
+ */
+export type ChannelDeliveryStatus =
+  | "pending"
+  | "delivered"
+  | "failed"
+  | "dead_letter";
+
+/** Lifecycle of a channel inbound event's agent-turn processing. */
+export type ChannelProcessingStatus =
+  | "pending"
+  | "processed"
+  | "failed"
+  | "dead_letter";
+
 export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   id: text("id").primaryKey(),
   sourceChannel: text("source_channel").notNull(),
@@ -295,8 +314,14 @@ export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   messageId: text("message_id").references(() => messages.id, {
     onDelete: "cascade",
   }),
-  deliveryStatus: text("delivery_status").notNull().default("pending"),
-  processingStatus: text("processing_status").notNull().default("pending"),
+  deliveryStatus: text("delivery_status")
+    .$type<ChannelDeliveryStatus>()
+    .notNull()
+    .default("pending"),
+  processingStatus: text("processing_status")
+    .$type<ChannelProcessingStatus>()
+    .notNull()
+    .default("pending"),
   processingAttempts: integer("processing_attempts").notNull().default(0),
   deliveryAttempts: integer("delivery_attempts").notNull().default(0),
   lastProcessingError: text("last_processing_error"),
