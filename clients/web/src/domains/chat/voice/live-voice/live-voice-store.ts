@@ -324,6 +324,40 @@ export interface LiveVoiceState {
   photoRejectedSeq: number;
   /** Why the last photo was refused, for the room's wording. */
   photoRejectedReason: "unsupported" | "failed" | null;
+  /**
+   * Set once the assistant answers a kept camera frame with `unknown_type`,
+   * meaning it has no `sight_frame` handler at all.
+   *
+   * The runtime backstop for a mis-gated assistant, whatever produced the
+   * mis-gating. `use-supports-sight-stream.ts` pins a version floor, but no
+   * version floor can be airtight: a dev release dispatched by hand from a
+   * stale ref stamps a fresh timestamp onto a pre-merge commit, and the
+   * comparator weighs the timestamp ahead of the sha, so such a build clears
+   * any floor. Without this latch each keep against it uploads an attachment,
+   * is refused, and leaves that attachment behind for good, because an
+   * assistant that never understood the frame never reclaims it either.
+   *
+   * Session-scoped: it lives in {@link INITIAL_SESSION_STATE}, so a reconnect
+   * (which resets with `sessionContinues`) tries again against whatever
+   * assistant answers next.
+   */
+  sightFramesUnsupported: boolean;
+  /**
+   * Ids of kept frames sent to the assistant with no verdict yet, in send
+   * order.
+   *
+   * Only a refusal ever retires one: an accepted frame is answered with
+   * nothing at all. That makes the ledger deliberately narrow rather than
+   * exact, which is all the wire supports today (see
+   * {@link sightFrameRefusal}).
+   */
+  outstandingSightFrames: readonly string[];
+  /**
+   * The last refusal, as the room's sight surface needs to act on it, or null
+   * once handled. A fresh object per refusal, so a consumer keyed on it sees
+   * consecutive refusals as separate events.
+   */
+  sightFrameRefusal: LiveVoiceSightFrameRefusal | null;
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
@@ -529,6 +563,15 @@ export interface LiveVoiceActions {
   setConversationId: (conversationId: string) => void;
   /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
   notePhotoRejected: (reason: "unsupported" | "failed") => void;
+  /** Record a kept frame that reached the transport. */
+  noteSightFrameSent: (attachmentId: string) => void;
+  /**
+   * Record that the assistant refused a kept frame, and work out what the room
+   * has to do about it. See {@link LiveVoiceSightFrameRefusal}.
+   */
+  noteSightFrameRefused: (unsupported: boolean) => void;
+  /** Drop a refusal the room has acted on. */
+  clearSightFrameRefusal: () => void;
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -586,6 +629,37 @@ export interface LiveVoiceActions {
    * above all, deliverable once the transport is back.
    */
   reset: (opts?: { sessionContinues?: boolean }) => void;
+}
+
+/**
+ * What a refused camera frame leaves the room to clean up.
+ *
+ * The daemon's `sight_frame` error names the frame type and carries a message,
+ * but no attachment id, so a refusal cannot be matched to the keep it belongs
+ * to. Correlating exactly wants the daemon to echo the `attachmentId` on the
+ * error frame, which is a small daemon follow-up rather than something the web
+ * side can do today. Until then the rule is deliberately narrow and errs
+ * toward leaving the surface alone:
+ *
+ * - `reclaim` is only ever non-empty for an assistant that cannot take the
+ *   frame at all. That assistant persisted none of the ids in flight and will
+ *   never reclaim them, so all of them are the client's to give back. An
+ *   assistant that understands the frame reclaims its own failures, so
+ *   deleting after one of those would race it.
+ * - `retract` names the displayed keep only when the refusal cannot be about
+ *   anything else: exactly one send is outstanding. A refused keep with a
+ *   newer one behind it is the ordinary case and must NOT retract anything,
+ *   since the surface already shows the newer frame. The case this exists for
+ *   is the lone keep that fails with nothing behind it, where the surface
+ *   would otherwise go on claiming a view that never reached the transcript.
+ */
+export interface LiveVoiceSightFrameRefusal {
+  /** The assistant has no handler for the frame, so the session gives up. */
+  readonly unsupported: boolean;
+  /** Uploads nothing else will ever collect. */
+  readonly reclaim: readonly string[];
+  /** The displayed keep this refusal provably invalidated, else null. */
+  readonly retract: string | null;
 }
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
@@ -696,6 +770,9 @@ const INITIAL_SESSION_STATE: Omit<
   startedConversationId: null,
   photoRejectedSeq: 0,
   photoRejectedReason: null,
+  sightFramesUnsupported: false,
+  outstandingSightFrames: [],
+  sightFrameRefusal: null,
   controls: null,
   utteranceOpen: false,
   partialTranscript: "",
@@ -742,6 +819,37 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       photoRejectedSeq: state.photoRejectedSeq + 1,
       photoRejectedReason: reason,
     })),
+  noteSightFrameSent: (attachmentId) =>
+    set((s) => ({
+      outstandingSightFrames: [...s.outstandingSightFrames, attachmentId],
+    })),
+  noteSightFrameRefused: (unsupported) =>
+    set((s) => {
+      const outstanding = s.outstandingSightFrames;
+      if (unsupported) {
+        // Every id in flight is an orphan: this assistant stored none of them
+        // and reclaims nothing. The latch stops the next keep before it
+        // uploads, so this is the last cleanup the session needs.
+        return {
+          sightFramesUnsupported: true,
+          outstandingSightFrames: [],
+          sightFrameRefusal: {
+            unsupported: true,
+            reclaim: outstanding,
+            retract: null,
+          },
+        };
+      }
+      return {
+        outstandingSightFrames: outstanding.slice(1),
+        sightFrameRefusal: {
+          unsupported: false,
+          reclaim: [],
+          retract: outstanding.length === 1 ? (outstanding[0] ?? null) : null,
+        },
+      };
+    }),
+  clearSightFrameRefusal: () => set({ sightFrameRefusal: null }),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
@@ -999,7 +1107,16 @@ export function sendLiveVoiceSightFrame(
   if (state.sessionGeneration !== sessionGeneration) {
     return false;
   }
-  return state.controls?.sightFrame(attachmentId) ?? false;
+  // An assistant that answered `unknown_type` once answers it every time, and
+  // each attempt strands another attachment. See {@link sightFramesUnsupported}.
+  if (state.sightFramesUnsupported) {
+    return false;
+  }
+  const sent = state.controls?.sightFrame(attachmentId) ?? false;
+  if (sent) {
+    state.noteSightFrameSent(attachmentId);
+  }
+  return sent;
 }
 
 /**

@@ -456,6 +456,129 @@ describe("useVoiceRoomSight: sharing a keep", () => {
   });
 });
 
+describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
+  test("latches the session, so no further keep is sent or uploaded", async () => {
+    // The runtime backstop for a mis-gated assistant. Without it every keep
+    // uploads an attachment this assistant will never store and never
+    // reclaim, one orphan per keep, while the room implies it is sharing.
+    const { view } = renderSight();
+    await keepFrame();
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+
+    act(() => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    });
+    controls.sightFrame.mockClear();
+    uploadChatAttachment.mockClear();
+    await keepFrame();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    // Refused before the upload, not after, so there is nothing to give back.
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+  });
+
+  test("gives back the upload the refusal stranded", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    // Nothing was shared, so the pulse has no honest version to keep showing.
+    expect(view.result.current.heldFrame).toBeNull();
+  });
+
+  test("the sampler keeps running while the session is latched", async () => {
+    renderSight();
+    act(() => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    });
+
+    expect(samplerStop).not.toHaveBeenCalled();
+  });
+
+  test("a reconnect unlatches, so an upgraded assistant is tried again", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+    act(() => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(true);
+    });
+
+    act(() => {
+      useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    });
+    act(() => {
+      seedLiveVoiceSession("listening", {
+        assistantId: ASSISTANT_ID,
+        conversationId: "conv_sight",
+        controls,
+      });
+    });
+    controls.sightFrame.mockClear();
+    await keepFrame();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+  });
+});
+
+describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
+  test("retracts the pulse when the refusal can only be about it", async () => {
+    // The lone final keep. Nothing newer is coming to correct the thumbnail,
+    // so leaving it up would claim a view that never reached the transcript.
+    const revoke = spyOn(URL, "revokeObjectURL");
+    const { view } = renderSight();
+    await keepFrame();
+    const held = view.result.current.heldFrame;
+
+    await act(async () => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(false);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
+    // This assistant reclaims what it could not persist; deleting here would
+    // race it over a row this hook no longer owns.
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+    revoke.mockRestore();
+  });
+
+  test("leaves the pulse alone while a newer keep is outstanding", async () => {
+    // The error names no attachment, so this could be either keep, and the
+    // ordinary reading is the older one. The surface already shows the newer.
+    const { view } = renderSight();
+    await keepFrame();
+    await keepFrame();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+
+    await act(async () => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(false);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test("does not latch, so keeps go on being sent", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+    act(() => {
+      useLiveVoiceStore.getState().noteSightFrameRefused(false);
+    });
+
+    await keepFrame();
+
+    expect(controls.sightFrame).toHaveBeenLastCalledWith("att-2");
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+  });
+});
+
 describe("useVoiceRoomSight: what it is not coupled to", () => {
   test("a discarded utterance is a non-event", async () => {
     // There is no utterance coupling left to get wrong: keeps persist on their

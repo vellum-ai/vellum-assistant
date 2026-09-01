@@ -612,6 +612,90 @@ describe("sendLiveVoiceSightFrame", () => {
   });
 });
 
+describe("sight frame refusals", () => {
+  test("an unsupported refusal latches the session and strands nothing", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    const state = useLiveVoiceStore.getState();
+    expect(state.sightFramesUnsupported).toBe(true);
+    // Every id in flight is the client's to give back: this assistant stored
+    // none of them and reclaims nothing.
+    expect(state.sightFrameRefusal).toEqual({
+      unsupported: true,
+      reclaim: ["att-1"],
+      retract: null,
+    });
+    // And nothing further is sent, which is the orphan-per-keep this closes.
+    controls.sightFrame.mockClear();
+    expect(sendLiveVoiceSightFrame("att-2", gen)).toBe(false);
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+  });
+
+  test("a routine refusal does not latch", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    expect(useLiveVoiceStore.getState().sightFramesUnsupported).toBe(false);
+    // The assistant reclaims what it could not persist, so nothing to give
+    // back here.
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.reclaim).toEqual([]);
+    expect(sendLiveVoiceSightFrame("att-2", gen)).toBe(true);
+  });
+
+  test("a lone outstanding keep's refusal retracts it", () => {
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    // Nothing else it could be about: the surface would otherwise go on
+    // showing a view that never reached the transcript.
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toBe(
+      "att-1",
+    );
+  });
+
+  test("a refusal with a newer keep behind it retracts nothing", () => {
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    sendLiveVoiceSightFrame("att-2", gen);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+
+    // The error carries no attachment id, so this could be either keep. The
+    // ordinary reading is the older one, and the surface already shows the
+    // newer, so leaving it alone is right.
+    expect(useLiveVoiceStore.getState().sightFrameRefusal?.retract).toBeNull();
+  });
+
+  test("a reconnect clears the latch, so an upgraded assistant is tried again", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const gen = useLiveVoiceStore.getState().sessionGeneration;
+    sendLiveVoiceSightFrame("att-1", gen);
+    useLiveVoiceStore.getState().noteSightFrameRefused(true);
+
+    // What the controller does when it re-enters its connect flow: the
+    // generation holds, the session state does not.
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    useLiveVoiceStore.getState().setControls(controls);
+
+    expect(useLiveVoiceStore.getState().sightFramesUnsupported).toBe(false);
+    expect(sendLiveVoiceSightFrame("att-2", gen)).toBe(true);
+  });
+});
+
 describe("endLiveVoiceSession / releaseLiveVoiceTurn", () => {
   test("route to the registered controls (and only the matching verb)", () => {
     const controls = makeControlsSpies();

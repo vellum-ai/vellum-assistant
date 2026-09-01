@@ -1231,6 +1231,17 @@ export function useLiveVoice(
           // room retract the thumbnail it has already shown as sent.
           useLiveVoiceStore.getState().notePhotoRejected(rejected.reason);
         }),
+        client.on("sightFrameRejected", (rejected) => {
+          if (!live()) {
+            return;
+          }
+          // The room's sight surface is the only thing that can act on this:
+          // it owns the uploads and the frame on screen. The store works out
+          // which of the two the refusal calls for.
+          useLiveVoiceStore
+            .getState()
+            .noteSightFrameRefused(rejected.unsupported);
+        }),
         client.on("busy", (frame) => {
           if (!live()) {
             return;

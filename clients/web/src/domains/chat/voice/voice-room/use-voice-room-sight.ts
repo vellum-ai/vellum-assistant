@@ -149,9 +149,45 @@ export function useVoiceRoomSight(
     }
   }, []);
 
+  /**
+   * Give an uploaded row back.
+   *
+   * Nothing else can: an attachment is collected when the message linking it
+   * is deleted, or by the daemon reclaiming a frame it could not persist, and
+   * an id that reaches neither is a row and its bytes kept for good.
+   *
+   * Called for the ids this hook refuses itself, before the frame is sent, and
+   * for the ids stranded by an assistant with no handler for the frame, which
+   * stores nothing and reclaims nothing. NOT called for a frame an assistant
+   * that understands it could not persist: that path reclaims on its own, so
+   * deleting would race it over a row this hook no longer owns.
+   */
+  const reclaimUpload = useCallback(
+    (attachmentId: string) => {
+      if (!assistantId) {
+        return;
+      }
+      void deleteChatAttachment(assistantId, attachmentId).then((ok) => {
+        if (!ok) {
+          captureError(new Error("sight frame delete refused"), {
+            context: ERROR_CONTEXT,
+            bestEffort: true,
+          });
+        }
+      });
+    },
+    [assistantId],
+  );
+
   const captureAndHold = useCallback(
     async (video: HTMLVideoElement) => {
       if (!assistantId) {
+        return;
+      }
+      // Nothing this assistant is told about lands, and each attempt would
+      // strand another upload, so the sampler runs on and every keep is
+      // dropped here. See `sightFramesUnsupported` on the live-voice store.
+      if (useLiveVoiceStore.getState().sightFramesUnsupported) {
         return;
       }
       // Read before the encode, not after the upload. Everything below can
@@ -179,27 +215,7 @@ export function useVoiceRoomSight(
         if (!uploaded.ok) {
           return;
         }
-        /**
-         * Give the row back on every path that refuses this id HERE, before
-         * the frame is sent. Nothing else can: an attachment is collected when
-         * the message linking it is deleted, or by the daemon reclaiming a
-         * frame it could not persist, and an id that reaches neither is a row
-         * and its bytes kept for good.
-         *
-         * Never called for a frame the daemon answered with an error. That
-         * path reclaims the attachment on its own, so deleting here would race
-         * it over a row this hook no longer owns.
-         */
-        const abandonUpload = (): void => {
-          void deleteChatAttachment(assistantId, uploaded.id).then((ok) => {
-            if (!ok) {
-              captureError(new Error("sight frame delete refused"), {
-                context: ERROR_CONTEXT,
-                bestEffort: true,
-              });
-            }
-          });
-        };
+        const abandonUpload = (): void => reclaimUpload(uploaded.id);
 
         if (
           useLiveVoiceStore.getState().sessionGeneration !== sessionGeneration
@@ -232,7 +248,7 @@ export function useVoiceRoomSight(
         captureError(cause, { context: ERROR_CONTEXT, bestEffort: true });
       }
     },
-    [assistantId, hold],
+    [assistantId, hold, reclaimUpload],
   );
 
   /**
@@ -310,6 +326,32 @@ export function useVoiceRoomSight(
   // dropped: the generation survives the gap by design, so it can resolve
   // after the fresh session is ready with every other guard passing, and a
   // view from seconds before the gap would be persisted as the current one.
+  // What a refusal from the assistant costs this hook. Two different things,
+  // and the store has already worked out which (see
+  // `LiveVoiceSightFrameRefusal`): uploads nothing will ever collect, and the
+  // frame on screen when the surface can prove the refusal was about it.
+  //
+  // An assistant that cannot take the frame at all clears the pulse outright.
+  // Nothing it was sent was ever shared, so there is no honest version of the
+  // thumbnail to leave up.
+  const sightFrameRefusal = useLiveVoiceStore.use.sightFrameRefusal();
+  useEffect(() => {
+    if (!sightFrameRefusal) {
+      return;
+    }
+    useLiveVoiceStore.getState().clearSightFrameRefusal();
+    for (const attachmentId of sightFrameRefusal.reclaim) {
+      reclaimUpload(attachmentId);
+    }
+    if (
+      sightFrameRefusal.unsupported ||
+      (sightFrameRefusal.retract !== null &&
+        sightFrameRefusal.retract === heldRef.current?.attachmentId)
+    ) {
+      hold(null);
+    }
+  }, [hold, reclaimUpload, sightFrameRefusal]);
+
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   useEffect(() => {
     if (!reconnecting) {

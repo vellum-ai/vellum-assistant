@@ -123,6 +123,25 @@ export interface LiveVoiceTextTurnRejected {
 }
 
 /**
+ * A kept camera frame reached the assistant and was refused.
+ *
+ * `unsupported` is the load-bearing half. It means the assistant answered
+ * `unknown_type`, which is what an assistant with no `sight_frame` handler
+ * returns for any frame type it does not know (`assistant/src/live-voice/
+ * protocol.ts`, the `isLiveVoiceClientFrameType` check ahead of the validation
+ * switch). Such an assistant persists nothing and reclaims nothing, so every
+ * further keep would leave an orphaned attachment behind, and the caller has
+ * to stop sending rather than keep trying.
+ *
+ * Anything else is a routine drop from an assistant that does understand the
+ * frame: it could not persist this one, and it has already reclaimed the
+ * attachment itself.
+ */
+export interface LiveVoiceSightFrameRejected {
+  readonly unsupported: boolean;
+}
+
+/**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
  * can order or dedupe.
@@ -156,6 +175,12 @@ export interface LiveVoiceClientEventMap {
    * client believed it had succeeded, and is the only signal the room gets.
    */
   attachImageRejected: LiveVoiceAttachImageRejected;
+  /**
+   * A kept camera frame was accepted by the transport and refused by the
+   * assistant. Carries whether the refusal means this assistant cannot take
+   * the frame at all, which the session has to latch on.
+   */
+  sightFrameRejected: LiveVoiceSightFrameRejected;
   /**
    * A typed turn was accepted by the transport and refused by the assistant.
    * The only signal a caller gets that the turn it believed it sent will
@@ -254,6 +279,7 @@ export class LiveVoiceChannelClient {
     metrics: new Set(),
     archived: new Set(),
     attachImageRejected: new Set(),
+    sightFrameRejected: new Set(),
     textTurnRejected: new Set(),
     busy: new Set(),
     error: new Set(),
@@ -633,17 +659,24 @@ export class LiveVoiceChannelClient {
           return;
         }
         if (about === "sight_frame") {
-          // Swallowed rather than emitted, and both shapes land here. An
-          // `unknown_type` from a stale build that passes the version gate
-          // must not reach the `update_config` latch below and turn the room's
-          // settings off for the session; and the daemon's own `recoverable`
-          // refusal must not reach the recoverable-error handler, which
-          // returns a hands-free session from `transcribing` to `listening`
-          // and would disturb a turn over a frame nobody asked to send. The
-          // refusal is a routine drop besides: the daemon reclaims the
-          // attachment on that path, so there is nothing to give back and
-          // nothing to retry. The room keeps sampling and the next keep lands.
+          // Kept out of the two buckets below, which is what the attribution
+          // buys. An `unknown_type` here must not reach the `update_config`
+          // latch and turn the room's settings off for the session, and a
+          // `recoverable` refusal must not reach the recoverable-error
+          // handler, which returns a hands-free session from `transcribing` to
+          // `listening` and would disturb a turn over a frame nobody asked to
+          // send.
+          //
+          // The two shapes mean opposite things, so the session is told which
+          // one arrived. `unknown_type` is an assistant that does not know the
+          // frame: it persists nothing and reclaims nothing, so the session
+          // must stop sending. Anything else is one keep an assistant that
+          // does know the frame could not persist, and it has already
+          // reclaimed that attachment itself.
           console.warn(`live-voice: camera frame not shared: ${frame.message}`);
+          this.emit("sightFrameRejected", {
+            unsupported: frame.code === "unknown_type",
+          });
           return;
         }
         if (about === "text") {
