@@ -76,6 +76,8 @@ assistant notifications send \
   --urgent
 ```
 
+When the notification is about a missing or stale credential, name the credential and ask the user to reply in the thread so you can open the secure prompt. Never include a CLI command. Users cannot run those from their terminal.
+
 ### Response Format
 
 ```json

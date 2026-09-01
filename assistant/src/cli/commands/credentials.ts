@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
+import { securePromptGuidance } from "../../util/secure-prompt-guidance.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -215,7 +216,10 @@ export function registerCredentialsCommand(program: Command): void {
           if (
             refuseAgentShellInlineSecret(cmd, opts, {
               what: "secret",
-              redirect: `Collect it securely via the app UI instead: assistant credentials prompt --service ${opts.service} --field ${opts.field} --label "…"`,
+              redirect: securePromptGuidance({
+                service: opts.service,
+                field: opts.field,
+              }),
             })
           ) {
             return;

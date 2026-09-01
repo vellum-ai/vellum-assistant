@@ -13,6 +13,7 @@ import type { TtsElevenLabsProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { securePromptGuidance } from "../../util/secure-prompt-guidance.js";
 import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import {
@@ -297,7 +298,12 @@ async function performTtsRequest(
     throw new ElevenLabsTtsError(
       "ELEVENLABS_TTS_NO_API_KEY",
       "ElevenLabs API key not configured. " +
-        'Add it in Settings → Voice or via: assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"',
+        "Add it in Settings → Voice, or " +
+        securePromptGuidance({
+          service: "elevenlabs",
+          field: "api_key",
+          capitalize: false,
+        }),
     );
   }
 

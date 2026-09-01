@@ -452,7 +452,7 @@ describe("CredentialBroker.browserFill", () => {
       expect(result.reason).toContain("not allowed");
     });
 
-    test("denies with empty allowedTools and suggests assistant credentials prompt", async () => {
+    test("denies with empty allowedTools and points at the in-app secure prompt", async () => {
       upsertCredentialMetadata("custom", "key", {
         allowedTools: [],
       });
@@ -469,7 +469,8 @@ describe("CredentialBroker.browserFill", () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain("No tools are currently allowed");
-      expect(result.reason).toContain("assistant credentials prompt");
+      expect(result.reason).toContain("in-app secure prompt");
+      expect(result.reason).not.toContain("assistant credentials prompt");
     });
   });
 

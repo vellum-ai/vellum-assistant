@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { securePromptGuidance } from "../../../util/secure-prompt-guidance.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { openInHostBrowser } from "../../lib/open-browser.js";
 import { getCliLogger } from "../../logger.js";
@@ -294,7 +295,7 @@ export function registerConnectCommand(oauth: Command): void {
             if (authorizeUrl === "urn:manual-token") {
               writeError(
                 `"${provider}" uses manual token configuration, not an OAuth browser flow. ` +
-                  `Collect the token securely with: assistant credentials prompt --service ${provider} --field <field_name> --label "<label>"`,
+                  securePromptGuidance({ service: provider }),
               );
               return;
             }

@@ -15,6 +15,7 @@ import type { TtsDeepgramProviderConfig } from "../../config/schemas/tts.js";
 import { describeTtsAuthFailure } from "../../providers/voice-error-copy.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { securePromptGuidance } from "../../util/secure-prompt-guidance.js";
 import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import {
@@ -158,8 +159,12 @@ async function performTtsRequest(
     throw new DeepgramTtsError(
       "DEEPGRAM_TTS_NO_API_KEY",
       "Deepgram API key not configured. " +
-        "Ask the user to add it in Settings → Voice, or collect it securely via: " +
-        'assistant credentials prompt --service deepgram --field api_key --label "Deepgram API Key"',
+        "Ask the user to add it in Settings → Voice, or " +
+        securePromptGuidance({
+          service: "deepgram",
+          field: "api_key",
+          capitalize: false,
+        }),
     );
   }
 

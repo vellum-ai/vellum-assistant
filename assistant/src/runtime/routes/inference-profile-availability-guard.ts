@@ -17,6 +17,10 @@ import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import type { ConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { vellumConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
+import {
+  DO_NOT_SHOW_CREDENTIALS_CLI,
+  securePromptGuidance,
+} from "../../util/secure-prompt-guidance.js";
 
 /**
  * How the caller should repair the selection. `create`/`update` describe an
@@ -66,24 +70,24 @@ function managedAlternative(model: string, repair: ProfileRepairHint): string {
   }
 }
 
-const PROMPT_FOR_KEY = (provider: string): string =>
-  `"assistant credentials prompt --service ${provider} --field api_key" ` +
-  `(secure inline collection — never ask for the key in chat)`;
-
 /**
  * Repair for a connection that exists but has no stored key: collecting the
- * key is the whole fix — suggesting a `providers create` here would collide
+ * key is the whole fix. Suggesting a `providers create` here would collide
  * with the existing row.
  */
 function storeMissingKey(provider: string): string {
-  return `To store the missing key, run ${PROMPT_FOR_KEY(provider)}, then retry.`;
+  return (
+    `The ${provider} API key is not stored. ` +
+    `${securePromptGuidance({ service: provider, field: "api_key" })} ` +
+    `Never ask for the key in chat. Then retry.`
+  );
 }
 
 function byoSequence(provider: string): string {
   return (
-    `To use "${provider}" directly, run ` +
-    `${PROMPT_FOR_KEY(provider)}, then ` +
-    `"assistant inference providers create ${provider}-personal --provider ${provider} --credential credential/${provider}/api_key", then retry.`
+    `To use "${provider}" directly, collect its API key through the in-app ` +
+    `secure prompt (never ask for the key in chat). ${DO_NOT_SHOW_CREDENTIALS_CLI} ` +
+    `Then run "assistant inference providers create ${provider}-personal --provider ${provider} --credential credential/${provider}/api_key", then retry.`
   );
 }
 

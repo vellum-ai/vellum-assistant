@@ -15,6 +15,7 @@ import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../providers/speech-to-text/de
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { securePromptGuidance } from "../../util/secure-prompt-guidance.js";
 import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import type { StreamReadTimeouts } from "../stream-read.js";
@@ -182,7 +183,7 @@ async function requireApiKey(): Promise<string> {
     throw new XaiTtsError(
       "XAI_TTS_NO_API_KEY",
       "xAI API key not configured. " +
-        'Add it via: assistant credentials prompt --service xai --field api_key --label "xAI API Key"',
+        securePromptGuidance({ service: "xai", field: "api_key" }),
     );
   }
   return apiKey;

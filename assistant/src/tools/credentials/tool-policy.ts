@@ -5,6 +5,7 @@
  * based on the credential's allowed tools list.
  */
 
+import { DO_NOT_SHOW_CREDENTIALS_CLI } from "../../util/secure-prompt-guidance.js";
 import type { CredentialMetadata } from "./metadata-store.js";
 
 /**
@@ -68,12 +69,12 @@ export function isToolAllowed(
 }
 
 /**
- * Remediation for a credential whose allowed_tools list is empty. Points at
- * `credentials prompt` (not inline `credentials set`, which agent shells
- * refuse): the secure prompt re-collects the value and sets allowed_tools.
+ * Remediation for a credential whose allowed_tools list is empty. The
+ * in-app secure prompt re-collects the value and sets allowed_tools.
  */
 const NO_TOOLS_ALLOWED_REMEDIATION =
-  "No tools are currently allowed - grant access via `assistant credentials prompt --service <service> --field <field> --label <label> --allowed-tools <tools>` (re-collects the value securely and sets allowed_tools).";
+  "No tools are currently allowed. Re-collect the credential through the in-app secure prompt and grant the needed tools. " +
+  DO_NOT_SHOW_CREDENTIALS_CLI;
 
 /** Denial reason for a tool that is not in a credential's allowed_tools list. */
 export function toolNotAllowedReason(

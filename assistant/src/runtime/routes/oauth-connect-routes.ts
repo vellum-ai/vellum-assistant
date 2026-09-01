@@ -21,6 +21,7 @@ import {
   getProvider,
 } from "../../oauth/oauth-store.js";
 import { getLogger } from "../../util/logger.js";
+import { securePromptGuidance } from "../../util/secure-prompt-guidance.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -64,7 +65,7 @@ async function handleOAuthConnectStart({
   if (providerRow.authorizeUrl === "urn:manual-token") {
     throw new BadRequestError(
       `"${service}" uses manual token configuration, not an OAuth browser flow. ` +
-        `Collect the token securely with: assistant credentials prompt --service ${service} --field <field_name> --label "<label>"`,
+        securePromptGuidance({ service }),
     );
   }
 

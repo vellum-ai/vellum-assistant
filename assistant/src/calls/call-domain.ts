@@ -23,6 +23,7 @@ import { isGuardian } from "../runtime/channel-verification-service.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { securePromptGuidance } from "../util/secure-prompt-guidance.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
 import { postPointerMessageSafe } from "./call-pointer-messages.js";
@@ -196,7 +197,11 @@ export async function resolveCallerIdentity(
     return {
       ok: false,
       error:
-        'user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential/twilio/user_phone_number via `assistant credentials prompt --service twilio --field user_phone_number --label "User Phone Number"`.',
+        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential/twilio/user_phone_number. " +
+        securePromptGuidance({
+          service: "twilio",
+          field: "user_phone_number",
+        }),
     };
   }
 
