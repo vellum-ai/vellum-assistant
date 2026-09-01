@@ -1,16 +1,16 @@
 /**
- * Sight in the voice room: when it samples, what it parks, and what it takes
- * back.
+ * Sight in the voice room: when it samples, what it shares, and what it refuses
+ * to share.
  *
  * The sampler, the encoder, the resize and the upload are all replaced. None of
  * them can do its real work here (happy-dom has no video decode, no canvas
  * readback and no daemon), and each is covered by its own suite, so what is
  * under test is the wiring between them: which conditions open the camera path,
- * which frame reaches the session's slot, and which are refused on the way.
+ * which frames reach the session, and which are refused on the way.
  *
  * The store side is real. The generation rules are the whole reason a frame
  * cannot be sent from a callback, so they are exercised through the actual
- * `attachLiveVoiceFrame` rather than around it.
+ * `sendLiveVoiceSightFrame` rather than around it.
  */
 
 import {
@@ -90,8 +90,8 @@ const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 
 const ASSISTANT_ID = "asst_sight";
-/** Any dev build after 0.11.7 stable clears the `attach_frame` gate. */
-const SUPPORTING_VERSION = "0.11.7-dev.202608301412.b432fb7";
+/** 0.11.8 is the first base that carries the `sight_frame` handler. */
+const SUPPORTING_VERSION = "0.11.8-dev.202609011412.b432fb7";
 
 const KEEP = {
   keep: true,
@@ -230,8 +230,8 @@ describe("useVoiceRoomSight: when it samples", () => {
   });
 
   test("samples nothing against an assistant that predates the frame", () => {
-    // 0.11.7 stable has no `attach_frame` handler, so every parked frame would
-    // come back as the error the transport reads as a settings rejection.
+    // No 0.11.7 build has a `sight_frame` handler, so every keep would come
+    // back as the error the transport reads as a settings rejection.
     useAssistantIdentityStore
       .getState()
       .setIdentity("assistant", "0.11.7", ASSISTANT_ID);
@@ -240,19 +240,50 @@ describe("useVoiceRoomSight: when it samples", () => {
 
     expect(samplerStart).not.toHaveBeenCalled();
   });
+
+  test("samples nothing against a dev build of the base before it", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity(
+        "assistant",
+        "0.11.7-dev.202608311412.b432fb7",
+        ASSISTANT_ID,
+      );
+
+    renderSight();
+
+    expect(samplerStart).not.toHaveBeenCalled();
+  });
 });
 
-describe("useVoiceRoomSight: parking a keep", () => {
-  test("uploads a kept frame and parks it on the session at once", async () => {
+describe("useVoiceRoomSight: sharing a keep", () => {
+  test("uploads a kept frame and shares it with the session at once", async () => {
     const { view } = renderSight();
 
     await keepFrame();
 
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
-    expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
-    // The daemon owns a frame that reached its slot and reclaims it there.
+    // The daemon owns a frame it was told about and reclaims it if the
+    // persist fails, so nothing here may delete the row.
     expect(deleteChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test("sends each keep exactly once", async () => {
+    // The transcript carries one message per keep, so a second send would be a
+    // duplicate frame in the conversation with no way for the user to tell
+    // which was which.
+    const { view } = renderSight();
+
+    await keepFrame();
+    await keepFrame();
+    act(() => {
+      view.rerender({ cameraOpen: true, facing: "environment" });
+    });
+    await flush();
+
+    expect(controls.sightFrame.mock.calls).toEqual([["att-1"], ["att-2"]]);
   });
 
   test("ignores frames the gate skipped", async () => {
@@ -264,11 +295,11 @@ describe("useVoiceRoomSight: parking a keep", () => {
     await flush();
 
     expect(captureVideoFrame).not.toHaveBeenCalled();
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
   });
 
-  test("the newest keep replaces the one before it, and gives its preview back", async () => {
+  test("the newest keep replaces the one on screen, and gives its preview back", async () => {
     const revoke = spyOn(URL, "revokeObjectURL");
     const { view } = renderSight();
 
@@ -278,31 +309,30 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
     await keepFrame();
 
-    expect(controls.attachFrame).toHaveBeenNthCalledWith(2, "att-2");
+    expect(controls.sightFrame).toHaveBeenNthCalledWith(2, "att-2");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
     expect(revoke).toHaveBeenCalledWith(first!.previewUrl);
     revoke.mockRestore();
   });
 
-  test("shows nothing it could not park", async () => {
-    // A reconnect gap: the id never reached the session, so the thumbnail must
-    // not claim the call can see it.
-    controls.attachFrame.mockImplementation(() => false);
+  test("shows nothing it could not send", async () => {
+    // A reconnect gap: the frame never reached the session, so the thumbnail
+    // must not claim the call has been shown it.
+    controls.sightFrame.mockImplementation(() => false);
     const { view } = renderSight();
 
     await keepFrame();
 
-    expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
     expect(view.result.current.heldFrame).toBeNull();
     // The daemon never saw this id, so nothing there will ever collect it.
     expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
   });
 
-  test("an upload that resolves late does not displace a newer frame", async () => {
-    // Two keeps in flight is the case the capture-time comparison exists for:
-    // resolve order is not capture order, and the slower upload is not the
-    // newer view. Parking the older one would point the session's slot
-    // backwards.
+  test("shares both keeps when their uploads resolve out of order", async () => {
+    // Nothing is staged and nothing is latest-wins, so the slower upload is
+    // not a loser to be dropped: it is a frame the call saw, and the
+    // transcript's order is the order the frames landed in.
     uploadsResolveImmediately = false;
     const { view } = renderSight();
 
@@ -325,12 +355,15 @@ describe("useVoiceRoomSight: parking a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.attachFrame.mock.calls).toEqual([["att-newer"]]);
-    expect(view.result.current.heldFrame?.attachmentId).toBe("att-newer");
-    expect(deleteChatAttachment).toHaveBeenCalledWith(
-      ASSISTANT_ID,
-      "att-older",
-    );
+    expect(controls.sightFrame.mock.calls).toEqual([
+      ["att-newer"],
+      ["att-older"],
+    ]);
+    // The pulse follows resolve order too, so it can briefly show the older of
+    // two frames that overlapped. Accepted: the gate's rate floor puts keeps
+    // seconds apart, and the correction is the next keep.
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-older");
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
   });
 
   test("refuses a frame whose session ended under the upload", async () => {
@@ -360,8 +393,8 @@ describe("useVoiceRoomSight: parking a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(successor.attachFrame).not.toHaveBeenCalled();
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(successor.sightFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
     expect(deleteChatAttachment).toHaveBeenCalledWith(
       ASSISTANT_ID,
@@ -371,7 +404,8 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
   test("refuses a frame whose camera closed under the upload", async () => {
     // The session is untouched, so only the capture epoch can tell that this
-    // frame is a view of something nobody is looking at any more.
+    // frame is a view of something nobody is looking at any more. Persisting
+    // it would put it in the transcript as what the call is being shown.
     uploadsResolveImmediately = false;
     const { view } = renderSight();
 
@@ -387,7 +421,7 @@ describe("useVoiceRoomSight: parking a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
     expect(deleteChatAttachment).toHaveBeenCalledWith(
       ASSISTANT_ID,
@@ -397,8 +431,8 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
   test("refuses a frame whose camera flipped under the upload", async () => {
     // A flip keeps the same element and the same session, and points somewhere
-    // else entirely: a rear-camera frame must not be parked as the front
-    // camera's view.
+    // else entirely: a rear-camera frame must not land in the transcript as
+    // what the front camera is showing.
     uploadsResolveImmediately = false;
     const { view } = renderSight();
 
@@ -414,24 +448,64 @@ describe("useVoiceRoomSight: parking a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
     expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-rear");
   });
 });
 
+describe("useVoiceRoomSight: what it is not coupled to", () => {
+  test("a discarded utterance is a non-event", async () => {
+    // There is no utterance coupling left to get wrong: keeps persist on their
+    // own and nothing waits for speech to carry them. A cough that opens and
+    // closes an utterance therefore neither sends a frame nor drops one.
+    const { view } = renderSight();
+    await keepFrame();
+    controls.sightFrame.mockClear();
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("transcribing");
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+    await flush();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+  });
+
+  test("a turn running does not send or drop anything", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+    controls.sightFrame.mockClear();
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("thinking");
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setState("speaking");
+    });
+    await flush();
+
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+  });
+});
+
 describe("useVoiceRoomSight: transport reconnect", () => {
-  test("drops the held frame the dead session took with it", async () => {
-    // A retryable close ends the server-side session, whose own close reclaims
-    // the parked frame, while the logical call survives the gap. The fresh
-    // session's slot is empty and the id being held is a row the daemon has
-    // already deleted.
+  test("drops the pulse while no session is running", async () => {
+    // A retryable close ends the server-side session while the logical call
+    // survives the gap. The keep itself is in the transcript and stays there;
+    // what comes off screen is the claim that a running session was just shown
+    // this view.
     const revoke = spyOn(URL, "revokeObjectURL");
     const { view } = renderSight();
     await keepFrame();
     const held = view.result.current.heldFrame;
     const reset = watchGateReset();
-    controls.attachFrame.mockClear();
+    controls.sightFrame.mockClear();
 
     act(() => {
       useLiveVoiceStore.getState().setReconnecting(true);
@@ -439,9 +513,9 @@ describe("useVoiceRoomSight: transport reconnect", () => {
 
     expect(view.result.current.heldFrame).toBeNull();
     expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
-    // Nothing to unpark on a session that no longer exists, and re-parking a
-    // deleted id would earn the refusal it deserves.
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    // Nothing is said to a session that no longer exists, and the frame that
+    // already landed is not this hook's to take back.
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(deleteChatAttachment).not.toHaveBeenCalled();
     // Reset, so the reconnected session gets a frame as soon as the camera
     // settles rather than scoring against a baseline nobody can see.
@@ -450,10 +524,10 @@ describe("useVoiceRoomSight: transport reconnect", () => {
   });
 
   test("refuses a frame whose transport reconnected under the upload", async () => {
-    // The generation survives a reconnect by design and nothing is held to
-    // outrank a late resolve, so only the capture epoch can refuse an upload
-    // that stalled across the gap and landed after the fresh session was
-    // ready. Parking it would stage a view from seconds before the drop.
+    // The generation survives a reconnect by design, so only the capture epoch
+    // can refuse an upload that stalled across the gap and landed after the
+    // fresh session was ready. Sending it would persist a view from seconds
+    // before the drop as the current one.
     uploadsResolveImmediately = false;
     const { view } = renderSight();
 
@@ -472,7 +546,7 @@ describe("useVoiceRoomSight: transport reconnect", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
     expect(deleteChatAttachment).toHaveBeenCalledWith(
       ASSISTANT_ID,
@@ -480,7 +554,7 @@ describe("useVoiceRoomSight: transport reconnect", () => {
     );
   });
 
-  test("parks the next keep on the reconnected session", async () => {
+  test("shares the next keep with the reconnected session", async () => {
     const { view } = renderSight();
     await keepFrame();
     act(() => {
@@ -492,13 +566,13 @@ describe("useVoiceRoomSight: transport reconnect", () => {
 
     await keepFrame();
 
-    expect(controls.attachFrame).toHaveBeenLastCalledWith("att-2");
+    expect(controls.sightFrame).toHaveBeenLastCalledWith("att-2");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
   });
 
   test("coming back out of the gap clears nothing", async () => {
     // Only entering a reconnect means a session was replaced. The `ready` that
-    // lowers the flag means the opposite, and a frame parked by then belongs
+    // lowers the flag means the opposite, and a frame shared by then belongs
     // to the session that is now running.
     const { view } = renderSight();
     act(() => {
@@ -515,8 +589,11 @@ describe("useVoiceRoomSight: transport reconnect", () => {
   });
 });
 
-describe("useVoiceRoomSight: unparking", () => {
-  test("clears the session's slot when the viewfinder closes", async () => {
+describe("useVoiceRoomSight: closing and flipping", () => {
+  test("clears the pulse when the viewfinder closes, and says nothing", async () => {
+    // Closing has nothing to take back: every keep is already its own message
+    // in the transcript, and the epoch is what stops the uploads still in
+    // flight. All that comes down is the live pulse.
     const revoke = spyOn(URL, "revokeObjectURL");
     const { view } = renderSight();
     await keepFrame();
@@ -526,28 +603,25 @@ describe("useVoiceRoomSight: unparking", () => {
       view.rerender({ cameraOpen: false, facing: "environment" });
     });
 
-    // Without this the frame from a camera the user put away would still ride
-    // whatever they say next.
-    expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
+    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
     expect(view.result.current.heldFrame).toBeNull();
     expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
-    // The daemon reclaims what it unparks; deleting here would race it.
     expect(deleteChatAttachment).not.toHaveBeenCalled();
     revoke.mockRestore();
   });
 
-  test("says nothing when there was never anything parked", () => {
+  test("says nothing when there was never anything shared", () => {
     const { view } = renderSight();
 
     act(() => {
       view.rerender({ cameraOpen: false, facing: "environment" });
     });
 
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
   });
 
-  test("clears the slot when the room unmounts", async () => {
+  test("says nothing to the session when the room unmounts", async () => {
     const { view } = renderSight();
     await keepFrame();
 
@@ -555,13 +629,13 @@ describe("useVoiceRoomSight: unparking", () => {
       view.unmount();
     });
 
-    expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
+    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
   });
 
-  test("clears the slot when the camera flips", async () => {
-    // The parked frame is the old camera's view, and the new camera's first
-    // keep is an exposure warmup plus a rate floor away, so leaving it staged
-    // would let a turn carry the view the user just turned away from.
+  test("clears the pulse when the camera flips", async () => {
+    // The frame on screen is the old camera's view, and the new camera's first
+    // keep is an exposure warmup plus a rate floor away, so leaving it up would
+    // show the user's own face as what the call is seeing of the room.
     const { view } = renderSight();
     await keepFrame();
     const reset = watchGateReset();
@@ -570,24 +644,22 @@ describe("useVoiceRoomSight: unparking", () => {
       view.rerender({ cameraOpen: true, facing: "user" });
     });
 
-    expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
+    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
     expect(view.result.current.heldFrame).toBeNull();
     expect(reset).toHaveBeenCalledTimes(1);
-    // The daemon reclaims what it unparks.
     expect(deleteChatAttachment).not.toHaveBeenCalled();
   });
 
-  test("says nothing on the mount pass, where nothing is parked yet", () => {
+  test("says nothing on the mount pass, where nothing is shared yet", () => {
     renderSight();
 
-    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
   });
 
   test("says nothing about a session that is already over", async () => {
     // Ending a call unmounts the room, so this is the common path rather than
-    // an edge. The successor must not be told to clear a slot it never filled,
-    // and a session whose own close reclaims the frame is not a failed unpark
-    // worth reporting.
+    // an edge. The successor must not be handed a frame from the call before
+    // it, and nothing about the ended one is worth a warning.
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     const { view } = renderSight();
     await keepFrame();
@@ -607,29 +679,9 @@ describe("useVoiceRoomSight: unparking", () => {
       view.unmount();
     });
 
-    expect(successor.attachFrame).not.toHaveBeenCalled();
-    expect(controls.attachFrame.mock.calls).toEqual([["att-1"]]);
+    expect(successor.sightFrame).not.toHaveBeenCalled();
+    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
-  });
-
-  test("reports an unpark the transport could not take", async () => {
-    // The reconnect gap: the session is the one that parked the frame, so the
-    // slot really is still full and the frame really will ride the next turn.
-    // Nothing can be done about it here, but it is not silent.
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    controls.attachFrame.mockImplementation(
-      (attachmentId: string | null) => attachmentId !== null,
-    );
-    const { view } = renderSight();
-    await keepFrame();
-
-    act(() => {
-      view.rerender({ cameraOpen: false, facing: "environment" });
-    });
-
-    expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
-    expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 });

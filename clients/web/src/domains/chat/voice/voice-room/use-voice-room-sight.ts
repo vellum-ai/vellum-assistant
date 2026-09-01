@@ -11,34 +11,34 @@
  * ## The shape of it
  *
  * The gate (`lib/camera/frame-gate.ts`) watches the room's own `<video>` and
- * says which frames are worth keeping. Every keep is uploaded at once and
- * parked on the session with `attach_frame`, whose slot is latest-wins and
- * reclaims what it displaces. The session's own slot is therefore the one
- * holder of the current view, and whichever turn launches next carries it.
+ * says which frames are worth keeping. Every keep is uploaded at once and sent
+ * to the session with `sight_frame`, which the daemon persists as its own user
+ * message. The transcript is therefore the record of what the call has seen,
+ * in the order it saw it, and the model correlates a frame with speech by
+ * adjacency rather than by any attachment to a turn.
  *
- * ## Why parking continuously, rather than at a boundary
+ * ## Why every keep persists, rather than one staged for the next turn
  *
  * Because there is no boundary the client can act on in time. The daemon closes
  * an utterance and starts the turn in the same call chain, so a frame sent when
- * the client hears `utterance_end` cannot arrive before the turn drains the
- * slot, and would ride the turn after the one it belonged to. Worse, the
- * boundary is not even a reliable sign a turn is coming: an empty transcript is
- * announced as `utterance_end` and only discovered to be empty later, so a
- * cough would park a frame that then waits for unrelated speech.
+ * the client hears `utterance_end` cannot arrive before that turn reads it, and
+ * would land on the turn after the one it belonged to. Worse, the boundary is
+ * not even a reliable sign a turn is coming: an empty transcript is announced
+ * as `utterance_end` and only discovered to be empty later.
  *
- * Keeping the slot always full removes the question. At every boundary, on
- * every path, it already holds the freshest view, so push-to-talk works for
- * free and a cough costs nothing. It also nearly removes the orphan cost the
- * park-on-boundary shape accepted: a keep that never rides a turn is reclaimed
- * by the keep that displaces it.
+ * Persisting on the way past removes the question. Nothing has to be held for a
+ * turn that may not come, no keep can be displaced by a newer one before it is
+ * seen, and push-to-talk, hands-free and a cough all cost the same. What it
+ * costs instead is transcript volume, which retention answers: the daemon tags
+ * each keep so the newest few stay images to the model and older ones become
+ * timestamped stubs, while the transcript keeps every one.
  *
  * ## Consent
  *
  * There is no second camera and no hidden one. This samples the viewfinder the
  * room already put on screen, so frames flow exactly while the user can see
- * what is being sampled. Closing it stops them and unparks what was staged, so
- * a viewfinder the user put away leaves nothing behind that a later turn could
- * still carry.
+ * what is being sampled, and each one lands somewhere they can see it and
+ * delete it. Closing the viewfinder stops them at once.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -49,14 +49,14 @@ import {
 } from "@/domains/chat/api/messages";
 import { prepareImageAttachmentForUpload } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
 import {
-  attachLiveVoiceFrame,
+  sendLiveVoiceSightFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   isVisionModeOn,
   useVisionModeVariant,
 } from "@/hooks/use-vision-mode-flag";
-import { useSupportsSightFrames } from "@/lib/backwards-compat/use-supports-sight-frames";
+import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
 import {
   DEFAULT_FRAME_GATE_OPTIONS,
   type FrameGate,
@@ -70,28 +70,25 @@ import { captureVideoFrame, type VoiceCameraFacing } from "./voice-camera";
 /** Where a failure is filed, so the tag reads the same from every path. */
 const ERROR_CONTEXT = "voice-room sight: sample/upload frame";
 
-/** The frame the session is holding for whatever turn comes next. */
+/** The most recent frame the call was given. */
 export interface VoiceRoomSightFrame {
-  /** Id from the upload, which is what `attach_frame` parked. */
+  /** Id from the upload, which is what `sight_frame` named. */
   readonly attachmentId: string;
-  /** When the frame was taken, which is what orders two uploads in flight. */
-  readonly atMs: number;
   /** Object URL of the captured frame. Revoked when the frame is dropped. */
   readonly previewUrl: string;
 }
 
 export interface VoiceRoomSight {
   /**
-   * The freshest view shared with the call, or null when none is.
+   * The newest view shared with the call, or null when none has been.
    *
-   * The feature's only visible sign. Frames leave with turns the user did not
-   * ask to send anything on, so what is being shared has to be on screen while
-   * it is still true.
+   * The feature's only visible sign while the room is up. Frames go without
+   * anyone pressing anything, so the last one has to be on screen at the
+   * moment it is shared rather than only afterwards.
    *
-   * One honest gap: a turn drains the session's slot, and until the gate keeps
-   * again (within its rate floor) this still shows the last view while the
-   * daemon holds nothing. It reads as "what the call has seen", which is the
-   * true half of it, rather than as a claim about the next turn.
+   * It is a pulse, not a claim about what is staged: nothing is. Every keep it
+   * has shown is already in the transcript, which is the durable record and
+   * the place a user deletes one from.
    */
   readonly heldFrame: VoiceRoomSightFrame | null;
 }
@@ -103,12 +100,6 @@ export interface VoiceRoomSightOptions {
   readonly facing: VoiceCameraFacing;
 }
 
-/** A parked frame plus the bookkeeping the render surface has no use for. */
-interface HeldFrame extends VoiceRoomSightFrame {
-  /** Session generation at capture. A frame never crosses sessions. */
-  readonly sessionGeneration: number;
-}
-
 export function useVoiceRoomSight(
   assistantId: string | null,
   /** The room's own ref for the viewfinder `<video>`. */
@@ -116,11 +107,11 @@ export function useVoiceRoomSight(
   { cameraOpen, facing }: VoiceRoomSightOptions,
 ): VoiceRoomSight {
   const visionMode = useVisionModeVariant();
-  const supportsFrames = useSupportsSightFrames(assistantId);
-  const [heldFrame, setHeldFrame] = useState<HeldFrame | null>(null);
-  // What the teardown and the capture continuations read. The sampler outlives
-  // a render, so neither can close over a render's value.
-  const heldRef = useRef<HeldFrame | null>(null);
+  const supportsFrames = useSupportsSightStream(assistantId);
+  const [heldFrame, setHeldFrame] = useState<VoiceRoomSightFrame | null>(null);
+  // What the capture continuations read. The sampler outlives a render, so it
+  // cannot close over a render's value.
+  const heldRef = useRef<VoiceRoomSightFrame | null>(null);
   const gateRef = useRef<FrameGate | null>(null);
   const frameCountRef = useRef(0);
   /**
@@ -132,14 +123,15 @@ export function useVoiceRoomSight(
    * The session generation covers none of the three: each leaves the logical
    * call running, a flip deliberately keeps the sampler on the same element,
    * and a reconnect deliberately keeps the generation, so a stalled upload
-   * from before any of them could otherwise be parked as the current view.
+   * from before any of them could otherwise be persisted as a view of what the
+   * call is looking at.
    */
   const captureEpochRef = useRef(0);
 
   // All three, so the feature is absent rather than half-present: no camera on
   // screen is no consent, a flag off is not shipped, and an assistant that
-  // predates `attach_frame` answers every one with the error code the
-  // transport reads as a settings rejection.
+  // predates `sight_frame` answers every one with the error code the transport
+  // reads as a settings rejection.
   const active =
     cameraOpen && isVisionModeOn(visionMode) && supportsFrames && !!assistantId;
 
@@ -148,7 +140,7 @@ export function useVoiceRoomSight(
    * Revoking is not bookkeeping: each preview holds a decoded full-resolution
    * frame alive, and a long call keeps a frame every few seconds.
    */
-  const hold = useCallback((next: HeldFrame | null) => {
+  const hold = useCallback((next: VoiceRoomSightFrame | null) => {
     const previous = heldRef.current;
     heldRef.current = next;
     setHeldFrame(next);
@@ -167,7 +159,6 @@ export function useVoiceRoomSight(
       // neither can be re-read afterwards without describing the wrong one.
       const sessionGeneration = useLiveVoiceStore.getState().sessionGeneration;
       const captureEpoch = captureEpochRef.current;
-      const atMs = Date.now();
       try {
         frameCountRef.current += 1;
         const frame = await captureVideoFrame(
@@ -189,11 +180,15 @@ export function useVoiceRoomSight(
           return;
         }
         /**
-         * Give the row back on every path that abandons this id after the
-         * upload persisted it. Nothing else can: an attachment is collected
-         * when the message linking it is deleted, or by the daemon reclaiming
-         * a frame from its own slot, and an id that reaches neither is a row
+         * Give the row back on every path that refuses this id HERE, before
+         * the frame is sent. Nothing else can: an attachment is collected when
+         * the message linking it is deleted, or by the daemon reclaiming a
+         * frame it could not persist, and an id that reaches neither is a row
          * and its bytes kept for good.
+         *
+         * Never called for a frame the daemon answered with an error. That
+         * path reclaims the attachment on its own, so deleting here would race
+         * it over a row this hook no longer owns.
          */
         const abandonUpload = (): void => {
           void deleteChatAttachment(assistantId, uploaded.id).then((ok) => {
@@ -213,33 +208,23 @@ export function useVoiceRoomSight(
           return;
         }
         // The camera this came from is closed or pointing elsewhere, so this
-        // is a view of nothing the user is looking at now.
+        // is a view of nothing the user is looking at now, and persisting it
+        // would put that view in the transcript as the current one.
         if (captureEpoch !== captureEpochRef.current) {
           abandonUpload();
           return;
         }
-        // Latest wins by CAPTURE time, not by resolve order: two uploads can be
-        // in flight and the slower one is not the newer view. Losing here is
-        // the whole cost of a superseded frame, so it is simply dropped.
-        const held = heldRef.current;
-        if (held && held.atMs >= atMs) {
-          abandonUpload();
-          return;
-        }
-        // Parked before it is shown, and shown only if it was parked. The
-        // thumbnail claims the call can see this frame, and during a reconnect
-        // gap it cannot: what stays on screen is then the older frame the
-        // session's slot really does hold. A frame that never reached the slot
-        // is this hook's to give back, since the daemon never saw it.
-        if (!attachLiveVoiceFrame(uploaded.id, sessionGeneration)) {
+        // Sent before it is shown, and shown only if it was sent. The
+        // thumbnail says the call has been given this frame, and during a
+        // reconnect gap it has not. A frame that never left is this hook's to
+        // give back, since the daemon never saw it.
+        if (!sendLiveVoiceSightFrame(uploaded.id, sessionGeneration)) {
           abandonUpload();
           return;
         }
         hold({
           attachmentId: uploaded.id,
-          atMs,
           previewUrl: URL.createObjectURL(frame),
-          sessionGeneration,
         });
       } catch (cause) {
         // Best effort by design: nobody asked for this frame, so a failure
@@ -251,30 +236,17 @@ export function useVoiceRoomSight(
   );
 
   /**
-   * Clear the session's slot, because the viewfinder that fed it is gone.
+   * Void every capture aimed at the world that just changed: the frames still
+   * encoding, the view on screen, and the gate's baseline.
    *
-   * Without this a frame from a camera the user closed would still ride the
-   * next thing they say. A send that cannot go out (a reconnect gap) is logged
-   * and dropped: the session's own close reclaims whatever is parked, so the
-   * cost is a stale frame on one turn rather than a leak.
-   *
-   * A session already over is the common way this runs, since ending a call
-   * unmounts the room. There is nothing to say to it, and its close has the
-   * slot, so that path is silent rather than reported as a failed unpark.
+   * Nothing is sent. Keeps already persisted stay in the transcript, which is
+   * where the user can see and delete them; this speaks only for the live
+   * pulse and for what is still in flight.
    */
-  const unparkHeldFrame = useCallback(() => {
-    const held = heldRef.current;
-    if (!held) {
-      return;
-    }
+  const invalidateCaptures = useCallback(() => {
+    captureEpochRef.current += 1;
     hold(null);
-    const { sessionGeneration } = useLiveVoiceStore.getState();
-    if (sessionGeneration !== held.sessionGeneration) {
-      return;
-    }
-    if (!attachLiveVoiceFrame(null, held.sessionGeneration)) {
-      console.warn("live-voice sight: could not unpark the parked frame");
-    }
+    gateRef.current?.reset(performance.now());
   }, [hold]);
 
   useEffect(() => {
@@ -299,61 +271,52 @@ export function useVoiceRoomSight(
     });
     sampler.start(video);
     return () => {
+      // The epoch bump is what stops a frame from a viewfinder the user has
+      // put away being persisted when its upload lands, which is the whole of
+      // what closing has to guarantee: nothing is staged for a later turn to
+      // pick up, so there is nothing to take back.
       captureEpochRef.current += 1;
       sampler.stop();
       gateRef.current = null;
-      unparkHeldFrame();
+      hold(null);
     };
-  }, [active, captureAndHold, unparkHeldFrame, videoRef]);
+  }, [active, captureAndHold, hold, videoRef]);
 
   // A flip points the camera somewhere else entirely and mirrors it, so every
   // score against the old baseline is meaningless and every capture still
   // encoding belongs to the camera that is gone. The sampler keeps running: it
   // is the same element, only the stream behind it changed.
   //
-  // The frame ALREADY parked is the old camera's view, and the exposure warmup
-  // plus the gate's rate floor put the replacement seconds away, so leaving it
-  // staged would let a turn carry the view the user just turned away from. An
-  // empty slot until the new camera's first keep is the honest state. On mount
-  // there is nothing parked and this is a no-op.
+  // The frame on screen is the old camera's view, and the exposure warmup plus
+  // the gate's rate floor put the replacement seconds away, so leaving it up
+  // would show the user's own face as what the call is being shown of the room
+  // in front of them. On mount nothing is held and this is a no-op.
   useEffect(() => {
-    captureEpochRef.current += 1;
-    unparkHeldFrame();
-    gateRef.current?.reset(performance.now());
-  }, [facing, unparkHeldFrame]);
+    invalidateCaptures();
+  }, [facing, invalidateCaptures]);
 
-  // A retryable transport close ends the SERVER-side session, whose close path
-  // reclaims the parked frame, while the logical call (and so
-  // `sessionGeneration`) deliberately survives the gap. The fresh session's
-  // slot is therefore empty and the id being held points at a row the daemon
-  // has already deleted, so the thumbnail would keep claiming a view nothing
-  // holds until the gate's heartbeat replaced it.
-  //
-  // Nothing is sent: there is no slot to unpark, and re-parking the old id
-  // would earn the refusal a deleted attachment deserves. The gate is reset so
-  // the new session gets a frame as soon as the camera settles rather than
-  // waiting out a novelty comparison against a baseline nobody can see.
+  // A retryable transport close ends the SERVER-side session while the logical
+  // call (and so `sessionGeneration`) deliberately survives the gap. Keeps
+  // already made are in the transcript and stay there, but the pulse tracks
+  // the session that is running, and for the length of the gap none is.
   //
   // The flag is the narrowest signal for it: only the transport's `closed`
   // handler raises it, and it is lowered again on the `ready` that means a
   // fresh session exists. This effect re-runs only when it changes, so the
   // early return is what confines the work to the transition INTO the gap:
-  // coming back out of one must not clear a frame parked since.
+  // coming back out of one must not clear a frame shared since.
   //
   // The epoch bump is for the upload still in flight when the transport
   // dropped: the generation survives the gap by design, so it can resolve
-  // after the fresh session is ready with every other guard passing, and with
-  // nothing held to outrank it a view from seconds before the gap would be
-  // parked as the current one.
+  // after the fresh session is ready with every other guard passing, and a
+  // view from seconds before the gap would be persisted as the current one.
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   useEffect(() => {
     if (!reconnecting) {
       return;
     }
-    captureEpochRef.current += 1;
-    hold(null);
-    gateRef.current?.reset(performance.now());
-  }, [hold, reconnecting]);
+    invalidateCaptures();
+  }, [invalidateCaptures, reconnecting]);
 
   return { heldFrame };
 }

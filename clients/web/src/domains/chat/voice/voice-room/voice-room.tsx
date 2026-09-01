@@ -1198,18 +1198,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   ))}
                 </ul>
               ) : null}
-              {/* The view the call is holding right now.
+              {/* The newest view the call was given.
 
                   A photo in the strip is a receipt for something the user did;
-                  this is the opposite, a frame nobody asked for that the next
-                  turn can carry, so it has to be visible while that is still
-                  true rather than after the fact. It wears the strip's shape so
-                  the two read as one row, and the capture accent so they are
-                  not read as the same thing. Keyed on the id, which replays the
-                  ring whenever a newer frame takes the slot.
+                  this is the opposite, a frame nobody asked for, so it has to
+                  be visible at the moment it goes rather than only after the
+                  fact. It wears the strip's shape so the two read as one row,
+                  and the capture accent so they are not read as the same
+                  thing. Keyed on the id, which replays the ring on every keep.
 
-                  `aria-hidden` for the same reason as the strip: the frame
-                  reaches the transcript with the turn it rides, which is the
+                  `aria-hidden` for the same reason as the strip: every keep
+                  lands in the transcript as its own message, which is the
                   accessible record of it. */}
               {heldFrame ? (
                 <img
