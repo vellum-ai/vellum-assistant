@@ -8,6 +8,7 @@ import {
   type ProfilePickerEntry,
   profilePickerIssue,
   undispatchableProfileReason,
+  managedProfileModelName,
 } from "@/assistant/profile-pickers";
 
 // Config-shaped entries: `llm.profiles` values always carry a provider and
@@ -318,5 +319,71 @@ describe("assistants older than complete-profile-snapshots (0.10.8)", () => {
       (p) => p.name,
     );
     expect(names).toEqual(["balanced", "quality", "halfmade"]);
+  });
+});
+
+describe("managedProfileModelName", () => {
+  test("names the model a managed profile currently pins", () => {
+    expect(
+      managedProfileModelName({
+        name: "balanced",
+        label: "Balanced",
+        source: "managed",
+        provider: "vellum",
+        model: "accounts/fireworks/models/glm-5p2",
+      }),
+    ).toBe("GLM 5.2");
+  });
+
+  test("a user profile names nothing: its label is already the model", () => {
+    expect(
+      managedProfileModelName({
+        name: "my-luna",
+        label: "GPT-5.6 Luna",
+        source: "user",
+        provider: "openai",
+        model: "gpt-5.6-luna",
+      }),
+    ).toBeNull();
+  });
+
+  test("a profile with no source is treated as the user's", () => {
+    expect(
+      managedProfileModelName({
+        name: "legacy",
+        provider: "anthropic",
+        model: "claude-fable-5",
+      }),
+    ).toBeNull();
+  });
+
+  test("a managed mix names nothing: its arm is picked at dispatch", () => {
+    expect(
+      managedProfileModelName({
+        name: "ab",
+        source: "managed",
+        mix: [
+          { profile: "balanced", weight: 70 },
+          { profile: "quality", weight: 30 },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  test("a managed profile carrying no model names nothing", () => {
+    expect(
+      managedProfileModelName({ name: "half", source: "managed" }),
+    ).toBeNull();
+  });
+
+  test("an unknown model id degrades to its readable tail", () => {
+    expect(
+      managedProfileModelName({
+        name: "balanced",
+        source: "managed",
+        provider: "vellum",
+        model: "accounts/fireworks/models/not-in-the-catalog",
+      }),
+    ).toBe("not-in-the-catalog");
   });
 });

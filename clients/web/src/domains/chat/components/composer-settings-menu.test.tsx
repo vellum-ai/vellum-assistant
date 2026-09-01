@@ -1621,3 +1621,79 @@ describe("Profile selection on a draft stub conversation (ATL-1136)", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 });
+
+describe("model names on the profile rows", () => {
+  // A managed profile is named for the tier it serves, and the model behind
+  // that tier moves whenever Vellum repoints the pin. A user profile is named
+  // by the person who made it, so naming its model would only repeat itself.
+  const MIXED_CONFIG = {
+    llm: {
+      profileOrder: ["balanced", "my-luna"],
+      profiles: {
+        balanced: {
+          label: "Balanced",
+          source: "managed",
+          provider: "vellum",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        "my-luna": {
+          label: "GPT-5.6 Luna",
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.6-luna",
+        },
+      },
+      activeProfile: "balanced",
+    },
+  };
+
+  function mountMixed() {
+    configGetMock.mockImplementation(async () => ({ data: MIXED_CONFIG }));
+    renderMenu();
+  }
+
+  test("the managed row carries its model on hover, the user row does not", async () => {
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const labels = screen
+      .getAllByTestId("tooltip")
+      .map((el) => el.getAttribute("data-tooltip-content"));
+    // The quick-add "+" carries the only other tooltip on this surface.
+    expect(labels.filter((c) => c !== "New Model")).toEqual(["GLM 5.2"]);
+  });
+
+  test("the hovered row is still the row that selects the profile", async () => {
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const tooltip = screen
+      .getAllByTestId("tooltip")
+      .find((el) => el.getAttribute("data-tooltip-content") === "GLM 5.2");
+    const row = tooltip!.querySelector('[data-testid="menu-item"]');
+    fireEvent.click(row!);
+
+    await waitFor(() => {
+      expect(inferenceprofilePut).toHaveBeenCalled();
+    });
+  });
+
+  test("touch reads the model on the row itself, where a tooltip cannot go", async () => {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const rows = screen.getAllByTestId("panel-item");
+    const managed = rows.find((r) => r.textContent?.includes("Balanced"));
+    expect(managed!.textContent).toContain("GLM 5.2");
+    const user = rows.find((r) => r.textContent?.includes("GPT-5.6 Luna"));
+    expect(user!.textContent).toBe("GPT-5.6 Luna");
+  });
+});

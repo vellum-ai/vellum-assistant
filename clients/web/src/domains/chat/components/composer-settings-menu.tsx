@@ -19,6 +19,7 @@ import {
 import { t, useTranslation } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
+  managedProfileModelName,
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
@@ -959,7 +960,8 @@ export function ComposerSettingsMenu({
 
   const profileMenuItems = visibleProfileEntries.map((entry) => {
     const isActive = entry.name === profileActiveKey;
-    return (
+    const modelName = managedProfileModelName(entry);
+    const item = (
       <Menu.Item
         key={entry.name}
         onSelect={() => handleProfileSelect(entry.name)}
@@ -977,6 +979,17 @@ export function ComposerSettingsMenu({
       >
         {profilePickerLabel(entry)}
       </Menu.Item>
+    );
+    if (!modelName) {
+      return item;
+    }
+    // `side="right"` keeps the label clear of the rows above and below, which
+    // a menu this dense would otherwise cover. The key moves to the wrapper
+    // because it is the element the list renders.
+    return (
+      <Tooltip key={entry.name} content={modelName} side="right">
+        {item}
+      </Tooltip>
     );
   });
 
@@ -1121,11 +1134,28 @@ export function ComposerSettingsMenu({
                 </SectionLabel>
                 {visibleProfileEntries.map((entry) => {
                   const isActive = entry.name === profileActiveKey;
+                  // A tooltip is a hover affordance and mounts nothing on a
+                  // touch device, so the model name rides along the row itself
+                  // where a thumb can already read it.
+                  const modelName = managedProfileModelName(entry);
                   return (
                     <PanelItem
                       key={entry.name}
                       icon={Sparkles}
-                      label={profilePickerLabel(entry)}
+                      label={
+                        modelName ? (
+                          <span className="flex min-w-0 items-baseline gap-2">
+                            <span className="truncate">
+                              {profilePickerLabel(entry)}
+                            </span>
+                            <span className="shrink-0 text-label-small-default text-[var(--content-tertiary)]">
+                              {modelName}
+                            </span>
+                          </span>
+                        ) : (
+                          profilePickerLabel(entry)
+                        )
+                      }
                       active={isActive}
                       className="max-md:[&>span:first-child]:gap-[11px]"
                       trailingAction={
