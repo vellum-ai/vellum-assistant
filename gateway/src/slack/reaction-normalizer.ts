@@ -37,14 +37,21 @@ function normalizeSlackReaction(
   const routing = resolveAssistant(config, channel, event.user);
   if (isRejection(routing)) return null;
 
-  // Include reactor user ID to prevent dedup collisions when multiple
-  // users react with the same emoji on the same message. Append the op
-  // suffix so an add and a subsequent remove of the same emoji by the
-  // same user produce distinct externalMessageIds.
+  // Slack's `event_id` is what makes this id name one event rather than one
+  // kind of event. The addressing parts (channel, message ts, emoji, reactor,
+  // op) are stable across every occurrence of the same person re-adding the
+  // same emoji, so on their own they collapse a re-add into the first add:
+  // `recordInbound` answers `duplicate`, the intercept returns before writing
+  // a transcript row, and the removal stays the last recorded state forever.
+  // The event id is the one component that differs per occurrence while still
+  // repeating on a genuine redelivery. Slack calls it "a unique identifier
+  // for this specific event, globally unique across all workspaces", and a
+  // re-sent envelope carries the same one, which is why `socket-mode.ts`
+  // already keys its own in-process dedup on it.
   const externalMessageId =
     op === "added"
-      ? `${channel}:${event.item.ts}:${event.reaction}:${event.user}`
-      : `${channel}:${event.item.ts}:${event.reaction}:${event.user}:removed`;
+      ? `${channel}:${event.item.ts}:${event.reaction}:${event.user}:${eventId}`
+      : `${channel}:${event.item.ts}:${event.reaction}:${event.user}:removed:${eventId}`;
 
   return {
     event: {

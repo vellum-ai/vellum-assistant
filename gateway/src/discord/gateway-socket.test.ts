@@ -512,6 +512,23 @@ describe("reaction dispatch", () => {
     expect(h.events).toHaveLength(0);
   });
 
+  test("add, remove and re-add forward as three distinct events", async () => {
+    // End to end through the socket: the same person reacting, un-reacting
+    // and re-reacting sends three byte-identical dispatch payloads. The id
+    // the socket stamps at receipt is the only thing keeping the third one
+    // from reading as a redelivery of the first, which the daemon would
+    // discard, leaving the removal as the last recorded state forever.
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(reactionAdd());
+    ws.message({ ...reactionAdd(), t: "MESSAGE_REACTION_REMOVE" });
+    ws.message(reactionAdd());
+
+    expect(h.events).toHaveLength(3);
+    const ids = h.events.map((event) => event.message.externalMessageId);
+    expect(new Set(ids).size).toBe(3);
+  });
+
   test("a thread reaction resolves its parent conversation", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
