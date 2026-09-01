@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "粘贴您从“机器人”页面复制的机器人令牌。",
+    "verificationNoticeTitle": "请忽略“验证您的应用”页面",
+    "verificationNoticeBody": "Discord 对每个新应用都会显示它。只有超过 100 个服务器时才有意义。",
     "botTokenLabel": "机器人令牌",
     "save": "连接",
     "saving": "正在连接...",
@@ -233,11 +235,9 @@
   "discordSetupCreateStep": {
     "inPortal": "在 Discord 开发者门户中：",
     "stepCreateApp": "创建一个新应用程序，名称随意。",
-    "stepAppIcon": "可选：让机器人使用您助手的形象。在下方下载头像，并在<strong>一般信息</strong>页面上传。",
+    "stepAppIcon": "可选：让机器人使用您助手的形象。下载头像，并在<strong>一般信息</strong>页面上传。",
     "stepResetToken": "在<strong>机器人</strong>页面点击<strong>重置令牌</strong>并立即复制令牌。Discord 只显示一次。",
     "stepIntentsOff": "保持三个<strong>特权网关意图</strong>开关全部关闭。您的助手不需要它们：它只读取私信和提及它的消息。",
-    "verificationNoticeTitle": "请忽略“验证您的应用”页面",
-    "verificationNoticeBody": "Discord 对每个新应用都会显示它。只有超过 100 个服务器时才有意义。",
     "openPortal": "打开 Discord 门户",
     "continue": "我已拥有令牌"
   },

@@ -99,11 +99,13 @@ function goToInviteStep() {
 }
 
 describe("DiscordSetupWizard completion handoff", () => {
-  test("the create step says the portal's App Verification can be ignored", () => {
+  test("the connect step says the portal's App Verification can be ignored", () => {
     renderWizard(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /I have my token/i }));
 
     // The call-out that keeps the portal's "missing 4 criteria" page from
-    // reading as a required step this wizard forgot.
+    // reading as a required step this wizard forgot. It sits on the token
+    // step because that is where the user lands right after meeting it.
     expect(screen.queryByText(/Verify your App/)).not.toBeNull();
     expect(screen.queryByText(/100 servers/)).not.toBeNull();
   });

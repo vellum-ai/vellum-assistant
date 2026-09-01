@@ -1,7 +1,7 @@
 import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { ExternalLink } from "lucide-react";
 
-import { Button, Notice, Typography } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface DiscordSetupCreateStepProps {
@@ -14,6 +14,7 @@ export interface DiscordSetupCreateStepProps {
 /**
  * Create the application and collect its token, laid out as the ordered list
  * of portal actions the user performs, matching the Telegram create step.
+ * The avatar download rides inside the icon step it belongs to.
  *
  * Discord shows a bot token once, at the moment it is generated, and offers
  * no way to read it back, so the copy tells someone to bring it here before
@@ -23,10 +24,6 @@ export interface DiscordSetupCreateStepProps {
  * GUILD_MESSAGES and DIRECT_MESSAGES only, and every message it acts on falls
  * inside Discord's Message Content exemptions: DMs with the app, and messages
  * that mention it.
- *
- * The portal greets a fresh app with a loud App Verification page ("missing
- * 4 criteria"). That gate only applies past 100 servers, so a Notice defuses
- * it up front rather than letting it read as a step this wizard forgot.
  */
 export function DiscordSetupCreateStep({
   assistantId,
@@ -52,6 +49,13 @@ export function DiscordSetupCreateStep({
             i18nKey="discordSetupCreateStep.stepAppIcon"
             components={{ strong: <strong /> }}
           />
+          <div className="mt-1.5 mb-1">
+            <ChannelAvatarDownload
+              assistantId={assistantId}
+              channel="discord"
+              compact
+            />
+          </div>
         </li>
         <li>
           <Trans
@@ -66,15 +70,6 @@ export function DiscordSetupCreateStep({
           />
         </li>
       </ol>
-
-      <Notice
-        tone="warning"
-        title={t("discordSetupCreateStep.verificationNoticeTitle")}
-      >
-        {t("discordSetupCreateStep.verificationNoticeBody")}
-      </Notice>
-
-      <ChannelAvatarDownload assistantId={assistantId} channel="discord" />
 
       <div className="flex flex-wrap gap-2">
         <Button

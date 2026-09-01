@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "Pega el token del bot que copiaste de la pagina Bot.",
+    "verificationNoticeTitle": "Ignora la pagina \"Verify your App\"",
+    "verificationNoticeBody": "Discord la muestra a cada app nueva. Solo importa a partir de 100 servidores.",
     "botTokenLabel": "Token del bot",
     "save": "Conectar",
     "saving": "Conectando...",
@@ -233,11 +235,9 @@
   "discordSetupCreateStep": {
     "inPortal": "En el portal de desarrolladores de Discord:",
     "stepCreateApp": "Crea una nueva aplicacion. Cualquier nombre sirve.",
-    "stepAppIcon": "Opcional: dale al bot la cara de tu asistente. Descarga el avatar abajo y subelo en <strong>General Information</strong>.",
+    "stepAppIcon": "Opcional: dale al bot la cara de tu asistente. Descarga el avatar y subelo en <strong>General Information</strong>.",
     "stepResetToken": "En la pagina <strong>Bot</strong>, pulsa <strong>Reset Token</strong> y copia el token de inmediato. Discord solo lo muestra una vez.",
     "stepIntentsOff": "Deja apagados los tres interruptores de <strong>Privileged Gateway Intents</strong>. Tu asistente no los necesita: solo lee mensajes directos y mensajes que lo mencionan.",
-    "verificationNoticeTitle": "Ignora la pagina \"Verify your App\"",
-    "verificationNoticeBody": "Discord la muestra a cada app nueva. Solo importa a partir de 100 servidores.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"
   },

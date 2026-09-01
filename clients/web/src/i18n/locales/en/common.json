@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "Paste the bot token you copied from the Bot page.",
+    "verificationNoticeTitle": "Ignore the \"Verify your App\" page",
+    "verificationNoticeBody": "Discord shows it for every new app. It only matters past 100 servers.",
     "botTokenLabel": "Bot token",
     "save": "Connect",
     "saving": "Connecting...",
@@ -233,11 +235,9 @@
   "discordSetupCreateStep": {
     "inPortal": "In the Discord developer portal:",
     "stepCreateApp": "Create a new application. Any name works.",
-    "stepAppIcon": "Optional: give the bot your assistant's face. Download the avatar below and upload it on <strong>General Information</strong>.",
+    "stepAppIcon": "Optional: give the bot your assistant's face. Download the avatar and upload it on <strong>General Information</strong>.",
     "stepResetToken": "On the <strong>Bot</strong> page, click <strong>Reset Token</strong> and copy the token right away. Discord only shows it once.",
     "stepIntentsOff": "Leave all three <strong>Privileged Gateway Intents</strong> switches off. Your assistant doesn't need them: it only reads direct messages and messages that mention it.",
-    "verificationNoticeTitle": "Ignore the \"Verify your App\" page",
-    "verificationNoticeBody": "Discord shows it for every new app. It only matters past 100 servers.",
     "openPortal": "Open Discord portal",
     "continue": "I have my token"
   },

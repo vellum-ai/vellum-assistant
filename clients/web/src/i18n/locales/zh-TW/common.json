@@ -224,6 +224,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "貼上您從「機器人」頁面複製的機器人金鑰。",
+    "verificationNoticeTitle": "請忽略「驗證您的應用程式」頁面",
+    "verificationNoticeBody": "Discord 對每個新應用程式都會顯示它。只有超過 100 個伺服器時才有意義。",
     "botTokenLabel": "機器人金鑰",
     "save": "連線",
     "saving": "正在連線...",
@@ -233,11 +235,9 @@
   "discordSetupCreateStep": {
     "inPortal": "在 Discord 開發者入口網站中：",
     "stepCreateApp": "建立新的應用程式，名稱不拘。",
-    "stepAppIcon": "可選：讓機器人使用您助理的形象。在下方下載頭像，並在<strong>一般資訊</strong>頁面上傳。",
+    "stepAppIcon": "可選：讓機器人使用您助理的形象。下載頭像，並在<strong>一般資訊</strong>頁面上傳。",
     "stepResetToken": "在<strong>機器人</strong>頁面點擊<strong>重設金鑰</strong>並立即複製金鑰。Discord 只會顯示一次。",
     "stepIntentsOff": "保持三個<strong>特權閘道意圖</strong>開關全部關閉。您的助理不需要它們：它只會讀取私訊和提及它的訊息。",
-    "verificationNoticeTitle": "請忽略「驗證您的應用程式」頁面",
-    "verificationNoticeBody": "Discord 對每個新應用程式都會顯示它。只有超過 100 個伺服器時才有意義。",
     "openPortal": "開啟 Discord 入口網站",
     "continue": "我已擁有金鑰"
   },

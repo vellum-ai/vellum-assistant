@@ -45,6 +45,11 @@ export interface ChannelAvatarDownloadProps {
   assistantId: string;
   /** Provider whose icon field this is for, used only to pick the copy. */
   channel: "slack" | "discord" | "telegram";
+  /**
+   * Thumbnail-and-button row for embedding inside an instruction that
+   * already explains the avatar, so the prompt sentence is not repeated.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -74,6 +79,7 @@ export interface ChannelAvatarDownloadProps {
 export function ChannelAvatarDownload({
   assistantId,
   channel,
+  compact = false,
 }: ChannelAvatarDownloadProps) {
   const { t } = useTranslation();
 
@@ -100,6 +106,28 @@ export function ChannelAvatarDownload({
 
   if (!imageUrl) {
     return null;
+  }
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        <img
+          src={imageUrl}
+          alt={t("channelAvatarDownload.previewAlt")}
+          width={32}
+          height={32}
+          className="shrink-0 rounded-md"
+        />
+        <Button
+          type="button"
+          variant="outlined"
+          size="compact"
+          onClick={handleDownload}
+        >
+          {t("channelAvatarDownload.download")}
+        </Button>
+      </div>
+    );
   }
 
   return (

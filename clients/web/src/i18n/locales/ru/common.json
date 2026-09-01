@@ -43,6 +43,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "Вставьте токен бота, скопированный со страницы Bot.",
+    "verificationNoticeTitle": "Игнорируйте страницу «Verify your App»",
+    "verificationNoticeBody": "Discord показывает её каждому новому приложению. Она важна только после 100 серверов.",
     "botTokenLabel": "Токен бота",
     "save": "Подключить",
     "saving": "Подключение...",
@@ -52,11 +54,9 @@
   "discordSetupCreateStep": {
     "inPortal": "На портале разработчиков Discord:",
     "stepCreateApp": "Создайте новое приложение. Название может быть любым.",
-    "stepAppIcon": "По желанию: пусть бот выглядит как ваш ассистент. Скачайте аватар ниже и загрузите его на странице <strong>General Information</strong>.",
+    "stepAppIcon": "По желанию: пусть бот выглядит как ваш ассистент. Скачайте аватар и загрузите его на странице <strong>General Information</strong>.",
     "stepResetToken": "На странице <strong>Bot</strong> нажмите <strong>Reset Token</strong> и сразу скопируйте токен. Discord показывает его только один раз.",
     "stepIntentsOff": "Оставьте все три переключателя <strong>Privileged Gateway Intents</strong> выключенными. Ассистенту они не нужны: он читает только личные сообщения и сообщения с упоминанием.",
-    "verificationNoticeTitle": "Игнорируйте страницу «Verify your App»",
-    "verificationNoticeBody": "Discord показывает её каждому новому приложению. Она важна только после 100 серверов.",
     "openPortal": "Открыть портал Discord",
     "continue": "Токен у меня есть"
   },
