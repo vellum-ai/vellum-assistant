@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import { createElement } from "react";
 
+import { APP_ICON_GROUNDS } from "@/components/ios-widget-previews/vellum-app-icon-mark";
 import { appIconNameForTraits } from "@/utils/avatar-app-icon";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { tightPathBBox, unionBBox } from "@/utils/eye-bbox";
@@ -60,8 +61,23 @@ const setAppIcon = mock(async (name: string | null) => {
   return true;
 });
 
+/**
+ * Application id the stand-in shell reports, or null for a shell whose bridge
+ * cannot answer at all. It is what the row reads its primary icon's ground
+ * from, since the icon belongs to the installed build rather than to the web
+ * deploy loaded into it.
+ */
+let shellAppId: string | null = "ai.vocify-inc.vellum-assistant-ios";
+const getInfoMock = mock(async () => {
+  if (shellAppId === null) {
+    throw new Error("App.getInfo unavailable");
+  }
+  return { id: shellAppId, name: "Vellum", version: "1.0.0", build: "1" };
+});
+
 import * as platformDetection from "@/runtime/platform-detection";
 
+mock.module("@capacitor/app", () => ({ App: { getInfo: getInfoMock } }));
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
   ...platformDetection,
@@ -77,6 +93,10 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     invalidate: () => {},
   }),
 }));
+
+// Warm the module cache so the row's lazy `import("@capacitor/app")` resolves
+// against the mock without a loader turn of its own.
+await import("@capacitor/app");
 
 const { AppIconRow } =
   await import("@/domains/settings/components/app-icon-row");
@@ -173,6 +193,13 @@ function previewEyeWidth(): number {
   return bounds.w * scale;
 }
 
+/**
+ * Build environment the row falls back to when the shell names none. Readonly
+ * at the type level only; the underlying object is writable at runtime.
+ */
+const buildEnv = import.meta.env as Record<string, string | undefined>;
+let previousBuildEnv: string | undefined;
+
 function catalogPaths(eyeStyleId: string): (string | null)[] {
   const eyeStyle = BUNDLED_COMPONENTS.eyeStyles.find(
     (entry) => entry.id === eyeStyleId,
@@ -189,6 +216,11 @@ async function renderRow() {
 }
 
 beforeEach(() => {
+  // The default thumbnail follows the shell it runs in, so every test that is
+  // not about that runs in the one users install.
+  previousBuildEnv = buildEnv.VITE_SENTRY_ENVIRONMENT;
+  buildEnv.VITE_SENTRY_ENVIRONMENT = "production";
+  shellAppId = "ai.vocify-inc.vellum-assistant-ios";
   avatarState = CHARACTER;
   nativeIOS = true;
   swapSucceeds = true;
@@ -199,9 +231,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  buildEnv.VITE_SENTRY_ENVIRONMENT = previousBuildEnv;
   cleanup();
   getAppIconState.mockClear();
   setAppIcon.mockClear();
+  getInfoMock.mockClear();
   useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -256,6 +290,93 @@ describe("AppIconRow", () => {
     });
     expect(previewFill()).toBe(hexFor("teal"));
     expect(previewEyePaths()).toEqual(catalogPaths("goofy"));
+  });
+
+  // Every shell ships its own primary icon and they do not share a field, so
+  // the thumbnail standing in for one reads the application id of the shell it
+  // is running in. The web deploy loaded into that shell answers a different
+  // question and gets this backwards whenever the two disagree.
+  describe("the default thumbnail follows the shell", () => {
+    test("draws the Dev shell's pink field", async () => {
+      shellAppId = "ai.vocify-inc.vellum-assistant-ios.dev";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+      });
+      expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
+    });
+
+    test("draws the Staging shell's yellow field", async () => {
+      shellAppId = "ai.vocify-inc.vellum-assistant-ios.staging";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+      });
+      expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
+    });
+
+    test("reads an Android shell's flavor suffix too", async () => {
+      shellAppId = "ai.vellum.assistant.dev";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+      });
+    });
+
+    test("keeps a production shell green on a dev web deploy", async () => {
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "dev";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(getInfoMock).toHaveBeenCalled();
+      });
+      expect(previewFill()).toBe(hexFor("green"));
+    });
+
+    test("falls back to the build environment for an unknown shell", async () => {
+      buildEnv.VITE_SENTRY_ENVIRONMENT = "staging";
+      shellAppId = "com.example.some-other-shell";
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.staging);
+      });
+    });
+
+    test("draws the Dev field for a local build, which runs App Dev", async () => {
+      delete buildEnv.VITE_SENTRY_ENVIRONMENT;
+      shellAppId = null;
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(previewFill()).toBe(APP_ICON_GROUNDS.dev);
+      });
+    });
+
+    test("leaves an applied alternate in its own color off production", async () => {
+      shellAppId = "ai.vocify-inc.vellum-assistant-ios.dev";
+      iconState = {
+        supported: true,
+        current: AVATAR_ICON,
+        available: ALL_ICONS,
+      };
+
+      await renderRow();
+
+      await waitFor(() => {
+        expect(buttonByText("Change")).toBeDefined();
+      });
+      expect(previewFill()).toBe(hexFor("teal"));
+    });
   });
 
   test("frames the default icon the way the primary asset frames it", async () => {
