@@ -184,9 +184,64 @@ function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
   return sections.join("\n");
 }
 
-function computeMaxTokens(inputLength: number): number {
+export function computeMaxTokens(inputLength: number): number {
   const estimatedInputTokens = Math.ceil(inputLength / 3);
-  return Math.max(256, estimatedInputTokens + 128);
+  // The cleanup tool call has to carry the whole transcript back in its `text`
+  // argument, plus a `reasoning` string and the JSON scaffolding around both,
+  // so the budget has to cover well more than the input. The old
+  // `estimatedInputTokens + 128` left roughly 128 tokens for reasoning and
+  // scaffolding combined, and a `max_tokens` stop cuts the tool JSON mid-`text`
+  // -- which used to be accepted verbatim as the cleaned text (LUM-3432).
+  // `max_tokens` is a ceiling rather than a target, so raising it costs no
+  // latency on a call that stops well short of it.
+  return Math.max(512, estimatedInputTokens * 2 + 256);
+}
+
+/**
+ * Smallest transcript the length-ratio check below applies to. Short
+ * utterances legitimately shrink a long way once fillers go ("um yeah okay
+ * so" -> "Okay"), so the ratio is noise below this length.
+ */
+const CLEANUP_RATIO_MIN_LENGTH = 40;
+
+/**
+ * How much of the spoken transcript the cleanup pass is allowed to drop.
+ * Cleanup removes fillers and tightens phrasing, so some shrink is expected;
+ * losing more than this is a truncated tool call or a summary, not a cleanup.
+ */
+const CLEANUP_MIN_LENGTH_RATIO = 0.6;
+
+export type CleanupRejection = "truncated" | "too-short";
+
+/**
+ * Decide whether the cleanup model's rewrite is safe to use as the payload.
+ *
+ * The rewrite replaces what the user actually said, so it only wins when it
+ * is plausibly the same utterance. A `max_tokens` stop means the tool JSON
+ * was cut mid-argument, and a rewrite that lost most of the transcript is a
+ * summary; both used to be inserted verbatim, silently sending a fragment of
+ * a request the user had spoken in full (LUM-3432). In either case the raw
+ * transcript is the safer payload: unpolished beats wrong.
+ */
+export function resolveCleanedDictation(
+  raw: string,
+  cleaned: string,
+  stopReason: string,
+): { text: string; rejected: CleanupRejection | null } {
+  const trimmed = cleaned.trim();
+  if (!trimmed) {
+    return { text: raw, rejected: null };
+  }
+  if (stopReason === "max_tokens") {
+    return { text: raw, rejected: "truncated" };
+  }
+  if (
+    raw.length >= CLEANUP_RATIO_MIN_LENGTH &&
+    trimmed.length < raw.length * CLEANUP_MIN_LENGTH_RATIO
+  ) {
+    return { text: raw, rejected: "too-short" };
+  }
+  return { text: trimmed, rejected: null };
 }
 
 interface DictationResult {
@@ -334,7 +389,23 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
             ...profileMeta,
           };
         }
-        const cleanedText = input.text?.trim() || transcription;
+        const { text: cleanedText, rejected } = resolveCleanedDictation(
+          transcription,
+          input.text ?? "",
+          response.stopReason,
+        );
+        if (rejected) {
+          // Lengths only -- transcript content must never be logged.
+          log.warn(
+            {
+              rejected,
+              stopReason: response.stopReason,
+              rawChars: transcription.length,
+              cleanedChars: input.text?.trim().length ?? 0,
+            },
+            "Dictation cleanup rejected, using raw transcription",
+          );
+        }
         const normalizedText = applyDictionary(cleanedText, profile.dictionary);
         return {
           text: normalizedText,
