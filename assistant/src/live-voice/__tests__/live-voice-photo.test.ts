@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import {
   createMockProvider,
@@ -9,6 +9,7 @@ import { waitFor } from "../../__tests__/helpers/wait-for.js";
 
 setConfig("memory", { enabled: false });
 
+import * as messageTypes from "../../agent/message-types.js";
 import type { AssistantEvent } from "../../api/index.js";
 import { Conversation } from "../../daemon/conversation.js";
 import {
@@ -46,6 +47,29 @@ import {
 } from "../live-voice-photo.js";
 
 await initializeDb();
+
+/**
+ * Run something in the window the persist opens between materializing an
+ * attachment and inserting its row.
+ *
+ * `createUserMessage` is the last step the persist awaits before the insert,
+ * so a hook here lands inside that window without a timer to race. Armed per
+ * test and cleared as it fires; every other test leaves it null and gets the
+ * real function.
+ */
+let duringPersistBeforeInsert: (() => void) | null = null;
+const realMessageTypes = { ...messageTypes };
+mock.module("../../agent/message-types.js", () => ({
+  ...realMessageTypes,
+  createUserMessage: (
+    ...args: Parameters<typeof realMessageTypes.createUserMessage>
+  ) => {
+    const hook = duringPersistBeforeInsert;
+    duringPersistBeforeInsert = null;
+    hook?.();
+    return realMessageTypes.createUserMessage(...args);
+  },
+}));
 
 const IMAGE_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk";
@@ -813,6 +837,38 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(getMessages(live.id)).toHaveLength(0);
       expect(frameStored(frame)).toBe(false);
     } finally {
+      live.dispose();
+    }
+  });
+
+  test("a keep does not land in a conversation replaced during its write", async () => {
+    // The check before the persist answers only for the moment it ran. The
+    // persist then materializes the frame and builds its content, all awaited,
+    // and a delete and recreate under the same id landing in any of those
+    // windows restores the messages foreign key's target, so nothing else
+    // stops the frame joining a conversation it was never taken in.
+    const live = liveConversation("Live voice keep replaced mid-write");
+    try {
+      const frame = await uploadFrame("mid-write.png");
+      // Incarnation identity is `created_at`, so the recreate has to land in a
+      // later millisecond than the original to be a replacement at all.
+      await sleep(2);
+
+      duringPersistBeforeInsert = () => {
+        deleteConversationRows(live.id);
+        createConversation({ id: live.id, title: "Recreated" });
+      };
+
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
+        ok: false,
+      });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      // Nothing else would ever collect it: the client's abandon-delete fires
+      // on a refused send, and this send was accepted.
+      expect(frameStored(frame)).toBe(false);
+    } finally {
+      duringPersistBeforeInsert = null;
       live.dispose();
     }
   });

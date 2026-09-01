@@ -996,6 +996,17 @@ export interface PersistMessageOptions {
    * exactly the one retention has to be able to stub.
    */
   sightFrameAttachmentIds?: readonly string[];
+  /**
+   * Answered synchronously in the insert's own tick, immediately before the
+   * row is written. False aborts the persist with a
+   * {@link MessageInsertPreconditionError} and inserts nothing.
+   *
+   * For a caller whose right to write can lapse while this persist awaits.
+   * Everything the persist does ahead of the insert (attachment
+   * materialization, content building) is awaited, so a caller that answered
+   * before calling has only answered for the moment it called.
+   */
+  insertPrecondition?: () => boolean;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -1082,6 +1093,23 @@ export async function persistUserMessage(
 }
 
 // ── persistQueuedMessageBody ─────────────────────────────────────────
+
+/**
+ * Thrown by {@link persistQueuedMessageBody} when a caller's
+ * `insertPrecondition` reads false at the insert boundary.
+ *
+ * No row was written, so a caller holding resources for the message it asked
+ * for (an uploaded attachment, a pending client receipt) is free to give them
+ * up on this error.
+ */
+export class MessageInsertPreconditionError extends Error {
+  constructor(conversationId: string) {
+    super(
+      `Message insert precondition failed for conversation ${conversationId}`,
+    );
+    this.name = "MessageInsertPreconditionError";
+  }
+}
 
 /**
  * Persists a user message body (DB row, attachment indexing, origin
@@ -1324,6 +1352,16 @@ export async function persistQueuedMessageBody(
       sightFrameIds.length > 0
         ? { ...mergedMetadata, [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: sightFrameIds }
         : mergedMetadata;
+
+    // Asked here, and synchronously, because `addMessage` runs all the way to
+    // its INSERT before its first await. The answer and the row therefore
+    // share one tick, and nothing the caller is fenced against can interleave
+    // between them. Moving this above any of the awaits that precede it
+    // reopens that window, and so does putting an await between it and the
+    // insert.
+    if (options.insertPrecondition && !options.insertPrecondition()) {
+      throw new MessageInsertPreconditionError(ctx.conversationId);
+    }
 
     const persistedUserMessage = await addMessage(
       ctx.conversationId,

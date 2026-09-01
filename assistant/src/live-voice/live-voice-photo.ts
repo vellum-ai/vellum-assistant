@@ -72,6 +72,7 @@
 import { v7 as uuidv7 } from "uuid";
 
 import {
+  MessageInsertPreconditionError,
   type PersistMessageOptions,
   persistQueuedMessageBody,
 } from "../daemon/conversation-messaging.js";
@@ -317,7 +318,10 @@ function persistStandaloneImage(
   conversationId: string,
   attachmentId: string,
   kind: "photo" | "sight_frame",
-  persistOptions: Omit<PersistMessageOptions, "attachments" | "requestId">,
+  persistOptions: Omit<
+    PersistMessageOptions,
+    "attachments" | "requestId" | "insertPrecondition"
+  >,
 ): Promise<LiveVoicePhotoResult> {
   return enqueueStandaloneImagePersist(conversationId, attachmentId, kind, () =>
     writeStandaloneImage(conversationId, attachmentId, kind, persistOptions),
@@ -328,7 +332,10 @@ async function writeStandaloneImage(
   conversationId: string,
   attachmentId: string,
   kind: "photo" | "sight_frame",
-  persistOptions: Omit<PersistMessageOptions, "attachments" | "requestId">,
+  persistOptions: Omit<
+    PersistMessageOptions,
+    "attachments" | "requestId" | "insertPrecondition"
+  >,
 ): Promise<LiveVoicePhotoResult> {
   const { content } = persistOptions;
   // The id the row is inserted under, so a failure can ask whether the insert
@@ -388,8 +395,8 @@ async function writeStandaloneImage(
       // id restores that foreign key's target, and the row would land in a
       // conversation created after the deletion. Both kinds check: a photo
       // persisted into a stranger that inherited the name is the same wrong.
-      // A delete and recreate landing inside the persist below is out of
-      // scope, fenced only where the row is absent.
+      // The same question rides the persist below as its insert precondition,
+      // which is what covers a replacement landing while the write runs.
       if (!isSameIncarnation(conversationId, incarnation)) {
         log.warn(
           { conversationId, attachmentId, kind },
@@ -405,6 +412,13 @@ async function writeStandaloneImage(
         ...persistOptions,
         attachments,
         requestId,
+        // Asked again in the insert's own tick. The persist awaits attachment
+        // materialization and content building before it writes, and a delete
+        // and recreate under the same id can land in any of those windows: the
+        // recreated row is a valid foreign-key target, so the frame would
+        // otherwise join a conversation it was never taken in.
+        insertPrecondition: () =>
+          isSameIncarnation(conversationId, incarnation),
       });
 
       announcePersistedImage(conversationId, content, persisted.id);
@@ -418,10 +432,17 @@ async function writeStandaloneImage(
       void conversation.kickDrainQueue("loop_complete", `standalone_${kind}`);
     }
   } catch (err) {
-    log.warn(
-      { err, conversationId, attachmentId, kind },
-      "Failed to persist a standalone image",
-    );
+    if (err instanceof MessageInsertPreconditionError) {
+      log.warn(
+        { conversationId, attachmentId, kind },
+        "Standalone image dropped: its conversation was replaced during the write",
+      );
+    } else {
+      log.warn(
+        { err, conversationId, attachmentId, kind },
+        "Failed to persist a standalone image",
+      );
+    }
     const inserted = insertedMessageState(conversationId, requestId);
     if (inserted === "exists") {
       // The row is in the transcript, so the result has to say so whatever
