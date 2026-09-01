@@ -524,8 +524,31 @@ describe("the room the dialog keeps for the open list", () => {
     ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_REACH);
   });
 
-  test("opens with the field that fills it focused", async () => {
+  test("opens with the field that fills it focused, against a late focus restore", async () => {
+    // The surface that opens the dialog takes the focus back: a menu closing
+    // over it restores focus to its own trigger on a timer queued before the
+    // dialog mounts, so the restore lands after the dialog's opening focus.
+    // The elsewhere it lands is inside the dialog, which is where the
+    // dialog's own focus trap would send it anyway.
+    const elsewhere = document.createElement("button");
+    const focusTheRestoreTook: Element[] = [];
+    const restore = setTimeout(() => {
+      const held = document.activeElement;
+      if (held) {
+        focusTheRestoreTook.push(held);
+      }
+      fieldStack().closest("div[role='dialog']")?.append(elsewhere);
+      elsewhere.focus();
+    }, 0);
+
     renderCreate([makeConnection("anthropic-personal")]);
+
+    // The restore does take the field the dialog itself focused, which is the
+    // race the claim below has to win.
+    await waitFor(() => {
+      expect(focusTheRestoreTook).toHaveLength(1);
+    });
+    expect(focusTheRestoreTook[0]).toBe(modelField());
 
     // The list opens on the field's own focus, so a focused field is what
     // puts the list in the room above rather than leaving it blank.
@@ -533,6 +556,9 @@ describe("the room the dialog keeps for the open list", () => {
       expect(document.activeElement).toBe(modelField());
     });
     expect(modelField().getAttribute("aria-expanded")).toBe("true");
+
+    clearTimeout(restore);
+    elsewhere.remove();
   });
 
   test("still stands once a model answers the question", () => {

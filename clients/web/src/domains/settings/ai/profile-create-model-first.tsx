@@ -404,11 +404,25 @@ export function ProfileCreateModelFirst({
     if (!menuBoundary) {
       return;
     }
+    let selection = 0;
     const claim = setTimeout(() => {
-      modelFieldRef.current?.querySelector("input")?.focus();
+      const field = modelFieldRef.current?.querySelector("input");
+      if (!field) {
+        return;
+      }
+      field.focus();
+      // The field selects what it holds on focus, and WebKit drops a
+      // selection made during a programmatic focus, so a seeded model name is
+      // taken again on the next frame. The first keystroke over it then
+      // starts a query instead of editing a name nobody meant to edit. See
+      // `docs/CAPACITOR.md`.
+      selection = requestAnimationFrame(() => {
+        field.setSelectionRange(0, field.value.length);
+      });
     }, 0);
     return () => {
       clearTimeout(claim);
+      cancelAnimationFrame(selection);
     };
   }, [menuBoundary]);
 
@@ -605,13 +619,13 @@ function ProviderStep({
           {connectSection}
         </div>
       ) : (
-        // A custom model id is served by every route there is, and a card
-        // apiece grew the dialog to the ceiling its own body already sets,
-        // leaving the footer flush against the window edge. The cards scroll
-        // here instead, so what the dialog asks for stays a fraction of the
-        // window whatever the list costs, and the fade says there is more
-        // below. Inert for the handful of routes a catalog model has, which
-        // never reach the cap.
+        // A custom model id is served by every route there is, so the cards
+        // scroll inside a cap rather than growing the dialog past the ceiling
+        // its own body sets: what the dialog asks of the window stays a
+        // fraction of it whatever the list costs, its footer keeps clear of
+        // the window edge, and the fade says there is more below. Inert for
+        // the handful of routes a catalog model has, which never reach the
+        // cap.
         <ScrollShadow className="max-h-[40vh]" size={16}>
           <RadioGroup
             value={selectedCandidate?.value ?? ""}
