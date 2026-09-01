@@ -544,6 +544,7 @@ const CONVERSATION_NAME_SCAN_WINDOW = 50;
 export function getLatestExternalConversationName(
   conversationId: string,
   sourceChannel: string,
+  externalChatId?: string,
 ): string | null {
   const db = getDb();
   const rows = db
@@ -561,6 +562,12 @@ export function getLatestExternalConversationName(
   for (const row of rows) {
     const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
     if (meta?.source !== sourceChannel) {
+      continue;
+    }
+    // A conversation's rows normally all belong to one external chat, but
+    // the name must never come from a different chat than the caller is
+    // labeling (e.g. rows written before a rebind).
+    if (externalChatId && meta.conversationExternalId !== externalChatId) {
       continue;
     }
     const name = meta.conversationName?.trim();

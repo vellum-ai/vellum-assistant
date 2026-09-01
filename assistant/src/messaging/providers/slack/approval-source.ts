@@ -62,7 +62,11 @@ export function resolveSlackApprovalSource(
   if (hint?.requesterChatId && isSlackTs(hint.sourceMessageId)) {
     return toReference(
       hint.requesterChatId,
-      getLatestExternalConversationName(conversationId, "slack"),
+      getLatestExternalConversationName(
+        conversationId,
+        "slack",
+        hint.requesterChatId,
+      ),
       hint.sourceMessageId,
       isSlackTs(hint.sourceThreadId) ? hint.sourceThreadId : undefined,
     );
@@ -92,7 +96,7 @@ export function resolveSlackApprovalSource(
 
   return toReference(
     chatId,
-    getLatestExternalConversationName(conversationId, "slack"),
+    getLatestExternalConversationName(conversationId, "slack", chatId),
     messageTs,
     threadTs,
   );
