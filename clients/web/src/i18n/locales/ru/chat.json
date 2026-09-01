@@ -809,6 +809,11 @@
     "unmuteMicrophone": "Включить микрофон"
   },
   "transcript": {
-    "noResponse": "Решил не отвечать"
+    "noResponse": "Решил не отвечать",
+    "reactionAddedSelf": "Отреагировал(а) {emoji}",
+    "reactionRemovedSelf": "Убрал(а) реакцию {emoji}",
+    "reactionAdded": "{name} отреагировал(а) {emoji}",
+    "reactionRemoved": "{name} убрал(а) свою реакцию {emoji}",
+    "reactionSomeone": "Кто-то"
   }
 }

@@ -1,15 +1,14 @@
 /**
  * Tests for the Credits section's balance tile.
  *
- * What the tile names changes under `obscure-credits`: the wallet less the
- * credit still sitting on the usage grants, since the Plan tile's bar already
- * measures those. The summary is served from the query cache and the panel's
- * heavier siblings are stubbed, so the tile's own formatting is the only
- * moving part.
+ * The tile names the wallet less the credit still sitting on the usage
+ * grants, since the Plan tile's bar already measures those. The summary is
+ * served from the query cache and the panel's heavier siblings are stubbed,
+ * so the tile's own formatting is the only moving part.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
@@ -42,17 +41,6 @@ mock.module("@/components/add-credits-modal", () => ({
 }));
 
 const { BillingPanel } = await import("./billing-panel");
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
-
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
 
 function summary(
   overrides: Partial<BillingSummaryResponse> = {},
@@ -99,12 +87,11 @@ function renderPanel(seed: BillingSummaryResponse) {
 }
 
 afterEach(() => {
-  setObscureCredits(false);
   cleanup();
 });
 
 describe("BillingPanel balance tile", () => {
-  test("the flag off names the whole effective balance", () => {
+  test("names only the credit held on top of the usage grants", () => {
     const { getByTestId } = renderPanel(
       summary({
         available_usage_balance: "9.10",
@@ -112,65 +99,44 @@ describe("BillingPanel balance tile", () => {
       }),
     );
 
-    expect(getByTestId("effective-balance").textContent).toBe("$34.65");
+    expect(getByTestId("effective-balance").textContent).toBe("$25.55");
   });
 
-  test("the flag off keeps the negative rendering", () => {
+  test("clamps at zero when the grants cover the whole balance", () => {
     const { getByTestId } = renderPanel(
       summary({
-        effective_balance: "-2.50",
+        effective_balance: "5.00",
         available_usage_balance: "9.10",
         total_usage_balance: "25.00",
       }),
+    );
+
+    expect(getByTestId("effective-balance").textContent).toBe("$0");
+  });
+
+  test("a platform reporting no grant figure keeps today's number", () => {
+    const { getByTestId } = renderPanel(summary());
+
+    expect(getByTestId("effective-balance").textContent).toBe("$34.65");
+  });
+
+  test("a platform reporting no grant figure keeps the negative rendering", () => {
+    const { getByTestId } = renderPanel(
+      summary({ effective_balance: "-2.50" }),
     );
 
     expect(getByTestId("effective-balance").textContent).toBe("-$2.50");
   });
 
-  describe("with obscure-credits on", () => {
-    beforeEach(() => {
-      setObscureCredits(true);
-    });
+  test("an overdrawn wallet has no extra credit to name", () => {
+    const { getByTestId } = renderPanel(
+      summary({
+        effective_balance: "-2.50",
+        available_usage_balance: "0.00",
+        total_usage_balance: "25.00",
+      }),
+    );
 
-    test("names only the credit held on top of the usage grants", () => {
-      const { getByTestId } = renderPanel(
-        summary({
-          available_usage_balance: "9.10",
-          total_usage_balance: "25.00",
-        }),
-      );
-
-      expect(getByTestId("effective-balance").textContent).toBe("$25.55");
-    });
-
-    test("clamps at zero when the grants cover the whole balance", () => {
-      const { getByTestId } = renderPanel(
-        summary({
-          effective_balance: "5.00",
-          available_usage_balance: "9.10",
-          total_usage_balance: "25.00",
-        }),
-      );
-
-      expect(getByTestId("effective-balance").textContent).toBe("$0");
-    });
-
-    test("a platform reporting no grant figure keeps today's number", () => {
-      const { getByTestId } = renderPanel(summary());
-
-      expect(getByTestId("effective-balance").textContent).toBe("$34.65");
-    });
-
-    test("an overdrawn wallet has no extra credit to name", () => {
-      const { getByTestId } = renderPanel(
-        summary({
-          effective_balance: "-2.50",
-          available_usage_balance: "0.00",
-          total_usage_balance: "25.00",
-        }),
-      );
-
-      expect(getByTestId("effective-balance").textContent).toBe("$0");
-    });
+    expect(getByTestId("effective-balance").textContent).toBe("$0");
   });
 });

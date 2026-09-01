@@ -869,6 +869,31 @@ describe("always-candidate frontmatter parsing", () => {
     expect(card).toContain("Avoid when:");
   });
 
+  test("the bundled schedule skill's card fits the default budget", async () => {
+    // Recurring-monitoring turns only reach this skill if the card still
+    // carries that vocabulary after the default-budget truncation. An overrun
+    // drops trailing hints and the whole avoid-when list.
+    const { DEFAULT_CARD_CHARS, buildSkillContent } =
+      await import("../plugins/defaults/memory/substrate/skill-content.js");
+    const schedule = loadSkillCatalog().find((skill) => skill.id === "schedule");
+    expect(schedule).toBeDefined();
+
+    const card = buildSkillContent(schedule!);
+    expect(card.length).toBeLessThan(DEFAULT_CARD_CHARS);
+    expect(card).toContain("Avoid when:");
+  });
+
+  test("the bundled schedule card carries its monitoring vocabulary", async () => {
+    const { buildSkillContent } =
+      await import("../plugins/defaults/memory/substrate/skill-content.js");
+    const schedule = loadSkillCatalog().find((skill) => skill.id === "schedule");
+    const card = buildSkillContent(schedule!).toLowerCase();
+
+    for (const term of ["monitor", "page", "dashboard", "status", "alert"]) {
+      expect(card).toContain(term);
+    }
+  });
+
   test("the bundled acp card carries its setup and sign-in vocabulary", async () => {
     // A "configure Claude Code" or "let's do the auth" turn only reaches this
     // skill if the card actually says it covers setup and authentication;

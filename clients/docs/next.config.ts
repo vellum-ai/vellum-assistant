@@ -48,6 +48,11 @@ const nextConfig: NextConfig = {
         destination: "/docs",
         permanent: true,
       },
+      {
+        source: "/docs/hosting-options/advanced-options",
+        destination: "/docs/hosting-options",
+        permanent: true,
+      },
     ];
   },
   async rewrites() {

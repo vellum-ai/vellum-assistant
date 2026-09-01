@@ -290,6 +290,9 @@ export async function rewriteForSelfHostedIngress(
     credentials: "omit",
     redirect: request.redirect,
     signal: request.signal,
+    // A rebuilt Request does not inherit this from `request`, and dropping it
+    // cancels pagehide-time sends (the boot telemetry flush) mid-navigation.
+    keepalive: request.keepalive,
   };
   if (!isLocalClient() && request.body) {
     (init as RequestInit & { duplex: "half" }).duplex = "half";

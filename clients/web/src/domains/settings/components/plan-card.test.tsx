@@ -174,17 +174,6 @@ mock.module("@/components/add-credits-modal", () => ({
 }));
 
 const { PlanCard } = await import("./plan-card");
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
-
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
 
 function basePlansResponse(): PlanListResponse {
   return {
@@ -394,12 +383,12 @@ const FREE_CHIPS = ["Small Machine", "4 GB Storage", "Pay as you go credits"];
 const MIGHTY_CHIPS = [
   "Small Machine",
   "10 GB Storage",
-  "Mighty Usage included",
+  "Mighty usage, reset monthly",
 ];
 const SUPER_CHIPS = [
   "Medium Machine",
   "30 GB Storage",
-  "Super Usage included",
+  "Super usage, reset monthly",
   "Assistant email and subdomain",
 ];
 
@@ -1120,22 +1109,18 @@ describe("PlanCard recommended upgrade — change-package", () => {
 });
 
 /**
- * The flag-on cases render interactively rather than through
- * `renderToStaticMarkup`: a static render reads Zustand's *initial* state (its
- * `getServerSnapshot`), so a flag driven through the store would still read
- * off there. Interactive renders also let the billing reads settle.
+ * The usage-balance cases render interactively rather than through
+ * `renderToStaticMarkup` so the billing reads can settle.
  */
-describe("PlanCard with obscure-credits on", () => {
+describe("PlanCard usage balance", () => {
   beforeEach(() => {
     walletBalance = null;
     byokSuppressed = false;
     availableUsageBalance = null;
     totalUsageBalance = null;
-    setObscureCredits(true);
   });
 
   afterEach(() => {
-    setObscureCredits(false);
     walletBalance = null;
     byokSuppressed = false;
     availableUsageBalance = null;
@@ -1170,13 +1155,11 @@ describe("PlanCard with obscure-credits on", () => {
 
     const current = within(currentTile(container));
     expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
-    expect(current.queryByText("Mighty Usage included")).toBeNull();
     // Machine and storage chips keep their own copy.
     expect(current.getByText("10 GB Storage")).toBeTruthy();
 
     const next = within(nextTile(container));
     expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
-    expect(next.queryByText("Super Usage included")).toBeNull();
   });
 
   test("both tiles wrap their short chips into a row, usage below", () => {
@@ -1239,7 +1222,6 @@ describe("PlanCard with obscure-credits on", () => {
     // A Custom sub still enumerates nothing and still quotes no price.
     const current = within(currentTile(container));
     expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
-    expect(current.queryByText("Mighty Usage included")).toBeNull();
     expect(current.queryByText("10 GB Storage")).toBeNull();
     expect(current.queryByTestId("plan-card-price")).toBeNull();
   });
@@ -1491,24 +1473,4 @@ describe("PlanCard with obscure-credits on", () => {
     ).toBeNull();
   });
 
-  test("the free tile is untouched while the flag is off", async () => {
-    setObscureCredits(false);
-    totalUsageBalance = "5.00";
-    availableUsageBalance = "1.60";
-    const { container } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(
-      container.querySelector('[data-testid="plan-usage-balance"]'),
-    ).toBeNull();
-    expect(
-      within(currentTile(container)).getByTestId("plan-card-price").textContent,
-    ).toBe("Free Forever");
-  });
 });

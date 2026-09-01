@@ -12,6 +12,9 @@ import { cn } from "../utils/cn";
 
 export type ScrollShadowOrientation = "vertical" | "horizontal";
 
+/** Which edges fade: both, only the start (top / left), or only the end. */
+export type ScrollShadowFadeEdges = "both" | "start" | "end";
+
 export interface ScrollShadowProps {
   children: ReactNode;
   /** Scroll axis the fade applies to. */
@@ -20,6 +23,8 @@ export interface ScrollShadowProps {
   size?: number;
   /** Extra scroll distance past an edge before its fade is hidden. */
   offset?: number;
+  /** Which edges fade when they have hidden content past them. */
+  fadeEdges?: ScrollShadowFadeEdges;
   /** When false, renders a plain scroll container with no fade. */
   isEnabled?: boolean;
   /** Visually hide the scrollbar (content still scrolls). */
@@ -47,6 +52,7 @@ export function ScrollShadow({
   orientation = "vertical",
   size = 24,
   offset = 0,
+  fadeEdges = "both",
   isEnabled = true,
   hideScrollBar = false,
   className,
@@ -114,7 +120,9 @@ export function ScrollShadow({
     };
   }, [recompute]);
 
-  const maskImage = isEnabled ? buildMask(orientation, size, edges) : undefined;
+  const maskImage = isEnabled
+    ? buildMask(orientation, size, edges, fadeEdges)
+    : undefined;
 
   return (
     <div
@@ -142,9 +150,20 @@ function buildMask(
   orientation: ScrollShadowOrientation,
   size: number,
   edges: EdgeState,
+  fadeEdges: ScrollShadowFadeEdges,
 ): string {
   const direction = orientation === "vertical" ? "to bottom" : "to right";
-  const startColor = edges.start ? "transparent" : "#000";
-  const endColor = edges.end ? "transparent" : "#000";
-  return `linear-gradient(${direction}, ${startColor}, #000 ${size}px, #000 calc(100% - ${size}px), ${endColor})`;
+  // An edge the caller opted out of contributes no stops, so the neighbouring
+  // stop's colour carries all the way to that end of the box.
+  const stops: string[] = [];
+  if (fadeEdges !== "end") {
+    stops.push(edges.start ? "transparent" : "#000", `#000 ${size}px`);
+  }
+  if (fadeEdges !== "start") {
+    stops.push(
+      `#000 calc(100% - ${size}px)`,
+      edges.end ? "transparent" : "#000",
+    );
+  }
+  return `linear-gradient(${direction}, ${stops.join(", ")})`;
 }

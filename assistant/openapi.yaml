@@ -4076,6 +4076,59 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  bound:
+                    type: boolean
+                  channel:
+                    type: string
+                    enum:
+                      - telegram
+                      - phone
+                      - vellum
+                      - whatsapp
+                      - slack
+                      - email
+                      - platform
+                      - a2a
+                      - discord
+                      - plugin
+                  assistantId:
+                    type: string
+                  hasPendingChallenge:
+                    type: boolean
+                  guardianExternalUserId:
+                    type: string
+                  guardianDeliveryChatId:
+                    type: string
+                  guardianUsername:
+                    type: string
+                  guardianDisplayName:
+                    type: string
+                  verificationSessionId:
+                    type: string
+                  expiresAt:
+                    type: number
+                  nextResendAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  sendCount:
+                    type: number
+                  pendingBootstrap:
+                    type: boolean
+                required:
+                  - success
+                  - bound
+                  - channel
+                  - assistantId
+                  - hasPendingChallenge
+                additionalProperties: false
   /v1/channels/available:
     get:
       operationId: channels_available_get
@@ -13762,6 +13815,48 @@ paths:
                           required:
                             - kind
                           additionalProperties: false
+                        guardianRequest:
+                          type: object
+                          properties:
+                            requestId:
+                              type: string
+                            kind:
+                              type: string
+                            intent:
+                              type: string
+                              enum:
+                                - approval
+                                - question
+                            status:
+                              type: string
+                              enum:
+                                - pending
+                                - approved
+                                - denied
+                                - expired
+                                - cancelled
+                            requesterLabel:
+                              type: string
+                            toolName:
+                              type: string
+                            sourceChannel:
+                              type: string
+                            sourceContextLabel:
+                              type: string
+                            sourceUrl:
+                              type: string
+                            decidedAction:
+                              type: string
+                            decidedAt:
+                              type: string
+                            terminalReason:
+                              type: string
+                          required:
+                            - requestId
+                            - kind
+                            - intent
+                            - status
+                          additionalProperties: false
                         category:
                           type: string
                           enum:
@@ -13954,6 +14049,48 @@ paths:
                           - updatesList
                     required:
                       - kind
+                    additionalProperties: false
+                  guardianRequest:
+                    type: object
+                    properties:
+                      requestId:
+                        type: string
+                      kind:
+                        type: string
+                      intent:
+                        type: string
+                        enum:
+                          - approval
+                          - question
+                      status:
+                        type: string
+                        enum:
+                          - pending
+                          - approved
+                          - denied
+                          - expired
+                          - cancelled
+                      requesterLabel:
+                        type: string
+                      toolName:
+                        type: string
+                      sourceChannel:
+                        type: string
+                      sourceContextLabel:
+                        type: string
+                      sourceUrl:
+                        type: string
+                      decidedAction:
+                        type: string
+                      decidedAt:
+                        type: string
+                      terminalReason:
+                        type: string
+                    required:
+                      - requestId
+                      - kind
+                      - intent
+                      - status
                     additionalProperties: false
                   category:
                     type: string
@@ -14241,6 +14378,48 @@ paths:
                                 - updatesList
                           required:
                             - kind
+                          additionalProperties: false
+                        guardianRequest:
+                          type: object
+                          properties:
+                            requestId:
+                              type: string
+                            kind:
+                              type: string
+                            intent:
+                              type: string
+                              enum:
+                                - approval
+                                - question
+                            status:
+                              type: string
+                              enum:
+                                - pending
+                                - approved
+                                - denied
+                                - expired
+                                - cancelled
+                            requesterLabel:
+                              type: string
+                            toolName:
+                              type: string
+                            sourceChannel:
+                              type: string
+                            sourceContextLabel:
+                              type: string
+                            sourceUrl:
+                              type: string
+                            decidedAction:
+                              type: string
+                            decidedAt:
+                              type: string
+                            terminalReason:
+                              type: string
+                          required:
+                            - requestId
+                            - kind
+                            - intent
+                            - status
                           additionalProperties: false
                         category:
                           type: string
@@ -20832,6 +21011,27 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        reaction:
+                          type: object
+                          properties:
+                            emoji:
+                              type: string
+                            op:
+                              type: string
+                              enum:
+                                - added
+                                - removed
+                            targetMessageId:
+                              type: string
+                            actorDisplayName:
+                              type: string
+                            selfAuthored:
+                              type: boolean
+                          required:
+                            - emoji
+                            - op
+                            - targetMessageId
+                          additionalProperties: false
                         providerError:
                           type: object
                           properties:
@@ -22809,6 +23009,48 @@ paths:
                               - updatesList
                         required:
                           - kind
+                        additionalProperties: false
+                      guardianRequest:
+                        type: object
+                        properties:
+                          requestId:
+                            type: string
+                          kind:
+                            type: string
+                          intent:
+                            type: string
+                            enum:
+                              - approval
+                              - question
+                          status:
+                            type: string
+                            enum:
+                              - pending
+                              - approved
+                              - denied
+                              - expired
+                              - cancelled
+                          requesterLabel:
+                            type: string
+                          toolName:
+                            type: string
+                          sourceChannel:
+                            type: string
+                          sourceContextLabel:
+                            type: string
+                          sourceUrl:
+                            type: string
+                          decidedAction:
+                            type: string
+                          decidedAt:
+                            type: string
+                          terminalReason:
+                            type: string
+                        required:
+                          - requestId
+                          - kind
+                          - intent
+                          - status
                         additionalProperties: false
                       category:
                         type: string

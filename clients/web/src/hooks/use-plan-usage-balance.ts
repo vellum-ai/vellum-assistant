@@ -1,5 +1,5 @@
 /**
- * The Usage Balance reading behind the `obscure-credits` flag.
+ * The Usage Balance reading.
  *
  * Every plan reads straight off the billing summary's usage-grant figures:
  * how much of the credit the org was granted (initial credit and Pro bundle
@@ -22,7 +22,6 @@
  */
 
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { parseUsd } from "@/lib/billing/parse-usd";
 
 export interface PlanUsageBalance {
@@ -76,11 +75,6 @@ export function usePlanUsageBalance(
     availableUsageBalance = null,
     totalUsageBalance = null,
   } = args;
-  const obscureCredits = useObscureCredits();
-
-  if (!obscureCredits) {
-    return null;
-  }
 
   const total = parseUsd(totalUsageBalance);
   const ratio = usageGrantRatio(total, parseUsd(availableUsageBalance));

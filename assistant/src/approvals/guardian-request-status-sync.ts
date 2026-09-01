@@ -45,6 +45,12 @@ export interface SyncTerminalGuardianRequestStatusParams {
   status: "approved" | "denied";
   /** Log line context naming the flow that resolved the confirmation. */
   syncContext: string;
+  /**
+   * Non-decision cause of the terminal status, threaded through to the
+   * feed receipt so an auto-deny reads as what it was (e.g.
+   * "superseded") rather than as a rejection the guardian chose.
+   */
+  terminalReason?: string;
 }
 
 /**
@@ -79,6 +85,9 @@ export async function syncTerminalGuardianRequestStatus(
       request: decided.request,
       status,
       decidedAction,
+      ...(params.terminalReason
+        ? { terminalReason: params.terminalReason }
+        : {}),
     });
   } catch (err) {
     log.warn(

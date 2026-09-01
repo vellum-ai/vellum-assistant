@@ -157,7 +157,7 @@ export const getGuardianRequestByCodeOrNull = degradeOnFailure(
 );
 
 /** List guardian requests matching the filters. Throws on transport failure. */
-async function listGuardianRequests(
+export async function listGuardianRequests(
   filters: ListGuardianRequestsIpcParams = {},
 ): Promise<GuardianRequestWire[]> {
   return callGateway(
@@ -282,6 +282,24 @@ export const listGuardianRequestDeliveriesOrEmpty = degradeOnFailure(
   listGuardianRequestDeliveries,
   [],
 );
+
+/**
+ * Every delivery row addressed to one channel-native chat, across all
+ * requests. Transcript importers use the recorded message ids to
+ * recognize guardian card messages as delivery projections. Throws on
+ * transport failure so callers can fail safe instead of importing a
+ * card as conversation content.
+ */
+export async function listGuardianRequestDeliveriesByChat(
+  channel: string,
+  chatId: string,
+): Promise<GuardianRequestDeliveryWire[]> {
+  return callGateway(
+    GUARDIAN_REQUESTS_IPC_METHODS.listDeliveriesByChat,
+    { channel, chatId },
+    GuardianRequestDeliveryListIpcResponseSchema,
+  );
+}
 
 /**
  * Reaction routing: the pending request whose delivered card is the

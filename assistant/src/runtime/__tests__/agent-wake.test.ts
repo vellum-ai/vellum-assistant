@@ -1158,10 +1158,10 @@ describe("wakeAgentForOpportunity", () => {
       },
     });
 
-    // Mirror formatShellOutput on large output: ~20KB body + a recovery marker
-    // pointing at the full-output temp file. The default tool_result budget
-    // would re-truncate the marker off; the caller passes a larger maxChars.
-    const marker = '<output_truncated limit="20K" file="/tmp/bg-xyz.txt" />';
+    // Mirror formatShellOutput on large output: ~20KB body + a truncation
+    // marker. The default tool_result budget would slice the marker off; the
+    // caller passes a larger maxChars.
+    const marker = '<output_truncated limit="20K" />';
     const big = `${"x".repeat(20_000)}\n${marker}`;
 
     await wakeAgentForOpportunity(
@@ -1182,8 +1182,7 @@ describe("wakeAgentForOpportunity", () => {
     const text = (
       conversation.persistedTailCalls[0]!.content as Array<{ text: string }>
     )[0]!.text;
-    // The trailing recovery marker survives (not re-truncated off) and the
-    // fence is still well-formed.
+    // The trailing truncation marker survives and the fence is well-formed.
     expect(text).toContain(marker);
     expect(text).toContain('<external_content source="tool_result">');
     expect(text.endsWith("</background_event>")).toBe(true);

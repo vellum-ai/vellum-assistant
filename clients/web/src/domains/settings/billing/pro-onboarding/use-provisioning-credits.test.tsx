@@ -170,15 +170,13 @@ describe("useProvisioningCredits", () => {
     ).toBeNull();
   });
 
-  test("resolves a package's credits from $0, since the base plan bundles none", () => {
+  test("resolves a package's credits from the no-bundle side, since the base plan bundles none", () => {
     expect(
       renderCredits(
         { kind: "package", packageKey: "mighty", savedAt: 0 },
         plansResponse(),
       ),
     ).toEqual({
-      fromUsd: 0,
-      toUsd: 50,
       fromLabel: null,
       // The customer-facing usage_label wins over the tier label.
       toLabel: "Mighty Usage",
@@ -192,8 +190,6 @@ describe("useProvisioningCredits", () => {
         plansResponse(),
       ),
     ).toEqual({
-      fromUsd: 0,
-      toUsd: 50,
       fromLabel: null,
       toLabel: "Mighty Usage Monthly",
     });
@@ -208,8 +204,6 @@ describe("useProvisioningCredits", () => {
         plans,
       ),
     ).toEqual({
-      fromUsd: 0,
-      toUsd: 50,
       fromLabel: null,
       toLabel: "Mighty Usage",
     });
@@ -237,8 +231,6 @@ describe("useProvisioningCredits", () => {
         plansResponse(),
       ),
     ).toEqual({
-      fromUsd: 0,
-      toUsd: 50,
       fromLabel: null,
       toLabel: "Mighty Usage Monthly",
     });
@@ -276,20 +268,17 @@ describe("useResizeCreditsChange", () => {
     expect(
       renderChange({ fromTier: null, toTier: "credits_50" }, plansResponse()),
     ).toEqual({
-      fromUsd: 0,
-      toUsd: 50,
       fromLabel: null,
       toLabel: "Mighty Usage Monthly",
     });
   });
 
-  test("reads a dropped bundle as a move down to $0", () => {
-    // "No extra credits" is a real endpoint of the change, not a missing side.
+  test("reads a dropped bundle as a move down to the no-bundle side", () => {
+    // Dropping the bundle is a real endpoint of the change, not a missing
+    // side.
     expect(
       renderChange({ fromTier: "credits_50", toTier: null }, plansResponse()),
     ).toEqual({
-      fromUsd: 50,
-      toUsd: 0,
       fromLabel: "Mighty Usage Monthly",
       toLabel: null,
     });
@@ -297,15 +286,13 @@ describe("useResizeCreditsChange", () => {
 
   test("reads a held tier the catalog no longer lists off its key", () => {
     // A grandfathered bundle is absent from the offered tiers, so the catalog
-    // can't price it; its key carries the dollars.
+    // can't price it; the amount its key carries keeps the change resolvable.
     expect(
       renderChange(
         { fromTier: "credits_115", toTier: "credits_50" },
         plansResponse(),
       ),
     ).toEqual({
-      fromUsd: 115,
-      toUsd: 50,
       // No catalog entry to word the held tier, so its label side is absent.
       fromLabel: undefined,
       toLabel: "Mighty Usage Monthly",

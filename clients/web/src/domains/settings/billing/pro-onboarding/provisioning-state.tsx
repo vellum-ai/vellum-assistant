@@ -16,9 +16,7 @@ import {
 } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { formatMonthly } from "@/domains/settings/components/tier-pricing";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import type { ProvisioningDimensionFlags } from "@/lib/billing/provisioning-targets";
@@ -475,27 +473,19 @@ function chipDone(
 type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
 /**
- * The credits chip's strings. Off the flag, a from-to pair of monthly rates
- * ("$0/mo" → "$50/mo"). Under `obscure-credits` no amount may render: each
- * side names its bundle by catalog label, the no-bundle side reads as the "No
- * extra usage" sentinel, and a side the catalog can't label is left unstated:
- * an unstated from-side just drops the arrow, an unstated to-side drops the
- * whole chip rather than asserting a bundle it cannot name. The row label
- * swaps to "Usage" so the chip never introduces credits as a concept.
+ * The credits chip's strings. No amount may render: each side names its
+ * bundle by catalog label, the no-bundle side reads as the "No extra usage"
+ * sentinel, and a side the catalog can't label is left unstated: an unstated
+ * from-side just drops the arrow, an unstated to-side drops the whole chip
+ * rather than asserting a bundle it cannot name. The row label is "Usage" so
+ * the chip never introduces credits as a concept.
  */
 function creditsChipContent(
   credits: CreditsChange | null,
-  obscureCredits: boolean,
   t: SettingsTranslate,
 ): CreditsChipContent | null {
   if (credits == null) {
     return null;
-  }
-  if (!obscureCredits) {
-    return {
-      from: formatMonthly(credits.fromUsd * 100),
-      to: formatMonthly(credits.toUsd * 100),
-    };
   }
   const noExtraUsage = t("provisioningState.noExtraUsage");
   const to = credits.toLabel === null ? noExtraUsage : credits.toLabel;
@@ -512,9 +502,8 @@ function creditsChipContent(
 /**
  * The takeover's resource chips: every applicable change as a `{current} ->
  * {new}` chip (machine and storage from `targets`, `fromSnapshot` and the
- * display-only `machineFloor`; credits as a from-to monthly rate, `$0/mo` on
- * the from-side for a base-to-pro checkout, or as `creditsChipContent`'s
- * obscured bundle names when the flag is on).
+ * display-only `machineFloor`; credits as `creditsChipContent`'s bundle
+ * names).
  *
  * All of them render together from the first paint of the wait, each carrying
  * its own progress: dimmed with a spinner while its dimension is still moving,
@@ -556,7 +545,6 @@ function ResourceChangeChips({
   creditsOnly?: boolean;
 }) {
   const { t } = useTranslation("settings");
-  const obscureCredits = useObscureCredits();
   // Checkout reads the stashed intent, an in-place change carries its own
   // tiers, and a takeover runs in exactly one of those modes, so at most one of
   // these resolves.
@@ -567,7 +555,7 @@ function ResourceChangeChips({
     targets,
     fromSnapshot,
     machineFloor,
-    credits: creditsChipContent(credits, obscureCredits, t),
+    credits: creditsChipContent(credits, t),
   });
   const changes = creditsOnly
     ? built.filter((change) => change.key === "credits")
@@ -615,16 +603,15 @@ function ResourceChangeChips({
 
 /**
  * CONFIRMING chips: derived from the stashed intent before any API data lands.
- * The one exception is the custom intent's bundle chip under `obscure-credits`:
- * its wording is the bundle's catalog label rather than a credit count, so it
- * waits on the plan catalog (usually already cached by the page that stashed
- * the intent) and is simply absent until that resolves.
+ * The one exception is the custom intent's bundle chip: its wording is the
+ * bundle's catalog label rather than a credit count, so it waits on the plan
+ * catalog (usually already cached by the page that stashed the intent) and is
+ * simply absent until that resolves.
  */
 function IntentChips({ intent }: { intent: CheckoutIntent }) {
   const { t } = useTranslation("settings");
-  const obscureCredits = useObscureCredits();
   const credits = useProvisioningCredits(
-    obscureCredits && intent.kind === "custom" ? intent : null,
+    intent.kind === "custom" ? intent : null,
   );
   if (intent.kind === "package") {
     const name =
@@ -660,16 +647,9 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
           to={intent.storageTier.toUpperCase()}
         />
       )}
-      {intent.creditTier != null &&
-        (obscureCredits ? (
-          credits?.toLabel != null && <TextChip label={credits.toLabel} />
-        ) : (
-          <TextChip
-            label={t("provisioningState.creditsChip", {
-              count: intent.creditTier.replace("credits_", ""),
-            })}
-          />
-        ))}
+      {intent.creditTier != null && credits?.toLabel != null && (
+        <TextChip label={credits.toLabel} />
+      )}
     </ChipRow>
   );
 }

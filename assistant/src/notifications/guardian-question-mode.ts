@@ -99,6 +99,8 @@ export const PendingQuestionPayloadSchema =
 const sourceReferenceFields = {
   /** Channel-native chat/conversation id the request originated from. */
   sourceChatId: z.string().optional(),
+  /** Display name of the originating chat, when ingress captured one. */
+  sourceChatName: z.string().optional(),
   /** Deep link to the originating message/thread, when derivable. */
   sourceLink: externalSourceLinkSchema.optional(),
 };
@@ -162,6 +164,7 @@ export const LenientToolApprovalPayloadSchema = z.object({
   riskLevel: z.string().nullable().optional(),
   commandPreview: z.string().nullable().optional(),
   sourceChatId: z.string().nullable().optional(),
+  sourceChatName: z.string().nullable().optional(),
   sourceLink: sourceReferenceFields.sourceLink.nullable(),
 });
 
@@ -190,6 +193,8 @@ export const ToolApprovalSourceViewSchema = z.object({
   channel: z.string(),
   /** Channel-native chat id, when the payload carries one. */
   chatId: z.string().optional(),
+  /** Display name of the originating chat, when ingress captured one. */
+  chatName: z.string().optional(),
   /** Whether the source chat is a Slack direct message (`false` for other channels). */
   isSlackDm: z.boolean(),
   /** Link to the originating message/thread, when derivable. */
@@ -205,10 +210,36 @@ export type ToolApprovalSourceView = z.infer<
  * facts. Returns `undefined` when the payload names no chat and carries no
  * link — renderers then fall back to the plain channel label.
  */
+/**
+ * Bare display label for the source chat, derived once for every
+ * renderer: `Direct message` for a DM, `#name` for a named channel,
+ * `#<id>` when only the id is known, empty when the view names no chat.
+ * Slack-scoped like the facts it reads; surfaces add their own framing
+ * (the card prefixes the channel word, the bell uses it bare).
+ */
+export function describeSlackChatLabel(
+  view: Pick<ToolApprovalSourceView, "chatId" | "chatName" | "isSlackDm">,
+): string {
+  if (view.isSlackDm) {
+    return "Direct message";
+  }
+  if (view.chatName) {
+    return `#${view.chatName}`;
+  }
+  if (view.chatId) {
+    return `#${view.chatId}`;
+  }
+  return "";
+}
+
 export function buildToolApprovalSourceView(
   p: Pick<
     LenientToolApprovalPayload,
-    "sourceChannel" | "sourceChatId" | "sourceLink" | "requesterChatId"
+    | "sourceChannel"
+    | "sourceChatId"
+    | "sourceChatName"
+    | "sourceLink"
+    | "requesterChatId"
   >,
 ): ToolApprovalSourceView | undefined {
   const channel = nonEmpty(p.sourceChannel);
@@ -225,6 +256,7 @@ export function buildToolApprovalSourceView(
   return {
     channel,
     chatId,
+    chatName: nonEmpty(p.sourceChatName),
     isSlackDm:
       channel === "slack" && chatId != null && isSlackDmConversation(chatId),
     permalink,

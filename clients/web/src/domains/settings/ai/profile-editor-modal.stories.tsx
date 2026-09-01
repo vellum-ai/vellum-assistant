@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, screen, userEvent, waitFor } from "storybook/test";
+import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 function connection(provider: string): ProviderConnection {
   return {
@@ -21,6 +22,16 @@ const CONNECTIONS: ProviderConnection[] = [
   connection("anthropic"),
   connection("openai"),
 ];
+
+/** Turns the model-first create flow on for one story, and off again after. */
+function withModelFirstCreate() {
+  const previous =
+    useClientFeatureFlagStore.getState().modelFirstProfileCreate === true;
+  useClientFeatureFlagStore.setState({ modelFirstProfileCreate: true });
+  return () => {
+    useClientFeatureFlagStore.setState({ modelFirstProfileCreate: previous });
+  };
+}
 
 const meta: Meta<typeof ProfileEditorModal> = {
   title: "Settings/AI/ProfileEditorModal",
@@ -148,6 +159,161 @@ export const CreateDuplicateName: Story = {
     await userEvent.click(await screen.findByRole("button", { name: "Advanced" }));
     await waitFor(() =>
       expect(screen.getByDisplayValue("Claude Opus 4.8 (2)")).toBeTruthy(),
+    );
+  },
+};
+
+/**
+ * The same create modal under `model-first-profile-create`: it opens on one
+ * list of models rather than a provider dropdown, and asks nothing else until
+ * a model is chosen.
+ */
+export const CreateModelFirst: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+};
+
+/**
+ * The open model list. Sections are named for whoever made the model, spelled
+ * the way that vendor spells it, and each heading stays pinned while its own
+ * rows scroll under it. The row that unfolds a section's older versions is
+ * drawn as a secondary action, not as one more model.
+ */
+export const CreateModelFirstListOpen: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
+ * The list reopened over the answer to its own question. The dialog is at its
+ * shortest here, since one connected route is stated in a line rather than
+ * offered as cards, and the list still opens inside it: bounded by the body,
+ * clear of the footer, and no shorter than it can be read at.
+ */
+export const CreateModelFirstListReopened: Story = {
+  args: { mode: "create", connections: [connection("gemini")] },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    const modelField = await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(modelField);
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Gemini 3\.6 Flash/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Only Google Gemini serves this model.")).toBeTruthy(),
+    );
+    await userEvent.click(modelField);
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
+ * The same open list in a window too short to hold it. The dialog stops at
+ * its own ceiling, the body scrolls instead of growing, and the list caps
+ * itself to what is left of the body, so Cancel and Save stay on screen.
+ */
+export const CreateModelFirstListOpenShort: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  globals: { viewport: { value: "sbShort", isRotated: false } },
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
+ * A section with the rest of its models revealed: the block the unfold row
+ * opened is set off by a hairline, and the list stays where the user left it.
+ */
+export const CreateModelFirstSeeMore: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    // Scoped to the section: every section that folds anything offers a row
+    // of the same shape, spelled the same way.
+    const anthropic = await screen.findByRole("group", { name: "Anthropic" });
+    await userEvent.click(
+      within(anthropic).getByRole("option", { name: "See more" }),
+    );
+    await waitFor(() =>
+      expect(
+        within(anthropic).getByRole("option", { name: /Claude Opus 4\.8/ }),
+      ).toBeTruthy(),
+    );
+  },
+};
+
+/**
+ * A route with no connection yet. Its card carries the key form, so the tag
+ * that asked for the key steps aside and the form's own dismiss action says
+ * what it dismisses rather than repeating the dialog's Cancel.
+ */
+export const CreateModelFirstConnectForm: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Claude Opus 5/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("radio", { name: /OpenRouter/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel setup" })).toBeTruthy(),
+    );
+  },
+};
+
+/**
+ * A model several connected providers serve. The routes become cards, the
+ * first connected one is already chosen, and the rest carry what they need.
+ */
+export const CreateModelFirstSeveralProviders: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    const modelField = await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(modelField);
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Claude Opus 5/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole("radio").length).toBeGreaterThan(1),
+    );
+  },
+};
+
+/**
+ * A model only one connected provider serves. There is nothing to decide, so
+ * the route is stated rather than offered and the flow goes straight to
+ * Advanced.
+ */
+export const CreateModelFirstSingleProvider: Story = {
+  args: { mode: "create", connections: [connection("gemini")] },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    const modelField = await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(modelField);
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Gemini 3\.6 Flash/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Only Google Gemini serves this model.")).toBeTruthy(),
     );
   },
 };

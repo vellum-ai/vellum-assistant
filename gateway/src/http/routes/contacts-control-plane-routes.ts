@@ -88,7 +88,12 @@ const UpsertContactChannelInputSchema = z.object({
   type: z.string(),
   address: z.string(),
   isPrimary: z.boolean().optional(),
-  externalChatId: z.string().nullable().optional(),
+  externalChatId: z
+    .string()
+    .optional()
+    .describe(
+      "Delivery chat id. Omit to preserve the stored value. A legacy explicit null is accepted for compatibility and treated as omitted; clearing is not supported (a stored null is indistinguishable from never-learned, so no consumer could tell a clear from a gap).",
+    ),
   status: z.string().optional(),
   policy: z.string().optional(),
 });

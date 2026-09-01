@@ -868,6 +868,19 @@ export const routeTree = [
                         ),
                     },
                   },
+                  // `/assistant/home` is a URL bookmarks and login `returnTo`
+                  // links still name, so it forwards to the assistant root
+                  // instead of reaching the catch-all. Ungated: a redirect
+                  // needs no assistant.
+                  {
+                    path: "home",
+                    lazy: {
+                      Component: () =>
+                        import("@/domains/home/activity-redirect-page").then(
+                          (m) => m.ActivityRedirectPage,
+                        ),
+                    },
+                  },
                   // Everything below requires a resolved assistantId AND an
                   // active daemon. The gate defers child rendering until the
                   // lifecycle resolves so route components can rely on a
@@ -875,15 +888,6 @@ export const routeTree = [
                   {
                     Component: ActiveAssistantGate,
                     children: [
-                      {
-                        path: "home",
-                        lazy: {
-                          Component: () =>
-                            import("@/home-page-route").then(
-                              (m) => m.HomePageRoute,
-                            ),
-                        },
-                      },
                       {
                         lazy: {
                           Component: () =>

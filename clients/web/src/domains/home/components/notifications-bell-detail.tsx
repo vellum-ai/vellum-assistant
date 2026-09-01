@@ -5,14 +5,19 @@ import {
   formatCompactLocalDate,
   formatFullLocalDate,
 } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import {
+  isPendingGuardianFeedItem,
+  type FeedItem,
+  type FeedItemStatus,
+} from "@vellumai/assistant-api";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
+import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
-import { resolveFeedItemTitle } from "../utils";
+import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -25,7 +30,7 @@ export const NOTIFICATIONS_PANEL_HEADER_CLASS =
 /**
  * Notification bodies read as prose here, so paragraphs and list items take a
  * 1.5 ratio in place of the 18px line height the body token pairs with its
- * 14px text. Scoped to this panel, leaving the Activity page's detail on the
+ * 14px text. Scoped to this panel, leaving every other markdown surface on the
  * token default.
  */
 const BODY_LEADING_CLASS = "[&_p]:leading-normal [&_li]:leading-normal";
@@ -47,7 +52,7 @@ export interface NotificationsBellDetailProps {
   contentMaxHeight?: string;
   /**
    * Ids of the conversations that still exist, merged from the foreground,
-   * background, and scheduled lists exactly as the Activity page merges them.
+   * background, and scheduled lists.
    */
   validConversationIds: Set<string>;
   /** True while any of those lists has yet to resolve. */
@@ -73,8 +78,9 @@ export interface NotificationsBellDetailProps {
 
 /**
  * One notification's detail, rendered inside the bell in place of the list.
- * The body renderers and the panel-kind rule are the Activity page's, so a
- * notification reads the same wherever it is opened from.
+ * The body renderers live in `detail-panel/`, keyed off `item.detailPanel.kind`
+ * with a markdown fallback, so a notification reads the same whatever produced
+ * it.
  */
 export function NotificationsBellDetail({
   item,
@@ -96,8 +102,19 @@ export function NotificationsBellDetail({
   const conversationId = item.conversationId ?? null;
   const actions = item.actions ?? [];
 
-  // Same rule as the Activity page's detail panel, plus a pending case the
-  // page doesn't have: the lists start loading when this view opens. Every
+  // A guardian request's panel is titled by the kind of request; the card
+  // below renders the item's own title as its heading. Every other item is
+  // titled by its title.
+  const guardianTitleKey = guardianLabelKey(item);
+  const panelTitle = guardianTitleKey
+    ? t(guardianTitleKey)
+    : resolveFeedItemTitle(item);
+  // While the request waits its title is the callout, as a pill. A settled
+  // request needs nothing of anyone, so the same name reads as plain text.
+  const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
+
+  // The lists start loading when this view opens, so validation has a pending
+  // state a warm-cache surface would not have. Every
   // list a candidate link depends on has to land before any link becomes
   // reachable, so the buttons settle together rather than one at a time and a
   // deleted target is never linked to.
@@ -133,13 +150,27 @@ export function NotificationsBellDetail({
           onClick={onBack}
           aria-label={t("notificationsBellDetail.back")}
         />
-        <Typography
-          variant="body-medium-default"
-          as="h2"
-          className="min-w-0 flex-1 truncate text-[var(--content-default)]"
-        >
-          {resolveFeedItemTitle(item)}
-        </Typography>
+        {isTitleAwaitingAction ? (
+          <h2 className="flex min-w-0 flex-1 items-center overflow-hidden">
+            <Tag
+              className="min-w-0 overflow-hidden text-ellipsis"
+              tone="warning"
+              leftIcon={
+                <span className="block h-1.5 w-1.5 rounded-full bg-[var(--system-mid-strong)] motion-safe:animate-pulse" />
+              }
+            >
+              {panelTitle}
+            </Tag>
+          </h2>
+        ) : (
+          <Typography
+            variant="body-medium-default"
+            as="h2"
+            className="min-w-0 flex-1 truncate text-[var(--content-default)]"
+          >
+            {panelTitle}
+          </Typography>
+        )}
 
         {/*
           Status actions ride in the header as icon-only buttons, the
@@ -172,6 +203,8 @@ export function NotificationsBellDetail({
       >
         {item.detailPanel?.kind === "toolPermission" ? (
           <HomeToolPermissionCard item={item} />
+        ) : item.detailPanel?.kind === "permissionChat" ? (
+          <HomeGuardianRequestCard item={item} />
         ) : (
           <HomeGenericDetail item={item} className={BODY_LEADING_CLASS} />
         )}

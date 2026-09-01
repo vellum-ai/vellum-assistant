@@ -1,6 +1,6 @@
 /**
- * `HomeRecapRow` is the row the Home activity feed renders for every
- * notification the daemon mirrors into it (`notifications/home-feed-side-effect.ts`).
+ * `HomeRecapRow` is the row the notifications bell renders for every
+ * notification the daemon mirrors into the feed (`notifications/home-feed-side-effect.ts`).
  * It is the only place background work becomes visible without opening a
  * conversation, so these stories cover the shapes it actually receives:
  * a failed background job, a completed one, a scheduled reminder, and a
@@ -105,17 +105,63 @@ export const ScheduledReminder: Story = {
   },
 };
 
-/** A guardian request: `security` category, high urgency. */
-export const SecurityRequest: Story = {
+/**
+ * A pending guardian request as it lands in the bell: the canonical
+ * "Needs attention" item, carrying the `guardianRequest` projection that
+ * pins it first, withholds the dismiss affordance until the request
+ * resolves, and gives the row the attention hue so it reads as the one
+ * thing to act on among rows that only report.
+ */
+export const GuardianRequestPending: Story = {
   args: {
     item: feedItem({
-      id: "feed-guardian",
-      title: "Approval needed",
+      id: "guardian:req-approval",
+      title: "Alice asked the assistant to look up ticket ABC-123",
       summary:
-        "A tool wants to send an email on your behalf to the finance team.",
+        "Alice asked the assistant to look up ticket ABC-123 before replying in the thread.",
       category: "security",
       urgency: "high",
+      detailPanel: { kind: "permissionChat" },
       conversationId: FIXTURE_CONVERSATION_ID,
+      guardianRequest: {
+        requestId: "req-approval",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+        requesterLabel: "Alice",
+        toolName: "linear_graphql",
+        sourceChannel: "slack",
+        sourceContextLabel: "#user-feedback",
+      },
+    }),
+  },
+};
+
+/**
+ * The same item after resolution: an ordinary clearable notification
+ * whose detail shows the receipt in place of the action buttons.
+ */
+export const GuardianRequestResolved: Story = {
+  args: {
+    item: feedItem({
+      id: "guardian:req-resolved",
+      title: "Alice asked the assistant to look up ticket ABC-123",
+      summary:
+        "Alice asked the assistant to look up ticket ABC-123 before replying in the thread.",
+      category: "security",
+      urgency: "medium",
+      detailPanel: { kind: "permissionChat" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+      guardianRequest: {
+        requestId: "req-resolved",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "approved",
+        requesterLabel: "Alice",
+        toolName: "linear_graphql",
+        sourceContextLabel: "#user-feedback",
+        decidedAt: "2026-09-01T13:00:00.000Z",
+      },
     }),
   },
 };

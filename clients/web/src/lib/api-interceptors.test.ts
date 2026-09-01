@@ -789,6 +789,36 @@ describe("api-interceptors / self-hosted contact-family flattening", () => {
     }
   });
 
+  test("keepalive survives the rewrite, so a pagehide-time send is not cancelled", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    // Bun's Request neither stores nor re-exposes `keepalive`, so the flag is
+    // stamped onto the input and the assertion intercepts the init the
+    // rewrite hands the constructor, instead of reading the property back.
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/telemetry/ingest`,
+      { method: "POST", body: "{}" },
+    );
+    Object.defineProperty(input, "keepalive", { value: true });
+
+    const OriginalRequest = globalThis.Request;
+    let rebuiltInit: RequestInit | undefined;
+    globalThis.Request = class extends OriginalRequest {
+      constructor(info: RequestInfo | URL, init?: RequestInit) {
+        super(info, init);
+        rebuiltInit = init;
+      }
+    } as typeof Request;
+    try {
+      const output = await rewriteForSelfHostedIngress(input, {
+        skipSegmentAllowlist: true,
+      });
+      expect(output).not.toBeNull();
+      expect(rebuiltInit?.keepalive).toBe(true);
+    } finally {
+      globalThis.Request = OriginalRequest;
+    }
+  });
+
   test("no ingress registered — rewrite returns null and the request is untouched", async () => {
     const scopedPath = `/v1/assistants/${SELF_HOSTED_ID}/contacts`;
     const input = new Request(`https://platform.test${scopedPath}`, {

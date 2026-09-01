@@ -49,12 +49,12 @@ describe("login flow routing", () => {
   test("keeps normal login returnTo behavior", () => {
     expect(
       resolvePostAuthDestination({
-        returnTo: routes.home,
+        returnTo: routes.identity,
         fallback: routes.assistant,
         authIntent: "login",
       }),
     ).toEqual({
-      destination: routes.home,
+      destination: routes.identity,
       requiresFullPageNavigation: false,
     });
   });

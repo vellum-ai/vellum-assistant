@@ -6,49 +6,23 @@
     "dismiss": "忽略",
     "goToThread": "前往会话",
     "goToConversation": "前往对话",
-    "goToConvo": "前往对话",
     "viewSchedule": "查看日程",
     "viewSkill": "查看技能",
     "markAllAsRead": "全部标记为已读",
     "clearAll": "全部清除"
   },
   "category": {
-    "all": "全部",
     "security": "安全",
     "email": "电子邮件",
     "scheduling": "日程安排",
     "background": "后台",
-    "system": "系统"
+    "system": "系统",
+    "guardianAction": "需要监护人操作",
+    "guardianQuestion": "监护人问题",
+    "guardianRequest": "监护人请求"
   },
   "homeRecapRow": {
     "actionsTitle": "更新操作"
-  },
-  "homeTopHeader": {
-    "title": "活动"
-  },
-  "homeFeedFilterBar": {
-    "ariaLabel": "筛选通知"
-  },
-  "homeFeedList": {
-    "today": "今天",
-    "yesterday": "昨天",
-    "older": "更早",
-    "noMatches": "没有项目符合所选筛选条件。",
-    "emptyTitle": "暂无通知",
-    "emptyBody": "您的助手发出的更新和活动将显示在此处。",
-    "earlier": "更早 ({count, number})",
-    "dismissed": "已忽略 ({count, number})"
-  },
-  "homePage": {
-    "loadFailed": "无法加载主页动态。",
-    "loadFailedDetail": "无法加载主页动态：{message}"
-  },
-  "homeDetailPanel": {
-    "back": "返回",
-    "heading": "详情",
-    "close": "关闭",
-    "closeAriaLabel": "关闭详情面板",
-    "untitled": "通知"
   },
   "homeToolPermissionCard": {
     "missingScopes": "缺少范围",
@@ -66,10 +40,35 @@
     "ariaLabelUnread": "通知 (未读)",
     "heading": "通知",
     "loadFailed": "无法加载通知。",
-    "empty": "暂无通知。",
     "actionFailed": "无法开始该对话。请重试。"
   },
   "notificationsBellDetail": {
     "back": "返回通知"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "批准",
+    "reject": "拒绝",
+    "answerHint": "前往对话回答这个问题。",
+    "decisionFailed": "无法提交决定。请重试。",
+    "receipt": {
+      "approved": "请求已批准",
+      "rejected": "请求已拒绝",
+      "expired": "请求已过期",
+      "superseded": "请求已被取代",
+      "leftUnverified": "未验证",
+      "cancelled": "请求已取消",
+      "alreadyResolved": "已处理"
+    },
+    "viewSourceThread": "查看来源消息串",
+    "toolRequested": "已请求运行 <code>{toolName}</code>",
+    "toolRequesting": "请求运行 <code>{toolName}</code>"
+  },
+  "notificationsBellEmptyState": {
+    "title": "暂无内容。",
+    "briefingRecipeTitle": "设置晨间简报",
+    "briefingRecipeMeta": "每日",
+    "briefingRecipeDescription": "你的第一条通知，明天 8:00 送达。",
+    "briefingRecipePrompt": "为我设置晨间简报：每个工作日 8:00 查看我的日历、收件箱和新闻，然后把简短的摘要发送到我的通知。",
+    "dismissBriefingRecipe": "忽略晨间简报建议"
   }
 }

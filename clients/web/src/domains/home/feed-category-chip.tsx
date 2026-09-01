@@ -4,7 +4,7 @@ import { useTranslation } from "@/i18n";
 import type { FeedItemCategory } from "@vellumai/assistant-api";
 import { Tag } from "@vellumai/design-library";
 
-import { resolveCategoryStyle } from "./home-feed-filter-bar";
+import { resolveCategoryStyle } from "./feed-category-styles";
 
 export interface FeedCategoryChipProps {
   category?: FeedItemCategory;

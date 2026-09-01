@@ -13,6 +13,7 @@ mock.module("@/domains/chat/components/credits-upsell-card", () => ({
   CreditsUpsellCard: () => <div data-testid="credits-upsell-card-stub" />,
 }));
 
+import { displayReactionEmoji } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import type { CreditsUpsellItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -43,6 +44,64 @@ const PROACTIVE_ITEM: CreditsUpsellItem = {
   kind: "creditsUpsell",
   key: "credits-upsell-proactive",
 };
+
+describe("TranscriptRow reaction dispatch", () => {
+  test("a neutral reaction row renders the reaction line in the shell, never the sentinel", () => {
+    const message: DisplayMessage = {
+      id: "m-react",
+      role: "assistant",
+      ...textBody("[reaction]"),
+      reaction: {
+        emoji: "🎉",
+        op: "added",
+        targetMessageId: "555.1",
+        selfAuthored: true,
+      },
+    };
+    const { getByTestId, queryByText, container } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-react", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    expect(getByTestId("reaction-line-row")).toBeTruthy();
+    expect(getByTestId("reaction-line-row").textContent).toContain("🎉");
+    expect(queryByText("[reaction]")).toBeNull();
+    expect(container.querySelector("#msg-m-react")).toBeTruthy();
+  });
+
+  test("a Discord custom emoji renders as its shortcode name, never raw markup", () => {
+    const message: DisplayMessage = {
+      id: "m-react-custom",
+      role: "assistant",
+      reaction: {
+        emoji: "<:vex:12345>",
+        op: "added",
+        targetMessageId: "555.2",
+        selfAuthored: true,
+      },
+    };
+    const { getByTestId } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-react-custom", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    const text = getByTestId("reaction-line-row").textContent ?? "";
+    expect(text).toContain(":vex:");
+    expect(text).not.toContain("<:vex:12345>");
+  });
+
+  test("a custom emoji sharing a catalog name keeps its identity", () => {
+    // A Discord custom emoji named like a catalog shortcode is a distinct
+    // guild emoji; the display must stay ":name:" and never swap into the
+    // unrelated standard emoji once the catalog loads.
+    expect(displayReactionEmoji("<:heart:99>", () => "❤️")).toBe(":heart:");
+    expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
+    expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
+    expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
+  });
+});
 
 describe("TranscriptRow deliberate-silence dispatch", () => {
   test("an isNoResponse message renders the quiet marker in the message shell", () => {

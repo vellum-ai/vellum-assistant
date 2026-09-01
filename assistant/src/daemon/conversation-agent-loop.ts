@@ -137,6 +137,10 @@ import {
   unregisterInflightTurn,
 } from "./inflight-turn-registry.js";
 import type { UsageStats } from "./message-protocol.js";
+import {
+  persistReactionRecords,
+  type QueuedReactionRecord,
+} from "./reaction-record.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
@@ -779,6 +783,14 @@ export async function runAgentLoopImpl(
   // turn's content is settled; the `finally` calls it again as the backstop for
   // the cancel/error paths that never reached the early release.
   let turnReleased = false;
+  // The turn's own queued reaction records, captured by `releaseTurn` while
+  // the conversation is still exclusive. The `finally` drains this array,
+  // never the live conversation field: after release a following turn may
+  // queue records of its own there, and draining the shared field would
+  // consume the new turn's record before its tool_result settles, the
+  // cross-turn variant of the pairing corruption the boundary drain
+  // prevents.
+  const ownedReactionRecords: QueuedReactionRecord[] = [];
 
   /**
    * Free the conversation for its next turn.
@@ -817,6 +829,11 @@ export async function runAgentLoopImpl(
           "Failed to stamp turn outcome (non-fatal); releasing the turn anyway",
         );
       }
+    }
+    // Ownership capture happens in the same synchronous step as the
+    // release, so records queued after this point belong to the next turn.
+    if (ctx.pendingReactionRecords?.length) {
+      ownedReactionRecords.push(...ctx.pendingReactionRecords.splice(0));
     }
     ctx.abortController = null;
     ctx.setProcessing(false);
@@ -2040,6 +2057,16 @@ export async function runAgentLoopImpl(
       // the API, enabling stable prefix caching across turns.  Compaction
       // consolidates when it summarizes old messages (cache miss is expected).
     } finally {
+      // Backstop for paths that threw before either release site: still
+      // exclusive here, so the release's ownership capture is race-free.
+      releaseTurn();
+      // Reactions the turn delivered get their durable rows on every
+      // terminal path, error exits included: the reaction already happened
+      // on the channel, and the record must not depend on the turn
+      // finishing cleanly. Only records this turn captured at release are
+      // drained; writing after the turn stops producing rows keeps them out
+      // of any tool_use/tool_result pair.
+      await drainQueuedReactionRecords(ctx, ownedReactionRecords);
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.
@@ -2048,6 +2075,32 @@ export async function runAgentLoopImpl(
         "agent_loop_finally",
       );
     }
+  }
+}
+
+/**
+ * Persist and clear the turn's queued reaction records. Non-throwing: a
+ * failure here must never mask the turn's own outcome, and
+ * `persistReactionRecords` already logs per-record failures.
+ */
+export async function drainQueuedReactionRecords(
+  ctx: Pick<Conversation, "conversationId" | "markHistoryStale">,
+  ownedRecords: QueuedReactionRecord[] | undefined,
+): Promise<void> {
+  // Runs inside the loop's finally, where a throw would mask the turn's own
+  // outcome, so every access sits inside the guard. Drains only the records
+  // the finished turn captured at release, never the conversation's live
+  // queue, so one turn cannot consume a following turn's records.
+  try {
+    if (!ownedRecords?.length) {
+      return;
+    }
+    const queuedReactions = ownedRecords.splice(0);
+    await persistReactionRecords(ctx.conversationId, queuedReactions);
+    ctx.markHistoryStale();
+  } catch {
+    // persistReactionRecords is itself non-throwing per record; this guard
+    // covers only unexpected faults so the finally block stays safe.
   }
 }
 

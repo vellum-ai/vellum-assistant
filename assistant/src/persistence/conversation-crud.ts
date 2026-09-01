@@ -92,6 +92,7 @@ import {
   type ConversationOrigin,
   isHiddenMessageMetadata,
   isNoResponseMetadata,
+  isReactionMessageMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
@@ -464,6 +465,7 @@ export {
   isNoResponseMetadata,
   isSystemCardMetadata,
   NO_RESPONSE_MESSAGE_KIND,
+  REACTION_MESSAGE_KIND,
   SYSTEM_CARD_MESSAGE_KIND,
 } from "./conversation-types.js";
 
@@ -507,7 +509,8 @@ export function isStandaloneAssistantMessage(
     return (
       isSystemCardMetadata(parsed) ||
       isProviderErrorMetadata(parsed) ||
-      isNoResponseMetadata(parsed)
+      isNoResponseMetadata(parsed) ||
+      isReactionMessageMetadata(parsed)
     );
   } catch {
     return false;

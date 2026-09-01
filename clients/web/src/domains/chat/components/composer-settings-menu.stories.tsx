@@ -19,8 +19,8 @@ const PROFILE_LABELS = [
   "Balanced",
   "OS Beta",
   "Quality",
-  "Cost",
-  "Speed",
+  "Budget",
+  "Fast",
   "Quality 5.5",
   "Quality-Claude",
   "GLM-5.2",
@@ -122,7 +122,8 @@ export const Closed: Story = {};
 
 /**
  * A long profile list. The rows scroll inside the popover instead of growing
- * it past the top of the window, and the edge fade says there is more below.
+ * it past the top of the window, and a top fade appears once you scroll to
+ * say there is more above.
  */
 export const OpenWithManyProfiles: Story = {
   play: openProfileMenu,

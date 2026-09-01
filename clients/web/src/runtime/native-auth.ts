@@ -8,7 +8,8 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
-import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
+import { userHasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
+import { isNewAssistantFunnel } from "@/domains/onboarding/onboarding-destination";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -311,19 +312,19 @@ export function getSessionTokenFromCookies(): string | null {
  * Post-auth destination for the native (Capacitor/Electron) flows. Delegates
  * the signup checkout-stash + destination decision to the shared
  * `resolveSignupCheckoutDestination`. A first-run signup routes through
- * consent (privacy) first. An already-onboarded assistant skips hosting,
- * privacy, and research. A login keeps its `returnTo` unless that target is
- * the first-run funnel and the assistant is already onboarded.
+ * consent (privacy) first. A returning user skips hosting, privacy, and
+ * research. A login keeps its `returnTo` unless that target is the first-run
+ * funnel and the user is already onboarded.
  */
 export function resolveNativePostAuthDestination(
   intent: string | undefined,
   returnTo: string | null | undefined,
 ): string | null {
   const isSignup = intent === "signup";
-  const alreadyOnboarded = hasOnboardedAssistant(
+  const returningUser = userHasOnboardedAssistant(
     useResolvedAssistantsStore.getState().assistants,
   );
-  if (alreadyOnboarded) {
+  if (returningUser) {
     const skipTarget = isFirstRunOnboardingReturnTo(returnTo)
       ? routes.assistant
       : (returnTo ?? (isSignup ? routes.assistant : null));
@@ -340,13 +341,21 @@ export function resolveNativePostAuthDestination(
   return isSignup ? destination : (returnTo ?? null);
 }
 
+/**
+ * Whether `returnTo` names the first-run funnel a returning user should skip.
+ * A walk carrying the new-assistant marker is provisioning, so it is first-run
+ * for the assistant it is about to create and must not be skipped.
+ */
 function isFirstRunOnboardingReturnTo(
   returnTo: string | null | undefined,
 ): boolean {
   if (!returnTo) {
     return false;
   }
-  const pathname = returnTo.split(/[?#]/)[0] ?? returnTo;
+  const [pathname = returnTo, search = ""] = returnTo.split(/[?#]/);
+  if (isNewAssistantFunnel(new URLSearchParams(search))) {
+    return false;
+  }
   return (
     pathname === routes.onboarding.hosting ||
     pathname === routes.onboarding.privacy ||

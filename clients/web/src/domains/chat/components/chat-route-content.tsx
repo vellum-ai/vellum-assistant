@@ -83,6 +83,7 @@ import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { ChatBody } from "@/domains/chat/components/chat-body";
+import { ProgressStack } from "@/domains/chat/components/progress-stack";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
@@ -212,6 +213,7 @@ export interface ChatMainPanelProps {
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
 
+
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
   diskPressure: UseDiskPressureMonitorResult;
@@ -247,7 +249,7 @@ export interface ChatMainPanelProps {
  * without positional coupling.
  *
  * `isPopout` selects that kind list. A windowed chat carries subagent and ACP
- * sessions in the header's `ConversationActivityPill`, so its overlay row holds
+ * sessions in the progress stack's `ProgressAgentsCard`, so its overlay row holds
  * only workflows and background tasks. A pop-out renders no header at all, so
  * there the overlay covers every kind and stays the one ambient surface.
  *
@@ -1385,6 +1387,7 @@ export function ChatMainPanel({
       suggestion={suggestion}
       hasBillingBanner={composerBillingBanner !== null}
       settingsSheetOpen={settingsSheetOpen}
+      statusControlsSlot={<ProgressStack placement="composer" />}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu

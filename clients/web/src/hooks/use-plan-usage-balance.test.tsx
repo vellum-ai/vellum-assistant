@@ -3,30 +3,19 @@
  *
  * The hook reads entirely off the billing summary's usage-grant figures, so
  * there is no endpoint to drive: every case seeds the two figures and the
- * subscription directly. The hook only speaks when the `obscure-credits` flag
- * is on and the figures support an honest reading, with one deliberate
- * exception: a Pro sub whose unexpired grants total nothing reads as a fully
- * spent bar rather than no bar at all. `usageGrantRatio` is the pure half
- * that resolves the ratio.
+ * subscription directly. The hook only speaks when the figures support an
+ * honest reading, with one deliberate exception: a Pro sub whose unexpired
+ * grants total nothing reads as a fully spent bar rather than no bar at all.
+ * `usageGrantRatio` is the pure half that resolves the ratio.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { act, renderHook } from "@testing-library/react";
+import { describe, expect, test } from "bun:test";
+import { renderHook } from "@testing-library/react";
 
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
 const { usePlanUsageBalance, usageGrantRatio } =
   await import("./use-plan-usage-balance");
-
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
 
 function proSubscription(
   over: Partial<SubscriptionResponse> = {},
@@ -64,14 +53,6 @@ function renderBalance(args: {
 }) {
   return renderHook(() => usePlanUsageBalance(args));
 }
-
-beforeEach(() => {
-  setObscureCredits(true);
-});
-
-afterEach(() => {
-  setObscureCredits(false);
-});
 
 describe("usePlanUsageBalance on a Pro sub", () => {
   test("reads the used share of the grants", () => {
@@ -126,17 +107,6 @@ describe("usePlanUsageBalance on a Pro sub", () => {
     });
 
     expect(result.current?.ratio).toBe(1);
-  });
-
-  test("stays silent while the flag is off", () => {
-    setObscureCredits(false);
-    const { result } = renderBalance({
-      subscription: proSubscription(),
-      totalUsageBalance: "25.00",
-      availableUsageBalance: "15.00",
-    });
-
-    expect(result.current).toBeNull();
   });
 
   test("stays silent when the platform reports no grant figures", () => {
@@ -208,17 +178,6 @@ describe("usePlanUsageBalance on a free plan", () => {
       subscription: freeSubscription(),
       totalUsageBalance: "0.00",
       availableUsageBalance: "0.00",
-    });
-
-    expect(result.current).toBeNull();
-  });
-
-  test("stays silent while the flag is off", () => {
-    setObscureCredits(false);
-    const { result } = renderBalance({
-      subscription: freeSubscription(),
-      totalUsageBalance: "5.00",
-      availableUsageBalance: "1.60",
     });
 
     expect(result.current).toBeNull();

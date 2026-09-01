@@ -15,6 +15,34 @@ mock.module("../../messaging/providers/index.js", () => ({
   },
 }));
 
+import type { QueuedReactionRecord } from "../../daemon/reaction-record.js";
+
+let queued: Array<{ conversationId: string; record: QueuedReactionRecord }> =
+  [];
+let conversationResident = true;
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: (id: string) =>
+    conversationResident
+      ? {
+          queueReactionRecord: (record: QueuedReactionRecord) =>
+            queued.push({ conversationId: id, record }),
+        }
+      : undefined,
+}));
+
+let directPersists: Array<{
+  conversationId: string;
+  records: readonly QueuedReactionRecord[];
+}> = [];
+mock.module("../../daemon/reaction-record.js", () => ({
+  persistReactionRecords: async (
+    conversationId: string,
+    records: readonly QueuedReactionRecord[],
+  ) => {
+    directPersists.push({ conversationId, records });
+  },
+}));
+
 const { reactToMessageTool } = await import("./react-to-message.js");
 
 function channelContext(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -34,6 +62,9 @@ describe("react_to_message", () => {
     reactCalls = [];
     reactResultOk = true;
     channelSupported = true;
+    queued = [];
+    directPersists = [];
+    conversationResident = true;
   });
 
   test("reacts to the triggering message by default", async () => {
@@ -112,6 +143,46 @@ describe("react_to_message", () => {
       channelContext(),
     );
     expect(result.isError).toBe(true);
+  });
+
+  test("a delivered reaction queues its durable record on the conversation", async () => {
+    await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toEqual({
+      conversationId: "conv-1",
+      record: {
+        channel: "slack",
+        chatId: "C123",
+        messageId: "1700000000.111111",
+        emoji: "thumbsup",
+        op: "added",
+        provenanceTrustClass: "guardian",
+      },
+    });
+    expect(directPersists).toHaveLength(0);
+  });
+
+  test("a removed reaction queues op removed", async () => {
+    await reactToMessageTool.execute(
+      { emoji: "thumbsup", action: "remove" },
+      channelContext(),
+    );
+    expect(queued[0]?.record.op).toBe("removed");
+  });
+
+  test("with no resident conversation the record persists directly", async () => {
+    conversationResident = false;
+    await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
+    expect(queued).toHaveLength(0);
+    expect(directPersists).toHaveLength(1);
+    expect(directPersists[0]?.records[0]?.emoji).toBe("thumbsup");
+  });
+
+  test("a rejected reaction records nothing", async () => {
+    reactResultOk = false;
+    await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
+    expect(queued).toHaveLength(0);
+    expect(directPersists).toHaveLength(0);
   });
 
   test("rejects input with no emoji", async () => {

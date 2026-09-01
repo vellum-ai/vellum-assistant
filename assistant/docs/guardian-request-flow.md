@@ -54,15 +54,54 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
 | Kind-specific follow-through            | resolver registry (`kind` → resolver)                    | switch statements in the router     |
 | Reply understanding                     | guardian reply router (codes, buttons, reactions, modes) | per-feature inbound intercepts      |
 
+## The canonical home-feed projection
+
+Every pending request is also exactly one home-feed item, the bell's
+"Needs attention" row. `notifications/guardian-feed-projection.ts` owns
+it end to end:
+
+- The pipeline's feed side effect writes it keyed
+  `guardian:<requestId>`, so the feed's replace-in-place merge keeps one
+  item per request. Its typed `guardianRequest` field
+  (`FeedItemGuardianRequestSchema` in `api/responses/home.ts`) is a read
+  projection of the gateway row: intent, status, requester, tool, and
+  source reference. It is never a delivery row of its own; clients
+  derive every affordance from `status`.
+- `withdrawGuardianRequestCards` rewrites it into a terminal receipt as
+  one of the surfaces it settles, and its failure gates `complete` the
+  same way a failed card edit does. The write-vs-resolve race converges
+  from the other side too: the feed writer re-checks canonical status
+  after its append.
+- The feed writer's bulk-dismiss pass skips pending guardian items
+  (`isPendingGuardianFeedItem`), so "Clear all" can never retire an
+  unresolved request; only its receipt is clearable.
+- The guardian expiry sweep runs `reconcileGuardianFeedProjections()`
+  each round: pending requests missing an item are backfilled from the
+  request row (no conversation is generated), and an item still
+  actionable for a terminal request is receipted with a loud log line.
+
+Routing policy for channel-delivered cards: a guardian card sent to a
+channel chat (Slack, Telegram, Discord, WhatsApp) is a delivery
+projection, not conversation content. Channel deliveries are not
+paired with any conversation (`conversation-pairing.ts` skips every
+non-vellum guardian delivery), and the Slack DM cold backfill skips
+messages whose ts matches a recorded guardian delivery for the chat
+(`guardian_requests_list_deliveries_by_chat`), so a card never enters
+a Vellum transcript. The in-app homes of a request are the feed item
+and the source conversation's pinned vellum card.
+
 ## Cards are not conversation history
 
-`pairDeliveryWithConversation` persists one message row per delivery so the
-card renders and deep-links. For a guardian card that row is addressed to a
+`pairDeliveryWithConversation` persists one message row for the vellum
+delivery so the card renders and deep-links. That row is addressed to a
 conversation the request is _about_, not one the assistant is speaking in:
 `buildVellumCardAffinity` pins the vellum card to the originating
-conversation, and a channel card lands in whatever conversation the guardian's
-chat binds to. Either way the row is written straight to the DB by the
-notification pipeline, so the live turn's in-memory history never sees it.
+conversation. Channel guardian deliveries pair no conversation (see the
+routing policy above), so the vellum row is the only card row written; it
+goes straight to the DB by the notification pipeline, so the live turn's
+in-memory history never sees it. Rows that channel deliveries paired
+before the projection-only policy still exist and are covered by the same
+filter below.
 
 That row must never be replayed to the model. The conversation it lands in is
 typically parked mid-approval, with its last assistant message carrying the

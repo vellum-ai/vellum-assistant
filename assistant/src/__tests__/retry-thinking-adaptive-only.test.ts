@@ -148,6 +148,73 @@ describe("retry normalization: adaptive-only thinking models", () => {
     expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
   });
 
+  test("preserves effort when dropping stale disabled thinking for Fireworks GLM 5.3", async () => {
+    // GIVEN a profile that kept `thinking: { enabled: false }` after switching
+    // to an always-on GLM 5.3 model, plus an explicit effort
+    setLlmConfig({
+      callSites: {
+        memoryExtraction: {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/glm-5p3",
+          thinking: { enabled: false },
+          effort: "high",
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("fireworks");
+
+    // WHEN a request resolves through the call-site config
+    await provider.sendMessage([userMessage], {
+      config: { callSite: "memoryExtraction" },
+    });
+
+    // THEN the disabled thinking is dropped BEFORE it can be encoded as
+    // `effort: "none"` (which GLM 5.3 rejects), and the chosen effort survives
+    expect(lastConfig()?.thinking).toBeUndefined();
+    expect(lastConfig()?.effort).toBe("high");
+  });
+
+  test("does not generate the opt-out effort for GLM 5.3 Flash with disabled thinking", async () => {
+    // GIVEN a pass-through caller with the wire-shape disabled config and no
+    // explicit effort
+    const { provider, lastConfig } = makePipeline("fireworks");
+
+    // WHEN sending against the always-on Flash model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "accounts/fireworks/models/glm-5p3-flash",
+        thinking: { type: "disabled" },
+      },
+    });
+
+    // THEN no `effort: "none"` is synthesized: the model runs at its own
+    // default instead of tripping the reasoning opt-out rejection retry
+    expect(lastConfig()?.thinking).toBeUndefined();
+    expect(lastConfig()?.effort).toBeUndefined();
+  });
+
+  test("still encodes the opt-out for Fireworks models that support disabling thinking", async () => {
+    // GIVEN a disabled thinking config on GLM 5.2, which is not adaptive-only
+    setLlmConfig({
+      callSites: {
+        memoryExtraction: {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/glm-5p2",
+          thinking: { enabled: false },
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("fireworks");
+
+    // WHEN a request resolves through the call-site config
+    await provider.sendMessage([userMessage], {
+      config: { callSite: "memoryExtraction" },
+    });
+
+    // THEN the opt-out is still encoded through the effort knob
+    expect(lastConfig()?.effort).toBe("none");
+  });
+
   test("preserves disabled thinking for models that support disabling it", async () => {
     // GIVEN a call-site config disabling thinking for a non-adaptive-only model
     setLlmConfig({

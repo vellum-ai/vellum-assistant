@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Phone, Send } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+
+import { useViewerStore } from "@/stores/viewer-store";
 
 import { Trans, useTranslation } from "@/i18n";
 
@@ -71,16 +73,29 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
-  // Discord does NOT close on save: its wizard has a third step after the
-  // token, adding the bot to a server, and closing here would unmount the
-  // only surface that shows the invite link. The user closes when done,
-  // which still emits the wizard-closed notification the skill waits on.
+  // Discord does NOT close on save: its wizard has more steps after the
+  // token, adding the bot to a server and the verification handoff, and
+  // closing here would unmount the only surface that shows the invite link.
+  // The user finishes or closes, which emits the notifications the skill
+  // waits on.
   const saveDiscord = useSaveDiscordConfig({
     assistantId: payload.assistantId,
   });
+
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,
   });
+
+  // The finish step's "Verify me": record why the session is ending, then
+  // close. The close auto-notify reads the outcome and reports the hand-off
+  // rather than a bare dismissal, so the assistant carries verification
+  // forward in chat. Offered only when a conversation exists to signal; the
+  // wizard otherwise falls back to telling the user what to say.
+  const canSignalConversation = Boolean(payload.conversationId);
+  const handleVerifyRequest = useCallback(() => {
+    useViewerStore.getState().markChannelSetupOutcome("verify_requested");
+    onClose();
+  }, [onClose]);
 
   const readinessOpts = useMemo(
     () => ({ path: { assistant_id: payload.assistantId } }),
@@ -167,11 +182,15 @@ export function ChannelSetupPanel({
       ) : payload.channel === "discord" ? (
         <DiscordSetupWizard
           assistantId={payload.assistantId}
+          assistantName={payload.assistantName}
           saveStatus={saveDiscord.status}
           saveError={saveDiscord.error?.message ?? null}
           onSave={(botToken) => saveDiscord.mutate(botToken)}
           {...(saveDiscord.data?.data?.inviteUrl
             ? { inviteUrl: saveDiscord.data.data.inviteUrl }
+            : {})}
+          {...(canSignalConversation
+            ? { onVerifyRequest: handleVerifyRequest }
             : {})}
         />
       ) : payload.channel === "phone" ? (
