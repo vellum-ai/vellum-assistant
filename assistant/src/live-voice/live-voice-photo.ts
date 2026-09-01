@@ -72,7 +72,6 @@
 import { v7 as uuidv7 } from "uuid";
 
 import {
-  MessageInsertPreconditionError,
   type PersistMessageOptions,
   persistQueuedMessageBody,
 } from "../daemon/conversation-messaging.js";
@@ -89,6 +88,7 @@ import {
 import {
   getConversation,
   getMessageById,
+  MessageInsertPreconditionError,
   recordConversationPersistedSeq,
 } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";

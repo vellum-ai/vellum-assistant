@@ -37,6 +37,7 @@ import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversat
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import { conversations } from "../../persistence/schema/index.js";
+import * as slowSyncLog from "../../persistence/slow-sync-log.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
@@ -68,6 +69,37 @@ mock.module("../../agent/message-types.js", () => ({
     duringPersistBeforeInsert = null;
     hook?.();
     return realMessageTypes.createUserMessage(...args);
+  },
+}));
+
+/**
+ * Fail the next message insert the way SQLite reports contention, running
+ * something first.
+ *
+ * `SQLITE_BUSY` is the class `withSqliteRetry` retries, so the attempt this
+ * refuses is followed by an awaited backoff and another attempt. The hook runs
+ * in place of the statement, which is a window no row was written in. Armed
+ * per test and cleared as it fires; every other test leaves it null and the
+ * insert runs for real the first time.
+ */
+let beforeFailingInsertAttempt: (() => void) | null = null;
+const realSlowSyncLog = { ...slowSyncLog };
+mock.module("../../persistence/slow-sync-log.js", () => ({
+  ...realSlowSyncLog,
+  timeSyncSection: <T>(
+    label: string,
+    fn: () => T,
+    detail?: (result: T) => Record<string, unknown>,
+  ): T => {
+    if (label === "messages:insert" && beforeFailingInsertAttempt) {
+      const hook = beforeFailingInsertAttempt;
+      beforeFailingInsertAttempt = null;
+      hook();
+      throw Object.assign(new Error("database is locked"), {
+        code: "SQLITE_BUSY",
+      });
+    }
+    return realSlowSyncLog.timeSyncSection(label, fn, detail);
   },
 }));
 
@@ -931,6 +963,55 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(frameStored(frame)).toBe(false);
     } finally {
       duringPersistBeforeInsert = null;
+      live.dispose();
+    }
+  });
+
+  test("a keep is refused by a replacement that lands between insert attempts", async () => {
+    // Contention retries the insert after an awaited backoff, so an answer
+    // given once for the call speaks only for the first attempt. A delete and
+    // recreate inside that sleep leaves the retry writing into a row the frame
+    // was never accepted for.
+    const live = liveConversation("Live voice keep replaced between attempts");
+    try {
+      const frame = await uploadFrame("between-attempts.png");
+
+      beforeFailingInsertAttempt = () => {
+        deleteConversationRows(live.id);
+        createConversation({ id: live.id, title: "Recreated" });
+      };
+
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
+        ok: false,
+      });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(frame)).toBe(false);
+    } finally {
+      beforeFailingInsertAttempt = null;
+      live.dispose();
+    }
+  });
+
+  test("a keep whose first insert attempt hit contention still lands", async () => {
+    // The control on the check above: a retry the conversation outlived is the
+    // ordinary path `withSqliteRetry` exists for, and the frame has to survive
+    // it exactly as it always has.
+    const live = liveConversation("Live voice keep retried insert");
+    try {
+      const frame = await uploadFrame("retried.png");
+
+      beforeFailingInsertAttempt = () => {};
+
+      const result = await persistAmbientSightFrame(live.id, frame, "voice");
+      expect(result.ok).toBe(true);
+
+      const rows = getMessages(live.id);
+      expect(rows).toHaveLength(1);
+      expect(result.messageId).toBe(rows[0].id);
+      expect(frameStored(frame)).toBe(true);
+    } finally {
+      beforeFailingInsertAttempt = null;
       live.dispose();
     }
   });

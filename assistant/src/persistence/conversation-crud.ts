@@ -786,6 +786,24 @@ interface InsertedMessage {
   deduplicated: boolean;
 }
 
+/**
+ * Thrown by an insert whose caller's `insertPrecondition` reads false.
+ *
+ * No row was written, so a caller holding resources for the message it asked
+ * for (an uploaded attachment, a pending client receipt) is free to give them
+ * up on this error. Carries no SQLite code, which is what keeps
+ * {@link withSqliteRetry} from mistaking it for contention and retrying an
+ * abort that will only abort again.
+ */
+export class MessageInsertPreconditionError extends Error {
+  constructor(conversationId: string) {
+    super(
+      `Message insert precondition failed for conversation ${conversationId}`,
+    );
+    this.name = "MessageInsertPreconditionError";
+  }
+}
+
 interface InsertMessageCoreParams {
   conversationId: string;
   role: MessageRole;
@@ -799,6 +817,9 @@ interface InsertMessageCoreParams {
    *  `requestId` for user turns) can pass it here so the persisted
    *  row ID matches the runtime request ID. */
   id?: string;
+  /** Answered synchronously at the top of every insert attempt. See
+   *  {@link AddMessageOptions.insertPrecondition}. */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -885,6 +906,7 @@ async function insertMessageCore(
     metadata,
     clientMessageId,
     id,
+    insertPrecondition,
   } = params;
   warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
@@ -911,8 +933,17 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage =>
-      timeSyncSection(
+    (): InsertedMessage => {
+      // Asked at the top of EVERY attempt, and synchronously, because that is
+      // the scope the answer holds for. Contention retries this function after
+      // an awaited backoff, so an answer given once for the call would be
+      // reporting on the world as it stood before a sleep the caller cannot
+      // see. From here to the statement below there is nothing async, so the
+      // answer and the row this attempt writes share one tick.
+      if (insertPrecondition && !insertPrecondition()) {
+        throw new MessageInsertPreconditionError(conversationId);
+      }
+      return timeSyncSection(
         "messages:insert",
         (): InsertedMessage => {
           const now = monotonicNow();
@@ -1022,7 +1053,8 @@ async function insertMessageCore(
           contentBytes:
             typeof content === "string" ? content.length : undefined,
         }),
-      ),
+      );
+    },
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
@@ -2372,6 +2404,17 @@ export interface AddMessageOptions {
    *  internally. Pass the same value as `requestId` for user turns so
    *  the persisted row ID matches the runtime correlation ID. */
   id?: string;
+  /**
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts with a
+   * {@link MessageInsertPreconditionError} and writes nothing.
+   *
+   * For a caller whose right to write can lapse while the insert is in
+   * flight. Per attempt rather than per call because contention retries the
+   * insert after an awaited backoff, and the world can move under a caller
+   * during that sleep.
+   */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -2385,7 +2428,8 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id, insertPrecondition } =
+    options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
@@ -2393,6 +2437,7 @@ export async function addMessage(
     metadata,
     clientMessageId,
     id,
+    ...(insertPrecondition ? { insertPrecondition } : {}),
   });
 
   if (inserted.deduplicated) {

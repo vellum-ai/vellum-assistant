@@ -997,14 +997,16 @@ export interface PersistMessageOptions {
    */
   sightFrameAttachmentIds?: readonly string[];
   /**
-   * Answered synchronously in the insert's own tick, immediately before the
-   * row is written. False aborts the persist with a
-   * {@link MessageInsertPreconditionError} and inserts nothing.
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts the persist with a
+   * `MessageInsertPreconditionError` and inserts nothing.
    *
-   * For a caller whose right to write can lapse while this persist awaits.
-   * Everything the persist does ahead of the insert (attachment
-   * materialization, content building) is awaited, so a caller that answered
-   * before calling has only answered for the moment it called.
+   * For a caller whose right to write can lapse while this persist runs.
+   * Everything ahead of the insert (attachment materialization, content
+   * building) is awaited, and the insert retries itself on contention across
+   * an awaited backoff, so a caller that answered before calling has only
+   * answered for the moment it called. Threaded down to the insert rather
+   * than checked here, so each attempt asks for itself.
    */
   insertPrecondition?: () => boolean;
 }
@@ -1093,23 +1095,6 @@ export async function persistUserMessage(
 }
 
 // ── persistQueuedMessageBody ─────────────────────────────────────────
-
-/**
- * Thrown by {@link persistQueuedMessageBody} when a caller's
- * `insertPrecondition` reads false at the insert boundary.
- *
- * No row was written, so a caller holding resources for the message it asked
- * for (an uploaded attachment, a pending client receipt) is free to give them
- * up on this error.
- */
-export class MessageInsertPreconditionError extends Error {
-  constructor(conversationId: string) {
-    super(
-      `Message insert precondition failed for conversation ${conversationId}`,
-    );
-    this.name = "MessageInsertPreconditionError";
-  }
-}
 
 /**
  * Persists a user message body (DB row, attachment indexing, origin
@@ -1353,16 +1338,6 @@ export async function persistQueuedMessageBody(
         ? { ...mergedMetadata, [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: sightFrameIds }
         : mergedMetadata;
 
-    // Asked here, and synchronously, because `addMessage` runs all the way to
-    // its INSERT before its first await. The answer and the row therefore
-    // share one tick, and nothing the caller is fenced against can interleave
-    // between them. Moving this above any of the awaits that precede it
-    // reopens that window, and so does putting an await between it and the
-    // insert.
-    if (options.insertPrecondition && !options.insertPrecondition()) {
-      throw new MessageInsertPreconditionError(ctx.conversationId);
-    }
-
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
@@ -1372,6 +1347,11 @@ export async function persistQueuedMessageBody(
         clientMessageId,
         id: requestId,
         ...(skipIndexing ? { skipIndexing: true } : {}),
+        // Handed down rather than answered here: the insert retries itself on
+        // contention, so the question belongs where each attempt can ask it.
+        ...(options.insertPrecondition
+          ? { insertPrecondition: options.insertPrecondition }
+          : {}),
       },
     );
     messageInserted = true;
