@@ -49,17 +49,14 @@
     "approve": "Одобрить",
     "reject": "Отклонить",
     "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
-    "alreadyResolved": "Этот запрос уже был решён на другой поверхности.",
     "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
     "receipt": {
-      "approved": "Одобрено",
-      "approvedBy": "Одобрено: {name}",
-      "rejected": "Отклонено",
-      "rejectedBy": "Отклонено: {name}",
-      "expired": "Истёк срок",
-      "superseded": "Заменён новым",
-      "cancelled": "Отменён",
-      "leftUnverified": "Оставлен без проверки"
+      "approved": "Запрос одобрен",
+      "rejected": "Запрос отклонён",
+      "expired": "Срок запроса истёк",
+      "superseded": "Запрос заменён",
+      "leftUnverified": "Осталось непроверенным",
+      "alreadyResolved": "Уже решено"
     },
     "viewSourceThread": "Открыть исходный тред",
     "toolRequested": "Запрошен запуск",

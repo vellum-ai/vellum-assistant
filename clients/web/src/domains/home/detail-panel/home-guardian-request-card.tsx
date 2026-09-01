@@ -1,5 +1,5 @@
 import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
-import { type TFunction, useTranslation } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
@@ -9,9 +9,17 @@ import {
   type FeedItemGuardianRequest,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,
 } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Tag, Typography } from "@vellumai/design-library";
+import type { TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
-import { ExternalLink } from "lucide-react";
+import {
+  CheckCircle,
+  CircleSlash,
+  Clock,
+  ExternalLink,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 import { type ReactNode } from "react";
 
 import { resolveFeedItemTitle } from "../utils";
@@ -96,10 +104,9 @@ export function HomeGuardianRequestCard({
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
-      {/* No status pill here: the pill is the list's device for pulling a
-          waiting request out of a stack of rows. Someone reading the detail
-          has already answered that call, so the panel title names the
-          request and the receipt below states the outcome, both as text. */}
+      {/* No status pill at the top: the panel title carries the callout
+          while the request waits. The outcome tag below appears only once
+          the request is settled. */}
       <div className="flex flex-col gap-[var(--app-spacing-xxs)]">
         <Typography
           variant="title-small"
@@ -145,20 +152,23 @@ export function HomeGuardianRequestCard({
       ) : null}
 
       {!isPending ? (
-        <Typography
-          variant="body-small-emphasised"
-          className="text-[var(--content-default)]"
-          data-testid="guardian-request-receipt"
-        >
-          {resolvedElsewhere
-            ? t("homeGuardianRequestCard.alreadyResolved")
-            : receiptLabel(
-                t,
-                decidedLocally
-                  ? { ...guardianRequest, status: decidedLocally }
-                  : guardianRequest,
-              )}
-        </Typography>
+        <div data-testid="guardian-request-receipt">
+          {(() => {
+            const receipt = resolvedElsewhere
+              ? ALREADY_RESOLVED_RECEIPT
+              : receiptView(
+                  decidedLocally
+                    ? { ...guardianRequest, status: decidedLocally }
+                    : guardianRequest,
+                );
+            const Icon = receipt.icon;
+            return (
+              <Tag tone={receipt.tone} leftIcon={<Icon />}>
+                {t(receipt.labelKey)}
+              </Tag>
+            );
+          })()}
+        </div>
       ) : null}
 
       {showsApprovalButtons ? (
@@ -233,45 +243,83 @@ function ExternalTextLink({ href, icon, label }: ExternalTextLinkProps) {
   );
 }
 
+type ReceiptLabelKey =
+  | "homeGuardianRequestCard.receipt.approved"
+  | "homeGuardianRequestCard.receipt.rejected"
+  | "homeGuardianRequestCard.receipt.expired"
+  | "homeGuardianRequestCard.receipt.superseded"
+  | "homeGuardianRequestCard.receipt.leftUnverified"
+  | "homeGuardianRequestCard.receipt.alreadyResolved";
+
+interface ReceiptView {
+  labelKey: ReceiptLabelKey;
+  tone: TagTone;
+  icon: LucideIcon;
+}
+
+/** The receipt for a decision another surface applied first. */
+const ALREADY_RESOLVED_RECEIPT: ReceiptView = {
+  labelKey: "homeGuardianRequestCard.receipt.alreadyResolved",
+  tone: "neutral",
+  icon: CircleSlash,
+};
+
 /**
- * Receipt sentence for a terminal projection. Each outcome is its own
- * whole-sentence key (never a select branch), with the by-name variant
- * used only when the daemon attributed the decision to a person. A
- * `denied` reached without a person's decision reads by its cause:
- * `superseded` when a newer message auto-denied it, the neutral park
- * label for a left-unverified contact.
+ * Receipt for a terminal projection, as the outcome tag this app uses
+ * for a settled thing. Only a decision a person made carries a tone: an
+ * approval is positive, a rejection negative, and an outcome nobody
+ * chose (expired, auto-denied by a newer message, a contact left
+ * unverified) is neutral, because it reports rather than judges.
+ *
+ * The decider is never named. A guardian request is the guardian's
+ * alone to decide, so the only name it could carry is the name of the
+ * person reading it.
  */
-function receiptLabel(
-  t: TFunction<"home">,
+function receiptView(
   guardianRequest: Pick<
     FeedItemGuardianRequest,
-    "status" | "decidedAction" | "decidedByLabel" | "terminalReason"
+    "status" | "decidedAction" | "terminalReason"
   >,
-): string {
-  const { status, decidedAction, decidedByLabel, terminalReason } =
-    guardianRequest;
+): ReceiptView {
+  const { status, decidedAction, terminalReason } = guardianRequest;
   if (status === "approved") {
-    return decidedByLabel
-      ? t("homeGuardianRequestCard.receipt.approvedBy", {
-          name: decidedByLabel,
-        })
-      : t("homeGuardianRequestCard.receipt.approved");
+    return {
+      labelKey: "homeGuardianRequestCard.receipt.approved",
+      tone: "positive",
+      icon: CheckCircle,
+    };
   }
   if (status === "denied") {
     if (terminalReason === GUARDIAN_TERMINAL_REASON_SUPERSEDED) {
-      return t("homeGuardianRequestCard.receipt.superseded");
+      return {
+        labelKey: "homeGuardianRequestCard.receipt.superseded",
+        tone: "neutral",
+        icon: CircleSlash,
+      };
     }
     if (decidedAction === "leave_unverified") {
-      return t("homeGuardianRequestCard.receipt.leftUnverified");
+      return {
+        labelKey: "homeGuardianRequestCard.receipt.leftUnverified",
+        tone: "neutral",
+        icon: CircleSlash,
+      };
     }
-    return decidedByLabel
-      ? t("homeGuardianRequestCard.receipt.rejectedBy", {
-          name: decidedByLabel,
-        })
-      : t("homeGuardianRequestCard.receipt.rejected");
+    return {
+      labelKey: "homeGuardianRequestCard.receipt.rejected",
+      tone: "negative",
+      icon: XCircle,
+    };
   }
   if (status === "expired") {
-    return t("homeGuardianRequestCard.receipt.expired");
+    return {
+      labelKey: "homeGuardianRequestCard.receipt.expired",
+      tone: "neutral",
+      icon: Clock,
+    };
   }
-  return t("homeGuardianRequestCard.receipt.cancelled");
+  return {
+    labelKey: "homeGuardianRequestCard.receipt.alreadyResolved",
+    tone: "neutral",
+    icon: CircleSlash,
+  };
 }

@@ -49,17 +49,14 @@
     "approve": "Approve",
     "reject": "Reject",
     "answerHint": "Go to the conversation to answer this question.",
-    "alreadyResolved": "This request was already resolved on another surface.",
     "decisionFailed": "The decision could not be submitted. Try again.",
     "receipt": {
-      "approved": "Approved",
-      "approvedBy": "Approved by {name}",
-      "rejected": "Rejected",
-      "rejectedBy": "Rejected by {name}",
-      "expired": "Expired",
-      "superseded": "Superseded",
-      "cancelled": "Cancelled",
-      "leftUnverified": "Left unverified"
+      "approved": "Request approved",
+      "rejected": "Request rejected",
+      "expired": "Request expired",
+      "superseded": "Request superseded",
+      "leftUnverified": "Left unverified",
+      "alreadyResolved": "Already resolved"
     },
     "viewSourceThread": "View source thread",
     "toolRequested": "Requested to run",

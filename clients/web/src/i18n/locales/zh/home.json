@@ -49,17 +49,14 @@
     "approve": "批准",
     "reject": "拒绝",
     "answerHint": "前往对话回答这个问题。",
-    "alreadyResolved": "此请求已在其他界面解决。",
     "decisionFailed": "无法提交决定。请重试。",
     "receipt": {
-      "approved": "已批准",
-      "approvedBy": "由 {name} 批准",
-      "rejected": "已拒绝",
-      "rejectedBy": "由 {name} 拒绝",
-      "expired": "已过期",
-      "superseded": "已被取代",
-      "cancelled": "已取消",
-      "leftUnverified": "保持未验证"
+      "approved": "请求已批准",
+      "rejected": "请求已拒绝",
+      "expired": "请求已过期",
+      "superseded": "请求已被取代",
+      "leftUnverified": "未验证",
+      "alreadyResolved": "已处理"
     },
     "viewSourceThread": "查看来源消息串",
     "toolRequested": "已请求运行",

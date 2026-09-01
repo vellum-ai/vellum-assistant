@@ -49,17 +49,14 @@
     "approve": "Aprobar",
     "reject": "Rechazar",
     "answerHint": "Ve a la conversación para responder esta pregunta.",
-    "alreadyResolved": "Esta solicitud ya se resolvió en otra superficie.",
     "decisionFailed": "No se pudo enviar la decisión. Inténtalo de nuevo.",
     "receipt": {
-      "approved": "Aprobada",
-      "approvedBy": "Aprobada por {name}",
-      "rejected": "Rechazada",
-      "rejectedBy": "Rechazada por {name}",
-      "expired": "Caducada",
-      "superseded": "Reemplazada",
-      "cancelled": "Cancelada",
-      "leftUnverified": "Sin verificar"
+      "approved": "Solicitud aprobada",
+      "rejected": "Solicitud rechazada",
+      "expired": "Solicitud vencida",
+      "superseded": "Solicitud reemplazada",
+      "leftUnverified": "Sin verificar",
+      "alreadyResolved": "Ya resuelta"
     },
     "viewSourceThread": "Ver hilo de origen",
     "toolRequested": "Solicitó ejecutar",

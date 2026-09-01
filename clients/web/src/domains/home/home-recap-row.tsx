@@ -13,6 +13,7 @@ import {
 import {
   cn,
   CrossfadeStack,
+  Tag,
   Typography,
   type TypographyVariant,
 } from "@vellumai/design-library";
@@ -139,6 +140,11 @@ export function HomeRecapRow({
 
   const guardianLabelKey = guardianCategoryLabelKey(item) ?? undefined;
   const needsAttention = isPendingGuardianFeedItem(item);
+  /* A waiting request leads with the same pill its detail is titled by, so
+     the row and the panel it opens say the same thing. That takes the first
+     line, which puts the ask on its own line under it. */
+  const attentionPillKey = needsAttention ? guardianLabelKey : undefined;
+  const showsMetaRow = densityStyle.showsMetaRow || attentionPillKey != null;
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
@@ -151,9 +157,8 @@ export function HomeRecapRow({
     [item.title, item.summary],
   );
 
-  /* A guardian row's second line names where the request came from rather
-     than echoing the summary's tail: the title already is the summary's
-     ask, so the source context is the line that adds information. */
+  /* Under the ask, a guardian row names where the request came from rather
+     than echoing the summary's tail, which the ask has already said. */
   const guardianContext = item.guardianRequest?.sourceContextLabel ?? null;
   const preview = useMemo(
     () => guardianContext ?? resolvePreview(title, item.summary),
@@ -170,9 +175,7 @@ export function HomeRecapRow({
         "leading-snug text-[var(--content-default)]",
         // On the first line the title has to yield to the timestamp beside it,
         // so it shrinks and ellipsizes rather than pushing the timestamp out.
-        densityStyle.showsMetaRow
-          ? densityStyle.clamp
-          : "min-w-0 flex-1 truncate",
+        showsMetaRow ? densityStyle.clamp : "min-w-0 flex-1 truncate",
       )}
     >
       {title}
@@ -250,14 +253,21 @@ export function HomeRecapRow({
         )}
       >
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
-          {densityStyle.showsMetaRow ? (
+          {showsMetaRow ? (
             <>
-              <FeedCategoryChip
-                category={item.category}
-                labelKey={guardianLabelKey}
-              />
+              {attentionPillKey ? (
+                // No dot inside this pill: the row's own unread marker sits
+                // in the gutter beside it, and two amber dots on one line
+                // read as one signal repeated rather than two facts.
+                <Tag tone="warning">{t(attentionPillKey)}</Tag>
+              ) : (
+                <FeedCategoryChip
+                  category={item.category}
+                  labelKey={guardianLabelKey}
+                />
+              )}
 
-              {sourceLabel !== null && (
+              {sourceLabel !== null && !attentionPillKey && (
                 <Typography
                   variant="body-small-default"
                   className="min-w-0 truncate text-[var(--content-tertiary)]"
@@ -291,7 +301,7 @@ export function HomeRecapRow({
           )}
         </div>
 
-        {densityStyle.showsMetaRow && titleLine}
+        {showsMetaRow && titleLine}
 
         {preview !== null && (
           <Typography
