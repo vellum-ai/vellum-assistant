@@ -23,6 +23,7 @@ import {
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
   restoreVoiceRoom,
+  sendLiveVoiceSightFrame,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   subscribeSettledLiveVoiceState,
@@ -605,6 +606,41 @@ describe("attachLiveVoiceFrame", () => {
   test("reports false when no session has registered controls", () => {
     expect(
       attachLiveVoiceFrame(
+        "att-1",
+        useLiveVoiceStore.getState().sessionGeneration,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("sendLiveVoiceSightFrame", () => {
+  test("shares a frame kept in the session that still runs", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const kept = useLiveVoiceStore.getState().sessionGeneration;
+
+    expect(sendLiveVoiceSightFrame("att-1", kept)).toBe(true);
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+  });
+
+  test("refuses a frame kept in a session that ended", () => {
+    // The daemon persists this into whichever conversation the session it
+    // reaches is bound to, so a late upload landing in the successor would put
+    // a view from a call the user has already left into a different one.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const kept = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset();
+    const successor = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(successor);
+
+    expect(sendLiveVoiceSightFrame("att-1", kept)).toBe(false);
+    expect(successor.sightFrame).not.toHaveBeenCalled();
+  });
+
+  test("reports false when no session has registered controls", () => {
+    expect(
+      sendLiveVoiceSightFrame(
         "att-1",
         useLiveVoiceStore.getState().sessionGeneration,
       ),

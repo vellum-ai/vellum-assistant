@@ -670,6 +670,18 @@ export function useLiveVoice(
     return sessionRef.current?.client.attachFrame(attachmentId) ?? false;
   }, []);
 
+  /**
+   * Share a kept camera frame, which the daemon persists as its own message.
+   * Returns whether it reached the transport, which the caller may ignore for
+   * the same reason a parked frame's false is ignorable: nobody pressed
+   * anything, and the next keep is a few seconds away. A frame dropped in the
+   * reconnect gap is right to drop, since the fresh session is the one that
+   * would persist it and the moment it belonged to has passed.
+   */
+  const sightFrame = useCallback((attachmentId: string): boolean => {
+    return sessionRef.current?.client.sightFrame(attachmentId) ?? false;
+  }, []);
+
   const createPlayer = useCallback(
     () =>
       (optionsRef.current.createPlayer ?? (() => new LiveVoiceAudioPlayer()))(),
@@ -767,6 +779,7 @@ export function useLiveVoice(
         updateConfig,
         attachImage,
         attachFrame,
+        sightFrame,
       });
 
       const opts = optionsRef.current;
@@ -1300,6 +1313,7 @@ export function useLiveVoice(
                 updateConfig,
                 attachImage,
                 attachFrame,
+                sightFrame,
               });
               console.warn(
                 `live-voice: initial connect failed (${err.reason}); retrying ` +
@@ -1369,6 +1383,7 @@ export function useLiveVoice(
               updateConfig,
               attachImage,
               attachFrame,
+              sightFrame,
             });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
@@ -1422,6 +1437,7 @@ export function useLiveVoice(
       updateConfig,
       attachImage,
       attachFrame,
+      sightFrame,
       createPlayer,
     ],
   );

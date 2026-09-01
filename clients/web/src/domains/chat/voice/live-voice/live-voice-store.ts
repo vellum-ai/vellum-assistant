@@ -223,6 +223,18 @@ export interface LiveVoiceSessionControls {
    * Callers must gate on `useSupportsSightFrames`.
    */
   attachFrame: (attachmentId: string | null) => boolean;
+  /**
+   * Share a camera frame the viewfinder's gate kept, by the id its upload
+   * already returned. The daemon persists it as its own user message straight
+   * away, so the transcript carries every keep in the order they arrived and
+   * nothing is staged for a later turn to pick up.
+   *
+   * Returns whether it reached the session. Like `attachFrame` a false needs
+   * no report: nobody pressed anything, and the next keep sends a newer frame.
+   *
+   * Callers must gate on `useSupportsSightStream`.
+   */
+  sightFrame: (attachmentId: string) => boolean;
 }
 
 /**
@@ -1001,6 +1013,27 @@ export function attachLiveVoiceFrame(
     return false;
   }
   return state.controls?.attachFrame(attachmentId) ?? false;
+}
+
+/**
+ * Share a kept camera frame with the active session, by attachment id, so the
+ * daemon persists it into the conversation as its own message.
+ * `sessionGeneration` is the generation read when the frame was captured: the
+ * upload between the keep and this call can outlive the session it was sampled
+ * in, and a frame from an ended session is refused here rather than persisted
+ * into whichever conversation is current. Returns whether it reached that
+ * session. Module-level for the same stable-identity reasons as
+ * {@link endLiveVoiceSession}.
+ */
+export function sendLiveVoiceSightFrame(
+  attachmentId: string,
+  sessionGeneration: number,
+): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (state.sessionGeneration !== sessionGeneration) {
+    return false;
+  }
+  return state.controls?.sightFrame(attachmentId) ?? false;
 }
 
 /**

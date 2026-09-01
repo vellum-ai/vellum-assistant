@@ -357,6 +357,7 @@ export function makeControlsSpies() {
     // tests that care, so the common path stays uncluttered.
     attachImage: mock((_attachmentId: string) => true),
     attachFrame: mock((_attachmentId: string | null) => true),
+    sightFrame: mock((_attachmentId: string) => true),
   } satisfies LiveVoiceSessionControls;
 }
 
