@@ -194,6 +194,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "claude-fable-5-1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
+      {
         id: "claude-fable-5",
         displayName: "Claude Fable 5",
         contextWindowTokens: 1000000,
@@ -1087,6 +1105,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
       {
+        id: "anthropic/claude-fable-5.1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
+      {
         id: "anthropic/claude-fable-5",
         displayName: "Claude Fable 5",
         contextWindowTokens: 1000000,
@@ -1934,6 +1970,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // The gateway proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5.1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
       {
         id: "anthropic/claude-fable-5",
         displayName: "Claude Fable 5",
