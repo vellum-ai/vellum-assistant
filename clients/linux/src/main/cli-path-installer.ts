@@ -37,7 +37,7 @@ export function getWrapperPath(): string {
 /**
  * Build the POSIX sh wrapper installed at `~/.local/bin/vellum`. The script
  * is machine-stable: all machine-specific paths flow through the locator
- * file, which the app rewrites on every launch — except the locator path
+ * file, which the app rewrites on every launch, except the locator path
  * itself, which is embedded here.
  */
 export function buildWrapperScript(): string {
@@ -64,8 +64,8 @@ export type WrapperOwnership = "ours" | "foreign" | "absent";
 
 /**
  * Classify what sits at the wrapper path. Anything present that can't be
- * read or lacks the marker — unreadable files, dangling symlinks,
- * marker-less symlink targets (e.g. an npm prefix pointed at `~/.local`) —
+ * read or lacks the marker (unreadable files, dangling symlinks,
+ * marker-less symlink targets, e.g. an npm prefix pointed at `~/.local`)
  * reads as `foreign` so we never clobber it. Only a true no-entry is
  * `absent`; lstat is used so dangling symlinks still count as present.
  */
@@ -112,7 +112,9 @@ export function installWrapper(opts: {
  * keep the lazy install path. Returns whether provisioning ran.
  */
 export async function provisionCliForWrapper(): Promise<boolean> {
-  if (readWrapperOwnership() !== "ours") return false;
+  if (readWrapperOwnership() !== "ours") {
+    return false;
+  }
   await ensureCliInstalled();
   return true;
 }
@@ -140,7 +142,7 @@ function realpathOr(p: string): string {
  * Determine how the `vellum` command resolves on the user's login-shell
  * PATH. `shadowed` means another executable wins over our wrapper (e.g. an
  * npm-global install earlier in PATH); symlink/case variants that resolve
- * to the wrapper itself don't count. Never throws — when login-shell PATH
+ * to the wrapper itself don't count. Never throws: when login-shell PATH
  * resolution fails (null), degrades to `installed` with `inPath: false`
  * rather than reporting states we can't actually attest to.
  *
@@ -149,8 +151,12 @@ function realpathOr(p: string): string {
  */
 export async function getCliPathInstallState(): Promise<CliPathInstallState> {
   const ownership = readWrapperOwnership();
-  if (ownership === "absent") return { kind: "not-installed" };
-  if (ownership === "foreign") return { kind: "foreign-file" };
+  if (ownership === "absent") {
+    return { kind: "not-installed" };
+  }
+  if (ownership === "foreign") {
+    return { kind: "foreign-file" };
+  }
 
   const runtimeReady = isCliInstalled();
   const shellPath = await resolveShellPath();
@@ -176,8 +182,12 @@ export async function getCliPathInstallState(): Promise<CliPathInstallState> {
 /** Remove the wrapper, but only if it's one we installed. */
 export function uninstallWrapper(): "removed" | "not-ours" | "absent" {
   const ownership = readWrapperOwnership();
-  if (ownership === "absent") return "absent";
-  if (ownership === "foreign") return "not-ours";
+  if (ownership === "absent") {
+    return "absent";
+  }
+  if (ownership === "foreign") {
+    return "not-ours";
+  }
 
   rmSync(getWrapperPath(), { force: true });
   return "removed";

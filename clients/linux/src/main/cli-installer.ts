@@ -41,8 +41,12 @@ const VELLUM_ENVIRONMENT =
  * tracks production `latest`. Keep in sync with generate-cli-lockfile.sh.
  */
 function getCliDistTag(): string {
-  if (VELLUM_ENVIRONMENT === "dev") return "dev";
-  if (VELLUM_ENVIRONMENT === "staging") return "staging";
+  if (VELLUM_ENVIRONMENT === "dev") {
+    return "dev";
+  }
+  if (VELLUM_ENVIRONMENT === "staging") {
+    return "staging";
+  }
   return "latest";
 }
 
@@ -67,7 +71,9 @@ const BUNDLED_BUN_VERSION =
  * builds fall back to the pinned install path.
  */
 export function getLocalCliEntry(): string | null {
-  if (LOCAL_CLI_ENTRY === "" || !existsSync(LOCAL_CLI_ENTRY)) return null;
+  if (LOCAL_CLI_ENTRY === "" || !existsSync(LOCAL_CLI_ENTRY)) {
+    return null;
+  }
   const cliRoot = path.resolve(path.dirname(LOCAL_CLI_ENTRY), "..");
   return existsSync(path.join(cliRoot, "node_modules"))
     ? LOCAL_CLI_ENTRY
@@ -91,7 +97,9 @@ function compareVersions(a: string, b: string): number {
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+    if (diff !== 0) {
+      return diff;
+    }
   }
   return 0;
 }
@@ -116,7 +124,9 @@ export function findExistingInstallDir(): string | null {
     .map((entry) => entry.name)
     .filter((name) => existsSync(binPathIn(path.join(cliRoot, name))));
 
-  if (installed.length === 0) return null;
+  if (installed.length === 0) {
+    return null;
+  }
 
   if (installed.includes(LATEST_INSTALL_DIR)) {
     return path.join(cliRoot, LATEST_INSTALL_DIR);
@@ -133,7 +143,9 @@ export function findExistingInstallDir(): string | null {
  */
 export function getCliInstallDir(): string {
   const cliRoot = getCliRootDir();
-  if (PINNED_CLI_VERSION) return path.join(cliRoot, PINNED_CLI_VERSION);
+  if (PINNED_CLI_VERSION) {
+    return path.join(cliRoot, PINNED_CLI_VERSION);
+  }
   return findExistingInstallDir() ?? path.join(cliRoot, LATEST_INSTALL_DIR);
 }
 
@@ -147,14 +159,18 @@ export function getCliInstallDir(): string {
  * baked into the locator/wrapper misleads debugging (LUM-2648). Pinned builds
  * always install into a correctly-named dir, so this is a no-op for them.
  *
- * Non-fatal — failures are logged and leave the existing dir untouched.
+ * Non-fatal: failures are logged and leave the existing dir untouched.
  */
 export function migrateStaleInstallDir(): void {
-  if (PINNED_CLI_VERSION) return;
+  if (PINNED_CLI_VERSION) {
+    return;
+  }
 
   const cliRoot = getCliRootDir();
   const latestDir = path.join(cliRoot, LATEST_INSTALL_DIR);
-  if (existsSync(binPathIn(latestDir))) return; // already canonical
+  if (existsSync(binPathIn(latestDir))) {
+    return; // already canonical
+  }
 
   const existing = findExistingInstallDir();
   if (existing === null || path.basename(existing) === LATEST_INSTALL_DIR) {
@@ -211,14 +227,16 @@ export function writeFileAtomicSync(
 ): void {
   const tmpPath = `${filePath}.tmp`;
   writeFileSync(tmpPath, content);
-  if (mode !== undefined) chmodSync(tmpPath, mode);
+  if (mode !== undefined) {
+    chmodSync(tmpPath, mode);
+  }
   renameSync(tmpPath, filePath);
 }
 
 /**
  * Atomically write the locator file the `~/.local/bin/vellum` wrapper
  * sources to find the bundled bun and the current CLI bin. Refreshed on
- * every launch so app moves and version bumps self-heal. Non-fatal —
+ * every launch so app moves and version bumps self-heal. Non-fatal:
  * failures are logged but never block app startup.
  *
  * No-ops when the CLI bin isn't installed yet (e.g. first launch) so the
@@ -228,7 +246,9 @@ export function writeCliLocator(): void {
   // Heal a stale versioned install dir first so the locator points at the
   // canonical path rather than an old version-named one (LUM-2648).
   migrateStaleInstallDir();
-  if (!isCliInstalled()) return;
+  if (!isCliInstalled()) {
+    return;
+  }
 
   try {
     const locatorPath = getCliLocatorPath();
@@ -250,9 +270,13 @@ function findNvmNodeBinDir(home: string): string[] {
     const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
     const versionsDir = path.join(nvmDir, "versions", "node");
     for (const entry of readdirSync(versionsDir)) {
-      if (!entry.startsWith("v")) continue;
+      if (!entry.startsWith("v")) {
+        continue;
+      }
       const binDir = path.join(versionsDir, entry, "bin");
-      if (existsSync(path.join(binDir, "node"))) return [binDir];
+      if (existsSync(path.join(binDir, "node"))) {
+        return [binDir];
+      }
     }
   } catch {
     // nvm not installed
@@ -291,7 +315,9 @@ function seedCliLockfile(installDir: string): boolean {
   const seedPkg = path.join(seedDir, "package.json");
   const seedLock = path.join(seedDir, "bun.lock");
 
-  if (!existsSync(seedPkg) || !existsSync(seedLock)) return false;
+  if (!existsSync(seedPkg) || !existsSync(seedLock)) {
+    return false;
+  }
 
   copyFileSync(seedPkg, path.join(installDir, "package.json"));
   copyFileSync(seedLock, path.join(installDir, "bun.lock"));
@@ -306,13 +332,17 @@ function seedCliLockfile(installDir: string): boolean {
  * version is unknown (non-packaged build) or already stamped. Non-fatal.
  */
 function stampPackageManager(installDir: string): void {
-  if (!BUNDLED_BUN_VERSION) return;
+  if (!BUNDLED_BUN_VERSION) {
+    return;
+  }
 
   const pkgPath = path.join(installDir, "package.json");
   const packageManager = `bun@${BUNDLED_BUN_VERSION}`;
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (pkg.packageManager === packageManager) return;
+    if (pkg.packageManager === packageManager) {
+      return;
+    }
     pkg.packageManager = packageManager;
     writeFileAtomicSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
   } catch (err) {
@@ -325,13 +355,15 @@ function stampPackageManager(installDir: string): void {
 
 /**
  * Ensure the install dir has its own package.json before any `bun add`.
- * Without one, bun walks up and adopts the nearest ancestor project — a stray
+ * Without one, bun walks up and adopts the nearest ancestor project. A stray
  * ~/package.json makes the install land in $HOME/node_modules and exit 0,
  * leaving the install dir empty while every retry repeats the same escape.
  */
 function anchorInstallDir(installDir: string): void {
   const pkgPath = path.join(installDir, "package.json");
-  if (existsSync(pkgPath)) return;
+  if (existsSync(pkgPath)) {
+    return;
+  }
   writeFileAtomicSync(
     pkgPath,
     `${JSON.stringify({ name: "vellum-cli-install", private: true }, null, 2)}\n`,
@@ -450,8 +482,8 @@ async function bunInstallCli(): Promise<void> {
   mkdirSync(installDir, { recursive: true });
 
   // Recover from a corrupt prior install. When `node_modules` already exists
-  // but no longer exposes the `vellum` bin — e.g. a partial tree left behind
-  // by an app upgrade — `bun add` treats the lockfile as satisfied and exits
+  // but no longer exposes the `vellum` bin (e.g. a partial tree left behind
+  // by an app upgrade), `bun add` treats the lockfile as satisfied and exits
   // 0 without relinking the bin, so every relaunch repeats the same no-op and
   // the app stays wedged on "Failed to connect". Wipe the stale tree (and its
   // lockfile) so the install below re-extracts every package and recreates the
@@ -481,7 +513,9 @@ async function bunInstallCli(): Promise<void> {
     try {
       await runBun(["add", spec, "--ignore-scripts"], installDir);
     } catch (err) {
-      if (!seedCliLockfile(installDir)) throw err;
+      if (!seedCliLockfile(installDir)) {
+        throw err;
+      }
       log.warn(
         `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
         err,
@@ -524,12 +558,14 @@ export async function ensureCliInstalled(): Promise<void> {
     // the upgrade path returns here without reinstalling, so an existing user's
     // package.json would otherwise stay unmarked and exposed to npm drift.
     // Skipped for local builds that run the repo CLI source.
-    if (getLocalCliEntry() === null) stampPackageManager(getCliInstallDir());
+    if (getLocalCliEntry() === null) {
+      stampPackageManager(getCliInstallDir());
+    }
     return;
   }
 
   // Clear the lock once the install settles (success or failure) so a later
-  // call never short-circuits on a stale resolved promise — otherwise a bin
+  // call never short-circuits on a stale resolved promise. Otherwise a bin
   // that goes missing mid-session wedges every retry until an app restart.
   if (!cliInstallPromise) {
     cliInstallPromise = (async () => {
@@ -557,7 +593,7 @@ export async function ensureCliInstalled(): Promise<void> {
  * Remove CLI installs other than the one currently in use.
  *
  * Runs only after a fresh install, so an adopted existing install is never
- * touched. Non-fatal — cleanup errors are logged but never thrown so a stale
+ * touched. Non-fatal: cleanup errors are logged but never thrown so a stale
  * directory doesn't block the app from starting.
  */
 export function cleanupOldVersions(): void {
@@ -567,8 +603,12 @@ export function cleanupOldVersions(): void {
     const entries = readdirSync(cliRoot, { withFileTypes: true });
 
     for (const entry of entries) {
-      if (entry.name === keep) continue;
-      if (!entry.isDirectory()) continue;
+      if (entry.name === keep) {
+        continue;
+      }
+      if (!entry.isDirectory()) {
+        continue;
+      }
 
       try {
         rmSync(path.join(cliRoot, entry.name), { recursive: true, force: true });
@@ -577,6 +617,6 @@ export function cleanupOldVersions(): void {
       }
     }
   } catch {
-    // The cli directory may not exist yet — that's fine.
+    // The cli directory may not exist yet. That's fine.
   }
 }

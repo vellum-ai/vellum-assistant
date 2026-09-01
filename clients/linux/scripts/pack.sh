@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pack.sh — Build and package the Electron app for the target architecture.
+# pack.sh: Build and package the Electron app for the target architecture.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +70,7 @@ if [ "$VELLUM_ENVIRONMENT" = "local" ]; then
 fi
 
 # Fetch the target-arch bun that gets bundled into the AppImage. This is the
-# runtime binary shipped to users, not the host's build-tool bun — always fetch
+# runtime binary shipped to users, not the host's build-tool bun. Always fetch
 # for the requested arch so a dev/CI host bun (possibly a different arch) is
 # never mistakenly packaged.
 bash scripts/fetch-bun.sh --arch "$BUN_ARCH"
@@ -89,7 +89,7 @@ echo "Creating Linux package with electron-builder..."
 bunx electron-builder --config electron-builder.config.cjs --linux --publish never
 
 if [ "$OPEN_AFTER_BUILD" = true ]; then
-  # Newest .AppImage wins — dist/ may hold stale packages from prior envs.
+  # Newest .AppImage wins. dist/ may hold stale packages from prior envs.
   PACKAGE_PATH="$(ls -dt "$APP_DIR"/dist/*.AppImage 2>/dev/null | head -n 1 || true)"
   if [ -n "$PACKAGE_PATH" ]; then
     echo "Launching $PACKAGE_PATH"

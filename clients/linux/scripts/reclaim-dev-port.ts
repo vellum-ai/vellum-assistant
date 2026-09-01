@@ -4,15 +4,15 @@
  *
  * Our standalone dev server binds Vite with `--strictPort`, because
  * `dev:electron` waits on the fixed URL `http://localhost:5173`. The
- * tradeoff is that a *stale* Vite — orphaned to PID 1 when a previous
+ * tradeoff is that a *stale* Vite (orphaned to PID 1 when a previous
  * `bun run dev` was force-quit, crashed, or torn down without signals
- * reaching the deeply-nested `bun → bun → vite` leaf — makes the next
+ * reaching the deeply-nested `bun -> bun -> vite` leaf) makes the next
  * run fail with "Port 5173 is already in use" instead of recovering.
  *
  * Signal-handler hardening can't fully prevent that: SIGKILL and hard
  * crashes leave orphans no matter what. So we reclaim the port here,
  * right before `concurrently` starts Vite. We only kill a process that
- * actually looks like our dev server (a `vite` listener) — an unrelated
+ * actually looks like our dev server (a `vite` listener). An unrelated
  * service squatting on 5173 is left alone so Vite's strictPort error
  * still surfaces, just with a clearer log above it.
  *
@@ -36,7 +36,7 @@ function listenersOn(p: number): number[] {
       .map((line) => Number(line.trim()))
       .filter((pid) => Number.isInteger(pid) && pid > 0);
   } catch {
-    // lsof exits non-zero when nothing is listening — that's the happy path.
+    // lsof exits non-zero when nothing is listening. That's the happy path.
     return [];
   }
 }
@@ -54,7 +54,9 @@ function commandFor(pid: number): string {
 }
 
 function reclaim(): void {
-  if (!Number.isInteger(port) || port <= 0) return;
+  if (!Number.isInteger(port) || port <= 0) {
+    return;
+  }
 
   for (const pid of listenersOn(port)) {
     const command = commandFor(pid);
@@ -64,19 +66,19 @@ function reclaim(): void {
     if (!/\bvite\b/.test(command)) {
       console.warn(
         `[dev] port ${port} held by PID ${pid} (${command || "unknown"}), ` +
-          `which is not a Vite dev server — leaving it. Vite will report the conflict.`,
+          `which is not a Vite dev server. Leaving it. Vite will report the conflict.`,
       );
       continue;
     }
 
     console.log(
-      `[dev] reclaiming port ${port} from stale Vite (PID ${pid}) — ` +
+      `[dev] reclaiming port ${port} from stale Vite (PID ${pid}): ` +
         `likely orphaned by a previous dev run.`,
     );
     try {
       process.kill(pid, "SIGTERM");
     } catch {
-      // Already gone between lookup and kill — nothing to do.
+      // Already gone between lookup and kill. Nothing to do.
       continue;
     }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# validate-appimage.sh — Assert the pack produced a structurally valid AppImage.
+# validate-appimage.sh: Assert the pack produced a structurally valid AppImage.
 # Checks the newest dist/*.AppImage: exists, executable, and carries the
 # AppImage type-2 magic bytes (0x41 0x49 0x02 at offset 8) so a stray ELF or a
 # truncated file can't pass as a release artifact.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# generate-cli-lockfile.sh — Resolve the CLI dependency graph at build time
+# generate-cli-lockfile.sh: Resolve the CLI dependency graph at build time
 # and ship it as an app resource so the runtime install uses
 # `bun install --frozen-lockfile` instead of resolving from the live registry.
 set -euo pipefail

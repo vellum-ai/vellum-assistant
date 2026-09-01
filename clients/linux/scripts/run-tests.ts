@@ -5,7 +5,7 @@
  * set in one test file leak into every subsequent file in the same process.
  * Running each file in its own process is the only reliable workaround.
  *
- * Mirrors `clients/web/scripts/run-tests.ts` — kept as a per-package copy
+ * Mirrors `clients/web/scripts/run-tests.ts`. Kept as a per-package copy
  * (rather than a shared workspace script) because each package's `src/`
  * glob and `cwd` differ, and copy is cheaper than the abstraction today.
  *
@@ -14,7 +14,7 @@
  *   bun scripts/run-tests.ts src/foo.test.ts  # run specific files
  *
  * Environment:
- *   TEST_CONCURRENCY=N  — max parallel processes (default: 8)
+ *   TEST_CONCURRENCY=N: max parallel processes (default: 8)
  *
  * Reference: https://bun.sh/docs/test/mocking#mock-module
  */
@@ -76,6 +76,8 @@ console.log(`\n${passed} passed, ${failed} failed (${files.length} test files)`)
 
 if (failures.length > 0) {
   console.log("\nFailed:");
-  for (const f of failures) console.log(`  ${f}`);
+  for (const f of failures) {
+    console.log(`  ${f}`);
+  }
   process.exit(1);
 }

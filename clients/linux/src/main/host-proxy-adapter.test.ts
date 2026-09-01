@@ -22,7 +22,7 @@ test("creates a Linux runtime with only the committed portable executors", () =>
   ]);
   expect(runtime.sseClientHeaders()).toMatchObject({
     "X-Vellum-Client-Id": "client-123",
-    "X-Vellum-Interface-Id": "web",
+    "X-Vellum-Interface-Id": "linux",
   });
   expect(runtime.posterClientHeaders()).toEqual({
     "X-Vellum-Client-Id": "client-123",

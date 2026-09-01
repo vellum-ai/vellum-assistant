@@ -729,7 +729,9 @@ function resolveTurnClientOs(ctx: Conversation): {
   const clientOs = pin
     ? pin.clientOs
     : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" || transportInterface === "windows"
+      (transportInterface === "macos" ||
+      transportInterface === "windows" ||
+      transportInterface === "linux"
         ? transportInterface
         : undefined));
   return { clientOs, transportInterface };

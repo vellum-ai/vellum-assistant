@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fetch-bun.sh — Download the bun binary pinned in .tool-versions into
+# fetch-bun.sh: Download the bun binary pinned in .tool-versions into
 # clients/linux/resources/bun for bundling via electron-builder.
 #
 # Usage:
@@ -58,14 +58,14 @@ verify_checksum() {
   local platform="$2"
 
   if [ ! -f "$CHECKSUMS_FILE" ]; then
-    echo "WARNING: checksums file not found at $CHECKSUMS_FILE — skipping verification" >&2
+    echo "WARNING: checksums file not found at $CHECKSUMS_FILE. Skipping verification." >&2
     return 0
   fi
 
   local expected
   expected=$(grep "bun-${platform}.zip" "$CHECKSUMS_FILE" | awk '{ print $1 }')
   if [ -z "$expected" ]; then
-    echo "WARNING: no checksum entry for bun-${platform}.zip — skipping verification" >&2
+    echo "WARNING: no checksum entry for bun-${platform}.zip. Skipping verification." >&2
     return 0
   fi
 
@@ -131,9 +131,19 @@ if [ "$TARGET_ARCH" != "universal" ] && [ -x "$DEST" ]; then
     CURRENT_PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')
     case "$CURRENT_PLATFORM" in
       linux*)
-        # On Linux, we don't use lipo so just verify the binary works
-        echo "bun $BUN_VERSION already present at $DEST — skipping download."
-        exit 0
+        # Cached bun can be a different ELF arch than this build target
+        # (x64 cache reused for arm64). Inspect the binary before skipping.
+        CURRENT_ELF=$(file -b "$DEST" 2>/dev/null || echo "")
+        case "$TARGET_ARCH" in
+          aarch64) ELF_MATCH="aarch64|ARM aarch64|ARM64" ;;
+          x64)     ELF_MATCH="x86-64|x86_64" ;;
+          *)       ELF_MATCH="" ;;
+        esac
+        if [ -n "$ELF_MATCH" ] && echo "$CURRENT_ELF" | grep -Eqi "$ELF_MATCH"; then
+          echo "bun $BUN_VERSION ($TARGET_ARCH) already present at $DEST. Skipping download."
+          exit 0
+        fi
+        echo "bun $BUN_VERSION present but wrong arch (have $CURRENT_ELF, need $TARGET_ARCH). Re-fetching."
         ;;
       *)
         CURRENT_ARCHS=$(lipo -archs "$DEST" 2>/dev/null || echo "")
@@ -142,10 +152,10 @@ if [ "$TARGET_ARCH" != "universal" ] && [ -x "$DEST" ]; then
           x64)     EXPECTED_ARCH="x86_64" ;;
         esac
         if [ "$CURRENT_ARCHS" = "$EXPECTED_ARCH" ]; then
-          echo "bun $BUN_VERSION ($TARGET_ARCH) already present at $DEST — skipping download."
+          echo "bun $BUN_VERSION ($TARGET_ARCH) already present at $DEST. Skipping download."
           exit 0
         fi
-        echo "bun $BUN_VERSION present but wrong arch (have $CURRENT_ARCHS, need $EXPECTED_ARCH) — re-fetching."
+        echo "bun $BUN_VERSION present but wrong arch (have $CURRENT_ARCHS, need $EXPECTED_ARCH). Re-fetching."
         ;;
     esac
   fi

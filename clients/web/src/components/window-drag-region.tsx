@@ -43,6 +43,11 @@ export function WindowDragRegion() {
   if (hostOS === null) {
     return null;
   }
+  // Linux keeps the native window manager decorations, so the renderer must
+  // not add a second drag strip on top of that chrome.
+  if (hostOS === "linux") {
+    return null;
+  }
   if (isPopout) {
     return null;
   }

@@ -51,7 +51,7 @@ function copyPathExportHelp(): string {
     clipboard.writeText(FISH_ADD_PATH_LINE);
     return (
       "~/.local/bin isn't in your shell's PATH. The fish command to add " +
-      "it has been copied to your clipboard — run it once in a fish " +
+      "it has been copied to your clipboard. Run it once in a fish " +
       "terminal."
     );
   }
@@ -95,11 +95,15 @@ async function showInstallSuccessDialog(): Promise<void> {
 }
 
 export async function runInstallCliCommandFlow(): Promise<void> {
-  if (flowInFlight) return;
+  if (flowInFlight) {
+    return;
+  }
   flowInFlight = true;
   try {
     if (installWrapper({ overwriteForeign: false }) === "needs-overwrite-confirmation") {
-      if (!(await confirmReplaceForeignFile())) return;
+      if (!(await confirmReplaceForeignFile())) {
+        return;
+      }
       installWrapper({ overwriteForeign: true });
     }
 
@@ -109,7 +113,7 @@ export async function runInstallCliCommandFlow(): Promise<void> {
       throw new Error(
         `The vellum command was installed at ${getWrapperPath()}, but ` +
           `downloading the CLI runtime failed: ${errorMessage(err)}. Use ` +
-          '"Repair vellum Command" in the Vellum menu to retry now — or it ' +
+          '"Repair vellum Command" in the Vellum menu to retry now, or it ' +
           "will be retried automatically the next time it's needed.",
       );
     }
@@ -123,7 +127,9 @@ export async function runInstallCliCommandFlow(): Promise<void> {
 }
 
 export async function runUninstallCliCommandFlow(): Promise<void> {
-  if (flowInFlight) return;
+  if (flowInFlight) {
+    return;
+  }
   flowInFlight = true;
   try {
     const { response } = await dialog.showMessageBox({
@@ -134,7 +140,9 @@ export async function runUninstallCliCommandFlow(): Promise<void> {
       defaultId: 1,
       cancelId: 1,
     });
-    if (response !== 0) return;
+    if (response !== 0) {
+      return;
+    }
 
     const resultDialogs = {
       removed: {
@@ -146,7 +154,7 @@ export async function runUninstallCliCommandFlow(): Promise<void> {
         type: "warning",
         message: "Vellum command not removed",
         detail:
-          `The file at ${getWrapperPath()} wasn't installed by Vellum — ` +
+          `The file at ${getWrapperPath()} wasn't installed by Vellum, ` +
           "not removing it.",
       },
       absent: {

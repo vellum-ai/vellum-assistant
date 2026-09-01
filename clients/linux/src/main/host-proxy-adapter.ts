@@ -37,7 +37,7 @@ export const createLinuxHostProxyRuntime = (
   const clientHeaders = createHostProxyClientHeaders({
     getClientId,
     getMachineName: hostname,
-    interfaceId: "web",
+    interfaceId: "linux",
   });
   return {
     ...runtimeSources,

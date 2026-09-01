@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# generate-icon.sh — Render the per-environment Linux app icon.
+# generate-icon.sh: Render the per-environment Linux app icon.
 #
 # Reads VELLUM_ENVIRONMENT (default: local) and renders the matching icon from
 # build-resources/icons/{env}/ into build/icon.png. The macOS shell renders the
 # same sources into a .icns via a Swift/CoreGraphics renderer; Linux has no
 # CoreGraphics, so this composites the solid background (icon.json `fill.solid`)
-# and the white-V foreground with librsvg + ImageMagick — the same tools the
+# and the white-V foreground with librsvg + ImageMagick, the same tools the
 # desktop-environment icon pipeline already relies on.
 set -euo pipefail
 
@@ -33,7 +33,7 @@ command -v rsvg-convert >/dev/null 2>&1 || {
 }
 
 # ImageMagick 7 ships the unified `magick` binary; ImageMagick 6 (e.g. Ubuntu's
-# `imagemagick` package) ships `convert`. Accept either — the args are identical.
+# `imagemagick` package) ships `convert`. Accept either. The args are identical.
 if command -v magick >/dev/null 2>&1; then
   MAGICK=(magick)
 elif command -v convert >/dev/null 2>&1; then
@@ -47,7 +47,7 @@ ICON_JSON="$ICON_SOURCE_DIR/icon.json"
 FOREGROUND_SVG="$ICON_SOURCE_DIR/Assets/white-V.svg"
 ICON_SIZE=1024
 
-# Parse the `fill.solid` background from icon.json — format
+# Parse the `fill.solid` background from icon.json. Format
 # `display-p3:<r>,<g>,<b>,<a>` with components in 0..1. The narrow-gamut Linux
 # icon renders the components straight into sRGB; the small gamut shift on a
 # flat brand colour is imperceptible at icon scale.
