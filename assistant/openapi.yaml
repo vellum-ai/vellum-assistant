@@ -4076,6 +4076,59 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  bound:
+                    type: boolean
+                  channel:
+                    type: string
+                    enum:
+                      - telegram
+                      - phone
+                      - vellum
+                      - whatsapp
+                      - slack
+                      - email
+                      - platform
+                      - a2a
+                      - discord
+                      - plugin
+                  assistantId:
+                    type: string
+                  hasPendingChallenge:
+                    type: boolean
+                  guardianExternalUserId:
+                    type: string
+                  guardianDeliveryChatId:
+                    type: string
+                  guardianUsername:
+                    type: string
+                  guardianDisplayName:
+                    type: string
+                  verificationSessionId:
+                    type: string
+                  expiresAt:
+                    type: number
+                  nextResendAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  sendCount:
+                    type: number
+                  pendingBootstrap:
+                    type: boolean
+                required:
+                  - success
+                  - bound
+                  - channel
+                  - assistantId
+                  - hasPendingChallenge
+                additionalProperties: false
   /v1/channels/available:
     get:
       operationId: channels_available_get

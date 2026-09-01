@@ -159,6 +159,15 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+// The reconciler writes the outbound-posts index through delivery-crud;
+// stub it so this suite stays DB-free while capturing the writes.
+const recordedOutboundPosts: Array<Record<string, string>> = [];
+mock.module("../persistence/delivery-crud.js", () => ({
+  recordOutboundPost: (post: Record<string, string>) => {
+    recordedOutboundPosts.push(post);
+  },
+}));
+
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: (messageId: string) =>
     attachmentsByMessageId.get(messageId) ?? [],

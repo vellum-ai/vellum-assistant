@@ -9,7 +9,7 @@ const INDEX = "idx_channel_inbound_events_message_id";
  * Three queries filter on `message_id`: the sibling lookups on the
  * redelivery path (`getSiblingStreamedReplyTs`,
  * `isDeduplicatedDeliveryOwnedBySibling`) and the NOT EXISTS prefilter in
- * `findConversationByProviderMessageId` that skips rows the inbound-event
+ * `findMessageByProviderMessageId` that skips rows the inbound-event
  * index already resolves. Without this index each is a full table scan.
  *
  * Partial, on linked rows only: unlinked events (crash-window orphans,

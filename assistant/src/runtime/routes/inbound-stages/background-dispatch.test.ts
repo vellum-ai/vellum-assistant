@@ -889,6 +889,104 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
     expect(markedProcessedEvents).toEqual([]);
     expect(deliveredEvents).toEqual([]);
   });
+
+  test("a busy loss with a caller fallback degrades there, never to the sweep", async () => {
+    const processMessage: MessageProcessor = async () => {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    };
+
+    let fellBack = 0;
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-wake-busy",
+      eventId: "evt-wake-busy",
+      content: "Alice reacted with :tada: to your message",
+      sourceChannel: "discord",
+      sourceInterface: "discord",
+      externalChatId: "999000111222333444",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/discord",
+      onTurnLostToBusy: async () => {
+        fellBack++;
+      },
+    });
+
+    await flush();
+
+    // The caller's event stores nothing the sweep could rebuild a turn
+    // from, so its processing lane must never see it: the degradation is
+    // the fallback alone.
+    expect(fellBack).toBe(1);
+    expect(deferredRetryEvents).toEqual([]);
+    expect(retryableFailureEvents).toEqual([]);
+    expect(processingFailureEvents).toEqual([]);
+  });
+
+  test("a non-busy failure with a caller fallback records nothing for the sweep", async () => {
+    const processMessage: MessageProcessor = async () => {
+      throw new Error("provider exploded");
+    };
+
+    let fellBack = 0;
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-wake-error",
+      eventId: "evt-wake-error",
+      content: "Alice reacted with :tada: to your message",
+      sourceChannel: "discord",
+      sourceInterface: "discord",
+      externalChatId: "999000111222333444",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/discord",
+      onTurnLostToBusy: async () => {
+        fellBack++;
+      },
+    });
+
+    await flush();
+
+    // Best-effort turn lost; a failure record would only feed the sweep an
+    // event it cannot rebuild. The fallback is busy-specific and stays uncalled.
+    expect(fellBack).toBe(0);
+    expect(processingFailureEvents).toEqual([]);
+    expect(deferredRetryEvents).toEqual([]);
+  });
+
+  test("ingress row extensions reach processMessage", async () => {
+    let seenOptions: Record<string, unknown> | undefined;
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      options,
+    ) => {
+      seenOptions = options as unknown as Record<string, unknown>;
+      return { messageId: "user-row-1" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-wake-meta",
+      eventId: "evt-wake-meta",
+      content: "Alice reacted with :tada: to your message",
+      sourceChannel: "discord",
+      sourceInterface: "discord",
+      externalChatId: "999000111222333444",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/discord",
+      slackReactionRowMeta: '{"eventKind":"reaction"}',
+      clientMessageId: "reaction:evt-wake-meta",
+      skipUserMessageIndexing: true,
+    });
+
+    await flush();
+
+    expect(seenOptions?.slackReactionRowMeta).toBe('{"eventKind":"reaction"}');
+    expect(seenOptions?.clientMessageId).toBe("reaction:evt-wake-meta");
+    expect(seenOptions?.skipUserMessageIndexing).toBe(true);
+  });
 });
 
 describe("channel activity timing", () => {
