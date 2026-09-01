@@ -48,6 +48,10 @@ import {
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
+import {
+  getManagedUpstream,
+  VELLUM_MANAGED_PROVIDER,
+} from "./vellum-model-routing.js";
 import type { ProvidersConfig } from "./registry.js";
 import { shouldUseNativeWebSearch } from "./registry.js";
 import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
@@ -356,19 +360,34 @@ export class CallSiteRoutingProvider implements Provider {
           ...(profileName ? { profileName } : {}),
         };
       }
+      // Vellum-hosted GPU models have no other proxy. Falling back to the
+      // default transport (typically Fireworks) sends them through the wrong
+      // rate-card preflight and the platform rejects them as unsupported.
+      if (
+        resolved.model &&
+        getManagedUpstream(resolved.model) === VELLUM_MANAGED_PROVIDER
+      ) {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "adapter_unavailable",
+          `provider_connection "${connectionName}" yielded no adapter for Vellum-hosted model "${resolved.model}". The default transport cannot serve this model.`,
+          { model: resolved.model, profileName },
+        );
+      }
       // Soft credential failure: the routed connection yielded no usable
       // adapter and dispatch is landing on the default transport, which may
-      // be the platform-billed route — keep every such degradation
-      // observable.
+      // be the platform-billed route. Keep every such degradation
+      // observable. The reason is "no adapter", not a proven credential miss:
+      // adapter construction can also fail for dispatch bugs.
       log.warn(
         {
           callSite,
           connectionName,
           provider: resolved.provider,
           model: resolved.model,
-          reason: "credential_unavailable",
+          reason: "adapter_unavailable",
         },
-        "Routed connection yielded no adapter — falling back to the default transport",
+        "Routed connection yielded no adapter: falling back to the default transport",
       );
       return this.defaultRoute(profileName);
     }
