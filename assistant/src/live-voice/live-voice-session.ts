@@ -111,7 +111,10 @@ import {
   type VoiceEndpointAction,
   type VoiceEndpointSource,
 } from "./live-voice-metrics.js";
-import { persistLiveVoicePhoto } from "./live-voice-photo.js";
+import {
+  persistLiveVoicePhoto,
+  persistLiveVoiceSightFrame,
+} from "./live-voice-photo.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
@@ -138,6 +141,7 @@ import {
   type LiveVoiceClientAttachFrameFrame,
   type LiveVoiceClientAttachImageFrame,
   type LiveVoiceClientFrame,
+  type LiveVoiceClientSightFrameFrame,
   type LiveVoiceClientTextTurnFrame,
   type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
@@ -1576,6 +1580,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "attach_frame":
         this.parkTurnFrame(frame);
         return;
+      case "sight_frame":
+        this.persistSightFrame(frame);
+        return;
       case "text":
         await this.handleTextTurn(frame);
         return;
@@ -1666,6 +1673,45 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
       },
     );
+  }
+
+  /**
+   * Persist a kept camera frame into the conversation, running no turn.
+   *
+   * Fire-and-forget for the same reason the photo is: the persist waits out any
+   * in-flight turn, and the socket must keep pumping audio meanwhile. Waiting
+   * is also what keeps a frame that lands mid-reply from splitting that reply's
+   * own rows.
+   *
+   * The frame becomes its own tagged user message rather than riding a turn, so
+   * the transcript is the record of what the assistant saw and the model
+   * correlates a frame with speech by adjacency. See `live-voice-photo.ts`.
+   *
+   * An id the attachment store cannot resolve is refused there, before the
+   * persist waits on anything, so a bad frame is answered while the client can
+   * still act on it rather than a turn's length later. That resolve is the only
+   * existence check: a second one here would read the same row to learn the
+   * same fact.
+   */
+  private persistSightFrame(frame: LiveVoiceClientSightFrameFrame): void {
+    void persistLiveVoiceSightFrame(
+      this.conversationId,
+      frame.attachmentId,
+    ).then((result) => {
+      if (!result.ok && !this.isClosed) {
+        void this.sendFrame({
+          type: "error",
+          code: LiveVoiceProtocolErrorCode.InvalidFrame,
+          message: "Could not attach that camera frame to the conversation.",
+          // Names the frame as the casualty so the client can retract the
+          // preview it already showed, rather than filing this with the
+          // transient transcriber and TTS blips that share `recoverable`.
+          frameType: "sight_frame",
+          // The session is fine; only this frame failed.
+          recoverable: true,
+        });
+      }
+    });
   }
 
   /**

@@ -295,6 +295,48 @@ export function sightFrameAttachmentIdsFromMetadata(
 }
 
 /**
+ * True when a stored `messages.metadata` column belongs to a standalone
+ * ambient camera keep: a row the call's own gate sampled, which no one spoke.
+ *
+ * The raw-column counterpart to {@link sightFrameAttachmentIdsFromMetadata},
+ * for consumers holding the JSON string a row was written with rather than a
+ * parsed bag: the memory rebuild's re-embed scan and the retrospective's
+ * accounting both ask this question of rows they never otherwise decode. It
+ * lives here, beside the key and the parser, so the two cannot drift.
+ *
+ * BOTH halves are required, and the tag alone is not enough. A genuine spoken
+ * turn carries the same tag whenever a parked frame rode it (see
+ * `calls/voice-session-bridge.ts`), which in camera mode is every turn the
+ * user speaks, so keying on the tag would read real speech as machine
+ * output. `scripted` is what separates them: the standalone persist sets it
+ * (`live-voice/live-voice-photo.ts`), while a spoken turn leaves it absent
+ * and the persist stamps the `false` default durably. The pair is the
+ * signature of a keep; `scripted` on its own belongs to every auto-sent row,
+ * onboarding prompts included, which are none of this predicate's business.
+ *
+ * Absent or unparseable metadata is not a keep. Both callers use this to hold
+ * keeps BACK from work, so a row whose marking cannot be read is treated as
+ * ordinary content and still gets indexed or reviewed, which is the direction
+ * that loses nothing.
+ */
+export function messageMetadataIsAmbientSightKeep(
+  metadata: string | null,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return (
+      parsed.scripted === true &&
+      sightFrameAttachmentIdsFromMetadata(parsed).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *
