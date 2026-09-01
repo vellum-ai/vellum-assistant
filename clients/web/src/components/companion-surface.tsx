@@ -1401,11 +1401,13 @@ function Avatar({
         while it is being looked at, the capsule at rest.
 
         A ring is a statement about the shape it rides, so at rest it hugs the
-        capsule rather than circling the empty box the capsule sits in. It is
-        the only thing this node carries, and the node is otherwise invisible:
-        painting the capsule here instead is what made the surface inflate a
-        coloured disc on its way open, since this box grows to the creature's
-        and anything filling it grows with it.
+        capsule rather than circling the empty box the capsule sits in.
+
+        The ring is the only thing this node carries and the node is otherwise
+        invisible, because this box grows between the two shapes and anything
+        filling it grows with it: an accent inflating to the creature's box and
+        dissolving reads as a bubble popping rather than as the creature coming
+        out of the pill. The capsule is drawn beside it, at its own size.
 
         One node either way, never remounted, which is what keeps the one-shot
         capture flare from replaying: see `edge` in `CompanionSurface`. */}
@@ -1438,11 +1440,10 @@ function Avatar({
         which matters more here than anywhere else on the surface: at rest this
         is the only thing saying the assistant is there at all.
 
-        **It holds its size and fades where it stands.** Sized here rather than
-        filling the box above, which grows to the creature's: a capsule that
-        grew with it inflated into a coloured disc and then dissolved, which
-        read as a bubble popping rather than as the creature coming out of the
-        pill. Nothing about this shape moves; the creature does the moving.
+        **It holds its size and fades where it stands.** Sized on itself rather
+        than filling the box above, which grows to the creature's. Nothing about
+        the resting shape moves: the creature is what grows out of the pill and
+        shrinks back into it, and one thing moving is what makes that legible.
 
         The pill's own material is deliberately not borrowed: a white rim over a
         saturated colour reads as a highlight on it and muddies the one thing

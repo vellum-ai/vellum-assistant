@@ -1557,11 +1557,10 @@ describe("the resting avatar's idle motion", () => {
   /**
    * The wrapper sits inside the avatar's box, which nothing else may move.
    *
-   * One node further down than it used to be: the collapse that tucks the
-   * creature into the capsule is a `transform` of its own, so it takes a
-   * wrapper rather than riding the bob and silently replacing it. Both are
-   * asserted, since the thing that must hold is the whole chain from the box
-   * the host measures down to the artwork.
+   * The collapse that tucks the creature into the capsule is a `transform` of
+   * its own, so it takes a wrapper of its own rather than riding the bob and
+   * silently replacing it. Both links are asserted, since what has to hold is
+   * the whole chain from the box the host measures down to the artwork.
    */
   test("keeps the avatar box above the wrapper, one node up", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
@@ -1758,9 +1757,8 @@ describe("the avatar's resting collapse", () => {
    * The capsule holds its size and fades where it stands.
    *
    * Sized on itself rather than filling the ring's box, which grows to the
-   * creature's: a capsule that grew with it inflated into a coloured disc and
-   * dissolved, which read as a bubble popping rather than as the creature
-   * coming out of the pill.
+   * creature's. An accent inflating to that box and dissolving reads as a
+   * bubble popping rather than as the creature coming out of the pill.
    */
   test("never grows the capsule with the box the ring rides", () => {
     for (const phase of PHASES) {
