@@ -314,13 +314,20 @@ async function acquireProcessingFlag(conversation: {
  * not take the call down with it, and the caller reports the failure to the
  * user instead.
  *
- * The incarnation the image is accepted for is read here, synchronously,
- * before anything is queued, and every later check answers for that one value.
- * Reading it inside the job instead would read whatever holds the id by the
- * time the job runs: the chain can hold a frame behind another image for as
- * long as a turn runs, and a conversation deleted and recreated in that time
- * would be captured as the incarnation the frame was taken in, leaving every
- * check comparing the replacement against itself.
+ * Every later check answers for the one incarnation the image was accepted
+ * for, which is read before anything is queued. Reading it inside the job
+ * instead would read whatever holds the id by the time the job runs: the chain
+ * can hold a frame behind another image for as long as a turn runs, and a
+ * conversation deleted and recreated in that time would be captured as the
+ * incarnation the frame was taken in, leaving every check comparing the
+ * replacement against itself.
+ *
+ * `acceptedIncarnation` is that value read by the caller, for one whose own
+ * acceptance is earlier than this call: the HTTP door answers 404 from a row
+ * it reads before resolving the request's actor, so the row it accepted is the
+ * one it read there rather than whatever survives that resolution. A caller
+ * with nothing between its acceptance and this call omits it, and the read
+ * below is that same moment.
  */
 function persistStandaloneImage(
   conversationId: string,
@@ -330,8 +337,25 @@ function persistStandaloneImage(
     PersistMessageOptions,
     "attachments" | "requestId" | "insertPrecondition"
   >,
+  acceptedIncarnation?: number,
 ): Promise<LiveVoicePhotoResult> {
-  const incarnation = getConversation(conversationId)?.createdAt ?? null;
+  let incarnation: number | null;
+  try {
+    incarnation =
+      acceptedIncarnation ?? getConversation(conversationId)?.createdAt ?? null;
+  } catch (err) {
+    // This read is the one thing here that runs outside the job's own catch,
+    // and the contract above is that an image never takes its caller down: the
+    // socket attaches no handler for a rejection. Reported as the refusal it
+    // is, and the upload is kept, because a store that cannot be read is not
+    // evidence the conversation is gone and reclaiming on a guess deletes
+    // bytes a message may reference.
+    log.warn(
+      { err, conversationId, attachmentId, kind },
+      "Could not read the conversation a standalone image names",
+    );
+    return Promise.resolve({ ok: false });
+  }
   if (incarnation === null) {
     log.warn(
       { conversationId, attachmentId, kind },
@@ -628,25 +652,38 @@ export type SightFrameSurface = "voice" | "chat";
  * frame. A caller that holds no per-request actor omits it and the persist
  * attributes the row to the conversation, which is the right answer for a
  * session that owns the conversation's trust for its whole life.
+ *
+ * `acceptedIncarnation` is the `created_at` of the conversation the caller
+ * accepted the frame for, for one that resolved that trust between reading the
+ * row and calling here: the frame belongs to the row the caller answered on,
+ * not to whatever holds the id once the resolution returns. A caller with no
+ * such gap omits it. See {@link persistStandaloneImage}.
  */
 export async function persistAmbientSightFrame(
   conversationId: string,
   attachmentId: string,
   surface: SightFrameSurface,
   trustContext?: TrustContext,
+  acceptedIncarnation?: number,
 ): Promise<LiveVoicePhotoResult> {
-  return persistStandaloneImage(conversationId, attachmentId, "sight_frame", {
-    content: SIGHT_FRAME_MESSAGE_CONTENT,
-    metadata: surface === "voice" ? { voiceSessionTurn: true } : {},
-    ...(trustContext ? { trustContext } : {}),
-    scripted: true,
-    // The camera sampled this, nobody sent it. Indexing it would feed
-    // extraction a frame every few seconds of whatever the room happens to
-    // contain, and commit those visuals to long-term memory with no consent
-    // surface: the design puts keeps in the TRANSCRIPT, which the user can see
-    // and delete, and says nothing about memory. The text half is worthless to
-    // search anyway, every row reading "(camera frame)".
-    skipIndexing: true,
-    sightFrameAttachmentIds: [attachmentId],
-  });
+  return persistStandaloneImage(
+    conversationId,
+    attachmentId,
+    "sight_frame",
+    {
+      content: SIGHT_FRAME_MESSAGE_CONTENT,
+      metadata: surface === "voice" ? { voiceSessionTurn: true } : {},
+      ...(trustContext ? { trustContext } : {}),
+      scripted: true,
+      // The camera sampled this, nobody sent it. Indexing it would feed
+      // extraction a frame every few seconds of whatever the room happens to
+      // contain, and commit those visuals to long-term memory with no consent
+      // surface: the design puts keeps in the TRANSCRIPT, which the user can
+      // see and delete, and says nothing about memory. The text half is
+      // worthless to search anyway, every row reading "(camera frame)".
+      skipIndexing: true,
+      sightFrameAttachmentIds: [attachmentId],
+    },
+    acceptedIncarnation,
+  );
 }

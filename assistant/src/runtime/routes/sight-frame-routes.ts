@@ -35,6 +35,14 @@ import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
  * seen. Without the gate a stale client id would silently create a phantom
  * conversation holding nothing but camera frames.
  *
+ * That read is also where the frame is accepted, so the row's `created_at` is
+ * taken from it and handed to the persist. Resolving the request's actor is
+ * awaited below, and a conversation deleted and recreated under this id inside
+ * that await leaves a row the gate never saw: the persist reading the id for
+ * itself afterwards would take the replacement for the conversation the client
+ * addressed. Nothing awaits between the check and the capture, so the two are
+ * one moment.
+ *
  * The body is hand-validated because the HTTP adapter does not run a route's
  * zod schema against the request and swallows a JSON parse failure, so a
  * malformed send arrives here as an empty bag.
@@ -46,7 +54,8 @@ async function handleConversationSightFrame({
 }: RouteHandlerArgs) {
   const rawId = pathParams.id!;
   const conversationId = resolveOrThrow(rawId);
-  if (!getConversation(conversationId)) {
+  const accepted = getConversation(conversationId);
+  if (!accepted) {
     throw new NotFoundError(`Conversation ${rawId} not found`);
   }
 
@@ -73,6 +82,7 @@ async function handleConversationSightFrame({
     attachmentId,
     "chat",
     trustContext,
+    accepted.createdAt,
   );
   return {
     persisted: result.ok,

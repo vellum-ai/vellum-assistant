@@ -8,7 +8,7 @@
  * difference: a keep taken beside the composer is not a voice session turn.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import {
   createMockProvider,
@@ -41,8 +41,35 @@ import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { conversations } from "../../../persistence/schema/index.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
-import { ROUTES as SIGHT_FRAME_ROUTES } from "../sight-frame-routes.js";
 import type { RouteDefinition } from "../types.js";
+import * as vellumActorTrust from "../vellum-actor-trust.js";
+
+/**
+ * Run something in the window the handler opens between accepting the request
+ * and persisting the frame.
+ *
+ * Resolving the request's actor is the only thing the handler awaits in
+ * between, so a hook here lands inside that window without a timer to race.
+ * Armed per test and cleared as it fires; every other test leaves it null and
+ * gets the real resolver.
+ */
+let duringTrustResolution: (() => void) | null = null;
+const realVellumActorTrust = { ...vellumActorTrust };
+mock.module("../vellum-actor-trust.js", () => ({
+  ...realVellumActorTrust,
+  resolveVellumActorTrustContext: (
+    ...args: Parameters<
+      typeof realVellumActorTrust.resolveVellumActorTrustContext
+    >
+  ) => {
+    const hook = duringTrustResolution;
+    duringTrustResolution = null;
+    hook?.();
+    return realVellumActorTrust.resolveVellumActorTrustContext(...args);
+  },
+}));
+
+const { ROUTES: SIGHT_FRAME_ROUTES } = await import("../sight-frame-routes.js");
 
 await initializeDb();
 
@@ -351,6 +378,35 @@ describe("POST /v1/conversations/:id/sight-frame", () => {
       expect(frameStored(queued)).toBe(false);
     } finally {
       _setProcessingWaitMsForTests(restoreWait);
+    }
+  });
+
+  test("a frame does not land in a conversation replaced while the actor resolves", async () => {
+    // The 404 gate is where the frame is accepted, and resolving the request's
+    // actor is awaited after it. A delete and recreate under this id inside
+    // that await leaves a row the gate never saw, and a persist that read the
+    // id for itself afterwards would take the replacement for the conversation
+    // the client addressed.
+    const live = liveConversation("Chat keep replaced mid-trust");
+    try {
+      const frame = await uploadFrame("mid-trust.png");
+
+      duringTrustResolution = () => {
+        deleteConversationRows(live.id);
+        createConversation({ id: live.id, title: "Recreated" });
+      };
+
+      expect(await persist(live.id, { attachmentId: frame })).toEqual({
+        persisted: false,
+      });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      // Nothing else would ever collect it: the client's abandon-delete fires
+      // on a refused send, and this send was accepted.
+      expect(frameStored(frame)).toBe(false);
+    } finally {
+      duringTrustResolution = null;
+      live.dispose();
     }
   });
 
