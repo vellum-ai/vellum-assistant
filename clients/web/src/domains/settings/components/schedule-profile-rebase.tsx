@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { reassignScheduleInferenceProfile } from "@/domains/settings/api/schedules";
-import { canScheduleStillRun } from "@/domains/settings/utils/schedule-formatters";
+import { canScheduleStillRun } from "@/utils/schedules";
 import { useCallSiteDefaultProfile } from "@/hooks/use-call-site-default-profile";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";

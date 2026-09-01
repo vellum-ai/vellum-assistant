@@ -24,6 +24,7 @@ import {
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { HomeRecapRow } from "../home-recap-row";
+import { useBriefingRecipeCard } from "../hooks/use-briefing-recipe-card";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
@@ -128,6 +129,20 @@ export function NotificationsBell() {
     ? ((items ?? []).find((item) => item.id === selectedItemId) ?? null)
     : null;
   const isDetailOpen = selectedItem !== null;
+
+  // The empty state's recipe card advertises schedules, so it is offered only
+  // to people who have none. Gated on the scene being on screen: the bell
+  // renders in the top bar on every route, and a panel that is closed, showing
+  // a detail, holding notifications, or reporting a failed load never draws
+  // the card, so none of them may pay for the schedules list. Open on an empty
+  // feed, the read lands on the same cache entry the Schedules page and the
+  // entity-link resolver fill, so it is at most one request between them.
+  const isEmptyStateVisible =
+    isOpen && !isDetailOpen && !feedQuery.isError && visibleItems.length === 0;
+  const briefingRecipe = useBriefingRecipeCard(
+    assistantId,
+    isEmptyStateVisible,
+  );
 
   // A notification can point at a conversation that has since been deleted, so
   // the detail's "Go to Conversation" link is checked against the same three
@@ -333,7 +348,11 @@ export function NotificationsBell() {
           {t("notificationsBell.loadFailed")}
         </Typography>
       ) : (
-        <NotificationsBellEmptyState onLaunchRecipe={closePanel} />
+        <NotificationsBellEmptyState
+          onLaunchRecipe={closePanel}
+          showBriefingRecipe={briefingRecipe.isVisible}
+          onDismissBriefingRecipe={briefingRecipe.dismiss}
+        />
       )
     ) : (
       <div
