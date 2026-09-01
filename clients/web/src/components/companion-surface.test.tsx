@@ -1608,6 +1608,32 @@ describe("the resting avatar's idle motion", () => {
     expect(bobOf(container)?.style.animation).toBe("");
     expect(glowOf(container)?.style.animation).toBe("");
   });
+
+  /**
+   * The collapse is motion too, and the newest of it. Hovering the capsule
+   * grows a shape and scales a creature, which is exactly the travel across
+   * the screen a reader asking for stillness is asking not to have.
+   *
+   * The shape arrives changed; the creature keeps its fade, since a cross-fade
+   * is not motion across the screen and is gentler than snapping in and out.
+   */
+  test("holds the collapse still under reduced motion", () => {
+    reducedMotion = true;
+
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    expect(shapeOf(container).style.transitionDuration).toBe("0s");
+    expect(bobOf(container)?.parentElement?.style.transitionProperty).toBe(
+      "opacity",
+    );
+  });
+
+  test("lets the collapse travel for a reader who asked for nothing", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    expect(shapeOf(container).style.transitionDuration).toBe("");
+    expect(bobOf(container)?.parentElement?.style.transitionProperty).toBe("");
+  });
 });
 
 /**
@@ -1629,6 +1655,40 @@ describe("the avatar's resting collapse", () => {
     const shape = shapeOf(container);
     expect(shape.style.width).toBe("28px");
     expect(shape.style.height).toBe("10px");
+  });
+
+  /**
+   * Sizing the creature is a statement about the creature. Someone who wants a
+   * big mascot when they look at it has not asked for a big lozenge sitting
+   * over their work all day, so the marker is the one part of this surface the
+   * setting does not reach.
+   */
+  test("draws the capsule at one size whatever the creature is sized to", () => {
+    for (const avatarBox of [44, 66, 110, 220]) {
+      const { container } = render(
+        <CompanionSurface phase="resting" avatarBox={avatarBox} />,
+      );
+
+      const shape = shapeOf(container);
+      // The lengths are the same on every setting, and the transform undoes
+      // the scale this node carries, which is the avatar's box over 44.
+      expect(shape.style.width).toBe("28px");
+      expect(shape.style.height).toBe("10px");
+      expect(shape.style.transform).toBe(
+        `translate(-50%, -50%) scale(${44 / avatarBox})`,
+      );
+    }
+  });
+
+  /** Expanded it is the creature's own box, which the setting does reach. */
+  test("still grows the expanded shape with the creature", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={220} />,
+    );
+
+    const shape = shapeOf(container);
+    expect(shape.style.width).toBe("44px");
+    expect(shape.style.transform).toBe("translate(-50%, -50%) scale(1)");
   });
 
   test("draws the whole box once anything opens the pill", () => {
@@ -1665,6 +1725,21 @@ describe("the avatar's resting collapse", () => {
     );
 
     expect(ringOf(container)?.parentElement).toBe(shapeOf(container));
+  });
+
+  /**
+   * The introduction's first beat presents the creature by name and does not
+   * open the pill, so the phase is `resting` while a card points at it. A card
+   * introducing the capsule is the one thing this collapse must not do.
+   */
+  test("keeps the creature drawn while the introduction is on screen", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" intro={<div>meet</div>} />,
+    );
+
+    const shape = shapeOf(container);
+    expect(shape.style.height).toBe("44px");
+    expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
   });
 
   /** The creature fades with it rather than being cut, and comes back whole. */

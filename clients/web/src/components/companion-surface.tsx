@@ -221,6 +221,15 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
  * pointer is hit-tested against, so shrinking it would move the anchor the host
  * measures every drag and clamp against, and would make the surface hardest to
  * hit exactly when it is smallest. What changes is the shape drawn inside it.
+ *
+ * **Nor does the capsule grow with the sizes.** It is drawn at these numbers on
+ * every setting, countering the scale the avatar's node carries (see
+ * `restingScale` in {@link Avatar}). Sizing the creature is a statement about
+ * the creature: someone who wants a big mascot when they look at it has not
+ * asked for a big lozenge sitting over their work all day, and the marker is
+ * the one part of this surface nobody chose to be looking at. Countering the
+ * transform rather than the lengths is what keeps the border, the radius and
+ * the ring identical at every setting instead of thickening with the scale.
  */
 const RESTING_HEIGHT = 10;
 
@@ -752,6 +761,16 @@ export function CompanionSurface({
   // and direction check against is not.
   const placement = edgeAt(growth, avatarHalf + gap);
 
+  /**
+   * Whether the introduction's card is drawn beside the surface.
+   *
+   * `null` is what the host passes when there is no beat to draw and
+   * `undefined` is what a caller that never mentions it leaves behind, and both
+   * mean the same thing. Named rather than tested inline, because the one thing
+   * that reads it is deciding whether the creature is on screen at all.
+   */
+  const introDrawn = intro !== null && intro !== undefined;
+
   // The card growing downward draws its composer row first, so the row starts
   // one options box above the creature's baseline and the card falls away from
   // it; everything else hangs upward off that baseline.
@@ -972,7 +991,17 @@ export function CompanionSurface({
         // At rest the creature tucks into a capsule. The same answer the pill's
         // own width reads, so the two collapse together and the surface goes to
         // its resting shape as one thing.
-        collapsed={!expanded}
+        //
+        // Except while the introduction is on screen. Its first beat presents
+        // the creature by name and deliberately does not open the pill
+        // (`introPhase` answers null for `meet`), so the phase is `resting`
+        // with a card pointing at a creature that is not drawn. A card
+        // introducing the capsule is the one thing this collapse must not do.
+        collapsed={!expanded && !introDrawn}
+        // The capsule is drawn at one size on every setting, so it counters
+        // what this node carries. That is the avatar's box over the authored
+        // one: the options scale on the box above cancels against `avatarRel`.
+        restingScale={COMPANION_BASE_AVATAR_BOX / avatarBox}
         edge={edge}
         style={{
           left: "50%",
@@ -1289,6 +1318,7 @@ function Avatar({
   busy = false,
   attentive = false,
   collapsed = false,
+  restingScale = 1,
   edge,
   style,
   elementRef,
@@ -1306,6 +1336,13 @@ function Avatar({
    * capsule. See {@link RESTING_HEIGHT}.
    */
   collapsed?: boolean;
+  /**
+   * What the capsule scales by to undo the scale this node already carries, so
+   * it is drawn at one size whatever the creature is sized to. Applies to the
+   * capsule alone: the expanded shape is the creature's own box and grows with
+   * it, which is the whole point of the setting.
+   */
+  restingScale?: number;
   /** What the creature's edge is drawing. See `edge` in `CompanionSurface`. */
   edge?: ReactNode;
   style?: CSSProperties;
@@ -1343,13 +1380,21 @@ function Avatar({
         keeps the one-shot capture flare from remounting and replaying: see
         `edge` in `CompanionSurface`. */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height] duration-300"
+        className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,transform] duration-300"
         style={{
           width: collapsed ? AVATAR_IMAGE : COMPANION_BASE_AVATAR_BOX,
           height: collapsed ? RESTING_HEIGHT : COMPANION_BASE_AVATAR_BOX,
+          // Centred on the anchor, then scaled about that centre. The scale is
+          // stated on both sides rather than only the collapsed one, so the two
+          // states are the same transform list and interpolate cleanly.
+          transform: `translate(-50%, -50%) scale(${collapsed ? restingScale : 1})`,
           // The easing the pill's own width uses, so the two halves of a
           // surface waking up settle together rather than in sequence.
           transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+          // Nothing travels for a reader who asked for stillness. The shape
+          // still changes, it just arrives changed: the fades below are kept,
+          // since a cross-fade is not motion across the screen.
+          transitionDuration: reduce ? "0s" : undefined,
         }}
       >
         {edge}
@@ -1382,6 +1427,10 @@ function Avatar({
           opacity: collapsed ? 0 : 1,
           transform: collapsed ? "scale(0.35)" : "scale(1)",
           transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+          // The scale is dropped for a reader who asked for stillness and the
+          // fade is kept: a cross-fade is not motion across the screen, and it
+          // is gentler than the creature snapping in and out.
+          transitionProperty: reduce ? "opacity" : undefined,
         }}
       >
         <div
