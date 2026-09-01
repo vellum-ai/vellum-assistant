@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useTranslation } from "@/i18n";
+import { Trans, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { formatRelativeDate } from "@/utils/format-date";
@@ -162,17 +162,21 @@ export function HomeGuardianRequestCard({
           display name anywhere in the pipeline, so it renders as the code
           it is, the way the in-conversation confirmation card renders one. */}
       {guardianRequest.toolName ? (
-        <div className="flex flex-wrap items-baseline gap-[var(--app-spacing-xs)]">
-          <Typography
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {isPending
-              ? t("homeGuardianRequestCard.toolRequesting")
-              : t("homeGuardianRequestCard.toolRequested")}
-          </Typography>
-          <code className={TOOL_NAME_CLASS}>{guardianRequest.toolName}</code>
-        </div>
+        <Typography
+          variant="body-small-default"
+          className="text-[var(--content-tertiary)]"
+        >
+          <Trans
+            ns="home"
+            i18nKey={
+              isPending
+                ? "homeGuardianRequestCard.toolRequesting"
+                : "homeGuardianRequestCard.toolRequested"
+            }
+            values={{ toolName: guardianRequest.toolName }}
+            components={{ code: <code className={TOOL_NAME_CLASS} /> }}
+          />
+        </Typography>
       ) : null}
 
       {receipt && ReceiptIcon ? (
@@ -237,10 +241,19 @@ interface ExternalTextLinkProps {
  * lays out `inline` and inherits its type from the paragraph around it, so
  * it can neither space a leading icon nor size itself standing alone. A
  * compact ghost button is the primitive for a standalone secondary action.
+ *
+ * `self-start` because the card is a flex column, which would otherwise
+ * stretch the button to the full width and centre its label.
  */
 function ExternalTextLink({ href, icon, label }: ExternalTextLinkProps) {
   return (
-    <Button asChild variant="ghost" size="compact" leftIcon={icon}>
+    <Button
+      asChild
+      variant="ghost"
+      size="compact"
+      leftIcon={icon}
+      className="self-start"
+    >
       <a
         href={href}
         target="_blank"

@@ -507,6 +507,9 @@ describe("NotificationsBell guardian rows", () => {
       id: "guardian:req-1",
       status: "new",
       urgency: "high",
+      // Production shape: the daemon's title is the generic kind of request
+      // and the ask itself arrives in the body.
+      title: "Guardian Question",
       summary: "Alice asked the assistant to look up an issue",
       guardianRequest: {
         requestId: "req-1",
@@ -530,7 +533,8 @@ describe("NotificationsBell guardian rows", () => {
     const titles = screen
       .getAllByTestId("home-recap-row-title")
       .map((node) => node.textContent);
-    expect(titles[0]).toContain("Alice asked the assistant");
+    // The ask takes the title line, never the generic "Guardian Question".
+    expect(titles[0]).toBe("Alice asked the assistant to look up an issue");
     expect(titles[1]).toBe("Watcher job failed");
   });
 
@@ -565,6 +569,8 @@ describe("NotificationsBell guardian rows", () => {
           kind: "tool_approval",
           intent: "approval",
           status: "approved",
+          // Receipts keep the context the pending item carried.
+          sourceContextLabel: "Slack #user-feedback",
         },
       }),
     ];
@@ -572,6 +578,9 @@ describe("NotificationsBell guardian rows", () => {
     await openBell();
 
     expect(document.querySelectorAll("[data-needs-attention]").length).toBe(0);
+    // A settled receipt keeps its source context, and reads by its own
+    // title and summary like any other notification.
+    expect(screen.getByText("Guardian Question")).toBeTruthy();
     expect(
       screen.getByText("Alice asked the assistant to look up an issue"),
     ).toBeTruthy();

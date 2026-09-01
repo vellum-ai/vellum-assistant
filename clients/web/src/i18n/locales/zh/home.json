@@ -60,7 +60,7 @@
       "alreadyResolved": "已处理"
     },
     "viewSourceThread": "查看来源消息串",
-    "toolRequested": "已请求运行",
-    "toolRequesting": "请求运行"
+    "toolRequested": "已请求运行 <code>{toolName}</code>",
+    "toolRequesting": "请求运行 <code>{toolName}</code>"
   }
 }

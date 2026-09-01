@@ -18,7 +18,7 @@ import {
 } from "@vellumai/design-library";
 
 import { FeedCategoryChip } from "./feed-category-chip";
-import { resolvePreview } from "./feed-preview";
+import { flattenSummary, resolvePreview } from "./feed-preview";
 import {
   buildRecapActions,
   RecapActionButtons,
@@ -147,16 +147,27 @@ export function HomeRecapRow({
       ? item.sourceLabel
       : null;
 
+  /* A guardian request's own title is the generic name of the kind of
+     request ("Guardian Question"), which is what the label line already
+     says; the ask itself is in the body. So the ask takes the title line,
+     and the label above it carries the naming. */
+  const showsAskAsTitle = attentionLabelKey !== null && item.summary !== "";
+
   // Both memoized: each parses the summary as markdown, and the feed re-renders
   // every card whenever its filter changes.
   const title = useMemo(
-    () => resolveFeedItemTitle({ title: item.title, summary: item.summary }),
-    [item.title, item.summary],
+    () =>
+      showsAskAsTitle
+        ? flattenSummary(item.summary)
+        : resolveFeedItemTitle({ title: item.title, summary: item.summary }),
+    [showsAskAsTitle, item.title, item.summary],
   );
 
   /* Under the ask, a guardian row names where the request came from rather
-     than echoing the summary's tail, which the ask has already said. */
-  const guardianContext = item.guardianRequest?.sourceContextLabel ?? null;
+     than repeating the body the ask was taken from. */
+  const guardianContext = showsAskAsTitle
+    ? (item.guardianRequest?.sourceContextLabel ?? null)
+    : null;
   const preview = useMemo(
     () => guardianContext ?? resolvePreview(title, item.summary),
     [guardianContext, title, item.summary],

@@ -60,8 +60,8 @@
       "alreadyResolved": "Already resolved"
     },
     "viewSourceThread": "View source thread",
-    "toolRequested": "Requested to run",
-    "toolRequesting": "Requesting to run"
+    "toolRequested": "Requested to run <code>{toolName}</code>",
+    "toolRequesting": "Requesting to run <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Nothing yet.",

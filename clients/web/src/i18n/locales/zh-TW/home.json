@@ -60,7 +60,7 @@
       "alreadyResolved": "已處理"
     },
     "viewSourceThread": "檢視來源討論串",
-    "toolRequested": "已請求執行",
-    "toolRequesting": "請求執行"
+    "toolRequested": "已請求執行 <code>{toolName}</code>",
+    "toolRequesting": "請求執行 <code>{toolName}</code>"
   }
 }

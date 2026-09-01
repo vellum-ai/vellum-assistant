@@ -60,8 +60,8 @@
       "alreadyResolved": "Уже решено"
     },
     "viewSourceThread": "Открыть исходный тред",
-    "toolRequested": "Запрошен запуск",
-    "toolRequesting": "Запрашивает запуск"
+    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
+    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Пока ничего.",

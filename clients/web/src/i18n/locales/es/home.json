@@ -60,8 +60,8 @@
       "alreadyResolved": "Ya resuelta"
     },
     "viewSourceThread": "Ver hilo de origen",
-    "toolRequested": "Solicitó ejecutar",
-    "toolRequesting": "Solicita ejecutar"
+    "toolRequested": "Solicitó ejecutar <code>{toolName}</code>",
+    "toolRequesting": "Solicita ejecutar <code>{toolName}</code>"
   },
   "notificationsBellEmptyState": {
     "title": "Todavía no hay nada.",

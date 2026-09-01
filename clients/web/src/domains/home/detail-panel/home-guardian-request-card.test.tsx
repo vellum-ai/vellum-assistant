@@ -86,8 +86,8 @@ describe("HomeGuardianRequestCard", () => {
       }),
     );
 
-    // The panel header names the request; the card carries no status pill.
-    expect(screen.queryByText("Needs attention")).toBeNull();
+    // The panel header names the request; the card leads with the ask.
+    expect(screen.queryByText("Guardian action needed")).toBeNull();
     // Source context and requester share the meta line under the title.
     expect(screen.getByText(/Slack #user-feedback · Alice/)).toBeTruthy();
     // A waiting request names the decision in the present tense.
@@ -123,7 +123,7 @@ describe("HomeGuardianRequestCard", () => {
   });
 
   const TERMINAL_RECEIPTS: [Partial<FeedItemGuardianRequest>, string][] = [
-    [{ status: "approved" }, "Request approved"],
+    [{ status: "approved", toolName: "linear_graphql" }, "Request approved"],
     [{ status: "denied" }, "Request rejected"],
     [{ status: "expired" }, "Request expired"],
     [{ status: "cancelled" }, "Request cancelled"],
@@ -153,8 +153,12 @@ describe("HomeGuardianRequestCard", () => {
       );
       expect(screen.queryByText("Approve")).toBeNull();
       expect(screen.queryByText("Reject")).toBeNull();
-      // A settled request states the decision in the past tense.
-      expect(screen.queryByText("Requesting to run")).toBeNull();
+      // A settled request states the decision in the past tense. Only the
+      // approved case carries a tool, so the tense is asserted there.
+      if (projection.toolName) {
+        expect(screen.getByText(/Requested to run/)).toBeTruthy();
+        expect(screen.queryByText(/Requesting to run/)).toBeNull();
+      }
     },
   );
 
