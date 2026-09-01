@@ -1628,25 +1628,54 @@ export class Conversation {
     }
   }
 
-  async ensureActorScopedHistory(): Promise<void> {
-    const currentTrustClass = this.trustContext?.trustClass;
-    // Tracked alongside the trust class because `loadFromDb` gates
-    // personal-memory rehydration on `isPersonalMemoryAllowed`, which folds in
-    // the disabled-auth elevation of an unbound actor: two contexts can share a
-    // trust class and still differ here. A reuse that changes the answer has to
-    // reload, or stale personal-memory blocks persist into a turn that must not
-    // see them, or stay stripped from one that should.
-    const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
-      this.trustContext,
-    );
-    if (
+  /**
+   * Whether the resident history is the one an actor carrying `trustContext`
+   * would be given.
+   *
+   * Personal memory is asked alongside the trust class because `loadFromDb`
+   * gates personal-memory rehydration on `isPersonalMemoryAllowed`, which folds
+   * in the disabled-auth elevation of an unbound actor: two contexts can share
+   * a trust class and still differ here. A reuse that changes the answer has to
+   * reload, or stale personal-memory blocks persist into a turn that must not
+   * see them, or stay stripped from one that should.
+   */
+  private historyMatchesScope(trustContext: TrustContext | undefined): boolean {
+    return (
       !this.loadedHistoryStale &&
-      this.loadedHistoryTrustClass === currentTrustClass &&
-      this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
-    ) {
+      this.loadedHistoryTrustClass === trustContext?.trustClass &&
+      this.loadedHistoryPersonalMemoryAllowed ===
+        isPersonalMemoryAllowed(trustContext)
+    );
+  }
+
+  async ensureActorScopedHistory(): Promise<void> {
+    if (this.historyMatchesScope(this.trustContext)) {
       return;
     }
     await this.loadFromDb();
+  }
+
+  /**
+   * Mark stale when a row has been appended to the resident history under an
+   * actor this history is not scoped for.
+   *
+   * A persist that runs outside any turn has nothing ensuring the history for
+   * its sender first, so its row joins `this.messages` as it is. Left alone,
+   * the next turn under the resident scope reuses that array rather than
+   * reloading, and sends the model a row a reload would have filtered out.
+   *
+   * `trustContext` is the actor the row was attributed to, which for a caller
+   * that resolved none is the conversation's own, matching what the persist
+   * stamps. A scope that already matches is left alone: rows can arrive on a
+   * camera's cadence, and a reload apiece is a cost worth the comparison.
+   */
+  markHistoryStaleForForeignScope(
+    trustContext: TrustContext | undefined,
+  ): void {
+    if (this.historyMatchesScope(trustContext ?? this.trustContext)) {
+      return;
+    }
+    this.markHistoryStale();
   }
 
   /**

@@ -8,7 +8,7 @@
  * difference: a keep taken beside the composer is not a voice session turn.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 import {
   createMockProvider,
@@ -274,6 +274,61 @@ describe("POST /v1/conversations/:id/sight-frame", () => {
         metadataOf(getMessages(live.id)[0]).voiceSessionTurn,
       ).toBeUndefined();
     } finally {
+      live.dispose();
+    }
+  });
+
+  test("a frame from another actor makes the resident history reload", async () => {
+    // The persist stamps the ROW for the actor that sent it, but the message
+    // it appends to the resident history carries no scope of its own. A
+    // conversation resident under one actor would go on sending that array to
+    // the model, image included, while a reload would have filtered it out.
+    const live = liveConversation("Chat keep cross trust");
+    // Scope the resident history for the conversation's own actor.
+    await live.activeConversation.ensureActorScopedHistory();
+    const reload = spyOn(Conversation.prototype, "loadFromDb");
+    try {
+      const attachmentId = await uploadFrame("cross-trust.png");
+      // A principal no guardian binding names, which the vellum-channel
+      // resolver fails closed to `unknown`: not the class this history holds.
+      expect(
+        await persist(
+          live.id,
+          { attachmentId },
+          { "x-vellum-actor-principal-id": "actor-not-bound" },
+        ),
+      ).toMatchObject({ persisted: true });
+
+      await live.activeConversation.ensureActorScopedHistory();
+
+      // Reloaded and re-filtered rather than reusing the array the frame was
+      // appended to.
+      expect(reload).toHaveBeenCalled();
+    } finally {
+      reload.mockRestore();
+      live.dispose();
+    }
+  });
+
+  test("a frame from the resident actor does not force a reload", async () => {
+    // The control on the check above. Frames arrive on a camera's cadence, so
+    // a reload apiece is a real cost and only a differing scope earns one.
+    const live = liveConversation("Chat keep same trust");
+    await live.activeConversation.ensureActorScopedHistory();
+    const reload = spyOn(Conversation.prototype, "loadFromDb");
+    try {
+      const attachmentId = await uploadFrame("same-trust.png");
+      // No actor header, which the resolver reads as the guardian: the class
+      // the resident history is already scoped for.
+      expect(await persist(live.id, { attachmentId })).toMatchObject({
+        persisted: true,
+      });
+
+      await live.activeConversation.ensureActorScopedHistory();
+
+      expect(reload).not.toHaveBeenCalled();
+    } finally {
+      reload.mockRestore();
       live.dispose();
     }
   });

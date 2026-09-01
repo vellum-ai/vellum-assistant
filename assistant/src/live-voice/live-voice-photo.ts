@@ -147,7 +147,11 @@ export interface LiveVoicePhotoResult {
  */
 interface StandaloneImageQueue {
   tail: Promise<void>;
-  queuedSightFrame: { superseded: boolean; attachmentId: string } | null;
+  queuedSightFrame: {
+    superseded: boolean;
+    attachmentId: string;
+    content: string;
+  } | null;
   outstanding: number;
 }
 
@@ -170,6 +174,7 @@ async function enqueueStandaloneImagePersist(
   conversationId: string,
   attachmentId: string,
   kind: "photo" | "sight_frame",
+  content: string,
   job: () => Promise<LiveVoicePhotoResult>,
 ): Promise<LiveVoicePhotoResult> {
   let queue = standaloneImageQueues.get(conversationId);
@@ -183,7 +188,7 @@ async function enqueueStandaloneImagePersist(
   }
   const chained = queue;
 
-  const ticket = { superseded: false, attachmentId };
+  const ticket = { superseded: false, attachmentId, content };
   if (kind === "sight_frame") {
     if (chained.queuedSightFrame) {
       chained.queuedSightFrame.superseded = true;
@@ -202,7 +207,12 @@ async function enqueueStandaloneImagePersist(
         { conversationId, attachmentId: ticket.attachmentId },
         "A newer camera frame replaced one still waiting to persist",
       );
-      reclaimDroppedFrame(ticket.attachmentId);
+      reclaimOrDefer(
+        conversationId,
+        ticket.attachmentId,
+        ticket.content,
+        uuidv7(),
+      );
       return { ok: false };
     }
     return job();
@@ -256,14 +266,38 @@ async function enqueueStandaloneImagePersist(
  * and one that failed to persist is theirs to retry, not the daemon's to
  * delete.
  *
- * Best effort. Losing a row's bytes is not worth failing the persist over.
+ * Never throws, and reports whether the store answered. A delete can fail on
+ * the same contention the rest of this module waits out, and the caller owes
+ * the upload an outcome rather than a log line.
  */
-function reclaimDroppedFrame(attachmentId: string): void {
+function reclaimDroppedFrame(attachmentId: string): boolean {
   try {
     deleteOrphanAttachments([attachmentId]);
+    return true;
   } catch (err) {
     log.warn({ err, attachmentId }, "Could not reclaim a dropped camera frame");
+    return false;
   }
+}
+
+/**
+ * Give the upload up, and hand it to the recheck when the store refuses.
+ *
+ * `messageId` is the id the row would carry, so a later pass asks the right
+ * question: a caller that attempted an insert passes the id it used, and one
+ * that never reached an insert passes a fresh id, which reads absent as soon as
+ * the store is readable and so retries exactly this delete.
+ */
+function reclaimOrDefer(
+  conversationId: string,
+  attachmentId: string,
+  content: string,
+  messageId: string,
+): void {
+  if (reclaimDroppedFrame(attachmentId)) {
+    return;
+  }
+  deferFrameReclaimDecision(conversationId, messageId, attachmentId, content);
 }
 
 /** Conversations with a standalone-image persist still in flight. */
@@ -402,8 +436,9 @@ function announceDeferredImage(pending: PendingFrameReclaim): void {
  *
  * A row that exists means the frame reached the transcript, so its bytes are
  * spoken for and the client is told about the row it was never given. Absent
- * means the write never landed and the upload is this module's to give up.
- * Still unreadable means ask again, for as long as that takes.
+ * means the write never landed and the upload is this module's to give up. A
+ * store that still will not answer, and a delete that answers by failing, are
+ * the same situation here: ask again, for as long as that takes.
  */
 function drainFrameReclaimRechecks(): void {
   for (const pending of pendingFrameReclaims.splice(0)) {
@@ -411,27 +446,35 @@ function drainFrameReclaimRechecks(): void {
       pending.conversationId,
       pending.messageId,
     );
-    if (inserted === "absent") {
-      reclaimDroppedFrame(pending.attachmentId);
-      continue;
-    }
     if (inserted === "exists") {
       announceDeferredImage(pending);
       continue;
     }
-    pending.attempts += 1;
-    if (pending.attempts === RECLAIM_RECHECK_QUICK_PASSES) {
-      log.warn(
-        {
-          conversationId: pending.conversationId,
-          attachmentId: pending.attachmentId,
-        },
-        "Still cannot read whether a camera frame persisted; asking less often until the store answers",
-      );
+    if (inserted === "absent" && reclaimDroppedFrame(pending.attachmentId)) {
+      continue;
     }
-    pendingFrameReclaims.push(pending);
+    keepWaitingForStore(pending);
   }
   scheduleFrameReclaimRecheck();
+}
+
+/**
+ * Put a record back for another pass, counting the attempt so the cadence can
+ * step down. The record is never dropped: it is the only handle on an upload
+ * nothing else in the daemon would collect.
+ */
+function keepWaitingForStore(pending: PendingFrameReclaim): void {
+  pending.attempts += 1;
+  if (pending.attempts === RECLAIM_RECHECK_QUICK_PASSES) {
+    log.warn(
+      {
+        conversationId: pending.conversationId,
+        attachmentId: pending.attachmentId,
+      },
+      "Still cannot settle a camera frame; asking less often until the store answers",
+    );
+  }
+  pendingFrameReclaims.push(pending);
 }
 
 /** Frames whose outcome the store has not reported yet. */
@@ -550,18 +593,28 @@ function persistStandaloneImage(
       "Standalone image dropped: it names no conversation",
     );
     if (kind === "sight_frame") {
-      reclaimDroppedFrame(attachmentId);
+      reclaimOrDefer(
+        conversationId,
+        attachmentId,
+        persistOptions.content,
+        uuidv7(),
+      );
     }
     return Promise.resolve({ ok: false });
   }
-  return enqueueStandaloneImagePersist(conversationId, attachmentId, kind, () =>
-    writeStandaloneImage(
-      conversationId,
-      attachmentId,
-      kind,
-      incarnation,
-      persistOptions,
-    ),
+  return enqueueStandaloneImagePersist(
+    conversationId,
+    attachmentId,
+    kind,
+    persistOptions.content,
+    () =>
+      writeStandaloneImage(
+        conversationId,
+        attachmentId,
+        kind,
+        incarnation,
+        persistOptions,
+      ),
   );
 }
 
@@ -576,13 +629,14 @@ function dropReplacedImage(
   conversationId: string,
   attachmentId: string,
   kind: "photo" | "sight_frame",
+  content: string,
 ): LiveVoicePhotoResult {
   log.warn(
     { conversationId, attachmentId, kind },
     "Standalone image dropped: its conversation was replaced before the write",
   );
   if (kind === "sight_frame") {
-    reclaimDroppedFrame(attachmentId);
+    reclaimOrDefer(conversationId, attachmentId, content, uuidv7());
   }
   return { ok: false };
 }
@@ -625,7 +679,7 @@ async function writeStandaloneImage(
         "Standalone image dropped: its conversation was deleted while it waited",
       );
       if (kind === "sight_frame") {
-        reclaimDroppedFrame(attachmentId);
+        reclaimOrDefer(conversationId, attachmentId, content, uuidv7());
       }
       return { ok: false };
     }
@@ -635,7 +689,7 @@ async function writeStandaloneImage(
     // Asked before the idle wait so a replacement is answered now rather than
     // after holding a stranger's lock for the length of a turn.
     if (!isSameIncarnation(conversationId, incarnation)) {
-      return dropReplacedImage(conversationId, attachmentId, kind);
+      return dropReplacedImage(conversationId, attachmentId, kind, content);
     }
 
     // A turn holds the lock for its whole run. Waiting rather than queueing:
@@ -647,7 +701,7 @@ async function writeStandaloneImage(
         "Standalone image timed out waiting for the conversation to go idle",
       );
       if (kind === "sight_frame") {
-        reclaimDroppedFrame(attachmentId);
+        reclaimOrDefer(conversationId, attachmentId, content, uuidv7());
       }
       return { ok: false };
     }
@@ -662,7 +716,7 @@ async function writeStandaloneImage(
       // The same question rides the persist below as its insert precondition,
       // which is what covers a replacement landing while the write runs.
       if (!isSameIncarnation(conversationId, incarnation)) {
-        return dropReplacedImage(conversationId, attachmentId, kind);
+        return dropReplacedImage(conversationId, attachmentId, kind, content);
       }
 
       const persisted = await persistQueuedMessageBody(conversation, {
@@ -677,6 +731,13 @@ async function writeStandaloneImage(
         insertPrecondition: () =>
           isSameIncarnation(conversationId, incarnation),
       });
+
+      // The row just joined the resident history, and this write ran outside
+      // any turn, so nothing scoped that history for the actor it names. A
+      // frame posted by one actor into a conversation resident under another
+      // would otherwise reach the model inside a scope a reload filters it out
+      // of.
+      conversation.markHistoryStaleForForeignScope(persistOptions.trustContext);
 
       announcePersistedImage(conversationId, content, persisted.id);
 
@@ -725,7 +786,7 @@ async function writeStandaloneImage(
     }
     if (kind === "sight_frame") {
       if (inserted === "absent") {
-        reclaimDroppedFrame(attachmentId);
+        reclaimOrDefer(conversationId, attachmentId, content, requestId);
       } else {
         // The store would not say whether the row landed. The refusal below
         // reports the frame as handled, so the upload cannot simply be left,

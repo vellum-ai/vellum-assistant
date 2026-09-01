@@ -18,6 +18,7 @@ import {
 } from "../../daemon/conversation-registry.js";
 import { applySightFrameRetention } from "../../daemon/conversation-runtime-assembly.js";
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import * as attachmentsStore from "../../persistence/attachments-store.js";
 import {
   getAttachmentById,
   getAttachmentsForMessage,
@@ -123,6 +124,25 @@ mock.module("../../persistence/slow-sync-log.js", () => ({
       storeUnreadable = true;
     }
     return result;
+  },
+}));
+
+/**
+ * Fail the next orphan delete the way contention does, which is the one thing
+ * standing between a dropped frame and its bytes.
+ */
+let failNextReclaim = false;
+const realAttachmentsStore = { ...attachmentsStore };
+mock.module("../../persistence/attachments-store.js", () => ({
+  ...realAttachmentsStore,
+  deleteOrphanAttachments: (ids: string[]) => {
+    if (failNextReclaim) {
+      failNextReclaim = false;
+      throw Object.assign(new Error("database is locked"), {
+        code: "SQLITE_BUSY",
+      });
+    }
+    return realAttachmentsStore.deleteOrphanAttachments(ids);
   },
 }));
 
@@ -833,7 +853,49 @@ describe("standalone image persists are serialized per conversation", () => {
 
       expect(frameStored(frame)).toBe(false);
       expect(getMessages(live.id)).toHaveLength(0);
+      // The delete took first try, so nothing is left waiting on the store.
+      expect(_pendingFrameReclaimCountForTests()).toBe(0);
     } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+      _setProcessingWaitMsForTests(restoreWait);
+    }
+  });
+
+  test("a reclaim the store refuses is retried until it takes", async () => {
+    // The refusal already told the client the daemon owns the upload, so a
+    // delete that fails on the same contention everything else here waits out
+    // cannot just be logged: the record is the only handle left on the bytes.
+    const restoreWait = _setProcessingWaitMsForTests(120);
+    const live = liveConversation("Live voice keep reclaim contention");
+    try {
+      const frame = await uploadFrame("reclaim-contention.png");
+
+      // A turn that outlasts the wait, so the keep is dropped and its upload
+      // becomes the daemon's to collect.
+      live.activeConversation.setProcessing(true);
+      failNextReclaim = true;
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
+        ok: false,
+      });
+
+      expect(frameStored(frame)).toBe(true);
+      expect(_pendingFrameReclaimCountForTests()).toBe(1);
+
+      // The recheck's own delete can fail too, and that keeps the record
+      // rather than spending it.
+      failNextReclaim = true;
+      _drainFrameReclaimRechecksForTests();
+      expect(frameStored(frame)).toBe(true);
+      expect(_pendingFrameReclaimCountForTests()).toBe(1);
+
+      _drainFrameReclaimRechecksForTests();
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(0);
+      expect(frameStored(frame)).toBe(false);
+      expect(getMessages(live.id)).toHaveLength(0);
+    } finally {
+      failNextReclaim = false;
       live.activeConversation.setProcessing(false);
       live.dispose();
       _setProcessingWaitMsForTests(restoreWait);
