@@ -1,3 +1,4 @@
+import { reactionEmojiDisplay } from "@/domains/chat/reactions/reaction-emoji";
 import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 import {
   isAcpSpawnCall,
@@ -10,7 +11,6 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
@@ -574,28 +574,17 @@ export function SlackMessageAttribution({
  * collides with a catalog shortcode must not swap into the unrelated
  * standard emoji.
  */
-export function displayReactionEmoji(
-  raw: string,
-  lookup: (shortcode: string) => string | undefined,
-): string {
-  const customMention = /^<a?:([^:>]+):\d+>$/.exec(raw);
-  if (customMention) {
-    return `:${customMention[1]!}:`;
-  }
-  if (/^[\w+'-]+$/.test(raw)) {
-    return lookup(raw) ?? `:${raw}:`;
-  }
-  return raw;
+export function displayReactionEmoji(raw: string): string {
+  return reactionEmojiDisplay(raw);
 }
 
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {
-  const lookupEmoji = useEmojiLookup();
   const reaction = message.slackMessage?.reaction;
   if (!reaction) {
     return null;
   }
 
-  const emojiDisplay = displayReactionEmoji(reaction.emoji, lookupEmoji);
+  const emojiDisplay = displayReactionEmoji(reaction.emoji);
   const actor =
     reaction.actorDisplayName ??
     message.slackMessage?.sender?.displayName ??

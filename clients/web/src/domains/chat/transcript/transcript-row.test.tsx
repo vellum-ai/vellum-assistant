@@ -94,12 +94,11 @@ describe("TranscriptRow reaction dispatch", () => {
 
   test("a custom emoji sharing a catalog name keeps its identity", () => {
     // A Discord custom emoji named like a catalog shortcode is a distinct
-    // guild emoji; the display must stay ":name:" and never swap into the
-    // unrelated standard emoji once the catalog loads.
-    expect(displayReactionEmoji("<:heart:99>", () => "❤️")).toBe(":heart:");
-    expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
-    expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
-    expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
+    // guild emoji; the display must stay ":name:" and never resolve into the
+    // unrelated standard emoji.
+    expect(displayReactionEmoji("<:heart:99>")).toBe(":heart:");
+    expect(displayReactionEmoji("heart")).toBe("❤️");
+    expect(displayReactionEmoji("🎉")).toBe("🎉");
   });
 });
 

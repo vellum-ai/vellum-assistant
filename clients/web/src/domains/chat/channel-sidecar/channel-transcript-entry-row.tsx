@@ -26,8 +26,12 @@ import {
   isReferenceableChannelEntry,
   type ChannelTranscriptEntry,
 } from "@/domains/chat/channel-sidecar/channel-sidecar-transcript";
+import { reactionEmojiDisplay } from "@/domains/chat/reactions/reaction-emoji";
 import { useTranslation } from "@/i18n";
-import { formatCompactLocalDate, formatFullLocalDate } from "@/utils/format-date";
+import {
+  formatCompactLocalDate,
+  formatFullLocalDate,
+} from "@/utils/format-date";
 
 interface ChannelTranscriptEntryRowProps {
   entry: ChannelTranscriptEntry;
@@ -118,10 +122,10 @@ export function ChannelTranscriptEntryRow({
         >
           {reaction.op === "added"
             ? t("channelTranscriptPanel.reactionAdded", {
-                emoji: reaction.emoji,
+                emoji: reactionEmojiDisplay(reaction.emoji),
               })
             : t("channelTranscriptPanel.reactionRemoved", {
-                emoji: reaction.emoji,
+                emoji: reactionEmojiDisplay(reaction.emoji),
               })}
         </Typography>
       ) : (

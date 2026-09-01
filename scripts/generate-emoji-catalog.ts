@@ -24,7 +24,18 @@ const REPO_ROOT = process.cwd();
 const GEMOJI_COMMIT = "0eca75db9301421efc8710baf7a7576793ae452a";
 const GEMOJI_URL = `https://raw.githubusercontent.com/github/gemoji/${GEMOJI_COMMIT}/db/emoji.json`;
 const GEMOJI_CACHE = resolve(REPO_ROOT, "scripts/data/gemoji.json");
-const TS_OUT = resolve(REPO_ROOT, "clients/web/src/domains/chat/components/chat-composer/emoji-catalog-data.ts");
+const TS_OUT = resolve(
+  REPO_ROOT,
+  "clients/web/src/domains/chat/components/chat-composer/emoji-catalog-data.ts",
+);
+// The render map is a second, much smaller output because displaying an
+// emoji and searching for one have different costs. Search needs aliases and
+// can wait for a lazy chunk; display happens on first paint of any transcript
+// carrying a reaction, so it ships eagerly and resolves synchronously.
+const RENDER_MAP_OUT = resolve(
+  REPO_ROOT,
+  "clients/web/src/domains/chat/reactions/emoji-render-map.ts",
+);
 
 interface GemojiEntry {
   emoji: string;
@@ -35,17 +46,47 @@ interface GemojiEntry {
 }
 
 const STOPWORDS = new Set([
-  "face", "person", "people", "man", "woman", "boy", "girl",
-  "sign", "symbol", "mark", "button",
-  "with", "of", "and", "or", "the", "to", "from",
-  "in", "on", "at", "for", "by", "but", "are",
+  "face",
+  "person",
+  "people",
+  "man",
+  "woman",
+  "boy",
+  "girl",
+  "sign",
+  "symbol",
+  "mark",
+  "button",
+  "with",
+  "of",
+  "and",
+  "or",
+  "the",
+  "to",
+  "from",
+  "in",
+  "on",
+  "at",
+  "for",
+  "by",
+  "but",
+  "are",
 ]);
 
 // Hand-curated extras keyed by gemoji primary shortcode.
 // Use sparingly — only when the gemoji name is famously counterintuitive
 // AND tags/description don't surface common search terms.
 const EXTRA_ALIASES: Record<string, string[]> = {
-  triumph: ["huff", "huffing", "frustrated", "fed_up", "fuming", "mad", "angry_huff", "nose_steam"],
+  triumph: [
+    "huff",
+    "huffing",
+    "frustrated",
+    "fed_up",
+    "fuming",
+    "mad",
+    "angry_huff",
+    "nose_steam",
+  ],
   sob: ["crying", "bawling", "weeping"],
   joy: ["lol", "laughing", "crying_laughing", "lmao", "dying"],
   rofl: ["rolling", "lmao"],
@@ -143,7 +184,9 @@ function buildCatalog(gemoji: GemojiEntry[]): CatalogRow[] {
   for (const [legacy, canonical] of Object.entries(LEGACY_ALIASES)) {
     const target = byShortcode.get(canonical);
     if (!target) {
-      throw new Error(`Legacy alias '${legacy}' targets unknown canonical '${canonical}'`);
+      throw new Error(
+        `Legacy alias '${legacy}' targets unknown canonical '${canonical}'`,
+      );
     }
     rows.push({
       shortcode: legacy,
@@ -152,7 +195,9 @@ function buildCatalog(gemoji: GemojiEntry[]): CatalogRow[] {
     });
   }
 
-  rows.sort((a, b) => (a.shortcode < b.shortcode ? -1 : a.shortcode > b.shortcode ? 1 : 0));
+  rows.sort((a, b) =>
+    a.shortcode < b.shortcode ? -1 : a.shortcode > b.shortcode ? 1 : 0,
+  );
   return rows;
 }
 
@@ -184,11 +229,17 @@ function emitTS(rows: CatalogRow[]): string {
   lines.push("];");
   lines.push("");
   lines.push("/**");
-  lines.push(" * Returns emoji entries matching `query` (case-insensitive), capped at `limit`.");
-  lines.push(" * Ranking: shortcode prefix → shortcode substring → alias prefix → alias substring.");
+  lines.push(
+    " * Returns emoji entries matching `query` (case-insensitive), capped at `limit`.",
+  );
+  lines.push(
+    " * Ranking: shortcode prefix → shortcode substring → alias prefix → alias substring.",
+  );
   lines.push(" * Each shortcode appears at most once in the result.");
   lines.push(" */");
-  lines.push("export function searchEmoji(query: string, limit = 8): EmojiEntry[] {");
+  lines.push(
+    "export function searchEmoji(query: string, limit = 8): EmojiEntry[] {",
+  );
   lines.push("  if (!query) return EMOJI_CATALOG.slice(0, limit);");
   lines.push("  const lower = query.toLowerCase();");
   lines.push("  const shortcodePrefix: EmojiEntry[] = [];");
@@ -219,7 +270,9 @@ function emitTS(rows: CatalogRow[]): string {
   lines.push("    if (sawPrefix) aliasPrefix.push(entry);");
   lines.push("    else if (sawSubstring) aliasSubstring.push(entry);");
   lines.push("  }");
-  lines.push("  return [...shortcodePrefix, ...shortcodeSubstring, ...aliasPrefix, ...aliasSubstring].slice(0, limit);");
+  lines.push(
+    "  return [...shortcodePrefix, ...shortcodeSubstring, ...aliasPrefix, ...aliasSubstring].slice(0, limit);",
+  );
   lines.push("}");
   lines.push("");
   return lines.join("\n");
@@ -230,7 +283,9 @@ async function loadGemoji(): Promise<GemojiEntry[]> {
     console.log(`Fetching gemoji data from ${GEMOJI_URL}`);
     const res = await fetch(GEMOJI_URL);
     if (!res.ok) {
-      throw new Error(`Failed to fetch gemoji: ${res.status} ${res.statusText}`);
+      throw new Error(
+        `Failed to fetch gemoji: ${res.status} ${res.statusText}`,
+      );
     }
     mkdirSync(dirname(GEMOJI_CACHE), { recursive: true });
     writeFileSync(GEMOJI_CACHE, await res.text());
@@ -238,11 +293,42 @@ async function loadGemoji(): Promise<GemojiEntry[]> {
   return JSON.parse(readFileSync(GEMOJI_CACHE, "utf8")) as GemojiEntry[];
 }
 
+function emitRenderMap(rows: CatalogRow[]): string {
+  const lines: string[] = [
+    "// AUTO-GENERATED by scripts/generate-emoji-catalog.ts. Do not edit by hand.",
+    `// Source: github.com/github/gemoji @ ${GEMOJI_COMMIT}`,
+    "// Run: bun run scripts/generate-emoji-catalog.ts",
+    "",
+    "/**",
+    " * Shortcode to glyph, for rendering a reaction someone already sent.",
+    " *",
+    " * Ships eagerly and holds no aliases: a reaction renders on first paint,",
+    " * so resolving it must not wait on the searchable catalog's lazy chunk.",
+    " * Read it through `useReactionEmojiDisplay`, never directly, so every",
+    " * surface applies the same display rules.",
+    " */",
+    "export const EMOJI_RENDER_MAP: Record<string, string> = {",
+  ];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.shortcode)) continue;
+    seen.add(r.shortcode);
+    lines.push(`  ${quoted(r.shortcode)}: ${quoted(r.emoji)},`);
+  }
+  lines.push("};");
+  lines.push("");
+  return lines.join("\n");
+}
+
 async function main(): Promise<void> {
   const gemoji = await loadGemoji();
   const rows = buildCatalog(gemoji);
   writeFileSync(TS_OUT, emitTS(rows));
-  console.log(`Wrote ${rows.length} entries to:\n  ${TS_OUT}`);
+  mkdirSync(dirname(RENDER_MAP_OUT), { recursive: true });
+  writeFileSync(RENDER_MAP_OUT, emitRenderMap(rows));
+  console.log(
+    `Wrote ${rows.length} entries to:\n  ${TS_OUT}\n  ${RENDER_MAP_OUT}`,
+  );
 }
 
 main();
