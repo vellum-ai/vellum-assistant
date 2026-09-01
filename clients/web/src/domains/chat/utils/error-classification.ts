@@ -13,6 +13,7 @@ export type ChatBillingBannerDecision =
 
 const PROVIDER_BILLING_CODE = "PROVIDER_BILLING";
 const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
+const PROVIDER_INVALID_KEY_CODE = "PROVIDER_INVALID_KEY";
 const MANAGED_KEY_INVALID_CODE = "MANAGED_KEY_INVALID";
 const MANAGED_CREDITS_EXHAUSTED_CATEGORY = "credits_exhausted";
 const PROVIDER_BILLING_CATEGORY = "provider_billing";
@@ -159,12 +160,35 @@ export function resolveComposerBillingBanner(args: {
   return args.isLowBalance && !args.dismissed ? "low_balance" : null;
 }
 
+export function isMissingApiKeyChatError(
+  error: ChatErrorLike | null | undefined,
+): boolean {
+  return error?.code === PROVIDER_NOT_CONFIGURED_CODE;
+}
+
+export function isInvalidApiKeyChatError(
+  error: ChatErrorLike | null | undefined,
+): boolean {
+  return error?.code === PROVIDER_INVALID_KEY_CODE;
+}
+
+/**
+ * Errors whose dedicated composer banner owns recovery (Open Settings,
+ * and for a rejected personal key, switch to a managed default). The
+ * generic notice must stay hidden so Doctor is not the default action.
+ */
+export function isApiKeyRecoveryChatError(
+  error: ChatErrorLike | null | undefined,
+): boolean {
+  return isMissingApiKeyChatError(error) || isInvalidApiKeyChatError(error);
+}
+
 export function shouldSuppressGenericChatErrorNotice(
   error: ChatErrorLike | null | undefined,
 ): boolean {
   return (
     getChatBillingBannerDecision(error) !== null ||
-    error?.code === PROVIDER_NOT_CONFIGURED_CODE ||
+    isApiKeyRecoveryChatError(error) ||
     error?.displayAs === "modal"
   );
 }

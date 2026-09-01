@@ -15,7 +15,7 @@ function QuietSlot() {
 }
 
 const REQUIRED = {
-  showMissingApiKeyBanner: false,
+  apiKeyBanner: null,
   onOpenAiSettings: () => {},
   onDismissApiKeyError: () => {},
   showMaintenanceBanner: false,
@@ -34,6 +34,29 @@ describe("ComposerNotices", () => {
     // left by a quiet slot would take the settings pills and the avatar peek
     // down with it for the whole session.
     expect(container.childElementCount).toBe(0);
+  });
+
+  test("an invalid API key banner reaches the stack", () => {
+    const { container } = render(
+      <ComposerNotices {...REQUIRED} apiKeyBanner="invalid" />,
+    );
+
+    expect(container.querySelector('[data-testid="invalid-api-key-banner"]')).not.toBe(
+      null,
+    );
+    expect(container.querySelector('[data-testid="missing-api-key-banner"]')).toBe(
+      null,
+    );
+  });
+
+  test("a missing API key banner reaches the stack", () => {
+    const { container } = render(
+      <ComposerNotices {...REQUIRED} apiKeyBanner="missing" />,
+    );
+
+    expect(container.querySelector('[data-testid="missing-api-key-banner"]')).not.toBe(
+      null,
+    );
   });
 
   test("a slot with a banner in it still renders", () => {

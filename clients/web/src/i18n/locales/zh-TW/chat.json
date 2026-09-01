@@ -1057,6 +1057,17 @@
     "description": "語音輸入需要麥克風存取權限。音訊將由您設定的語音轉文字供應商轉錄，如果未設定供應商，則由您裝置的內建聽寫功能轉錄。",
     "title": "麥克風存取權限"
   },
+  "invalidApiKeyBanner": {
+    "ariaLabel": "API 金鑰無效",
+    "body": "此模型的個人 API 金鑰被拒絕。請在設定 → 模型與服務中更新該金鑰，或切換到預設模型以繼續聊天。",
+    "dismiss": "關閉",
+    "dismissAria": "關閉 API 金鑰無效的提示",
+    "openSettings": "開啟設定",
+    "switchFailed": "無法切換到預設模型。請前往設定 → 模型與服務。",
+    "switchedToDefault": "已切換到 {profile}。可以重新傳送。",
+    "title": "API 金鑰無效",
+    "useDefaultModel": "使用預設模型"
+  },
   "missingApiKeyBanner": {
     "ariaLabel": "需要 API 金鑰",
     "body": "請在「設定」→「模型與服務」中新增 API 金鑰以開始聊天。",

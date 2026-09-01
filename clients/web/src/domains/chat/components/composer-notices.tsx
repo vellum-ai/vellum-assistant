@@ -62,12 +62,21 @@ export interface ComposerNoticesProps {
    */
   billingBannerSlot?: ReactNode;
 
-  /** True when the assistant returned `PROVIDER_NOT_CONFIGURED`. */
-  showMissingApiKeyBanner: boolean;
-  /** Handler invoked when the user clicks "Open settings" on the missing-API-key banner. */
+  /**
+   * Dedicated API-key recovery banner. `missing` is `PROVIDER_NOT_CONFIGURED`;
+   * `invalid` is a rejected personal key (`PROVIDER_INVALID_KEY`).
+   */
+  apiKeyBanner?: "missing" | "invalid" | null;
+  /** Handler invoked when the user clicks "Open settings" on the API-key banner. */
   onOpenAiSettings: () => void;
-  /** Handler invoked when the user dismisses the missing-API-key banner. */
+  /** Handler invoked when the user dismisses the API-key banner. */
   onDismissApiKeyError: () => void;
+  /**
+   * Pins the conversation (and, when needed, the workspace default) to a
+   * managed profile. Only offered for `invalid` when a managed profile exists.
+   */
+  onUseDefaultModel?: () => void;
+  useDefaultModelPending?: boolean;
 
   /**
    * When non-null and in the future, the compaction circuit is open and a
@@ -96,9 +105,11 @@ export function ComposerNotices({
   diskPressureBanner,
   resourcePressureBanner,
   billingBannerSlot,
-  showMissingApiKeyBanner,
+  apiKeyBanner = null,
   onOpenAiSettings,
   onDismissApiKeyError,
+  onUseDefaultModel,
+  useDefaultModelPending = false,
   compactionCircuitOpenUntil,
   onCompactionCircuitExpired,
   showMaintenanceBanner,
@@ -158,11 +169,16 @@ export function ComposerNotices({
       {diskPressureBanner}
       {resourcePressureBanner}
       {billingBannerSlot}
-      {showMissingApiKeyBanner && (
+      {apiKeyBanner && (
         <div className="mb-2">
           <MissingApiKeyBanner
+            variant={apiKeyBanner}
             onOpenSettings={onOpenAiSettings}
             onDismiss={onDismissApiKeyError}
+            onUseDefaultModel={
+              apiKeyBanner === "invalid" ? onUseDefaultModel : undefined
+            }
+            useDefaultModelPending={useDefaultModelPending}
           />
         </div>
       )}

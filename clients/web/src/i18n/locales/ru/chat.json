@@ -617,6 +617,17 @@
     "v3SourceNeedle": "needle",
     "yes": "Да"
   },
+  "invalidApiKeyBanner": {
+    "ariaLabel": "Недействительный API-ключ",
+    "body": "Персональный API-ключ этой модели отклонён. Обновите его в Настройки → Модели и сервисы или переключитесь на модель по умолчанию, чтобы продолжить.",
+    "dismiss": "Закрыть",
+    "dismissAria": "Закрыть предупреждение о недействительном API-ключе",
+    "openSettings": "Открыть настройки",
+    "switchFailed": "Не удалось переключиться на модель по умолчанию. Откройте Настройки → Модели и сервисы.",
+    "switchedToDefault": "Переключено на {profile}. Можно отправить снова.",
+    "title": "Недействительный API-ключ",
+    "useDefaultModel": "Использовать модель по умолчанию"
+  },
   "mobileCallSelector": {
     "callOfTotal": "Вызов {number} из {total}",
     "llmCallCount": "{count, plural, one {1 вызов LLM} few {# вызова LLM} many {# вызовов LLM} other {# вызова LLM}}",

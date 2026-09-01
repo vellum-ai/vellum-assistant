@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   getChatBillingBannerDecision,
+  isApiKeyRecoveryChatError,
   isCreditsExhaustedProviderError,
+  isInvalidApiKeyChatError,
   isManagedCredentialChatError,
+  isMissingApiKeyChatError,
   resolveComposerBillingBanner,
   shouldShowGenericChatErrorNotice,
   shouldSuppressGenericChatErrorNotice,
@@ -74,6 +77,28 @@ describe("chat error classification", () => {
     expect(getChatBillingBannerDecision(error)).toBeNull();
     expect(shouldSuppressGenericChatErrorNotice(error)).toBe(false);
     expect(shouldShowGenericChatErrorNotice(error)).toBe(true);
+  });
+
+  test("routes a missing API key through the dedicated recovery banner", () => {
+    const error = { code: "PROVIDER_NOT_CONFIGURED" };
+
+    expect(isMissingApiKeyChatError(error)).toBe(true);
+    expect(isApiKeyRecoveryChatError(error)).toBe(true);
+    expect(shouldSuppressGenericChatErrorNotice(error)).toBe(true);
+    expect(shouldShowGenericChatErrorNotice(error)).toBe(false);
+  });
+
+  test("routes a rejected personal API key through the dedicated recovery banner", () => {
+    // PROVIDER_INVALID_KEY is distinct from a missing key: the user already
+    // chose a profile, and Doctor is the wrong next step. The composer
+    // banner owns Settings / switch-to-default recovery.
+    const error = { code: "PROVIDER_INVALID_KEY" };
+
+    expect(isInvalidApiKeyChatError(error)).toBe(true);
+    expect(isApiKeyRecoveryChatError(error)).toBe(true);
+    expect(isMissingApiKeyChatError(error)).toBe(false);
+    expect(shouldSuppressGenericChatErrorNotice(error)).toBe(true);
+    expect(shouldShowGenericChatErrorNotice(error)).toBe(false);
   });
 
   test("routes managed key failures through the generic Doctor-capable notice", () => {

@@ -1079,6 +1079,17 @@
     "description": "Voice input requires microphone access. Audio is transcribed by your configured speech-to-text provider, or by your device's built-in dictation when no provider is set.",
     "title": "Microphone Access"
   },
+  "invalidApiKeyBanner": {
+    "ariaLabel": "Invalid API key",
+    "body": "This model's personal API key was rejected. Update it in Settings → Models & Services, or switch to a default model to keep chatting.",
+    "dismiss": "Dismiss",
+    "dismissAria": "Dismiss invalid API key alert",
+    "openSettings": "Open Settings",
+    "switchFailed": "Couldn't switch to a default model. Try Settings → Models & Services.",
+    "switchedToDefault": "Switched to {profile}. You can send again.",
+    "title": "Invalid API key",
+    "useDefaultModel": "Use default model"
+  },
   "missingApiKeyBanner": {
     "ariaLabel": "API key required",
     "body": "Add an API key in Settings → Models & Services to start chatting.",

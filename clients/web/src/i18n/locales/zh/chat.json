@@ -1057,6 +1057,17 @@
     "description": "语音输入需要麦克风访问权限。音频将由您配置的语音转文本提供商转录，如果未设置提供商，则由您设备的内置听写功能转录。",
     "title": "麦克风访问权限"
   },
+  "invalidApiKeyBanner": {
+    "ariaLabel": "API 密钥无效",
+    "body": "此模型的个人 API 密钥被拒绝。请在设置 → 模型与服务中更新该密钥，或切换到默认模型以继续聊天。",
+    "dismiss": "忽略",
+    "dismissAria": "忽略 API 密钥无效的提醒",
+    "openSettings": "打开设置",
+    "switchFailed": "无法切换到默认模型。请前往设置 → 模型与服务。",
+    "switchedToDefault": "已切换到 {profile}。可以重新发送。",
+    "title": "API 密钥无效",
+    "useDefaultModel": "使用默认模型"
+  },
   "missingApiKeyBanner": {
     "ariaLabel": "需要 API 密钥",
     "body": "请在“设置”→“模型与服务”中添加 API 密钥以开始聊天。",

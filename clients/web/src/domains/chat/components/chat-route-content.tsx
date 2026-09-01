@@ -39,6 +39,7 @@ import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
+import { useInvalidApiKeyRecovery } from "@/domains/chat/hooks/use-invalid-api-key-recovery";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import {
@@ -120,7 +121,9 @@ import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   getChatBillingBannerDecision,
+  isInvalidApiKeyChatError,
   isManagedCredentialChatError,
+  isMissingApiKeyChatError,
   resolveComposerBillingBanner,
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
@@ -401,6 +404,13 @@ export function ChatMainPanel({
   // do it.
   const rawIsLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const draftConversationIds = useConversationStore.use.draftConversationIds();
+  const invalidApiKeyRecovery = useInvalidApiKeyRecovery({
+    assistantId,
+    conversationId: activeConversationId,
+    isDraft: !!(
+      activeConversationId && draftConversationIds.has(activeConversationId)
+    ),
+  });
   const { conversationId: urlConversationId } = useParams<{
     conversationId: string;
   }>();
@@ -1461,9 +1471,23 @@ export function ChatMainPanel({
             // dismissible, so disk always wins there; a dismissed or
             // suppressed warning hands the space to the resource banner.
             resourcePressureBanner={resourcePressureBannerSlot}
-            showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
+            apiKeyBanner={
+              isMissingApiKeyChatError(error)
+                ? "missing"
+                : isInvalidApiKeyChatError(error)
+                  ? "invalid"
+                  : null
+            }
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}
+            onUseDefaultModel={
+              invalidApiKeyRecovery.canUseDefaultModel
+                ? () => {
+                    void invalidApiKeyRecovery.useDefaultModel();
+                  }
+                : undefined
+            }
+            useDefaultModelPending={invalidApiKeyRecovery.pending}
             compactionCircuitOpenUntil={compactionCircuitOpenUntil}
             onCompactionCircuitExpired={handleCompactionCircuitExpired}
             showMaintenanceBanner={

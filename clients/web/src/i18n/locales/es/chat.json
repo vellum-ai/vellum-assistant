@@ -1079,6 +1079,17 @@
     "description": "La entrada de voz requiere acceso al micrófono. El audio lo transcribe tu proveedor de voz a texto configurado, o el dictado integrado del dispositivo cuando no hay proveedor.",
     "title": "Acceso al micrófono"
   },
+  "invalidApiKeyBanner": {
+    "ariaLabel": "Clave API no válida",
+    "body": "La clave API personal de este modelo fue rechazada. Actualízala en Ajustes → Modelos y servicios, o cambia a un modelo predeterminado para seguir chateando.",
+    "dismiss": "Descartar",
+    "dismissAria": "Descartar la alerta de clave API no válida",
+    "openSettings": "Abrir ajustes",
+    "switchFailed": "No se pudo cambiar al modelo predeterminado. Prueba en Ajustes → Modelos y servicios.",
+    "switchedToDefault": "Cambiado a {profile}. Ya puedes enviar de nuevo.",
+    "title": "Clave API no válida",
+    "useDefaultModel": "Usar modelo predeterminado"
+  },
   "missingApiKeyBanner": {
     "ariaLabel": "Se requiere una clave API",
     "body": "Añade una clave API en Ajustes → Modelos y servicios para empezar a chatear.",
