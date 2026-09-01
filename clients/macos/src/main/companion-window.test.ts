@@ -1327,3 +1327,44 @@ describe("the Watch flag on the pushed state", () => {
     expect(pushes.at(-1)?.watchEnabled).toBe(false);
   });
 });
+
+/**
+ * The controls installed plugins contribute, which the surface draws and main
+ * only carries.
+ *
+ * The plugin registry lives with the session, and this surface has neither, so
+ * the entrypoints arrive the way the tail does: published by the window that
+ * can read them and pushed back down with the rest of the state.
+ */
+describe("the plugin entrypoints main relays", () => {
+  const ENTRYPOINT = {
+    id: "notes:capture",
+    label: "Capture",
+    icon: "pencil",
+    prompt: "Capture a note about what I am looking at.",
+  };
+
+  beforeEach(() => {
+    send("vellum:companion:setContext", context());
+    pushes.length = 0;
+  });
+
+  test("carries the published entrypoints into pushed state", () => {
+    send("vellum:companion:setContext", context({ entrypoints: [ENTRYPOINT] }));
+
+    expect(pushes.at(-1)?.entrypoints).toEqual([ENTRYPOINT]);
+    expect(state().entrypoints).toEqual([ENTRYPOINT]);
+  });
+
+  /**
+   * A publisher with no plugins loaded, or one that predates the field,
+   * contributes no controls. The surface reads an empty row, never an absent
+   * one.
+   */
+  test("reads a context with no entrypoints as none contributed", () => {
+    send("vellum:companion:setContext", context({ entrypoints: [ENTRYPOINT] }));
+    send("vellum:companion:setContext", context());
+
+    expect(state().entrypoints).toEqual([]);
+  });
+});

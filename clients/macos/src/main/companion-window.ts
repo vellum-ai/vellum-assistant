@@ -340,6 +340,7 @@ let context: CompanionContext = {
   working: false,
   watching: false,
   captureCount: 0,
+  entrypoints: [],
 };
 
 /**
@@ -376,6 +377,10 @@ const currentState = (): CompanionSurfaceState => {
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
     captureCount: context.captureCount ?? 0,
+    // Settled to an array for the same reason: a publisher with no plugins
+    // loaded, or one that predates the field, contributes no controls, and the
+    // surface should read one shape whatever arrived.
+    entrypoints: context.entrypoints ?? [],
     // Read on every rebuild rather than captured once, because the evaluation
     // lands after launch: the app's window has to sign in and fetch it first,
     // and a targeting change can move it again while the app runs.
