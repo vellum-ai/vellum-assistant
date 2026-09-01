@@ -10,7 +10,7 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * Fireworks serves DeepSeek V4 Pro only under the dated official release
  * ID `accounts/fireworks/models/deepseek-v4-pro-0813`; the undated
- * `accounts/fireworks/models/deepseek-v4-pro` preview lost its serverless
+ * `accounts/fireworks/models/deepseek-v4-pro` preview has no serverless
  * deployment (the model page states "Serverless: Not supported"), so every
  * serverless call to it fails. Existing configs can still pin the undated
  * ID in `llm.default`, `llm.callSites.*`, and `llm.profiles.*`.
@@ -128,7 +128,7 @@ export const repairRenamedFireworksDeepseekProModelIdMigration: WorkspaceMigrati
     // disk, I/O error) is safe to retry on later startups.
     retryFailedCheckpoint: true,
     down(_workspaceDir: string): void {
-      // Forward-only: reintroducing the renamed-away model ID would break
+      // Forward-only: reintroducing the undated model ID would break
       // Fireworks calls.
     },
   };
