@@ -51,6 +51,9 @@ import {
 } from "../daemon/sight-frame-storage-sweep.js";
 import {
   attachInlineAttachmentToMessage,
+  ATTACHMENT_FILE_PATH_REFERENCE_SQL,
+  ATTACHMENT_SIDECARS_CLAIMED_SQL,
+  ATTACHMENT_SWEEP_BACKUP_OWNERS_SQL,
   getAttachmentById,
   getAttachmentContent,
   getAttachmentMetadataForMessage,
@@ -671,11 +674,9 @@ describe("sweepAgedSightFrames", () => {
 
   test("sweeps a frame only its second linked message tags", async () => {
     // An attachment can hang off several messages, and only one of them need
-    // name it. A page that ended on one of the others used to advance the cursor
-    // past the attachment on that row's say-so, and the next page's strict `>`
-    // then excluded the link that would have qualified it, permanently. The page
-    // is one row per ATTACHMENT now, so no page boundary can fall between an
-    // attachment's own links.
+    // name it. A page is one row per ATTACHMENT, so no page boundary falls
+    // between an attachment's own links and the cursor can never step past it on
+    // the say-so of a link that does not name it.
     const conversation = createConversation("Call");
     const untagging = await addMessage(
       conversation.id,
@@ -903,12 +904,12 @@ describe("sweepAgedSightFrames", () => {
   });
 
   test("visits no more rows than its budget through an untagged backlog", async () => {
-    // The population that used to be invisible. Every one of these is aged,
-    // large, and an image, so the only thing that disqualifies it is the sight
-    // tag. With the tag test in SQL, one page would walk all 60 index entries
-    // probing message_attachments for each and return nothing, none of it
-    // charged. The page is a plain index range now, so a visit is a returned
-    // row and the budget is a real bound.
+    // Every one of these is aged, large, and an image, so the only thing that
+    // disqualifies it is the sight tag. The page is a plain index range and the
+    // tag test happens over what it returns, so a visit IS a returned row and
+    // the budget bounds the walk. A tag test inside the query would instead let
+    // one page walk all 60 index entries, probing message_attachments for each,
+    // return nothing, and charge nothing.
     await plantUntaggedImages(60);
 
     const result = await sweepAgedSightFrames({
@@ -940,8 +941,7 @@ describe("sweepAgedSightFrames", () => {
   test("caps the links one candidate's tag check reads", async () => {
     // A frame hangs off one message by construction, so the cap costs a real
     // one nothing. What it stops is an attachment with an unusual link count
-    // turning a single candidate into an unbounded read, invisible to the
-    // budget because only the survivors used to be counted.
+    // turning a single candidate into a read the budget cannot see the size of.
     const frame = await plantFrame({ ageDays: 30, tagged: true });
     const extraLinks = SIGHT_FRAME_TAG_PROBE_LIMIT * 3;
     for (let i = 0; i < extraLinks; i++) {
@@ -987,6 +987,26 @@ describe("sweepAgedSightFrames", () => {
     const drained = await sweepAgedSightFrames();
     expect(drained.stoppedOnBudget).toBe(false);
     expect(sweepDelayAfter(drained)).toBe(SWEEP_INTERVAL_MS);
+  });
+
+  test("answers its file_path guards from an index", () => {
+    // The refusal check asks two of these per candidate, for up to two hundred
+    // candidates a pass, so a scan here is a scan of the whole table hundreds of
+    // times an hour. The reclaim asks the third per sidecar it finds.
+    const shapes: Array<[string, Array<string | number>]> = [
+      [ATTACHMENT_FILE_PATH_REFERENCE_SQL, ["/some/attachment.jpg"]],
+      [
+        ATTACHMENT_SIDECARS_CLAIMED_SQL,
+        ["/a.jpg.sweep-tmp", "/a.jpg.sweep-bak"],
+      ],
+      [ATTACHMENT_SWEEP_BACKUP_OWNERS_SQL, [1024, "/some/attachment.jpg"]],
+    ];
+
+    for (const [sql, binds] of shapes) {
+      const detail = queryPlanFor(sql, binds);
+      expect(detail).toContain("INDEX idx_attachments_file_path");
+      expect(detail).not.toMatch(/\bSCAN attachments\b/);
+    }
   });
 
   test("seeks a continuation page straight to the cursor", () => {
@@ -1078,7 +1098,7 @@ describe("sweepAgedSightFrames", () => {
 
     // Every store call throws once the table it reads is not there. The
     // candidate read is guarded and ends the pass quietly; the leftover scan's
-    // is not, and is what used to escape.
+    // is not, so it is the one that reaches the boundary catch.
     getDb().run("ALTER TABLE attachments RENAME TO attachments_hidden");
     startSightFrameStorageSweep();
     try {

@@ -1437,12 +1437,28 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   return deletedCount;
 }
 
+/**
+ * The `file_path` questions the shrink and reclaim guards ask, hoisted so a test
+ * can put the exact text through `EXPLAIN QUERY PLAN`. Each is an equality or
+ * `IN` against a bound parameter, which is what lets the partial index in
+ * migration 375 serve them: a null `file_path` satisfies neither.
+ */
+export const ATTACHMENT_FILE_PATH_REFERENCE_SQL = `SELECT COUNT(*) AS refCount FROM attachments WHERE file_path = ?`;
+
+export const ATTACHMENT_SIDECARS_CLAIMED_SQL = `SELECT COUNT(*) AS claimed FROM attachments WHERE file_path IN (?, ?)`;
+
+export const ATTACHMENT_SWEEP_BACKUP_OWNERS_SQL = `SELECT
+       COUNT(*) AS rows,
+       COALESCE(SUM(CASE WHEN size_bytes > ? THEN 1 ELSE 0 END), 0) AS overstating
+     FROM attachments
+     WHERE file_path = ?`;
+
 /** How many attachment rows name this file. */
 function attachmentFilePathReferenceCount(filePath: string): number {
   return (
     rawGet<{ refCount: number }>(
       "attachments:filePathReferenceCount",
-      `SELECT COUNT(*) AS refCount FROM attachments WHERE file_path = ?`,
+      ATTACHMENT_FILE_PATH_REFERENCE_SQL,
       filePath,
     )?.refCount ?? 0
   );
@@ -1795,11 +1811,7 @@ export function reclaimAttachmentSweepBackup(
 
   const owners = rawGet<{ rows: number; overstating: number }>(
     "attachments:sweepBackupOwners",
-    `SELECT
-       COUNT(*) AS rows,
-       COALESCE(SUM(CASE WHEN size_bytes > ? THEN 1 ELSE 0 END), 0) AS overstating
-     FROM attachments
-     WHERE file_path = ?`,
+    ATTACHMENT_SWEEP_BACKUP_OWNERS_SQL,
     storedBytes,
     filePath,
   );
@@ -1896,7 +1908,7 @@ function sweepSidecarsAreClaimed(filePath: string): boolean {
   return (
     (rawGet<{ claimed: number }>(
       "attachments:sweepSidecarsClaimed",
-      `SELECT COUNT(*) AS claimed FROM attachments WHERE file_path IN (?, ?)`,
+      ATTACHMENT_SIDECARS_CLAIMED_SQL,
       `${filePath}${SWEEP_TEMP_SUFFIX}`,
       `${filePath}${SWEEP_BACKUP_SUFFIX}`,
     )?.claimed ?? 0) > 0
