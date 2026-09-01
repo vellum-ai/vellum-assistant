@@ -325,6 +325,8 @@ describe("SlackSetupWizard step flow", () => {
     expect(screen.queryByLabelText(/App Token/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Connect Slack/i })).toBeNull();
     expect(screen.queryByText(/Credentials saved/i)).not.toBeNull();
+    // The hand-off is the shared notice, channel-interpolated.
+    expect(screen.queryByText(/verify me on Slack/i)).not.toBeNull();
   });
 
   test("step 4 hands both tokens to onSave, trimmed", () => {

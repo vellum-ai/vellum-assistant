@@ -1,3 +1,4 @@
+import { SetupStepList } from "@/components/setup-step-list";
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
 import { Trans, useTranslation } from "@/i18n";
@@ -27,7 +28,7 @@ export function SlackSetupCreateStep({
       >
         {t("slackSetupCreateStep.inSlack")}
       </Typography>
-      <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
+      <SetupStepList>
         <li>
           <Trans
             ns="common"
@@ -43,7 +44,7 @@ export function SlackSetupCreateStep({
             components={{ strong: <strong /> }}
           />
         </li>
-      </ol>
+      </SetupStepList>
 
       <Notice tone="info">
         <Trans
