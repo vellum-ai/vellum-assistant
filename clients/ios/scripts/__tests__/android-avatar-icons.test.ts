@@ -14,12 +14,13 @@
  *
  * The committed resources are XML rather than an image format nobody can read,
  * which makes them tempting to hand-edit. Everything below exists so an edit
- * that the generator would not have produced fails here.
+ * that the generator would not have produced fails here. The same goes for the
+ * generator-owned `<activity-alias>` block in `AndroidManifest.xml`.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,9 +36,11 @@ import {
   type IconSetScope,
 } from "../avatar-icon-core.js";
 import {
+  ANDROID_MANIFEST_PATH,
   ANDROID_RES_DIR,
   generateAndroidAvatarIcons,
   ownedResourcePaths,
+  renderManifestWithIconAliases,
 } from "../generate-android-avatar-icons.js";
 
 /** Scope of the resource set checked into the repo. Narrowing it is a code change. */
@@ -70,6 +73,25 @@ const GROUP_ATTRS = [
 ] as const;
 
 type GroupTransform = Record<(typeof GROUP_ATTRS)[number], string>;
+
+/** Comments fencing the generator-owned region of the manifest. */
+const ALIAS_BLOCK_BEGIN = "<!-- avatar-icon-aliases:begin -->";
+const ALIAS_BLOCK_END = "<!-- avatar-icon-aliases:end -->";
+
+/** Number of icons the picker offers. The block adds the primary alias to them. */
+const EXPECTED_ICON_ALIAS_COUNT = 54;
+
+/** The launcher entry at rest, drawn with the default launcher artwork. */
+const PRIMARY_ALIAS_NAME = ".icon.primary";
+
+/** Deep-link filters `.MainActivity` is the sole receiver of. */
+const EXPECTED_DEEP_LINK_FILTER_COUNT = 6;
+
+const LAUNCHER_ACTION = '<action android:name="android.intent.action.MAIN" />';
+const LAUNCHER_CATEGORY =
+  '<category android:name="android.intent.category.LAUNCHER" />';
+const VIEW_ACTION = '<action android:name="android.intent.action.VIEW" />';
+const SHORTCUTS_META_DATA_NAME = 'android:name="android.app.shortcuts"';
 
 const tempDirs: string[] = [];
 
@@ -182,14 +204,127 @@ function expectedResourcePaths(): string[] {
   ].sort();
 }
 
+function committedManifest(): string {
+  return readFileSync(ANDROID_MANIFEST_PATH, "utf8");
+}
+
+/** The owned region of a manifest, opening marker line through closing marker. */
+function aliasBlockOf(manifest: string): string {
+  const beginAt = manifest.indexOf(ALIAS_BLOCK_BEGIN);
+  const endAt = manifest.indexOf(ALIAS_BLOCK_END);
+  if (beginAt < 0 || endAt < beginAt) {
+    throw new Error("The manifest has no avatar-icon-aliases block");
+  }
+  return manifest.slice(
+    manifest.lastIndexOf("\n", beginAt) + 1,
+    endAt + ALIAS_BLOCK_END.length,
+  );
+}
+
+/** An element's attributes without those of anything nested inside it. */
+function openingTagOf(element: string): string {
+  const tag = /^[ \t]*<[\w-]+(?:\s[^>]*)?>/.exec(element)?.[0];
+  if (!tag) {
+    throw new Error(`No opening tag in: ${element.slice(0, 80)}`);
+  }
+  return tag;
+}
+
+function attribute(element: string, name: string): string | undefined {
+  return new RegExp(`android:${name}="([^"]*)"`).exec(
+    openingTagOf(element),
+  )?.[1];
+}
+
+function mainActivityOf(manifest: string): string {
+  const element = /^[ \t]*<activity(?:\s[^>]*)?>[\s\S]*?<\/activity>/m.exec(
+    manifest,
+  )?.[0];
+  if (!element || attribute(element, "name") !== ".MainActivity") {
+    throw new Error("The manifest has no .MainActivity element");
+  }
+  return element;
+}
+
+function aliasElementsOf(manifest: string): string[] {
+  return (
+    aliasBlockOf(manifest).match(
+      /^[ \t]*<activity-alias(?:\s[^>]*)?>[\s\S]*?<\/activity-alias>/gm,
+    ) ?? []
+  );
+}
+
+/** Trims each line so nesting depth stays out of a content comparison. */
+function normalizeIndentation(element: string): string {
+  return element
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n");
+}
+
+function intentFiltersOf(element: string): string[] {
+  return (
+    element.match(
+      /^[ \t]*<intent-filter(?:\s[^>]*)?>[\s\S]*?<\/intent-filter>/gm,
+    ) ?? []
+  ).map(normalizeIndentation);
+}
+
+function metaDataOf(element: string): string[] {
+  return (element.match(/^[ \t]*<meta-data\s[^>]*\/>/gm) ?? []).map(
+    normalizeIndentation,
+  );
+}
+
+interface FreshGeneration {
+  resDir: string;
+  manifestPath: string;
+}
+
+let freshGeneration: FreshGeneration | undefined;
+
+/**
+ * One generator run into a throwaway tree, shared by every test that reads it.
+ * Rasterizing nine eye styles is the slow part, so it happens once.
+ */
+function generateFresh(): FreshGeneration {
+  if (freshGeneration) {
+    return freshGeneration;
+  }
+  const root = mkdtempSync(join(tmpdir(), "android-avatar-icons-"));
+  tempDirs.push(root);
+  const resDir = join(root, "res");
+  const manifestPath = join(root, "AndroidManifest.xml");
+  copyFileSync(ANDROID_MANIFEST_PATH, manifestPath);
+  generateAndroidAvatarIcons({ resDir, manifestPath, scope: COMMITTED_SCOPE });
+  freshGeneration = { resDir, manifestPath };
+  return freshGeneration;
+}
+
 describe("committed Android avatar icons", () => {
   test(
     "match a fresh generation",
     () => {
-      const resDir = mkdtempSync(join(tmpdir(), "android-avatar-icons-"));
-      tempDirs.push(resDir);
-      generateAndroidAvatarIcons({ resDir, scope: COMMITTED_SCOPE });
-      expect(snapshot(ANDROID_RES_DIR)).toEqual(snapshot(resDir));
+      expect(snapshot(ANDROID_RES_DIR)).toEqual(
+        snapshot(generateFresh().resDir),
+      );
+    },
+    GENERATION_TIMEOUT_MS,
+  );
+
+  test(
+    "survive a second generator run untouched",
+    () => {
+      const { resDir, manifestPath } = generateFresh();
+      const resources = snapshot(resDir);
+      const manifest = readFileSync(manifestPath, "utf8");
+      generateAndroidAvatarIcons({
+        resDir,
+        manifestPath,
+        scope: COMMITTED_SCOPE,
+      });
+      expect(snapshot(resDir)).toEqual(resources);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifest);
     },
     GENERATION_TIMEOUT_MS,
   );
@@ -363,4 +498,213 @@ describe("alternate icon sizing", () => {
     },
     GENERATION_TIMEOUT_MS,
   );
+});
+
+describe("the manifest activity-alias block", () => {
+  const manifest = committedManifest();
+  const mainActivity = mainActivityOf(manifest);
+  const aliases = aliasElementsOf(manifest);
+
+  test("matches a fresh render of the committed manifest", () => {
+    expect(renderManifestWithIconAliases(manifest, COMMITTED_SCOPE)).toBe(
+      manifest,
+    );
+  });
+
+  /**
+   * Rendering replaces the block when the markers are there and creates it
+   * directly after `.MainActivity` when they are not, so stripping the block and
+   * rendering again has to land it back exactly where it was.
+   */
+  test("is recreated in place after being deleted", () => {
+    const withoutBlock = manifest.replace(`\n\n${aliasBlockOf(manifest)}`, "");
+    expect(withoutBlock).not.toContain(ALIAS_BLOCK_BEGIN);
+    expect(renderManifestWithIconAliases(withoutBlock, COMMITTED_SCOPE)).toBe(
+      manifest,
+    );
+  });
+
+  test("declares the primary alias first, then one alias per icon", () => {
+    expect(aliases.map((alias) => attribute(alias, "name"))).toEqual([
+      PRIMARY_ALIAS_NAME,
+      ...traitCombinations(COMMITTED_SCOPE).map(
+        (traits) => `.icon.${androidResourceNameForTraits(traits)}`,
+      ),
+    ]);
+    expect(aliases).toHaveLength(EXPECTED_ICON_ALIAS_COUNT + 1);
+  });
+
+  /**
+   * Exactly one launcher-bearing component is enabled at rest, and it is the
+   * primary alias, so a fresh install shows the default launcher icon. The
+   * picker enables one alternate and disables the rest, never touching
+   * `.MainActivity`.
+   */
+  test("enables the primary alias alone", () => {
+    expect(
+      aliases
+        .filter((alias) => attribute(alias, "enabled") === "true")
+        .map((alias) => attribute(alias, "name")),
+    ).toEqual([PRIMARY_ALIAS_NAME]);
+    for (const alias of aliases.slice(1)) {
+      expect(attribute(alias, "enabled")).toBe("false");
+    }
+  });
+
+  test("points every alias at MainActivity", () => {
+    for (const alias of aliases) {
+      expect(attribute(alias, "targetActivity")).toBe(".MainActivity");
+      expect(attribute(alias, "exported")).toBe("true");
+      expect(attribute(alias, "label")).toBe("@string/app_name");
+    }
+  });
+
+  test("draws the primary alias with the default launcher icons", () => {
+    const [primary] = aliases;
+    expect(attribute(primary ?? "", "icon")).toBe("@mipmap/ic_launcher");
+    expect(attribute(primary ?? "", "roundIcon")).toBe(
+      "@mipmap/ic_launcher_round",
+    );
+  });
+
+  test("draws every alternate alias with its own icon", () => {
+    for (const alias of aliases.slice(1)) {
+      const resource = attribute(alias, "name")?.replace(".icon.", "");
+      expect(attribute(alias, "icon")).toBe(`@mipmap/${resource}`);
+      expect(attribute(alias, "roundIcon")).toBe(`@mipmap/${resource}`);
+    }
+  });
+
+  /**
+   * An alias exists to carry a launcher icon and nothing more. Deep links
+   * resolve through the always-enabled `.MainActivity`, so cloning its VIEW
+   * filters onto 55 components would only multiply the App Links verification
+   * surface.
+   */
+  test("gives every alias one MAIN/LAUNCHER filter and no deep links", () => {
+    for (const alias of aliases) {
+      const filters = intentFiltersOf(alias);
+      expect(filters).toHaveLength(1);
+      expect(filters[0]).toContain(LAUNCHER_ACTION);
+      expect(filters[0]).toContain(LAUNCHER_CATEGORY);
+      expect(filters[0]).not.toContain(VIEW_ACTION);
+    }
+  });
+
+  /**
+   * A launcher reads the static shortcuts off the component it launched, so the
+   * long-press menu would empty out for whoever picked an alias without them.
+   */
+  test("clones MainActivity's shortcuts meta-data onto every alias", () => {
+    const shortcuts = metaDataOf(mainActivity).filter((meta) =>
+      meta.includes(SHORTCUTS_META_DATA_NAME),
+    );
+    expect(shortcuts).toHaveLength(1);
+    for (const alias of aliases) {
+      expect(metaDataOf(alias)).toEqual(shortcuts);
+    }
+  });
+});
+
+describe("MainActivity", () => {
+  const mainActivity = mainActivityOf(committedManifest());
+
+  /**
+   * The generator owns the alias block and nothing else. Every alias targets
+   * `.MainActivity`, and the static shortcuts, the voice notification, and the
+   * Quick Settings tile all name its class explicitly, so it is enabled at all
+   * times and stays hand-maintained outside the generated region.
+   */
+  test("stays the always-enabled target the generator never touches", () => {
+    expect(attribute(mainActivity, "name")).toBe(".MainActivity");
+    expect(attribute(mainActivity, "exported")).toBe("true");
+    expect(attribute(mainActivity, "launchMode")).toBe("singleTask");
+    expect(attribute(mainActivity, "label")).toBe("@string/app_name");
+    expect(attribute(mainActivity, "theme")).toBe(
+      "@style/AppTheme.NoActionBarLaunch",
+    );
+    expect(openingTagOf(mainActivity)).not.toContain("android:enabled");
+  });
+
+  /** The launcher entry belongs to the aliases; a second one shows two icons. */
+  test("declares no MAIN/LAUNCHER intent filter", () => {
+    expect(
+      intentFiltersOf(mainActivity).filter(
+        (filter) =>
+          filter.includes(LAUNCHER_ACTION) &&
+          filter.includes(LAUNCHER_CATEGORY),
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("keeps every deep-link filter", () => {
+    expect(
+      intentFiltersOf(mainActivity).filter((filter) =>
+        filter.includes(VIEW_ACTION),
+      ),
+    ).toHaveLength(EXPECTED_DEEP_LINK_FILTER_COUNT);
+  });
+
+  test("keeps the static shortcuts meta-data", () => {
+    expect(
+      metaDataOf(mainActivity).filter((meta) =>
+        meta.includes(SHORTCUTS_META_DATA_NAME),
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+/**
+ * The alias block only holds up while `.MainActivity` keeps its side of the
+ * split, and a manifest edit is the one thing that can break it, so rendering
+ * refuses rather than emitting a block that silently drops an entry point.
+ */
+describe("rendering a MainActivity that broke the split", () => {
+  const manifest = committedManifest();
+
+  function withMutatedMainActivity(
+    mutate: (element: string) => string,
+  ): string {
+    const element = mainActivityOf(manifest);
+    return manifest.replace(element, () => mutate(element));
+  }
+
+  test("refuses a MainActivity that took the launcher entry back", () => {
+    const mutated = withMutatedMainActivity((element) =>
+      element.replace("<intent-filter>", () =>
+        [
+          "<intent-filter>",
+          `                ${LAUNCHER_ACTION}`,
+          `                ${LAUNCHER_CATEGORY}`,
+          "            </intent-filter>",
+          "",
+          "            <intent-filter>",
+        ].join("\n"),
+      ),
+    );
+    expect(() =>
+      renderManifestWithIconAliases(mutated, COMMITTED_SCOPE),
+    ).toThrow(/MAIN\/LAUNCHER/);
+  });
+
+  test("refuses a MainActivity that lost its deep links", () => {
+    const mutated = withMutatedMainActivity((element) =>
+      element.replace(
+        /[ \t]*<intent-filter(?:\s[^>]*)?>[\s\S]*?<\/intent-filter>/g,
+        "",
+      ),
+    );
+    expect(() =>
+      renderManifestWithIconAliases(mutated, COMMITTED_SCOPE),
+    ).toThrow(/deep-link VIEW intent filter/);
+  });
+
+  test("refuses a MainActivity that lost its shortcuts meta-data", () => {
+    const mutated = withMutatedMainActivity((element) =>
+      element.replace(/[ \t]*<meta-data\s[^>]*\/>/, ""),
+    );
+    expect(() =>
+      renderManifestWithIconAliases(mutated, COMMITTED_SCOPE),
+    ).toThrow(/android\.app\.shortcuts/);
+  });
 });
