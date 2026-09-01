@@ -331,10 +331,11 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
   });
 
-  test("shares both keeps when their uploads resolve out of order", async () => {
-    // Nothing is staged and nothing is latest-wins, so the slower upload is
-    // not a loser to be dropped: it is a frame the call saw, and the
-    // transcript's order is the order the frames landed in.
+  test("sends overlapping keeps in capture order, not upload order", async () => {
+    // The transcript is the record of what the call saw, and the model reads a
+    // frame against the speech beside it. A scene persisted after a newer one
+    // is read as the view the following words were about, and the camera can
+    // close before any later keep corrects it.
     uploadsResolveImmediately = false;
     const { view } = renderSight();
 
@@ -348,24 +349,198 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     await flush();
     expect(pendingUploads).toHaveLength(2);
 
+    // The newer capture's upload finishes first, which decides nothing.
     await act(async () => {
       pendingUploads[1]!({ ok: true, id: "att-newer" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
     await act(async () => {
       pendingUploads[0]!({ ok: true, id: "att-older" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(controls.sightFrame.mock.calls).toEqual([
-      ["att-newer"],
       ["att-older"],
+      ["att-newer"],
     ]);
-    // The pulse follows resolve order too, so it can briefly show the older of
-    // two frames that overlapped. Accepted: the gate's rate floor puts keeps
-    // seconds apart, and the correction is the next keep.
-    expect(view.result.current.heldFrame?.attachmentId).toBe("att-older");
+    // The pulse follows the sends, so it settles on the newest scene.
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-newer");
     expect(deleteChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test("the ordering the assistant sees is the ordering it is told about", async () => {
+    // The latch and reclaim bookkeeping reads sends as they go out, so it has
+    // to see capture order too, not the order the uploads happened to finish.
+    uploadsResolveImmediately = false;
+    renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    await act(async () => {
+      pendingUploads[1]!({ ok: true, id: "att-newer" });
+      pendingUploads[0]!({ ok: true, id: "att-older" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(useLiveVoiceStore.getState().outstandingSightFrames).toEqual([
+      "att-older",
+      "att-newer",
+    ]);
+  });
+
+  test("an earlier capture that fails releases the one behind it", async () => {
+    // Nothing waits on a frame that will never come. An upload that fails
+    // settles its place in the order just as a successful one does.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    await act(async () => {
+      pendingUploads[1]!({ ok: true, id: "att-newer" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingUploads[0]!({ ok: false, status: 500, error: {} });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(controls.sightFrame.mock.calls).toEqual([["att-newer"]]);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-newer");
+  });
+
+  test("an earlier capture refused by the epoch releases the one behind it", async () => {
+    // A flip invalidates everything captured before it, including the frame a
+    // newer keep would otherwise be queued behind.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    act(() => {
+      view.rerender({ cameraOpen: true, facing: "user" });
+    });
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    await act(async () => {
+      pendingUploads[1]!({ ok: true, id: "att-after-flip" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      pendingUploads[0]!({ ok: true, id: "att-before-flip" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // The pre-flip frame is a view of somewhere the camera is not pointing.
+    expect(controls.sightFrame.mock.calls).toEqual([["att-after-flip"]]);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-after-flip");
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-before-flip",
+    );
+  });
+
+  test("a new session does not queue behind the call before it", async () => {
+    // The order is per session. A capture left in flight by a call that ended
+    // must never be the thing the next call's first keep is waiting on.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+
+    act(() => {
+      useLiveVoiceStore.getState().reset();
+    });
+    const successor = makeControlsSpies();
+    act(() => {
+      seedLiveVoiceSession("listening", {
+        assistantId: ASSISTANT_ID,
+        conversationId: "conv_next",
+        controls: successor,
+      });
+    });
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    await act(async () => {
+      pendingUploads[1]!({ ok: true, id: "att-new-session" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(successor.sightFrame.mock.calls).toEqual([["att-new-session"]]);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-new-session");
+  });
+
+  test("a stalled capture does not hold the rest of the call hostage", async () => {
+    // The cap. An upload that hangs rather than fails would otherwise park
+    // every later keep behind it for as long as the camera is open.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    for (let i = 0; i < 6; i++) {
+      act(() => {
+        samplerOptions?.onDecision(KEEP, performance.now());
+      });
+      await flush();
+    }
+    expect(pendingUploads).toHaveLength(6);
+
+    // Everything except the first resolves; the first never does.
+    await act(async () => {
+      for (let i = 1; i < 6; i++) {
+        pendingUploads[i]!({ ok: true, id: `att-${i}` });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(controls.sightFrame.mock.calls).toEqual([
+      ["att-1"],
+      ["att-2"],
+      ["att-3"],
+      ["att-4"],
+      ["att-5"],
+    ]);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-5");
+
+    // And when the stalled one finally lands, its place in the order is long
+    // gone, so it is given back rather than sent after everything newer.
+    await act(async () => {
+      pendingUploads[0]!({ ok: true, id: "att-stalled" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(5);
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-stalled",
+    );
   });
 
   test("refuses a frame whose session ended under the upload", async () => {
