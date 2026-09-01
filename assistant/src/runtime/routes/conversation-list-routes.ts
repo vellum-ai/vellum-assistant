@@ -13,6 +13,7 @@
 import { z } from "zod";
 
 import { CHANNEL_IDS } from "../../channels/types.js";
+import { isAssistantInitiatedThreadsEnabled } from "../../config/assistant-initiated-threads-gate.js";
 import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
@@ -22,7 +23,6 @@ import {
   type SignalType,
 } from "../../persistence/conversation-attention-store.js";
 import { isConversationProcessing } from "../../persistence/conversation-crud.js";
-import { isAssistantInitiatedThreadsEnabled } from "../../config/assistant-initiated-threads-gate.js";
 import {
   type ConversationRow,
   getDisplayMetaForConversations,
