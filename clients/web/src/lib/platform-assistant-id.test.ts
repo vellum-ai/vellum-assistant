@@ -106,7 +106,10 @@ describe("resolvePlatformAssistantId", () => {
     await expect(resolvePlatformAssistantId("self")).resolves.toBe(
       PLATFORM_ASSISTANT_ID,
     );
-    expect(resolveLocalAssistantPlatformIdentityMock).toHaveBeenCalled();
+    expect(resolveLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith(
+      "self",
+      { allowGatewayRepair: false },
+    );
     expect(fetchPlatformStatusMock).toHaveBeenCalledWith(
       {
         gatewayUrl: "https://gateway.example.com",

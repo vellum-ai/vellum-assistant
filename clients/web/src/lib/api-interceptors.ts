@@ -124,14 +124,28 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // Every removed entry (contacts, trust-rules, permissions,
   // channel-admission-policy, …) was retired by migrating its call sites
   // to the generated gateway SDK, whose client forwards all
-  // assistant-scoped requests without this list — that is the paved road
+  // assistant-scoped requests without this list: that is the paved road
   // for new endpoints. Deliberately NOT listed: `artifacts` (no
-  // gateway/daemon route exists) and `a2a` (platform broker route); those
-  // stay on the platform. The contact family (`contacts`,
-  // `contact-channels`) is forwarded via {@link FLATTENED_FIRST_SEGMENTS}
-  // with the assistant prefix stripped — it does not belong in this
-  // allowlist.
+  // gateway/daemon route exists), `a2a` (platform broker route), and
+  // `push-tokens` / `live-activity` (Django-owned token registration).
+  // Those stay on the platform in cloud and local-with-ingress. Remote
+  // gateway authorizes the last two via
+  // {@link authorizeRemoteGatewayRequest} so the features gate does not
+  // abort them. The contact family (`contacts`, `contact-channels`) is
+  // forwarded via {@link FLATTENED_FIRST_SEGMENTS} with the assistant
+  // prefix stripped — it does not belong in this allowlist.
   "config",
+]);
+
+/**
+ * Django-owned device and Live Activity token routes. In remote-gateway
+ * mode they are same-origin to the ingress, so they must carry the
+ * paired bearer or {@link platformFeaturesGate} aborts them before
+ * Django (or the gateway proxy that reaches Django) sees them.
+ */
+const PLATFORM_PUSH_FIRST_SEGMENTS = new Set<string>([
+  "push-tokens",
+  "live-activity",
 ]);
 
 const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
@@ -192,6 +206,11 @@ function isDaemonBoundPath(url: string): boolean {
     RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) ||
     FLATTENED_FIRST_SEGMENTS.has(firstSegment)
   );
+}
+
+function isPlatformPushPath(url: string): boolean {
+  const match = ASSISTANT_PATH_RE.exec(new URL(url).pathname);
+  return match !== null && PLATFORM_PUSH_FIRST_SEGMENTS.has(match[2]);
 }
 
 /**
@@ -405,6 +424,13 @@ function createInterceptor({
     }
 
     if (allowRemoteGatewayDirect) {
+      const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
+      if (remoteGateway) {
+        return remoteGateway;
+      }
+    }
+
+    if (!isDaemonClient && isPlatformPushPath(newRequest.url)) {
       const remoteGateway = authorizeRemoteGatewayRequest(newRequest);
       if (remoteGateway) {
         return remoteGateway;
