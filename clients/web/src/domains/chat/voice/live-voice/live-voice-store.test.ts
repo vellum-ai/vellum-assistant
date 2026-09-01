@@ -21,7 +21,6 @@ import {
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
-  MAX_RECLAIM_SETTLE_MS,
   PER_JOB_CEILING_MS,
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
@@ -839,7 +838,10 @@ describe("sight frame refusals", () => {
     ).toBe(at + 2 * PER_JOB_CEILING_MS);
   });
 
-  test("the deadline is capped however long the queue got", () => {
+  test("the deadline keeps scaling however long the queue got", () => {
+    // 400 photos ahead is over three hours of serialized persists. The delete
+    // waits all of it out: any shorter deadline can fire while the persist is
+    // still queued and take the frame with it.
     const { generation } = sightSession();
     for (let i = 0; i < 400; i++) {
       attachLiveVoiceImage(`photo-${i}`, generation);
@@ -851,7 +853,7 @@ describe("sight frame refusals", () => {
 
     expect(
       useLiveVoiceStore.getState().sightFramesToReclaim[0]?.notBefore,
-    ).toBe(at + MAX_RECLAIM_SETTLE_MS);
+    ).toBe(at + 402 * PER_JOB_CEILING_MS);
   });
 
   test("a send after the reset pushes the waiting reclaims out", () => {
@@ -933,7 +935,7 @@ describe("sight frame refusals", () => {
 
     const takenLate = useLiveVoiceStore
       .getState()
-      .takeDueSightFrameReclaims(Date.now() + MAX_RECLAIM_SETTLE_MS + 1);
+      .takeDueSightFrameReclaims(Date.now() + 2 * PER_JOB_CEILING_MS + 1);
 
     expect(takenLate.map((e) => e.attachmentId)).toEqual(["att-1"]);
     expect(reclaimed()).toEqual([]);

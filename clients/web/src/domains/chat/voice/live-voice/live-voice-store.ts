@@ -720,16 +720,6 @@ export interface SightFrameReclaim {
 export const PER_JOB_CEILING_MS = 35_000;
 
 /**
- * The longest a reset-routed reclaim is ever made to wait.
- *
- * The derived deadline scales with how many jobs can be queued ahead, and a
- * long call with many photos would otherwise push it hours out. Ten minutes is
- * far past any real drain and keeps a genuinely orphaned upload from waiting
- * indefinitely for a delete nobody is coming to make.
- */
-export const MAX_RECLAIM_SETTLE_MS = 600_000;
-
-/**
  * How many kept frames the outstanding ledger remembers, and how many pruned
  * ids it keeps behind it.
  *
@@ -889,9 +879,9 @@ function mergeSightFrameReclaims(
  *
  * A send that goes out while reset-routed entries are still waiting lands
  * BEHIND the jobs they are waiting on, in the same conversation queue, so it
- * moves their deadline by exactly what it adds. Event-driven and bounded: the
- * absolute cap still applies, and an entry with no deadline (a refusal routed
- * it) is never given one.
+ * moves their deadline by exactly what it adds. Event-driven and bounded: one
+ * job's worth per send that actually happened, and an entry with no deadline
+ * (a refusal routed it) is never given one.
  */
 function extendPendingSightFrameReclaims(
   queued: readonly SightFrameReclaim[],
@@ -899,13 +889,12 @@ function extendPendingSightFrameReclaims(
   if (!queued.some((entry) => entry.notBefore !== undefined)) {
     return queued;
   }
-  const ceiling = Date.now() + MAX_RECLAIM_SETTLE_MS;
   return queued.map((entry) =>
     entry.notBefore === undefined
       ? entry
       : {
           ...entry,
-          notBefore: Math.min(entry.notBefore + PER_JOB_CEILING_MS, ceiling),
+          notBefore: entry.notBefore + PER_JOB_CEILING_MS,
         },
   );
 }
@@ -957,13 +946,15 @@ function queueUnacknowledgedSightFrames(
   //
   // It over-counts on purpose: a photo that already persisted is still
   // counted, because nothing acknowledges one. Over-counting only ever waits
-  // longer, which is the safe direction, and the cap bounds it. The cleaner
-  // signal is the daemon echoing an ack per persist, which is a later daemon
-  // change and not this one.
+  // longer, which is the safe direction: a delete that fires while the
+  // persist is still queued takes the frame with it, while one that waits
+  // out jobs long finished merely leaves a lost upload uncollected for a
+  // while. No cap trims the wait for the same reason, since any cap under
+  // the queue's true drain time reopens the early delete. The cleaner signal
+  // is the daemon echoing an ack per persist, which is a later daemon change
+  // and not this one.
   const queuedAhead = state.outstandingPhotoSends + unacknowledged.length;
-  const notBefore =
-    Date.now() +
-    Math.min(MAX_RECLAIM_SETTLE_MS, (queuedAhead + 1) * PER_JOB_CEILING_MS);
+  const notBefore = Date.now() + (queuedAhead + 1) * PER_JOB_CEILING_MS;
   return mergeSightFrameReclaims(
     state.sightFramesToReclaim,
     unacknowledged.map((attachmentId) => ({
