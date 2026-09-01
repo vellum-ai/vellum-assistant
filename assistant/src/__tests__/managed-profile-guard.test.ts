@@ -264,7 +264,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   });
 
   test("PUT on the code-owned latency profile is rejected, status re-enable included", async () => {
-    // Speed fronts live voice, so it takes no writes at all: the re-enable
+    // Fast fronts live voice, so it takes no writes at all: the re-enable
     // escape hatch the other managed profiles keep would persist a stub that
     // never governs what the name resolves to.
     seedRawConfig({ llm: { profiles: {} } });
