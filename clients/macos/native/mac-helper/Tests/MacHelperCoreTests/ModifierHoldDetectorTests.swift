@@ -10,11 +10,15 @@ private typealias Edge = ModifierHoldDetector.Edge
     var detector = ModifierHoldDetector()
 
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false)
             == [Edge.down]
     )
     #expect(
-        detector.flagsChanged(targetHeld: false, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: false)
             == [Edge.up]
     )
 }
@@ -25,14 +29,20 @@ private typealias Edge = ModifierHoldDetector.Edge
     var detector = ModifierHoldDetector()
 
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false)
             == [Edge.down]
     )
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false) == []
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false) == []
     )
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false) == []
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false) == []
     )
 }
 
@@ -42,11 +52,15 @@ private typealias Edge = ModifierHoldDetector.Edge
     var detector = ModifierHoldDetector()
 
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false)
             == [Edge.down]
     )
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: true)
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: true)
             == [Edge.up]
     )
 }
@@ -56,13 +70,21 @@ private typealias Edge = ModifierHoldDetector.Edge
 @Test func aDisqualifiedHoldDoesNotReopenWhenTheExtraModifierLifts() {
     var detector = ModifierHoldDetector()
 
-    _ = detector.flagsChanged(targetHeld: true, extraModifiersHeld: false)
-    _ = detector.flagsChanged(targetHeld: true, extraModifiersHeld: true)
+    _ = detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false)
+    _ = detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: true)
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false) == []
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false) == []
     )
     #expect(
-        detector.flagsChanged(targetHeld: false, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: false)
             == []
     )
 }
@@ -72,10 +94,14 @@ private typealias Edge = ModifierHoldDetector.Edge
     var detector = ModifierHoldDetector()
 
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: true) == []
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: true) == []
     )
     #expect(
-        detector.flagsChanged(targetHeld: false, extraModifiersHeld: true) == []
+        detector.flagsChanged(
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: true) == []
     )
 }
 
@@ -85,13 +111,17 @@ private typealias Edge = ModifierHoldDetector.Edge
     var detector = ModifierHoldDetector()
 
     #expect(
-        detector.flagsChanged(targetHeld: true, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false)
             == [Edge.down]
     )
     #expect(detector.keyDown() == [Edge.up])
     // The release that follows is owed nothing: the hold is already closed.
     #expect(
-        detector.flagsChanged(targetHeld: false, extraModifiersHeld: false)
+        detector.flagsChanged(
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: false)
             == []
     )
 }
@@ -103,7 +133,8 @@ private typealias Edge = ModifierHoldDetector.Edge
 
     #expect(
         detector.flagsChanged(
-            targetHeld: true,
+        targetHeld: true,
+        anyTargetHeld: true,
             extraModifiersHeld: false,
             ordinaryKeyHeld: { true }
         ) == []
@@ -121,11 +152,14 @@ private typealias Edge = ModifierHoldDetector.Edge
     }
 
     _ = detector.flagsChanged(
-        targetHeld: true, extraModifiersHeld: false, ordinaryKeyHeld: poll)
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false, ordinaryKeyHeld: poll)
     _ = detector.flagsChanged(
-        targetHeld: true, extraModifiersHeld: false, ordinaryKeyHeld: poll)
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false, ordinaryKeyHeld: poll)
     _ = detector.flagsChanged(
-        targetHeld: false, extraModifiersHeld: false, ordinaryKeyHeld: poll)
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: false, ordinaryKeyHeld: poll)
 
     #expect(polls == 1)
 }
@@ -143,7 +177,9 @@ private typealias Edge = ModifierHoldDetector.Edge
     var detector = ModifierHoldDetector()
 
     #expect(detector.cancel() == [])
-    _ = detector.flagsChanged(targetHeld: true, extraModifiersHeld: false)
+    _ = detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false)
     #expect(detector.cancel() == [Edge.up])
     #expect(detector.cancel() == [])
 }
@@ -162,14 +198,91 @@ private typealias Edge = ModifierHoldDetector.Edge
         }
     }
 
-    apply(detector.flagsChanged(targetHeld: true, extraModifiersHeld: false))
+    apply(detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false))
     apply(detector.keyDown())
-    apply(detector.flagsChanged(targetHeld: false, extraModifiersHeld: false))
-    apply(detector.flagsChanged(targetHeld: true, extraModifiersHeld: false))
-    apply(detector.flagsChanged(targetHeld: true, extraModifiersHeld: true))
-    apply(detector.flagsChanged(targetHeld: false, extraModifiersHeld: false))
-    apply(detector.flagsChanged(targetHeld: true, extraModifiersHeld: false))
+    apply(detector.flagsChanged(
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: false))
+    apply(detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false))
+    apply(detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: true))
+    apply(detector.flagsChanged(
+        targetHeld: false,
+        anyTargetHeld: false, extraModifiersHeld: false))
+    apply(detector.flagsChanged(
+        targetHeld: true,
+        anyTargetHeld: true, extraModifiersHeld: false))
     apply(detector.cancel())
 
     #expect(depth == 0)
+}
+
+/// A set of more than one stops being *held* the moment either modifier lifts,
+/// which is not the same as the set being *released*. The latch has to survive
+/// the difference, or half a chord is enough to rearm it.
+@Test func aSpentPressSurvivesOneModifierOfTheSetLifting() {
+    var detector = ModifierHoldDetector()
+
+    // Ctrl+Option down, then a key: the hold is someone else's shortcut now.
+    #expect(
+        detector.flagsChanged(
+            targetHeld: true, anyTargetHeld: true, extraModifiersHeld: false)
+            == [Edge.down]
+    )
+    #expect(detector.keyDown() == [Edge.up])
+
+    // Option lifts, Ctrl stays down. The set is no longer held, but it is not
+    // released either, and the user is still mid-shortcut on the one that is.
+    #expect(
+        detector.flagsChanged(
+            targetHeld: false, anyTargetHeld: true, extraModifiersHeld: false)
+            == []
+    )
+    // Pressing it again must not reopen a microphone under their shortcut.
+    #expect(
+        detector.flagsChanged(
+            targetHeld: true, anyTargetHeld: true, extraModifiersHeld: false)
+            == []
+    )
+
+    // Everything up: the press is finally spent, and the next one is fresh.
+    #expect(
+        detector.flagsChanged(
+            targetHeld: false, anyTargetHeld: false, extraModifiersHeld: false)
+            == []
+    )
+    #expect(
+        detector.flagsChanged(
+            targetHeld: true, anyTargetHeld: true, extraModifiersHeld: false)
+            == [Edge.down]
+    )
+}
+
+/// The same, for a hold ended by an extra modifier rather than by a key.
+@Test func aChordDisqualifiedHoldStaysSpentAcrossAPartialRelease() {
+    var detector = ModifierHoldDetector()
+
+    _ = detector.flagsChanged(
+        targetHeld: true, anyTargetHeld: true, extraModifiersHeld: false)
+    #expect(
+        detector.flagsChanged(
+            targetHeld: true, anyTargetHeld: true, extraModifiersHeld: true)
+            == [Edge.up]
+    )
+    // Shift lifts and Option lifts; Ctrl is still down.
+    #expect(
+        detector.flagsChanged(
+            targetHeld: false, anyTargetHeld: true, extraModifiersHeld: false)
+            == []
+    )
+    #expect(
+        detector.flagsChanged(
+            targetHeld: true, anyTargetHeld: true, extraModifiersHeld: false)
+            == []
+    )
 }
