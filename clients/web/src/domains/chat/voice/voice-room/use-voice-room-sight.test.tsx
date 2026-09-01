@@ -806,9 +806,11 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
   });
 
-  test("leaves the pulse alone while a newer keep is outstanding", async () => {
-    // The fallback, with no id to go on: the refusal could be either keep, and
-    // the surface already shows the newer.
+  test("takes the pulse down when an unnamed refusal could mean it", async () => {
+    // The fallback, with no id to go on: the refusal could be either keep,
+    // the one on screen included, and a pulse left up would claim a share
+    // that may never have happened. Nothing is deleted here; the reset-time
+    // reclaim is what sorts the persisted keep from the lost one.
     const { view } = renderSight();
     await keepFrame();
     await keepFrame();
@@ -819,7 +821,7 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+    expect(view.result.current.heldFrame).toBeNull();
     expect(deleteChatAttachment).not.toHaveBeenCalled();
   });
 

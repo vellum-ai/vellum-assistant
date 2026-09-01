@@ -679,16 +679,42 @@ describe("sight frame refusals", () => {
     ]);
   });
 
-  test("a refusal with a newer keep behind it retracts nothing", () => {
+  test("a refusal with a newer keep behind it takes every claim down", () => {
+    // Naming nothing, the refusal could be either keep. A persisted keep's
+    // frame sits in the transcript whether its flash shows or not, while the
+    // refused keep's flash claims a share that never happened, so every claim
+    // it might be about comes down.
     const { generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);
     sendLiveVoiceSightFrame("att-2", generation);
 
     useLiveVoiceStore.getState().noteSightFrameRefused(false);
 
-    // Naming nothing, the refusal could be either keep, and the surface
-    // already shows the newer.
-    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([]);
+    expect(useLiveVoiceStore.getState().sightFrameRetractions).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+  });
+
+  test("an unnamed refusal retires nothing, so reset reclaims every send", () => {
+    // The refusal answered for one send without saying which. Guessing a
+    // retirement would exempt that send from the reset-time reclaim, and the
+    // link-aware delete there is what can actually tell them apart: it is
+    // refused for the keep a message holds and collects the one that was
+    // refused before it ever became one.
+    const { generation } = sightSession();
+    sendLiveVoiceSightFrame("att-1", generation);
+    sendLiveVoiceSightFrame("att-2", generation);
+
+    useLiveVoiceStore.getState().noteSightFrameRefused(false);
+    expect(useLiveVoiceStore.getState().outstandingSightFrames).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(reclaimed()).toEqual(["att-1", "att-2"]);
   });
 
   test("an echoed attachment id retracts exactly, past older sends", () => {
@@ -710,9 +736,9 @@ describe("sight frame refusals", () => {
   });
 
   test("retractions accumulate until the surface consumes them", () => {
-    // The fallback rule reads a ledger the first refusal already emptied, so a
-    // second refusal computes nothing; overwriting would erase the first
-    // answer.
+    // A second refusal re-answers for the same unretired ledger; the set is
+    // what keeps it from duplicating the first answer, and appending rather
+    // than overwriting is what keeps it from erasing one not yet consumed.
     const { generation } = sightSession();
     sendLiveVoiceSightFrame("att-1", generation);
 

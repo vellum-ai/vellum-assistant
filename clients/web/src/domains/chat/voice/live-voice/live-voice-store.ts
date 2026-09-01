@@ -347,9 +347,9 @@ export interface LiveVoiceState {
    * capped at {@link SIGHT_FRAME_LEDGER_CAP}.
    *
    * An assistant that persisted a keep answers with nothing at all, so the
-   * only exact retirement is an error frame naming the attachment. Assistants
-   * that do not echo the id fall back to a positional rule that is right only
-   * when one send is outstanding, and this ledger is what both read.
+   * only exact retirement is an error frame naming the attachment. An
+   * assistant that echoes no id leaves nothing to correlate, so its refusal
+   * retracts every claim in this ledger and retires none of them.
    */
   outstandingSightFrames: readonly string[];
   /** Ids the cap pushed off the ledger, newest last, capped the same way. */
@@ -599,8 +599,8 @@ export interface LiveVoiceActions {
    *
    * `attachmentId` is the id the error named, when the assistant echoes one.
    * With it, retirement and retraction are exact. Without it (any assistant at
-   * the current version floor) the fallback is positional and can only speak
-   * when a single send is outstanding.
+   * the current version floor) there is nothing to correlate, so the refusal
+   * takes down every outstanding claim and retires none of them.
    */
   noteSightFrameRefused: (
     unsupported: boolean,
@@ -730,11 +730,11 @@ export const PER_JOB_CEILING_MS = 35_000;
  * How many kept frames the outstanding ledger remembers, and how many pruned
  * ids it keeps behind it.
  *
- * A send is only ever retired by an error naming it, or by an error at all
- * under the fallback rule, because an accepted keep is answered with nothing.
- * Without a bound the ledger would grow for the length of a call. The cap is
- * memory hygiene and nothing else: see `noteSightFrameSent` for why a pruned
- * id cannot become a wrong deletion.
+ * A send is only ever retired by an error naming it, because an accepted keep
+ * is answered with nothing and an unnamed refusal cannot say which send it
+ * retires. Without a bound the ledger would grow for the length of a call.
+ * The cap is memory hygiene and nothing else: see `noteSightFrameSent` for
+ * why a pruned id cannot become a wrong deletion.
  */
 const SIGHT_FRAME_LEDGER_CAP = 8;
 
@@ -1102,17 +1102,24 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
           ],
         };
       }
-      // Fallback for an assistant that names nothing: the refusal is taken to
-      // be about the oldest unanswered send, and it can only speak for the
-      // surface when that is the only one. Accumulating retractions is what
-      // keeps a second refusal, computed against a ledger the first already
-      // emptied, from erasing the first one's answer.
+      // Fallback for an assistant that names nothing: the refusal is about
+      // exactly one unanswered send, with nothing to say which, so the only
+      // honest answer for the surface is to take down every claim it might be
+      // about. A retraction for a keep that quietly persisted costs only the
+      // shared flash, since the frame itself sits in the transcript; leaving
+      // the refused keep's flash up claims the call shared a frame it did
+      // not. The ledgers keep every entry: retiring a guess would exempt it
+      // from the reset-time reclaim, and that reclaim is what sorts the
+      // persisted from the lost, refusing the delete for a frame a message
+      // links and collecting the one nothing does.
       return {
-        outstandingSightFrames: outstanding.slice(1),
-        sightFrameRetractions:
-          outstanding.length === 1
-            ? [...new Set([...s.sightFrameRetractions, outstanding[0]!])]
-            : s.sightFrameRetractions,
+        sightFrameRetractions: [
+          ...new Set([
+            ...s.sightFrameRetractions,
+            ...s.prunedSightFrames,
+            ...outstanding,
+          ]),
+        ],
       };
     }),
   takeDueSightFrameReclaims: (now) => {
