@@ -148,9 +148,12 @@ const defaultDeps: TextInsertionDeps = {
   showApp: () => app.show(),
   showFloatingSurfaces: () => {
     for (const win of listFloatingWindows()) {
-      if (!win.isVisible()) {
-        win.showInactive();
-      }
+      // Unconditionally, and never on `isVisible`: a window belonging to a
+      // hidden application is not on the screen, but what it reports about its
+      // own visibility is the application's business rather than the window's,
+      // and a guess either way is a surface that stays gone. Showing one that
+      // is already up costs nothing.
+      win.showInactive();
     }
   },
   runAppleScript,
