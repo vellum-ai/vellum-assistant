@@ -37,17 +37,21 @@ const SHELL_INIT = (() => {
 })();
 
 /**
- * Parses `source` under the Script grammar, the parse goal a `<script>`
- * element uses, and throws its `SyntaxError` when it does not parse.
+ * Parses `source` as JavaScript and throws when it does not parse.
  *
- * Indirect `eval` is the entry point that supplies that goal, so a top-level
- * `return` or `new.target` fails here exactly as it does in a browser. The
- * `if (false)` wrapper makes every statement unreachable, so the source is
- * parsed and never run: no theme is stamped and no observer is installed.
+ * The transpiler parses without evaluating, which is the property that
+ * matters here: the input is a file this suite treats as possibly corrupt, and
+ * anything that runs it to check it can run the corruption. Every wrapper
+ * trick built on `eval` fails that test, because a source with unbalanced
+ * braces closes the wrapper and executes what follows.
+ *
+ * It parses a module body rather than the Script goal a `<script>` element
+ * uses, so a top-level `return` is accepted here and rejected by a browser.
+ * That gap is narrower than the risk it removes: a stray paste is the
+ * corruption this file has to catch, and it is caught.
  */
 function parseAsScript(source: string): void {
-  const indirectEval = eval;
-  indirectEval(`if (false) {\n${source}\n}`);
+  new Bun.Transpiler({ loader: "js" }).transformSync(source);
 }
 
 function ogTag(property: string): string | null {
@@ -164,7 +168,7 @@ describe("SPA shell: boot splash", () => {
   // by running none of the script, which costs the stored theme its stamp
   // before first paint and the splash its localized label. Both fail
   // silently, so this assertion is the only one that reports the loss.
-  test("the shell init parses as a browser would parse it", () => {
+  test("the shell init parses as JavaScript", () => {
     expect(() => parseAsScript(SHELL_INIT)).not.toThrow();
   });
 
