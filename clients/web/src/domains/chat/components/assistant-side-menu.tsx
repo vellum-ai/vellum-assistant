@@ -145,6 +145,23 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
 const NATIVE_MOBILE_LIST_TOP_FADE =
   "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]";
 
+/**
+ * Rounds the overlay scrollport's bottom edge onto the section card's own
+ * corners. The scrollport ends above the floating column (see the body's
+ * margin reserve), so a list taller than the drawer is cut there rather than
+ * drawn through the pills - and a straight cut left the card with two square
+ * corners whenever it had more rows below the fold.
+ *
+ * The inset is the scrollport's own horizontal padding, which is exactly
+ * where the card's edges sit, so the clip lands on the card and nothing else.
+ * `clip-path` rather than a `border-radius`: the scrollport's box is wider
+ * than the card (it cancels the sheet's padding with `-mx-3` so the scrollbar
+ * rides the sheet edge), so rounding its corners would curve 12px clear of
+ * the card and leave the cut looking square.
+ */
+const OVERLAY_LIST_ROUNDED_CLIP =
+  "[clip-path:inset(0_var(--side-menu-inset)_0_var(--side-menu-inset)_round_0_0_var(--radius-xl)_var(--radius-xl))]";
+
 function SearchButton() {
   const { t } = useTranslation("chat");
   const toggle = useCommandPaletteStore.use.toggle();
@@ -588,7 +605,7 @@ export function AssistantSideMenu({
                  mock draws. This scrollport starts one overlay inset down, so
                  2.75rem reaches the row's bottom edge, and the assistant
                  cluster's own top padding supplies the 1rem gap beneath it. */
-                `-mx-3 ${SIDEBAR_STACK_GAP} mb-24 px-3 native-mobile:pt-11 ${NATIVE_MOBILE_LIST_TOP_FADE}`
+                `-mx-3 ${SIDEBAR_STACK_GAP} mb-24 px-3 ${OVERLAY_LIST_ROUNDED_CLIP} native-mobile:pt-11 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The top inset is the same stack gap: the header closes
                    with no rule, so without it the first card (or the
                    collapsed rail's first group icon) butts against the

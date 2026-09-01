@@ -719,6 +719,20 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     expect(tag).not.toContain("margin-bottom");
   });
 
+  test("the overlay scrollport rounds its cut onto the card's corners", () => {
+    // The cut lands mid-card whenever the list outruns the drawer, so
+    // without this the card ends in two square corners.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("clip-path:inset(");
+    expect(tag).toContain("var(--radius-xl)");
+    expect(sliceBodyOpeningTag(renderMenu({ conversations }))).not.toContain(
+      "clip-path",
+    );
+  });
+
   test("the overlay reserve ends the scrollport rather than padding it", () => {
     // A margin, not padding: padding belongs to the scrollable box, so a
     // card taller than the drawer drew its rows through the floating
