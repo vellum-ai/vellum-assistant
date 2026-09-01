@@ -971,9 +971,7 @@ function queueUnacknowledgedSightFrames(
   // persist is still queued takes the frame with it, while one that waits
   // out jobs long finished merely leaves a lost upload uncollected for a
   // while. No cap trims the wait for the same reason, since any cap under
-  // the queue's true drain time reopens the early delete. The cleaner signal
-  // is the daemon echoing an ack per persist, which is a later daemon change
-  // and not this one.
+  // the queue's true drain time reopens the early delete.
   const queuedAhead = state.outstandingPhotoSends + unacknowledged.length;
   const notBefore = Date.now() + (queuedAhead + 1) * PER_JOB_CEILING_MS;
   const conversationId = state.conversationId ?? undefined;
