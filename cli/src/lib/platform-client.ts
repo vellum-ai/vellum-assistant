@@ -350,17 +350,17 @@ export interface GatewayCredentialResult {
 }
 
 /**
- * Ask a running assistant whether its stored managed credential still
- * authenticates, via the gateway-proxied `GET /v1/platform/status`.
+ * Ask a running assistant to check its stored managed credential against the
+ * platform, via the gateway-proxied `POST /v1/platform/verify-credential`.
  *
- * Returns `"rejected"` only when the daemon has settled that verdict. Every
- * other case, including a daemon too old to report the field and any failure
- * to reach one, returns null: the answer gates a key rotation, so an absent
- * answer must never be read as a rejection.
+ * Returns `"rejected"` only when the platform settled that answer. Every other
+ * case, including a daemon too old to serve the route and any failure to reach
+ * one, returns null: the answer decides whether a key is rotated, so an absent
+ * answer must never read as a rejection.
  *
  * Never throws.
  */
-export async function readGatewayAssistantApiKeyStatus(
+export async function verifyGatewayManagedCredential(
   gatewayUrl: string,
   bearerToken?: string,
 ): Promise<"valid" | "rejected" | "unknown" | null> {
@@ -371,9 +371,9 @@ export async function readGatewayAssistantApiKeyStatus(
     }
 
     const response = await loopbackSafeFetch(
-      `${gatewayUrl}/v1/platform/status`,
+      `${gatewayUrl}/v1/platform/verify-credential`,
       {
-        method: "GET",
+        method: "POST",
         headers,
         signal: AbortSignal.timeout(10_000),
       },
@@ -382,10 +382,8 @@ export async function readGatewayAssistantApiKeyStatus(
       return null;
     }
 
-    const json = (await response.json()) as {
-      assistantApiKeyStatus?: unknown;
-    };
-    const status = json.assistantApiKeyStatus;
+    const json = (await response.json()) as { status?: unknown };
+    const status = json.status;
     if (status === "valid" || status === "rejected" || status === "unknown") {
       return status;
     }

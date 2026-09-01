@@ -7,9 +7,9 @@
  * invisible in the other.
  */
 import {
-  readGatewayAssistantApiKeyStatus,
   readGatewayCredential,
   reprovisionAssistantApiKey,
+  verifyGatewayManagedCredential,
 } from "./platform-client.js";
 
 /** Where the key came from, so callers can report what they did. */
@@ -57,13 +57,18 @@ export async function resolveAssistantApiKeyForInjection(
     "vellum:assistant_api_key",
     args.bearerToken,
   );
-  const status = await readGatewayAssistantApiKeyStatus(
-    args.runtimeUrl,
-    args.bearerToken,
-  );
 
-  if (cached.value && status !== "rejected") {
-    return { apiKey: cached.value, source: "stored" };
+  // Only worth asking when there is a key to ask about: with none stored the
+  // answer changes nothing, and a first login would pay for the round trip
+  // every time.
+  if (cached.value) {
+    const status = await verifyGatewayManagedCredential(
+      args.runtimeUrl,
+      args.bearerToken,
+    );
+    if (status !== "rejected") {
+      return { apiKey: cached.value, source: "stored" };
+    }
   }
   if (cached.unreachable) {
     return { apiKey: null, source: "unavailable" };

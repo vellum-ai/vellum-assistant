@@ -269,8 +269,8 @@ async function handlePlatformConnect(
   // Checked here rather than read from a cache: connect is a deliberate user
   // action, so one request is affordable, and an answer computed now cannot go
   // stale between the check and the answer. An unreachable platform leaves the
-  // stored credentials counting as a connection, which is what this route did
-  // before and does not strand a working install.
+  // stored credentials counting as a connection, so a network problem never
+  // strands a working install by reporting it disconnected.
   if (existingUrl && existingApiKey) {
     const verified = await verifyStoredCredential();
     if (verified !== "rejected") {

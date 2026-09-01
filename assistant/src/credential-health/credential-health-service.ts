@@ -622,7 +622,7 @@ async function checkManagedProvider(
  * account, so it carries the credential-store key as its id instead of a
  * connection uuid.
  */
-export const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
+const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
 
 /**
  * Health of the platform-provisioned assistant API key, the credential that
