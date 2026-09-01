@@ -21,7 +21,9 @@
  * watching its own state change would be racing a render against the click
  * that follows the release. So the threshold, the cancels, and the suppression
  * of the tap a fired hold ends with all live here, and the caller is handed
- * one `onHold` that has already happened.
+ * one `onHold` that has already happened. The presses that end without a
+ * release to end them (a wandering finger, a blurred window, a backgrounded
+ * page) are the same job, and are given up on here for the same reason.
  *
  * Presentational, with one exception. The caller owns what a press does, what
  * counts as busy, and the label, so nothing here reaches for a store or the
@@ -37,12 +39,13 @@ import type {
   MouseEvent,
   PointerEvent,
 } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
 import { useReducedMotion } from "motion/react";
 
 import { cameraModeStyle } from "@/domains/chat/voice/voice-room/camera-mode-paint";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { haptic } from "@/utils/haptics";
 
 /** Which sampling policy the press acts on. See the module docstring. */
@@ -130,31 +133,67 @@ export function CameraShutter({
    * click needs answering, so the hold would also fire the tap it ended with.
    */
   const heldRef = useRef(false);
+  /**
+   * A press was given up on partway through, so its release is not a tap.
+   *
+   * `cancelHold` only stops the threshold, which is all a press that ends off
+   * the button needs: no click follows one. A press given up on while the
+   * pointer is still over this 84px target does produce a click, and answering
+   * it would take a photo and persist a transcript message from a gesture this
+   * component has already decided against.
+   *
+   * A ref read in `handleClick` for the same reason `heldRef` is one: the click
+   * arrives in the same task as the release that ends the press.
+   */
+  const abandonedRef = useRef(false);
 
-  const clearHoldTimer = () => {
+  const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current !== null) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
-  };
+  }, []);
 
-  const cancelHold = () => {
+  const cancelHold = useCallback(() => {
     clearHoldTimer();
     holdOriginRef.current = null;
-  };
+  }, [clearHoldTimer]);
+
+  /**
+   * Give up on the press underway, and on the click it may still produce.
+   *
+   * Only while one is armed, which is the whole scope of this: with no `onHold`
+   * on offer nothing arms, so a shutter that only takes photos never suppresses
+   * a press. A threshold that has already fired is not armed either, and its
+   * release is `heldRef`'s to answer.
+   */
+  const abandonPress = useCallback(() => {
+    if (holdTimerRef.current === null) {
+      return;
+    }
+    // Only a pointer press has a click left to suppress. A Space press had its
+    // activation suspended on the way down and re-dispatches one only for a
+    // release inside the threshold, which the timer going takes away, so
+    // raising the flag there would leave it waiting for a click that never
+    // comes to eat some later one instead.
+    abandonedRef.current = holdOriginRef.current !== null;
+    cancelHold();
+  }, [cancelHold]);
 
   /**
    * A new press begins, so whatever the last one was is over.
    *
-   * The flag is normally consumed by the click a fired hold ends with, but the
-   * keyboard path produces no click to consume it (the activation was
-   * suspended on the way down), and a caller that withdraws `onHold` once the
-   * hold has done its work leaves nothing else to clear it. Cleared here
-   * instead of on release, so a stray click still finds it raised while a
-   * later press never does.
+   * The flags are normally consumed by the click the press they describe ends
+   * with, but the keyboard path produces no click to consume one (the
+   * activation was suspended on the way down), a press abandoned off the button
+   * produces none either, and a caller that withdraws `onHold` once the hold
+   * has done its work leaves nothing else to clear them. Cleared here instead
+   * of on release, so a stray click still finds them raised while a later press
+   * never does.
    */
   const beginPress = () => {
     heldRef.current = false;
+    abandonedRef.current = false;
   };
 
   const armHold = () => {
@@ -179,12 +218,43 @@ export function CameraShutter({
     };
   }, []);
 
+  /**
+   * The press ends when the surface taking it goes away, since the release
+   * never arrives.
+   *
+   * A window losing focus and a page being put away both leave the key or the
+   * finger down as far as this element can tell: no `keyup`, no `pointerup`, so
+   * an armed threshold fires into a viewfinder nobody is watching. That is the
+   * consent model inverted, because entering Live is what a hold does and the
+   * room lowers Live on the same edge. So the press dies here entirely: nothing
+   * fires, and a release landing after the return is spent rather than read as
+   * the tap it was never allowed to become.
+   *
+   * The bus's `app.hidden` rather than a `visibilitychange` listener, as the
+   * room's sight hook does it: the edge is published once from the two sources
+   * that report it, and the iOS shell only reports through one of them (see
+   * docs/EVENT_BUS.md). Focus is not a bus signal and has no second source, so
+   * blur is taken from the window directly.
+   */
+  useBusSubscription("app.hidden", () => {
+    abandonPress();
+  });
+
+  useEffect(() => {
+    window.addEventListener("blur", abandonPress);
+    return () => {
+      window.removeEventListener("blur", abandonPress);
+    };
+  }, [abandonPress]);
+
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
-    // The release of a fired hold. It is one press, and the hold already acted
-    // on it, so nothing here may run: not the caller's tap, and not the pulse,
-    // which would announce a photo the hold did not take.
-    if (heldRef.current) {
+    // A press that is already over, arriving as its click. Either the hold
+    // fired and acted on this press, or the press was abandoned partway
+    // through. Nothing here may run for either: not the caller's tap, and not
+    // the pulse, which would announce a photo nobody took.
+    if (heldRef.current || abandonedRef.current) {
       heldRef.current = false;
+      abandonedRef.current = false;
       return;
     }
     // Live's press stops the stream, which the ring's own morph back to white
@@ -224,12 +294,14 @@ export function CameraShutter({
     }
     // A finger that has travelled is aiming somewhere else, and a shutter held
     // at arm's length drifts on its own; the tolerance is what separates the
-    // two.
+    // two. The whole press goes, not just the threshold: the target is 84px
+    // across, so a finger can wander past the tolerance and still be over the
+    // button when it lifts.
     if (
       Math.hypot(event.clientX - origin.x, event.clientY - origin.y) >
       HOLD_MOVE_TOLERANCE_PX
     ) {
-      cancelHold();
+      abandonPress();
     }
   };
 

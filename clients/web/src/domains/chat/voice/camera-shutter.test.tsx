@@ -7,9 +7,10 @@
  * target on the surface a thumb finds without looking; both capture modes; the
  * capture pulse, which is the ONLY thing that distinguishes a taken photo from
  * a dead button, since a viewfinder looks identical either side of a press; the
- * hold, whose whole job is to be told apart from the tap it ends with; and the
- * button surviving a `Tooltip` wrapper, which reaches it through Radix's
- * `asChild` slot rather than rendering its own element.
+ * hold, whose whole job is to be told apart from the tap it ends with; the
+ * presses that end without a release to end them, which must produce neither a
+ * hold nor a photo; and the button surviving a `Tooltip` wrapper, which reaches
+ * it through Radix's `asChild` slot rather than rendering its own element.
  */
 
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
@@ -24,6 +25,8 @@ import {
 } from "@testing-library/react";
 import * as motionReact from "motion/react";
 
+import { publish, __resetForTesting } from "@/lib/event-bus";
+
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
 // `matchMedia` stub can't flip it. Override just that export and drive it
 // through this toggle instead.
@@ -37,6 +40,7 @@ const { CameraShutter } = await import("@/domains/chat/voice/camera-shutter");
 
 afterEach(() => {
   cleanup();
+  __resetForTesting();
   reducedMotion = false;
 });
 
@@ -366,6 +370,43 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  test("a press that wanders takes no photo, and the next tap still does", () => {
+    withFakeTimers(() => {
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={noop}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // Past the tolerance and still over the button, which at 84px across is
+      // most of the travel a thumb has. The release is a real click, and
+      // answering it would upload a frame and persist a message for a gesture
+      // this component has already given up on.
+      press();
+      fireEvent.pointerMove(shutter(), {
+        pointerId: 1,
+        clientX: 12,
+        clientY: 0,
+      });
+      release();
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
+
+      // Spent by that click rather than left raised: the press after it is an
+      // ordinary tap and takes its photo.
+      press();
+      release();
+      expect(taps).toBe(1);
+      expect(pulse()).not.toBeNull();
+    });
+  });
+
   test("the pointer being taken away or leaving cancels the hold", () => {
     for (const end of ["cancel", "leave"] as const) {
       withFakeTimers((advanceBy) => {
@@ -435,6 +476,72 @@ describe("CameraShutter: holding it", () => {
       fireEvent.click(shutter());
       expect(holds).toBe(1);
       expect(taps).toBe(2);
+    });
+  });
+
+  test("a window losing focus ends the Space press, its release included", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      // No `keyup` reaches a button whose window is gone, so the threshold
+      // would otherwise fire into a viewfinder nobody is watching, entering
+      // Live on a press the user walked away from mid-way.
+      fireEvent.keyDown(shutter(), { key: " " });
+      fireEvent.blur(window);
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(0);
+
+      // The release lands on the way back. The press it belonged to is over, so
+      // it is neither a hold nor the sub-threshold tap a short Space would
+      // otherwise re-dispatch.
+      fireEvent.keyUp(shutter(), { key: " " });
+      expect(holds).toBe(0);
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
+    });
+  });
+
+  test("the app being put away ends an armed press and the click after it", () => {
+    withFakeTimers((advanceBy) => {
+      let holds = 0;
+      let taps = 0;
+      render(
+        <CameraShutter
+          onClick={() => {
+            taps += 1;
+          }}
+          onHold={() => {
+            holds += 1;
+          }}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+
+      press();
+      // The bus's own edge, which is the one the iOS shell reports through. The
+      // room gives Live up on it, so a hold firing afterwards would raise Live
+      // again behind a backgrounded app, on a gesture made before it went away.
+      publish("app.hidden", { signal: "visibility" });
+      advanceBy(HOLD_MS);
+      expect(holds).toBe(0);
+
+      release();
+      expect(taps).toBe(0);
+      expect(pulse()).toBeNull();
     });
   });
 
@@ -543,6 +650,18 @@ describe("CameraShutter: holding it", () => {
 
       expect(taps).toBe(1);
       expect(pulse()).not.toBeNull();
+
+      // Nor a wandering one. Nothing is armed with no hold on offer, so there
+      // is no press to give up on and the tolerance means nothing here.
+      press();
+      fireEvent.pointerMove(shutter(), {
+        pointerId: 1,
+        clientX: 40,
+        clientY: 40,
+      });
+      release();
+
+      expect(taps).toBe(2);
     });
   });
 });
