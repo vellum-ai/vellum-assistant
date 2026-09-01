@@ -13,7 +13,7 @@ import type { WorkspaceMigration } from "./types.js";
  * seeder both wrote `"Speed"` onto `cost-optimized`, and migration 126
  * carried it onto the thin stub, so without this the picker would show two
  * profiles named "Speed": `cost-optimized`'s stale overlay and
- * `latency-optimized`, the user-facing Speed profile.
+ * `latency-optimized`, the user-facing Fast profile.
  *
  * Deleting the key (rather than writing "Cost") returns the label to code
  * ownership, so later renames ship with a release instead of a migration.

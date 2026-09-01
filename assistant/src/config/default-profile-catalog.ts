@@ -150,7 +150,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
-    label: "Speed",
+    label: "Fast",
     description: "Fastest responses, with reasoning turned off",
     fallbackProfile: FALLBACK_PROFILE_BY_KEY["latency-optimized"],
     maxTokens: 8192,
@@ -229,8 +229,8 @@ const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
     model: "claude-haiku-4-5-20251001",
     provider: "vellum",
     source: "managed",
-    label: "Speed Backup",
-    description: "Automatic backup for the Speed profile",
+    label: "Fast Backup",
+    description: "Automatic backup for the Fast profile",
     maxTokens: 8192,
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
@@ -286,7 +286,7 @@ function managedProfileImpl(key: DefaultProfileKey): DefaultProfileTemplate {
  * `chatgpt-subscription` row via `resolveRoutingIdentity` with no pinned
  * connection. Models are pinned (never intents): the intent tables are
  * keyed by concrete dispatch providers, and the Codex endpoint serves only
- * `CODEX_SUBSCRIPTION_MODEL_IDS`. Cost and Speed are identical
+ * `CODEX_SUBSCRIPTION_MODEL_IDS`. Cost and Fast are identical
  * implementations here: the subscription serves no tier cheaper or faster
  * than luna, and both profiles advertise reasoning off.
  */
@@ -330,7 +330,7 @@ const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
     model: "gpt-5.6-luna",
     provider: "chatgpt",
     source: "managed",
-    label: "Speed",
+    label: "Fast",
     description: "Fastest responses, with reasoning turned off",
     maxTokens: 8192,
     // Explicit reasoning opt-out, matching the other columns: this profile
@@ -391,7 +391,7 @@ const BYOK_PROFILE_IMPLS: Record<
   "latency-optimized": {
     intent: "latency-optimized",
     source: "user",
-    label: "Speed",
+    label: "Fast",
     description: "Fastest responses, with reasoning turned off",
     maxTokens: 8192,
     effort: "none",
