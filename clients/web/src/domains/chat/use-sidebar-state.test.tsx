@@ -713,3 +713,109 @@ describe("useSidebarState index unread threading", () => {
     );
   });
 });
+
+describe("useSidebarState assistant-initiated section", () => {
+  test("renders from the index row, leading the default order", () => {
+    // It is the one section the assistant fills by itself, so it is what the
+    // user should meet first on opening the app.
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 3, unread: 1 },
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections[0]?.key).toBe("assistant");
+    expect(result.current.sections[0]?.label).toBe("On My Mind");
+  });
+
+  test("renders at zero, the way Chats does", () => {
+    // Every other section exists only when it has rows. This one has an empty
+    // state whose whole job is explaining the section to someone with none.
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 0, unread: 0 },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections.some((s) => s.key === "assistant")).toBe(
+      true,
+    );
+  });
+
+  test("carries the index unread onto the section", () => {
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 4, unread: 2 },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(sectionFor(result.current.sections, "assistant")).toHaveProperty(
+      "unread",
+      2,
+    );
+  });
+
+  test("no index row means no section — the flag-off and old-daemon answer", () => {
+    // The daemon emits the row only under `assistant-initiated-threads`, and
+    // with the flag off it also leaves those threads in Chats. Absence of the
+    // row is therefore the whole gate; there is no client-side flag to check.
+    sidebarSectionsImpl = [
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections.some((s) => s.key === "assistant")).toBe(
+      false,
+    );
+  });
+
+  test("the derived path never invents the section", () => {
+    // Membership rides `source`, which the derived fallback cannot know
+    // without the complete list a windowed list never drains.
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [makeConversation(0)],
+      }),
+    );
+
+    expect(result.current.sections.some((s) => s.key === "assistant")).toBe(
+      false,
+    );
+  });
+
+  test("takes no rows from the derived buckets", () => {
+    // Those rows are withheld from the foreground list the buckets are built
+    // from, so there is nothing to fall back to and the section's own query
+    // is the only thing that fills it. An `all` seeded from `recents` here
+    // would render Chats' conversations under the assistant's header.
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 2, unread: 0 },
+      { kind: "chats", total: 3, unread: 0 },
+    ];
+    const conversations = [makeConversation(0), makeConversation(1)];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations }),
+    );
+
+    expect(sectionFor(result.current.sections, "assistant").all).toHaveLength(
+      0,
+    );
+    expect(sectionFor(result.current.sections, "recents").all).toHaveLength(2);
+  });
+});
