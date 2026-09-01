@@ -158,21 +158,29 @@ export function GlobalPushToTalkBridge({
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
       let insertText = rawText;
-      // The cleanup pass is a daemon round-trip that runs a model, and it sits
-      // between letting go of the keys and seeing the words. A hold is aimed at
-      // a cursor in another app, where the wait is the whole experience and the
-      // intent needs no classifying, so those words go straight down and the
-      // pass is spent only where something is waiting on it anyway.
-      const dictationResult =
-        assistantId && !holdRef.current
-          ? await postDictation(rawText, assistantId, {
-              cursorInTextField: true,
-            })
-          : null;
+      // The cleanup pass: one model call that punctuates, drops the fillers,
+      // adapts the tone to the application in front and applies the user's
+      // own style. It is what turns "grocery list, onions, tomatoes" into a
+      // list, and the only leg of this that can. A hold takes it too, now that
+      // nothing else on its path is worth waiting for; what it costs is
+      // measured rather than assumed. Character counts and timings only.
+      const cleanupStartedAt = Date.now();
+      const dictationResult = assistantId
+        ? await postDictation(rawText, assistantId, {
+            cursorInTextField: true,
+          })
+        : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
+      console.info(
+        `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
+      );
+      const insertStartedAt = Date.now();
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
+      console.info(
+        `dictation: inserted chars=${insertText.length} status=${frontAppInsertion.status} ms=${Date.now() - insertStartedAt}`,
+      );
       if (frontAppInsertion.status === "inserted") {
         return;
       }
