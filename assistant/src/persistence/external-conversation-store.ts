@@ -113,9 +113,13 @@ export function upsertBinding(input: UpsertBindingInput): void {
       set: {
         sourceChannel: input.sourceChannel,
         externalChatId: input.externalChatId,
+        // An absent chat name preserves the stored one only while the
+        // binding still addresses the same chat; a move to a chat that
+        // reported no name clears it, so the old chat's name can never
+        // label the new one.
         externalChatName:
           externalChatName ??
-          sql`${externalConversationBindings.externalChatName}`,
+          sql`CASE WHEN ${externalConversationBindings.sourceChannel} = ${input.sourceChannel} AND ${externalConversationBindings.externalChatId} = ${input.externalChatId} THEN ${externalConversationBindings.externalChatName} ELSE NULL END`,
         externalThreadId,
         // An omitted sender field keeps what is stored; an explicit value,
         // including null, replaces it. A caller that knows only the chat
