@@ -41,7 +41,7 @@ import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { companionLayoutFor } from "@/components/companion-layout";
-import { useTranslation } from "@/i18n";
+import { type TFunction, useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 /**
@@ -1537,6 +1537,102 @@ function Avatar({
 }
 
 /**
+ * One control in the idle row, before it is a button.
+ *
+ * The row is built as data and then drawn, rather than written out as JSX one
+ * control at a time. That is what lets a control be contributed rather than
+ * hardcoded: an entry is a name, a picture and something to do, and nothing
+ * about how the pill draws it.
+ */
+type IdleRowItem = {
+  /** Stable key, and the id a contributed item is addressed by. */
+  key: string;
+  icon: ReactNode;
+  label: string;
+  /** Drawn as though the pointer were on it. A look, not a state. See PillButton. */
+  active?: boolean;
+  /** Pins the label open and reports on/off to a reader. See PillButton. */
+  pressed?: boolean;
+  onClick?: () => void;
+};
+
+/**
+ * What the row is composed from: one shape, held by {@link IdleBody} and read
+ * by {@link buildIdleRowItems}, so the two cannot drift.
+ */
+type IdleRowInputs = {
+  spotlight?: "talk" | "type";
+  /** Whether the session Watch starts is already running. */
+  watching?: boolean;
+  /** Whether Watch is offered at all. See `CompanionSurfaceProps`. */
+  watchEnabled?: boolean;
+  onTalk?: () => void;
+  onType?: () => void;
+  onWatch?: () => void;
+};
+
+/**
+ * The idle row, in order.
+ *
+ * A plain function rather than something the component does inline, so the
+ * composition of the row can be read and tested without rendering a surface.
+ * `t` is handed in because a plain function cannot hold the reactive binding;
+ * {@link IdleBody} owns that.
+ */
+export function buildIdleRowItems({
+  t,
+  spotlight,
+  watching = false,
+  watchEnabled = false,
+  onTalk,
+  onType,
+  onWatch,
+}: IdleRowInputs & { t: TFunction<"common"> }): IdleRowItem[] {
+  const items: IdleRowItem[] = [
+    {
+      key: "talk",
+      icon: <AudioLines className="size-4" />,
+      label: t("companionSurface.talk"),
+      active: spotlight === "talk",
+      onClick: onTalk,
+    },
+    {
+      key: "type",
+      icon: <Keyboard className="size-4" />,
+      label: t("companionSurface.type"),
+      active: spotlight === "type",
+      onClick: onType,
+    },
+  ];
+  // Held down for as long as the session runs, so the row says which control
+  // is holding the pill open and which press ends it. `pressed` rather than
+  // `active`, because this one is a state and not a look: a reader is told a
+  // session is running, where everything else this surface does about it is a
+  // colour they never receive.
+  //
+  // It is also what keeps this control's word on the surface while the rest of
+  // the row is icons: a running session is the one thing here the user has to
+  // be able to find without hunting, and a name revealed only under the
+  // pointer is one they would have to go looking for. `pressed` pins it open,
+  // so the session names itself for as long as it runs.
+  //
+  // Absent entirely when Watch is not offered, rather than disabled: a user
+  // who cannot have the feature is not owed a control that explains itself by
+  // refusing them. The pill measures its own contents, so the row simply comes
+  // out narrower.
+  if (watchEnabled) {
+    items.push({
+      key: "teach",
+      icon: <Eye className="size-4" />,
+      label: t("companionSurface.teach"),
+      pressed: watching,
+      onClick: onWatch,
+    });
+  }
+  return items;
+}
+
+/**
  * Expanded, with the app idle: the ways in.
  *
  * Verbs throughout. "Talk" and "Type" rather than "Talk" and "Ask", because
@@ -1560,74 +1656,29 @@ function Avatar({
  * `aria-label` carries the name in every state, so a reader gets all three
  * regardless of where the pointer is.
  */
-function IdleBody({
-  spotlight,
-  watching = false,
-  watchEnabled = false,
-  onTalk,
-  onType,
-  onWatch,
-}: {
-  spotlight?: "talk" | "type";
-  /** Whether the session Watch starts is already running. */
-  watching?: boolean;
-  /** Whether Watch is offered at all. See `CompanionSurfaceProps`. */
-  watchEnabled?: boolean;
-  onTalk?: () => void;
-  onType?: () => void;
-  onWatch?: () => void;
-}) {
+function IdleBody(props: IdleRowInputs) {
+  const { watching = false, watchEnabled = false, onWatch } = props;
   const { t } = useTranslation();
   return (
     <>
-      <PillButton
-        icon={<AudioLines className="size-4" />}
-        label={t("companionSurface.talk")}
-        revealLabel
-        active={spotlight === "talk"}
-        onClick={onTalk}
-      />
-      <PillButton
-        icon={<Keyboard className="size-4" />}
-        label={t("companionSurface.type")}
-        revealLabel
-        active={spotlight === "type"}
-        onClick={onType}
-      />
-      {/* Held down for as long as the session runs, so the row says which
-          control is holding the pill open and which press ends it. `pressed`
-          rather than `active`, because this one is a state and not a look: a
-          reader is told a session is running, where everything else this
-          surface does about it is a colour they never receive.
-
-          It is also what keeps this control's word on the surface while the
-          rest of the row is icons: a running session is the one thing here the
-          user has to be able to find without hunting, and a name revealed only
-          under the pointer is one they would have to go looking for. `pressed`
-          pins it open, so the session names itself for as long as it runs.
-
-          Absent entirely when Watch is not offered, rather than disabled: a
-          user who cannot have the feature is not owed a control that explains
-          itself by refusing them. The pill measures its own contents, so the
-          row simply comes out narrower.
-
-          **The exit outlives the door.** A session running under a flag that
+      {buildIdleRowItems({ t, ...props }).map((item) => (
+        <PillButton
+          key={item.key}
+          icon={item.icon}
+          label={item.label}
+          revealLabel
+          active={item.active}
+          pressed={item.pressed}
+          onClick={item.onClick}
+        />
+      ))}
+      {/* **The exit outlives the door.** A session running under a flag that
           has since been turned off still reads the screen, so the row that
           would have carried Watch carries the stop instead, the same control
           the card and the call row draw. Hiding the way in is the whole of what
           the flag does; leaving a capture with nothing that ends it is not
           something a flag is allowed to cause. */}
-      {watchEnabled ? (
-        <PillButton
-          icon={<Eye className="size-4" />}
-          label={t("companionSurface.teach")}
-          revealLabel
-          pressed={watching}
-          onClick={onWatch}
-        />
-      ) : (
-        watching && <StopWatchingButton onWatch={onWatch} />
-      )}
+      {!watchEnabled && watching && <StopWatchingButton onWatch={onWatch} />}
     </>
   );
 }
