@@ -144,6 +144,21 @@ export const useCameraGateDebugStore = createSelectors(
   useCameraGateDebugStoreBase,
 );
 
+/**
+ * Put the readout back to its shipped state when a session ends.
+ *
+ * The key sweep on logout removes what was persisted, but a logout does not
+ * reload the tab, so this store's slice and the gate's options record both
+ * survive it. A session that ended with the readout on would otherwise leave
+ * the next user's camera judging frames against a threshold they never set,
+ * with no panel on screen to say so.
+ */
+export function clearCameraGateDebug(): void {
+  const overrides = defaultFrameGateOverrides();
+  useCameraGateDebugStoreBase.setState({ hudEnabled: false, overrides });
+  syncFrameGateDebugOptions(false, overrides);
+}
+
 // The gate reads its options from a plain record rather than from this store,
 // so a reload that restores an enabled readout has to push the restored values
 // into that record before the first frame is judged.

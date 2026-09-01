@@ -15,7 +15,10 @@ import {
   FRAME_GATE_LIVE_OPTIONS,
   defaultFrameGateOverrides,
 } from "@/lib/camera/frame-gate-debug";
-import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
+import {
+  clearCameraGateDebug,
+  useCameraGateDebugStore,
+} from "@/stores/camera-gate-debug-store";
 
 const STORAGE_KEY = "vellum:debug:cameraGateHud";
 
@@ -97,6 +100,22 @@ describe("camera gate debug store", () => {
     expect(useCameraGateDebugStore.getState().overrides.settleThreshold).toBe(
       0.25,
     );
+  });
+
+  test("a session ending takes the readout and its thresholds with it", () => {
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("noveltyThreshold", 1.1);
+
+    clearCameraGateDebug();
+
+    expect(useCameraGateDebugStore.getState().hudEnabled).toBe(false);
+    expect(useCameraGateDebugStore.getState().overrides).toEqual(
+      defaultFrameGateOverrides(),
+    );
+    expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+    });
   });
 
   test("reset puts every slider and the gate back to the defaults", () => {
