@@ -527,7 +527,7 @@ export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
  * A watch retrospective: what a teach session recorded, and the few things the
  * recording could not settle.
  *
- * Rendered as a paged card, one thing per page — the record first, then a page
+ * Rendered as a paged card, one thing per page: the record first, then a page
  * per question. That shape is the payload's only real constraint: a question
  * list long enough to scroll is a questionnaire, so `questions` is capped at
  * three and the cap is enforced here rather than asked for in the prompt.
@@ -545,7 +545,7 @@ export type WatchRetroQuestionKind = z.infer<
  * One answer to a `pick` or `gate` question.
  *
  * **The first option is the default**, and that is the whole of the
- * preselection contract — there is no `selected` flag to disagree with the
+ * preselection contract. There is no `selected` flag to disagree with the
  * ordering. On a `pick` it is the reading the recording supports; on a `gate`
  * it is the cautious answer, which is the one case where the default is
  * deliberately not the model's guess.
@@ -580,7 +580,7 @@ export const WatchRetroSurfaceDataSchema = z.object({
   /** What the task is for. The one sentence that makes the steps mean something. */
   purpose: tolerantString(),
   /**
-   * The steps, in order, as imperative fragments rather than sentences —
+   * The steps, in order, as imperative fragments rather than sentences:
    * "Open the Sentry issue", not "You opened the Sentry issue from the alert
    * email". It is about to become a procedure, so it reads as one already.
    */

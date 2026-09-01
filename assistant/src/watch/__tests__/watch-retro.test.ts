@@ -112,8 +112,8 @@ function recordingDispatch(
  * A dispatcher standing in for the turn the retro actually asks for: one
  * `ui_show` of the card, and no prose at all.
  *
- * Shaped the way the real turn persists — the `tool_use` for the call plus the
- * `ui_surface` block appended beside it (`buildPersistedAssistantContent`) —
+ * Shaped the way the real turn persists (the `tool_use` for the call plus the
+ * `ui_surface` block appended beside it, see `buildPersistedAssistantContent`)
  * because "no text block" is the whole point and an all-surface message is
  * rejected outright by the model-invisible-content guard in
  * `conversation-crud`. This is the ordinary path, not an edge case, which is
@@ -268,10 +268,8 @@ describe("watch retrospective", () => {
 
     const { prompt } = calls[0]!;
     expect(prompt).toContain("skill-management");
-    // One card, and the record is its first page. The ask-first ordering this
-    // replaced was right for a markdown turn, where order is the only priority
-    // axis and a question under a step list is a question nobody reaches. A
-    // paged card has no below, so the record leads without costing the
+    // One card, and the record is its first page. Order carries no priority
+    // once each question owns a page, so the record leads without costing the
     // questions anything.
     expect(prompt).toContain('surface_type: "watch_retro"');
     expect(prompt).toContain("`steps`");

@@ -50,24 +50,17 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
 /**
  * What the retro reports, and the shape it reports in.
  *
- * **It is a card, not a turn of prose.** The report used to be two markdown
- * headings, and read as homework: a numbered list of questions sitting on top
- * of a step-by-step account of a session the user had just finished watching
- * themselves perform. What replaces it is one `ui_show` of a `watch_retro`
- * surface, which the client draws as a paged card — the record on the first
- * page, one question per page after it.
+ * **It is a card, not a turn of prose.** The turn ends in one `ui_show` of a
+ * `watch_retro` surface, which the client draws as a paged card: the record on
+ * the first page, one question per page after it.
  *
- * **The record leads, and paging is what lets it.** The old ordering put the
- * questions first, and the argument for that was sound while this was prose:
- * order is the only priority axis a markdown turn has, so a reader who has to
- * scroll past the account to reach the one part that needs them has been asked
- * for more than the question was worth. A paged card has no below. Nothing is
- * buried by the record coming first, the progress bar says how much is left,
- * and the record is what the user needs in order to answer the rest at all.
- *
- * Do not restore the old ordering without also collapsing the card back to
- * prose. Ask-first is the right call for a text turn and the wrong one here,
- * and the two halves of that only make sense together.
+ * **The record leads, and the paging is what allows that.** A question on its
+ * own page is not competing with the account for attention, the progress bar
+ * says how much is left, and the record is what the user needs in order to
+ * answer anything else. The two are one decision: the questions may sit behind
+ * the record only for as long as they have pages of their own. Prose has no
+ * second axis, so a report collapsed back into a single block has to put its
+ * questions first or bury them.
  *
  * **It asks about what it does not know, not about what it just wrote.** The
  * `skill-management` skill will not scaffold until four points are settled:
@@ -104,7 +97,7 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * `fill` keeps its pre-filled suggestion, so it is an edit rather than a blank.
  * A skipped `pick` takes the first option, which is the reading the recording
  * already supports. A skipped `gate` takes the first option too, and on a gate
- * that first option must be the cautious one — it is the single place where the
+ * that first option must be the cautious one. It is the single place where the
  * default is deliberately not the model's guess.
  *
  * **The skill loads before the card is shown, and nothing follows the card.**
@@ -138,15 +131,15 @@ The payload:
 
 - \`task\`: the task in one line, named the way the user would name it.
 - \`purpose\`: one sentence on what it is for. This is the only sentence on the card.
-- \`steps\`: the steps in order, as short imperative fragments — "Open the Sentry issue", not "You opened the Sentry issue from the alert email". Three to eight of them. Concrete enough to follow, carrying no purpose of their own.
+- \`steps\`: the steps in order, as short imperative fragments: "Open the Sentry issue", not "You opened the Sentry issue from the alert email". Three to eight of them. Concrete enough to follow, carrying no purpose of their own.
 - \`eyebrow\`: the session's own facts, e.g. "Watched 4 min · 11 screens".
 - \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything.
 
 Every question is answerable in one tap and every one is skippable, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
 
-- \`kind: "fill"\` is a single text field, and there is at most one of them: what they would say to start this task, in their own words. Always ask it — the recording cannot tell you. Put your best guess in \`suggestion\` so skipping keeps a working phrase instead of leaving it blank.
-- \`kind: "pick"\` is two to four named alternatives. The first option is the default and must be the reading the recording supports; mark it with a \`note\` saying so. Never ask a yes/no whose "no" tells you nothing: "was the rule X?" wastes the question, where "what decides this?" with X first among the options gets an answer either way. If you cannot name the alternatives, you do not understand the gap well enough to ask about it — leave the step described and ask nothing.
-- \`kind: "gate"\` is for a destructive or irreversible step, and it is asked however plainly the step was seen. Not "did you do this" — you watched them — but whether you may do it unattended. The first option must be the cautious one ("Ask me first"), because a skipped question takes it.
+- \`kind: "fill"\` is a single text field, and there is at most one of them: what they would say to start this task, in their own words. Always ask it, because the recording cannot tell you. Put your best guess in \`suggestion\` so skipping keeps a working phrase instead of leaving it blank.
+- \`kind: "pick"\` is two to four named alternatives. The first option is the default and must be the reading the recording supports; mark it with a \`note\` saying so. Never ask a yes/no whose "no" tells you nothing: "was the rule X?" wastes the question, where "what decides this?" with X first among the options gets an answer either way. If you cannot name the alternatives, you do not understand the gap well enough to ask about it, so leave the step described and ask nothing.
+- \`kind: "gate"\` is for a destructive or irreversible step, and it is asked however plainly the step was seen. Not "did you do this" (you watched them), but whether you may do it unattended. The first option must be the cautious one ("Ask me first"), because a skipped question takes it.
 
 Ask about the done condition only if it is genuinely unclear, and as a \`pick\`.`;
 
@@ -449,7 +442,7 @@ function messageIds(conversationId: string): ReadonlySet<string> {
  * block and leaves no prose behind. Text alone was the test while the report
  * was two markdown headings; kept as the only test, it would read every
  * successful retro as having produced nothing, fail the dispatch, and leave the
- * conversation unsurfaced — the user presses stop, waits out the turn, and is
+ * conversation unsurfaced: the user presses stop, waits out the turn, and is
  * told there is nothing to show while the report sits in a thread they cannot
  * see. Text still counts, so a retro that also wrote something is a report on
  * the same terms it always was.

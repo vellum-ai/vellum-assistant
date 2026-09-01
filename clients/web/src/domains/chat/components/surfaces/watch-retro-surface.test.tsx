@@ -1,18 +1,22 @@
 /**
- * The retro card's two load-bearing behaviours: it pages, and every page a
- * user taps past still lands on an answer.
+ * The card's two load-bearing behaviours: it pages, and every page a user taps
+ * past still lands on an answer.
  *
- * Both are things a static render cannot show. The height complaint that
- * produced this card is only fixed if the questions really are on separate
- * pages, and the "all optional" promise is only kept if skipping submits a
- * default rather than a hole — and the gate's default has to be the cautious
- * option rather than the one the recording showed.
+ * Neither is visible to a static render. The card is only short if the
+ * questions really are on separate pages, and "every question is optional" only
+ * holds if skipping submits a default rather than a hole, with the gate
+ * defaulting to the cautious option rather than to what the recording showed.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { fireEvent } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 import type { Surface } from "@/domains/chat/types/types";
 import { WatchRetroSurface } from "@/domains/chat/components/surfaces/watch-retro-surface";
@@ -49,7 +53,7 @@ function surface(overrides: Record<string, unknown> = {}): Surface {
         {
           id: "resolve",
           kind: "gate",
-          prompt: "Resolving the Sentry issue — on my own?",
+          prompt: "Resolving the Sentry issue, on my own?",
           options: [
             { id: "ask", label: "Ask me first" },
             { id: "go", label: "Go ahead" },
@@ -75,7 +79,7 @@ describe("WatchRetroSurface", () => {
     // the steps is not on this page at all.
     expect(screen.queryByText("What would you say to start this?")).toBeNull();
     expect(
-      screen.queryByText("Resolving the Sentry issue — on my own?"),
+      screen.queryByText("Resolving the Sentry issue, on my own?"),
     ).toBeNull();
   });
 
@@ -144,12 +148,12 @@ describe("WatchRetroSurface", () => {
     fireEvent.click(screen.getByText("That's it"));
     fireEvent.click(screen.getByText("Next"));
     // A single-select surface commits on tap everywhere else in the app, so
-    // the pick page carries no advance button — the option is the gesture.
+    // the pick page carries no advance button: the option is the gesture.
     fireEvent.click(screen.getByText("It hit a customer"));
 
     expect(calls).toHaveLength(0);
     expect(
-      screen.getByText("Resolving the Sentry issue — on my own?"),
+      screen.getByText("Resolving the Sentry issue, on my own?"),
     ).toBeDefined();
 
     fireEvent.click(screen.getByText("Go ahead"));
@@ -181,6 +185,78 @@ describe("WatchRetroSurface", () => {
     // saves rather than advancing to a page that does not exist.
     fireEvent.click(screen.getByText("Save skill"));
     expect(calls).toEqual(["answer"]);
+  });
+
+  test("stays usable when a submission fails", async () => {
+    let attempts = 0;
+    render(
+      <WatchRetroSurface
+        surface={surface({ questions: [] })}
+        onAction={() => {
+          attempts += 1;
+          // What a failed submit looks like from here: `handleSurfaceAction`
+          // reports the error to the user and returns normally rather than
+          // rejecting, so a reset that only ran on a thrown error would never
+          // run. Every control would stay disabled behind an interactive
+          // surface nobody can answer, with the composer blocked with it.
+          return Promise.resolve();
+        }}
+      />,
+    );
+
+    const save = screen.getByText("Save skill");
+    fireEvent.click(save);
+    await waitFor(() => {
+      expect(save.closest("button")!.disabled).toBe(false);
+    });
+
+    fireEvent.click(save);
+    expect(attempts).toBe(2);
+  });
+
+  test("keeps one page per question id when the payload repeats one", () => {
+    const calls: { data?: Record<string, unknown> }[] = [];
+    render(
+      <WatchRetroSurface
+        surface={surface({
+          questions: [
+            {
+              id: "same",
+              kind: "pick",
+              prompt: "First question",
+              options: [
+                { id: "a", label: "First A" },
+                { id: "b", label: "First B" },
+              ],
+            },
+            {
+              id: "same",
+              kind: "pick",
+              prompt: "Second question",
+              options: [
+                { id: "c", label: "Second C" },
+                { id: "d", label: "Second D" },
+              ],
+            },
+          ],
+        })}
+        onAction={(_surfaceId, _actionId, data) => {
+          calls.push({ data });
+        }}
+      />,
+    );
+
+    // Answers are held under the question id, so two questions sharing one
+    // would share a slot: answering either would overwrite the other, and both
+    // would submit whichever answer landed last. The first use of an id wins.
+    fireEvent.click(screen.getByText("That's it"));
+    expect(screen.getByText("First question")).toBeDefined();
+    expect(screen.queryByText("Second question")).toBeNull();
+
+    fireEvent.click(screen.getByText("First B"));
+    const answers = calls[0]!.data!.answers as { optionId?: string }[];
+    expect(answers).toHaveLength(1);
+    expect(answers[0]).toMatchObject({ optionId: "b" });
   });
 
   test("drops a pick that carries nothing to pick from", () => {

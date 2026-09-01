@@ -1837,7 +1837,7 @@ const ONE_SHOT_SURFACE_TYPES = [
   "task_preferences",
   // The retro card submits every page's answer in one payload, so its first
   // action is also its last. It is shown with `await_action: false` and so
-  // holds no pending entry — completing on that first action is what stops a
+  // holds no pending entry. Completing on that first action is what stops a
   // report the user has already answered from staying answerable.
   "watch_retro",
 ];
