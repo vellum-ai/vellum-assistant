@@ -105,14 +105,18 @@ function createCaptureFake({
   };
 }
 
-function startWithFakes(
+async function startWithFakes(
   onPartial: (text: string) => void = () => undefined,
   captureFake = createCaptureFake(),
+  {
+    resolveWsUrl = () => Promise.resolve("ws://gateway.test/v1/stt/stream"),
+  }: { resolveWsUrl?: (assistantId: string) => Promise<string> } = {},
 ) {
   let ws: FakeWebSocket | null = null;
   const handle = startDictationStream(
-    { onPartial },
+    { assistantId: "a1", onPartial },
     {
+      resolveWsUrl,
       webSocketFactory: (url) => {
         ws = new FakeWebSocket(url);
         return ws as unknown as WebSocket;
@@ -120,8 +124,14 @@ function startWithFakes(
       captureFactory: captureFake.factory,
     },
   );
-  if (!handle || !ws) {
-    throw new Error("expected stream to start");
+  if (!handle) {
+    throw new Error("expected a stream handle");
+  }
+  // The URL is a promise away, and the socket is dialled once it settles.
+  await flushMicrotasks();
+  await flushMicrotasks();
+  if (!ws) {
+    throw new Error("expected the socket to be dialled once the URL resolved");
   }
   return { handle, ws: ws as FakeWebSocket, captureFake };
 }
@@ -177,44 +187,39 @@ describe("buildSttStreamWsUrl", () => {
 // ---------------------------------------------------------------------------
 
 describe("startDictationStream", () => {
-  test("returns null without a self-hosted ingress, token, or worklet support", () => {
-    ingressUrl = null;
-    expect(startDictationStream({ onPartial: () => undefined })).toBeNull();
-
-    ingressUrl = "http://localhost:8500";
-    actorToken = null;
-    expect(startDictationStream({ onPartial: () => undefined })).toBeNull();
-
-    actorToken = "actor-jwt";
+  test("returns null only where PCM capture is impossible", () => {
     pcmSupported = false;
-    expect(startDictationStream({ onPartial: () => undefined })).toBeNull();
+    expect(
+      startDictationStream({ assistantId: "a1", onPartial: () => undefined }),
+    ).toBeNull();
   });
 
-  test("returns null for a paired-assistant ingress without dialling a socket", () => {
-    // The paired __gateway-paired proxy is HTTP-only, so streaming partials
-    // must skip deterministically; batch dictation is unaffected.
-    ingressUrl = "http://localhost:3000/assistant/__gateway-paired/asst-1";
-    let dialled = 0;
-    const handle = startDictationStream(
-      { onPartial: () => undefined },
-      {
-        webSocketFactory: () => {
-          dialled += 1;
-          throw new Error("unexpected socket dial for a paired ingress");
-        },
-      },
-    );
-    expect(handle).toBeNull();
-    expect(dialled).toBe(0);
-  });
+  /**
+   * The socket is a token mint away for a managed assistant, and the speaker
+   * is not waiting for it. Capture starts at once and what it hears is held,
+   * then released the moment the socket opens, so a dictation that begins the
+   * instant a key goes down keeps its opening words.
+   */
+  test("captures from the start and releases held audio when the socket opens", async () => {
+    const { ws, captureFake } = await startWithFakes();
+    const early = new ArrayBuffer(4);
+    const late = new ArrayBuffer(8);
 
-  test("starts capture on open and composes partial/final transcripts", async () => {
-    const partials: string[] = [];
-    const { handle, ws, captureFake } = startWithFakes((t) => partials.push(t));
+    expect(captureFake.calls.started).toBe(1);
+    captureFake.pushChunk(early);
+    expect(ws.sent).toHaveLength(0);
 
     ws.serverOpen();
-    await flushMicrotasks();
-    expect(captureFake.calls.started).toBe(1);
+    expect(ws.sent).toEqual([early]);
+
+    captureFake.pushChunk(late);
+    expect(ws.sent).toEqual([early, late]);
+  });
+
+  test("composes partial and final transcripts as they arrive", async () => {
+    const partials: string[] = [];
+    const { handle, ws } = await startWithFakes((t) => partials.push(t));
+    ws.serverOpen();
 
     expect(handle.isLive()).toBe(false);
     ws.serverMessage({ type: "ready", provider: "deepgram" });
@@ -233,26 +238,67 @@ describe("startDictationStream", () => {
     ]);
   });
 
-  test("forwards PCM chunks only while the socket is open", () => {
-    const { handle, ws, captureFake } = startWithFakes();
-    const chunk = new ArrayBuffer(4);
-
-    captureFake.pushChunk(chunk);
-    expect(ws.sent).toHaveLength(0);
-
+  /**
+   * The provider flushes what it has left after the stop and the session
+   * closes behind it. What the stop resolves with is everything committed by
+   * then, which is a complete transcript of the recording.
+   */
+  test("stop() flushes, waits for the close, and resolves the committed transcript", async () => {
+    const { handle, ws } = await startWithFakes();
     ws.serverOpen();
-    captureFake.pushChunk(chunk);
-    expect(ws.sent).toEqual([chunk]);
+    ws.serverMessage({ type: "ready" });
+    ws.serverMessage({ type: "final", text: "first sentence.", seq: 0 });
 
-    handle.stop();
-    captureFake.pushChunk(chunk);
-    expect(ws.sent.filter((s) => s === chunk)).toHaveLength(1);
+    const stopped = handle.stop();
+    const stopFrames = ws.sent.filter(
+      (frame) => typeof frame === "string" && frame.includes('"stop"'),
+    );
+    expect(stopFrames).toHaveLength(1);
+    // Not yet: the provider is still flushing.
+    expect(ws.closeCalls).toHaveLength(0);
+
+    ws.serverMessage({ type: "final", text: "and the last.", seq: 1 });
+    ws.serverMessage({ type: "closed" });
+
+    expect(await stopped).toBe("first sentence. and the last.");
+    expect(handle.isLive()).toBe(false);
   });
 
-  test("a structured error (e.g. provider without streaming) tears down silently", () => {
-    const partials: string[] = [];
-    const { handle, ws, captureFake } = startWithFakes((t) => partials.push(t));
+  test("stop() is idempotent and both calls settle on the same transcript", async () => {
+    const { handle, ws } = await startWithFakes();
+    ws.serverOpen();
+    ws.serverMessage({ type: "ready" });
+    ws.serverMessage({ type: "final", text: "words.", seq: 0 });
 
+    const first = handle.stop();
+    const second = handle.stop();
+    ws.serverMessage({ type: "closed" });
+
+    expect(await first).toBe("words.");
+    expect(await second).toBe("words.");
+    const stopFrames = ws.sent.filter(
+      (frame) => typeof frame === "string" && frame.includes('"stop"'),
+    );
+    expect(stopFrames).toHaveLength(1);
+  });
+
+  /**
+   * `null` is "nothing was heard", which a caller must be able to tell from
+   * an empty transcript: a session that never went live has no opinion about
+   * what was said, and the recording is transcribed some other way.
+   */
+  test("stop() resolves null when the session never went live", async () => {
+    const { handle, ws } = await startWithFakes();
+    ws.serverOpen();
+
+    expect(await handle.stop()).toBeNull();
+  });
+
+  test("a structured error (e.g. provider without streaming) tears down silently", async () => {
+    const partials: string[] = [];
+    const { handle, ws, captureFake } = await startWithFakes((t) =>
+      partials.push(t),
+    );
     ws.serverOpen();
     ws.serverMessage({
       type: "error",
@@ -263,36 +309,66 @@ describe("startDictationStream", () => {
 
     expect(handle.isLive()).toBe(false);
     expect(captureFake.calls.shutdown).toBe(1);
+    expect(await handle.stop()).toBeNull();
 
     ws.serverMessage({ type: "partial", text: "late", seq: 1 });
     expect(partials).toEqual([]);
   });
 
-  test("stop() sends the stop frame once and closes; idempotent", () => {
-    const { handle, ws } = startWithFakes();
-    ws.serverOpen();
-
-    handle.stop();
-    handle.stop();
-
-    const stopFrames = ws.sent.filter(
-      (frame) => typeof frame === "string" && frame.includes('"stop"'),
+  /**
+   * A paired ingress, a token the platform refused, an assistant with no way
+   * in: each is a reason there is no stream rather than a fault. The handle
+   * still exists, it just resolves to nothing, and batch dictation is
+   * unaffected.
+   */
+  test("a URL that cannot be resolved tears down without dialling", async () => {
+    let dialled = 0;
+    const captureFake = createCaptureFake();
+    const handle = startDictationStream(
+      { assistantId: "a1", onPartial: () => undefined },
+      {
+        resolveWsUrl: () => Promise.reject(new Error("paired ingress")),
+        webSocketFactory: () => {
+          dialled += 1;
+          throw new Error("unexpected dial");
+        },
+        captureFactory: captureFake.factory,
+      },
     );
-    expect(stopFrames).toHaveLength(1);
-    expect(ws.closeCalls).toHaveLength(1);
-    expect(handle.isLive()).toBe(false);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(dialled).toBe(0);
+    expect(captureFake.calls.shutdown).toBe(1);
+    expect(await handle!.stop()).toBeNull();
   });
 
+  /**
+   * Capture fails before the URL has even resolved here, so the socket is
+   * never dialled at all: a session already torn down has nothing to connect.
+   */
   test("capture failure tears the session down without throwing", async () => {
     const captureFake = createCaptureFake({
       startResult: { ok: false, error: "permission-denied" },
     });
-    const { handle, ws } = startWithFakes(() => undefined, captureFake);
-
-    ws.serverOpen();
+    let dialled = 0;
+    const handle = startDictationStream(
+      { assistantId: "a1", onPartial: () => undefined },
+      {
+        resolveWsUrl: () => Promise.resolve("ws://gateway.test/v1/stt/stream"),
+        webSocketFactory: () => {
+          dialled += 1;
+          throw new Error("unexpected dial");
+        },
+        captureFactory: captureFake.factory,
+      },
+    );
+    await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(handle.isLive()).toBe(false);
+    expect(handle!.isLive()).toBe(false);
     expect(captureFake.calls.shutdown).toBe(1);
+    expect(dialled).toBe(0);
+    expect(await handle!.stop()).toBeNull();
   });
 });
