@@ -60,15 +60,38 @@ scrim.
       nothing flashes the whole screen.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
+- [ ] iOS does not take the press. Holding never raises the text-selection
+      callout, the magnifier, or a share sheet over the viewfinder.
+- [ ] The native preview offers no Live. In the installed app, with the plugin
+      drawing the preview, press and keep pressing the shutter. Nothing enters
+      Live: the pill stays "Photo", there is no hint under the shutter, and
+      letting go takes an ordinary photo, the same as a tap. VoiceOver reads no
+      keyboard shortcut on the shutter.
+
+### Live on iPhone, which is iOS Safari
+
+Live samples the room's own `<video>` element, and the installed app usually has
+none: the Capacitor plugin draws its preview behind the web view, so wherever
+that preview is up Live is not offered and the shutter is the plain photo button
+the checks above describe. Run this section in mobile Safari, where the
+viewfinder is always the web one.
+
+Two consequences worth knowing before filing a bug. Flash is native-only, so a
+session that can run these checks has no flash control in it: the flash checks
+above and these are never reachable in the same viewfinder. And in the installed
+app the web preview also appears as a fallback when a native start fails, which
+makes Live briefly available there; every later acquire retries the native
+start, so a flip that succeeds takes the preview back, and Live ends with it
+rather than the pill going on claiming a stream nothing is reading.
+
 - [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
       second the haptic fires, the ring goes crimson, the pill says Live and the
       hint changes to "Live · Tap to stop". Letting go takes no photo, so
       nothing joins the strip and nothing new lands in the transcript.
 - [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
       small wobble still enters Live. Slide the thumb off the shutter, or more
-      than a finger's width across it, and nothing happens: no photo either.
-- [ ] iOS does not take the press. Holding never raises the text-selection
-      callout, the magnifier, or a share sheet over the viewfinder.
+      than a finger's width across it, and nothing happens: no photo either,
+      including when the thumb is still on the shutter as it lifts.
 - [ ] Flipping while live. Enter Live, flip the camera. The pill stays Live, the
       thumbnail clears, and a new keep appears from the new camera within a few
       seconds.
