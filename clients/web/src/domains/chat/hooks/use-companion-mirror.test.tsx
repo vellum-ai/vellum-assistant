@@ -15,6 +15,19 @@ mock.module("@/runtime/companion-surface", () => ({
     published.push(context);
   },
   clearCompanionWorking: clearWorkingMock,
+  // The targeted path the running dictation's words take, which reuses the
+  // last context rather than rebuilding one. Recorded the same way, since what
+  // matters to these cases is what reached the surface.
+  setCompanionDictation: (
+    dictating: CompanionContext["dictating"],
+    dictationText: string,
+  ) => {
+    const last = published[published.length - 1];
+    if (last === undefined) {
+      return;
+    }
+    published.push({ ...last, dictating, dictationText });
+  },
 }));
 
 let isPopout = false;
@@ -488,4 +501,21 @@ describe("the watch session at teardown", () => {
 
     expect(published.length).toBe(count);
   });
+});
+
+/**
+ * The mount itself, with nothing arranged around it.
+ *
+ * The effect publishes once before wiring any subscription, so anything the
+ * first publish reads has to exist by then. A binding declared later in the
+ * effect body is in its dead zone at that point and throws, which takes the
+ * mirror down and the layout with it, and no case about what gets published
+ * would notice because nothing gets published at all.
+ */
+test("mounts and publishes without throwing", () => {
+  expect(() => {
+    render(<Mirror />);
+  }).not.toThrow();
+
+  expect(published.length).toBeGreaterThan(0);
 });

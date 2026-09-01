@@ -246,6 +246,9 @@ export function useCompanionMirror(): void {
     // while a microphone is open, and only two of those writes change what the
     // surface draws.
     let dictating = dictatingPhase();
+    // The words that came with it. Declared beside the phase because `sync`
+    // writes both, and `sync` runs before the subscriptions are set up.
+    let dictationText = dictationTail();
 
     const sync = (): void => {
       const context = currentContext();
@@ -308,7 +311,6 @@ export function useCompanionMirror(): void {
     // carries the live audio level and the interim transcript, so it moves
     // continuously through a recording, and `sync` reselects and remaps the
     // whole tail on every call.
-    let dictationText = dictationTail();
     const onDictationMaybeFlipped = (): void => {
       if (dictatingPhase() !== dictating) {
         sync();
