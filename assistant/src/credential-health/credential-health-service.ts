@@ -716,8 +716,12 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
     return {
       ...base,
       status: "revoked",
+      // Names the recovery the app actually performs. The replacement is
+      // provisioned by a signed-in client on open, so telling the reader to
+      // reconnect something would describe work they do not do, and would go
+      // stale the moment it succeeds.
       details:
-        "Vellum rejected the managed inference credential. Sign in to Vellum to provision a replacement.",
+        "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
       canAutoRecover: true,
     };
   }

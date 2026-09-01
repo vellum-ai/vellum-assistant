@@ -128,6 +128,36 @@ export const WithSettledRequest: Story = {
 };
 
 /**
+ * A rejected Vellum-managed inference credential.
+ *
+ * The title and summary are what `credential.health_alert` composes from the
+ * health check's own verdict, so this row is the copy a reader actually gets
+ * rather than a story-only approximation. It carries the security category
+ * and the attention hue because managed inference is down until the
+ * credential is replaced, and it is the workspace's one managed route, so
+ * every job sharing that route shares this row.
+ */
+export const WithRejectedManagedCredential: Story = {
+  args: {
+    items: [
+      feedItem({
+        id: "credential-health-vellum",
+        status: "new",
+        urgency: "high",
+        category: "security",
+        title: "Vellum inference interrupted",
+        summary:
+          "Vellum rejected the managed inference credential. Opening Vellum while signed in provisions a replacement automatically.",
+        detailPanel: { kind: "toolPermission" },
+        timestamp: "2026-09-01T15:28:00.000Z",
+        createdAt: "2026-09-01T15:28:00.000Z",
+      }),
+      ...UPDATES,
+    ],
+  },
+};
+
+/**
  * More notifications than the panel's height budget seats, which is where
  * the list scrolls inside the panel rather than growing it.
  */

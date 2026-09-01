@@ -167,8 +167,51 @@ function formatTrustedContactActor(
   return sanitizeIdentityField(name ?? slackMention ?? rawId ?? fallback);
 }
 
+/**
+ * Provider id of the Vellum-managed inference credential. It is the one
+ * credential in this alert whose recovery is not a user reconnecting an
+ * account, so it takes its own title rather than the reconnect phrasing.
+ */
+const MANAGED_INFERENCE_PROVIDER = "vellum";
+
 // Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
+  /**
+   * The health check authors a complete, actionable sentence per status, so
+   * the body is that sentence rather than a second description built here
+   * that would drift from it. The title names the credential, since the bell
+   * shows it beside unrelated rows.
+   */
+  "credential.health_alert": (payload) => {
+    const provider = sanitizedPayloadField(payload.provider, "an account");
+    // `details` is a sentence, not an identity field, so it goes through the
+    // preview sanitizer that keeps prose intact.
+    const details =
+      typeof payload.details === "string"
+        ? nonEmpty(sanitizeMessagePreview(payload.details))
+        : undefined;
+    const status = str(payload.status, "");
+
+    if (provider === MANAGED_INFERENCE_PROVIDER) {
+      return {
+        title: "Vellum inference interrupted",
+        body:
+          details ??
+          "The Vellum managed inference credential is not working, so chat and background work that use it are paused.",
+      };
+    }
+
+    return {
+      title:
+        status === "missing_scopes"
+          ? `New permissions needed: ${provider}`
+          : `Reconnect needed: ${provider}`,
+      body:
+        details ??
+        `The credential for ${provider} is no longer valid, so work that needs it is paused.`,
+    };
+  },
+
   "schedule.notify": (payload) => ({
     title: str(payload.label, "Reminder"),
     body: str(payload.message, "A reminder has fired"),
