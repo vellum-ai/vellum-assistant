@@ -136,7 +136,41 @@ let client = makeClient();
  */
 let modifierHoldBinding: ModifierHold = { kind: "off" };
 
+/**
+ * The binding the caller last asked for, and the call carrying one to the
+ * helper, so the last word wins.
+ *
+ * Registrations arrive in bursts: a renderer that reloads tears its binding
+ * down and puts it back, and both are calls over the same pipe. Run
+ * concurrently they can land in the other order, leaving the helper cleared
+ * while the app believes it is armed, which reads as the keys going dead until
+ * the next restart. Chaining is what keeps the order the caller's.
+ */
+let desiredModifierHold: ModifierHold = { kind: "off" };
+let modifierHoldInFlight: Promise<ModifierHoldRegistrationResult> | null = null;
+
 const setModifierHold = async (
+  hold: ModifierHold,
+): Promise<ModifierHoldRegistrationResult> => {
+  desiredModifierHold = hold;
+  const run = async (): Promise<ModifierHoldRegistrationResult> => {
+    await modifierHoldInFlight?.catch(() => undefined);
+    // Whatever was asked for last, which may no longer be what this call
+    // carried: a burst collapses to one registration rather than a queue of
+    // them fighting.
+    return applyModifierHold(desiredModifierHold);
+  };
+  const call = run();
+  modifierHoldInFlight = call;
+  void call.finally(() => {
+    if (modifierHoldInFlight === call) {
+      modifierHoldInFlight = null;
+    }
+  });
+  return call;
+};
+
+const applyModifierHold = async (
   hold: ModifierHold,
 ): Promise<ModifierHoldRegistrationResult> => {
   if (hold.kind === "off" && modifierHoldBinding.kind === "off") {
