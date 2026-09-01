@@ -7,7 +7,9 @@
 
 import { z } from "zod";
 
+import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
+import { invalidateRegisteredInboxCache } from "../../email/registered-inbox.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -70,7 +72,18 @@ async function handleEmailRegister({ body = {} }: RouteHandlerArgs) {
     address: string;
     created_at: string;
   };
+  invalidateEmailReadinessState();
   return data;
+}
+
+/**
+ * A registration change must be visible on the next readiness read: both the
+ * registered-inbox cache and the readiness service's cached email snapshot
+ * would otherwise keep answering with the pre-change state for their TTL.
+ */
+function invalidateEmailReadinessState(): void {
+  invalidateRegisteredInboxCache();
+  getReadinessService().invalidateChannel("email");
 }
 
 async function handleEmailUnregister(_args: RouteHandlerArgs) {
@@ -117,6 +130,7 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
     );
   }
 
+  invalidateEmailReadinessState();
   return { unregistered: target.address };
 }
 

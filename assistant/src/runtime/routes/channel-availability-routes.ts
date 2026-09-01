@@ -26,7 +26,7 @@ import {
   type ChannelInfo,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { VellumPlatformClient } from "../../platform/client.js";
+import { resolveRegisteredInbox } from "../../email/registered-inbox.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -39,38 +39,19 @@ const BASE_AVAILABLE_CHANNELS: readonly ChannelId[] = [
   "phone",
 ] as const;
 
-interface EmailAddressListResponse {
-  count?: number;
-  results?: Array<{ id: string; address: string }>;
-}
-
 /**
  * Best-effort check that an inbox address is registered for this
- * assistant. A platform fetch failure is treated as "no inbox" — we
- * prefer to under-report than block the entire Contacts page when the
- * platform is briefly unreachable.
+ * assistant, through the shared registered-inbox reader. An unavailable
+ * platform is treated as "no inbox": we prefer to under-report than block
+ * the entire Contacts page when the platform is briefly unreachable.
+ *
+ * Fresh, preserving this route's long-standing live-read-per-request
+ * behavior: availability is fetched on surface loads, not on a poll, so it
+ * does not need the resolver's cache and should not inherit its staleness.
  */
 async function hasRegisteredInbox(): Promise<boolean> {
-  const client = await VellumPlatformClient.create();
-  if (!client?.platformAssistantId) {
-    return false;
-  }
-
-  try {
-    const response = await client.fetch(
-      `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-    );
-    if (!response.ok) {
-      return false;
-    }
-    const data = (await response.json()) as EmailAddressListResponse;
-    if (typeof data.count === "number") {
-      return data.count > 0;
-    }
-    return Array.isArray(data.results) && data.results.length > 0;
-  } catch {
-    return false;
-  }
+  const inbox = await resolveRegisteredInbox({ fresh: true });
+  return inbox.status === "registered";
 }
 
 async function handleGetChannelAvailability(

@@ -283,32 +283,73 @@ const emailProbe: ChannelProbe = {
         "Email invite code redemption is enabled",
         "Email invite code redemption is disabled",
       ),
-      await checkIngress(),
+      // Managed callbacks allowed: inbound email arrives through the platform
+      // callback route the gateway registers (`registerEmailCallbackRoute`,
+      // the same pattern as Telegram's webhook route), so a platform-connected
+      // deployment with no public ingress URL still receives email.
+      await checkIngress(true),
     ];
   },
+  /**
+   * Ask the platform whether an inbox address is registered. The platform's
+   * email-addresses API is the only writer of managed inbox registrations
+   * (nothing about one lands in workspace config), so it is the only source
+   * this check may read.
+   *
+   * Three outcomes, matching the Telegram probe: a platform answer passes or
+   * fails the check outright, and an unreachable platform is indeterminate,
+   * which is not evidence of a fault and must not report the channel broken.
+   */
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
-    try {
-      const raw = loadRawConfig();
-      const address = getNestedValue(raw, "email.address");
-      const hasInbox = typeof address === "string" && address.length > 0;
-      return [
-        {
-          name: "inbox_configured",
-          passed: hasInbox,
-          message: hasInbox
-            ? `Inbox address is configured (${address})`
-            : "No inbox address configured — register one with: assistant email register <username>",
-        },
-      ];
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return [
-        {
-          name: "inbox_configured",
-          passed: false,
-          message: `Failed to check inbox configuration: ${message}`,
-        },
-      ];
+    // Imported here rather than at module scope, matching the other probes:
+    // the platform client pulls in a module graph that unrelated consumers of
+    // this service should not have to mock.
+    const { resolveRegisteredInbox } =
+      await import("../email/registered-inbox.js");
+    // Fresh, because this service already caches remote checks for
+    // REMOTE_TTL_MS; layering the resolver's own cache under that would make
+    // an explicit readiness refresh serve a stale answer anyway.
+    const inbox = await resolveRegisteredInbox({ fresh: true });
+
+    // Published identifier (see the Telegram probe's `webhook_delivery` note):
+    // external clients search readiness responses for this name.
+    const name = "inbox_configured";
+    switch (inbox.status) {
+      case "registered":
+        return [
+          {
+            name,
+            passed: true,
+            message: `Inbox address is registered (${inbox.address})`,
+          },
+        ];
+      case "none":
+        return [
+          {
+            name,
+            passed: false,
+            message:
+              "No inbox address registered. Register one with: assistant email register <username>",
+          },
+        ];
+      case "no_platform":
+        return [
+          {
+            name,
+            passed: false,
+            message:
+              "Platform credentials are not configured, so no managed inbox can be registered. Run: assistant platform connect",
+          },
+        ];
+      case "unavailable":
+        return [
+          {
+            name,
+            passed: true,
+            indeterminate: true,
+            message: `Could not reach the platform to check inbox registration (${inbox.detail})`,
+          },
+        ];
     }
   },
 };
