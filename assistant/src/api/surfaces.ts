@@ -524,6 +524,89 @@ export const WorkResultSurfaceDataSchema = z.object({
 export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
 
 /**
+ * A watch retrospective: what a teach session recorded, and the few things the
+ * recording could not settle.
+ *
+ * Rendered as a paged card, one thing per page — the record first, then a page
+ * per question. That shape is the payload's only real constraint: a question
+ * list long enough to scroll is a questionnaire, so `questions` is capped at
+ * three and the cap is enforced here rather than asked for in the prompt.
+ *
+ * Tolerant like every other surface schema. A malformed question is dropped
+ * and the rest of the card still renders, because the record is the half the
+ * user is owed and it does not depend on the questions parsing.
+ */
+export const WatchRetroQuestionKindSchema = z.enum(["fill", "pick", "gate"]);
+export type WatchRetroQuestionKind = z.infer<
+  typeof WatchRetroQuestionKindSchema
+>;
+
+/**
+ * One answer to a `pick` or `gate` question.
+ *
+ * **The first option is the default**, and that is the whole of the
+ * preselection contract — there is no `selected` flag to disagree with the
+ * ordering. On a `pick` it is the reading the recording supports; on a `gate`
+ * it is the cautious answer, which is the one case where the default is
+ * deliberately not the model's guess.
+ */
+export const WatchRetroOptionSchema = z.object({
+  id: z.coerce.string().catch(""),
+  label: z.coerce.string().catch(""),
+  /** Short qualifier under the label, e.g. marking the model's own reading. */
+  note: tolerantString(),
+});
+export type WatchRetroOption = z.infer<typeof WatchRetroOptionSchema>;
+
+export const WatchRetroQuestionSchema = z.object({
+  id: z.coerce.string().catch(""),
+  kind: WatchRetroQuestionKindSchema.catch("pick"),
+  prompt: z.coerce.string().catch(""),
+  /** Eyebrow above the prompt, naming why this one is being asked. */
+  eyebrow: tolerantString(),
+  /** `fill` only: the pre-filled value, so skipping keeps a working answer. */
+  suggestion: tolerantString(),
+  /** `pick` and `gate`: the alternatives. First is the default. */
+  options: recordArray(WatchRetroOptionSchema).optional().catch(undefined),
+});
+export type WatchRetroQuestion = z.infer<typeof WatchRetroQuestionSchema>;
+
+/** How many questions one card may carry. See the schema note. */
+export const WATCH_RETRO_MAX_QUESTIONS = 3;
+
+export const WatchRetroSurfaceDataSchema = z.object({
+  /** The task, named in one line. The card's title. */
+  task: z.coerce.string().catch(""),
+  /** What the task is for. The one sentence that makes the steps mean something. */
+  purpose: tolerantString(),
+  /**
+   * The steps, in order, as imperative fragments rather than sentences —
+   * "Open the Sentry issue", not "You opened the Sentry issue from the alert
+   * email". It is about to become a procedure, so it reads as one already.
+   */
+  steps: z.preprocess(
+    (value) =>
+      Array.isArray(value)
+        ? value.filter((entry) => typeof entry === "string" && entry.trim())
+        : [],
+    z.array(z.string()),
+  ),
+  /** Session facts for the eyebrow, e.g. "Watched 4 min · 11 screens". */
+  eyebrow: tolerantString(),
+  /** Set when the recording was bounded, naming which end is missing. */
+  coverage: tolerantString(),
+  questions: z
+    .preprocess(
+      (value) =>
+        Array.isArray(value) ? value.slice(0, WATCH_RETRO_MAX_QUESTIONS) : [],
+      recordArray(WatchRetroQuestionSchema),
+    )
+    .optional()
+    .catch(undefined),
+});
+export type WatchRetroSurfaceData = z.infer<typeof WatchRetroSurfaceDataSchema>;
+
+/**
  * Inline visual: a self-contained html fragment rendered in a sandboxed
  * frame. Model-invokable via `ui_show`, which validates the fragment (no
  * external resources, design-token styling) before emitting it — see
@@ -597,6 +680,7 @@ export const SURFACE_TYPES = [
   "call_summary",
   "visual",
   "voice_picker",
+  "watch_retro",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
@@ -655,7 +739,8 @@ export type SurfaceData =
   | FileUploadSurfaceData
   | DocumentPreviewSurfaceData
   | WorkResultSurfaceData
-  | VisualSurfaceData;
+  | VisualSurfaceData
+  | WatchRetroSurfaceData;
 
 /**
  * Per-type `data` payload shapes, keyed by surface type. This is the
@@ -692,6 +777,7 @@ export interface SurfaceDataByType {
   call_summary: Record<string, unknown>;
   visual: VisualSurfaceData;
   voice_picker: Record<string, unknown>;
+  watch_retro: WatchRetroSurfaceData;
 }
 
 /** Any surface `data` payload, including the opaque (non-renderable) types. */
@@ -726,6 +812,7 @@ export const SURFACE_DATA_SCHEMAS: {
   call_summary: z.record(z.string(), z.unknown()),
   visual: VisualSurfaceDataSchema,
   voice_picker: z.record(z.string(), z.unknown()),
+  watch_retro: WatchRetroSurfaceDataSchema,
 };
 
 /**

@@ -108,6 +108,49 @@ function recordingDispatch(
   return { calls, dispatch };
 }
 
+/**
+ * A dispatcher standing in for the turn the retro actually asks for: one
+ * `ui_show` of the card, and no prose at all.
+ *
+ * Shaped the way the real turn persists — the `tool_use` for the call plus the
+ * `ui_surface` block appended beside it (`buildPersistedAssistantContent`) —
+ * because "no text block" is the whole point and an all-surface message is
+ * rejected outright by the model-invisible-content guard in
+ * `conversation-crud`. This is the ordinary path, not an edge case, which is
+ * why it gets a helper of its own: `recordingDispatch` leaves a text message,
+ * so every test built on it would pass whether or not the card counts.
+ */
+function cardOnlyDispatch(surfaceType = "watch_retro") {
+  const calls: { conversationId: string; prompt: string }[] = [];
+  const dispatch = async (
+    conversationId: string,
+    prompt: string,
+  ): Promise<WatchRetroDispatchResult> => {
+    calls.push({ conversationId, prompt });
+    const surfaceId = `watch-retro-${randomUUID()}`;
+    const data = {
+      task: "Filing the receipt",
+      steps: ["Open the inbox", "Save the attachment"],
+    };
+    await addMessage(
+      conversationId,
+      "assistant",
+      JSON.stringify([
+        {
+          type: "tool_use",
+          id: `toolu_${randomUUID()}`,
+          name: "ui_show",
+          input: { surface_type: surfaceType, data },
+        },
+        { type: "ui_surface", surfaceId, surfaceType, data },
+      ]),
+      { skipIndexing: true },
+    );
+    return { invoked: true };
+  };
+  return { calls, dispatch };
+}
+
 describe("watch retrospective", () => {
   test("dispatches exactly one turn carrying the session's timeline", async () => {
     const summary = recordSession([
@@ -225,52 +268,97 @@ describe("watch retrospective", () => {
 
     const { prompt } = calls[0]!;
     expect(prompt).toContain("skill-management");
-    // The ask leads, and the record follows it.
-    expect(prompt).toContain("What I need from you");
-    expect(prompt).toContain("What I saw");
-    expect(prompt.indexOf("What I need from you")).toBeLessThan(
-      prompt.indexOf("What I saw"),
+    // One card, and the record is its first page. The ask-first ordering this
+    // replaced was right for a markdown turn, where order is the only priority
+    // axis and a question under a step list is a question nobody reaches. A
+    // paged card has no below, so the record leads without costing the
+    // questions anything.
+    expect(prompt).toContain('surface_type: "watch_retro"');
+    expect(prompt).toContain("`steps`");
+    expect(prompt.indexOf("`steps`")).toBeLessThan(
+      prompt.indexOf("`questions`"),
     );
     // The one field the recording cannot supply is always asked for.
-    expect(prompt).toContain("what they would say to start this task");
-    // And the report is not turned back into a questionnaire about itself.
     expect(prompt).toContain(
-      "do not ask them to confirm something the recording already showed you.",
+      "what they would say to start this task, in their own words",
     );
-    expect(prompt).toContain("No preamble");
-    // A destructive step is confirmed however plainly it was recorded. The
+    // And the card is not turned back into a questionnaire about itself.
+    expect(prompt).toContain(
+      "Do not ask the user to confirm something the recording already showed you.",
+    );
+    // A destructive step is asked about however plainly it was recorded. The
     // recording establishes what someone did once and nothing about whether
-    // they want it repeated unattended, so it is the one exception to the
-    // rule above.
-    expect(prompt).toContain(
-      "Always confirm any destructive or irreversible step, even one the recording showed plainly",
-    );
+    // they want it repeated unattended, so it is the one exception to the rule
+    // above.
+    expect(prompt).toContain("asked however plainly the step was seen");
   });
 
-  test("puts the report last in the turn, after the skill it hands off to", async () => {
+  test("caps the questions and keeps every one of them answerable in a tap", async () => {
     const summary = recordSession(["renaming the export"]);
     const { calls, dispatch } = recordingDispatch();
 
     await runWatchRetro(summary, { dispatch });
 
     const { prompt } = calls[0]!;
-    // The report is what the user is shown when a session ends, so it has to
-    // be the turn's last prose. A client renders the final text block as the
-    // response and folds everything before it into collapsed intermediate
-    // work, so a `skill_load` issued after the report demotes the report to
-    // an "Earlier activity" row the user has to unfold to read.
+    expect(prompt).toContain("at most three");
+    // No question may be a yes/no whose "no" carries nothing back: a binary
+    // that packs an inferred rule into it spends the question and returns
+    // nothing, leaving the user owed a follow-up they cannot see.
+    expect(prompt).toContain('Never ask a yes/no whose "no" tells you nothing');
+    expect(prompt).toContain(
+      "If you cannot name the alternatives, you do not understand the gap well enough to ask about it",
+    );
+  });
+
+  test("makes every skip land on a safe answer", async () => {
+    const summary = recordSession(["archiving the thread"]);
+    const { calls, dispatch } = recordingDispatch();
+
+    await runWatchRetro(summary, { dispatch });
+
+    const { prompt } = calls[0]!;
+    // Every page is skippable, so every page's default is what the model
+    // actually gets from a user who taps through. A `fill` keeps its
+    // suggestion; a `pick` keeps the reading the recording supports.
+    expect(prompt).toContain(
+      "Put your best guess in `suggestion` so skipping keeps a working phrase",
+    );
+    expect(prompt).toContain(
+      "The first option is the default and must be the reading the recording supports",
+    );
+    // The gate is the one place the default is deliberately not the guess.
+    // Watching someone do a destructive thing once says nothing about whether
+    // they want it repeated with nobody looking, so a skipped gate must land
+    // on the cautious answer rather than on what was recorded.
+    expect(prompt).toContain(
+      'The first option must be the cautious one ("Ask me first"), because a skipped question takes it.',
+    );
+  });
+
+  test("puts the card last in the turn, after the skill it hands off to", async () => {
+    const summary = recordSession(["renaming the export"]);
+    const { calls, dispatch } = recordingDispatch();
+
+    await runWatchRetro(summary, { dispatch });
+
+    const { prompt } = calls[0]!;
+    // The card is what the user is shown when a session ends, so nothing may
+    // follow it. Prose written after it reads as a sign-off nobody asked for,
+    // and a client folds everything before a turn's last text block into
+    // collapsed intermediate work.
     expect(prompt).toContain("Load the `skill-management` skill first");
     expect(
       prompt.indexOf("Load the `skill-management` skill first"),
-    ).toBeLessThan(prompt.indexOf("What I need from you"));
-    expect(prompt).toContain("That report is the last thing you do this turn");
-    // A sign-off is another text block after the report, which puts the report
-    // back on the wrong side of the same rule, so it is refused by name.
+    ).toBeLessThan(prompt.indexOf('surface_type: "watch_retro"'));
+    expect(prompt).toContain("That call is the last thing you do this turn");
     expect(prompt).toContain("no sign-off");
     expect(prompt).toContain("no further tool call");
+    // One card, not a card per question: a second `ui_show` would replace the
+    // paging with a stack of surfaces, which is the shape this replaced.
+    expect(prompt).toContain("exactly one `ui_show` call");
   });
 
-  test("writes the report even when the skill it hands off to will not load", async () => {
+  test("shows the card even when the skill it hands off to will not load", async () => {
     const summary = recordSession(["filing the receipt"]);
     const { calls, dispatch } = recordingDispatch();
 
@@ -279,14 +367,11 @@ describe("watch retrospective", () => {
     const { prompt } = calls[0]!;
     // `skill-management` is a selector, and a managed or workspace skill of the
     // same id replaces the bundled one in the catalog. Putting the load ahead
-    // of the report is what lets a shadow, or the refusal a clientless wake
+    // of the card is what lets a shadow, or the refusal a clientless wake
     // gives an inline-command load, land before the user has been told
     // anything. Neither may become the retro: the session is recorded and the
     // account of it is what the user is owed.
-    expect(prompt).toContain(
-      "Write the report below whether or not that load succeeds",
-    );
-    expect(prompt).toContain("do not report on the load and do not retry it");
+    expect(prompt).toContain("Show the card whether or not the skill loaded");
     // The failure is still named, so a missing handoff does not read as a
     // report that simply chose not to ask about authoring.
     expect(prompt).toContain("could not open the skill-authoring flow");
@@ -299,12 +384,42 @@ describe("watch retrospective", () => {
     await runWatchRetro(summary, { dispatch });
 
     const { prompt } = calls[0]!;
-    expect(prompt).toContain(
-      "Do not author or scaffold a skill until the four points that step names are settled",
-    );
+    expect(prompt).toContain("Do not author or scaffold a skill yet");
     // The retro delegates authoring to the skill-management flow rather than
     // naming the tool that writes a skill, so nothing here can reach it.
     expect(prompt).not.toContain("scaffold_managed_skill");
+  });
+
+  test("counts a turn that produced only the card as a report", async () => {
+    const summary = recordSession(["filing the receipt"]);
+    const { dispatch } = cardOnlyDispatch();
+
+    const result = await runWatchRetro(summary, { dispatch });
+
+    // The retro's whole output is one `ui_show`, which persists as a
+    // `ui_surface` block and leaves no text behind. A report test that only
+    // looked for prose would read every successful retro as having produced
+    // nothing: the dispatch would fail, the conversation would stay hidden,
+    // and the user who pressed stop would be told there is nothing to show
+    // while the card sits in a thread they cannot reach.
+    expect(result).toEqual({
+      status: "dispatched",
+      conversationId: summary.conversationId,
+    });
+    expect(getConversation(summary.conversationId)!.surfacedAt).not.toBeNull();
+  });
+
+  test("does not count some other surface as the report", async () => {
+    const summary = recordSession(["filing the receipt"]);
+    const { dispatch } = cardOnlyDispatch("task_progress");
+
+    const result = await runWatchRetro(summary, { dispatch });
+
+    // A turn that put up a progress card and then stopped has told the user
+    // nothing about their session. Counting any surface would make the report
+    // test a check that the turn touched the UI at all.
+    expect(result).toEqual({ status: "failed", reason: "no_report" });
+    expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
   });
 
   test("says so when the render was bounded", async () => {

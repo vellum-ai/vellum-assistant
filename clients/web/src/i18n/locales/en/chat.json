@@ -1767,5 +1767,13 @@
     "reactionAdded": "{name} reacted with {emoji}",
     "reactionRemoved": "{name} removed their {emoji} reaction",
     "reactionSomeone": "Someone"
+  },
+  "watchRetroSurface": {
+    "discard": "Discard",
+    "next": "Next",
+    "save": "Save skill",
+    "skip": "Skip",
+    "thatsIt": "That's it",
+    "untitledTask": "What I saw"
   }
 }

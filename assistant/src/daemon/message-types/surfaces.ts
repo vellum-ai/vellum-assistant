@@ -94,6 +94,7 @@ export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
   "dynamic_page",
   "file_upload",
   "task_preferences",
+  "watch_retro",
 ];
 
 // The clickable-action shape and the five surface lifecycle events are

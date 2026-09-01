@@ -237,6 +237,7 @@ export const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
   "confirmation",
   "file_upload",
   "task_preferences",
+  "watch_retro",
 ];
 
 /**

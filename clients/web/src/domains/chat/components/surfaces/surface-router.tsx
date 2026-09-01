@@ -18,6 +18,7 @@ import { FormSurface } from "@/domains/chat/components/surfaces/form-surface";
 import { ListSurface } from "@/domains/chat/components/surfaces/list-surface";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
+import { WatchRetroSurface } from "@/domains/chat/components/surfaces/watch-retro-surface";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
@@ -202,13 +203,18 @@ function SurfaceRouterInner({
     case "skill_card":
       return <SkillCreatedCard surface={surface} onAction={onAction} />;
 
+    case "watch_retro":
+      return <WatchRetroSurface surface={surface} onAction={onAction} />;
+
     default:
       // Fallback card for unsupported surface types
       return (
         <SurfaceContainer surface={surface} onAction={onAction}>
           <p className="text-body-medium-lighter text-[var(--content-quiet)]">
             {surface.surfaceType
-              ? t("surfaceRouter.unsupportedType", { type: surface.surfaceType })
+              ? t("surfaceRouter.unsupportedType", {
+                  type: surface.surfaceType,
+                })
               : t("surfaceRouter.unknownSurface")}
           </p>
         </SurfaceContainer>
