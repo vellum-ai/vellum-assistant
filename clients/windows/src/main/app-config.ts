@@ -3,7 +3,7 @@
  *
  * `APP_PROTOCOL` and `APP_HOST` define the custom scheme the packaged
  * renderer is served from; `index.ts` registers it privileged and serves
- * `resources/web-dist` through it, and `main-window.ts` derives the
+ * `resources/cli-runtime/web-dist` through it, and `main-window.ts` derives the
  * BrowserWindow load URL and the same-origin navigation guard from it.
  *
  * The renderer-base URLs are derived: `RENDERER_BASE_PROD` is the

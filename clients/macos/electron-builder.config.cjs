@@ -42,6 +42,12 @@ module.exports = {
   directories: {
     output: "dist",
   },
+  // Only the electron-vite output belongs in app.asar. Without this allowlist
+  // electron-builder packs the whole project dir, shipping resources/ (a
+  // second bun binary included) again inside the asar. Production
+  // node_modules are collected from the dependency tree regardless of these
+  // patterns.
+  files: ["out/main/**", "out/preload/**", "package.json"],
   extraResources: [
     { from: "resources/bun", to: "bun" },
     {
