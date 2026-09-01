@@ -210,6 +210,21 @@ describe("channel-delivery-store", () => {
     expect(
       findConversationByProviderMessageId("telegram", chatId, "tg-orphan-1"),
     ).toBe(minted.conversationId);
+
+    // A legacy linked row whose event carries no source_message_id:
+    // findMessageBySourceId matches only that column, so the fallback must
+    // still admit the row or reactions to it become unresolvable.
+    const legacy = recordInbound("telegram", chatId, "evt-legacy");
+    insertMessage("legacy-user-row", legacy.conversationId, {});
+    getDb()
+      .update(messages)
+      .set({ metadata: envelope("tg-legacy-1") })
+      .where(eq(messages.id, "legacy-user-row"))
+      .run();
+    linkMessage(legacy.eventId, "legacy-user-row");
+    expect(
+      findConversationByProviderMessageId("telegram", chatId, "tg-legacy-1"),
+    ).toBe(legacy.conversationId);
   });
 
   test("same chat on same channel reuses the same conversation", () => {

@@ -354,15 +354,23 @@ export function findConversationByProviderMessageId(
           like(messages.metadata, '%"slackMeta"%'),
         ),
         // Rows the inbound-event index resolves are not candidates: this
-        // lookup exists for messages with no inbound event (the assistant's
-        // own posts, plus a crash-window inbound row whose link never
-        // landed), and admitting linked rows would burn the scan budget on
-        // messages `findMessageBySourceId` already answers.
+        // lookup exists for messages `findMessageBySourceId` cannot answer
+        // (the assistant's own posts, a crash-window inbound row whose link
+        // never landed, and legacy linked rows whose event carries no
+        // source_message_id to match on), and admitting resolvable rows
+        // would burn the scan budget on messages the primary path already
+        // answers. The source-id predicate mirrors findMessageBySourceId's
+        // own match column.
         notExists(
           db
             .select({ id: channelInboundEvents.id })
             .from(channelInboundEvents)
-            .where(eq(channelInboundEvents.messageId, messages.id)),
+            .where(
+              and(
+                eq(channelInboundEvents.messageId, messages.id),
+                isNotNull(channelInboundEvents.sourceMessageId),
+              ),
+            ),
         ),
       ),
     )

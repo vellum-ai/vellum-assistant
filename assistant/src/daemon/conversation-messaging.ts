@@ -562,10 +562,7 @@ export function buildSlackMetaForPersistence(params: {
  * `providerMeta` key on a Slack row would shadow that richer envelope.
  *
  * TRANSITIONAL: the Slack exclusion exists only while Slack writes its own
- * envelope. The end state is Slack writing `providerMeta` like every other
- * channel (its extra fields ride the schema's passthrough), at which point
- * this guard reduces to the source match and `slackMeta` remains only as
- * the read-compat arm for historical rows. Do not extend the exclusion.
+ * envelope; do not extend it.
  */
 export function buildProviderMetaForPersistence(params: {
   channelInbound: ProviderMessageMetadata | undefined;
