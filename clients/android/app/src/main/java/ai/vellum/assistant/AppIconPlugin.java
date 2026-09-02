@@ -27,13 +27,15 @@ import java.util.Map;
  * and {@code set} resolves {@code {ok}} plus an {@code error} when it refuses.
  *
  * Android reads the launcher icon off whichever launcher component is enabled,
- * so an icon swap enables one generated {@code ai.vellum.assistant.icon.*}
- * {@code <activity-alias>} and disables the rest. Only aliases are ever
- * toggled: {@code MainActivity} carries the deep links and the shortcuts
- * source, and stays enabled so shortcuts, the voice notification, and the Quick
- * Settings tile resolve in every icon state. The primary alias is the default
- * artwork rather than a pickable icon, so it is absent from {@code available}
- * and reads back as a null {@code current}.
+ * so an icon swap enables one {@code <activity-alias>} and disables the rest.
+ * The only components ever toggled are the primary alias and the generated
+ * {@code ai.vellum.assistant.icon.avatar_eyes_*} alternates:
+ * {@code MainActivity} carries the deep links and the shortcuts source, and
+ * stays enabled so shortcuts, the voice notification, and the Quick Settings
+ * tile resolve in every icon state, and any other activity that lands in the
+ * {@code ai.vellum.assistant.icon.} namespace is left alone. The primary alias
+ * is the default artwork rather than a pickable icon, so it is absent from
+ * {@code available} and reads back as a null {@code current}.
  *
  * Enabled-state scheme: the primary alias sits at
  * {@code COMPONENT_ENABLED_STATE_DEFAULT}, which the manifest defines as
@@ -60,7 +62,8 @@ import java.util.Map;
  * Per the skew rule in {@code clients/web/docs/CAPACITOR.md}, one result shape
  * encodes every state and neither method rejects: a device or build with no
  * alternates resolves {@code supported: false} with an empty {@code available},
- * and a name this build cannot draw resolves {@code {ok: false, error}}.
+ * and a platform below API 26 or a name this build cannot draw resolves
+ * {@code {ok: false, error}}.
  */
 @CapacitorPlugin(name = "AppIcon")
 public class AppIconPlugin extends Plugin {
@@ -70,7 +73,16 @@ public class AppIconPlugin extends Plugin {
     /** The launcher entry drawn with the default artwork. Not a wire icon. */
     static final String PRIMARY_ALIAS = ALIAS_PREFIX + "primary";
 
+    /**
+     * Class-name prefix every pickable alternate carries. The namespace is
+     * wider than the icon set, so matching the generated prefix rather than the
+     * namespace keeps an alias added for anything else out of
+     * {@code available} and out of the toggles an apply performs.
+     */
+    static final String ALTERNATE_PREFIX = ALIAS_PREFIX + "avatar_eyes_";
+
     private static final String UNKNOWN_ICON_ERROR = "unknown app icon";
+    private static final String UNSUPPORTED_ERROR = "app icons need API 26";
     private static final String PREFERENCES = "app_icon";
     private static final String PENDING_ALIAS_KEY = "pending_alias";
     private static final String FAILURE_CODE = "APP_ICON_FAILED";
@@ -91,7 +103,7 @@ public class AppIconPlugin extends Plugin {
             List<String> available = wireNames(aliases);
             call.resolve(
                 statePayload(
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !available.isEmpty(),
+                    supportsAlternateIcons(Build.VERSION.SDK_INT) && !available.isEmpty(),
                     currentWireName(pendingAlias(), enabledAlternateAlias(aliases)),
                     available
                 )
@@ -103,8 +115,9 @@ public class AppIconPlugin extends Plugin {
     public void set(PluginCall call) {
         NativeFailureGuard.call(call, FAILURE_MESSAGE, FAILURE_CODE, () -> {
             String target = targetAlias(call.getString("name"), aliasClassNames());
-            if (target == null) {
-                call.resolve(new JSObject().put("ok", false).put("error", UNKNOWN_ICON_ERROR));
+            String refusal = setRefusal(Build.VERSION.SDK_INT, target);
+            if (refusal != null) {
+                call.resolve(new JSObject().put("ok", false).put("error", refusal));
                 return;
             }
             preferences().edit().putString(PENDING_ALIAS_KEY, target).apply();
@@ -118,15 +131,39 @@ public class AppIconPlugin extends Plugin {
     }
 
     /**
+     * Whether the platform is offered the icon picker at all. The picker is
+     * API 26 and newer while {@code minSdkVersion} is 24, so both methods give
+     * the API 24 and 25 devices a build admits the same answer.
+     */
+    static boolean supportsAlternateIcons(int sdkInt) {
+        return sdkInt >= Build.VERSION_CODES.O;
+    }
+
+    /**
+     * Why {@code set} refuses to record an alias target, or null when it takes
+     * it. The platform check comes first, so a caller that skipped
+     * {@code supported} is refused rather than leaving a target behind that the
+     * next background would toggle onto an API 24 or 25 launcher.
+     */
+    static String setRefusal(int sdkInt, String target) {
+        if (!supportsAlternateIcons(sdkInt)) {
+            return UNSUPPORTED_ERROR;
+        }
+        return target == null ? UNKNOWN_ICON_ERROR : null;
+    }
+
+    /**
      * The wire name an alias class name stands for, or null when the class is
-     * not an alternate icon alias. The suffix is the wire name with every dash
+     * not an alternate icon alias. Only the generated {@code avatar_eyes_}
+     * aliases are alternates, so the primary alias and anything else sharing
+     * the namespace read as null. The suffix is the wire name with every dash
      * replaced by an underscore, so the reverse is a whole-string swap.
      */
     static String wireNameForAlias(String aliasClassName) {
         if (
             aliasClassName == null ||
-            !aliasClassName.startsWith(ALIAS_PREFIX) ||
-            PRIMARY_ALIAS.equals(aliasClassName)
+            !aliasClassName.startsWith(ALTERNATE_PREFIX) ||
+            aliasClassName.length() == ALTERNATE_PREFIX.length()
         ) {
             return null;
         }
@@ -135,14 +172,25 @@ public class AppIconPlugin extends Plugin {
 
     /**
      * The alias class name a wire name stands for, or null when the name cannot
-     * name an alternate. The primary alias is not addressable this way.
+     * name an alternate. The result is put back through
+     * {@link #wireNameForAlias(String)}, so the two are exact inverses and the
+     * primary alias stays unaddressable this way.
      */
     static String aliasForWireName(String wireName) {
         if (wireName == null || wireName.isEmpty()) {
             return null;
         }
         String alias = ALIAS_PREFIX + wireName.replace('-', '_');
-        return PRIMARY_ALIAS.equals(alias) ? null : alias;
+        return wireNameForAlias(alias) == null ? null : alias;
+    }
+
+    /**
+     * Whether a declared activity is a launcher alias this plugin owns, which
+     * is the primary alias or one of the generated alternates. Every other
+     * activity is invisible to the plugin, so an apply never toggles it.
+     */
+    static boolean isIconAlias(String activityName) {
+        return PRIMARY_ALIAS.equals(activityName) || wireNameForAlias(activityName) != null;
     }
 
     /** Sorted wire names of the alternates present, primary excluded. */
@@ -224,7 +272,9 @@ public class AppIconPlugin extends Plugin {
 
     /**
      * Every icon alias this build declares, enabled or not, so the disabled
-     * alternates the manifest ships are still discoverable.
+     * alternates the manifest ships are still discoverable. Activities that are
+     * not icon aliases are skipped, which is what keeps them out of
+     * {@code available} and out of the toggles an apply performs.
      */
     private List<String> aliasClassNames() {
         List<String> aliases = new ArrayList<>();
@@ -245,7 +295,7 @@ public class AppIconPlugin extends Plugin {
             return aliases;
         }
         for (ActivityInfo activity : info.activities) {
-            if (activity.name != null && activity.name.startsWith(ALIAS_PREFIX)) {
+            if (isIconAlias(activity.name)) {
                 aliases.add(activity.name);
             }
         }

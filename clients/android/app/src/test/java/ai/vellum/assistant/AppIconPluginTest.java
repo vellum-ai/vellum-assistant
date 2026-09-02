@@ -8,11 +8,6 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.pm.PackageManager;
 import com.getcapacitor.JSObject;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -37,15 +32,8 @@ public class AppIconPluginTest {
         GOOFY_TEAL_ALIAS
     );
 
-    /**
-     * Candidate locations of the plugin source, so the guard test below finds it
-     * whether the runner starts in the module, the Android project, or the repo.
-     */
-    private static final List<String> SOURCE_PATHS = Arrays.asList(
-        "src/main/java/ai/vellum/assistant/AppIconPlugin.java",
-        "app/src/main/java/ai/vellum/assistant/AppIconPlugin.java",
-        "clients/android/app/src/main/java/ai/vellum/assistant/AppIconPlugin.java"
-    );
+    /** An activity sharing the alias namespace without being an icon alias. */
+    private static final String FOREIGN_ICON_ACTIVITY = "ai.vellum.assistant.icon.IconPickerShim";
 
     @Test
     public void translatesBetweenWireNamesAndAliasClassNames() {
@@ -88,6 +76,26 @@ public class AppIconPluginTest {
         assertEquals(Collections.singletonList(GRUMPY_GREEN), available);
     }
 
+    /**
+     * The alias namespace is wider than the icon set, so an activity that lands
+     * in it without being a generated alternate is neither offered as a
+     * pickable icon nor collected into the set an apply toggles.
+     */
+    @Test
+    public void ignoresActivitiesInTheNamespaceThatAreNotAvatarAliases() {
+        List<String> available = AppIconPlugin.wireNames(
+            Arrays.asList(PRIMARY_ALIAS, FOREIGN_ICON_ACTIVITY, GRUMPY_GREEN_ALIAS)
+        );
+
+        assertEquals(Collections.singletonList(GRUMPY_GREEN), available);
+        assertNull(AppIconPlugin.wireNameForAlias(FOREIGN_ICON_ACTIVITY));
+        assertFalse(AppIconPlugin.isIconAlias(FOREIGN_ICON_ACTIVITY));
+        assertFalse(AppIconPlugin.isIconAlias("ai.vellum.assistant.icon.avatar_eyes_"));
+        assertFalse(AppIconPlugin.isIconAlias(null));
+        assertTrue(AppIconPlugin.isIconAlias(PRIMARY_ALIAS));
+        assertTrue(AppIconPlugin.isIconAlias(GRUMPY_GREEN_ALIAS));
+    }
+
     @Test
     public void aRecordedTargetOutranksTheAliasStillEnabled() {
         assertEquals(GOOFY_TEAL, AppIconPlugin.currentWireName(GOOFY_TEAL_ALIAS, GRUMPY_GREEN_ALIAS));
@@ -110,7 +118,30 @@ public class AppIconPluginTest {
         assertEquals(GRUMPY_GREEN_ALIAS, AppIconPlugin.targetAlias(GRUMPY_GREEN, ALIASES));
         assertNull(AppIconPlugin.targetAlias("avatar-eyes-smitten-chartreuse", ALIASES));
         assertNull(AppIconPlugin.targetAlias("primary", ALIASES));
+        assertNull(AppIconPlugin.targetAlias("IconPickerShim", ALIASES));
         assertNull(AppIconPlugin.targetAlias("", ALIASES));
+    }
+
+    /**
+     * The picker is hidden below API 26, but nothing stops a caller from
+     * skipping that check, so {@code set} refuses instead of recording a target
+     * the next background would toggle onto an API 24 or 25 launcher.
+     */
+    @Test
+    public void refusesToRecordATargetBelowApi26() {
+        assertFalse(AppIconPlugin.supportsAlternateIcons(25));
+        assertEquals("app icons need API 26", AppIconPlugin.setRefusal(25, GRUMPY_GREEN_ALIAS));
+        assertEquals("app icons need API 26", AppIconPlugin.setRefusal(24, PRIMARY_ALIAS));
+        // The platform refusal outranks an unrecognized name.
+        assertEquals("app icons need API 26", AppIconPlugin.setRefusal(25, null));
+    }
+
+    @Test
+    public void refusesNamesNothingInstalledCanDraw() {
+        assertTrue(AppIconPlugin.supportsAlternateIcons(26));
+        assertEquals("unknown app icon", AppIconPlugin.setRefusal(26, null));
+        assertNull(AppIconPlugin.setRefusal(26, GRUMPY_GREEN_ALIAS));
+        assertNull(AppIconPlugin.setRefusal(34, PRIMARY_ALIAS));
     }
 
     @Test
@@ -196,30 +227,20 @@ public class AppIconPluginTest {
 
     /**
      * The launcher icon is swapped by toggling aliases only. Toggling the
-     * activity itself would take the deep links, shortcuts, voice notification,
-     * and Quick Settings tile down with it, so the plugin's code never names it.
+     * activity behind them would take the deep links, the shortcuts, the voice
+     * notification, and the Quick Settings tile down with it, so it is not an
+     * icon alias and never reaches the set an apply toggles.
      */
     @Test
-    public void neverTogglesTheActivityBehindTheAliases() throws IOException {
-        String code = stripComments(readPluginSource());
+    public void theActivityBehindTheAliasesIsNeverAnIconAlias() {
+        String mainActivity = "ai.vellum.assistant.MainActivity";
 
-        assertTrue(code.contains("setComponentEnabledSetting"));
-        assertFalse(code.contains("MainActivity"));
-    }
-
-    private static String readPluginSource() throws IOException {
-        for (String candidate : SOURCE_PATHS) {
-            Path path = Paths.get(candidate);
-            if (Files.exists(path)) {
-                return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-            }
-        }
-        throw new AssertionError(
-            "Unable to find AppIconPlugin.java from " + Paths.get("").toAbsolutePath()
+        assertFalse(AppIconPlugin.isIconAlias(mainActivity));
+        assertNull(AppIconPlugin.wireNameForAlias(mainActivity));
+        assertNull(AppIconPlugin.aliasForWireName("MainActivity"));
+        assertEquals(
+            Collections.singletonList(GRUMPY_GREEN),
+            AppIconPlugin.wireNames(Arrays.asList(mainActivity, GRUMPY_GREEN_ALIAS))
         );
-    }
-
-    private static String stripComments(String source) {
-        return source.replaceAll("(?s)/\\*.*?\\*/", "").replaceAll("//[^\\n]*", "");
     }
 }
