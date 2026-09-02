@@ -58,7 +58,6 @@ import { assertHasResponse } from "@/utils/api-errors";
  */
 const DEFAULT_VELAY_HOST = "velay.vellum.ai";
 
-/** The route both transports open, on the gateway either way. */
 const LIVE_VOICE_ROUTE = "/v1/live-voice";
 
 export class VelayWsTokenError extends Error {

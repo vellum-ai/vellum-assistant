@@ -39,7 +39,13 @@ export function PodDesktopAffordance() {
         onClick={() => setOpen(true)}
       />
       <Modal.Root open={open} onOpenChange={setOpen}>
-        <Modal.Content size="xl" className="h-[calc(100vh-2rem)]">
+        <Modal.Content
+          size="xl"
+          className="h-[calc(100vh-2rem)]"
+          // Escape belongs to the remote desktop (dismissing its dialogs,
+          // leaving fullscreen); the close button and overlay still dismiss.
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
           <Modal.Header>
             <Modal.Title>{t("podDesktop.title")}</Modal.Title>
           </Modal.Header>
