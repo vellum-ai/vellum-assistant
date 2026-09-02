@@ -37,8 +37,7 @@ const unifiedTurnContextInjector: Injector = {
       clientOs: ctx.clientOs,
       visibleApp: ctx.visibleApp,
       channelName: ctx.channelName,
-      // The turn's own trust snapshot names the chat and thread it arrived
-      // through; the builder renders them for channel turns only.
+      // The chat and thread this turn arrived through, from its trust snapshot.
       chatId: ctx.trust.requesterChatId,
       threadId: ctx.trust.sourceThreadId,
       actorContext: ctx.actorContext,

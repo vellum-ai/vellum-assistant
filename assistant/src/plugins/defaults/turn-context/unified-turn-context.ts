@@ -144,8 +144,7 @@ export function buildUnifiedTurnContextBlock(
   }
 
   // Where the turn is: the chat, and the thread within it when there is one.
-  // Channel turns only; an app turn has no external chat, and the ids are
-  // the ones the turn's trust context already carries, never fetched.
+  // Channel turns only; an app turn has no external chat.
   if (options.channelName && options.channelName !== "vellum") {
     if (options.chatId) {
       lines.push(`chat_id: ${sanitizeInlineContextValue(options.chatId)}`);
