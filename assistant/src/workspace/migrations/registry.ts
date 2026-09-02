@@ -148,6 +148,7 @@ import { renameCollidingBackupProfileNamesMigration } from "./147-rename-collidi
 import { stripUnsupportedFallbackProfilesMigration } from "./148-strip-unsupported-fallback-profiles.js";
 import { repointBackupProfileSelectionsMigration } from "./149-repoint-backup-profile-selections.js";
 import { sttFluxProviderToModelFamilyMigration } from "./150-stt-flux-provider-to-model-family.js";
+import { repairRenamedFireworksDeepseekProModelIdMigration } from "./151-repair-renamed-fireworks-deepseek-pro-model-id.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -311,4 +312,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   stripUnsupportedFallbackProfilesMigration,
   repointBackupProfileSelectionsMigration,
   sttFluxProviderToModelFamilyMigration,
+  repairRenamedFireworksDeepseekProModelIdMigration,
 ];
