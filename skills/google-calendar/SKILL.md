@@ -83,13 +83,6 @@ Create and RSVP are **medium-risk** operations:
 - **Create**: The `create` subcommand gates on `assistant ui confirm` — it presents a confirmation dialog to the user and only proceeds if approved. Pass `--skip-confirm` when the user has already given explicit confirmation in the conversation.
 - **RSVP**: The `rsvp` subcommand gates on `assistant ui confirm` — it presents a confirmation dialog showing the event, current status, and new response. Pass `--skip-confirm` when the user has already given explicit confirmation in the conversation.
 
-Confidence scores for medium-risk operations:
-
-- **0.9-1.0**: User explicitly requested this exact action
-- **0.7-0.8**: Action is strongly implied by context
-- **0.5-0.6**: Reasonable inference but some ambiguity
-- **Below 0.5**: Ask the user to confirm before proceeding
-
 ## Error Recovery
 
 When a calendar script fails with a token or authorization error:
