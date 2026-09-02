@@ -114,15 +114,19 @@ export function SidebarSectionItem({
       /* The assistant's own eyes stand where the topic glyph would, because
          this section is a person rather than a category — set in a disc of
          the full avatar accent, the same treatment the switcher pill gives
-         the avatar. `AssistantEyesMark` renders `null` without a character
-         avatar (custom image, or still loading); the accent var is absent in
-         exactly those cases too, so the disc falls back to the same surface
-         the label pill resolves to and the pair reads as one plain pill
-         rather than an empty colored dot. */
+         the avatar. No `width` override: the mark's default is the per-style
+         hand-tuned base width from `assistant-eyes.ts`, the same sizing the
+         assistant cluster's own eyes use, so this disc and the pill at the
+         top of the rail draw the eyes at one size. `AssistantEyesMark`
+         renders `null` without a character avatar (custom image, or still
+         loading); the accent var is absent in exactly those cases too, so
+         the disc falls back to the same surface the label pill resolves to
+         and the pair reads as one plain pill rather than an empty colored
+         dot. */
       iconNode={
         isAssistantSection ? (
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent,var(--surface-lift))]">
-            <AssistantEyesMark assistantId={assistantId} width={23} />
+            <AssistantEyesMark assistantId={assistantId} />
           </span>
         ) : undefined
       }
