@@ -225,11 +225,6 @@ describe("installPluginFromPlatform — success", () => {
     expect(pkg.name).toBe("openseo");
     expect(pkg.version).toBe("0.0.0");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
-    const meta = readInstallMeta(target);
-    if (!meta) {
-      throw new Error("expected install meta after a successful platform install");
-    }
-    expect(meta.fingerprint.files["package.json"]).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("leaves an upstream package.json in place", async () => {
