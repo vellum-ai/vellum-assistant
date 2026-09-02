@@ -23,11 +23,19 @@ PRIORITY_DIRS="usr/bin usr/local/sbin usr/local/bin usr/sbin usr/games"
 [ -d "${DATA_ROOT}/usr/bin" ] || exit 0
 mkdir -p "${SHIM_DIR}"
 
-# Scanning the bin dirs forks a few processes per file; skip it when the dpkg
-# database is unchanged (read-only invocations like `apt list` or `dpkg -l`).
-STAMP_FILE="${SHIM_DIR}/.dpkg-status-stamp"
-STAMP="$(md5sum "${DATA_ROOT}/var/lib/dpkg/status" 2>/dev/null | cut -d' ' -f1 || true)"
-if [ -n "${STAMP}" ] && [ "${STAMP}" = "$(cat "${STAMP_FILE}" 2>/dev/null || true)" ]; then
+# Scanning the bin dirs forks a few processes per file; skip it when the
+# overlay state is unchanged (read-only invocations like `apt list` or
+# `dpkg -l`). The stamp digests the dpkg database plus the usr/local bin
+# listings: pip installs there can outrank existing shims without touching
+# the dpkg database, and must invalidate them too.
+STAMP_FILE="${SHIM_DIR}/.overlay-stamp"
+STAMP="$(
+  {
+    md5sum "${DATA_ROOT}/var/lib/dpkg/status" 2>/dev/null
+    ls "${DATA_ROOT}/usr/local/bin" "${DATA_ROOT}/usr/local/sbin" 2>/dev/null
+  } | md5sum | cut -d' ' -f1
+)"
+if [ "${STAMP}" = "$(cat "${STAMP_FILE}" 2>/dev/null || true)" ]; then
   exit 0
 fi
 
@@ -94,6 +102,4 @@ for d in ${SCAN_DIRS}; do
   done
 done
 
-if [ -n "${STAMP}" ]; then
-  printf '%s\n' "${STAMP}" >"${STAMP_FILE}"
-fi
+printf '%s\n' "${STAMP}" >"${STAMP_FILE}"
