@@ -2,6 +2,7 @@ import {
   DEFAULT_USER_REFERENCE,
   resolveUserReference,
 } from "../prompts/user-reference.js";
+import { escapeRegExp } from "../util/regexp.js";
 
 export interface ConversationStarterText {
   label: string;
@@ -81,8 +82,4 @@ function mentionsCurrentUser(
   return context.userReferences.some((reference) =>
     new RegExp(`\\b${escapeRegExp(reference)}\\b`, "i").test(text),
   );
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

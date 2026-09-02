@@ -17,6 +17,7 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
+import { escapeRegExp } from "../util/regexp.js";
 import { isLexicalBackfillComplete } from "./checkpoints.js";
 import { unseenAttentionStateConditions } from "./conversation-attention-store.js";
 import type { ConversationRow } from "./conversation-crud.js";
@@ -1248,10 +1249,6 @@ function wrapRecallEvidenceExcerpt(
   return origin
     ? wrapUntrustedContent(excerpt, { source, sourceDetail: origin })
     : wrapUntrustedContent(excerpt, { source });
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

@@ -10,6 +10,7 @@
  * `normalizeEndpointForPolicy`.
  */
 
+import { escapeRegExp } from "../util/regexp.js";
 import { enforcePolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
@@ -202,15 +203,11 @@ function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
         const typePattern = PARAM_TYPE_PATTERNS[paramTypeMap.get(name) ?? ""];
         return typePattern ? `(${typePattern})` : "([^/]+)";
       }
-      return escapeRegex(segment);
+      return escapeRegExp(segment);
     })
     .join("\\/");
 
   const regex = new RegExp(`^${regexSource}$`);
 
   return { def, regex, paramNames };
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

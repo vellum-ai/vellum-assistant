@@ -5,15 +5,11 @@
  * - applyDictionary: post-LLM, dictation + command modes (including fallback paths)
  */
 
+import { escapeRegExp } from "../util/regexp.js";
 import type {
   DictationDictionaryEntry,
   DictationSnippet,
 } from "./dictation-profile-store.js";
-
-/** Escape a string for safe use inside a RegExp. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /**
  * Wrap an escaped pattern with word boundaries.

@@ -7,6 +7,7 @@
  *   3. Deterministic fallback templates (natural, scenario-specific messages)
  */
 import { getLogger } from "../util/logger.js";
+import { escapeRegExp } from "../util/regexp.js";
 import type {
   ApprovalCopyGenerator,
   ApprovalMessageContext,
@@ -38,11 +39,6 @@ export function composeApprovalMessage(
   }
 
   return getFallbackMessage(context);
-}
-
-/** @internal Exported for use by the daemon-injected generator implementation. */
-export function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** @internal Exported for use by the daemon-injected generator implementation. */

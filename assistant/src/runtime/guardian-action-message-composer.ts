@@ -8,6 +8,7 @@
  *
  * Follows the same pattern as approval-message-composer.ts.
  */
+import { escapeRegExp } from "../util/regexp.js";
 import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
@@ -54,10 +55,7 @@ export function includesRequiredKeywords(
     return true;
   }
   return requiredKeywords.every((keyword) => {
-    const re = new RegExp(
-      `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-      "i",
-    );
+    const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
     return re.test(text);
   });
 }
