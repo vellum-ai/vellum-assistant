@@ -290,10 +290,14 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
      read withholds them, so they appear in their own section and nowhere
      else. Confined to `standard`: the background and scheduled buckets are
      back-compat umbrellas addressed by conversation type, and narrowing them
-     by source would drop rows their callers still page through. */
+     by source would drop rows their callers still page through. Confined to
+     active reads too: the Archive view asks `archiveStatus=archived` with no
+     `groupId`, and the section only ever lists active rows, so withholding
+     there would leave an archived section thread visible nowhere. */
   const excludeAssistantInitiated =
     isAssistantInitiatedThreadsEnabled() &&
     conversationType === "standard" &&
+    archiveStatus === "active" &&
     groupId !== ASSISTANT_INITIATED_GROUP_ID
       ? (true as const)
       : undefined;

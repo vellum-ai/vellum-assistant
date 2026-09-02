@@ -323,6 +323,23 @@ describe("assistant-initiated threads — flag on", () => {
     ]);
   });
 
+  test("the Archive view keeps archived section threads", () => {
+    // Archive asks archiveStatus=archived with no groupId, and the section
+    // only ever lists active rows, so the split's exclusion must not reach
+    // archived reads or an archived section thread is visible nowhere.
+    const archived = seedAssistantInitiated("archived-realization");
+    rawRun(
+      "test:archive",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      archived,
+    );
+
+    expect(titlesFrom(invokeList({ archiveStatus: "archived" }))).toEqual([
+      "archived-realization",
+    ]);
+  });
+
   test("the background umbrella is left unnarrowed", () => {
     // A background row carrying the section's own source is addressed by
     // conversation type, and narrowing that bucket by source would drop rows
