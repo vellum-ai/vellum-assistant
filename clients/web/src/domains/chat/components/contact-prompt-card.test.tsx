@@ -231,12 +231,12 @@ describe("ContactPromptCard target contact", () => {
           requestId: "req-1",
           channel: "email",
           contactId: "contact-1",
-          contactDisplayName: "Ada Lovelace",
+          contactDisplayName: "Alice Chen",
         }}
       />,
     );
 
-    expect(screen.getByText("Adding a channel to Ada Lovelace")).toBeTruthy();
+    expect(screen.getByText("Adding a channel to Alice Chen")).toBeTruthy();
   });
 
   test("names no contact when the form targets none", () => {
@@ -270,15 +270,15 @@ describe("ContactPromptCard proposed name", () => {
         contactRequest={{
           requestId: "req-1",
           channel: "email",
-          displayName: "Ada",
+          displayName: "Alice",
           placeholder: "Enter email address",
         }}
       />,
     );
 
-    expect(nameInput().value).toBe("Ada");
+    expect(nameInput().value).toBe("Alice");
 
-    fireEvent.change(nameInput(), { target: { value: "Ada Lovelace" } });
+    fireEvent.change(nameInput(), { target: { value: "Alice Chen" } });
     fireEvent.change(screen.getByPlaceholderText("Enter email address"), {
       target: { value: "ada@example.com" },
     });
@@ -288,7 +288,7 @@ describe("ContactPromptCard proposed name", () => {
       "ada@example.com",
       "email",
       false,
-      "Ada Lovelace",
+      "Alice Chen",
     );
   });
 
@@ -299,7 +299,7 @@ describe("ContactPromptCard proposed name", () => {
         contactRequest={{
           requestId: "req-2",
           channel: "email",
-          displayName: "Ada",
+          displayName: "Alice",
           defaultValue: "ada@example.com",
         }}
       />,
@@ -332,16 +332,16 @@ describe("ContactPromptCard proposed name", () => {
         contactRequest={{
           requestId: "req-4",
           channel: "email",
-          displayName: "Ada",
-          notes: "Met at the analytical engine talk",
+          displayName: "Alice",
+          notes: "Met at the design review",
         }}
       />,
     );
 
     expect(screen.getByText("Notes")).toBeTruthy();
-    expect(screen.getByText("Met at the analytical engine talk")).toBeTruthy();
+    expect(screen.getByText("Met at the design review")).toBeTruthy();
     expect(
-      screen.queryByDisplayValue("Met at the analytical engine talk"),
+      screen.queryByDisplayValue("Met at the design review"),
     ).toBeNull();
   });
 });
