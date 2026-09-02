@@ -3215,11 +3215,16 @@ describe("ChatComposer — text area during a live-voice session", () => {
 describe("Eyes toggle placement", () => {
   const EYES_LABEL = "Turn on camera vision";
 
+  /**
+   * Both arms together: the composer's camera needs `vision-mode-chat` on top
+   * of `vision-mode`, and these tests are about where the control sits rather
+   * than about which arm reveals it.
+   */
   function setVisionMode(value: "off" | "on") {
     act(() => {
       useClientFeatureFlagStore
         .getState()
-        .setStringFlags({ visionMode: value }, null);
+        .setStringFlags({ visionMode: value, visionModeChat: value }, null);
     });
   }
 

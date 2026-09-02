@@ -37,6 +37,15 @@
       "values": ["off", "on"]
     },
     {
+      "id": "vision-mode-chat",
+      "scope": "client",
+      "key": "vision-mode-chat",
+      "label": "Vision Mode: Chat",
+      "description": "Gates the Eyes camera surface in the web composer, on top of vision-mode: the composer toggle needs both this and vision-mode on, so vision-mode alone reaches only the voice room's sight features. String-valued to match vision-mode.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",

@@ -4,7 +4,8 @@
  *
  * Sits beside the paperclip and wears the same resting tone, so the action row
  * reads as one set. It is also the feature's only entry point, which is why the
- * `vision-mode` flag is checked here and nowhere else.
+ * vision-mode flags are checked here and nowhere else: the tile and the tuning
+ * readout both render off camera state that only this control can start.
  */
 
 import { Eye, EyeOff } from "lucide-react";
@@ -17,6 +18,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   isVisionModeOn,
+  useVisionModeChatVariant,
   useVisionModeVariant,
 } from "@/hooks/use-vision-mode-flag";
 import { useTranslation } from "@/i18n";
@@ -35,6 +37,7 @@ export interface SightToggleProps {
 export function SightToggle({ imageAttachmentsAllowed }: SightToggleProps) {
   const { t } = useTranslation("chat");
   const variant = useVisionModeVariant();
+  const chatVariant = useVisionModeChatVariant();
   const status = useSightStore.use.status();
   const start = useSightStore.use.start();
   const stop = useSightStore.use.stop();
@@ -47,7 +50,15 @@ export function SightToggle({ imageAttachmentsAllowed }: SightToggleProps) {
   // the way out would read as broken. Only the entry point is gated, since the
   // tile renders off the camera's own status and carries its own close control,
   // so a camera already running is never stranded behind a vanished toggle.
-  if (!isVisionModeOn(variant) || !imageAttachmentsAllowed) {
+  //
+  // Both arms have to be on: `vision-mode` is the feature, and
+  // `vision-mode-chat` is this surface within it, so the voice room's sight
+  // features can ship while the composer's camera stays closed.
+  if (
+    !isVisionModeOn(variant) ||
+    !isVisionModeOn(chatVariant) ||
+    !imageAttachmentsAllowed
+  ) {
     return null;
   }
 
