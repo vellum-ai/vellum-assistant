@@ -15,23 +15,25 @@ const BRAND_LABELS: Record<string, string> = {
 };
 
 /**
- * The display label, or null when there is no brand to name. Stripe's own
- * `"unknown"`, for a card whose network it could not identify, counts as no
- * brand: passed through it reads as a word mid sentence, as in "Replacing
- * unknown •••• 4242".
+ * The display label, or null when there is no brand to name. Anything the map
+ * has no label for counts as no brand rather than reaching the screen raw:
+ * Stripe sends `"unknown"` for a card whose network it could not identify, and
+ * values such as `"eftpos_au"` and `"link"` for networks we name nothing for,
+ * and the platform passes all of them through untouched. Rendered as-is they
+ * read as an enum mid sentence, as in "Replacing eftpos_au •••• 4242".
  */
-export function brandLabel(brand: string | null): string | null {
+export function brandLabel(brand: string | null | undefined): string | null {
   const key = brand?.toLowerCase();
-  if (key == null || key === "unknown") {
+  if (!key || key === "unknown") {
     return null;
   }
-  return BRAND_LABELS[key] ?? brand;
+  return BRAND_LABELS[key] ?? null;
 }
 
-/** The brand label, or the one fallback for a card Stripe gave no brand for. */
+/** The brand label, or the one fallback for a card we can name no brand for. */
 export function brandDisplayLabel(
   t: TFunction<"settings">,
-  brand: string | null,
+  brand: string | null | undefined,
 ): string {
   return brandLabel(brand) ?? t("paymentMethodRow.savedCard");
 }
@@ -39,8 +41,8 @@ export function brandDisplayLabel(
 /** Carries its own leading separator, so callers render it as-is. */
 export function cardExpiryLabel(
   t: TFunction<"settings">,
-  expMonth: number | null,
-  expYear: number | null,
+  expMonth: number | null | undefined,
+  expYear: number | null | undefined,
 ): string | null {
   if (expMonth == null || expYear == null) {
     return null;

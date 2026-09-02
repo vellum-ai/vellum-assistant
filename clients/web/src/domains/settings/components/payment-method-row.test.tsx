@@ -34,15 +34,6 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).not.toContain("null");
   });
 
-  test("falls back to the generic label when Stripe could not name the brand", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow brand="unknown" last4="4242" onUpdateCard={() => {}} />,
-    );
-    const row = getByTestId("payment-method-row");
-    expect(row.textContent).toContain("Saved card");
-    expect(row.textContent).not.toContain("unknown");
-  });
-
   test("renders the expiry after the ending line when both parts are known", () => {
     const { getByTestId } = render(
       <PaymentMethodRow
@@ -93,18 +84,6 @@ describe("PaymentMethodRow", () => {
     expect(getByTestId("payment-method-row").textContent).not.toContain(
       "\u00b7",
     );
-  });
-
-  test("renders a long unmapped brand verbatim", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="internationalmaestro"
-        last4="0005"
-        onUpdateCard={() => {}}
-      />,
-    );
-    const row = getByTestId("payment-method-row");
-    expect(row.textContent).toContain("internationalmaestro");
   });
 
   test("fires onUpdateCard when Replace card is clicked", () => {

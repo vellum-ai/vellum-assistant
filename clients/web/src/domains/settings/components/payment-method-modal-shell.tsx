@@ -270,19 +270,15 @@ function replaceSubtitle(
   t: TFunction<"settings">,
   card: CardOnFile | null,
 ): string {
-  const brand = brandLabel(card?.brand ?? null);
+  const brand = brandLabel(card?.brand);
   const last4 = card?.last4;
   if (!brand && !last4) {
     return t("autoTopUpPaymentMethodModal.replaceSubtitle");
   }
 
-  // `cardExpiryLabel` carries its own leading separator, so the sentences take
-  // it behind a single space, or take nothing at all.
-  const expiryLabel = cardExpiryLabel(
-    t,
-    card?.expMonth ?? null,
-    card?.expYear ?? null,
-  );
+  // The single space is composed here rather than sitting in the sentences, so
+  // a card with no expiry leaves no double space behind.
+  const expiryLabel = cardExpiryLabel(t, card?.expMonth, card?.expYear);
   const expiry = expiryLabel ? ` ${expiryLabel}` : "";
 
   if (!last4) {
@@ -309,7 +305,7 @@ function savedPanelTitle(
   t: TFunction<"settings">,
   card: SavedCard | null,
 ): string {
-  const brand = brandLabel(card?.brand ?? null);
+  const brand = brandLabel(card?.brand);
   return brand && card?.last4
     ? t("autoTopUpPaymentMethodModal.savedTitle", {
         brand,

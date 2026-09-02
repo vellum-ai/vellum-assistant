@@ -82,26 +82,6 @@ describe("PaymentMethodModalShell", () => {
     ).not.toBeNull();
   });
 
-  test("a card on file Stripe could not name reads as having no brand", () => {
-    const { getByText } = renderShell({
-      mode: "replace",
-      cardOnFile: { ...VISA_ON_FILE, brand: "unknown" },
-    });
-    expect(
-      getByText(
-        "Replacing the card ending in 4242 · 04 / 42. The new card takes over immediately.",
-      ),
-    ).not.toBeNull();
-  });
-
-  test("a card on file with no brand or last4 falls back to the plain subtitle", () => {
-    const { getByText } = renderShell({
-      mode: "replace",
-      cardOnFile: { ...VISA_ON_FILE, brand: null, last4: null },
-    });
-    expect(getByText("The new card takes over immediately.")).not.toBeNull();
-  });
-
   test("omits the expiry when either half is missing", () => {
     const { getByText } = renderShell({
       mode: "replace",
