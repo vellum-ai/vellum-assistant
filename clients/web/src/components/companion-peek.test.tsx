@@ -70,7 +70,10 @@ describe("how far the creature comes up", () => {
     expect(geometry.exposed).toBeCloseTo(PEEK_SIZE_MAX * 0.39);
   });
 
-  /** The ghost is the creature that used to reach the capsule's full width. */
+  /**
+   * The ghost is the catalog creature the cap constrains: its face sits high
+   * enough that exposure alone would draw it at the capsule's full width.
+   */
   test("never draws any creature in the catalog wider than the cap", () => {
     for (const shape of BUNDLED_COMPONENTS.bodyShapes) {
       for (const eyes of BUNDLED_COMPONENTS.eyeStyles) {
