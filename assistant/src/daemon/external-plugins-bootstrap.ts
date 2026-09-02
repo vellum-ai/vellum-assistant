@@ -55,6 +55,7 @@ import {
   registerDefaultPluginInjectors,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import {
   registerPluginInjectors,
   unregisterPluginInjectors,
@@ -78,6 +79,14 @@ import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 
 const log = getLogger("plugins-bootstrap");
+
+/**
+ * Names whose `init` completed in this process. {@link bootstrapPlugins}
+ * rebuilds the set on every run, and {@link activateDefaultPluginNow} reads it
+ * so enabling a plugin that is already up is a no-op instead of a second
+ * `init`.
+ */
+const initializedPlugins = new Set<string>();
 
 /**
  * Validate a plugin config block. If the manifest supplies a parser-like
@@ -173,6 +182,10 @@ export async function initializePlugins(): Promise<void> {
  * registered inline via {@link registerDefaultPlugins}.
  */
 export async function bootstrapPlugins(): Promise<void> {
+  // This run re-initializes every plugin it does not skip, so the record of
+  // what is already up is rebuilt from it.
+  initializedPlugins.clear();
+
   // Register first-party default plugins. Each default wraps one of the
   // assistant's canonical pipelines (`compaction`, `persistence`, ...) with a
   // passthrough so the pipeline shape is explicit at boot even when no
@@ -261,6 +274,52 @@ export async function bootstrapPlugins(): Promise<void> {
   }
 }
 
+/**
+ * Initialize a plugin the boot pass skipped for its `.disabled` sentinel, so
+ * enabling it takes effect in the running daemon rather than at the next start.
+ * The enable route calls this after clearing the sentinel: read-time filtering
+ * brings the plugin's hooks and injectors back on its own, but the job
+ * handlers, background workers, and storage handles that `init` sets up only
+ * exist once `init` has run.
+ *
+ * Eligibility is the set of plugins this module owns: the first-party defaults
+ * and anything registered through `registerPlugin`. Workspace-installed plugins
+ * are activated by the source reconcile in `plugins/mtime-cache.ts` and never
+ * enter the registry, so they resolve to nothing here.
+ *
+ * Idempotent. A plugin whose `init` already ran, a name no registered plugin
+ * claims, and a plugin whose sentinel is still on disk are all no-ops. An
+ * `init` failure is contained the way the boot pass contains it, dropping the
+ * plugin from the registry and logging, so a broken plugin never fails the
+ * caller. Returns whether `init` ran.
+ */
+export async function activateDefaultPluginNow(
+  pluginName: string,
+): Promise<boolean> {
+  if (initializedPlugins.has(pluginName) || isPluginDisabled(pluginName)) {
+    return false;
+  }
+
+  const plugin = getRegisteredPlugins().find(
+    (p) => p.manifest.name === pluginName,
+  );
+  if (!plugin) {
+    return false;
+  }
+
+  try {
+    await initializePlugin(plugin, getConfig());
+    return true;
+  } catch (err) {
+    unregisterPlugin(pluginName);
+    log.warn(
+      { err, plugin: pluginName },
+      `plugin ${pluginName} failed to initialize on enable`,
+    );
+    return false;
+  }
+}
+
 async function initializePlugin(
   plugin: Plugin,
   assistantConfig: AssistantConfig,
@@ -336,9 +395,11 @@ async function initializePlugin(
       }
     }
     initCompleted = true;
+    initializedPlugins.add(name);
 
     log.info({ plugin: name }, "plugin initialized");
   } catch (err) {
+    initializedPlugins.delete(name);
     if (initCompleted) {
       await teardownPlugin(plugin, {
         assistantVersion: APP_VERSION,
