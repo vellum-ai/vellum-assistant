@@ -9,6 +9,8 @@
  */
 import { useState } from "react";
 
+import { PlatformLoginButton } from "@/components/platform-login-button";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import {
   LocalPlatformCredentialRecoveryError,
@@ -51,6 +53,7 @@ export function RestoreManagedCredentialButton({
   onRestored,
 }: RestoreManagedCredentialButtonProps) {
   const { t } = useTranslation("chat");
+  const platformGate = usePlatformGate();
   const [isRestoring, setIsRestoring] = useState(false);
 
   const restore = async () => {
@@ -75,6 +78,19 @@ export function RestoreManagedCredentialButton({
       setIsRestoring(false);
     }
   };
+
+  // The repair rotates the credential through the platform, which needs a
+  // platform session. Without one it would fail after the press, so the slot
+  // asks for the sign-in first, the documented "disabled" treatment. The
+  // surface offering this button already excludes the platform-disabled
+  // configuration, so "gated" is unreachable here and renders nothing rather
+  // than a repair that cannot run.
+  if (platformGate === "gated") {
+    return null;
+  }
+  if (platformGate === "disabled") {
+    return <PlatformLoginButton variant="outlined" size="compact" />;
+  }
 
   return (
     <Button

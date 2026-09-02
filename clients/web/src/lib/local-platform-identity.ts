@@ -7,6 +7,7 @@ import {
   getSelectedAssistant,
   isLocalAssistant,
   isLocalClient,
+  isLocalGatewayAssistant,
   isPlatformDisabled,
   isRemoteGatewayMode,
   primeLocalGatewayConnectionWithRepair,
@@ -125,7 +126,14 @@ export async function resolveLocalAssistantPlatformIdentity(
     return assistantId;
   }
 
-  const assistant = resolveLocalAssistant(assistantId);
+  // A repair acts on any assistant this client reaches over the local
+  // gateway; bootstrap provisions only the ones the web lifecycle owns.
+  const assistant = resolveLocalAssistant(
+    assistantId,
+    options.rotateRejectedCredential
+      ? isLocalGatewayAssistant
+      : isLocalAssistant,
+  );
   if (!assistant) {
     return assistantId;
   }
@@ -207,12 +215,11 @@ export class LocalPlatformCredentialRecoveryError extends Error {
  * not a gap: the platform re-provisions its own key, so the repair belongs
  * to nobody here.
  *
- * Scoped to `isLocalAssistant` (`cloud === "local"`), the set the web
- * lifecycle provisions for, not the wider `isLocalGatewayAssistant` set this
- * client can merely connect to. A local Docker instance is reachable over the
- * gateway but is never provisioned here, so it reads as null and its surface
- * falls back to handing over the CLI command instead of a button that would
- * refuse.
+ * Scoped to `isLocalGatewayAssistant`, wider than the `isLocalAssistant` set
+ * bootstrap provisions for: a local Docker instance is never hatched, woken
+ * or retired from here, but rotating and storing its credential is a write
+ * over the local gateway it already exposes, the same write a plain local
+ * assistant takes, and the CLI login flow repairs it the same way.
  */
 function recoverableLocalAssistant(
   assistantId?: string,
@@ -227,7 +234,7 @@ function recoverableLocalAssistant(
   ) {
     return null;
   }
-  return resolveLocalAssistant(target);
+  return resolveLocalAssistant(target, isLocalGatewayAssistant);
 }
 
 /** Whether {@link recoverLocalAssistantPlatformCredential} can act here. */
@@ -386,13 +393,23 @@ export function bootstrapLocalAssistantPlatformIdentity(
   })();
 }
 
-function resolveLocalAssistant(assistantId: string): LockfileAssistant | null {
+/**
+ * The lockfile entry for `assistantId` when it is the active or selected
+ * assistant and `eligible` accepts it, else null. Bootstrap passes
+ * `isLocalAssistant`, the assistants the web lifecycle owns; a repair passes
+ * `isLocalGatewayAssistant`, every assistant whose gateway this client can
+ * write a credential to.
+ */
+function resolveLocalAssistant(
+  assistantId: string,
+  eligible: (assistant: LockfileAssistant) => boolean,
+): LockfileAssistant | null {
   const active = getActiveAssistant();
-  if (active?.assistantId === assistantId && isLocalAssistant(active)) {
+  if (active?.assistantId === assistantId && eligible(active)) {
     return active;
   }
   const selected = getSelectedAssistant();
-  if (selected?.assistantId === assistantId && isLocalAssistant(selected)) {
+  if (selected?.assistantId === assistantId && eligible(selected)) {
     return selected;
   }
   return null;

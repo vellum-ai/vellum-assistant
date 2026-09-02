@@ -1,12 +1,8 @@
-import { LogIn } from "lucide-react";
 import { type ReactNode } from "react";
-import { useLocation } from "react-router";
 
-import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
-import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
-import { useTranslation } from "@/i18n";
+import { PlatformLoginButton } from "@/components/platform-login-button";
 
 interface PlatformLoginNoticeProps {
   /**
@@ -21,41 +17,16 @@ interface PlatformLoginNoticeProps {
 /**
  * Info notice shown when `usePlatformGate()` returns `"disabled"`: the
  * surface is meaningful but there is no platform session. Pairs the
- * explanatory copy with an actionable "Log In" button (the shared
- * `useOnboardingLogin` flow) so the prompt isn't a dead end.
- *
- * The button mirrors the affordance used in the settings sidebar and the
- * active-assistant gate, including the loading → "Cancel" toggle.
+ * explanatory copy with {@link PlatformLoginButton} so the prompt isn't a
+ * dead end. A surface with no room for a notice (an action slot on a banner)
+ * renders the button on its own.
  */
 export function PlatformLoginNotice({
   children,
   className,
 }: PlatformLoginNoticeProps) {
-  const { t } = useTranslation();
-  // Return to the full current URL (including query/hash) after login so
-  // params these surfaces depend on — e.g. billing's `?session_id` /
-  // `?billing_status` — survive the auth round-trip. `useOnboardingLogin`
-  // otherwise derives the return target from `pathname` only.
-  const { pathname, search, hash } = useLocation();
-  const { loading, login, cancel } = useOnboardingLogin(
-    `${pathname}${search}${hash}`,
-  );
   return (
-    <Notice
-      tone="info"
-      className={className}
-      actions={
-        <Button
-          variant="ghost"
-          leftIcon={loading ? undefined : <LogIn className="h-4 w-4" />}
-          onClick={loading ? cancel : () => void login()}
-        >
-          {loading
-            ? t("platformLoginNotice.cancel")
-            : t("platformLoginNotice.logIn")}
-        </Button>
-      }
-    >
+    <Notice tone="info" className={className} actions={<PlatformLoginButton />}>
       {children}
     </Notice>
   );

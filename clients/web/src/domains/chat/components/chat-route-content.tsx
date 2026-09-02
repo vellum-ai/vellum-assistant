@@ -833,12 +833,13 @@ export function ChatMainPanel({
   //     parked in the same one-shot store `/doctor <message>` uses, so the
   //     panel auto-starts a session already on topic, not on a blank prompt.
   //   self-hosted -> the client owns the reprovision flow (the platform's own
-  //     recovery excludes these registrations). Where this client can perform
-  //     it, the banner does. Where it cannot (a remotely served client, a
-  //     platform-disabled one, or a runtime the web lifecycle does not manage
-  //     such as a local Docker instance), the banner hands over the CLI
-  //     command instead, so no supported hosting mode is left without a way
-  //     back.
+  //     recovery excludes these registrations). Where this client can write
+  //     to the assistant's gateway (a plain local assistant or a local Docker
+  //     instance), the banner performs it, and the button itself asks for a
+  //     platform sign-in first when there is none. Where it cannot (a
+  //     remotely served client, a platform-disabled one), the banner hands
+  //     over the CLI command instead, so no hosting mode is left without a
+  //     way back.
   //
   // Built per banner rather than once, so a successful repair retires exactly
   // the error or notice that offered it. Clearing the slot unconditionally

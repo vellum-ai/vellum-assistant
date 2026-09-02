@@ -64,6 +64,8 @@ mock.module("@/lib/local-mode", () => ({
   isLocalAssistant: (assistant: { cloud?: string }) =>
     assistant?.cloud === "local",
   isLocalClient: () => isLocalClientValue,
+  isLocalGatewayAssistant: (assistant: { cloud?: string }) =>
+    assistant?.cloud === "local" || assistant?.cloud === "docker",
   isPlatformDisabled: () => isPlatformDisabledValue,
   isRemoteGatewayMode: () => isRemoteGatewayModeValue,
   primeLocalGatewayConnectionWithRepair:
@@ -394,20 +396,40 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     ).toBe(false);
   });
 
-  // A local Docker instance is reachable over the gateway but is never
-  // provisioned by the web lifecycle, so the predicate reads false and the
-  // surface hands over the CLI command instead of a button that would refuse.
-  test("a local Docker assistant is not repairable here", async () => {
+  // A local Docker instance is never hatched, woken or retired from here, but
+  // its gateway takes the same credential write a plain local assistant's
+  // does, so the repair serves it rather than handing the user a CLI command
+  // with a key placeholder they have no way to fill.
+  test("a local Docker assistant is repairable here", async () => {
     activeAssistant = { ...activeAssistant, cloud: "docker" };
+    seedRejectedCredential();
 
     expect(
       canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
-    ).toBe(false);
-    const failure = await recoverLocalAssistantPlatformCredential(
-      RUNTIME_ASSISTANT_ID,
-    ).catch((err: unknown) => err);
-    expect(failure).toMatchObject({ reason: "cannot_act_here" });
-    expect(requestNames()).not.toContain("reprovision-api-key");
+    ).toBe(true);
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    const injectedSecrets = requests
+      .filter((request) => request.pathname.endsWith("/v1/secrets"))
+      .map((request) => request.body);
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:assistant_api_key",
+      value: "reprovisioned-key",
+    });
+  });
+
+  // The repair's wider scope must not leak into bootstrap: the web lifecycle
+  // does not own a Docker instance, so it never provisions one unasked.
+  test("bootstrap leaves a local Docker assistant alone", async () => {
+    activeAssistant = { ...activeAssistant, cloud: "docker" };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    bootstrapLocalAssistantPlatformIdentity();
+    await flushAsyncWork();
+
+    expect(requestNames()).toEqual([]);
   });
 
   // The switch window: a version still held for the assistant the user just
