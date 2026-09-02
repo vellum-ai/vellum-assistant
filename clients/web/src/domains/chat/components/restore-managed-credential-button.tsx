@@ -15,7 +15,18 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
-export function RestoreManagedCredentialButton() {
+export interface RestoreManagedCredentialButtonProps {
+  /**
+   * Runs once the credential is confirmed working. The banner offering this
+   * button describes a failure that no longer holds, so its owner retires
+   * it here; a failed attempt leaves the banner in place to try again.
+   */
+  onRestored?: () => void;
+}
+
+export function RestoreManagedCredentialButton({
+  onRestored,
+}: RestoreManagedCredentialButtonProps) {
   const { t } = useTranslation("chat");
   const [isRestoring, setIsRestoring] = useState(false);
 
@@ -24,6 +35,7 @@ export function RestoreManagedCredentialButton() {
     try {
       await recoverLocalAssistantPlatformCredential();
       toast.success(t("chatRouteContent.restoreCredentialSuccess"));
+      onRestored?.();
     } catch (err) {
       // The reason is the useful half: "sign in to Vellum" and "this client
       // cannot repair this assistant" need different things from the reader,

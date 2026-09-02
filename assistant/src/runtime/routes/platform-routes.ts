@@ -85,8 +85,8 @@ type PlatformConnectResponse = z.infer<typeof PlatformConnectResponseSchema>;
 
 /**
  * Result of asking the platform, right now, whether the stored managed
- * credential authenticates. Distinct from the status route's cached verdict:
- * this performs the check rather than reporting the last one.
+ * credential authenticates. The route performs the check; nothing caches the
+ * answer, so a caller that needs it fresh asks again.
  */
 const PlatformVerifyCredentialResponseSchema = z.object({
   status: z.enum(["valid", "rejected", "unknown"]),
@@ -791,9 +791,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "platform_verify_credential",
     endpoint: "platform/verify-credential",
     method: "POST",
+    // The in-app repair calls this through the gateway with an actor token,
+    // the same caller shape as platform_status, so it takes that route's
+    // principal bundle. A local-only policy would 403 every browser repair
+    // after it had already rotated and stored the replacement. Read scope:
+    // the route performs a check and mutates nothing.
     policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Verify the Vellum-managed credential against the platform",
     description:

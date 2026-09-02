@@ -828,22 +828,27 @@ export function ChatMainPanel({
   //     panel auto-starts a session already on topic, not on a blank prompt.
   //   self-hosted -> the client owns the reprovision flow (the platform's own
   //     recovery excludes these registrations), so the banner performs it.
-  const reprovisionAssistantKeyAction = showDoctorAction ? (
-    <Button asChild variant="outlined" size="compact">
-      <Link
-        to={`${routes.settings.debug}?tab=doctor`}
-        onClick={() =>
-          useDoctorHandoffStore
-            .getState()
-            .setPendingPrompt("Help me re-provision my assistant's API key")
-        }
-      >
-        {t("chatRouteContent.askTheDoctor")}
-      </Link>
-    </Button>
-  ) : assistantState.kind === "active" ? (
-    <RestoreManagedCredentialButton />
-  ) : undefined;
+  //
+  // Built per banner rather than once, so a successful repair retires exactly
+  // the error or notice that offered it. Clearing the slot unconditionally
+  // would also wipe a newer failure that arrived while the repair ran.
+  const buildReprovisionAssistantKeyAction = (onRestored: () => void) =>
+    showDoctorAction ? (
+      <Button asChild variant="outlined" size="compact">
+        <Link
+          to={`${routes.settings.debug}?tab=doctor`}
+          onClick={() =>
+            useDoctorHandoffStore
+              .getState()
+              .setPendingPrompt("Help me re-provision my assistant's API key")
+          }
+        >
+          {t("chatRouteContent.askTheDoctor")}
+        </Link>
+      </Button>
+    ) : assistantState.kind === "active" ? (
+      <RestoreManagedCredentialButton onRestored={onRestored} />
+    ) : undefined;
 
   // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
   // `actionUrl`; the button click is a real user gesture, so the re-open
@@ -876,7 +881,12 @@ export function ChatMainPanel({
               useChatSessionStore.getState().setError(null),
             ) ??
             (isManagedCredentialChatError(error)
-              ? reprovisionAssistantKeyAction
+              ? buildReprovisionAssistantKeyAction(() => {
+                  const session = useChatSessionStore.getState();
+                  if (session.error === error) {
+                    session.setError(null);
+                  }
+                })
               : doctorAction),
         }
       : null;
@@ -891,7 +901,12 @@ export function ChatMainPanel({
               useChatSessionStore.getState().setNotice(null),
             ) ??
             (isManagedCredentialChatError(notice)
-              ? reprovisionAssistantKeyAction
+              ? buildReprovisionAssistantKeyAction(() => {
+                  const session = useChatSessionStore.getState();
+                  if (session.notice === notice) {
+                    session.setNotice(null);
+                  }
+                })
               : undefined),
         }
       : null;

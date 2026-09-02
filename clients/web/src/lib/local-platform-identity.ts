@@ -1,4 +1,5 @@
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
+import { resolveSupportsCredentialVerification } from "@/lib/backwards-compat/credential-verification";
 import {
   getActiveAssistant,
   getLocalGatewayUrl,
@@ -200,6 +201,15 @@ export async function recoverLocalAssistantPlatformCredential(
   // replacement can be rejected in turn. Confirm before the caller reports
   // success, so a repair that did not repair anything reads as a failure the
   // reader can see rather than a receipt for something that never happened.
+  //
+  // A daemon that predates the verification route cannot confirm anything,
+  // and its 404 would read as a failed repair after a successful rotation,
+  // inviting another. On those daemons the stored replacement is the repair,
+  // as it always was there. Resolved against a hydrated version: the sync
+  // snapshot's false-on-unknown would skip this check on a daemon that has it.
+  if (!(await resolveSupportsCredentialVerification())) {
+    return;
+  }
   const verified = await verifyPlatformCredential(assistant);
   if (verified === "rejected") {
     throw new Error(

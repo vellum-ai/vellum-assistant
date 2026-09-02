@@ -1,10 +1,9 @@
 /**
  * Resolve which assistant API key to inject into a running assistant.
  *
- * Shared by the flows that hand a local assistant its platform credentials
- * (`login` and `teleport`). They had the same three-step resolution written
- * out twice, which is exactly the shape that drifts: a fix applied to one is
- * invisible in the other.
+ * The one place that decides, for every flow that hands a local assistant its
+ * platform credentials (`login`, `teleport`). Keeping the decision here means a
+ * rule about which stored key is usable holds in all of them at once.
  */
 import {
   readGatewayCredential,

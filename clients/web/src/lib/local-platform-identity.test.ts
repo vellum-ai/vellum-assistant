@@ -114,6 +114,10 @@ mock.module("@/stores/organization-store", () => ({
   },
 }));
 
+const { MIN_VERSION: VERIFY_ROUTE_MIN_VERSION } =
+  await import("@/lib/backwards-compat/credential-verification");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 const {
   bootstrapLocalAssistantPlatformIdentity,
   resetLocalPlatformIdentityCacheForTesting,
@@ -188,6 +192,9 @@ beforeEach(() => {
   fetchOrganizationsMock.mockClear();
   updateLockfileAssistantMock.mockClear();
   resetLocalPlatformIdentityCacheForTesting();
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", VERIFY_ROUTE_MIN_VERSION);
   // Single attempt by default — retry tests opt into a schedule.
   setBootstrapRetryDelaysForTesting([]);
 
@@ -325,6 +332,20 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     await expect(
       recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
     ).rejects.toThrow(/rejected the replacement credential/i);
+  });
+
+  // A daemon that predates the verification route cannot confirm anything.
+  // Its 404 would read as a failed repair after a successful rotation and
+  // invite another, so on those daemons the stored replacement is the repair.
+  test("an older assistant skips verification and reports the stored replacement as the repair", async () => {
+    seedRejectedCredential();
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.11.8");
+    verifyCredentialStatus = "rejected";
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    expect(requestNames()).not.toContain("verify-credential");
   });
 
   test("an unconfirmed replacement fails rather than claiming success", async () => {
