@@ -126,7 +126,10 @@ toggle lands, `getState` reports the recorded target as `current`, so the web
 layer's re-read after an apply sees the icon it asked for. An apply enables the
 target before disabling the others and clears the record last, so no launcher
 sees the app with every launcher component off, and an interrupted pass is
-retried rather than half kept.
+retried rather than half kept. It reads its alias set off the manifest and takes
+`.icon.primary` plus the `.icon.avatar_eyes_*` alternates only, so an activity
+that lands in the `.icon.` namespace for anything else is neither offered in
+`available` nor toggled by an apply.
 
 `load()` runs that same apply before the activity resumes, so a process death
 between `set` and the next background never strands a recorded target. It then
@@ -146,7 +149,9 @@ on every run.
 
 `getState` reports `supported: true` only on API 26 or newer with at least one
 alternate present. `minSdkVersion` is 24, so an API 24 or 25 device answers
-`supported: false` and the picker draws nothing.
+`supported: false` and the picker draws nothing. `set` applies the same version
+check and resolves `{ok: false, error}` below it, so a caller that skipped
+`supported` cannot leave a target behind for the next background to toggle.
 
 Alternates read at the size of the default launcher icon sitting next to them in
 the picker. Each pair is fitted by the longer edge of its measured artwork
