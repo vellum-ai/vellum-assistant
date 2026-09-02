@@ -39,6 +39,7 @@ import {
 import type { FrameSource } from "./frame-sampler";
 import {
   createNativeFrameSource,
+  NATIVE_CAPTURE_SLOT_RELEASE_MS,
   type NativeFrameSourceOptions,
   NATIVE_FRAME_SAMPLE_INTERVAL_MS,
   NATIVE_PAIR_MAX_GAP_MS,
@@ -1494,5 +1495,166 @@ describe("native frame source bridge serialization", () => {
     debug.mockRestore();
     sampling.stop();
     intruder.stop();
+  });
+});
+
+/**
+ * The last resort under the queue.
+ *
+ * A call the camera never answers would otherwise hold the process-wide slot
+ * for the life of the tab, and every source built after the camera reopened
+ * would queue behind it: native Live silent for good. A call outstanding this
+ * long is not a live one, so the queue lets go of it.
+ */
+describe("native frame source bridge deadline", () => {
+  function makeSource(
+    capture: CaptureStub,
+    decode: DecodeStub,
+    onDecision: NativeFrameSourceOptions["onDecision"],
+  ) {
+    return createNativeFrameSource({
+      gate: createRecordingGate().gate,
+      captureSample: capture.captureSample,
+      onDecision,
+      decode: decode.decode,
+      now: () => clock,
+    });
+  }
+
+  test("the deadline is far past any answer a pair could still use", () => {
+    // Reachable only by a call that has stopped being a call: an answer this
+    // late blows the pair's gap bound many times over, so letting go of it
+    // costs no frame anyone could have kept.
+    expect(NATIVE_CAPTURE_SLOT_RELEASE_MS).toBeGreaterThan(
+      NATIVE_PAIR_MAX_GAP_MS * 50,
+    );
+    expect(NATIVE_CAPTURE_SLOT_RELEASE_MS).toBeGreaterThan(
+      NATIVE_FRAME_SAMPLE_INTERVAL_MS * 5,
+    );
+  });
+
+  test("arms no deadline over a call that answered", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const source = makeSource(capture, decode, () => {});
+
+    source.start();
+    await pollTimes(1);
+    source.stop();
+
+    // Long past when a deadline armed for those calls would have fired. An
+    // answered call leaves nothing behind to go off later and report an
+    // abandonment that did not happen.
+    await advance(NATIVE_CAPTURE_SLOT_RELEASE_MS * 2);
+
+    expect(debug).not.toHaveBeenCalledWith(
+      "[native-frame-source] capture abandoned, releasing the bridge:",
+      expect.anything(),
+    );
+    debug.mockRestore();
+  });
+
+  test("holds the bridge right up to the deadline", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const stalled = makeSource(capture, decode, () => {});
+    const waiting = makeSource(capture, decode, () => {});
+
+    stalled.start();
+    capture.holdNext();
+    await startPair();
+    // The deadline runs from the moment the call was issued, not from here.
+    const issuedAt = clock;
+    expect(capture.callCount()).toBe(1);
+
+    // The camera goes away under the request, and a replacement source starts.
+    stalled.stop();
+    waiting.start();
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
+    expect(capture.callCount()).toBe(1);
+
+    await advance(NATIVE_CAPTURE_SLOT_RELEASE_MS - (clock - issuedAt) - 1);
+
+    // Still waiting: a call that may yet answer is not raced by a second one.
+    expect(capture.callCount()).toBe(1);
+    expect(debug).not.toHaveBeenCalledWith(
+      "[native-frame-source] capture abandoned, releasing the bridge:",
+      expect.anything(),
+    );
+    debug.mockRestore();
+    waiting.stop();
+  });
+
+  test("lets go at the deadline, and the next run samples", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const offers: FrameGateDecision[] = [];
+    const stalled = makeSource(capture, decode, () => {});
+    const live = makeSource(capture, decode, (decision) => {
+      offers.push(decision);
+    });
+
+    stalled.start();
+    capture.holdNext();
+    await startPair();
+    stalled.stop();
+
+    // The camera comes back and Live is started again.
+    live.start();
+    await advance(NATIVE_CAPTURE_SLOT_RELEASE_MS + 1);
+    await pollTimes(1);
+
+    expect(debug).toHaveBeenCalledWith(
+      "[native-frame-source] capture abandoned, releasing the bridge:",
+      expect.objectContaining({ afterMs: NATIVE_CAPTURE_SLOT_RELEASE_MS }),
+    );
+    // Sampling again, which without the deadline it never would be.
+    expect(offers).toHaveLength(1);
+
+    // The one time two calls are outstanding at once, and it is sanctioned:
+    // the older one has been given up on, so whatever it eventually does
+    // reaches nobody, and the platforms hand the next frame to the newer call.
+    expect(capture.maxConcurrent()).toBe(2);
+    debug.mockRestore();
+    live.stop();
+  });
+
+  test("abandoning one call disturbs neither a live run nor a decode in flight", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const offers: FrameGateDecision[] = [];
+    const stalled = makeSource(capture, decode, () => {});
+    const live = makeSource(capture, decode, (decision) => {
+      offers.push(decision);
+    });
+
+    // A decode is in flight for the live source when the abandonment happens.
+    live.start();
+    decode.holdNext();
+    await startPair();
+    expect(decode.decodeCount()).toBe(1);
+
+    stalled.start();
+    capture.holdNext();
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
+    stalled.stop();
+
+    await advance(NATIVE_CAPTURE_SLOT_RELEASE_MS + 1);
+    decode.releaseHeld();
+    await settle();
+
+    // The held decode finished and freed its image: the deadline reaches the
+    // bridge queue and nothing else.
+    expect(decode.releaseCount()).toBeGreaterThan(0);
+
+    // And the live run is still the current one, so its next pair is judged.
+    await pollTimes(1);
+    expect(offers).toHaveLength(1);
+    debug.mockRestore();
+    live.stop();
   });
 });

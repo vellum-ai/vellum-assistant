@@ -76,11 +76,13 @@
  *   bound turns the added delay into a discard rather than a false accept.
  *   Only a call that was ISSUED can hold the queue: a sample whose run ends
  *   while it is still waiting leaves without touching the bridge. An issued
- *   call that is never answered does stop the poll for good, which a stop and
- *   a restart do not clear: there is no cure for it here, because releasing the
- *   queue would issue exactly the concurrent call the queue exists to prevent,
- *   and a camera that has stopped answering has nothing more to give. It looks
- *   like the slow-bridge case, a Live session that keeps nothing.
+ *   call that is never answered, which is what a camera closed or suspended
+ *   underneath a request looks like, holds the queue until
+ *   {@link NATIVE_CAPTURE_SLOT_RELEASE_MS} and is then let go: the poll is
+ *   quiet for at most that long and resumes on its own, and a Live started
+ *   again after the camera comes back samples normally. Nothing usable is
+ *   given up, because a call answering that late would blow the pair's gap
+ *   bound and be discarded anyway.
  * - It does not watch the app's lifecycle. Backgrounding is the owner's to
  *   answer, through the deduped `app.hidden` bus edge that also covers the
  *   Capacitor shells (see `docs/EVENT_BUS.md`), and the owner answers it by
@@ -133,6 +135,29 @@ export const NATIVE_PAIR_SPACING_MS = Math.round(
  * source can know it without holding the gate's configuration.
  */
 export const NATIVE_PAIR_MAX_GAP_MS = DEFAULT_FRAME_GATE_OPTIONS.motionMaxAgeMs;
+
+/**
+ * How long an issued bridge call may hold the queue before it is abandoned.
+ *
+ * Ten seconds is chosen to be unreachable by any call that is still going to
+ * answer: two orders of magnitude past a healthy round trip, ten poll
+ * intervals, and roughly eighty times the motion window, so a call still
+ * outstanding here could not produce a frame the pair's bound would accept even
+ * if it landed. Nothing usable is given up by letting go of it.
+ *
+ * The danger the queue exists to prevent is a second call racing a LIVE one.
+ * A call outstanding this long is not live: the camera behind it has been
+ * closed or suspended, and the platforms agree that whoever asks next owns the
+ * answer. On iOS `CameraController.captureSample` stores a single
+ * `sampleBufferCaptureCompletionBlock`, which a later call replaces and the
+ * sample-buffer delegate then fires for that later call before clearing it. On
+ * Android `CameraPreview.captureSample` saves the call and overwrites
+ * `snapshotCallbackId`, and `onSnapshotTaken` resolves whatever that id names.
+ * Either way the overwrite strands only the abandoned promise, which by then
+ * nobody is waiting on, and the frame the new call receives is the frame taken
+ * for the new call.
+ */
+export const NATIVE_CAPTURE_SLOT_RELEASE_MS = 10_000;
 
 /** A sample off the bridge, stamped with a bound on when its picture was taken. */
 interface CapturedSample {
@@ -318,6 +343,50 @@ export function createNativeFrameSource(
    * asked for it, which would inflate the pair's gap and discard a pair that
    * was really taken back to back.
    */
+  /**
+   * Resolve with the call's answer, or with nothing once the deadline passes.
+   *
+   * A late answer is dropped rather than delivered: it has been given up on,
+   * and the tick that wanted it is long gone. A late REJECTION is dropped the
+   * same way, which is what keeps it from surfacing as an unhandled one.
+   */
+  function withReleaseDeadline(
+    call: Promise<string | null>,
+  ): Promise<{ answered: boolean; encoded: string | null }> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const deadline = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        console.debug(
+          "[native-frame-source] capture abandoned, releasing the bridge:",
+          { afterMs: NATIVE_CAPTURE_SLOT_RELEASE_MS },
+        );
+        resolve({ answered: false, encoded: null });
+      }, NATIVE_CAPTURE_SLOT_RELEASE_MS);
+      call.then(
+        (encoded) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(deadline);
+          resolve({ answered: true, encoded });
+        },
+        (err: unknown) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(deadline);
+          reject(err);
+        },
+      );
+    });
+  }
+
   function issueCapture(run: number): Promise<{
     encoded: string | null;
     requestedAtMs: number;
@@ -332,8 +401,10 @@ export function createNativeFrameSource(
         return null;
       }
       const requestedAtMs = now();
-      const encoded = await captureSample();
-      return { encoded, requestedAtMs };
+      const { answered, encoded } = await withReleaseDeadline(captureSample());
+      // Abandoned. The queue moves on, this tick produces nothing, and the
+      // next one asks a camera that may since have come back.
+      return answered ? { encoded, requestedAtMs } : null;
     });
     // The queue survives whatever this call does, so one refusal cannot wedge
     // every later sample behind it.
