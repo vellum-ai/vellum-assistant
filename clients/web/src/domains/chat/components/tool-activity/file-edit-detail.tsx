@@ -1,16 +1,12 @@
 /**
- * PROPOSAL, not registered. See `tool-detail-proposals.stories.tsx`.
+ * `file_edit` sends `old_string` and `new_string`, which is a diff, so it
+ * renders as one rather than as two JSON string literals with their newlines
+ * escaped.
  *
- * `file_edit` sends `old_string` and `new_string`, which is a diff, and the
- * generic block renders it as two JSON string literals with their newlines
- * escaped. This shows it as the diff it is, under a line that still says what
- * happened and which tool did it.
- *
- * Nothing here is new machinery: `FileDiffView` already renders a unified diff
- * from a before/after pair for ACP run tool calls, and it soft-wraps rather
- * than scrolling, which is what makes a diff legible in a 400px drawer.
- * Shipping this means lifting that view out of `acp-run-chat-view/` into a
- * shared home, since it would then have two consumers.
+ * The diff itself is `FileDiffView`, which ACP runs already use and which
+ * soft-wraps rather than scrolling, the thing that makes a diff legible in a
+ * 400px drawer. It lives under `acp-run-chat-view/` and now has a second
+ * consumer, so it wants lifting to a shared home.
  */
 
 import { Typography } from "@vellumai/design-library";

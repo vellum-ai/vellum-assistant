@@ -1,23 +1,15 @@
 /**
- * PROPOSAL, not registered. See `tool-detail-proposals.stories.tsx`.
- *
- * `bash` is the most-called tool, and the generic block shows its command as a
- * quoted value inside a JSON object. This keeps the command and its output as
- * two labelled things, which is what they are, and shows each in the shape it
- * has in a terminal: a prompt line, then what came back.
+ * `bash` is the most-called tool. This shows its command and its output as the
+ * two things they are, each in the shape it has in a terminal: a prompt line,
+ * then what came back.
  *
  * No terminal emulator and no ANSI parsing: escape sequences appear in about
  * one in a thousand bash results, so a monospace block with preserved
- * whitespace is the whole of what "reads like a terminal" needs here.
+ * whitespace is the whole of what a terminal needs here.
  */
 
-import { Typography } from "@vellumai/design-library";
-
-import {
-  CodeBlock,
-  CopyButton,
-  SectionLabel,
-} from "@/components/detail-primitives";
+import { CopyButton, SectionLabel } from "@/components/detail-primitives";
+import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
@@ -27,6 +19,7 @@ export function BashDetail({
   streamedOutput,
   isRunning,
   isError,
+  isDenied,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
   const command =
@@ -60,19 +53,12 @@ export function BashDetail({
 
       <div>
         <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-        {body ? (
-          <CodeBlock text={body} tone={isError ? "error" : "default"} />
-        ) : (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
-            {isRunning
-              ? t("toolDetailPanel.running")
-              : t("toolDetailPanel.emptyOutput")}
-          </Typography>
-        )}
+        <ToolOutputBody
+          text={body}
+          isDenied={isDenied}
+          isRunning={isRunning}
+          isError={isError}
+        />
       </div>
     </div>
   );

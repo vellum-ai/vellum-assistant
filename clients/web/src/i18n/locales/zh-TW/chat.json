@@ -1569,8 +1569,8 @@
     "command": "指令",
     "denied": "此工具呼叫未獲核准，因此沒有執行。",
     "emptyOutput": "該工具沒有回傳任何輸出。",
+    "input": "輸入",
     "output": "輸出",
-    "riskLevel": "風險等級",
     "running": "正在執行…"
   },
   "toolStepPill": {

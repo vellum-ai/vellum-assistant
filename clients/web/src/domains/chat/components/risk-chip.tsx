@@ -1,14 +1,8 @@
 /**
- * PROPOSAL, not registered. See `tool-detail-proposals.stories.tsx`.
+ * A tool call's risk level as a pill, with the tolerance sentence on hover.
  *
- * The panel currently spends a full-width `Notice` bar and a section label on
- * one word plus a sentence about when that level auto-approves. This is the
- * same information as a pill, with the sentence on hover.
- *
- * `RiskBadge` is the pill the product already has: it matches the macOS
- * `RiskBadgeView` convention, has tests and stories, and today nothing renders
- * it. Levels with no tolerance tier (`workspace`, anything unrecognised) get no
- * tooltip, because there is no sentence to show.
+ * Levels that map to no tolerance tier (`workspace`, anything unrecognised)
+ * carry no tooltip, because there is no sentence to show for them.
  */
 
 import { Tooltip } from "@vellumai/design-library";

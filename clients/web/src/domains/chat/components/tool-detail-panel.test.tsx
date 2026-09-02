@@ -112,7 +112,7 @@ afterEach(() => {
 
 describe("ToolDetailPanel", () => {
   test("renders the activity title, friendly tool name, input JSON and output", () => {
-    const { getByText, getAllByText, container } = render(
+    const { getAllByText, container } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
@@ -120,8 +120,8 @@ describe("ToolDetailPanel", () => {
     expect(
       getAllByText("Spawning subagent to research Toronto's location"),
     ).toHaveLength(1);
-    // Friendly tool name (title-cased from snake_case).
-    expect(getByText("Subagent Spawn")).toBeDefined();
+    // The tool is named once, in the header beneath the activity.
+    expect(getAllByText("Subagent Spawn")).toHaveLength(1);
     // Input JSON + output appear inside <pre> blocks.
     const text = container.textContent ?? "";
     expect(text).toContain('"toronto-location"');
@@ -136,38 +136,37 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Technical details")).toBeNull();
   });
 
-  test("renders the Risk Level notice with the tolerance hint but not the raw reason", () => {
-    const { getByTestId, getByText, queryByText } = render(
+  test("shows the risk level as a pill, without the raw classifier reason", () => {
+    const { getByTestId, queryByText } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskReason: "File edit (default)" })}
         onClose={noop}
       />,
     );
 
-    expect(getByText("Risk Level")).toBeDefined();
-    expect(getByTestId("risk-notice").getAttribute("data-risk-level")).toBe(
+    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
       "low",
     );
-    // Level and tolerance read as one sentence inside the notice.
+    expect(getByTestId("risk-badge").textContent).toBe("Low");
+    // The tolerance sentence is the pill's tooltip, not standing copy.
     expect(
-      getByText("Low → Auto-approved at Conservative tolerance or higher"),
-    ).toBeDefined();
-    // The classifier's rule-match string is internal jargon — never shown.
+      queryByText("Auto-approved at Conservative tolerance or higher"),
+    ).toBeNull();
+    // The classifier's rule-match string is internal jargon, never shown.
     expect(queryByText("File edit (default)")).toBeNull();
     // The trust-rule affordance was removed from the drawer.
     expect(queryByText("Create Trust Rule")).toBeNull();
   });
 
-  test("hides the Risk Level section when the call has no risk level", () => {
-    const { queryByText, queryByTestId } = render(
+  test("shows no pill when the call has no risk level", () => {
+    const { queryByTestId } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskLevel: undefined })}
         onClose={noop}
       />,
     );
 
-    expect(queryByText("Risk Level")).toBeNull();
-    expect(queryByTestId("risk-notice")).toBeNull();
+    expect(queryByTestId("risk-badge")).toBeNull();
   });
 
   test("does not render a Create Trust Rule button even when the call resolves live", () => {

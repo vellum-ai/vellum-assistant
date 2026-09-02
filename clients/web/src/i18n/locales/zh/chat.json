@@ -1569,8 +1569,8 @@
     "command": "命令",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
+    "input": "输入",
     "output": "输出",
-    "riskLevel": "风险级别",
     "running": "正在运行…"
   },
   "toolStepPill": {

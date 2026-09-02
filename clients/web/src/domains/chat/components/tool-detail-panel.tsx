@@ -15,22 +15,19 @@ import { useTranslation } from "@/i18n";
 
 import { Bolt, Brain } from "lucide-react";
 
-import { Notice, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
+import { RiskChip } from "@/domains/chat/components/risk-chip";
+import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
+import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
-import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
-import {
-  getRiskBadgeWeakStyle,
-  getRiskNoticeTone,
-  getRiskToleranceHint,
-} from "@/domains/chat/utils/risk";
 import {
   isToolCallDenied,
   isToolCallRunning,
@@ -115,26 +112,7 @@ export function ToolDetailBody({
   const isDenied = liveTc
     ? isToolCallDenied(liveTc)
     : detail.status === "denied";
-  const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
-
-  // Risk assessment can land after the drawer opens — prefer the live call.
-  // The raw `riskReason` rule-match string ("ls (default)") is internal
-  // classifier jargon and is deliberately NOT shown.
-  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
-  const riskHint = getRiskToleranceHint(riskLevel);
-  const riskStyle = getRiskBadgeWeakStyle(riskLevel);
-
-  // What the Output section says when it has no text to show. Every terminal
-  // call that produced nothing lands on `emptyOutput`, including one that was
-  // force-completed with no result at all, so the section always answers "what
-  // came back" rather than disappearing.
-  const outputNoticeKey =
-    isDenied && !hasResult
-      ? "toolDetailPanel.denied"
-      : isRunning
-        ? "toolDetailPanel.running"
-        : "toolDetailPanel.emptyOutput";
 
   // Tools with purpose-built activity UI replace the generic name/activity/JSON
   // block; those that also own their output suppress the shared Output section.
@@ -142,31 +120,9 @@ export function ToolDetailBody({
 
   return (
     <>
-      {/* Risk Level — a single tone-coloured bar reading "<level> →
-          <when it auto-approves>" (Figma node 7778-163402). The level and its
-          tolerance hint were previously a badge stacked over a caption in a
-          neutral card, which spent three lines saying one thing. */}
-      {riskLevel && (
-        <div className="mb-5">
-          <SectionLabel>{t("toolDetailPanel.riskLevel")}</SectionLabel>
-          <Notice
-            tone={getRiskNoticeTone(riskLevel)}
-            data-testid="risk-notice"
-            data-risk-level={riskLevel}
-          >
-            {/* `Notice` renders its message in `--content-secondary`; the
-                colour class on this span applies directly to the text and so
-                beats the inherited value, giving the Figma's tone-matched
-                sentence without a design-library fork. */}
-            <span className={riskStyle.text}>
-              {riskHint ? `${riskStyle.label} → ${riskHint}` : riskStyle.label}
-            </span>
-          </Notice>
-        </div>
-      )}
-
-      {/* Tool-specific activity UI when the tool has one, else the generic
-          name + activity + raw JSON input block. */}
+      {/* Tool-specific body when the tool has one, else the raw JSON input.
+          The header names the tool and shows its risk, so neither is repeated
+          here. */}
       {renderer ? (
         <renderer.Component
           detail={detail}
@@ -174,20 +130,13 @@ export function ToolDetailBody({
           streamedOutput={streamedOutput}
           isRunning={isRunning}
           isError={isError}
+          isDenied={isDenied}
           assistantId={assistantId}
         />
       ) : (
         <div>
-          <Typography
-            variant="body-medium-default"
-            as="div"
-            className="text-[var(--content-default)]"
-          >
-            {titleCaseToolName(detail.toolName)}
-          </Typography>
-          <div className="mt-2">
-            <CodeBlock text={inputJson} />
-          </div>
+          <SectionLabel>{t("toolDetailPanel.input")}</SectionLabel>
+          <CodeBlock text={inputJson} />
         </div>
       )}
 
@@ -197,23 +146,16 @@ export function ToolDetailBody({
       {!renderer?.ownsOutput && (
         <div className="mt-5">
           <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          {hasResult && !isEmptyResult ? (
-            <CodeBlock
-              text={result as string}
-              tone={isError ? "error" : "default"}
-            />
-          ) : hasStreamedOutput ? (
-            <CodeBlock text={streamedOutput as string} />
-          ) : (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-[var(--content-tertiary)]"
-              data-testid="tool-output-notice"
-            >
-              {t(outputNoticeKey)}
-            </Typography>
-          )}
+          <ToolOutputBody
+            text={
+              hasResult && !isEmptyResult
+                ? (result as string)
+                : (streamedOutput ?? "")
+            }
+            isDenied={isDenied && !hasResult}
+            isRunning={isRunning}
+            isError={isError}
+          />
         </div>
       )}
     </>
@@ -233,6 +175,51 @@ export function toolDetailHeaderTitle(detail: ToolDetailPayload): string {
   // runs of spaces that a single-line header would render as gaps. Collapse
   // them here rather than at each of the three panels that show it.
   return (detail.activity || detail.title).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Header title for a tool detail: the activity sentence, and under it the tool
+ * that ran with its risk level.
+ *
+ * Shared by every panel that hosts a `ToolDetailBody` so a call is headed the
+ * same way wherever it is opened, and so the body never has to repeat any of
+ * it. The sentence wraps to two lines rather than truncating on one, because
+ * most activity sentences are longer than a single line at the drawer's
+ * default width; the native tooltip carries the tail of the rest.
+ */
+export function ToolDetailHeaderTitle({
+  detail,
+}: {
+  detail: ToolDetailPayload;
+}) {
+  // Risk is classified asynchronously and can land after the drawer opens, so
+  // read it live and fall back to the open-time snapshot. The raw `riskReason`
+  // rule-match string ("ls (default)") is classifier jargon and stays hidden.
+  const liveTc = useLiveToolCall(detail.toolCallId);
+  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const title = toolDetailHeaderTitle(detail);
+  return (
+    <div className="min-w-0 py-0.5">
+      <Typography
+        variant="title-medium"
+        as="div"
+        title={title}
+        className="line-clamp-2 leading-snug text-[var(--content-default)]"
+      >
+        {title}
+      </Typography>
+      <div className="mt-0.5 flex min-w-0 items-center gap-2">
+        <Typography
+          variant="body-small-lighter"
+          as="span"
+          className="truncate text-[var(--content-tertiary)]"
+        >
+          {friendlyName(detail.toolName)}
+        </Typography>
+        <RiskChip level={riskLevel} />
+      </div>
+    </div>
+  );
 }
 
 export function ToolDetailPanel({
@@ -265,12 +252,10 @@ export function ToolDetailPanel({
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
-  const title = toolDetailHeaderTitle(detail);
-
   return (
     <DetailShell
       Glyph={Glyph}
-      title={title}
+      titleNode={<ToolDetailHeaderTitle detail={detail} />}
       closeLabel={t("toolDetailPanel.closeAria")}
       // Bordered X, matching the Figma sidepanel header and the sibling
       // background-task / settings drawers.
