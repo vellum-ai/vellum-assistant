@@ -21,8 +21,13 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP, CALL_SLOT_GAP } =
-  await import("./companion-surface");
+const {
+  CompanionSurface,
+  FALLBACK_WIDTHS,
+  INNER_GAP,
+  CALL_SLOT_GAP,
+  NAME_DWELL_MS,
+} = await import("./companion-surface");
 
 afterEach(() => {
   cleanup();
@@ -759,28 +764,31 @@ describe("the companion surface's revealed labels", () => {
    * exactly the failure no rendered assertion in this file would catch.
    */
   test("reveals the verb under the pointer, from the button's own group", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
-    const talk = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Talk"]',
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
-    expect(talk?.className).toContain("group");
-    expect(labelOf(container, "Talk")?.className).toContain(
+    const teach = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    expect(teach?.className).toContain("group");
+    expect(labelOf(container, "Teach")?.className).toContain(
       "group-hover:inline",
     );
   });
 
   /**
    * The reel has no pointer in the room, and the whole point of a spotlit frame
-   * is which control it is pointing at.
+   * is what it is pointing at: the creature, named for the press.
    */
-  test("spells out the control the reel is pointing at", () => {
+  test("spells out the creature's name for the reel", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" spotlight="talk" watchEnabled />,
+      <CompanionSurface phase="hover" spotlight="talk" />,
     );
-    expect(labelOf(container, "Talk")?.getAttribute("data-label")).toBe(
-      "pinned",
-    );
-    expect(labelOf(container, "Talk")?.className).not.toContain("hidden");
+    expect(
+      container
+        .querySelector("[data-companion-name]")
+        ?.getAttribute("data-companion-name"),
+    ).toBe("shown");
   });
 
   /**
@@ -840,15 +848,11 @@ describe("the companion surface's Watch action", () => {
     return found;
   };
 
-  test("is not on the idle pill, where Talk is the one way in", () => {
+  test("is not on the idle surface, where the creature is the way in", () => {
     const { container } = render(
       <CompanionSurface phase="hover" watchEnabled />,
     );
-    expect(
-      [...container.querySelectorAll("button")].map((button) =>
-        button.getAttribute("aria-label"),
-      ),
-    ).toEqual(["Talk"]);
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
   test("sits on the call row beside what the session is doing", () => {
@@ -941,7 +945,7 @@ describe("the companion surface's Watch action", () => {
       [...container.querySelectorAll("button")].map((button) =>
         button.getAttribute("aria-label"),
       ),
-    ).toEqual(["Talk", "Stop teaching"]);
+    ).toEqual(["Stop teaching"]);
   });
 });
 
@@ -978,9 +982,11 @@ describe("the companion surface's Watch flag", () => {
     expect(watchButton(container)).toBeNull();
   });
 
-  test("leaves Talk where it was", () => {
+  test("leaves the creature's press where it was", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
-    expect(container.querySelector('button[aria-label="Talk"]')).not.toBeNull();
+    expect(
+      container.querySelector('[role="button"][aria-label="Talk"]'),
+    ).not.toBeNull();
   });
 
   /**
@@ -1214,6 +1220,86 @@ describe("the companion surface's call bar", () => {
 });
 
 /**
+ * The creature is the call button.
+ *
+ * A press on it starts a call when idle and goes back to Vellum on a call;
+ * the caller decides which by the session it holds, and this side names the
+ * press for a reader by the phase. Hover unfurls nothing: the creature comes
+ * out, and after a dwell says what a press does, as a name and not a control.
+ */
+describe("the creature as the call button", () => {
+  const creatureOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>('[role="button"]');
+  const nameOf = (container: HTMLElement): string | null =>
+    container
+      .querySelector("[data-companion-name]")
+      ?.getAttribute("data-companion-name") ?? null;
+
+  test("is named for the call while idle", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(creatureOf(container)?.getAttribute("aria-label")).toBe("Talk");
+  });
+
+  test("is named for the way back to Vellum on a call", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(creatureOf(container)?.getAttribute("aria-label")).toBe(
+      "Open Vellum",
+    );
+  });
+
+  test("reports the press", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="hover"
+        onAvatarClick={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    fireEvent.click(creatureOf(container)!);
+    expect(presses).toBe(1);
+  });
+
+  test("unfurls no pill on hover", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(container.querySelector("[inert]")).not.toBeNull();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  test("holds its name back until the hand has dwelt", async () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(nameOf(container)).toBe("hidden");
+    await new Promise((resolve) => {
+      setTimeout(resolve, NAME_DWELL_MS + 50);
+    });
+    expect(nameOf(container)).toBe("shown");
+  });
+
+  test("keeps its name to itself at rest", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+    expect(nameOf(container)).toBe("hidden");
+  });
+
+  /**
+   * The name is the creature's, so a reader gets it once, from the creature,
+   * and never as a second thing beside it.
+   */
+  test("hides the name from a reader, who has it from the creature", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" spotlight="talk" />,
+    );
+    expect(
+      container
+        .querySelector("[data-companion-name]")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+  });
+});
+
+/**
  * The dial: Talk pressed, and the session it asked for not yet on the surface.
  *
  * The press leaves the surface at once and the session opens after a network
@@ -1377,9 +1463,10 @@ describe("the summary a finished watch session leaves on the surface", () => {
 
   // The phase without the state behind it is the ordinary row, not an empty
   // one: nothing on this surface should draw a question with no answer in it.
-  test("draws the ordinary controls when there is no summary", () => {
+  test("draws no question when there is no summary", () => {
     const { container } = render(<CompanionSurface phase="summary" />);
-    expect(buttonOf(container, "Talk")).not.toBeNull();
+    expect(buttonOf(container, "Show summary")).toBeNull();
+    expect(buttonOf(container, "Not now")).toBeNull();
   });
 });
 
@@ -1420,7 +1507,7 @@ describe("the companion surface's width ceiling", () => {
       <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
     );
     expect(container.querySelectorAll("button")).toHaveLength(4);
-    expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.hover);
+    expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.watching);
   });
 });
 
@@ -1539,25 +1626,15 @@ describe("the companion surface's pressed states", () => {
     return found;
   };
 
-  test("leaves the spotlit control unpressed, since a highlight is not a state", () => {
+  test("leaves the spotlit creature unpressed, since a highlight is not a state", () => {
     const { container } = render(
       <CompanionSurface phase="hover" spotlight="talk" />,
     );
-    expect(named(container, "Talk").getAttribute("aria-pressed")).toBeNull();
-  });
-
-  /**
-   * The look and the announced state come from one input on Watch, so a
-   * spotlight that drew a control held down without saying so is exactly the
-   * split this separation exists to keep.
-   */
-  test("still draws the spotlit control held down", () => {
-    const { container } = render(
-      <CompanionSurface phase="hover" spotlight="talk" />,
-    );
-    expect(named(container, "Talk").classList.contains("bg-white/15")).toBe(
-      true,
-    );
+    expect(
+      container
+        .querySelector('[role="button"][aria-label="Talk"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBeNull();
   });
 
   test("claims no pressed state anywhere on the call row", () => {

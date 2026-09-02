@@ -20,6 +20,7 @@ import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
+const startVoiceMock = mock(() => undefined);
 const toggleWatchMock = mock(() => undefined);
 const answerRetroMock = mock((_open: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
@@ -104,7 +105,7 @@ mock.module("@/runtime/companion-surface", () => ({
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
   activateCompanionApp: activateMock,
-  startCompanionVoice: () => undefined,
+  startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
@@ -126,6 +127,7 @@ afterEach(() => {
   moveByMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
+  startVoiceMock.mockClear();
   toggleWatchMock.mockClear();
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
@@ -149,9 +151,16 @@ const canvasOf = (container: HTMLElement): HTMLElement => {
 const closed = (container: HTMLElement): boolean =>
   container.querySelector("[inert]") !== null;
 
-/** Open the surface by putting the pointer on the creature. */
+/**
+ * Open the pill and put the pointer on the creature.
+ *
+ * Hover alone opens nothing now that the creature is the call button, so the
+ * pill is opened the way every open pill is: by a state the user is in. A
+ * session reading the screen is the smallest of those, one control wide.
+ */
 const open = async (container: HTMLElement): Promise<HTMLElement> => {
   const canvas = canvasOf(container);
+  pushState({ ...STATE, watching: true });
   fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
   await waitFor(() => {
     if (closed(container)) {
@@ -275,14 +284,14 @@ describe("the gap between the avatar and the pill", () => {
 });
 
 /**
- * The pill outlives the phase that opened it.
+ * The pill outlives the state that opened it.
  *
- * The pointer leaving puts the phase back to resting at once, and the pill
- * spends the next 300ms giving its width back. A window that stopped
- * hit-testing it there would be click-through over controls that are still on
- * screen, and a press aimed at one of them would land in whatever application
- * is behind the surface. So the measured width is what decides, and a pointer
- * that comes back finds the pill and re-opens it.
+ * The session ending shuts the pill at once, and it spends the next 300ms
+ * giving its width back. A window that stopped hit-testing it there would be
+ * click-through over controls that are still on screen, and a press aimed at
+ * one of them would land in whatever application is behind the surface. So
+ * the measured width is what decides, and a pointer that comes back finds
+ * the pill still drawn and keeps the window clickable for it.
  */
 describe("the pill while it is collapsing", () => {
   test("is still part of the surface under a returning pointer", async () => {
@@ -295,8 +304,8 @@ describe("the pill while it is collapsing", () => {
 
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
     await waitFor(() => {
-      if (closed(container)) {
-        throw new Error("Expected the pill to open again");
+      if (!closed(container)) {
+        throw new Error("Expected the pill to stay shut for a hover alone");
       }
     });
   });
@@ -550,7 +559,7 @@ describe("dragging the companion surface", () => {
     expect(activateMock).not.toHaveBeenCalled();
   });
 
-  test("a press that held still still goes back to Vellum", async () => {
+  test("a press that held still starts a call", async () => {
     const { container } = render(<CompanionSurfacePage />);
     const { avatar, pill } = await pinSurface(container);
     const canvas = canvasOf(container);
@@ -565,7 +574,51 @@ describe("dragging the companion surface", () => {
     fireEvent.mouseUp(canvas);
     fireEvent.click(avatar);
 
+    expect(startVoiceMock).toHaveBeenCalledTimes(1);
+    expect(activateMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The creature is the call button when there is no call. On one, the press
+   * goes back to Vellum instead, which is where the room and the transcript
+   * are, and the same holds for a dial still waiting on its session.
+   */
+  test("a press that held still on a call goes back to Vellum", async () => {
+    STATE.call = LISTENING_CALL;
+    const { container } = render(<CompanionSurfacePage />);
+    const { avatar, pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseUp(canvas);
+    fireEvent.click(avatar);
+
     expect(activateMock).toHaveBeenCalledTimes(1);
+    expect(startVoiceMock).not.toHaveBeenCalled();
+  });
+
+  test("a press that held still on a dial goes back to Vellum too", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    const { avatar, pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseUp(canvas);
+    fireEvent.click(avatar);
+
+    expect(activateMock).toHaveBeenCalledTimes(1);
+    expect(startVoiceMock).not.toHaveBeenCalled();
   });
 
   /**

@@ -532,19 +532,23 @@ export function CompanionSurfacePage() {
           // is the only thing that makes this window interactive at all.
           showCompanionContextMenu();
         }}
-        // A press that never became a drag. The window comes forward on the
-        // conversation this surface belongs to; main decides what that means.
+        // A press that never became a drag. **The creature is the call
+        // button.** Idle, the press asks for a session: it leaves this window
+        // immediately, since the session lives in the renderer holding the
+        // chat layout, and what comes back is `call` once that renderer has
+        // one to report. On a call, or dialing one, the press brings Vellum
+        // forward on the conversation the call is in, which is where the room
+        // and the transcript are; main decides what that means.
         onAvatarClick={() => {
           if (draggedRef.current) {
             return;
           }
-          activateCompanionApp();
+          if (call !== null || dialing) {
+            activateCompanionApp();
+            return;
+          }
+          startCompanionVoice();
         }}
-        // The press leaves this window immediately: the session lives in the
-        // renderer holding the chat layout, and this page only asks for one.
-        // What comes back is `call`, once that renderer has a session to
-        // report.
-        onTalk={startCompanionVoice}
         // One press for both edges, and it leaves this window the way Talk
         // does: the session lives in the renderer holding the chat layout,
         // and this page only asks for it. What comes back is `watching`.

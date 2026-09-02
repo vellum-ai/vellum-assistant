@@ -918,6 +918,22 @@ export const dispatchWithoutRaising = (command: VellumCommand): void => {
   });
 };
 
+/**
+ * Come forward on the conversation the user was last in.
+ *
+ * `currentConversation` is the command the app already has for exactly this,
+ * so the surface asks for it rather than growing a path of its own, and the
+ * two degrade the same way. The renderer navigates when it has a conversation
+ * to navigate to and does nothing when it does not, which leaves the window
+ * simply coming forward. Shared by the avatar's press on a call and the
+ * surface's menu.
+ */
+const openVellum = (): void => {
+  void ensureMainWindowVisible().then(() => {
+    dispatchToMain({ kind: "currentConversation" });
+  });
+};
+
 let installed = false;
 
 /**
@@ -941,10 +957,21 @@ let installed = false;
 export const companionContextMenuTemplate = (
   current: Record<CompanionSizeAxis, CompanionSize>,
   actions: {
+    open: () => void;
     setSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
     hide: () => void;
   },
 ): MenuItemConstructorOptions[] => [
+  {
+    // The way back to Vellum from an idle surface. A press on the creature
+    // starts a call, so going back to the app is here, first, since it is the
+    // one item a user reaches for that is not about the surface itself.
+    label: "Open Vellum",
+    click: () => {
+      actions.open();
+    },
+  },
+  { type: "separator" as const },
   // The size pickers the tray offers too, from the one builder both read. They
   // leave the top level short enough to read at a glance: two headings, and the
   // one item that is not a size.
@@ -1134,6 +1161,7 @@ export const installCompanionWindow = (): void => {
           options: readCompanionSize("options"),
         },
         {
+          open: openVellum,
           setSize: setCompanionSurfaceSize,
           hide: () => {
             setCompanionSurfaceVisible(false);
@@ -1144,11 +1172,7 @@ export const installCompanionWindow = (): void => {
     menu.popup({ window: win });
   });
 
-  on("vellum:companion:activate", z.tuple([]), () => {
-    void ensureMainWindowVisible().then(() => {
-      dispatchToMain({ kind: "currentConversation" });
-    });
-  });
+  on("vellum:companion:activate", z.tuple([]), openVellum);
 
   // -------------------------------------------------------------------------
   // The running session

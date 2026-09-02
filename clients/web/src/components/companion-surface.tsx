@@ -97,6 +97,14 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 export type CompanionSurfacePhase =
   | "resting"
+  /**
+   * Hover: the creature noticing a hand on it.
+   *
+   * The pill stays shut. **The creature is the call button**, so there is no
+   * control to unfurl beside it: it comes out of its capsule, turns attentive,
+   * and after a dwell says what a press does, as a name beside it rather than
+   * a thing to press.
+   */
   | "hover"
   /**
    * Watching: the pill held open by a session reading the screen.
@@ -284,6 +292,14 @@ export const INNER_GAP = 8;
 export const CALL_SLOT_GAP = 4;
 
 /**
+ * How long a hand rests on the creature before it is told what a press does.
+ *
+ * Long enough that a pointer passing through is told nothing, short enough
+ * that a hand that stopped to look is answered while it is still looking.
+ */
+export const NAME_DWELL_MS = 500;
+
+/**
  * How wide the running dictation's words are allowed to draw.
  *
  * Stated rather than measured, unlike every other body on this surface. Those
@@ -319,20 +335,16 @@ const TRANSCRIPT_WIDTH = 244;
  * back means resizing the canvas, which is the thing a fixed canvas exists to
  * avoid.
  *
- * The one phase that never reaches this is absent from it: `resting` has no
- * pill to measure.
+ * The two phases that never reach this are absent from it: `resting` and
+ * `hover` draw no pill.
  */
 export const FALLBACK_WIDTHS: Record<
-  Exclude<CompanionSurfacePhase, "resting">,
+  Exclude<CompanionSurfacePhase, "resting" | "hover">,
   number
 > = {
-  // One icon-only control, which is the row as it is first drawn: the label
-  // is revealed under the pointer, and on the first frame there is no pointer
-  // on it yet.
-  hover: 40,
-  // Talk and the stop of a session already reading the screen, which is the
-  // only other control the idle row ever carries.
-  watching: 84,
+  // The stop of a session reading the screen, which is the one control the
+  // idle row ever carries: the way in is the creature itself.
+  watching: 40,
   // Two labelled controls, both drawn: this row is a question waiting on an
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
@@ -450,18 +462,13 @@ export interface CompanionSurfaceProps {
    */
   onSurfaceContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   /**
-   * Draw a control as though the pointer were on it.
+   * Draw the creature's name for a press as though the hand had dwelt on it.
    *
-   * Real hover is CSS and needs no help. This is for playback with no pointer
-   * in the room, where a hand reaching for Talk is the whole point of the
+   * Real hover needs no help. This is for playback with no pointer in the
+   * room, where a hand reaching for the creature is the whole point of the
    * frame.
    */
   spotlight?: "talk";
-  /**
-   * Start a live-voice session. Absent leaves Talk inert, which is what
-   * Storybook wants: there is no session to start there.
-   */
-  onTalk?: () => void;
   /**
    * Start or stop the session that reads the screen, which is what Watch does.
    *
@@ -471,8 +478,10 @@ export interface CompanionSurfaceProps {
    */
   onWatch?: () => void;
   /**
-   * Press the avatar: go back to Vellum, on the conversation the surface
-   * belongs to.
+   * Press the avatar. Idle, that starts a call; on a call, it goes back to
+   * Vellum, on the conversation the call is in. The caller decides which,
+   * since it is the side holding the session; this side only names the press
+   * for a reader, by the phase.
    *
    * Wired to the avatar rather than the pill because the pill's body is
    * controls, and to a press that did not turn into a drag: the whole surface
@@ -681,7 +690,6 @@ export function CompanionSurface({
   onSurfacePointerDown,
   onSurfaceContextMenu,
   spotlight,
-  onTalk,
   onWatch,
   onAvatarClick,
   working = false,
@@ -696,7 +704,45 @@ export function CompanionSurface({
   onControl,
   intro,
 }: CompanionSurfaceProps) {
-  const expanded = phase !== "resting";
+  const { t } = useTranslation();
+  /**
+   * Whether the pill is drawn.
+   *
+   * The pill is the row of a state the user is in, never a menu: the call's
+   * bar, the words being dictated, a summary's question, the stop of a session
+   * reading the screen. Hover opens nothing, because the creature is the call
+   * button and there is nothing else on an idle surface to offer.
+   */
+  const expanded =
+    phase === "call" ||
+    phase === "dictating" ||
+    phase === "summary" ||
+    phase === "watching";
+  /** Whether the creature is out of its capsule, which hover alone does. */
+  const creatureOut = phase !== "resting";
+  /**
+   * Whether the hand has dwelt on the creature long enough to be told its
+   * name for a press.
+   *
+   * A dwell rather than the hover's first frame, so a pointer crossing the
+   * surface on the way somewhere else is not told anything, and a word that
+   * arrives after a beat reads as the creature answering a look rather than
+   * as a label that was always there.
+   */
+  const [dwelt, setDwelt] = useState(false);
+  useEffect(() => {
+    if (phase !== "hover") {
+      setDwelt(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDwelt(true);
+    }, NAME_DWELL_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [phase]);
+  const named = spotlight === "talk" || (phase === "hover" && dwelt);
   /**
    * Whether the summary of a finished session is still being written.
    *
@@ -1006,19 +1052,47 @@ export function CompanionSurface({
             ) : phase === "summary" && watchRetro !== undefined ? (
               <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
             ) : (
-              <IdleBody
-                spotlight={spotlight}
-                watching={watching}
-                onTalk={onTalk}
-                onWatch={onWatch}
-              />
+              <IdleBody watching={watching} onWatch={onWatch} />
             )}
           </div>
         </div>
       </div>
+      {/* The creature's name for a press, beside it where the pill would be.
+
+          A name and not a control: it takes no pointer, and the press it
+          names is the creature's. `aria-hidden` because the creature carries
+          the same word as its accessible name, and a reader told it twice is
+          told about two things. Mounted throughout and faded, so its arrival
+          after the dwell is a fade rather than a pop. Hung off the creature's
+          edge the way the pill is, on the creature's own centre line rather
+          than its baseline, since it is the creature being named and not a
+          row being stood beside it. */}
+      <span
+        className={`pointer-events-none absolute flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-[#17181b]/95 px-2.5 text-[12px] whitespace-nowrap text-white/85 shadow-lg shadow-black/40 transition-opacity duration-200 ${
+          named ? "opacity-100" : "opacity-0"
+        }`}
+        style={{
+          ...edgeAt(growth, avatarHalf + gap),
+          top: lineAt(cardGrowth, 0),
+          transform: "translateY(-50%)",
+        }}
+        data-companion-name={named ? "shown" : "hidden"}
+        aria-hidden
+      >
+        <AudioLines className="size-4" />
+        {t("companionSurface.talk")}
+      </span>
       {/* Drawn after the pill so the creature lands over the pill's leading
         edge rather than under it. */}
       <Avatar
+        // The press's name, by the phase, since the caller decides what the
+        // press does by the same fact: a call's creature goes back to Vellum,
+        // an idle one starts a call.
+        label={
+          phase === "call"
+            ? t("companionSurface.openVellum")
+            : t("companionSurface.talk")
+        }
         accentHex={accentHex}
         avatarSrc={avatarSrc}
         character={character}
@@ -1037,7 +1111,7 @@ export function CompanionSurface({
         // (`introPhase` answers null for `meet`), so the phase is `resting`
         // with a card pointing at a creature that is not drawn. A card
         // introducing the capsule is the one thing this collapse must not do.
-        collapsed={!expanded && !introDrawn}
+        collapsed={!creatureOut && !introDrawn}
         // The capsule is drawn at one size on every setting, so it counters
         // what this node carries. That is the avatar's box over the authored
         // one: the options scale on the box above cancels against `avatarRel`.
@@ -1105,6 +1179,7 @@ function Avatar({
   collapsed = false,
   restingScale = 1,
   edge,
+  label,
   style,
   elementRef,
   onPointerDown,
@@ -1112,6 +1187,8 @@ function Avatar({
   onClick,
 }: {
   accentHex: string;
+  /** The press's accessible name. See `onAvatarClick` in `CompanionSurface`. */
+  label: string;
   avatarSrc?: string;
   character?: CompanionCharacter;
   busy?: boolean;
@@ -1147,6 +1224,8 @@ function Avatar({
     // read as activating a control. `onClick` fires only for presses the caller
     // decided were not drags.
     <div
+      role="button"
+      aria-label={label}
       className="absolute grid size-11 cursor-grab place-items-center active:cursor-grabbing"
       style={style}
       ref={elementRef}
@@ -1373,58 +1452,24 @@ function DictatingBody({
 }
 
 /**
- * Expanded, with the app idle: the way in.
+ * Expanded with no call and no words: the row of a session reading the screen.
  *
- * Verbs throughout. "Talk" is the door: the surface is a place to be on a call
- * with the assistant, and everything else it can do is something done from
- * inside that call. "Teach" is the exception for now, the one where the
- * assistant does the looking rather than the user the saying. It is behind a
- * flag of its own, so the row is Talk alone for anyone who does not have it,
- * and it is on its way into the call row rather than beside the door.
- *
- * **The words are drawn one at a time, under the pointer** (`revealLabel`).
- * This is the row a user meets by resting a hand near the mascot, so it is
- * drawn far more often than it is acted on, and verbs spelled out at once read
- * as a sentence aimed at someone doing something else.
- *
- * Resting as icons keeps the pill to a fraction of the width its labels want,
- * and revealing one at a time is what keeps the reveal legible: exactly one
- * word is ever on the surface, and it is the one the hand is on.
- *
- * `aria-label` carries the name in every state, so a reader gets every control
- * regardless of where the pointer is.
+ * **The way in is the creature, not a control.** Talk is a press on the
+ * creature itself, and Teach is done from inside the call on the call row, so
+ * the idle row has nothing to offer a hand that is only looking. What it
+ * carries is the way out: a session already reading the screen, started in
+ * the app or under a call that has since ended, has to stay stoppable from
+ * wherever the user looks, so the stop rides here for as long as it runs.
  */
 function IdleBody({
-  spotlight,
   watching = false,
-  onTalk,
   onWatch,
 }: {
-  spotlight?: "talk";
   /** Whether a session is reading the screen. */
   watching?: boolean;
-  onTalk?: () => void;
   onWatch?: () => void;
 }) {
-  const { t } = useTranslation();
-  return (
-    <>
-      <PillButton
-        icon={<AudioLines className="size-4" />}
-        label={t("companionSurface.talk")}
-        revealLabel
-        active={spotlight === "talk"}
-        onClick={onTalk}
-      />
-      {/* **Talk is the one way in.** Teach is something done from inside the
-          call, so its toggle rides the call row and not this one. What this
-          row keeps is the way out: a session already reading the screen,
-          started in the app or under a call that has since ended, has to stay
-          stoppable from wherever the user looks, so the stop rides here for
-          as long as it runs. */}
-      {watching && <StopWatchingButton onWatch={onWatch} />}
-    </>
-  );
+  return <>{watching && <StopWatchingButton onWatch={onWatch} />}</>;
 }
 
 /**

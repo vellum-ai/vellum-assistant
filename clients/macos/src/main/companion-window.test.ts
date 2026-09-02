@@ -1211,20 +1211,38 @@ describe("companionContextMenuTemplate", () => {
     },
   ) => {
     let hidden = false;
+    let opened = false;
     const items = companionContextMenuTemplate(current, {
+      open: () => {
+        opened = true;
+      },
       setSize: () => {},
       hide: () => {
         hidden = true;
       },
     }) as MenuItem[];
-    return { items, wasHidden: () => hidden };
+    return { items, wasHidden: () => hidden, wasOpened: () => opened };
   };
+
+  /**
+   * The way back to Vellum leads, since a press on the creature is a call now
+   * and this is where going back to the app lives.
+   */
+  test("opens with the way back to Vellum", () => {
+    const { items, wasOpened } = build();
+    expect(items.slice(0, 2).map((item) => item.label ?? item.type)).toEqual([
+      "Open Vellum",
+      "separator",
+    ]);
+    items[0]?.click?.();
+    expect(wasOpened()).toBe(true);
+  });
 
   test("closes with a separator and the way out, past the headings", () => {
     expect(
       build()
         .items.map((item) => item.label ?? item.type)
-        .slice(2),
+        .slice(4),
     ).toEqual(["separator", "Hide Companion"]);
   });
 
@@ -1235,14 +1253,14 @@ describe("companionContextMenuTemplate", () => {
    */
   test("draws its two headings from the builder the tray reads", () => {
     const current = { avatar: "ridiculous", options: "medium" } as const;
-    expect(JSON.stringify(build(current).items.slice(0, 2))).toBe(
+    expect(JSON.stringify(build(current).items.slice(2, 4))).toBe(
       JSON.stringify(companionSizeSubmenus(current, () => {})),
     );
   });
 
   test("the last item takes the surface away", () => {
     const menu = build();
-    menu.items[3]?.click?.();
+    menu.items[5]?.click?.();
     expect(menu.wasHidden()).toBe(true);
   });
 });
