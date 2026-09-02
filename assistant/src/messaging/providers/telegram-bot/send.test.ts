@@ -569,6 +569,24 @@ describe("telegramTransport.streamReply", () => {
     expect(sent).not.toContain("HEADMARK");
   });
 
+  test("a trimmed draft never begins with half of a character", async () => {
+    // The cap counts UTF-16 code units, so a tail cut can land between the
+    // halves of an emoji and send a lone surrogate.
+    const emoji = "\u{1F600}";
+    const body = emoji.repeat(3_000);
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: body,
+      appended: emoji,
+    });
+
+    const sent = (callsTo("sendMessageDraft")[0]![1] as { text: string }).text;
+    const first = sent.charCodeAt(0);
+    expect(first >= 0xdc00 && first <= 0xdfff).toBe(false);
+    expect(sent.length).toBeLessThanOrEqual(TELEGRAM_DRAFT_TEXT_LIMIT);
+  });
+
   test("a refused draft reports not-ok so the caller falls back", async () => {
     // Telegram offers drafts in private chats only; anywhere else the call is
     // rejected, and that rejection is the whole of the per-conversation rule.

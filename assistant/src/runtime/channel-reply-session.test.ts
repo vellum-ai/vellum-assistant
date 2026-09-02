@@ -29,7 +29,11 @@ let streamOpImpl: (op: StreamOp) => Promise<{
  * leaves the reply behind.
  */
 let transportImpl:
-  | { streamReply?: unknown; streamPersists?: boolean }
+  | {
+      streamReply?: unknown;
+      streamPersists?: boolean;
+      maxStreamTextChars?: number;
+    }
   | undefined = { streamReply: () => undefined, streamPersists: true };
 
 mock.module("../messaging/providers/index.js", () => ({
@@ -369,6 +373,78 @@ describe("createChannelReplySession", () => {
       },
     ]);
     expect(reconciliation.mode).toBe("streamed");
+  });
+
+  test("drains a body wider than the channel's cap, one operation per chunk", async () => {
+    transportImpl = {
+      streamReply: () => undefined,
+      streamPersists: true,
+      maxStreamTextChars: 10,
+    };
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    const body = "abcdefghijKLMNOPQRSTuvwxy";
+    session.observeEvent(textDelta(body));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    const ops = slackStreamOps();
+    expect(ops.map((op) => op.action)).toEqual([
+      "start",
+      "append",
+      "append",
+      "stop",
+    ]);
+    // Every chunk fits the cap, and together they are the whole reply.
+    expect(ops[0]!.appended).toBe("abcdefghij");
+    expect(ops[1]!.appended).toBe("KLMNOPQRST");
+    expect(ops[2]!.appended).toBe("uvwxy");
+  });
+
+  test("a failed chunk resumes at itself, never at what already landed", async () => {
+    // The delivered mark advances once per confirmed operation, so a retry
+    // begins at the chunk that failed. Advancing it for a delta the channel
+    // only partly took would resume past unsent text, or re-send text the
+    // reader can already see.
+    transportImpl = {
+      streamReply: () => undefined,
+      streamPersists: true,
+      maxStreamTextChars: 10,
+    };
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    let failNextAppend = true;
+    streamOpImpl = async (op) => {
+      if (op.action === "append" && failNextAppend) {
+        failNextAppend = false;
+        throw new Error("Simulated append failure");
+      }
+      return { ok: true, ts: "stream-ts-1" };
+    };
+
+    session.observeEvent(textDelta("abcdefghijKLMNOPQRST"));
+    await tick(15);
+    session.observeEvent(textDelta("uvwxy"));
+    await tick(15);
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    const appended = slackStreamOps()
+      .filter((op) => op.action === "append")
+      .map((op) => op.appended);
+    // The first attempt at "KLMNOPQRST" fails and is retried; nothing that
+    // landed is ever sent a second time.
+    expect(appended[0]).toBe("KLMNOPQRST");
+    expect(appended[1]).toBe("KLMNOPQRST");
+    expect(appended.filter((c) => c === "abcdefghij")).toHaveLength(0);
+    expect(appended.at(-1)).toBe("uvwxy");
   });
 
   test("hands a body of any width over as one delta", async () => {

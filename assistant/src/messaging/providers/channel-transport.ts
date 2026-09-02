@@ -191,6 +191,18 @@ export interface ChannelTransport {
   ): Promise<ChannelDeliveryResult>;
 
   /**
+   * The most text one stream operation may carry, for a channel that caps it.
+   *
+   * Declared rather than applied here because the caller is what knows how
+   * much of the reply a channel has actually accepted: it must advance that
+   * mark once per operation the channel confirms. A transport that split a
+   * wide delta into several calls of its own would leave the caller unable to
+   * tell a partial delivery from a whole one, and a retry would then re-send
+   * the part that already landed. Omitted by a channel with no cap.
+   */
+  readonly maxStreamTextChars?: number;
+
+  /**
    * Whether what `streamReply` leaves behind is the reply itself.
    *
    * True for a channel that finalizes the streamed message in place, so the

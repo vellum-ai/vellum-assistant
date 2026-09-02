@@ -462,6 +462,23 @@ export async function sendTelegramTypingIndicator(
 export const TELEGRAM_DRAFT_TEXT_LIMIT = 4096;
 
 /**
+ * The tail of a draft that Telegram will accept, cut on a character boundary.
+ *
+ * The cap counts UTF-16 code units, so slicing to it can land between the two
+ * halves of an astral character (an emoji, which a plan's status glyphs and a
+ * reply's own text both carry) and send a lone surrogate. Dropping a leading
+ * low surrogate costs one character and keeps the text well-formed.
+ */
+function draftTail(text: string): string {
+  if (text.length <= TELEGRAM_DRAFT_TEXT_LIMIT) {
+    return text;
+  }
+  const tail = text.slice(-TELEGRAM_DRAFT_TEXT_LIMIT);
+  const first = tail.charCodeAt(0);
+  return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+}
+
+/**
  * How long a draft survives without being re-sent: Telegram describes it as
  * "a temporary 30-second preview". A draft that stops being advanced
  * disappears rather than lingering with stale text.
@@ -508,7 +525,7 @@ export async function sendTelegramMessageDraft(
     await callTelegramBotApi("sendMessageDraft", {
       chat_id: numericChatId,
       draft_id: draftId,
-      text: text.slice(-TELEGRAM_DRAFT_TEXT_LIMIT),
+      text: draftTail(text),
       ...threadIdPayloadFields(opts),
     });
     return true;

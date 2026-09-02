@@ -130,6 +130,12 @@ export function createChannelReplySession(params: {
   // needs to know whether the reply is still owed once the stream ends.
   const streamIsTheReply =
     getTransportForCallback(replyCallbackUrl)?.streamPersists === true;
+  // How much text one operation may carry. The channel declares it; splitting
+  // stays here because this is what tracks how much the channel has actually
+  // taken, and that mark may only advance once per confirmed operation.
+  const maxTextChars =
+    getTransportForCallback(replyCallbackUrl)?.maxStreamTextChars ??
+    Number.POSITIVE_INFINITY;
 
   let state: StreamState = "idle";
   let started = false;
@@ -194,7 +200,9 @@ export function createChannelReplySession(params: {
       if (clean.trim().length === 0 && !plan) {
         return;
       }
-      const firstChunk = clean;
+      // Open on what one operation may carry; the rest drains through the
+      // appends that follow, each advancing the delivered mark on its own.
+      const firstChunk = clean.slice(0, maxTextChars);
       try {
         const result = await sendChannelStreamOp(replyCallbackUrl, chatId, {
           action: "start",
@@ -252,16 +260,25 @@ export function createChannelReplySession(params: {
       // One operation per flush, carrying the whole delta. A channel whose
       // API caps a single call splits it on its own side, where the cap is
       // known; the plan rides along so it advances with the text.
-      if (confirmedLength < clean.length) {
+      // One operation per chunk the channel will accept, and the delivered
+      // mark advances only for a chunk the channel confirmed. Advancing it for
+      // a whole delta the channel took in pieces would let a failure part-way
+      // through re-send the part that already landed, and the reader would see
+      // it twice.
+      while (confirmedLength < clean.length) {
+        const chunk = clean.slice(
+          confirmedLength,
+          confirmedLength + maxTextChars,
+        );
         try {
           await sendChannelStreamOp(replyCallbackUrl, chatId, {
             action: "append",
             streamId: streamTs,
             text: clean,
-            appended: clean.slice(confirmedLength),
+            appended: chunk,
             ...(plan ? { plan } : {}),
           });
-          confirmedLength = clean.length;
+          confirmedLength += chunk.length;
           deliveredProgressKey = key ?? deliveredProgressKey;
         } catch (err) {
           log.warn({ err, chatId }, "Stream append failed; deferring delta");

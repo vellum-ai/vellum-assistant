@@ -451,7 +451,7 @@ describe("sendSlackReply approval fallback", () => {
   });
 });
 
-describe("sendSlackStreamOp append chunking", () => {
+describe("sendSlackStreamOp", () => {
   const streamTs = "1700000000.000900";
 
   beforeEach(() => {
@@ -459,10 +459,11 @@ describe("sendSlackStreamOp append chunking", () => {
     callSlackApiMock.mockImplementation(async () => ({ ok: true }));
   });
 
-  test("splits a delta wider than Slack's per-call cap across calls", async () => {
-    // The cap is Slack's, so the split is Slack's: callers hand over one delta
-    // of any width and this is what makes it fit.
-    const appended = "x".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 4_000);
+  test("sends one call per operation, whatever the caller hands over", async () => {
+    // Splitting to fit the cap belongs to the caller, which is what tracks how
+    // much of the reply Slack has taken. This layer performs the operation it
+    // is given, once.
+    const appended = "x".repeat(SLACK_STREAM_MARKDOWN_LIMIT);
     await sendSlackStreamOp("C-STREAM", {
       action: "append",
       streamId: streamTs,
@@ -473,64 +474,16 @@ describe("sendSlackStreamOp append chunking", () => {
     const calls = callSlackApiMock.mock.calls.filter(
       (call) => call[0] === "chat.appendStream",
     );
-    expect(calls).toHaveLength(2);
-    const first = calls[0]![1] as { markdownText?: string };
-    const second = calls[1]![1] as { markdownText?: string };
-    expect(first.markdownText?.length).toBe(SLACK_STREAM_MARKDOWN_LIMIT);
-    expect(second.markdownText?.length).toBe(4_000);
-    expect((first.markdownText ?? "") + (second.markdownText ?? "")).toBe(
+    expect(calls).toHaveLength(1);
+    expect((calls[0]![1] as { markdownText?: string }).markdownText).toBe(
       appended,
     );
-  });
-
-  test("opens on the first chunk and drains the rest, for an oversized start", async () => {
-    // A turn that completes before the first coalesced flush arrives whole in
-    // `start`. Slack caps that call the same as an append, so an unchunked
-    // start is rejected and the reply never streams at all.
-    const opening = "z".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 3_000);
-    const result = await sendSlackStreamOp("C-STREAM", {
-      action: "start",
-      anchorMessageId: "1700000000.000001",
-      text: opening,
-      appended: opening,
-    });
-
-    const starts = callSlackApiMock.mock.calls.filter(
-      (call) => call[0] === "chat.startStream",
-    );
-    const appends = callSlackApiMock.mock.calls.filter(
-      (call) => call[0] === "chat.appendStream",
-    );
-    expect(starts).toHaveLength(1);
-    expect(
-      (starts[0]![1] as { markdownText?: string }).markdownText?.length,
-    ).toBe(SLACK_STREAM_MARKDOWN_LIMIT);
-    expect(appends).toHaveLength(1);
-    expect(
-      (appends[0]![1] as { markdownText?: string }).markdownText?.length,
-    ).toBe(3_000);
-    expect(result.ok).toBe(true);
-  });
-
-  test("carries the plan on the first call only, so it advances once", async () => {
-    const appended = "y".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 10);
-    await sendSlackStreamOp("C-STREAM", {
-      action: "append",
-      streamId: streamTs,
-      text: appended,
-      appended,
-      plan: { steps: [{ label: "Step", status: "in_progress" }] },
-    });
-
-    const calls = callSlackApiMock.mock.calls.filter(
-      (call) => call[0] === "chat.appendStream",
-    );
-    expect(calls).toHaveLength(2);
-    expect((calls[0]![1] as { tasks?: unknown }).tasks).toBeDefined();
-    expect((calls[1]![1] as { tasks?: unknown }).tasks).toBeUndefined();
   });
 
   test("a plan that moved with no new words still reaches the message", async () => {
+    // `chat.appendStream` documents "One of markdown_text or chunks is
+    // required", so a plan-only call is legal and is what ticks the plan block
+    // during silent work.
     await sendSlackStreamOp("C-STREAM", {
       action: "append",
       streamId: streamTs,
