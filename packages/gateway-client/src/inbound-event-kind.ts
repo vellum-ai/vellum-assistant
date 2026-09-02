@@ -166,9 +166,14 @@ export function resolveInboundReactionPayload(fields: {
 /**
  * Parse Discord's custom-emoji mention form. The form travels the wire as a
  * reaction's spelling, so more than one package reads it: the daemon rebuilds
- * a REST path from it when the assistant reacts, and a row stored before the
- * typed fields recovers its kind from it. One parser, so the two cannot
- * disagree about what counts as one.
+ * a REST path from it when the assistant reacts, and a row carrying only the
+ * spelling recovers its kind from it. One parser, so the two cannot disagree
+ * about what counts as one.
+ *
+ * `animated` reports whether the spelling carries the `a` marker. This
+ * normalizer never writes that marker, so it is read only from spellings that
+ * arrive from elsewhere: a row written by another producer, or a value the
+ * model hands back as it received it.
  */
 export function parseDiscordEmojiMention(
   emoji: string,
@@ -197,11 +202,15 @@ function classifyLegacyReactionEmoji(
 > {
   const custom = parseDiscordEmojiMention(emoji);
   if (custom) {
+    // The plain `<:name:id>` form says nothing about animation: the
+    // normalizer spells every custom emoji that way and reports animation
+    // in the typed field instead, so a spelling without the `a` marker is
+    // "unrecorded", not "not animated". Only the `<a:` form asserts it.
     return {
       emojiKind: "custom",
       emojiName: custom.name,
       emojiId: custom.id,
-      emojiAnimated: custom.animated,
+      ...(custom.animated ? { emojiAnimated: true } : {}),
     };
   }
   return /^[\w+-]+$/.test(emoji)

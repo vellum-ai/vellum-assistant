@@ -118,8 +118,11 @@ describe("resolveInboundReactionPayload", () => {
       emojiKind: "custom",
       emojiName: "blob_wave",
       emojiId: "987",
-      emojiAnimated: false,
     });
+    // The plain form records nothing about animation, so the field is
+    // absent rather than a fabricated false; a resolver must not read
+    // "not animated" off a row that never knew.
+    expect(at("<:blob_wave:987>")).not.toHaveProperty("emojiAnimated");
     expect(at("<a:party:5>")).toMatchObject({
       emojiKind: "custom",
       emojiName: "party",
