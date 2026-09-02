@@ -359,6 +359,8 @@ export const VoiceInputButton = forwardRef<
   // after stopNativePartials — short dictations end before the first
   // partial, so this is the only reliable native text source.
   const nativeFinalPromiseRef = useRef<Promise<NativeFinalResult> | null>(null);
+  /** The stream's flushed final, from the stop that asked for it. See {@link stopDictationStream}. */
+  const streamFinalPromiseRef = useRef<Promise<string | null> | null>(null);
 
   // Latest running transcript from the daemon stream — kept through
   // teardown so it can serve as the final-transcript fallback when batch
@@ -413,7 +415,16 @@ export const VoiceInputButton = forwardRef<
   const stopDictationStream = useCallback((): Promise<string | null> => {
     const handle = dictationStreamRef.current;
     dictationStreamRef.current = null;
-    return handle?.stop() ?? Promise.resolve(null);
+    if (!handle) {
+      return streamFinalPromiseRef.current ?? Promise.resolve(null);
+    }
+    // Kept where `onstop` can find it. The imperative stop runs first and the
+    // recorder's own stop event later, and the second caller would otherwise
+    // find no handle and take that for no transcript: the flush the first
+    // caller asked for, handed to nobody.
+    const final = handle.stop();
+    streamFinalPromiseRef.current = final;
+    return final;
   }, []);
 
   const stopNativePartials = useCallback(() => {
@@ -682,6 +693,7 @@ export const VoiceInputButton = forwardRef<
     nativePartialsStartRef.current = null;
     nativePartialsTextRef.current = "";
     nativeFinalPromiseRef.current = null;
+    streamFinalPromiseRef.current = null;
     streamTranscriptRef.current = "";
     const Ctor = getSpeechRecognitionCtor();
     if (Ctor) {
@@ -798,6 +810,7 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       const pendingStreamFinal = stopDictationStream();
+      streamFinalPromiseRef.current = null;
       const streamText = streamTranscriptRef.current;
       const nativePartialText = nativePartialsTextRef.current;
       stopNativePartials();
