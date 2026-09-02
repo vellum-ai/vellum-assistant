@@ -38,9 +38,10 @@ const subscribe =
 
 /**
  * The Linux helper's bridge: dictation plus the global voice mode chord.
- * `hotkey.fnPushToTalk` is absent (Linux has no Fn-key contract).
- * `setVoiceModeChord` registers the voice mode shortcut's bare-modifier
- * chord with the helper when a sidecar exists.
+ * `hotkey.fnPushToTalk` and `hotkey.setModifierHold` are absent (Linux has
+ * no Fn-key or modifier-hold contract). `setVoiceModeChord` registers the
+ * voice mode shortcut's bare-modifier chord with the helper when a sidecar
+ * exists.
  */
 const dictation: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
   id: "dictation",

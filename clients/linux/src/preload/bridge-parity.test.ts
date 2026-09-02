@@ -78,7 +78,13 @@ const LINUX_ONLY_SURFACE = [
   "menu.popup",
   "menu.titles",
 ];
-const MACOS_ONLY_SURFACE = ["helper.hotkey.fnPushToTalk"];
+// Both are macOS helper contracts read off its raw keyboard monitor: the Fn
+// key, and a hold of a configured modifier set. Linux answers the first with
+// a configurable global chord, and has no hold of its own to register.
+const MACOS_ONLY_SURFACE = [
+  "helper.hotkey.fnPushToTalk",
+  "helper.hotkey.setModifierHold",
+];
 
 test("the composed Linux bridge satisfies every applicable VellumBridge key", () => {
   const bridge = composeLinuxBridge();
