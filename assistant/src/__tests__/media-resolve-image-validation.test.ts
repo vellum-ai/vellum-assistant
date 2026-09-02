@@ -414,3 +414,43 @@ describe("unsendable-image notice", () => {
     );
   });
 });
+
+describe("resolveMediaReferences video workspace_ref", () => {
+  beforeEach(resetTables);
+
+  test("does not inline video bytes or extracted_text", async () => {
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "clip.mp4",
+      "video/mp4",
+      Buffer.from("not-a-real-video").toString("base64"),
+    );
+    const messages: Message[] = [
+      userMessage([
+        {
+          type: "file",
+          source: {
+            type: "workspace_ref",
+            media_type: "video/mp4",
+            attachmentId: stored.id,
+            sizeBytes: stored.sizeBytes,
+            filename: "clip.mp4",
+          },
+          extracted_text: "dump of the video as text",
+        },
+      ]),
+    ];
+
+    const resolved = await resolveMediaReferences(messages);
+    const block = resolved[0]!.content[0]!;
+    expect(block.type).toBe("file");
+    if (block.type !== "file") {
+      throw new Error("expected a file block");
+    }
+    expect(block.source.type).toBe("workspace_ref");
+    expect(block.extracted_text).toBeUndefined();
+    expect(JSON.stringify(resolved)).not.toContain("dump of the video");
+  });
+});
