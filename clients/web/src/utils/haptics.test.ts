@@ -83,17 +83,27 @@ describe("haptic on iOS", () => {
 });
 
 describe("haptic on Android", () => {
-  test("only fires the pull-to-refresh threshold impact", async () => {
+  test("fires both impacts", async () => {
     nativePlatform = "android";
 
     await haptic.light();
     await haptic.medium();
-    await haptic.success();
-    await haptic.error();
     await haptic.refreshThreshold();
 
-    expect(impactMock).toHaveBeenCalledTimes(1);
-    expect(impactMock).toHaveBeenCalledWith({ style: "LIGHT" });
+    expect(impactMock).toHaveBeenCalledTimes(3);
+    expect(impactMock.mock.calls.map(([options]) => options.style)).toEqual([
+      "LIGHT",
+      "MEDIUM",
+      "LIGHT",
+    ]);
+  });
+
+  test("fires neither notification", async () => {
+    nativePlatform = "android";
+
+    await haptic.success();
+    await haptic.error();
+
     expect(notificationMock).not.toHaveBeenCalled();
   });
 });

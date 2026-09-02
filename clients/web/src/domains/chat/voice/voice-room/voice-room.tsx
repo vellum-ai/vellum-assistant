@@ -162,7 +162,6 @@ import {
   CAMERA_MEDIA_GLASS_CLASS,
   CAMERA_SCRIM_BOTTOM,
   CAMERA_SCRIM_TOP,
-  cameraModeStyle,
 } from "./camera-mode-paint";
 import { CameraShutterHint } from "./camera-shutter-hint";
 import { CameraViewSettings } from "./camera-view-settings";
@@ -170,6 +169,7 @@ import {
   CameraStatusPill,
   useCameraStatusAnnouncement,
 } from "./camera-status-pill";
+import { VoiceRoomCaptureRow } from "./voice-room-capture-row";
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
@@ -1283,85 +1283,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               {errorMessage}
             </p>
           ) : null}
-          {/* What the shutter did.
-
-              A photo taken on a call goes somewhere the user cannot see: the
-              viewfinder does not change, the assistant may say nothing for
-              seconds, and the transcript is behind the room. Without this the
-              press is indistinguishable from a dead button, which is what
-              sends people pressing it again.
+          {/* What the shutter did, and what Live sent on its own.
 
               A strip of recent frames rather than a confirmation step, because
               the question is "did that go?", which can only be answered after
               the fact. A dialog before the send would interrupt the one action
               this surface is built to repeat, and still would not answer it.
-              The shutter press is the consent.
-
-              Dimmed while in flight, struck through when it failed, plain when
-              the assistant has it. Aligned left so it never sits under the
-              shutter, and `aria-hidden` because the live region already
-              announces failures in words. */}
-          {photos.length > 0 || keptFrame ? (
-            <div
-              data-testid="voice-room-capture-row"
-              className="flex items-center gap-2 self-start pl-6"
-            >
-              {photos.length > 0 ? (
-                <ul
-                  aria-hidden
-                  data-testid="voice-room-photo-strip"
-                  className="flex items-center gap-2"
-                >
-                  {photos.map((photo) => (
-                    <li key={photo.id} className="relative">
-                      <img
-                        src={photo.previewUrl}
-                        alt=""
-                        data-testid="voice-room-photo"
-                        data-status={photo.status}
-                        className={cn(
-                          "size-11 rounded-lg border object-cover transition",
-                          "border-[var(--room-border)]",
-                          photo.status === "sending" && "opacity-50",
-                          photo.status === "failed" && "opacity-40 grayscale",
-                        )}
-                      />
-                      {photo.status === "failed" ? (
-                        <span className="absolute inset-0 flex items-center justify-center">
-                          <X className="size-5 text-red-300" strokeWidth={3} />
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {/* The newest view the call was given.
-
-                  A photo in the strip is a receipt for something the user did;
-                  this is the opposite, a frame nobody asked for, so it has to
-                  be visible at the moment it goes rather than only after the
-                  fact. It wears the strip's shape so the two read as one row,
-                  and the capture accent so they are not read as the same
-                  thing. Keyed on the id, which replays the ring on every keep.
-
-                  `aria-hidden` for the same reason as the strip: every keep
-                  lands in the transcript as its own message, which is the
-                  accessible record of it. That record is also why the camera's
-                  view options can stand this down: what it draws is a
-                  convenience, and the transcript is the account. */}
-              {keptFrame ? (
-                <img
-                  key={keptFrame.attachmentId}
-                  src={keptFrame.previewUrl}
-                  alt=""
-                  aria-hidden
-                  data-testid="voice-room-sight-frame"
-                  style={cameraModeStyle()}
-                  className="sight-frame-kept size-11 rounded-lg object-cover ring-2 ring-[var(--camera-accent)]"
-                />
-              ) : null}
-            </div>
-          ) : null}
+              The shutter press is the consent. The camera's view options can
+              stand the kept frame down: what it draws is a convenience, and
+              the transcript is the account. */}
+          <VoiceRoomCaptureRow photos={photos} keptFrame={keptFrame} />
 
           {/* What the shutter offers, above the shutter.
 

@@ -1,7 +1,4 @@
-import {
-  isNativeIOS,
-  isNativeMobile,
-} from "@/runtime/platform-detection";
+import { isNativeIOS, isNativeMobile } from "@/runtime/platform-detection";
 
 const runWhen = async (
   enabled: boolean,
@@ -23,15 +20,18 @@ const lightImpact = (enabled: boolean): Promise<void> =>
     await Haptics.impact({ style: ImpactStyle.Light });
   });
 
+const light = (): Promise<void> => lightImpact(isNativeMobile());
+
 /**
- * Thin haptic-feedback wrapper. Standard effects run only on native iOS. The
- * pull-to-refresh threshold also runs on Android. The lazy imports keep the
+ * Thin haptic-feedback wrapper. The impacts run on both native mobile shells,
+ * the notifications only on native iOS. The pull-to-refresh threshold is the
+ * light impact under the name its call site reads by. The lazy imports keep the
  * plugin out of plain browser contexts.
  */
 export const haptic = {
-  light: () => lightImpact(isNativeIOS()),
+  light,
   medium: () =>
-    runWhen(isNativeIOS(), async () => {
+    runWhen(isNativeMobile(), async () => {
       const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
       await Haptics.impact({ style: ImpactStyle.Medium });
     }),
@@ -45,5 +45,5 @@ export const haptic = {
       const { Haptics, NotificationType } = await import("@capacitor/haptics");
       await Haptics.notification({ type: NotificationType.Error });
     }),
-  refreshThreshold: () => lightImpact(isNativeMobile()),
+  refreshThreshold: light,
 };

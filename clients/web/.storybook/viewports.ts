@@ -19,6 +19,16 @@ export const SB_VIEWPORTS = {
     type: "mobile" as const,
   },
   /**
+   * The narrowest phone the app runs on. For the surfaces whose content is a
+   * fixed number of fixed-size things in a row, where 390px has slack that
+   * hides whether the row fits at all.
+   */
+  sbNarrowPhone: {
+    name: "Mobile (narrow)",
+    styles: { width: "320px", height: "568px" },
+    type: "mobile" as const,
+  },
+  /**
    * A desktop window too short for what it holds. Height is the whole point:
    * a dialog that keeps room for an open menu has to give that room back
    * here, and a story pinned to it shows whether the footer survives.

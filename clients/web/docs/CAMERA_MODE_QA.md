@@ -127,6 +127,15 @@ which is the thing to watch for battery and heat below.
       second the haptic fires, the ring goes crimson, the pill says Live and the
       hint changes to "Live · Tap to stop". Letting go takes no photo, so
       nothing joins the strip and nothing new lands in the transcript.
+- [ ] Every keep is felt. With Live running on a subject the gate keeps from,
+      one light tap lands with each crimson thumbnail and no others: a scene the
+      gate skips is silent, and so is a keep that never reaches the call. Turn
+      the phone to airplane mode mid-Live and hold it on a new subject: through
+      the reconnect gap nothing taps, because nothing was shared. The tap is
+      what the feature has instead of a screen the user is looking at, since
+      Live is aimed at the thing being talked about.
+- [ ] The tap is not the shutter's. Take ordinary photos: no haptic fires on a
+      tap, only on the hold that enters Live and on the keeps that follow.
 - [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
       small wobble still enters Live. Slide the thumb off the shutter, or more
       than a finger's width across it, and nothing happens: no photo either,
@@ -143,6 +152,38 @@ which is the thing to watch for battery and heat below.
 - [ ] VoiceOver says the mode. With Live running, VoiceOver reads "Live.
       Listening" on the next state change, and the shutter is named "Stop live".
       Back on photo it reads "Photo. Listening" and "Take a photo".
+
+## Small screens and rotation
+
+Both shells. The camera's floor had never been drawn at phone width with Live
+running, because Live only reached the phones with the native frame source, so
+until then the kept-frame thumbnail could appear on a desktop only.
+
+Handsets, not simulators: the iOS Simulator provides no camera feed, so it
+answers nothing here.
+
+- [ ] The capture row fits the narrowest phone. On a 320pt-wide device, take
+      three photos and then hold for Live: the three receipts and the crimson
+      kept frame sit in one row above the shutter. Nothing is clipped at the
+      right edge, nothing scrolls or wraps, and the row is on its own line
+      rather than reaching the shutter or the flip control. Storybook's
+      Chat/Voice/CameraModeScreen, story "NarrowPhoneCaptureRow", is the same
+      composition at the same width to check it against.
+- [ ] The row clears the sensor housing in landscape. Rotate to landscape with
+      photos on the floor: the first thumbnail starts inboard of the notch on
+      the notched side, on the same left edge the tuning readout uses.
+- [ ] The landscape floor still reads. Rotate with the camera up. The bottom
+      scrim's 15rem floor is most of a short viewport, so check that the
+      shutter, the hint, the capture row and the session row are all on screen
+      and legible over a bright frame, and that the scrim does not reach the
+      status pill at the top.
+- [ ] Rotating with Live running. Enter Live, rotate the device, rotate back.
+      Android recreates the camera fragment on rotation and this has never been
+      run with sampling active, so watch for all of: the pill stays Live or
+      drops cleanly back to photo (never Live over a dead poll), the tuning
+      readout's decision rate is unchanged rather than doubled, no keep from
+      before the rotation lands in the transcript after one from after it, and
+      the viewfinder is live video rather than a frozen frame.
 
 ## Android
 
@@ -163,6 +204,12 @@ which is the thing to watch for battery and heat below.
       the "Live on iPhone" section here too: the hold enters Live, keeps pulse
       and land in the transcript, and a device that keeps nothing shows the
       slow-bridge signature rather than hanging.
+- [ ] Haptics reach Android at all. The shell has always linked the plugin and
+      the app never asked it for these two effects, so this is the first build
+      where either fires here. Hold the shutter: a light tap at half a second,
+      then one per keep, the same as iPhone. Check the rest of the app kept its
+      manners with them: a long-press on a conversation row, a pull to refresh,
+      and a send all tap once, none of them twice.
 - [ ] TalkBack says it once. Same check as VoiceOver above.
 
 ## Desktop web and macOS
