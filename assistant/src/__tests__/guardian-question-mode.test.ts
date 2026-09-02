@@ -308,6 +308,26 @@ describe("guardian-question-mode", () => {
     }
   });
 
+  test("stripGuardianRequestCodeInstructions matches the code and verb whatever the quoting", () => {
+    for (const body of [
+      "Allow bash? Reply `A1B2C3 approve` to allow it.",
+      "Allow bash? Reply \u201cA1B2C3 approve\u201d to allow it.",
+      "Allow bash? Reply A1B2C3 approve to allow it.",
+      "Allow bash? Reply 'A1B2C3 <your answer>' when ready.",
+    ]) {
+      expect(stripGuardianRequestCodeInstructions(body, "A1B2C3")).toBe(
+        "Allow bash?",
+      );
+    }
+    // The code alone, or beside a word that is not a reply verb, is content.
+    expect(
+      stripGuardianRequestCodeInstructions(
+        "Ticket A1B2C3 approves the budget.",
+        "A1B2C3",
+      ),
+    ).toBe("Ticket A1B2C3 approves the budget.");
+  });
+
   test("stripGuardianRequestCodeInstructions removes paraphrased and negated directives as whole sentences", () => {
     expect(
       stripGuardianRequestCodeInstructions(

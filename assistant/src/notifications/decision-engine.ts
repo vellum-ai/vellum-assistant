@@ -27,7 +27,10 @@ import {
 import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
-import { stripAccessRequestReplyMechanicsFromCopy } from "./access-request-copy.js";
+import {
+  ensureAccessRequestInviteDirectiveInCopy,
+  stripAccessRequestReplyMechanicsFromCopy,
+} from "./access-request-copy.js";
 import {
   buildAccessRequestSeedContentBlocks,
   buildToolApprovalSeedContentBlocks,
@@ -625,7 +628,15 @@ function stripReplyMechanics(
     nextCopy[channel] =
       isQuestion && requestCode
         ? stripGuardianReplyMechanicsFromCopy(copy, requestCode, questionText)
-        : stripAccessRequestReplyMechanicsFromCopy(copy, signal.contextPayload);
+        : // The invite directive is context the model may leave out, and the
+          // only affordance for that flow on most surfaces, so it is ensured
+          // after the code mechanics come out.
+          ensureAccessRequestInviteDirectiveInCopy(
+            stripAccessRequestReplyMechanicsFromCopy(
+              copy,
+              signal.contextPayload,
+            ),
+          );
   }
 
   return { ...decision, renderedCopy: nextCopy };

@@ -522,7 +522,7 @@ describe("access-request instruction enforcement", () => {
     }
   });
 
-  test("model copy with no mechanics passes through unchanged", async () => {
+  test("model copy with no mechanics keeps its text and gains the invite sentence", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -550,7 +550,7 @@ describe("access-request instruction enforcement", () => {
 
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.renderedCopy.vellum?.body).toBe(
-      "Someone wants access to your assistant.",
+      'Someone wants access to your assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
     );
   });
 
@@ -581,7 +581,9 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toBe("Alice wants access.");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
   });
 
   test("the code directive is stripped from model copy and the invite directive stays", async () => {
@@ -655,6 +657,40 @@ describe("access-request instruction enforcement", () => {
     expect(decision.renderedCopy.telegram?.conversationSeedMessage).toBe(
       "Someone wants access.",
     );
+  });
+
+  test("model copy that leaves the invite sentence out gets it appended", async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["telegram"],
+        reasoningSummary: "LLM decision",
+        renderedCopy: {
+          telegram: {
+            title: "Access Request",
+            body: "Alice wants access.",
+            deliveryText: "Alice wants access.",
+          },
+        },
+        dedupeKey: "access-req-invite-ensured",
+        confidence: 0.9,
+      },
+    };
+
+    const decision = await evaluateSignal(makeAccessRequestSignal(), [
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    const expected =
+      'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+    expect(decision.renderedCopy.telegram?.body).toBe(expected);
+    expect(decision.renderedCopy.telegram?.deliveryText).toBe(expected);
+    expect(decision.renderedCopy.telegram?.title).toBe("Access Request");
   });
 
   test("the invite directive stays even when the request has no code", async () => {

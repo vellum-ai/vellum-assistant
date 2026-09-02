@@ -322,10 +322,11 @@ export function normalizeStrippedText(value: string): string {
 const DIRECTIVE_VERBS = "approve|reject|verify|trust|block|<your\\s+answer>";
 
 /**
- * Remove request-code reply mechanics from copy: every sentence that quotes
- * a `"CODE verb"` directive (`Reply "X approve" or "X reject"`, a paraphrase,
- * or a negated form like `Do not reply "X reject"`), and every sentence that
- * names a reference, approval, or request code together with the code
+ * Remove request-code reply mechanics from copy: every sentence that pairs
+ * the code with a reply verb (`Reply "X approve" or "X reject"`, a
+ * paraphrase, a negated form like `Do not reply "X reject"`, and the same
+ * with backticks, smart quotes, or no quotes at all), and every sentence
+ * that names a reference, approval, or request code together with the code
  * (`Reference code: X.`, `Use reference code X for this request.`).
  *
  * Whole sentences go, never a suffix from "reply" onward, so no fragment
@@ -341,7 +342,10 @@ export function stripRequestCodeDirectives(
   const sentence = (core: string): RegExp =>
     new RegExp(`[^.!?\\n]*${core}[^.!?\\n]*[.!?]?(?:[ \\t]*\\n)?`, "gi");
   const next = text
-    .replace(sentence(`"${code}\\s+(?:${DIRECTIVE_VERBS})"`), "")
+    .replace(
+      sentence(`(?<![A-Z0-9])${code}\\s+(?:${DIRECTIVE_VERBS})(?![A-Za-z])`),
+      "",
+    )
     .replace(
       sentence(
         `\\b(?:reference|approval|request)\\s+code\\b[^.!?\\n]*?(?<![A-Z0-9])${code}(?![A-Z0-9])`,

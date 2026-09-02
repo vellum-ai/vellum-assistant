@@ -337,6 +337,32 @@ export function stripAccessRequestReplyMechanics(
 }
 
 /**
+ * Ensure the invite-flow directive is in every text field of a channel's
+ * access-request copy. It is context rather than mechanics (no surface has
+ * an invite button, so the sentence is the only way to start the flow), and
+ * model-composed copy can omit it, so it is appended when the phrase is
+ * missing. A title stays a title.
+ */
+export function ensureAccessRequestInviteDirectiveInCopy(
+  copy: RenderedChannelCopy,
+): RenderedChannelCopy {
+  const ensure = (text: string): string =>
+    /open invite flow/i.test(text)
+      ? text
+      : `${text.trim()}\n${buildAccessRequestInviteDirective()}`;
+  return {
+    ...copy,
+    body: ensure(copy.body),
+    deliveryText: copy.deliveryText
+      ? ensure(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? ensure(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
+}
+
+/**
  * {@link stripAccessRequestReplyMechanics} over every text field of a
  * channel's copy; a field left empty becomes the requester context.
  */
