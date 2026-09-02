@@ -92,7 +92,7 @@ function createWebTurnContext(
     setProcessing: (value: boolean) => {
       processing = value;
     },
-    acquireProcessing: () => {
+    acquireProcessingFenced: async () => {
       if (processing) {
         return null;
       }
@@ -100,7 +100,6 @@ function createWebTurnContext(
       owner += 1;
       return owner;
     },
-    ensureProcessingMarker: async () => {},
     releaseProcessing: (claim: number) => {
       if (claim !== owner) {
         return false;

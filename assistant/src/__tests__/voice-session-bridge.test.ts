@@ -102,7 +102,7 @@ function makePersistingStreamingSession(
       processing = value;
       owner = value ? owner + 1 : 0;
     },
-    acquireProcessing: () => {
+    acquireProcessingFenced: async () => {
       if (processing) {
         return null;
       }
@@ -110,7 +110,6 @@ function makePersistingStreamingSession(
       owner += 1;
       return owner;
     },
-    ensureProcessingMarker: async () => {},
     releaseProcessing: (claim: number) => {
       if (claim !== owner) {
         return false;

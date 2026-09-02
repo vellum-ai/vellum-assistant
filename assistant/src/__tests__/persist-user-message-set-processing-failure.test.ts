@@ -21,7 +21,7 @@ import {
 
 interface ContextBehavior {
   /** Answered in place of taking the flag. `undefined` takes it for real. */
-  acquire?: () => number | null;
+  acquire?: () => Promise<number | null>;
   /** Runs before the release completes, so it can throw. */
   onRelease?: (owner: number) => void;
 }
@@ -44,7 +44,7 @@ function makeContext(behavior: ContextBehavior = {}): {
     setProcessing: (value: boolean) => {
       processing = value;
     },
-    acquireProcessing: () => {
+    acquireProcessingFenced: async () => {
       if (behavior.acquire) {
         return behavior.acquire();
       }
@@ -101,7 +101,7 @@ describe("persistUserMessage processing ownership", () => {
   test("reports busy rather than stealing a flag the acquire finds taken", async () => {
     // The acquire is the only thing that decides: a caller cannot set its way
     // past a holder.
-    const { ctx, releases } = makeContext({ acquire: () => null });
+    const { ctx, releases } = makeContext({ acquire: async () => null });
 
     await expect(
       persistUserMessage(ctx, { content: "hello", requestId: "req-taken" }),

@@ -220,8 +220,7 @@ export interface MessagingConversationContext {
   messages: Message[];
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
-  acquireProcessing(): number | null;
-  ensureProcessingMarker(owner: number): Promise<void>;
+  acquireProcessingFenced(): Promise<number | null>;
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
@@ -1075,16 +1074,16 @@ export async function persistUserMessage(
     // in-memory flag before rethrowing, so the conversation read idle for the
     // length of the sleep and anything waiting for idle could take the flag
     // while this turn was still starting.
-    owner = ctx.acquireProcessing();
+    // Fenced: the flag is taken and its marker is durable before anything
+    // this turn writes, because a reconnecting client and the out-of-process
+    // retrospective worker read that marker to decide a turn is live. Null is
+    // a conversation that belongs to someone else, whether it was already held
+    // or was claimed away while the marker landed. A throw is the marker
+    // refusing to persist, with the claim already given back.
+    owner = await ctx.acquireProcessingFenced();
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
-    // The marker is what a reconnecting client and the out-of-process
-    // retrospective worker read to decide a turn is live, so nothing this turn
-    // writes may precede it. A budget that runs out without it landing gives
-    // the hold back through the catch below and fails the send rather than
-    // running a turn no other reader can see.
-    await ctx.ensureProcessingMarker(owner);
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,

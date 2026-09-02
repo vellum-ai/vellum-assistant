@@ -517,27 +517,24 @@ export function _drainFrameReclaimRechecksForTests(): void {
  * means nothing was taken and nothing needs releasing.
  */
 async function acquireProcessingFlag(conversation: {
-  acquireProcessing: () => number | null;
-  ensureProcessingMarker: (owner: number) => Promise<void>;
-  releaseProcessing: (owner: number) => boolean;
+  acquireProcessingFenced: () => Promise<number | null>;
 }): Promise<number | null> {
   const deadline = Date.now() + processingWaitMs;
   for (;;) {
-    const owner = conversation.acquireProcessing();
+    // Fenced, so a frame never writes into a turn no reader can see. A marker
+    // that refuses to persist gives the hold back and drops the frame; a
+    // conversation that belongs to someone else is waited out below.
+    let owner: number | null;
+    try {
+      owner = await conversation.acquireProcessingFenced();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Standalone image gave up its hold: the processing marker would not persist",
+      );
+      return null;
+    }
     if (owner !== null) {
-      // The marker fences the write: a frame that lands while no reader can
-      // see a live turn is worse than a frame refused, so a budget that runs
-      // out without it gives the hold back and the caller reports the drop.
-      try {
-        await conversation.ensureProcessingMarker(owner);
-      } catch (err) {
-        log.warn(
-          { err },
-          "Standalone image gave up its hold: the processing marker would not persist",
-        );
-        conversation.releaseProcessing(owner);
-        return null;
-      }
       return owner;
     }
     if (Date.now() >= deadline) {

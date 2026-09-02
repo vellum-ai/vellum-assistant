@@ -2047,26 +2047,6 @@ export async function handleSendMessage(
     : undefined;
 
   /**
-   * Take the flag for an operation whose idle decision was made several awaits
-   * ago, fencing the marker before the operation writes anything. Null means
-   * the flag went to someone else in the meantime and the caller owes its own
-   * busy behaviour.
-   */
-  const claimAfterAwaits = async (): Promise<number | null> => {
-    const claim = conversation.acquireProcessing();
-    if (claim === null) {
-      return null;
-    }
-    try {
-      await conversation.ensureProcessingMarker(claim);
-    } catch (err) {
-      conversation.releaseProcessing(claim);
-      throw err;
-    }
-    return claim;
-  };
-
-  /**
    * Answer a first wake-up with the canned greeting, under a claim the caller
    * already holds. Its own function so the branch below can decline the claim
    * and fall through to the ordinary path instead.
@@ -2201,7 +2181,7 @@ export async function handleSendMessage(
     // over it would run two operations into one history. Declining and
     // falling through is what the sibling branches above already do, and the
     // gate below turns that into the queued answer a busy conversation owes.
-    const greetingOwner = await claimAfterAwaits();
+    const greetingOwner = await conversation.acquireProcessingFenced();
     if (greetingOwner !== null) {
       return serveCannedFirstGreeting(cannedGreeting, greetingOwner);
     }
@@ -2466,7 +2446,7 @@ export async function handleSendMessage(
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    const slashOwner = await claimAfterAwaits();
+    const slashOwner = await conversation.acquireProcessingFenced();
     if (slashOwner === null) {
       return queueSend(rawContent);
     }
@@ -2574,7 +2554,7 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "compact") {
-    const compactOwner = await claimAfterAwaits();
+    const compactOwner = await conversation.acquireProcessingFenced();
     if (compactOwner === null) {
       return queueSend(rawContent);
     }
@@ -2668,7 +2648,7 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "clean") {
-    const cleanOwner = await claimAfterAwaits();
+    const cleanOwner = await conversation.acquireProcessingFenced();
     if (cleanOwner === null) {
       return queueSend(rawContent);
     }

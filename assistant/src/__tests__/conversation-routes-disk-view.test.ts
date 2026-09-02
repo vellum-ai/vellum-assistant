@@ -105,7 +105,10 @@ function createFakeConversation(conversationId: string): Conversation {
       this.owner = value ? this.owner + 1 : 0;
     },
     owner: 0,
-    acquireProcessing(this: { processing: boolean; owner: number }) {
+    async acquireProcessingFenced(this: {
+      processing: boolean;
+      owner: number;
+    }) {
       if (this.processing) {
         return null;
       }
@@ -113,7 +116,6 @@ function createFakeConversation(conversationId: string): Conversation {
       this.owner += 1;
       return this.owner;
     },
-    ensureProcessingMarker: async () => {},
     releaseProcessing(
       this: { processing: boolean; owner: number },
       claim: number,

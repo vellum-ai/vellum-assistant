@@ -2129,11 +2129,10 @@ export async function processMessage(
     // ago (history scoping, guardian routing, slash resolution all sit
     // between). A hold taken since belongs to a real turn, and this reports
     // busy the way that caller's own gate does rather than claiming it away.
-    const compactOwner = conversation.acquireProcessing();
+    const compactOwner = await conversation.acquireProcessingFenced();
     if (compactOwner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
-    await conversation.ensureProcessingMarker(compactOwner);
     let persistedCompactMessage = false;
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
@@ -2219,11 +2218,10 @@ export async function processMessage(
     // ago (history scoping, guardian routing, slash resolution all sit
     // between). A hold taken since belongs to a real turn, and this reports
     // busy the way that caller's own gate does rather than claiming it away.
-    const cleanOwner = conversation.acquireProcessing();
+    const cleanOwner = await conversation.acquireProcessingFenced();
     if (cleanOwner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
-    await conversation.ensureProcessingMarker(cleanOwner);
     let persistedCleanMessage = false;
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
