@@ -335,10 +335,44 @@ describe("filterBySearch", () => {
     expect(result[0]?.conversation.conversationId).toBe("b");
   });
 
-  test("never matches rows without a title", () => {
+  test("never matches rows without a title against an unrelated query", () => {
     const result = filterBySearch(rows, "c");
     expect(result.some((row) => row.conversation.conversationId === "c")).toBe(
       false,
     );
+  });
+
+  test("matches the localized fallback a sentinel row displays", () => {
+    const untitled = [
+      {
+        conversation: conv("untitled", { title: "Untitled Conversation" }),
+        archived: false,
+      },
+      {
+        conversation: conv("named", { title: "Quarterly Planning" }),
+        archived: false,
+      },
+    ];
+    const displayTitle = (title: string | null | undefined) =>
+      title === "Untitled Conversation" ? "Sin título" : (title ?? "");
+
+    const byVisible = filterBySearch(untitled, "sin título", displayTitle);
+    expect(byVisible.map((row) => row.conversation.conversationId)).toEqual([
+      "untitled",
+    ]);
+
+    const byPersisted = filterBySearch(
+      untitled,
+      "untitled conversation",
+      displayTitle,
+    );
+    expect(byPersisted.map((row) => row.conversation.conversationId)).toEqual([
+      "untitled",
+    ]);
+  });
+
+  test("matches the English untitled fallback for a titleless row", () => {
+    const result = filterBySearch(rows, "untitled");
+    expect(result.map((row) => row.conversation.conversationId)).toEqual(["c"]);
   });
 });

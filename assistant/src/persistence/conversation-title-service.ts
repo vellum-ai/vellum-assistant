@@ -428,6 +428,7 @@ function buildTitleSystemPrompt(): string {
     "- Think: what would make a scannable sidebar label?",
     "- Do NOT echo back what the user asked you to do",
     "- Do NOT respond to the conversation content",
+    "- Write the title in the same language as the conversation content",
     "- Do NOT assess feasibility or comment on capabilities",
     "- If input is sparse or references external context, extract a topic from the words that ARE present (e.g. 'so about that t-shirt...' → 'T-Shirt Discussion'). Never describe the absence, emptiness, or insufficiency of context — titles like 'Missing Context', 'Unclear Request', 'No Topic' are forbidden",
   ].join("\n");

@@ -35,6 +35,10 @@
     "next": "Далее",
     "done": "Понятно"
   },
+  "conversationTitle": {
+    "generating": "Создание названия...",
+    "untitled": "Без названия"
+  },
   "deployStore": {
     "appExported": "Приложение экспортировано",
     "deployFailed": "Не удалось опубликовать",

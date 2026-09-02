@@ -56,8 +56,7 @@
     "searchPlaceholder": "搜尋對話",
     "unarchive": "取消封存",
     "unarchiveFailed": "無法取消封存對話。",
-    "unarchiving": "正在取消封存",
-    "untitled": "未命名對話"
+    "unarchiving": "正在取消封存"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "正在檢查此裝置的通知存取權。",
@@ -373,8 +372,7 @@
     "errorTitle": "載入書籤失敗",
     "open": "開啟",
     "removeBookmark": "移除書籤",
-    "retry": "重試",
-    "untitledConversation": "未命名對話"
+    "retry": "重試"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, other {# 個動作目前使用 {profile}}}",

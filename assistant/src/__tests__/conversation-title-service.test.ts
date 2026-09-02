@@ -577,6 +577,9 @@ describe("conversation-title-service", () => {
     expect(content).not.toContain("Generate a very short title");
     expect(content).not.toContain("do NOT respond");
     expect(options.systemPrompt).toContain("Do NOT respond");
+    expect(options.systemPrompt).toContain(
+      "same language as the conversation content",
+    );
   });
 
   test("queueGenerateConversationTitle serializes concurrent calls", async () => {

@@ -362,8 +362,7 @@
   },
   "chatConversationHeader": {
     "archived": "[已封存]",
-    "newChat": "新增聊天",
-    "untitled": "未命名"
+    "newChat": "新增聊天"
   },
   "chatLayout": {
     "navigationAria": "導覽"
@@ -575,9 +574,6 @@
     "heading": "資產",
     "label": "{count, plural, one {# 個資產} other {# 個資產}}"
   },
-  "conversationRow": {
-    "untitled": "未命名"
-  },
   "conversationStarterDock": {
     "caption": "試試這些建議："
   },
@@ -623,8 +619,7 @@
     "cancel": "取消",
     "confirm": "刪除",
     "message": "刪除「{title}」？這將永久移除對話及其訊息。相關資產和記憶可能仍會保留。此動作無法復原。",
-    "title": "刪除對話",
-    "untitled": "未命名"
+    "title": "刪除對話"
   },
   "deletedMessageRow": {
     "label": "此訊息已被刪除"
@@ -1603,9 +1598,6 @@
     "assistantBusy": "您的助理正忙。請在回覆完成後再試一次。",
     "retryFailed": "無法重試回應",
     "summarizeFailed": "無法摘要對話"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "未命名"
   },
   "useSendMessage": {
     "commandFailed": "無法執行該指令。請再試一次。",

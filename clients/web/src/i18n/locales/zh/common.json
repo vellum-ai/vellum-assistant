@@ -172,6 +172,10 @@
     "downloadFileAria": "下载文件",
     "editFileAria": "编辑文件"
   },
+  "conversationTitle": {
+    "generating": "标题生成中...",
+    "untitled": "无标题"
+  },
   "createAssistantDialog": {
     "cancel": "取消",
     "create": "创建",
