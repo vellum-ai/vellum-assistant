@@ -240,8 +240,14 @@ describe("parseCardSections / filterPrunedCardSections", () => {
     expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a", "page-b"]);
     // page-a's section stops AT the capability header — it must not absorb it.
     expect(parsed.sections[0]!.text).toBe(card("page-a"));
-    expect(parsed.pieces.map((p) => p.kind)).toEqual(["card", "other", "card"]);
-    expect(parsed.pieces[1]!.text).toBe(CAPABILITY_CHUNK);
+    expect(parsed.pieces.map((p) => p.kind)).toEqual([
+      "other",
+      "card",
+      "other",
+      "card",
+    ]);
+    expect(parsed.pieces[0]!.text).toContain("assistant plugins search <name>");
+    expect(parsed.pieces[2]!.text).toBe(CAPABILITY_CHUNK);
   });
 
   test("pruning a concept card never swallows a trailing capability chunk", () => {
