@@ -526,6 +526,12 @@
     "save": "保存",
     "saving": "正在保存…"
   },
+  "contactRecordCard": {
+    "contactMerged": "联系人已合并",
+    "merge": "合并",
+    "mergeTitle": "将 {donor} 合并到 {survivor}？",
+    "mergeWarning": "这些渠道将转移到 {survivor}，并删除 {donor} 的记录。"
+  },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",
     "compactsHint": "{name} 自动<br></br>压缩其上下文。",
