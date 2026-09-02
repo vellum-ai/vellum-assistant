@@ -379,6 +379,9 @@ const currentState = (): CompanionSurfaceState => {
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
+    // Passed through as it arrived. Bounded by the publisher and again by the
+    // schema, so nothing here has to decide how much of it is too much.
+    dictationText: context.dictationText,
     // Read on every rebuild rather than captured once, because the evaluation
     // lands after launch: the app's window has to sign in and fetch it first,
     // and a targeting change can move it again while the app runs.
@@ -1069,15 +1072,26 @@ export const installCompanionWindow = (): void => {
    * leaves the renderer alive and its session running, and must not clear
    * anything.
    *
-   * Only the watch flag. The name and the tail are a record of what was said
-   * and this surface is still where it is read, the same bargain `working` is
-   * given by `clearCompanionWorking`.
+   * The watch flag and the dictation, which are the two things in the context
+   * that claim a microphone or a socket is open in that window. The name and
+   * the tail are a record of what was said and this surface is still where it
+   * is read, the same bargain `working` is given by `clearCompanionWorking`.
    */
   onMainWindowVisibilityChange(() => {
-    if (currentMainWindow() !== null || context.watching !== true) {
+    if (currentMainWindow() !== null) {
       return;
     }
-    context = { ...context, watching: false };
+    const claiming =
+      context.watching === true || context.dictating !== undefined;
+    if (!claiming) {
+      return;
+    }
+    context = {
+      ...context,
+      watching: false,
+      dictating: undefined,
+      dictationText: undefined,
+    };
     pushState();
   });
 

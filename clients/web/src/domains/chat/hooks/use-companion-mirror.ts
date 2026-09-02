@@ -31,6 +31,7 @@ import { selectTranscriptMessages } from "@/domains/chat/transcript/select-trans
 import {
   clearCompanionWorking,
   setCompanionContext,
+  setCompanionDictation,
 } from "@/runtime/companion-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -42,7 +43,7 @@ import {
 } from "@/domains/chat/watch/watch-controller";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
-import { readHoldToDictateEnabled } from "@/utils/hold-to-dictate";
+import { COMPANION_DICTATION_TAIL } from "@vellumai/ipc-contract";
 import type {
   CompanionContext,
   CompanionDictating,
@@ -154,6 +155,7 @@ function currentContext(): CompanionContext {
     // `watching` is: the recording runs in this window, and while it runs the
     // surface is the only thing on screen to say so.
     dictating: dictatingPhase(),
+    dictationText: dictationTail(),
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
@@ -170,14 +172,18 @@ function currentContext(): CompanionContext {
  *
  * Only a dictation the keyboard started: one begun from a control in the app is
  * already visible where it was begun, and the surface saying so as well would
- * be the same fact drawn twice. `processing` is the wait after the keys come
- * up, which is the stretch with nothing else on screen to explain it.
+ * be the same fact drawn twice. The store says which it was for as long as the
+ * recording runs, which matters because the key itself is up again before a
+ * short recording has finished starting. `processing` is the wait after the
+ * keys come up, which is the stretch with nothing else on screen to explain
+ * it.
  */
 function dictatingPhase(): CompanionDictating | undefined {
-  if (!readHoldToDictateEnabled()) {
+  const { phase, hold } = useVoiceRecordingStore.getState();
+  if (!hold) {
     return undefined;
   }
-  switch (useVoiceRecordingStore.getState().phase) {
+  switch (phase) {
     case "recording":
       return "listening";
     case "processing":
@@ -185,6 +191,21 @@ function dictatingPhase(): CompanionDictating | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * The end of what the running dictation has recognised, bounded.
+ *
+ * The end rather than the start: the surface draws one line, and the words a
+ * speaker wants to check are the ones they just said. Empty when nothing is
+ * being dictated, so the field says nothing rather than something stale.
+ */
+function dictationTail(): string {
+  if (dictatingPhase() === undefined) {
+    return "";
+  }
+  const interim = useVoiceRecordingStore.getState().interimTranscript;
+  return interim.slice(-COMPANION_DICTATION_TAIL);
 }
 
 /** Whether two payloads would draw the same card. */
@@ -196,6 +217,7 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.watchRetro === b.watchRetro &&
     a.captureCount === b.captureCount &&
     a.dictating === b.dictating &&
+    a.dictationText === b.dictationText &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
@@ -225,11 +247,15 @@ export function useCompanionMirror(): void {
     // while a microphone is open, and only two of those writes change what the
     // surface draws.
     let dictating = dictatingPhase();
+    // The words that came with it. Declared beside the phase because `sync`
+    // writes both, and `sync` runs before the subscriptions are set up.
+    let dictationText = dictationTail();
 
     const sync = (): void => {
       const context = currentContext();
       working = context.working;
       dictating = context.dictating;
+      dictationText = context.dictationText ?? "";
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -287,10 +313,22 @@ export function useCompanionMirror(): void {
     // continuously through a recording, and `sync` reselects and remaps the
     // whole tail on every call.
     const onDictationMaybeFlipped = (): void => {
-      if (dictatingPhase() === dictating) {
+      if (dictatingPhase() !== dictating) {
+        sync();
         return;
       }
-      sync();
+      // The words moved but nothing else did. Corrected in place rather than
+      // rebuilt: `sync` reselects and remaps the whole tail, and a recogniser
+      // revises its guess several times a second.
+      const nextText = dictationTail();
+      if (nextText === dictationText) {
+        return;
+      }
+      dictationText = nextText;
+      if (pushed !== null) {
+        pushed = { ...pushed, dictationText: nextText };
+      }
+      setCompanionDictation(dictating, nextText);
     };
     const unsubscribeDictation = useVoiceRecordingStore.subscribe(
       onDictationMaybeFlipped,

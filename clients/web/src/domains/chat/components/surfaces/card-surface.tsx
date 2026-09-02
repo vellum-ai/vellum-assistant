@@ -11,10 +11,10 @@ import {
 import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
-
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { WatchRetroSurface } from "@/domains/chat/components/surfaces/watch-retro-surface";
 import { cn } from "@/utils/misc";
 import { useTranslation } from "@/i18n";
 
@@ -202,9 +202,7 @@ function TaskProgressBar({
   return (
     <div className="mt-3">
       <div className="mb-1 flex items-center justify-between text-body-small-default text-[var(--content-quiet)]">
-        <span>
-          {t("cardSurface.tasksProgress", { completed, total })}
-        </span>
+        <span>{t("cardSurface.tasksProgress", { completed, total })}</span>
         <span>{percent}%</span>
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--border-subtle)]">
@@ -383,6 +381,21 @@ export function CardSurface({
   // unchecked cast or a re-declared local interface.
   const parsed = CardSurfaceDataSchema.safeParse(surface.data);
   const data = parsed.success ? parsed.data : {};
+
+  // Routed before every other template so a retro always reaches its own
+  // renderer. A client that predates the template falls through to the plain
+  // card below and shows the title, subtitle and body the retro also sets,
+  // which is the whole point of shipping it as a template rather than as a
+  // surface type of its own.
+  if (data.template === "watch_retro" && data.templateData) {
+    return (
+      <WatchRetroSurface
+        surface={surface}
+        templateData={data.templateData}
+        onAction={onAction}
+      />
+    );
+  }
 
   const isWeather = data.template === "weather_forecast" && data.templateData;
   const isTaskProgress =

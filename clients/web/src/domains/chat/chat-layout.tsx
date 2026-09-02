@@ -15,7 +15,9 @@ import {
 } from "react-router";
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
+import { assistantStateCanServeChat } from "@/assistant/lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   selectChatFocusActive,
   selectHeaderCenterHidden,
@@ -201,7 +203,15 @@ export function ChatLayout({
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
-  const isAssistantActive = assistantStateKind === "active";
+  const selfHostedChatEnabled =
+    useClientFeatureFlagStore.use.selfHostedAssistant();
+  // `active` and flagged `self_hosted` both serve the conversation list.
+  // Gating on `active` alone leaves self-hosted queries pending forever,
+  // so the Home Screen widgets never receive a snapshot.
+  const isAssistantActive = assistantStateCanServeChat(
+    assistantStateKind,
+    selfHostedChatEnabled,
+  );
 
   // Live-voice session controller. Owned at layout scope — not by the
   // composer — so a session survives every chat-side navigation (thread
@@ -222,8 +232,9 @@ export function ChatLayout({
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
   //
-  // `isAssistantActive` is the assistant record: does this assistant exist and
-  // is it provisioned. Whether its pod is reachable is a separate question,
+  // `isAssistantActive` is whether this assistant can serve chat: a
+  // provisioned `active` record, or a `self_hosted` one with the chat
+  // flag on. Whether its pod is reachable is a separate question,
   // answered inside the query hook itself, since these keys are shared with
   // call sites that pass no gate of their own.
   const {

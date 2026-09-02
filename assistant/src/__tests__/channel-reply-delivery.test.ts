@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
+import { REACTION_MESSAGE_KIND } from "../persistence/conversation-types.js";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import type { RuntimeAttachmentMetadata } from "../runtime/http-types.js";
 
@@ -148,6 +149,19 @@ mock.module("../persistence/conversation-crud.js", () => ({
   },
   getMessageById: (messageId: string) =>
     conversationMessages.find((m) => m.id === messageId) ?? null,
+  // Stands in for the schema-validated parse. The delivery reader pairs it
+  // with the real `isReactionMessageMetadata`, so the marker the assertions
+  // turn on is still the production predicate reading a production-shaped row.
+  parseMessageMetadata: (metadataJson: string | null) => {
+    if (!metadataJson) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(metadataJson) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  },
   updateMessageMetadata: (
     messageId: string,
     updates: Record<string, unknown>,
@@ -189,9 +203,24 @@ mock.module("../persistence/attachments-store.js", () => ({
   getFilePathForAttachment: () => null,
 }));
 
+/**
+ * Renders keyed by a row's raw string content, consulted ahead of the queue.
+ * The queue and the shared default are argument-blind, so a suite that mixes
+ * rows in one scan cannot otherwise tell them apart, and a row the code under
+ * test is supposed to skip would still render as its neighbour.
+ */
+const renderedHistoryContentByContent = new Map<string, RenderedHistoryStub>();
+
 mock.module("../daemon/handlers/shared.js", () => ({
-  renderHistoryContent: () =>
-    renderedHistoryContentQueue.shift() ?? renderedHistoryContent,
+  renderHistoryContent: (content: unknown) => {
+    if (typeof content === "string") {
+      const keyed = renderedHistoryContentByContent.get(content);
+      if (keyed) {
+        return keyed;
+      }
+    }
+    return renderedHistoryContentQueue.shift() ?? renderedHistoryContent;
+  },
 }));
 
 const {
@@ -210,6 +239,7 @@ describe("channel-reply-delivery", () => {
     metadataWriteFailuresRemaining = 0;
     nextDeliveryTs = null;
     renderedHistoryContentQueue.length = 0;
+    renderedHistoryContentByContent.clear();
     renderedHistoryContent = {
       text: "",
       textSegments: [],
@@ -262,6 +292,129 @@ describe("channel-reply-delivery", () => {
     expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
       "assistant-target",
     );
+  });
+
+  describe("reaction rows are never a turn's reply", () => {
+    /** The body `persistReactionRecords` stores; never channel-visible text. */
+    const SENTINEL = "[reaction]";
+
+    const stubFor = (text: string): RenderedHistoryStub => ({
+      text,
+      textSegments: [text],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    /**
+     * The row `persistReactionRecords` writes at the turn boundary, rendering
+     * as the stored sentinel exactly as the real renderer would. Read
+     * literally that text is what reaches the channel, so these tests fail on
+     * a guard that only stops short of the delivery call.
+     */
+    const reactionRow = (id: string): MockMessageRow => {
+      renderedHistoryContentByContent.set(SENTINEL, stubFor(SENTINEL));
+      return {
+        id,
+        role: "assistant",
+        content: SENTINEL,
+        metadata: JSON.stringify({
+          messageKind: REACTION_MESSAGE_KIND,
+          provenanceSourceChannel: "slack",
+        }),
+      };
+    };
+
+    /** How the turn's one non-reaction assistant row renders. */
+    const renderAs = (text: string): void => {
+      renderedHistoryContent = stubFor(text);
+    };
+
+    it("resolves a reaction-only turn to its silence marker, not the sentinel row", () => {
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        {
+          id: "assistant-silence",
+          role: "assistant",
+          content: "<no_response/>",
+        },
+        // Drained after the turn's own rows, so it is the newest row and the
+        // one a newest-first scan reaches first.
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("<no_response/>");
+
+      expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
+        "assistant-silence",
+      );
+    });
+
+    it("posts nothing at all for a reaction-only turn", async () => {
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        {
+          id: "assistant-silence",
+          role: "assistant",
+          content: "<no_response/>",
+        },
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("<no_response/>");
+
+      await deliverReplyViaCallback(
+        "conv-1",
+        "chat-1",
+        "http://gateway/deliver/slack",
+        "assistant-1",
+        { messageId: "assistant-silence", sinceMessageId: "user-target" },
+      );
+
+      expect(deliveryCalls).toEqual([]);
+    });
+
+    it("delivers the turn's real reply when a reaction row is newer than it", async () => {
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        { id: "assistant-real", role: "assistant", content: "real reply" },
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("Done.");
+
+      await deliverReplyViaCallback(
+        "conv-1",
+        "chat-1",
+        "http://gateway/deliver/slack",
+        "assistant-1",
+        { sinceMessageId: "user-target" },
+      );
+
+      expect(deliveryCalls).toHaveLength(1);
+      expect(deliveryCalls[0].payload.text).toBe("Done.");
+    });
+
+    it("falls through to the real reply when the stored reply id names a reaction row", async () => {
+      // The retry sweep persists whatever the turn scan returned, so a reply
+      // id latched before this guard existed still points at a reaction row.
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        { id: "assistant-real", role: "assistant", content: "real reply" },
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("Done.");
+
+      await deliverReplyViaCallback(
+        "conv-1",
+        "chat-1",
+        "http://gateway/deliver/slack",
+        "assistant-1",
+        { messageId: "assistant-reaction", sinceMessageId: "user-target" },
+      );
+
+      expect(deliveryCalls).toHaveLength(1);
+      expect(deliveryCalls[0].payload.text).toBe("Done.");
+    });
   });
 
   it("sends non-empty text segments as separate messages and puts attachments on the last segment", async () => {

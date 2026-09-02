@@ -11,6 +11,7 @@
 import { isElectron } from "@/runtime/is-electron";
 import type {
   CompanionContext,
+  CompanionDictating,
   CompanionIntroAction,
   CompanionSurfaceState,
 } from "@vellumai/ipc-contract";
@@ -186,6 +187,34 @@ let lastContext: CompanionContext | null = null;
  * path, so no React cleanup runs. Same reason `setAssistantName("")` is called
  * there.
  */
+/**
+ * Correct what the running dictation is doing and saying, and nothing else.
+ *
+ * A recogniser revises its guess several times a second, and each revision is
+ * a fact about the microphone rather than about the conversation. Rebuilding
+ * the whole context for one would reselect and remap the conversation's tail
+ * on every word, so this reuses the last one and replaces the two fields that
+ * moved, the way {@link clearCompanionWorking} does for the turn.
+ *
+ * Silent until a context has been published, since there is nothing to correct
+ * and a dictation with no assistant beside it is not a card the surface draws.
+ */
+export function setCompanionDictation(
+  dictating: CompanionDictating | undefined,
+  dictationText: string,
+): void {
+  if (lastContext === null) {
+    return;
+  }
+  if (
+    lastContext.dictating === dictating &&
+    (lastContext.dictationText ?? "") === dictationText
+  ) {
+    return;
+  }
+  setCompanionContext({ ...lastContext, dictating, dictationText });
+}
+
 export function clearCompanionWorking(): void {
   if (lastContext === null || !lastContext.working) {
     return;

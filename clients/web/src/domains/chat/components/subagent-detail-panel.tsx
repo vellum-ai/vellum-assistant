@@ -41,7 +41,10 @@ import {
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
+import {
+  ToolDetailBody,
+  toolDetailHeaderTitle,
+} from "@/domains/chat/components/tool-detail-panel";
 import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
@@ -263,9 +266,7 @@ export function SubagentDetailPanel({
   // The nested step's label — the breadcrumb tail and the header title while a
   // detail is open. Mirrors the main-chat tool detail panel's `activity ||
   // title` precedence.
-  const detailTitle = activeDetail
-    ? activeDetail.activity || activeDetail.title
-    : "";
+  const detailTitle = activeDetail ? toolDetailHeaderTitle(activeDetail) : "";
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;

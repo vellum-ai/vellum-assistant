@@ -609,20 +609,22 @@ describe("emitAssistantReplyNotification", () => {
   });
 
   // Control characters would otherwise ride into the APNs payload verbatim.
-  test("strips control characters and newlines out of the preview", async () => {
+  // Newlines stay: iOS (and other lock screens) render them as line breaks.
+  test("strips control characters and keeps line breaks in the preview", async () => {
     assistantRow = makeAssistantRow([
       { type: "text", text: "Hello\n\tthere" },
     ] as ContentBlock[]);
 
     await run();
 
-    expect(emitCalls[0].contextPayload.requestedMessage).toBe("Hello there");
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe("Hello\nthere");
   });
 
-  // Blank lines and list indentation would otherwise spend the preview's
-  // length budget on whitespace. The bullets go with them: a lock screen
-  // renders the marker as literal punctuation, not as a list.
-  test("collapses whitespace runs in the preview", async () => {
+  // List indentation and extra blank lines would otherwise spend the preview's
+  // length budget on whitespace. Markdown list markers are already gone after
+  // flattening; the remaining line breaks are the structure a lock screen can
+  // render.
+  test("keeps paragraph breaks after collapsing horizontal whitespace", async () => {
     assistantRow = makeAssistantRow([
       { type: "text", text: "  Here:\n\n  - item\n  - other  " },
     ] as ContentBlock[]);
@@ -630,7 +632,7 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls[0].contextPayload.requestedMessage).toBe(
-      "Here: item other",
+      "Here:\n\nitem\nother",
     );
   });
 
@@ -684,7 +686,7 @@ describe("emitAssistantReplyNotification", () => {
       await run();
 
       expect(emitCalls[0].contextPayload.requestedMessage).toBe(
-        "Fixed it: const a = 1;",
+        "Fixed it:\n\nconst a = 1;",
       );
     });
 
@@ -699,7 +701,7 @@ describe("emitAssistantReplyNotification", () => {
       await run();
 
       expect(emitCalls[0].contextPayload.requestedMessage).toBe(
-        "Keys Env Key dev 4Y4L",
+        "Keys\n\nEnv Key\ndev 4Y4L",
       );
     });
 

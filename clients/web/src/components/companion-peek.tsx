@@ -95,6 +95,19 @@ const DUCK_SECONDS = 0.22;
  */
 export const PEEK_EXPOSED_MAX = 14;
 
+/**
+ * The widest the creature's square is drawn, in points.
+ *
+ * Below the capsule's own width, on purpose. The exposure cap alone lets a
+ * creature whose face sits near its crown come up at the capsule's full width,
+ * and a body that is still full-width at eye level (the ghost) then has its
+ * sides cut flat by the rim exactly where the capsule's ends round away
+ * beneath them: the creature stands out past the pill instead of rising from
+ * behind it. This is what the widest of the other creatures already draws at,
+ * and there the cut stays behind the capsule.
+ */
+export const PEEK_SIZE_MAX = 24;
+
 /** Air between the eye ink's bottom and the rim, as a fraction of the square. */
 const EYE_PAD_FRAC = 0.04;
 
@@ -107,8 +120,10 @@ const HEADROOM = 4;
 /**
  * How far the creature is drawn, on every axis, from the measurements.
  *
- * `size` is the creature's square. `exposed` is how much of it shows past the
- * rim at the top of the rise: down to just under the eye ink. `clip` is the
+ * `size` is the creature's square: the capsule's width, or less where
+ * {@link PEEK_SIZE_MAX} or the exposure cap says so. `exposed` is how much of
+ * it shows past the rim at the top of the rise: down to just under the eye
+ * ink. `clip` is the
  * box it is drawn in, whose bottom edge is the rim, and `rest` is how far
  * below the top of the rise it sits when hidden: its whole exposure plus a
  * little, so nothing of it shows through the clip's bottom edge.
@@ -128,7 +143,11 @@ export const peekGeometry = (
     0.95,
     Math.max(0.25, metrics.eyeCenterFrac + metrics.eyeHalfFrac + EYE_PAD_FRAC),
   );
-  const size = Math.min(fullSize, PEEK_EXPOSED_MAX / exposedFrac);
+  const size = Math.min(
+    fullSize,
+    PEEK_SIZE_MAX,
+    PEEK_EXPOSED_MAX / exposedFrac,
+  );
   const exposed = size * exposedFrac;
   return {
     size,

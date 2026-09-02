@@ -219,7 +219,9 @@
   },
   "detailPrimitives": {
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "showLess": "Show less",
+    "showMore": "Show more"
   },
   "dictationOverlayPage": {
     "stopRecording": "Stop recording"
@@ -318,6 +320,9 @@
   },
   "lazyBoundary": {
     "loadError": "This section couldn't load. Reload the page to try again."
+  },
+  "localNotification": {
+    "goToConversation": "Go to Conversation"
   },
   "macosAppBanner": {
     "ariaLabel": "Download the macOS app",

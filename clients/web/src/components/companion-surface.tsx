@@ -286,6 +286,21 @@ const RESTING_BOX = {
 export const INNER_GAP = 8;
 
 /**
+ * How wide the running dictation's words are allowed to draw.
+ *
+ * Stated rather than measured, unlike every other body on this surface. Those
+ * are rows of controls with a natural width; a sentence has none, and one
+ * allowed to ask for what it wants would run past the canvas main sized for
+ * the pill. What does not fit is clipped from the front, so the line stays
+ * full of the most recent words.
+ *
+ * Sized so the row it sits in lands inside
+ * {@link COMPANION_BASE_MAX_PILL_WIDTH}: the icon and its gap take 24, and the
+ * row's own clearance takes {@link INNER_GAP} at either end.
+ */
+const TRANSCRIPT_WIDTH = 244;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -326,9 +341,10 @@ export const FALLBACK_WIDTHS: Record<
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
   summary: 220,
-  // One status word beside the creature, which is all this state has to say:
-  // the gesture is the control, and it is already under the user's hand.
-  dictating: 132,
+  // The transcript box beside the icon and the row's own clearance. The box
+  // has a stated width whatever is in it, so this is the state's actual width
+  // rather than a guess at one.
+  dictating: TRANSCRIPT_WIDTH + 32,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
   call: 288,
@@ -648,6 +664,11 @@ export interface CompanionSurfaceProps {
    * {@link CompanionDictating}.
    */
   dictating?: CompanionDictating;
+  /**
+   * The words recognised so far in that dictation. See
+   * {@link CompanionContext.dictationText}.
+   */
+  dictationText?: string;
 }
 
 /**
@@ -726,6 +747,7 @@ export function CompanionSurface({
   captureCount = 0,
   watchEnabled = false,
   dictating,
+  dictationText = "",
   call,
   onControl,
   intro,
@@ -1005,7 +1027,10 @@ export function CompanionSurface({
                   onWatch={onWatch}
                 />
               ) : phase === "dictating" && dictating !== undefined ? (
-                <DictatingBody dictating={dictating} />
+                <DictatingBody
+                  dictating={dictating}
+                  dictationText={dictationText}
+                />
               ) : phase === "summary" && watchRetro !== undefined ? (
                 <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
               ) : (
@@ -1584,16 +1609,59 @@ function Avatar({
  * microphone open for dictation and one open for a conversation do not read as
  * different machines.
  */
-function DictatingBody({ dictating }: { dictating: CompanionDictating }) {
+function DictatingBody({
+  dictating,
+  dictationText,
+}: {
+  dictating: CompanionDictating;
+  dictationText: string;
+}) {
   const { t } = useTranslation();
+  const words = dictationText.trim();
   return (
     <div className="flex h-7 shrink-0 items-center gap-2 px-1">
       <AudioLines className="size-4 shrink-0" aria-hidden />
-      <span className="truncate text-[12px] text-white/85">
-        {dictating === "listening"
-          ? t("companionSurface.dictating")
-          : t("companionSurface.dictatingTranscribing")}
-      </span>
+      {words ? (
+        /* The end of the sentence, not the start of it.
+ 
+           A line that filled from the start would freeze on the opening words
+           and leave the speaker watching the part they are least unsure of. So
+           the words sit at the end of their box, and a run longer than the
+           box overflows at the start, where the clipping is. The end is the
+           words' own: the box takes its direction from them, so a transcript
+           in a right-to-left language ends on the left and is clipped on the
+           right, and its last words stay in view the same way.
+ 
+           A stated width rather than a measured one: every other state on
+           this surface is as wide as its content, and a sentence has no width
+           to be as wide as. The box is the same size with three words in it
+           as with thirty, and the same size as the status word's box before
+           there were any, so the pill takes its dictating width once and
+           holds it while the words change underneath. A box that grew with
+           its words would be re-measured on every partial, and the pill's
+           width transition would run for as long as the speaker talked.
+ 
+           Not a live region. A recogniser revises its guess several times a
+           second, and a screen reader that announced each revision would be
+           reading the whole line over and over behind a user who is already
+           saying it. */
+        <span
+          dir="auto"
+          className="flex justify-end overflow-hidden text-[12px] whitespace-nowrap text-white/85"
+          style={{ width: TRANSCRIPT_WIDTH }}
+        >
+          <span className="shrink-0">{words}</span>
+        </span>
+      ) : (
+        <span
+          className="truncate text-[12px] text-white/85"
+          style={{ width: TRANSCRIPT_WIDTH }}
+        >
+          {dictating === "listening"
+            ? t("companionSurface.dictating")
+            : t("companionSurface.dictatingTranscribing")}
+        </span>
+      )}
     </div>
   );
 }

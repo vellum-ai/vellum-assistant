@@ -76,12 +76,11 @@ import { useTranslation } from "@/i18n";
  *
  * Dismissible on every platform, Capacitor iOS included. The card precedes the
  * live-voice `getUserMedia` alert, so `docs/CAPACITOR.md` § OS permission
- * requests governs it: what that rule forbids is a pre-prompt that stands
- * between the user and the system alert, and cancelling here never reaches
- * `getUserMedia` at all — the one path that does ("Start talking") still leads
- * straight to it. An iOS build once locked the card instead (no ✕ / backdrop /
- * Escape), which left first-time users with no way out of voice mode short of
- * answering the OS mic prompt; don't reintroduce it.
+ * requests governs it: dismissing cancels without reaching `getUserMedia`, so
+ * it is not a permission pre-prompt. The one path that does reach the alert
+ * ("Start talking") still leads straight to it. A widget, Siri, or Action
+ * Button launch can open this card by accident; a locked card would have no
+ * way out. The sub-view back arrow is in-modal navigation, not a cancel.
  */
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */

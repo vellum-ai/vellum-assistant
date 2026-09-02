@@ -1523,9 +1523,7 @@
   },
   "skillLoadOutput": {
     "output": "Output",
-    "outputFormatAria": "Output format",
-    "showLess": "Show less",
-    "showMore": "Show more"
+    "outputFormatAria": "Output format"
   },
   "skillToolList": {
     "fromSkill": "From {name}"
@@ -1639,6 +1637,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Close tool details",
+    "denied": "This tool call was not approved, so it did not run.",
+    "emptyOutput": "The tool returned no output.",
     "output": "Output",
     "riskLevel": "Risk Level",
     "running": "Running…"
@@ -1813,5 +1813,13 @@
     "reactionAdded": "{name} reacted with {emoji}",
     "reactionRemoved": "{name} removed their {emoji} reaction",
     "reactionSomeone": "Someone"
+  },
+  "watchRetroSurface": {
+    "discard": "Discard",
+    "next": "Next",
+    "save": "Save skill",
+    "skip": "Skip",
+    "thatsIt": "That's it",
+    "untitledTask": "What I saw"
   }
 }

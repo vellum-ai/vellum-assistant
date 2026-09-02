@@ -79,6 +79,8 @@ The voice-mode first-run card ([`voice-first-run-card.tsx`](../src/domains/chat/
 
 Pair `isXSupported()` capability checks with `useIsNativePlatform()` for any pre-permission UI: capability detection alone is not sufficient.
 
+A welcome or settings card whose dismiss **does not** call the permission API is not a pre-prompt. It must stay dismissible. The first-run voice card is this case: ✕ / backdrop / Escape cancel without calling `getUserMedia`. Locking that card traps an accidental widget or Siri launch with no way out.
+
 ### Keyboard-only affordances on touch devices
 
 Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
