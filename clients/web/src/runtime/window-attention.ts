@@ -4,12 +4,16 @@ import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
 import { isElectron } from "@/runtime/is-electron";
 
 /**
- * Per-capability wrapper for the Electron host's main-window attention
- * bridge. Vellum windows set `backgroundThrottling: false`, which also
- * disables the Page Visibility API, so `document.visibilityState` is pinned
- * to `"visible"` in the desktop renderer and `visibilitychange` never fires.
- * Only the main process can say whether the window is on screen, and it
- * pushes that state here.
+ * Per-capability wrapper for the Electron host's window attention bridge.
+ * Vellum windows set `backgroundThrottling: false`, which also disables the
+ * Page Visibility API, so `document.visibilityState` is pinned to `"visible"`
+ * in the desktop renderer and `visibilitychange` never fires. Only the main
+ * process can say whether the window is on screen, and it pushes that state
+ * here.
+ *
+ * Each payload describes the window this renderer runs in, never another one.
+ * A conversation pop-out is its own window, so it reads its own visibility
+ * rather than the main window's.
  *
  * Off Electron this is a no-op returning an unsubscribe-noop: the browser and
  * the iOS shell read the same fact from the DOM through

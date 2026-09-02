@@ -3,7 +3,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { subscribeToWindowAttention } from "@/runtime/window-attention";
 
 /**
- * Electron main-window state → `app.resume` / `app.hidden`
+ * Electron window state → `app.resume` / `app.hidden`
  * (`signal: "window_attention"`), plus {@link isWindowAttended} for consumers
  * that need the answer synchronously rather than on an edge.
  *
@@ -12,6 +12,10 @@ import { subscribeToWindowAttention } from "@/runtime/window-attention";
  * windows disable background throttling, and that disables the Page
  * Visibility API with it. Off Electron the runtime wrapper is a no-op and the
  * returned unsubscribe-noop drops through cleanly.
+ *
+ * Main reports the window this renderer belongs to, so a conversation pop-out
+ * follows its own window. One left on screen keeps its stream while the main
+ * window sits minimized behind it.
  *
  * The bus edge tracks whether the window is on screen, not whether it holds
  * keyboard focus. `app.hidden` means backgrounded to every consumer that

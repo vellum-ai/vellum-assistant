@@ -19,7 +19,7 @@ import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import { handle } from "../ipc.client";
 import log from "../logger";
-import { current, ensureVisible } from "../main-window";
+import { ensureVisible } from "../main-window";
 
 /**
  * Windows notifications feature. Delivery prefers the native helper's
@@ -163,9 +163,7 @@ const notifications: CapabilityModule<DesktopCapabilityRegistry> = {
       ...(helperPath ? { create: createHelperToastFactory(helperPath) } : {}),
     });
     installNotifications();
-    const teardownWindowAttention = installWindowAttention({
-      currentMainWindow: current,
-    });
+    const teardownWindowAttention = installWindowAttention();
     app.once("before-quit", teardownWindowAttention);
   },
 };

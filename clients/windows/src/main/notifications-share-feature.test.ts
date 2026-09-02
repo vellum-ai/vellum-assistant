@@ -49,9 +49,8 @@ mock.module("./ipc.client", () => ({
 mock.module("./logger", () => ({
   default: { info: () => undefined, warn: () => undefined },
 }));
-const currentMainWindow = () => null;
 mock.module("./main-window", () => ({
-  current: currentMainWindow,
+  current: () => null,
   ensureVisible: () => Promise.resolve(),
 }));
 // The shared module imports `electron.Notification`, which does not exist
@@ -60,11 +59,11 @@ mock.module("@vellumai/electron-desktop/notifications", () => ({
   configureNotifications: () => undefined,
   installNotifications: () => undefined,
 }));
-const windowAttentionDeps: Array<{ currentMainWindow: () => unknown }> = [];
+const windowAttentionInstalls = { count: 0 };
 const teardownWindowAttention = mock(() => undefined);
 mock.module("@vellumai/electron-desktop/window-attention", () => ({
-  installWindowAttention: (deps: { currentMainWindow: () => unknown }) => {
-    windowAttentionDeps.push(deps);
+  installWindowAttention: () => {
+    windowAttentionInstalls.count += 1;
     return teardownWindowAttention;
   },
 }));
@@ -115,7 +114,7 @@ beforeEach(() => {
   saveDialogResult = { canceled: true };
   FakeSidecarClient.instances.length = 0;
   quitListeners.length = 0;
-  windowAttentionDeps.length = 0;
+  windowAttentionInstalls.count = 0;
   teardownWindowAttention.mockClear();
 });
 
@@ -123,8 +122,7 @@ describe("notifications feature", () => {
   test("installs the window-attention publisher and tears it down on quit", () => {
     notificationsFeature.install(new DesktopCapabilityRegistry());
 
-    expect(windowAttentionDeps).toHaveLength(1);
-    expect(windowAttentionDeps[0]!.currentMainWindow).toBe(currentMainWindow);
+    expect(windowAttentionInstalls.count).toBe(1);
     expect(teardownWindowAttention).not.toHaveBeenCalled();
 
     expect(quitListeners).toHaveLength(1);

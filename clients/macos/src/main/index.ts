@@ -95,7 +95,6 @@ import {
 import { installHostProxyBridge } from "./host-proxy-adapter";
 import log from "./logger";
 import {
-  current as currentMainWindow,
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
@@ -464,9 +463,7 @@ app
       logger: log,
     });
     installNotifications();
-    const teardownWindowAttention = installWindowAttention({
-      currentMainWindow,
-    });
+    const teardownWindowAttention = installWindowAttention();
     app.on("before-quit", teardownWindowAttention);
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
