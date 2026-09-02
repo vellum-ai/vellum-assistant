@@ -270,11 +270,14 @@ async function bindSubmittedChannel(input: {
   }
 
   const parkedVerify = parked?.verify;
-  // The command fixes the target and the form cannot edit it, so the parked
-  // value leads and the client's echo stands in for a read that failed. The
-  // name is the form's own field, so the submitted one leads and the parked
+  // The command fixes the target and the form cannot edit it, so a readable
+  // parked form is the only word on it: a readable form naming no target means
+  // there is none, and an echo is honored only when that form cannot be read.
+  // The name is the form's own field, so the submitted one leads and the parked
   // value stands in for a client with nowhere to type it.
-  const targetContactId = parked?.contactId ?? input.contactId;
+  const targetContactId = parkedTargetUnreadable
+    ? input.contactId
+    : parked?.contactId;
   const proposedName = displayName ?? parked?.displayName;
   const proposedNotes = parked?.notes;
 

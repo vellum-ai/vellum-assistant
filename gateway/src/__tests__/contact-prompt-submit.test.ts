@@ -1306,6 +1306,31 @@ describe("handleContactPromptSubmit", () => {
     expect(channels[0].contactId).toBe("c-alice");
   });
 
+  test("targeted bind: a readable untargeted form ignores an echoed contact id", async () => {
+    seedContact("c-alice", "Alice");
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-echo-injection",
+        address: "stranger@example.com",
+        channelType: "email",
+        contactId: "c-alice",
+      }),
+    );
+
+    // The form named no target, so the address gets its own contact. Honoring
+    // the echo here would let a stale or crafted submission attach an address
+    // to a contact the guardian's card never showed.
+    expect(res.status).toBe(200);
+    const aliceChannels = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.contactId, "c-alice"))
+      .all();
+    expect(aliceChannels).toHaveLength(0);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(2);
+  });
+
   test("targeted bind: 503 when neither the parked target nor an echo says who to bind", async () => {
     seedContact("c-alice", "Alice");
     ipcThrowOn.set("contact_prompt_flags", new Error("daemon unreachable"));
