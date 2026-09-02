@@ -1,7 +1,10 @@
 import { describe, test, expect, mock } from "bun:test";
-import type { GatewayConfig } from "../config.js";
-import { initSigningKey, mintToken } from "../auth/token-service.js";
-import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+import {
+  makeConfig,
+  makeFakeServer,
+  mintEdgeToken,
+  mintServiceEdgeToken,
+} from "./runtime-stream-test-utils.js";
 
 // Dictation is NOT a guardian-only surface. The binding lookup is mocked to a
 // principal that no token below matches, so any consultation of it would
@@ -19,67 +22,6 @@ mock.module("../auth/guardian-bootstrap.js", () => ({
 const { createSttStreamWebsocketHandler, getSttStreamWebsocketHandlers } =
   await import("../http/routes/stt-stream-websocket.js");
 import type { SttStreamSocketData } from "../http/routes/stt-stream-websocket.js";
-
-const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
-initSigningKey(TEST_SIGNING_KEY);
-
-/** Mint a valid actor edge JWT for STT stream auth. */
-function mintEdgeToken(actorPrincipalId: string = "test-user"): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: `actor:test-assistant:${actorPrincipalId}`,
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
-/** Mint a service-style token (no actor principal). */
-function mintServiceEdgeToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:gateway:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
-function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    routingEntries: [],
-    port: 7830,
-    runtimeProxyRequireAuth: true,
-    shutdownDrainMs: 5000,
-    runtimeTimeoutMs: 30000,
-    runtimeMaxRetries: 2,
-    runtimeInitialBackoffMs: 500,
-    maxWebhookPayloadBytes: 1048576,
-    logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: {
-      telegram: 50 * 1024 * 1024,
-      slack: 100 * 1024 * 1024,
-      whatsapp: 16 * 1024 * 1024,
-      default: 50 * 1024 * 1024,
-    },
-    maxAttachmentConcurrency: 3,
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    trustProxy: false,
-    ...overrides,
-  } as GatewayConfig;
-}
-
-function makeFakeServer(upgradeResult: boolean = true) {
-  return {
-    requestIP: mock(() => ({
-      address: "127.0.0.1",
-      family: "IPv4",
-      port: 54000,
-    })),
-    upgrade: mock(() => upgradeResult),
-  } as unknown as import("bun").Server<unknown>;
-}
 
 // ---------------------------------------------------------------------------
 // createSttStreamWebsocketHandler — upgrade handler tests

@@ -141,16 +141,10 @@ export async function requireBoundGuardian(
 }
 
 /**
- * The whole gate for a guardian-only runtime-stream upgrade: the managed path
- * first, then the shared actor-token gate with the pin layered on top.
- *
- * Returns null when the caller may open the socket, else the Response to send
- * instead. The managed path is taken before the token path exactly as live
- * voice takes it: velay validated the browser's token and injected the caller,
- * and the bridge proof is what says this request really came through the
- * gateway's own loopback bridge rather than from someone who guessed the
- * header names. An incomplete attestation falls through, so a managed
- * deployment still accepts a valid actor edge JWT.
+ * The whole gate for a guardian-only runtime-stream upgrade: the velay-attested
+ * managed path first, then the actor-token gate with the pin on top. Returns
+ * null when the caller may open the socket, else the Response to send. An
+ * incomplete attestation falls through, so managed still accepts an edge JWT.
  */
 export async function authorizeGuardianStream(
   req: Request,
@@ -189,9 +183,8 @@ export async function authorizeGuardianStream(
   if (!auth.ok) {
     return auth.response;
   }
-  // A null principal is the dev bypass, which validated no token and has
-  // nothing to compare. That bypass turns runtime proxy auth off wholesale,
-  // and this is not the place to reintroduce it.
+  // A null principal is the dev bypass: no token was validated, so there is
+  // nothing to compare, and the bypass is not to be reintroduced here.
   if (auth.actorPrincipalId === null) {
     return null;
   }

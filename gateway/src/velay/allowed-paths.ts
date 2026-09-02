@@ -31,11 +31,9 @@
  *
  *   - `^/v1/watch/stream` — exact match for the browser watch-session
  *     WebSocket, which carries a session's narration audio.
- *   - `^/v1/desktop/stream` — exact match for the browser pod-desktop
+ *   - `^/v1/desktop/stream`: exact match for the browser pod-desktop
  *     WebSocket, a raw RFB byte pipe to the pod's VNC server. Guardian-only
- *     at the gateway handler, the same shape as the watch stream: velay
- *     validates the browser's minted token on this path and injects the
- *     attested caller.
+ *     at the gateway handler, the same shape as the watch stream.
  *
  * `/v1/watch/stream` was deliberately absent until the client could use it.
  * The note that stood here argued the entry was premature on its own, and it
