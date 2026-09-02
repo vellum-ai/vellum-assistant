@@ -121,15 +121,18 @@ describe("augmentMcpSetupDescription", () => {
 });
 
 describe("SKILLS_INJECTION_CATALOG_HINT", () => {
-  test("points a missing product at plugin search", async () => {
+  test("points a missing product at plugin and skill search", async () => {
     const { SKILLS_INJECTION_CATALOG_HINT } = await import(
       "../skill-content.js"
     );
     expect(SKILLS_INJECTION_CATALOG_HINT).toContain(
       "assistant plugins search <name>",
     );
+    expect(SKILLS_INJECTION_CATALOG_HINT).toContain(
+      "assistant skills search <name>",
+    );
     expect(SKILLS_INJECTION_CATALOG_HINT.toLowerCase()).toContain(
-      "retrieved subset",
+      "currently in the workspace",
     );
   });
 });

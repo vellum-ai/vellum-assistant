@@ -30,12 +30,11 @@ export const ALWAYS_CANDIDATE_CARD_CHARS = 900;
 export const DEFAULT_CARD_CHARS = 500;
 
 /**
- * One-shot line under injected skill cards. Retrieval surfaces a subset of
- * `*-setup` skills for a setup prompt, and the model treats that subset as
- * the supported catalog. This line says absence is not evidence.
+ * One-shot line under injected skill cards. The cards list workspace skills
+ * only, so a missing product is not evidence it is unsupported.
  */
 export const SKILLS_INJECTION_CATALOG_HINT =
-  "Injected skills are a retrieved subset, not the full catalog. If the product or channel the user asked for is missing, run `assistant plugins search <name>` before concluding it is unsupported.";
+  "Injected skills are only ones currently in the workspace. Run `assistant plugins search <name>` and `assistant skills search <name>` before concluding a given integration or skill is unsupported";
 
 /**
  * Render the prose-style capability statement embedded into the unified

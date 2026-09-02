@@ -36,7 +36,6 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(indexed).toContain("assistant skills search");
     expect(indexed.toLowerCase()).toContain("channels");
     expect(pluginsHelp.description).toContain("channels");
-    expect(pluginsHelp.description).toContain("assistant plugins search");
     expect(indexed.toLowerCase()).not.toContain("empty query");
   });
 

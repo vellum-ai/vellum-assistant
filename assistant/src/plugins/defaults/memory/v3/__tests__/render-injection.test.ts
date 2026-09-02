@@ -45,7 +45,8 @@ describe("renderCardsBlockInner", () => {
     expect(inner).toContain(V3_CARDS_INJECTION_HEADER);
     expect(inner).toContain("# Skills\n");
     expect(inner).toContain("assistant plugins search <name>");
-    expect(inner).toContain("retrieved subset");
+    expect(inner).toContain("assistant skills search <name>");
+    expect(inner).toContain("currently in the workspace");
     expect(inner.indexOf("# Skills")).toBeLessThan(inner.indexOf("# Skill:"));
     expect(inner.startsWith(`${V3_CARDS_INJECTION_HEADER}\n\n# Skills\n`)).toBe(
       true,
