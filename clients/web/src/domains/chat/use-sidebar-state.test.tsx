@@ -715,9 +715,8 @@ describe("useSidebarState index unread threading", () => {
 });
 
 describe("useSidebarState assistant-initiated section", () => {
-  test("renders from the index row, leading the default order", () => {
-    // It is the one section the assistant fills by itself, so it is what the
-    // user should meet first on opening the app.
+  test("renders from the index row, at the foot of the list", () => {
+    // It sits at the bottom, directly above the Preferences footer.
     sidebarSectionsImpl = [
       { kind: "assistant", total: 3, unread: 1 },
       { kind: "pinned", total: 1, unread: 0 },
@@ -728,8 +727,57 @@ describe("useSidebarState assistant-initiated section", () => {
       useSidebarState({ assistantId: "asst-1", conversations: [] }),
     );
 
-    expect(result.current.sections[0]?.key).toBe("assistant");
-    expect(result.current.sections[0]?.label).toBe("On My Mind");
+    const sections = result.current.sections;
+    expect(sections.at(-1)?.key).toBe("assistant");
+    expect(sections.at(-1)?.label).toBe("On My Mind");
+  });
+
+  test("stays at the foot under a stored order that puts it first", () => {
+    // The pin is applied to the rendered order, not to the stored preference,
+    // so an order written before this section existed — or one a drag left
+    // saying otherwise — still resolves to the bottom.
+    // Chats before Pinned inverts the default, so this also proves the stored
+    // order is genuinely being read — otherwise the assertion below would
+    // hold for the default order too and prove nothing.
+    localStorage.setItem(
+      "vellum:sidebar-section-order:asst-1",
+      JSON.stringify(["assistant", "recents", "pinned"]),
+    );
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 3, unread: 1 },
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "recents",
+      "pinned",
+      "assistant",
+    ]);
+  });
+
+  test("cannot be nudged out of its slot, and nothing can be nudged past it", () => {
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 3, unread: 1 },
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    // The pinned section itself never moves.
+    expect(result.current.canMoveSection("assistant", -1)).toBe(false);
+    expect(result.current.canMoveSection("assistant", 1)).toBe(false);
+    // And Chats, the last orderable section, has nowhere further down to go —
+    // rather than offering a swap the pin would silently undo.
+    expect(result.current.canMoveSection("recents", 1)).toBe(false);
+    expect(result.current.canMoveSection("recents", -1)).toBe(true);
   });
 
   test("renders at zero, the way Chats does", () => {

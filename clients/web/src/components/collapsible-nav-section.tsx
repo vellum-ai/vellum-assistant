@@ -172,6 +172,18 @@ interface CollapsibleNavSectionSectionProps extends Omit<
 > {
   value: string;
   icon?: LucideIcon;
+  /**
+   * Leading glyph for sections whose mark is not a Lucide icon — currently
+   * the assistant-initiated section, which carries the assistant's own eyes.
+   * Takes the same slot as {@link icon} (same box, same axis, both header
+   * branches) and wins when both are given, so a section states its glyph
+   * once whichever kind it is.
+   *
+   * Sized by the caller: the slot hugs its content rather than scaling it,
+   * because the eye sprite has its own aspect ratio and a forced 12px square
+   * would distort it.
+   */
+  iconNode?: ReactNode;
   label: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
@@ -226,6 +238,7 @@ interface CollapsibleNavSectionSectionProps extends Omit<
 function CollapsibleNavSectionSection({
   value,
   icon: Icon,
+  iconNode,
   label,
   trailing,
   contextMenuContent,
@@ -249,16 +262,24 @@ function CollapsibleNavSectionSection({
   /* One slot for both header branches. The collapsible and non-collapsible
      headers show the same glyph on the same axis, so they read it from here
      rather than each rendering their own copy. */
-  const iconSlot = Icon ? (
+  const glyph = iconNode ?? (Icon ? <Icon size={12} aria-hidden /> : null);
+  const iconSlot = glyph ? (
     <span
       data-slot="collapsible-nav-section-icon"
       /* Hugs the glyph. A chip-width box with the glyph centred in it padded
          the icon away from both edges, so the header read as indented from
          the row surfaces below it. Centring is the collapsed rail's need,
          and the rail draws its own tiles. */
-      className="relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center"
+      className={cn(
+        "relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center",
+        /* Only a Lucide glyph takes the tertiary ink: it draws in
+           `currentColor`. A custom node carries its own colour (the eye
+           sprite's paths are filled from the avatar palette), so tinting the
+           box would do nothing to it and would only mislead the next reader. */
+        !iconNode && "text-[var(--content-tertiary)]",
+      )}
     >
-      <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
+      {glyph}
     </span>
   ) : null;
 
@@ -272,7 +293,8 @@ function CollapsibleNavSectionSection({
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
     /* `!` twice over: the shared title classes pin their own weight the same
        way, so a plain utility here loses to them rather than replacing them. */
-    card && "text-body-small-default max-md:text-body-small-default font-[500]!",
+    card &&
+      "text-body-small-default max-md:text-body-small-default font-[500]!",
   );
 
   const titleStyle = {
@@ -499,7 +521,9 @@ function CollapsibleNavSectionSection({
             contentClassName,
           )}
           style={{
-            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingLeft: card
+              ? 0
+              : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
           }}
         >
@@ -517,7 +541,9 @@ function CollapsibleNavSectionSection({
             contentClassName,
           )}
           style={{
-            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingLeft: card
+              ? 0
+              : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
           }}
         >
