@@ -417,9 +417,14 @@ function QuestionPage({
 
       {question.kind === "fill" ? (
         <div className="mt-3">
+          {/* `Input` is `w-fit` by default, which sizes the box to whatever
+              the suggestion happens to be and clips the rest of it. The
+              trigger phrase is the one thing on this card the user types, and
+              it has to be readable while they edit it. */}
           <Input
             id={promptId}
             type="text"
+            fullWidth
             disabled={disabled}
             value={answer?.answer ?? ""}
             onChange={(event) => {
