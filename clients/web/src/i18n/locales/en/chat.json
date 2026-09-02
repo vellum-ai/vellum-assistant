@@ -752,8 +752,10 @@
     "selectPlaceholder": "Select..."
   },
   "frameGateHud": {
+    "collapse": "Hide the frame gate readout",
     "decisionOrder": "Decision order",
     "detailLabel": "Detail (luma SD)",
+    "expand": "Show the frame gate readout",
     "keep": "Keep",
     "keptFrameAlt": "Kept frame",
     "maxIntervalLabel": "Heartbeat interval",

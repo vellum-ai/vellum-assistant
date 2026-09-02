@@ -72,6 +72,25 @@ scrim.
       flagged session the panel has two rows; on an ordinary session it has one.
       This panel is the only place the readout is switched on and off, so check
       Settings, Debug, General carries no row for it.
+- [ ] The readout is a strip on a phone. On a staff or flagged session, switch
+      the frame gate readout on with the camera up. What appears under the
+      chrome band is one slim glass row: the verdict and three small meters,
+      never the full card. It clears both the status pill above it and the two
+      corner controls beside them, with a long assistant name in the pill.
+- [ ] The strip opens the readout, and gives the frame back. Tap the strip: a
+      sheet rises from the bottom with the decision order, the recent frames,
+      the keeps and the threshold sliders. Tap the frame anywhere outside it,
+      and separately tap the bar at the top of the sheet: each closes it, and
+      neither press reaches the shutter underneath. The strip stays up while
+      the sheet is open and its meters keep moving.
+- [ ] The sheet does not take the room's gestures. With the sheet open, drag a
+      threshold slider sideways across its whole range: the value follows and
+      the room does not start sliding down. Then drag downward on the sheet's
+      own body: the room minimizes, which is the room's gesture, and nothing is
+      left on screen belonging to the readout.
+- [ ] Tuning survives the collapse. Move a threshold in the sheet, close it,
+      and open it again: the value is where it was left, and the dot marking a
+      moved threshold is still beside it. Reset puts every slider back.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
@@ -181,6 +200,11 @@ which is the thing to watch for battery and heat below.
 - [ ] Escape closes the panel before it minimizes the room. With the view
       options open, one Escape closes the panel and leaves the room up; a second
       minimizes the room.
+- [ ] The readout is a card here, and it changes width with the window. On a
+      staff or flagged session with the readout on, the full card is parked
+      under the chrome band with every slider on it. Narrow the browser window
+      past the mobile breakpoint: the card is replaced by the strip. Widen it
+      again and the card comes back, with the thresholds where they were left.
 - [ ] A mouse can hold. Press and keep the button down on the shutter for half a
       second: Live starts, and releasing takes no photo. Press and drag off the
       button before the half second and nothing happens at all.

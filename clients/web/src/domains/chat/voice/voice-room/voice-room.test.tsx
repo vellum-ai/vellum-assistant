@@ -2913,4 +2913,46 @@ describe("VoiceRoom: the frame gate's tuning readout", () => {
     judgeOneFrame();
     expect(hud()).toBeNull();
   });
+
+  /**
+   * The narrow window, where the card would be most of the viewfinder.
+   *
+   * Only the shared narrow-window signal is answered differently, so the room
+   * around the readout is the same room every other test here renders.
+   */
+  describe("on a window with no room for the card", () => {
+    beforeEach(() => {
+      mockIsMobile = true;
+    });
+
+    afterEach(() => {
+      mockIsMobile = false;
+    });
+
+    test("the readout stands down to a strip", async () => {
+      await openCamera({ readout: true, native: false });
+      judgeOneFrame();
+
+      expect(screen.queryByTestId("frame-gate-hud-strip")).not.toBeNull();
+      expect(hud()).toBeNull();
+    });
+
+    test("the strip's sheet opens inside the room, not beside it", async () => {
+      await openCamera({ readout: true, native: false });
+      judgeOneFrame();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("frame-gate-hud-strip"));
+      });
+
+      // The room's own subtree is what keeps the sheet clear of the inert
+      // sweep over the portal host's other children, and visible in front of
+      // a native preview, which hides everything outside the room.
+      const sheet = screen.getByTestId("frame-gate-hud-sheet");
+      expect(roomDialog()?.contains(sheet)).toBe(true);
+      expect(
+        document.getElementById("viewport-overlays")?.contains(sheet) ?? false,
+      ).toBe(false);
+    });
+  });
 });

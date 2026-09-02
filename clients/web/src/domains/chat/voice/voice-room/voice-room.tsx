@@ -1036,10 +1036,18 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           have decisions to read, and this is the instrument the thresholds are
           tuned with on the hardware that runs them. It draws inside the room's
           own chrome, which the native shells keep visible in front of the
-          preview layer behind the web view. */}
+          preview layer behind the web view.
+
+          Collapsible, because the surroundings here are a full-bleed
+          viewfinder: on a window with no room for the card the readout stands
+          down to a strip in this slot and puts the rest behind a tap. Which
+          window that is belongs to the readout, which reads the shared
+          narrow-window signal; the room says only that this slot is one the
+          readout may stand down in. */}
       {cameraOpen ? (
         <FrameGateHud
           surface="voice"
+          collapsible
           className="absolute top-[calc(var(--room-chrome-top)+2.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
           style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
         />
