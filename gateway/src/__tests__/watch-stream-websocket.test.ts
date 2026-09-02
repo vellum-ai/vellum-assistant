@@ -2,6 +2,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { WatchStreamSocketData } from "../http/routes/watch-stream-websocket.js";
 import {
   GUARDIAN_PRINCIPAL,
+  createFakeDownstreamWs,
   makeConfig,
   makeFakeServer,
   mintEdgeToken,
@@ -224,32 +225,17 @@ describe("createWatchStreamWebsocketHandler", () => {
 // ---------------------------------------------------------------------------
 
 describe("getWatchStreamWebsocketHandlers", () => {
-  function createFakeDownstreamWs(data: Partial<WatchStreamSocketData> = {}) {
-    const sent: (string | Uint8Array)[] = [];
-    const closes: { code: number; reason: string }[] = [];
-    const fullData: WatchStreamSocketData = {
+  const makeWatchWs = () =>
+    createFakeDownstreamWs<WatchStreamSocketData>({
       wsType: "watch-stream",
       config: makeConfig(),
       mimeType: "audio/pcm",
       sampleRate: 16000,
-      ...data,
-    };
-    return {
-      data: fullData,
-      sent,
-      closes,
-      send: mock((msg: string | Uint8Array) => {
-        sent.push(msg);
-      }),
-      close: mock((code?: number, reason?: string) => {
-        closes.push({ code: code ?? 1000, reason: reason ?? "" });
-      }),
-    };
-  }
+    });
 
   test("open initializes the pending message buffer", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeWatchWs();
 
     // Dialing upstream fails in a test process; the buffer is set up first.
     try {
@@ -268,7 +254,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
    */
   test("message buffers frames that arrive before upstream connects", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeWatchWs();
     ws.data.pendingMessages = [];
 
     handlers.message(ws as never, "narration-frame");
@@ -278,7 +264,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
 
   test("message closes the socket rather than buffering without bound", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeWatchWs();
     ws.data.pendingMessages = new Array(100).fill("x");
 
     handlers.message(ws as never, "overflow-frame");
@@ -288,7 +274,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
 
   test("message forwards straight through once upstream is open", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeWatchWs();
     ws.data.pendingMessages = [];
     const upstream = {
       readyState: WebSocket.OPEN,
@@ -304,7 +290,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
 
   test("close releases the buffer and closes upstream with the same code", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeWatchWs();
     ws.data.pendingMessages = ["some-data"];
     const upstream = {
       readyState: WebSocket.OPEN,
@@ -320,7 +306,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
 
   test("close is safe when upstream is already gone", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeWatchWs();
     const upstream = {
       readyState: WebSocket.CLOSED,
       close: mock(() => {}),

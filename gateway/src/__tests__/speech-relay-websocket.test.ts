@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, test, expect, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
-import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import type { CredentialCache } from "../credential-cache.js";
 import {
@@ -10,9 +10,12 @@ import {
   type SpeechRelaySocketData,
 } from "../http/routes/speech-relay-websocket.js";
 import { VELAY_FORWARDED_HEADER } from "../velay/bridge-utils.js";
-
-const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
-initSigningKey(TEST_SIGNING_KEY);
+import {
+  makeConfig as makeGatewayConfig,
+  makeFakeServer,
+  mintEdgeToken,
+  upgradedData,
+} from "./runtime-stream-test-utils.js";
 
 /** The daemon's self-minted service token — the only accepted principal. */
 function mintDaemonServiceToken(): string {
@@ -40,45 +43,12 @@ function mintOverScopedDaemonToken(): string {
   });
 }
 
-/** An actor edge token — valid signature, wrong principal for this path. */
-function mintActorToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "actor:test-assistant:test-user",
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 300,
-  });
-}
-
+/** The relay dials an explicit velay origin; the derivation tests unset it. */
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    routingEntries: [],
-    port: 7830,
-    runtimeProxyRequireAuth: true,
-    shutdownDrainMs: 5000,
-    runtimeTimeoutMs: 30000,
-    runtimeMaxRetries: 2,
-    runtimeInitialBackoffMs: 500,
-    maxWebhookPayloadBytes: 1048576,
-    logFile: { dir: undefined, retentionDays: 30 },
+  return makeGatewayConfig({
     velayBaseUrl: "https://velay.test",
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    trustProxy: false,
     ...overrides,
-  } as GatewayConfig;
-}
-
-function makeFakeServer(upgradeResult: boolean = true) {
-  return {
-    requestIP: mock(() => ({
-      address: "127.0.0.1",
-      family: "IPv4",
-      port: 54000,
-    })),
-    upgrade: mock(() => upgradeResult),
-  } as unknown as import("bun").Server<unknown>;
+  });
 }
 
 function makeCredentials(apiKey: string | undefined): CredentialCache {
@@ -152,12 +122,11 @@ describe("velay origin derivation", () => {
     );
 
     expect(await handler(req, server)).toBeUndefined();
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    expect(new URL(data.data.upstreamWsUrl).origin).toBe(
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    expect(new URL(data.upstreamWsUrl).origin).toBe(
       "wss://velay-staging.vellum.ai",
     );
-    expect(new URL(data.data.upstreamHttpUrl).origin).toBe(
+    expect(new URL(data.upstreamHttpUrl).origin).toBe(
       "https://velay-staging.vellum.ai",
     );
   });
@@ -185,12 +154,8 @@ describe("velay origin derivation", () => {
       );
 
       expect(await handler(req, server)).toBeUndefined();
-      const data = (
-        server.upgrade as unknown as { mock: { calls: unknown[][] } }
-      ).mock.calls[0]![1] as { data: SpeechRelaySocketData };
-      expect(new URL(data.data.upstreamWsUrl).origin).toBe(
-        "wss://velay.vellum.ai",
-      );
+      const data = upgradedData<SpeechRelaySocketData>(server);
+      expect(new URL(data.upstreamWsUrl).origin).toBe("wss://velay.vellum.ai");
     }
   });
 
@@ -209,9 +174,8 @@ describe("velay origin derivation", () => {
     );
 
     expect(await handler(req, server)).toBeUndefined();
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    expect(new URL(data.data.upstreamWsUrl).origin).toBe("wss://velay.test");
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    expect(new URL(data.upstreamWsUrl).origin).toBe("wss://velay.test");
   });
 });
 
@@ -228,9 +192,8 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
 
     expect(await handler(req, server)).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    const upstream = new URL(data.data.upstreamWsUrl);
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    const upstream = new URL(data.upstreamWsUrl);
     expect(upstream.origin).toBe("wss://velay.test");
     expect(upstream.pathname).toBe("/v1/speech/stt/stream");
     expect(upstream.searchParams.get("encoding")).toBe("linear16");
@@ -253,9 +216,8 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     );
 
     expect(await handler(req, server)).toBeUndefined();
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    const upstream = new URL(data.data.upstreamWsUrl);
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    const upstream = new URL(data.upstreamWsUrl);
     expect(upstream.pathname).toBe("/v2/speech/stt/stream");
     expect(upstream.searchParams.get("contract")).toBe("flux");
     // Without eager_eot_threshold reaching Deepgram there are no eager turn
@@ -295,11 +257,8 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     );
 
     expect(await handler(req, server)).toBeUndefined();
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    expect(new URL(data.data.upstreamWsUrl).pathname).toBe(
-      "/v1/speech/tts/stream",
-    );
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    expect(new URL(data.upstreamWsUrl).pathname).toBe("/v1/speech/tts/stream");
   });
 
   test("forwards the tts voice model to velay", async () => {
@@ -316,9 +275,8 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     );
 
     expect(await handler(req, server)).toBeUndefined();
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    const upstream = new URL(data.data.upstreamWsUrl);
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    const upstream = new URL(data.upstreamWsUrl);
     expect(upstream.searchParams.get("model")).toBe("cjVigY5qzO86Huf0OWal");
   });
 
@@ -340,7 +298,7 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
       credentials: makeCredentials("vk-1"),
     });
     const req = new Request(
-      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${mintActorToken()}`,
+      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${mintEdgeToken()}`,
       { headers: { upgrade: "websocket" } },
     );
 
@@ -715,12 +673,9 @@ describe("getSpeechRelayWebsocketHandlers", () => {
     );
 
     expect(await handler(req, server)).toBeUndefined();
-    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
-    expect(data.data.upstreamWsUrl.startsWith("wss://velay.test/")).toBe(true);
-    expect(data.data.upstreamHttpUrl.startsWith("https://velay.test/")).toBe(
-      true,
-    );
+    const data = upgradedData<SpeechRelaySocketData>(server);
+    expect(data.upstreamWsUrl.startsWith("wss://velay.test/")).toBe(true);
+    expect(data.upstreamHttpUrl.startsWith("https://velay.test/")).toBe(true);
   });
 
   test("a daemon close during the credential read prevents the velay dial", async () => {

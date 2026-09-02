@@ -1,9 +1,11 @@
 import { describe, test, expect, mock } from "bun:test";
 import {
+  createFakeDownstreamWs,
   makeConfig,
   makeFakeServer,
   mintEdgeToken,
   mintServiceEdgeToken,
+  upgradedData,
 } from "./runtime-stream-test-utils.js";
 
 // Dictation is NOT a guardian-only surface. The binding lookup is mocked to a
@@ -122,12 +124,9 @@ describe("createSttStreamWebsocketHandler", () => {
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
 
-    // Verify provider is undefined in socket data
-    const upgradeCall = (server.upgrade as ReturnType<typeof mock>).mock
-      .calls[0] as unknown[];
-    const opts = upgradeCall[1] as { data: SttStreamSocketData };
-    expect(opts.data.provider).toBeUndefined();
-    expect(opts.data.mimeType).toBe("audio/webm");
+    const data = upgradedData<SttStreamSocketData>(server);
+    expect(data.provider).toBeUndefined();
+    expect(data.mimeType).toBe("audio/webm");
   });
 
   test("returns 400 when mimeType is missing", () => {
@@ -237,12 +236,11 @@ describe("createSttStreamWebsocketHandler", () => {
     const server = makeFakeServer();
     handler(req, server);
 
-    const upgradeCall = (server.upgrade as ReturnType<typeof mock>).mock
-      .calls[0] as unknown[];
-    const opts = upgradeCall[1] as { data: SttStreamSocketData };
-    expect(opts.data.provider).toBe("deepgram");
-    expect(opts.data.mimeType).toBe("audio/webm");
-    expect(opts.data.sampleRate).toBe(16000);
+    expect(upgradedData<SttStreamSocketData>(server)).toMatchObject({
+      provider: "deepgram",
+      mimeType: "audio/webm",
+      sampleRate: 16000,
+    });
   });
 });
 
@@ -251,32 +249,17 @@ describe("createSttStreamWebsocketHandler", () => {
 // ---------------------------------------------------------------------------
 
 describe("getSttStreamWebsocketHandlers", () => {
-  function createFakeDownstreamWs(data: Partial<SttStreamSocketData> = {}) {
-    const sent: (string | Uint8Array)[] = [];
-    const closes: { code: number; reason: string }[] = [];
-    const fullData: SttStreamSocketData = {
+  const makeSttWs = () =>
+    createFakeDownstreamWs<SttStreamSocketData>({
       wsType: "stt-stream",
       config: makeConfig(),
       provider: "deepgram",
       mimeType: "audio/webm",
-      ...data,
-    };
-    return {
-      data: fullData,
-      sent,
-      closes,
-      send: mock((msg: string | Uint8Array) => {
-        sent.push(msg);
-      }),
-      close: mock((code?: number, reason?: string) => {
-        closes.push({ code: code ?? 1000, reason: reason ?? "" });
-      }),
-    };
-  }
+    });
 
   test("open handler initializes pending messages buffer", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
 
     // The open handler creates a WebSocket to upstream which will fail in test,
     // but pendingMessages should be initialized before that happens.
@@ -291,7 +274,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("message handler buffers messages when upstream is not connected", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
     ws.data.pendingMessages = [];
 
     handlers.message(ws as never, "test-audio-frame");
@@ -301,7 +284,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("message handler closes connection on buffer overflow", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
     ws.data.pendingMessages = new Array(100).fill("x"); // At MAX_PENDING_MESSAGES
 
     handlers.message(ws as never, "overflow-frame");
@@ -311,7 +294,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("close handler cleans up pending messages and closes upstream", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
     ws.data.pendingMessages = ["some-data"];
 
     const fakeUpstream = {
@@ -328,7 +311,7 @@ describe("getSttStreamWebsocketHandlers", () => {
 
   test("close handler is safe when upstream is already closed", () => {
     const handlers = getSttStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs();
+    const ws = makeSttWs();
 
     const fakeUpstream = {
       readyState: WebSocket.CLOSED,

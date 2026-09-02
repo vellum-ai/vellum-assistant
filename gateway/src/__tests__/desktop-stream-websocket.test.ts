@@ -2,6 +2,7 @@ import { afterEach, describe, test, expect, mock } from "bun:test";
 import type { DesktopStreamSocketData } from "../http/routes/desktop-stream-websocket.js";
 import {
   GUARDIAN_PRINCIPAL,
+  createFakeDownstreamWs,
   makeConfig,
   makeFakeServer,
   mintEdgeToken,
@@ -120,28 +121,17 @@ describe("getDesktopStreamWebsocketHandlers", () => {
     return { server, received, connected, upgradeUrl: () => upgradeUrl };
   }
 
-  /** `sendStatus` is what Bun reports for each downstream send; 0 is a drop. */
-  function createFakeDownstreamWs(runtime: FakeRuntime, sendStatus = 1) {
-    const sent: (string | Uint8Array)[] = [];
-    const closes: { code: number; reason: string }[] = [];
-    const data: DesktopStreamSocketData = {
-      wsType: "desktop-stream",
-      config: makeConfig({
-        assistantRuntimeBaseUrl: `http://127.0.0.1:${runtime.server.port}`,
-      }),
-    };
-    return {
-      data,
-      sent,
-      closes,
-      send: mock((msg: string | Uint8Array) => {
-        sent.push(msg);
-        return sendStatus;
-      }),
-      close: mock((code?: number, reason?: string) => {
-        closes.push({ code: code ?? 1000, reason: reason ?? "" });
-      }),
-    };
+  /** A viewer socket whose pump dials `runtime`. */
+  function makeViewerWs(runtime: FakeRuntime, sendStatus?: number) {
+    return createFakeDownstreamWs<DesktopStreamSocketData>(
+      {
+        wsType: "desktop-stream",
+        config: makeConfig({
+          assistantRuntimeBaseUrl: `http://127.0.0.1:${runtime.server.port}`,
+        }),
+      },
+      { sendStatus },
+    );
   }
 
   /** Poll until `predicate` holds, so the tests need no fixed sleeps. */
@@ -166,7 +156,7 @@ describe("getDesktopStreamWebsocketHandlers", () => {
   test("dials the runtime's /v1/desktop/stream with a service token and nothing else", async () => {
     runtime = startFakeRuntime();
     const handlers = getDesktopStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs(runtime);
+    const ws = makeViewerWs(runtime);
 
     handlers.open(ws as never);
     await runtime.connected;
@@ -179,7 +169,7 @@ describe("getDesktopStreamWebsocketHandlers", () => {
   test("delivers the runtime's bytes downstream byte-identical", async () => {
     runtime = startFakeRuntime(RFB_BANNER);
     const handlers = getDesktopStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs(runtime);
+    const ws = makeViewerWs(runtime);
 
     handlers.open(ws as never);
     await waitFor(() => ws.sent.length > 0);
@@ -198,7 +188,7 @@ describe("getDesktopStreamWebsocketHandlers", () => {
   test("closes both sides when a downstream send is dropped", async () => {
     runtime = startFakeRuntime(RFB_BANNER);
     const handlers = getDesktopStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs(runtime, 0);
+    const ws = makeViewerWs(runtime, 0);
 
     handlers.open(ws as never);
     const upstreamClose = mock(ws.data.upstream!.close.bind(ws.data.upstream));
@@ -212,7 +202,7 @@ describe("getDesktopStreamWebsocketHandlers", () => {
   test("delivers the viewer's bytes upstream byte-identical, including frames sent before the dial completes", async () => {
     runtime = startFakeRuntime();
     const handlers = getDesktopStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs(runtime);
+    const ws = makeViewerWs(runtime);
     // Every byte value, so a text-vs-binary or encoding slip cannot hide.
     const early = new Uint8Array(256).map((_, i) => i);
     const late = new Uint8Array([0xff, 0x00, 0x7f, 0x80]);
@@ -231,7 +221,7 @@ describe("getDesktopStreamWebsocketHandlers", () => {
   test("propagates the runtime's close code downstream verbatim", async () => {
     runtime = startFakeRuntime();
     const handlers = getDesktopStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs(runtime);
+    const ws = makeViewerWs(runtime);
 
     handlers.open(ws as never);
     const upstream = await runtime.connected;
@@ -244,7 +234,7 @@ describe("getDesktopStreamWebsocketHandlers", () => {
   test("propagates the viewer's close code upstream verbatim", async () => {
     runtime = startFakeRuntime();
     const handlers = getDesktopStreamWebsocketHandlers();
-    const ws = createFakeDownstreamWs(runtime);
+    const ws = makeViewerWs(runtime);
 
     handlers.open(ws as never);
     await runtime.connected;

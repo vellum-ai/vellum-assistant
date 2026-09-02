@@ -1,7 +1,8 @@
 /**
- * Shared harness for the runtime-stream WebSocket proxies (`/v1/stt/stream`,
- * `/v1/watch/stream`, `/v1/desktop/stream`): edge tokens, a gateway config,
- * and a fake `Bun.Server` whose `upgrade` result is scripted.
+ * Shared harness for the gateway's WebSocket proxy routes (`/v1/stt/stream`,
+ * `/v1/watch/stream`, `/v1/desktop/stream`, `/v1/live-voice`, the speech
+ * relay): edge tokens, a gateway config, a fake `Bun.Server` whose `upgrade`
+ * result is scripted, and a fake downstream socket that records traffic.
  */
 
 import { mock } from "bun:test";
@@ -84,4 +85,28 @@ export function upgradedData<T>(server: import("bun").Server<unknown>): T {
   const call = (server.upgrade as ReturnType<typeof mock>).mock
     .calls[0] as unknown[];
   return (call[1] as { data: T }).data;
+}
+
+/**
+ * A downstream (client-facing) socket that records what it is sent and how
+ * it is closed. `sendStatus` is what Bun reports for each send; 0 is a drop.
+ */
+export function createFakeDownstreamWs<T>(
+  data: T,
+  options: { sendStatus?: number } = {},
+) {
+  const sent: (string | Uint8Array)[] = [];
+  const closes: { code: number; reason: string }[] = [];
+  return {
+    data,
+    sent,
+    closes,
+    send: mock((msg: string | Uint8Array) => {
+      sent.push(msg);
+      return options.sendStatus ?? 1;
+    }),
+    close: mock((code?: number, reason?: string) => {
+      closes.push({ code: code ?? 1000, reason: reason ?? "" });
+    }),
+  };
 }
