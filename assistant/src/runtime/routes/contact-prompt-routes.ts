@@ -136,6 +136,28 @@ const ContactPromptParams = z.object({
     .describe(
       "Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an unchecked box leaves the channel unverified.",
     ),
+  contactId: z
+    .string()
+    .optional()
+    .describe(
+      "The contact this address binds to. Fixed by the command, not by the form.",
+    ),
+  contactDisplayName: z
+    .string()
+    .optional()
+    .describe(
+      "That contact's current name, so the form can say where the channel is going.",
+    ),
+  displayName: z
+    .string()
+    .optional()
+    .describe(
+      "Proposed name for a contact this form would create. Editable in the form.",
+    ),
+  notes: z
+    .string()
+    .optional()
+    .describe("Proposed notes for a contact this form would create."),
   timeoutMs: TimeoutMsParam,
 });
 
@@ -211,16 +233,34 @@ async function handleContactPrompt({
     description,
     role,
     verify,
+    contactId,
+    contactDisplayName,
+    displayName,
+    notes,
     timeoutMs,
   } = ContactPromptParams.parse(body);
+
+  if (contactId && displayName) {
+    return {
+      ok: false,
+      error:
+        "Pass either contactId (bind to an existing contact) or displayName (create a new one), not both.",
+    };
+  }
 
   return openGuardianForm<ContactPromptResult>({
     kind: ADDRESS_FORM,
     timeoutMs,
-    // Read back by the gateway when a client too old for the checkbox submits
-    // no answer of its own.
-    meta: { verify: verify === true },
-    logContext: { channel, role, verify: verify === true },
+    // Read back by the gateway when a client too old for these fields submits
+    // no answer of its own. Parking the target here rather than leaving it to
+    // the client is what makes such a client still bind where the command said.
+    meta: {
+      verify: verify === true,
+      ...(contactId ? { contactId } : {}),
+      ...(displayName ? { displayName } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+    },
+    logContext: { channel, role, verify: verify === true, contactId },
     broadcast: {
       open: (requestId) =>
         broadcastMessage({
@@ -236,6 +276,10 @@ async function handleContactPrompt({
           // can show what submitting will do; the client's answer is what the
           // gateway acts on.
           verify: verify === true,
+          contactId,
+          contactDisplayName,
+          displayName,
+          notes,
         }),
       closed: announceContactFormClosed,
     },
@@ -307,16 +351,33 @@ async function handleContactRecordPrompt({
   });
 }
 
+/** What a parked address form said its submission is for. */
+interface ParkedPromptTarget {
+  contactId?: string;
+  displayName?: string;
+  notes?: string;
+}
+
+const PARKED_TARGET_KEYS = ["contactId", "displayName", "notes"] as const;
+
 /**
- * Read-only flags for a pending prompt. The gateway asks this after it writes
- * the channel so a `--verify` prompt can attest without the client having to
- * echo the flag on submit.
+ * Read-only state for a pending prompt. The gateway asks this before it writes,
+ * so the flag and the binding target come from the parked form rather than from
+ * whatever the submitting client knew to echo.
  */
-function readContactPromptFlags({ body = {} }: RouteHandlerArgs): {
-  verify: boolean;
-} {
+function readContactPromptFlags({
+  body = {},
+}: RouteHandlerArgs): ParkedPromptTarget & { verify: boolean } {
   const { requestId } = ContactPromptFlagsParams.parse(body);
-  return { verify: getGuardianFormMeta(requestId)?.verify === true };
+  const meta = getGuardianFormMeta(requestId) ?? {};
+  const target: ParkedPromptTarget = {};
+  for (const key of PARKED_TARGET_KEYS) {
+    const value = meta[key];
+    if (typeof value === "string") {
+      target[key] = value;
+    }
+  }
+  return { verify: meta.verify === true, ...target };
 }
 
 // ---------------------------------------------------------------------------
@@ -418,13 +479,16 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: readContactPromptFlags,
-    summary: "Read flags for a pending contact prompt",
+    summary: "Read a pending contact prompt's flags and binding target",
     description:
-      "Returns whether the pending prompt asked the gateway to mark the submitted channel verified.",
+      "Returns whether the pending prompt asked the gateway to mark the submitted channel verified, plus the contact the parked form targets, or the name and notes it proposes for a contact to create.",
     tags: ["contacts"],
     requestBody: ContactPromptFlagsParams,
     responseBody: z.object({
       verify: z.boolean(),
+      contactId: z.string().optional(),
+      displayName: z.string().optional(),
+      notes: z.string().optional(),
     }),
   },
 ];

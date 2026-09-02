@@ -5670,8 +5670,10 @@ paths:
   /v1/contact_prompt_flags:
     post:
       operationId: contact_prompt_flags_post
-      summary: Read flags for a pending contact prompt
-      description: Returns whether the pending prompt asked the gateway to mark the submitted channel verified.
+      summary: Read a pending contact prompt's flags and binding target
+      description:
+        Returns whether the pending prompt asked the gateway to mark the submitted channel verified, plus the
+        contact the parked form targets, or the name and notes it proposes for a contact to create.
       tags:
         - contacts
       requestBody:
@@ -5696,6 +5698,12 @@ paths:
                 properties:
                   verify:
                     type: boolean
+                  contactId:
+                    type: string
+                  displayName:
+                    type: string
+                  notes:
+                    type: string
                 required:
                   - verify
                 additionalProperties: false
@@ -6628,6 +6636,18 @@ paths:
                     Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an
                     unchecked box leaves the channel unverified.
                   type: boolean
+                contactId:
+                  description: The contact this address binds to. Fixed by the command, not by the form.
+                  type: string
+                contactDisplayName:
+                  description: That contact's current name, so the form can say where the channel is going.
+                  type: string
+                displayName:
+                  description: Proposed name for a contact this form would create. Editable in the form.
+                  type: string
+                notes:
+                  description: Proposed notes for a contact this form would create.
+                  type: string
                 timeoutMs:
                   description:
                     How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is

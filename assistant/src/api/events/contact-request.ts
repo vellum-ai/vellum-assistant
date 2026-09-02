@@ -13,7 +13,8 @@
  *
  * `channel` and `role` are advisory hints, not enforced enums — the
  * client may render any input it likes and post back a structured
- * contact payload.
+ * contact payload. `contactId` is not advisory: it is the contact the
+ * submitted address binds to.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
@@ -36,6 +37,14 @@ export const ContactRequestEventSchema = z.object({
    * `--verify`. What the guardian submits is what gets attested.
    */
   verify: z.boolean().optional(),
+  /** The contact this address binds to. Fixed by the command, not by the form. */
+  contactId: z.string().optional(),
+  /** That contact's current name, so the form can say where the channel is going. */
+  contactDisplayName: z.string().optional(),
+  /** Proposed name for a contact this form would create. Editable in the form. */
+  displayName: z.string().optional(),
+  /** Proposed notes for a contact this form would create. */
+  notes: z.string().optional(),
 });
 
 export type ContactRequestEvent = z.infer<typeof ContactRequestEventSchema>;
