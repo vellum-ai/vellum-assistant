@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.11.7",
+    "version": "0.11.8",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -1410,10 +1410,14 @@
                   "operation": {
                     "description": "Required unless cancelled is true",
                     "type": "string",
-                    "enum": ["create", "update", "delete"]
+                    "enum": ["create", "update", "delete", "merge"]
                   },
                   "contactId": {
-                    "description": "Required to update or delete",
+                    "description": "Required to update or delete, and the survivor of a merge",
+                    "type": "string"
+                  },
+                  "donorContactId": {
+                    "description": "The contact merged away. Required for a merge.",
                     "type": "string"
                   },
                   "displayName": { "type": "string" },

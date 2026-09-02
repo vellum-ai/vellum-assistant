@@ -156,10 +156,17 @@ const ContactRecordSubmitRequestSchema = z.object({
     .string()
     .describe("The contact_record_request id broadcast by the assistant"),
   operation: z
-    .enum(["create", "update", "delete"])
+    .enum(["create", "update", "delete", "merge"])
     .optional()
     .describe("Required unless cancelled is true"),
-  contactId: z.string().optional().describe("Required to update or delete"),
+  contactId: z
+    .string()
+    .optional()
+    .describe("Required to update or delete, and the survivor of a merge"),
+  donorContactId: z
+    .string()
+    .optional()
+    .describe("The contact merged away. Required for a merge."),
   displayName: z.string().optional(),
   notes: z.string().nullable().optional(),
   expectedChannels: z
