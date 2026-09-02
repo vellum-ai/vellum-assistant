@@ -85,6 +85,12 @@ describe("react_to_message", () => {
     });
   });
 
+  test("wrapping colons are stripped once, for the channel and the record alike", async () => {
+    await reactToMessageTool.execute({ emoji: ":tada:" }, channelContext());
+    expect(reactCalls[0]?.target.emoji).toBe("tada");
+    expect(queued[0]?.record.emoji).toBe("tada");
+  });
+
   test("an explicit messageId overrides the default target", async () => {
     await reactToMessageTool.execute(
       { emoji: "tada", messageId: "1700000000.222222" },

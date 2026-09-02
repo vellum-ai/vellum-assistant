@@ -77,6 +77,9 @@ describe("resolveReactionEmoji", () => {
   test("a row carrying only its spelling is classified before resolving", () => {
     expect(resolveReactionEmoji({ emoji: "tada" }).display).toBe("🎉");
     expect(resolveReactionEmoji({ emoji: "👍" }).display).toBe("👍");
+    expect(
+      resolveReactionEmoji({ emoji: "thumbsup::skin-tone-3" }).display,
+    ).toBe("👍🏼");
     expect(resolveReactionEmoji({ emoji: "<:vex:12345>" })).toEqual({
       display: ":vex:",
       channelForm: "<:vex:12345>",

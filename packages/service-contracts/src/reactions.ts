@@ -45,9 +45,14 @@ export type ReactionEmojiFields = z.infer<typeof ReactionEmojiFieldsSchema>;
  * custom emoji, whose image is the channel's to serve). Computed at
  * projection time from the typed fields, never stored, so every row reads
  * the same way whenever it was written.
+ *
+ * The daemon sets it on every reaction it projects. It is optional here
+ * because the web serves its newest bundle against whichever assistant is
+ * installed, and an older one omits it; a client falls back to the
+ * spelling then (`clients/web/docs/BACKWARDS_COMPAT.md`).
  */
 export const ReactionEmojiDisplaySchema = z.object({
-  emojiDisplay: z.string(),
+  emojiDisplay: z.string().optional(),
 });
 export type ReactionEmojiDisplay = z.infer<typeof ReactionEmojiDisplaySchema>;
 

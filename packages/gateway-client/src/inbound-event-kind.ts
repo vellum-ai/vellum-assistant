@@ -193,7 +193,8 @@ export function parseDiscordEmojiMention(
  *
  * A mention form is unambiguous. Past that the two remaining kinds are told
  * apart by whether the string is a name at all: a channel's shortcode is
- * ASCII word characters, and anything else is the character itself.
+ * ASCII word characters, optionally carrying Slack's `::skin-tone-N`
+ * suffix, and anything else is the character itself.
  */
 export function classifyReactionEmojiSpelling(
   emoji: string,
@@ -214,7 +215,7 @@ export function classifyReactionEmojiSpelling(
       ...(custom.animated ? { emojiAnimated: true } : {}),
     };
   }
-  return /^[\w+-]+$/.test(emoji)
+  return /^[\w+-]+(::skin-tone-[2-6])?$/.test(emoji)
     ? { emojiKind: "shortcode", emojiName: emoji }
     : { emojiKind: "unicode", emojiName: emoji };
 }

@@ -21103,7 +21103,6 @@ paths:
                               type: boolean
                           required:
                             - emoji
-                            - emojiDisplay
                             - op
                             - targetMessageId
                           additionalProperties: false
