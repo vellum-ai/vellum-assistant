@@ -26,16 +26,14 @@ import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 
 import {
-  androidResourceNameForTraits,
-  assertUnderscoreSafeIds,
+  iconNameForTraits,
+  traitCombinations,
+  type IconSetScope,
 } from "../avatar-icon-core.js";
 import {
   AVATAR_ICONS_DIR,
   AVATAR_ICONS_XCCONFIG_PATH,
   generateAvatarIcons,
-  iconNameForTraits,
-  traitCombinations,
-  type IconSetScope,
 } from "../generate-avatar-icons.js";
 
 /** Scope of the catalog checked into the repo. Narrowing it is a code change. */
@@ -297,28 +295,6 @@ describe("iconNameForTraits", () => {
     },
     GENERATION_TIMEOUT_MS,
   );
-});
-
-describe("androidResourceNameForTraits", () => {
-  /**
-   * Android resource names admit underscores rather than dashes, so this is the
-   * wire name with every separator swapped. The literal is pinned because a
-   * drawable that changes name stops resolving from the manifest entry that
-   * references it.
-   */
-  test("builds the avatar_eyes_<eye>_<color> resource name", () => {
-    expect(
-      androidResourceNameForTraits({
-        eyeStyle: "grumpy",
-        color: "green",
-      }),
-    ).toBe("avatar_eyes_grumpy_green");
-  });
-
-  /** Whole-string dash to underscore translation only round-trips while this holds. */
-  test("accepts every id in the current library", () => {
-    expect(() => assertUnderscoreSafeIds()).not.toThrow();
-  });
 });
 
 describe("generateAvatarIcons", () => {

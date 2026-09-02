@@ -44,6 +44,9 @@ const EYE_BOUNDS_PROBE_PX = 2048;
  */
 const PILOT_EYE_STYLES = ["grumpy", "gentle"];
 
+/** Every color in the palette is a 6-digit sRGB hex, and goes straight to markup. */
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
 export type IconSetScope = "pilot" | "full";
 
 export interface AvatarIconTraits {
@@ -144,6 +147,48 @@ function assertKnownIds(
     }
   }
   return requested;
+}
+
+/** The eye style an id names, or a throw listing the ids the library defines. */
+export function requireEyeStyle(eyeStyleId: string): EyeStyle {
+  const components = getCharacterComponents();
+  const eyeStyle = components.eyeStyles.find((eye) => eye.id === eyeStyleId);
+  if (!eyeStyle) {
+    throw new Error(
+      `Unknown eye style: "${eyeStyleId}". Valid IDs: ${components.eyeStyles
+        .map((eye) => eye.id)
+        .join(", ")}`,
+    );
+  }
+  return eyeStyle;
+}
+
+/** Color id to hex, for the field every platform draws its icons on. */
+export function colorHexIndex(): Map<string, string> {
+  return new Map(
+    getCharacterComponents().colors.map((color) => [color.id, color.hex]),
+  );
+}
+
+/**
+ * The hex a color id names. Every platform interpolates it straight into markup
+ * it emits, so anything that is not a 6-digit hex is rejected here rather than
+ * written into an icon.
+ */
+export function requireColorHex(
+  index: Map<string, string>,
+  colorId: string,
+): string {
+  const hex = index.get(colorId);
+  if (!hex) {
+    throw new Error(`Unknown color id: "${colorId}"`);
+  }
+  if (!HEX_COLOR_PATTERN.test(hex)) {
+    throw new Error(
+      `Expected a 6-digit hex color for "${colorId}", got "${hex}"`,
+    );
+  }
+  return hex;
 }
 
 /** An eye style's paths, verbatim, under one shared affine transform. */
