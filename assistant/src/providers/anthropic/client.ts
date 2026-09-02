@@ -10,7 +10,11 @@ import {
 } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
-import { clampProviderString, isVideoMimeType } from "../content-block-size.js";
+import {
+  clampProviderString,
+  isDecodableTextMimeType,
+  keepFileAsWorkspaceRef,
+} from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import {
@@ -282,15 +286,6 @@ const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
-
-function isTextBasedMimeType(mediaType: string): boolean {
-  return (
-    mediaType.startsWith("text/") ||
-    mediaType === "application/json" ||
-    mediaType === "application/xml" ||
-    mediaType === "application/javascript"
-  );
-}
 
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
@@ -2183,7 +2178,7 @@ export class AnthropicProvider implements Provider {
           },
         };
       case "file": {
-        if (isVideoMimeType(block.source.media_type)) {
+        if (keepFileAsWorkspaceRef(block.source)) {
           return { type: "text", text: fileBlockToProviderText(block) };
         }
         const { media_type, data, filename } = base64Source(block.source);
@@ -2195,7 +2190,7 @@ export class AnthropicProvider implements Provider {
             ...(filename ? { title: filename } : {}),
           } as unknown as Anthropic.ContentBlockParam;
         }
-        if (isTextBasedMimeType(media_type)) {
+        if (isDecodableTextMimeType(media_type)) {
           // Decode base64 to UTF-8 text and send as PlainTextSource
           const decodedText = clampProviderString(
             Buffer.from(data, "base64").toString("utf-8"),

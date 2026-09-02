@@ -4,7 +4,9 @@ import {
   clampProviderString,
   exceedsProviderStringCap,
   extractedTextForFileBlock,
+  isDecodableTextMimeType,
   isVideoMimeType,
+  keepFileAsWorkspaceRef,
   MAX_PROVIDER_STRING_BYTES,
   PROVIDER_STRING_OMITTED_NOTE,
   utf8ByteLength,
@@ -41,5 +43,40 @@ describe("content-block-size", () => {
   test("clampProviderString replaces an over-cap string", () => {
     expect(clampProviderString("ok")).toBe("ok");
     expect(clampProviderString("abcdef", 4)).toBe(PROVIDER_STRING_OMITTED_NOTE);
+  });
+
+  test("keepFileAsWorkspaceRef covers video and over-cap text refs", () => {
+    expect(isDecodableTextMimeType("text/plain")).toBe(true);
+    expect(isDecodableTextMimeType("application/json")).toBe(true);
+    expect(isDecodableTextMimeType("application/pdf")).toBe(false);
+
+    expect(
+      keepFileAsWorkspaceRef({
+        type: "workspace_ref",
+        media_type: "video/mp4",
+        sizeBytes: 12,
+      }),
+    ).toBe(true);
+    expect(
+      keepFileAsWorkspaceRef({
+        type: "workspace_ref",
+        media_type: "text/plain",
+        sizeBytes: MAX_PROVIDER_STRING_BYTES + 1,
+      }),
+    ).toBe(true);
+    expect(
+      keepFileAsWorkspaceRef({
+        type: "workspace_ref",
+        media_type: "text/plain",
+        sizeBytes: 20,
+      }),
+    ).toBe(false);
+    expect(
+      keepFileAsWorkspaceRef({
+        type: "workspace_ref",
+        media_type: "application/pdf",
+        sizeBytes: MAX_PROVIDER_STRING_BYTES + 1,
+      }),
+    ).toBe(false);
   });
 });

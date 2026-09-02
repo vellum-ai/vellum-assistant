@@ -28,6 +28,41 @@ export function isVideoMimeType(mimeType: string): boolean {
 }
 
 /**
+ * MIME types a serializer would decode into a provider text/document string.
+ * Binary types (PDF, images, audio) stay out of this set: they are not the
+ * OpenAI `string_above_max_length` failure mode.
+ */
+export function isDecodableTextMimeType(mimeType: string): boolean {
+  const normalised = mimeType.toLowerCase().trim().split(";")[0]?.trim() ?? "";
+  return (
+    normalised.startsWith("text/") ||
+    normalised === "application/json" ||
+    normalised === "application/xml" ||
+    normalised === "application/javascript"
+  );
+}
+
+/**
+ * Video and over-cap text files stay on disk. Serializers name the workspace
+ * file; they must not load bytes or emit a decoded dump.
+ */
+export function keepFileAsWorkspaceRef(source: {
+  type: string;
+  media_type: string;
+  sizeBytes?: number;
+}): boolean {
+  if (isVideoMimeType(source.media_type)) {
+    return true;
+  }
+  return (
+    source.type === "workspace_ref" &&
+    source.sizeBytes !== undefined &&
+    source.sizeBytes > MAX_PROVIDER_STRING_BYTES &&
+    isDecodableTextMimeType(source.media_type)
+  );
+}
+
+/**
  * Drop `extracted_text` that must not ride a file block into the provider
  * prompt: video is a workspace file, not a transcript dump, and any extract
  * over the cap belongs in the attachment store rather than the request.

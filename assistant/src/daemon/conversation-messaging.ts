@@ -276,25 +276,9 @@ export async function serializePersistedUserMessageContent(
   content: string,
   displayContent: string | undefined,
   attachments: MessageAttachmentInput[],
-  portCtx?: PortOversizedContext,
 ): Promise<string> {
   const attachmentBlocks = await attachmentsToContentBlocks(attachments);
-  const persistText = displayContent !== undefined ? displayContent : content;
-  if (!portCtx) {
-    return serializeUserContentBlocks(
-      content,
-      displayContent,
-      attachmentBlocks,
-    );
-  }
-  const offload = await offloadOversizedText(persistText, portCtx);
-  return JSON.stringify(
-    assembleUserContentBlocks(
-      offload.text,
-      attachmentBlocks,
-      offload.fileBlock,
-    ),
-  );
+  return serializeUserContentBlocks(content, displayContent, attachmentBlocks);
 }
 
 /**

@@ -10,7 +10,10 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
-import { clampProviderString, isVideoMimeType } from "../content-block-size.js";
+import {
+  clampProviderString,
+  keepFileAsWorkspaceRef,
+} from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
@@ -776,7 +779,7 @@ export class GeminiProvider implements Provider {
           break;
         }
         case "file": {
-          if (isVideoMimeType(block.source.media_type)) {
+          if (keepFileAsWorkspaceRef(block.source)) {
             parts.push({ text: fileBlockToProviderText(block) });
             break;
           }

@@ -28,7 +28,7 @@ import {
   sniffImageMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
-import { isVideoMimeType } from "./content-block-size.js";
+import { keepFileAsWorkspaceRef } from "./content-block-size.js";
 import {
   attachmentIdFragment,
   type Base64MediaSource,
@@ -266,9 +266,10 @@ async function resolveImageBlock(
 }
 
 function resolveFileBlock(block: FileContent): ContentBlock {
-  // Video stays a workspace file. Do not load bytes or carry extracted_text
-  // into the provider prompt: serializers name the file and stop there.
-  if (isVideoMimeType(block.source.media_type)) {
+  // Video and over-cap text stay a workspace file. Do not load bytes or
+  // carry extracted_text into the provider prompt: serializers name the
+  // file and stop there.
+  if (keepFileAsWorkspaceRef(block.source)) {
     if (block.extracted_text === undefined) {
       return block;
     }
@@ -366,7 +367,7 @@ function contentNeedsResolution(
         : base64ImageNeedsRewrite(block.source, options);
     }
     if (block.type === "file") {
-      if (isVideoMimeType(block.source.media_type)) {
+      if (keepFileAsWorkspaceRef(block.source)) {
         return block.extracted_text !== undefined;
       }
       return block.source.type === "workspace_ref";
