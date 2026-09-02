@@ -436,6 +436,7 @@ export async function runBackgroundJob(
         jobName: opts.jobName,
         sourceChannel: "assistant_tool",
         sourceContextId: conversationId,
+        presenceConversationId: conversationId,
         errorKind,
         errorMessage: error.message,
         ...(failureCode !== undefined ? { failureCode } : {}),
