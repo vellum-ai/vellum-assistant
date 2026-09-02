@@ -252,8 +252,14 @@ async function readContactForPrompt(
     };
   }
 
+  const failure = r as { ok: false; error?: string; statusCode?: number };
   exitFromIpcResult(
-    r as { ok: false; error?: string; statusCode?: number },
+    failure.statusCode === 404
+      ? {
+          ...failure,
+          error: `Contact "${id}" not found. Run 'assistant contacts list' to find contact ids.`,
+        }
+      : failure,
     cmd,
   );
   return null;
@@ -275,6 +281,123 @@ function reportFormDismissal(cmd: Command): void {
     process.stdout.write("Cancelled: nothing was written\n");
   }
   process.exitCode = 130;
+}
+
+interface AddressPromptOptions {
+  channel?: string;
+  placeholder?: string;
+  defaultValue?: string;
+  role?: string;
+  label?: string;
+  description?: string;
+  timeout?: string;
+  verify?: boolean;
+  contactId?: string;
+  contactDisplayName?: string;
+  displayName?: string;
+  notes?: string;
+}
+
+/**
+ * Park on the guardian's answer to an address form, then report the channel it
+ * bound. The guardian edits the address before submitting, so the report comes
+ * from the result rather than from what was proposed.
+ */
+async function runAddressPrompt(
+  opts: AddressPromptOptions,
+  cmd: Command,
+): Promise<void> {
+  const timeoutMs = parseFormTimeout(opts.timeout, cmd);
+  if (timeoutMs === null) {
+    return;
+  }
+  const r = await cliIpcCall<ContactPromptResult>(
+    "contacts_prompt",
+    {
+      body: {
+        channel: opts.channel,
+        placeholder: opts.placeholder,
+        defaultValue: opts.defaultValue,
+        role: opts.role,
+        label: opts.label,
+        description: opts.description,
+        verify: opts.verify === true,
+        contactId: opts.contactId,
+        contactDisplayName: opts.contactDisplayName,
+        displayName: opts.displayName,
+        notes: opts.notes,
+        timeoutMs,
+      },
+    },
+    { timeoutMs: guardianFormCallBudgetMs(timeoutMs) },
+  );
+
+  if (!r.ok) {
+    return exitFromIpcResult(
+      r as { ok: false; error?: string; statusCode?: number },
+      cmd,
+    );
+  }
+
+  if (r.result?.cancelled === true) {
+    return reportFormDismissal(cmd);
+  }
+
+  if (!r.result?.ok) {
+    writeError(cmd, r.result?.error ?? "Contact prompt failed");
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = r.result;
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, result);
+  } else {
+    process.stdout.write(
+      `Registered ${result.channelType} channel: ${result.address}\n` +
+        `  Channel ID: ${result.channelId}\n` +
+        `  Contact ID: ${result.contactId}\n` +
+        // The guardian's checkbox decides this, so report what the
+        // channel is rather than what the flag asked for.
+        `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
+    );
+  }
+}
+
+/**
+ * Whether the address is free to bind to this contact.
+ *
+ * Advisory: the guardian can edit the address in the form, and the gateway
+ * checks again before writing. This only saves opening a form that would be
+ * refused. A failed lookup is not a refusal.
+ */
+async function addressIsBindable(
+  channelType: string,
+  address: string,
+  targetContactId: string,
+  cmd: Command,
+): Promise<boolean> {
+  const r = await cliIpcCall<{ ok: boolean; contacts: ContactWithChannels[] }>(
+    "listContacts",
+    { queryParams: { channelAddress: address, channelType } },
+  );
+  if (!r.ok) {
+    return true;
+  }
+
+  const holder = (r.result?.contacts ?? []).find(
+    (c) => c.id !== targetContactId,
+  );
+  if (!holder) {
+    return true;
+  }
+
+  writeError(
+    cmd,
+    `That ${channelType} address is already bound to "${holder.displayName}" (${holder.id}). Run 'assistant contacts merge <keepId> <donorId>' if they are the same person.`,
+  );
+  process.exitCode = 1;
+  return false;
 }
 
 /**
@@ -626,57 +749,12 @@ export function registerContactsCommand(program: Command): void {
           },
           cmd: Command,
         ) => {
-          const timeoutMs = parseFormTimeout(opts.timeout, cmd);
-          if (timeoutMs === null) {
-            return;
-          }
-          const r = await cliIpcCall<ContactPromptResult>(
-            "contacts_prompt",
-            {
-              body: {
-                channel: opts.channel,
-                placeholder: opts.placeholder,
-                defaultValue: opts.defaultValue,
-                role: opts.role ?? "unknown",
-                label: opts.label,
-                description: opts.description,
-                verify: opts.verify === true,
-                timeoutMs,
-              },
-            },
-            { timeoutMs: guardianFormCallBudgetMs(timeoutMs) },
+          // The form seeds a role either way, so an unstated one is stated
+          // here rather than left for the daemon to pick.
+          await runAddressPrompt(
+            { ...opts, role: opts.role ?? "unknown" },
+            cmd,
           );
-
-          if (!r.ok) {
-            return exitFromIpcResult(
-              r as { ok: false; error?: string; statusCode?: number },
-              cmd,
-            );
-          }
-
-          if (r.result?.cancelled === true) {
-            return reportFormDismissal(cmd);
-          }
-
-          if (!r.result?.ok) {
-            writeError(cmd, r.result?.error ?? "Contact prompt failed");
-            process.exitCode = 1;
-            return;
-          }
-
-          const result = r.result;
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, result);
-          } else {
-            process.stdout.write(
-              `Registered ${result.channelType} channel: ${result.address}\n` +
-                `  Channel ID: ${result.channelId}\n` +
-                `  Contact ID: ${result.contactId}\n` +
-                // The guardian's checkbox decides this, so report what the
-                // channel is rather than what the flag asked for.
-                `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
-            );
-          }
         },
       );
 
@@ -685,6 +763,52 @@ export function registerContactsCommand(program: Command): void {
       // -----------------------------------------------------------------------
 
       const channelsCmds = subcommand(contacts, "channels");
+
+      subcommand(channelsCmds, "add").action(
+        async (
+          contactId: string,
+          opts: {
+            channel: string;
+            address?: string;
+            verify?: boolean;
+            label?: string;
+            description?: string;
+            timeout?: string;
+          },
+          cmd: Command,
+        ) => {
+          const current = await readContactForPrompt(contactId, cmd);
+          if (!current) {
+            return;
+          }
+          if (
+            opts.address !== undefined &&
+            !(await addressIsBindable(
+              opts.channel,
+              opts.address,
+              contactId,
+              cmd,
+            ))
+          ) {
+            return;
+          }
+          await runAddressPrompt(
+            {
+              contactId,
+              contactDisplayName: current.displayName,
+              channel: opts.channel,
+              defaultValue: opts.address,
+              verify: opts.verify,
+              label:
+                opts.label ??
+                `Add ${opts.channel} channel for ${current.displayName}`,
+              description: opts.description,
+              timeout: opts.timeout,
+            },
+            cmd,
+          );
+        },
+      );
 
       subcommand(channelsCmds, "update-status").action(
         async (
