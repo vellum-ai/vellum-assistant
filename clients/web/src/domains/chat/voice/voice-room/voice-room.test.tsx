@@ -248,6 +248,26 @@ mock.module("@/domains/chat/api/messages", () => ({
   uploadChatAttachment: uploadChatAttachmentSpy,
 }));
 
+// Sight is left real except for the frame it holds. A kept frame is the end of
+// a chain (decode, canvas readback, upload) that no test environment runs, and
+// the room's own job is only to decide whether to draw it, so the hook runs
+// unchanged and a test can put a frame in its hand. Null by default, which is
+// what every other test in this file sees.
+let mockHeldFrame: { attachmentId: string; previewUrl: string } | null = null;
+// Bound before the registry entry is replaced, since `mock.module` rewrites
+// the namespace this was read from: reaching back through it inside the
+// factory would call the mock.
+const { useVoiceRoomSight: realUseVoiceRoomSight } =
+  await import("@/domains/chat/voice/voice-room/use-voice-room-sight");
+mock.module("@/domains/chat/voice/voice-room/use-voice-room-sight", () => ({
+  useVoiceRoomSight: (
+    ...args: Parameters<typeof realUseVoiceRoomSight>
+  ): ReturnType<typeof realUseVoiceRoomSight> => {
+    const sight = realUseVoiceRoomSight(...args);
+    return mockHeldFrame ? { ...sight, heldFrame: mockHeldFrame } : sight;
+  },
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } =
   await import("@/domains/chat/voice/voice-room/voice-room");
@@ -315,6 +335,7 @@ beforeEach(() => {
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
+  mockHeldFrame = null;
   useLiveVoiceStore.getState().reset();
   useConversationStore
     .getState()
@@ -1160,14 +1181,40 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
 
 describe("VoiceRoom: top-right corner", () => {
   test("holds the minimize and nothing else", () => {
-    // The corner is down to one control. A cluster of small chrome competed
-    // with the room's own cast, so the in-session settings gear was deleted;
-    // voice and listening language are picked in Settings.
+    // With no viewfinder up the corner is down to one control. A cluster of
+    // small chrome competed with the room's own cast, so the in-session
+    // settings gear was deleted; voice and listening language are picked in
+    // Settings.
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(minimizeButton()).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
+    expect(screen.queryByTestId("camera-view-settings")).toBeNull();
+  });
+
+  test("gains the camera's view options while the viewfinder is up", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Inboard of minimize, which keeps the extreme corner: the light exit is
+    // the one muscle memory reaches for without looking.
+    expect(screen.getByTestId("camera-view-settings")).not.toBeNull();
+    expect(minimizeButton()).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Closing the viewfinder takes the options with it: they name nothing the
+    // room draws once the feed is gone.
+    expect(screen.queryByTestId("camera-view-settings")).toBeNull();
   });
 });
 
@@ -1809,11 +1856,16 @@ describe("VoiceRoom: camera", () => {
     expect(screen.getByTestId("camera-status-pill").textContent).toContain(
       "Photo",
     );
-    // Centred on the minimize control's own line, so the room hands it a
-    // ceiling that keeps a long assistant name clear of that corner.
-    expect(
-      screen.getByTestId("camera-status-pill-slot").getAttribute("style"),
-    ).toContain("max-width");
+    // On the corner chrome's own line and centred in the band that chrome
+    // leaves, so a long assistant name truncates inside a ceiling instead of
+    // running under the cluster. The right reserve is the two-control one.
+    expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
+      "left-[var(--camera-pill-left)] right-[var(--camera-pill-right)]",
+    );
+    expect(roomDialog()?.getAttribute("style")).toContain(
+      "--camera-pill-right: calc(max(1.25rem, var(--safe-area-inset-right",
+    );
+    expect(roomDialog()?.getAttribute("style")).toContain(")) + 7.25rem)");
     // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
     // bottom scrim lies over the shutter and the whole control row.
     const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");
@@ -2050,6 +2102,7 @@ describe("VoiceRoom: camera", () => {
     ).map((button) => button.getAttribute("aria-label"));
 
     expect(order).toEqual([
+      "Camera view options",
       "Minimize voice room",
       "Take a photo",
       "Flip camera",
@@ -2166,6 +2219,74 @@ describe("VoiceRoom: camera", () => {
     } finally {
       restoreCapture();
     }
+  });
+
+  /**
+   * The kept-frame thumbnail: what the camera's view options can stand down.
+   *
+   * The preference reaches the drawing and nothing else. Sampling, sending and
+   * the transcript record of a kept frame are `use-voice-room-sight.ts`'s and
+   * are unchanged by it, which is why the frame arrives here through the hook
+   * either way and only the render is asked about.
+   */
+  describe("the kept-frame thumbnail", () => {
+    const keptFrame = () => screen.queryByTestId("voice-room-sight-frame");
+
+    /** Open the camera with a frame already held. */
+    async function openCameraHoldingAFrame(): Promise<void> {
+      mockHeldFrame = {
+        attachmentId: "att-kept-1",
+        previewUrl: "blob:kept-frame",
+      };
+      stubMediaDevices(async () => fakeStream());
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+    }
+
+    test("is drawn while the preference is on", async () => {
+      await openCameraHoldingAFrame();
+
+      expect(keptFrame()?.getAttribute("src")).toBe("blob:kept-frame");
+    });
+
+    test("is gone once the preference is off, and takes its row with it", async () => {
+      await openCameraHoldingAFrame();
+
+      await act(async () => {
+        useVoicePrefsStore.getState().setShowKeptFrame(false);
+      });
+
+      expect(keptFrame()).toBeNull();
+      // No photos taken, so hiding the thumbnail empties the row it shared
+      // with the strip: an empty inset row would hold space for nothing.
+      expect(screen.queryByTestId("voice-room-capture-row")).toBeNull();
+    });
+
+    test("hiding it leaves the photo strip alone", async () => {
+      const restoreCapture = stubFrameCapture();
+      try {
+        await openCameraHoldingAFrame();
+        await act(async () => {
+          fireEvent.click(screen.getByTestId("voice-room-shutter"));
+        });
+
+        await act(async () => {
+          useVoicePrefsStore.getState().setShowKeptFrame(false);
+        });
+
+        // A photo is a receipt for something the user did, and no view
+        // preference speaks for it.
+        expect(screen.getAllByTestId("voice-room-photo")).toHaveLength(1);
+        expect(screen.getByTestId("voice-room-capture-row")).not.toBeNull();
+        expect(keptFrame()).toBeNull();
+      } finally {
+        restoreCapture();
+      }
+    });
   });
 
   test("a photo the assistant refuses is struck from the strip", async () => {
@@ -2510,6 +2631,7 @@ describe("VoiceRoom: camera", () => {
       ).map((button) => button.getAttribute("aria-label"));
 
       expect(order).toEqual([
+        "Camera view options",
         "Minimize voice room",
         "Stop live",
         "Flip camera",
