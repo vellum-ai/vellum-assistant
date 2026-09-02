@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildClearChatErrorByCodeUpdater,
+  buildGenericChatErrorUpdater,
   getChatBillingBannerDecision,
   isCreditsExhaustedProviderError,
   isManagedCredentialChatError,
@@ -358,5 +360,37 @@ describe("isCreditsExhaustedProviderError", () => {
     );
     expect(isCreditsExhaustedProviderError(undefined)).toBe(false);
     expect(isCreditsExhaustedProviderError(null)).toBe(false);
+  });
+});
+
+describe("buildGenericChatErrorUpdater", () => {
+  test("sets the requested error when no higher-priority error is present", () => {
+    const updater = buildGenericChatErrorUpdater({
+      code: "LOAD_FAILED",
+      message: "Failed to load.",
+    });
+    expect(updater(null)).toEqual({ code: "LOAD_FAILED", message: "Failed to load." });
+  });
+
+  test("preserves a billing error instead of overwriting it", () => {
+    const updater = buildGenericChatErrorUpdater({
+      code: "LOAD_FAILED",
+      message: "Failed to load.",
+    });
+    const billingError = { code: "OTHER", errorCategory: "credits_exhausted", message: "No credits" };
+    expect(updater(billingError)).toBe(billingError);
+  });
+});
+
+describe("buildClearChatErrorByCodeUpdater", () => {
+  test("clears an error with the matching code", () => {
+    const updater = buildClearChatErrorByCodeUpdater("LOAD_FAILED");
+    expect(updater({ code: "LOAD_FAILED", message: "Failed." })).toBeNull();
+  });
+
+  test("leaves an error with a different code untouched", () => {
+    const updater = buildClearChatErrorByCodeUpdater("LOAD_FAILED");
+    const otherError = { code: "OTHER", message: "Other." };
+    expect(updater(otherError)).toBe(otherError);
   });
 });

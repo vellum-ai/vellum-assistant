@@ -43,6 +43,10 @@ import {
   extractWirePendingQuestion,
 } from "@/domains/chat/utils/chat";
 import {
+  buildClearChatErrorByCodeUpdater,
+  buildGenericChatErrorUpdater,
+} from "@/domains/chat/utils/error-classification";
+import {
   decidePendingQuestion,
   type ReportedQuestion,
 } from "@/domains/chat/pending-question";
@@ -57,6 +61,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
@@ -113,6 +118,8 @@ type HistoryCache = InfiniteData<PaginatedHistoryResult>;
  * that is already anomalous.
  */
 export const SERVER_PROCESSING_REVALIDATE_MS = 4_000;
+
+const CONVERSATION_HISTORY_LOAD_FAILED_CODE = "CONVERSATION_HISTORY_LOAD_FAILED";
 
 /**
  * Structural equality for surface `data` payloads. Both sides come from the
@@ -749,6 +756,31 @@ export function useConversationHistory({
   );
 
   // -------------------------------------------------------------------------
+  // Retry stale history loads when the native mobile app returns.
+  //
+  // If the history query failed while the app was backgrounded, clear any
+  // history-owned banner and force a refetch when the user foregrounds the
+  // native shell. A successful retry clears the error; a persistent failure
+  // re-surfaces through the error effect below (still gated by the resume
+  // grace window).
+  // -------------------------------------------------------------------------
+  useBusSubscription("app.resume", () => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationId ||
+      !isNativeMobile()
+    ) {
+      return;
+    }
+    if (!pagination.isError) {
+      return;
+    }
+    setError(buildClearChatErrorByCodeUpdater(CONVERSATION_HISTORY_LOAD_FAILED_CODE));
+    void pagination.invalidate();
+  });
+
+  // -------------------------------------------------------------------------
   // Sync older-page loading state into the pagination mirror.
   // -------------------------------------------------------------------------
   useEffect(() => {
@@ -761,36 +793,46 @@ export function useConversationHistory({
   }, [pagination.isFetchingOlderPages, setTranscriptPagination]);
 
   // -------------------------------------------------------------------------
-  // Surface TanStack Query errors.
+  // Surface or clear TanStack Query history errors.
   //
   // An initial-page failure inside the resume grace window is held back: the
   // refetch that fires when the client returns from the background often
   // fails transiently against a still-waking pod. It is still reported, and
   // the blocking error surfaces once the window expires.
+  //
+  // When the query recovers (a successful fetch completes), clear any
+  // history-owned error banner so the message does not outlive the failure.
   // -------------------------------------------------------------------------
   const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
-    if (!pagination.isError || !pagination.error) {
+    if (pagination.isError && pagination.error) {
+      const isInitialLoadError = pagination.isLoadingError;
+      captureError(pagination.error, {
+        context: isInitialLoadError
+          ? "conversation_history_initial"
+          : "conversation_history_cached",
+      });
+
+      if (isInitialLoadError) {
+        setIsLoadingHistory(false);
+        if (!isResumeGraceActive) {
+          setError(
+            buildGenericChatErrorUpdater({
+              code: CONVERSATION_HISTORY_LOAD_FAILED_CODE,
+              message: "Failed to load conversation history. Please try again.",
+            }),
+          );
+        }
+      }
       return;
     }
 
-    const isOlderPageError = pagination.isSuccess;
-    captureError(pagination.error, {
-      context: isOlderPageError
-        ? "conversation_history_older_page"
-        : "conversation_history_initial",
-    });
-
-    if (!isOlderPageError) {
-      setIsLoadingHistory(false);
-      if (!isResumeGraceActive) {
-        setError({
-          message: "Failed to load conversation history. Please try again.",
-        });
-      }
+    if (pagination.isSuccess) {
+      setError(buildClearChatErrorByCodeUpdater(CONVERSATION_HISTORY_LOAD_FAILED_CODE));
     }
   }, [
     pagination.isError,
+    pagination.isLoadingError,
     pagination.isSuccess,
     pagination.error,
     isResumeGraceActive,
