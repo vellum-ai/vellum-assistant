@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@vellumai/design-library";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   GraduationCap,
@@ -22,6 +23,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
 import { useTranslation } from "@/i18n";
+import { cn } from "@/utils/misc";
 
 /**
  * The end of a Watch (teach mode) session: what the assistant was taught, the
@@ -581,21 +583,70 @@ function QuestionPage({
           role="group"
           aria-labelledby={promptId}
         >
-          {(question.options ?? []).map((option, index) => (
-            <ListRow
-              key={option.id || `${index}-${option.label}`}
-              title={option.label}
-              subtitle={option.note}
-              // The first option is the standing answer until another is
-              // tapped, so it is the one drawn as selected.
-              selected={selectedOptionId === option.id}
-              disabled={disabled}
-              showChevron={false}
-              onClick={() => {
-                onPick(option.id, option.label);
-              }}
-            />
-          ))}
+          {/* Rows in the shape `choice-surface` gives its options, which is the
+              app's single-select: separate raised rows, no dividers, a mark
+              that says which one is standing. `ListRow` was the wrong
+              primitive here twice over. Its `[&+&]` hairline is meant for a
+              flush settings list, so a divider under a filled row read as a
+              section break rather than as a gap between two options. And a
+              radio group cannot commit on tap: Radix moves the selection on
+              arrow keys, so advancing on change would carry a keyboard user
+              off the page before they reached the third option. A button per
+              option keeps the tap-to-commit gesture and leaves Tab and Enter
+              working. */}
+          {(question.options ?? []).map((option, index) => {
+            const selected = selectedOptionId === option.id;
+            return (
+              <button
+                key={option.id || `${index}-${option.label}`}
+                type="button"
+                aria-pressed={selected}
+                disabled={disabled}
+                onClick={() => {
+                  onPick(option.id, option.label);
+                }}
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors",
+                  "bg-[var(--surface-overlay)] hover:bg-[var(--surface-active)]",
+                  "disabled:cursor-default disabled:opacity-70",
+                  selected && "ring-1 ring-[var(--primary-base)]",
+                )}
+              >
+                {/* The mark, not the fill, is what says which option is
+                    standing. A background alone left a middle selection
+                    looking like a section of its own. */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+                    selected
+                      ? "border-transparent bg-[var(--primary-base)] text-[var(--content-inset)]"
+                      : "border-[var(--border-element)]",
+                  )}
+                >
+                  {selected && <Check className="h-3.5 w-3.5" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <Typography
+                    as="span"
+                    variant="body-medium-default"
+                    className="block text-[color:var(--content-strong)]"
+                  >
+                    {option.label}
+                  </Typography>
+                  {option.note && (
+                    <Typography
+                      as="span"
+                      variant="body-small-default"
+                      className="mt-0.5 block text-[color:var(--content-quiet)]"
+                    >
+                      {option.note}
+                    </Typography>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -647,7 +698,7 @@ function SummaryPage({
         </Typography>
       )}
 
-      <div className="mt-6 grid gap-1">
+      <div className="mt-6">
         {trigger && (
           <ListRow
             title={t("watchRetroSurface.summarySay")}
