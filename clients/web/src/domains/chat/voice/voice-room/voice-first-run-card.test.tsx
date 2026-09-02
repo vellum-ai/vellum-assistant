@@ -226,7 +226,7 @@ describe("VoiceFirstRunCard", () => {
   test("a backdrop tap cancels the intro the same way", () => {
     // The overlay carries its own onClick (design-library `modal.tsx`) rather
     // than leaning on Radix's document-level listener, which is what makes the
-    // tap register in the iOS WKWebView — see CAPACITOR.md § Click events
+    // tap register in the iOS WKWebView. See CAPACITOR.md § Click events
     // require interactive elements on iOS.
     const onStart = mock(() => {});
     const onDismiss = mock(() => {});

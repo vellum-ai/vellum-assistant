@@ -52,7 +52,8 @@ export function getEligibleHostClientOs(
   const eligible = new Set<ClientOs>();
   const sourceClientOs =
     context.transportInterface === "macos" ||
-    context.transportInterface === "windows"
+    context.transportInterface === "windows" ||
+    context.transportInterface === "linux"
       ? context.transportInterface
       : context.clientOs;
   if (

@@ -12,7 +12,10 @@ import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
-import { useHoldToDictateEnabled } from "@/utils/hold-to-dictate";
+import {
+  markHoldDictation,
+  useHoldToDictateEnabled,
+} from "@/utils/hold-to-dictate";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -24,6 +27,14 @@ import { toast } from "@vellumai/design-library/components/toast";
 interface GlobalPushToTalkBridgeProps {
   assistantId: string | null;
 }
+
+/**
+ * How long a hold gives the cleanup pass before inserting the words as heard.
+ *
+ * The route's own timeout, so the pass gets every chance to answer while its
+ * cost is being measured. The log line below carries what each hold paid.
+ */
+const CLEANUP_DEADLINE_MS = 5000;
 
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
@@ -63,12 +74,6 @@ export function GlobalPushToTalkBridge({
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   const holdToDictateEnabled = useHoldToDictateEnabled();
-  /**
-   * Whether the dictation in flight was started by the hold rather than by a
-   * press. A ref because the transcript arrives after the keys are back up, so
-   * a state read at that point would already describe the next silence.
-   */
-  const holdRef = useRef(false);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -86,6 +91,24 @@ export function GlobalPushToTalkBridge({
   // one surface saying a microphone is open rather than a panel and a pill
   // saying it separately.
   useDictationOverlaySync({ suppressed: holdToDictateEnabled });
+
+  /**
+   * The recorder a held key drives, which is always this bridge's own.
+   *
+   * Never {@link resolveTarget}. That answers with whatever most recently
+   * claimed dictation, and on a chat route that is the composer's microphone,
+   * whose transcript is spliced into the composer and sent as a turn. A hold
+   * is aimed at a cursor in another application: its words belong there, and
+   * routing them into a conversation instead both loses them and spends a turn
+   * the user did not ask for.
+   *
+   * The composer's own microphone is unaffected; this only decides where the
+   * keys go.
+   */
+  const holdTarget = useCallback(
+    () => (assistantId ? fallbackVoiceInputRef.current : null),
+    [assistantId],
+  );
 
   const resolveTarget = useCallback(
     () =>
@@ -118,36 +141,64 @@ export function GlobalPushToTalkBridge({
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
       }
-      holdRef.current = true;
-      resolveTarget()?.start();
+      // Read by the recording session as it starts, which decides there
+      // whether the local transcript is the authority.
+      markHoldDictation(true);
+      holdTarget()?.start();
     },
     onHoldEnd: () => {
+      markHoldDictation(false);
       if (useVoiceRecordingStore.getState().phase !== "recording") {
-        holdRef.current = false;
         return;
       }
-      resolveTarget()?.stop();
+      holdTarget()?.stop();
     },
   });
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
       let insertText = rawText;
-      // The cleanup pass is a daemon round-trip that runs a model, and it sits
-      // between letting go of the keys and seeing the words. A hold is aimed at
-      // a cursor in another app, where the wait is the whole experience and the
-      // intent needs no classifying, so those words go straight down and the
-      // pass is spent only where something is waiting on it anyway.
-      const dictationResult =
-        assistantId && !holdRef.current
-          ? await postDictation(rawText, assistantId, {
-              cursorInTextField: true,
-            })
-          : null;
+      // The cleanup pass: one model call that punctuates, drops the fillers,
+      // adapts the tone to the application in front and applies the user's
+      // own style. It is what turns "grocery list, onions, tomatoes" into a
+      // list, and the only leg of this that can. A hold takes it too, now that
+      // nothing else on its path is worth waiting for; what it costs is
+      // measured rather than assumed. Character counts and timings only.
+      //
+      // Raced against a deadline rather than awaited, so a daemon that is not
+      // answering costs the hold the deadline and no more. Past it the raw
+      // words go down and the late answer is dropped.
+      const cleanupStartedAt = Date.now();
+      const cleanupAbort = new AbortController();
+      const dictationResult = assistantId
+        ? await Promise.race([
+            postDictation(
+              rawText,
+              assistantId,
+              {
+                cursorInTextField: true,
+              },
+              cleanupAbort.signal,
+            ),
+            new Promise<null>((resolve) => {
+              setTimeout(() => {
+                cleanupAbort.abort();
+                resolve(null);
+              }, CLEANUP_DEADLINE_MS);
+            }),
+          ])
+        : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
+      console.info(
+        `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
+      );
+      const insertStartedAt = Date.now();
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
+      console.info(
+        `dictation: inserted chars=${insertText.length} status=${frontAppInsertion.status} ms=${Date.now() - insertStartedAt}`,
+      );
       if (frontAppInsertion.status === "inserted") {
         return;
       }
@@ -172,8 +223,6 @@ export function GlobalPushToTalkBridge({
             useConversationStore.getState().activeConversationId,
           );
       }
-
-      holdRef.current = false;
 
       const conversationKey = ensureConversationKey();
       const composer = useComposerStore.getState();

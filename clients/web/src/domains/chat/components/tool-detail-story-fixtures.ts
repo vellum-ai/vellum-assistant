@@ -3,9 +3,8 @@
  *
  * Every fixture's `input` key set is a shape the tools genuinely send, so a
  * story cannot quietly review a payload the product never produces. Native
- * tools carry an `activity` sibling alongside `command` / `path`, which is why
- * the panel's header, its subtitle, and its input block can all show the same
- * sentence at once (LUM-3510).
+ * tools carry an `activity` sibling alongside `command` / `path`, so the same
+ * sentence appears both as the panel's header and inside its raw input block.
  *
  * Values are written here rather than taken from any live conversation.
  *
@@ -174,8 +173,7 @@ export const fileReadMissingDetail: ToolDetailPayload = payload({
 
 /**
  * `file_read` that returned nothing. Reading an empty file is routine, and the
- * panel currently suppresses the whole Output section for it rather than
- * saying the file was empty.
+ * panel reports it rather than leaving the Output section out.
  */
 export const fileReadEmptyDetail: ToolDetailPayload = payload({
   toolCallId: "tc-file-read-3",
@@ -436,10 +434,11 @@ export const unknownToolDetail: ToolDetailPayload = payload({
 // ---------------------------------------------------------------------------
 
 /**
- * The daemon truncates a tool result at up to `HARD_MAX_TOOL_RESULT_CHARS`
- * (400,000, see `assistant/src/plugins/defaults/tool-result-truncate/`), and
- * the generic Output block renders whatever arrives as one unclamped `<pre>`.
- * Generated rather than embedded so the fixture file stays readable.
+ * Long enough to exercise the Output clamp. The daemon truncates a tool result
+ * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
+ * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well
+ * inside what the panel can be handed. Generated rather than embedded so the
+ * fixture file stays readable.
  */
 export const largeOutputDetail: ToolDetailPayload = payload({
   toolCallId: "tc-bash-large",
@@ -546,7 +545,10 @@ export const skillLoadDetail: ToolDetailPayload = payload({
   riskLevel: "low",
 });
 
-/** A realistically long skill body, which Output clamps behind "Show more". */
+/**
+ * A skill body past the Output clamp threshold, so the story shows the
+ * "Show more" control in the default Clean view rather than only in Raw.
+ */
 export const skillLoadLongDetail: ToolDetailPayload = {
   ...skillLoadDetail,
   toolCallId: "tc-skill-load-long",
@@ -560,6 +562,18 @@ export const skillLoadLongDetail: ToolDetailPayload = {
       "dashboard over their own data, a small tool they would otherwise",
       "rebuild by hand each time. A one-off calculation or a chart they only",
       "need once is not an app; answer it inline instead.",
+      "",
+      "If the request is really a report, write the report. An app earns its",
+      "place when the user will return to it with new data, change what it",
+      "shows, or share it with someone else. Those three are the signal; a",
+      "single answer, however elaborate, is not.",
+      "",
+      "## Naming",
+      "",
+      "Name the app for what the user calls the thing, not for the mechanism.",
+      "A person tracking their runs wants a Run log, not a Time Series",
+      "Dashboard. The name is the first thing they see in the Library and the",
+      "last thing they remember about it.",
       "",
       "## Workflow",
     ].join("\n"),

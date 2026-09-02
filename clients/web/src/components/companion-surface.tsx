@@ -41,6 +41,7 @@ import { MarkdownMessage } from "@vellumai/design-library";
 import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -249,31 +250,22 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 const RESTING_HEIGHT = 10;
 
 /**
- * The dark hairline the capsule wears, and the reason it is not a detail.
+ * The capsule's box, which is exactly the accent the user sees: no rim.
  *
- * The working ring is drawn immediately outside whatever shape it rides, in the
- * assistant's colour. Around a capsule painted that same colour it disappears:
- * a turn running while nobody is looking is exactly the state the ring exists
- * to carry, and at rest it is the only thing carrying it. The hairline is what
- * puts a dark edge between the two so the ring reads as a ring.
- *
- * The box grows by it on every side rather than the colour shrinking into it,
- * so the accent a user actually sees stays {@link AVATAR_IMAGE} by
- * {@link RESTING_HEIGHT} and the separation is bought from the desktop instead
- * of from the marker.
- */
-const RESTING_RIM = 2;
-
-/**
- * The capsule's box: the accent the user sees, plus that rim on every side.
+ * It wore a dark hairline for a while, to put an edge between the working ring
+ * and a capsule painted the ring's own colour. It went because a creature
+ * peeking out from behind a bordered pill reads as peeking out of a slot in a
+ * device, and the pill is meant to be the creature's own colour and nothing
+ * else. The ring still carries a turn at rest: its bright arc orbits and its
+ * glow falls on the desktop, and neither needs a dark line to be seen.
  *
  * One statement of it, because two things are sized from it and they must not
  * drift. The capsule is drawn at it, and the box the working ring rides matches
  * it at rest so the ring hugs the shape rather than the air around it.
  */
 const RESTING_BOX = {
-  width: AVATAR_IMAGE + 2 * RESTING_RIM,
-  height: RESTING_HEIGHT + 2 * RESTING_RIM,
+  width: AVATAR_IMAGE,
+  height: RESTING_HEIGHT,
 };
 
 /**
@@ -1473,10 +1465,9 @@ function Avatar({
 
         The pill's own material is deliberately not borrowed: a white rim over a
         saturated colour reads as a highlight on it and muddies the one thing
-        the shape is for. The rim it does wear is dark and is not decoration, it
-        is what keeps the working ring legible; see {@link RESTING_RIM}. The
-        shadow stays, since it is what holds any of this against a desktop the
-        surface does not own. */}
+        the shape is for, and it wears no dark rim either; see
+        {@link RESTING_BOX}. The shadow stays, since it is what holds any of
+        this against a desktop the surface does not own. */}
       <div
         className="absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
         style={{
@@ -1484,13 +1475,31 @@ function Avatar({
           height: RESTING_BOX.height,
           transform: `translate(-50%, -50%) scale(${restingScale})`,
           background: accentHex,
-          // Drawn as a border rather than an outline so it is inside the box,
-          // which is what leaves the ring the whole annulus outside.
-          border: `${RESTING_RIM}px solid #17181b`,
           opacity: collapsed ? 1 : 0,
         }}
         aria-hidden
       />
+      {/* Once in a while the creature looks out of the capsule: it rises from
+        behind the top or bottom edge far enough to show its eyes, holds a
+        moment, and ducks back; see `CompanionPeek`, which is the chat page's
+        composer peek over a smaller rim. Only for a composed creature: a
+        custom image has nobody to peek. Rides the capsule's transform and
+        fade, so it is drawn at the capsule's one size on every setting and
+        goes with it when the creature comes out for real. */}
+      {character !== undefined ? (
+        <CompanionPeek
+          character={character}
+          capsule={RESTING_BOX}
+          // A working creature holds a focused pose, and stops blinking for the
+          // same reason. The ring is carrying the state; nothing else should.
+          enabled={collapsed && !busy}
+          className="absolute top-1/2 left-1/2 transition-opacity duration-200"
+          style={{
+            transform: `translate(-50%, -50%) scale(${restingScale})`,
+            opacity: collapsed ? 1 : 0,
+          }}
+        />
+      ) : null}
       {/* The creature, tucking into the capsule rather than blinking out of
         it. A wrapper of its own because the scale is a `transform` and the bob
         below already owns one. */}

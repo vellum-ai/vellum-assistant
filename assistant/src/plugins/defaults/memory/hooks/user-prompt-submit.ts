@@ -53,6 +53,7 @@ import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
+import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../v3/types.js";
 
 /**
  * Whether to run legacy graph-memory retrieval this turn. It gates BOTH
@@ -220,6 +221,10 @@ async function recordRecallSideEffects(
  *  - `blocks.memoryV3InjectedBlock` (the frozen net-new card block, unwrapped)
  *    persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`; `loadFromDb`
  *    re-wraps and splices it on load, freezing the cards into history.
+ *  - `blocks.memoryV3SpotlightBlock` (the wrapped `<memory_spotlight>` that
+ *    was sent) persists under `MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`;
+ *    `loadFromDb` splices it back onto the same row so historical turns
+ *    keep the spotlight they were sent with.
  */
 async function persistInjectionBlocks(
   blocks: RuntimeInjectionResult["blocks"],
@@ -235,6 +240,7 @@ async function persistInjectionBlocks(
     !blocks.pkbContextBlock &&
     !blocks.memoryV2StaticBlock &&
     !blocks.memoryV3InjectedBlock &&
+    !blocks.memoryV3SpotlightBlock &&
     !blocks.backgroundTurnBlock &&
     !blocks.channelCapabilitiesBlock &&
     !blocks.nonInteractiveContextBlock &&
@@ -254,6 +260,10 @@ async function persistInjectionBlocks(
     if (blocks.memoryV3InjectedBlock) {
       metadataUpdates[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] =
         blocks.memoryV3InjectedBlock;
+    }
+    if (blocks.memoryV3SpotlightBlock) {
+      metadataUpdates[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] =
+        blocks.memoryV3SpotlightBlock;
     }
     if (blocks.unifiedTurnContext) {
       metadataUpdates.turnContextBlock = blocks.unifiedTurnContext;

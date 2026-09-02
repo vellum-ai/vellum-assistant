@@ -239,7 +239,7 @@ export const geometryFor = (
   };
 };
 
-/** Gap from the work area's bottom-right on the first ever launch. */
+/** Gap from the work area's bottom edge on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
 let growth: CompanionGrowth = "right";
@@ -523,9 +523,24 @@ export const placeCanvas = (
 };
 
 /**
- * Where the surface opens with no remembered position: the bottom-right of the
- * display under the cursor, near where the Dock usually is and clear of the
- * window the user is working in.
+ * Where the avatar's centre goes with no remembered position: the bottom
+ * centre of the work area, a margin up from its edge. Centred so the pill has
+ * room to grow either way, and low so it sits under the window the user is
+ * working in rather than over it.
+ *
+ * Exported for its tests and pure for the same reason as {@link placeCanvas}.
+ */
+export const defaultAvatarCentre = (
+  workArea: { x: number; y: number; width: number; height: number },
+  geometry: CompanionGeometry,
+): { x: number; y: number } => ({
+  x: workArea.x + workArea.width / 2,
+  y: workArea.y + workArea.height - DEFAULT_MARGIN - geometry.avatarBox / 2,
+});
+
+/**
+ * Where the surface opens with no remembered position: the bottom centre of
+ * the display under the cursor.
  *
  * The canvas is much larger than the visible circle, so the position is
  * computed for the avatar and then backed out to the canvas origin. Getting
@@ -534,12 +549,8 @@ export const placeCanvas = (
 const defaultCanvasOrigin = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const { workArea } = screen.getDisplayNearestPoint(cursor);
-  const half = geometry.avatarBox / 2;
   const placed = placeCanvas(
-    {
-      x: workArea.x + workArea.width - DEFAULT_MARGIN - half,
-      y: workArea.y + workArea.height - DEFAULT_MARGIN - half,
-    },
+    defaultAvatarCentre(workArea, geometry),
     workArea,
     geometry,
   );

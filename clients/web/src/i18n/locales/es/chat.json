@@ -259,6 +259,12 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraShutterHint": {
+    "live": "En vivo · Toca para detener",
+    "liveDescription": "Toca para detener el video en vivo.",
+    "photo": "Toca para foto · Mantén para en vivo",
+    "photoDescription": "Mantén pulsado para iniciar el video en vivo."
+  },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",
     "announceLiveMuted": "En vivo. Silenciado. {status}",
@@ -1469,9 +1475,7 @@
   },
   "skillLoadOutput": {
     "output": "Salida",
-    "outputFormatAria": "Formato de salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más"
+    "outputFormatAria": "Formato de salida"
   },
   "skillToolList": {
     "fromSkill": "De {name}"
@@ -1585,6 +1589,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Cerrar detalles de la herramienta",
+    "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
+    "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "output": "Salida",
     "riskLevel": "Nivel de riesgo",
     "running": "Ejecutando…"
@@ -1676,6 +1682,7 @@
     "muteMicrophone": "Silenciar el micrófono",
     "mutedState": "Silenciado. {state}",
     "showCamera": "Mostrar la cámara",
+    "stopLive": "Detener en vivo",
     "takePhoto": "Tomar una foto",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"

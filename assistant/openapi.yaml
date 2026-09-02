@@ -8189,6 +8189,54 @@ paths:
           description: The assistant is currently responding
         "422":
           description: No user message exists to retry from
+  /v1/conversations/{id}/sight-frame:
+    post:
+      operationId: conversations_by_id_sightframe_post
+      summary: Persist an ambient camera frame
+      description:
+        Add an already-uploaded camera frame to a conversation as its own message, tagged so retention can age the
+        image out of the model's context while the transcript keeps it. No reply is generated. Returns persisted=false
+        when the frame was dropped, in which case the assistant owns the upload and there is nothing to clean up.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                attachmentId:
+                  type: string
+                  description: Id of the uploaded attachment holding the frame.
+              required:
+                - attachmentId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persisted:
+                    type: boolean
+                  messageId:
+                    description: The message the frame landed on, when one was written.
+                    type: string
+                required:
+                  - persisted
+                additionalProperties: false
+        "400":
+          description: Missing or empty attachmentId
+        "404":
+          description: Conversation not found
   /v1/conversations/{id}/slash:
     post:
       operationId: conversations_by_id_slash_post

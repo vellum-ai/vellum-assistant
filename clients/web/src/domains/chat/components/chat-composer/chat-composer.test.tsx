@@ -2685,9 +2685,10 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("Capacitor iOS: first-ever entry shows the prefs card too (web↔iOS parity)", () => {
-    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
-    // entry. The card is shown on every platform (see the composer's
-    // handleLiveVoiceStart note), so the iOS shell must get it too.
+    // GIVEN the native iOS shell, no session, and a first-ever entry. The
+    // card is shown on every platform (see the composer's handleLiveVoiceStart
+    // note), so the iOS shell must get it too. Dismiss cancels without
+    // requesting the mic, which is what the following test pins.
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockIsNativeIOS = true;
     useVoicePrefsStore.setState({ firstRunSeen: false });

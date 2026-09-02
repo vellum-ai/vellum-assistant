@@ -72,7 +72,6 @@ import {
 } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
@@ -221,6 +220,8 @@ export interface MessagingConversationContext {
   messages: Message[];
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
+  acquireProcessingFenced(): Promise<number | null>;
+  releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
@@ -505,17 +506,19 @@ async function prepareUserAttachmentReferences(
  * backstop, and swallowed on failure: cleaning up must never mask the error
  * that caused it.
  */
-function discardAttemptAttachments(attachmentIds: string[]): void {
+function discardAttemptAttachments(attachmentIds: string[]): string[] {
   if (attachmentIds.length === 0) {
-    return;
+    return [];
   }
   try {
     deleteOrphanAttachments(attachmentIds);
+    return [];
   } catch (err) {
     log.warn(
       { err, attachmentIds },
       "Could not discard the attachments of a failed persist attempt",
     );
+    return attachmentIds;
   }
 }
 
@@ -996,6 +999,30 @@ export interface PersistMessageOptions {
    * exactly the one retention has to be able to stub.
    */
   sightFrameAttachmentIds?: readonly string[];
+  /**
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts the persist with a
+   * `MessageInsertPreconditionError` and inserts nothing.
+   *
+   * For a caller whose right to write can lapse while this persist runs.
+   * Everything ahead of the insert (attachment materialization, content
+   * building) is awaited, and the insert retries itself on contention across
+   * an awaited backoff, so a caller that answered before calling has only
+   * answered for the moment it called. Threaded down to the insert rather
+   * than checked here, so each attempt asks for itself.
+   */
+  insertPrecondition?: () => boolean;
+  /**
+   * Told the ids this attempt materialized for itself and then could not
+   * delete, so a caller that owns the cleanup can come back to them.
+   *
+   * An attachment already linked to another conversation is CLONED into this
+   * one under a fresh id, and only this function knows that id. A caller
+   * retrying the delete under the id it handed in would reclaim nothing: that
+   * row is still linked where it came from, and the clone nobody names
+   * survives every pass.
+   */
+  onUndiscardedAttachments?: (attachmentIds: readonly string[]) => void;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -1037,38 +1064,46 @@ export async function persistUserMessage(
   ctx.currentRequestId = reqId;
   ctx.abortController = new AbortController();
 
+  let owner: number | null = null;
   try {
-    // `setProcessing(true)` persists the flag and can throw (e.g.
-    // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
-    // the request-id/abort bookkeeping below rather than stranding it.
-    //
-    // This is the first DB write on the message-send path — it precedes the
-    // (already retried) message insert — so under transient WAL contention it
-    // must retry too, or the turn dies here before the insert is ever reached.
-    // `setProcessing` reverts its in-memory flag when its persist throws, so
-    // each attempt is safe to re-run.
-    await withSqliteRetry(() => ctx.setProcessing(true), {
-      op: "conversation:setProcessing",
-      context: { conversationId: ctx.conversationId },
-    });
+    // Taking the flag rather than setting it: the read and the take are one
+    // step, so nothing can claim it in between, and the hold is released only
+    // by the claim that took it. Its advisory mirror write is detached, which
+    // is what closes the window a retry around a strict set used to open. That
+    // retry re-ran the set after an awaited backoff, and the set reverted the
+    // in-memory flag before rethrowing, so the conversation read idle for the
+    // length of the sleep and anything waiting for idle could take the flag
+    // while this turn was still starting.
+    // Fenced: the flag is taken and its marker is durable before anything
+    // this turn writes, because a reconnecting client and the out-of-process
+    // retrospective worker read that marker to decide a turn is live. Null is
+    // a conversation that belongs to someone else, whether it was already held
+    // or was claimed away while the marker landed. A throw is the marker
+    // refusing to persist, with the claim already given back.
+    owner = await ctx.acquireProcessingFenced();
+    if (owner === null) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
       requestId: reqId,
     });
     if (result.deduplicated) {
-      ctx.setProcessing(false);
+      ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
     }
     return result;
   } catch (err) {
-    // Clear the flag, but never let a clear failure mask the original error
-    // or skip the bookkeeping reset. `setProcessing(false)` releases in memory
-    // regardless of its advisory mirror write, so the guard here is purely
-    // defensive against future changes.
+    // Release this turn's own hold, but never let a failure there mask the
+    // original error or skip the bookkeeping reset. A hold another caller
+    // claimed since is left alone, and one this call never took is nothing to
+    // release.
     try {
-      ctx.setProcessing(false);
+      if (owner !== null) {
+        ctx.releaseProcessing(owner);
+      }
     } catch (clearErr) {
       log.error(
         { err: clearErr, conversationId: ctx.conversationId },
@@ -1334,6 +1369,11 @@ export async function persistQueuedMessageBody(
         clientMessageId,
         id: requestId,
         ...(skipIndexing ? { skipIndexing: true } : {}),
+        // Handed down rather than answered here: the insert retries itself on
+        // contention, so the question belongs where each attempt can ask it.
+        ...(options.insertPrecondition
+          ? { insertPrecondition: options.insertPrecondition }
+          : {}),
       },
     );
     messageInserted = true;
@@ -1470,9 +1510,12 @@ export async function persistQueuedMessageBody(
       ctx.messages.pop();
     }
     if (!messageInserted) {
-      discardAttemptAttachments(
+      const undiscarded = discardAttemptAttachments(
         attemptCreatedAttachmentIds(attachmentInputs, preparedAttachments),
       );
+      if (undiscarded.length > 0) {
+        options.onUndiscardedAttachments?.(undiscarded);
+      }
     }
     throw err;
   }

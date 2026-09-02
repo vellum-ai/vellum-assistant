@@ -2,7 +2,10 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import * as motionReact from "motion/react";
 
-import { COMPANION_BASE_MAX_PILL_WIDTH } from "@vellumai/ipc-contract";
+import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_MAX_PILL_WIDTH,
+} from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 
 /**
@@ -1664,8 +1667,8 @@ describe("the avatar's resting collapse", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
     const shape = shapeOf(container);
-    expect(shape.style.width).toBe("32px");
-    expect(shape.style.height).toBe("14px");
+    expect(shape.style.width).toBe("28px");
+    expect(shape.style.height).toBe("10px");
   });
 
   /**
@@ -1683,9 +1686,9 @@ describe("the avatar's resting collapse", () => {
       const shape = shapeOf(container);
       // The lengths are the same on every setting, and the transform undoes
       // the scale this node carries, which is the avatar's box over 44. The
-      // box is the accent core (28x10) plus the dark rim on every side.
-      expect(shape.style.width).toBe("32px");
-      expect(shape.style.height).toBe("14px");
+      // box is the accent itself, 28 by 10.
+      expect(shape.style.width).toBe("28px");
+      expect(shape.style.height).toBe("10px");
       expect(shape.style.transform).toBe(
         `translate(-50%, -50%) scale(${44 / avatarBox})`,
       );
@@ -1732,25 +1735,22 @@ describe("the avatar's resting collapse", () => {
    * circling the empty box the capsule sits in.
    */
   test("rides the ring on the shape, not on the box", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" working />,
-    );
+    const { container } = render(<CompanionSurface phase="resting" working />);
 
     expect(ringOf(container)?.parentElement).toBe(shapeOf(container));
   });
 
   /**
-   * The rim is what keeps the working ring legible. Drawn in the assistant's
-   * colour immediately outside the shape, a ring around a capsule painted that
-   * same colour disappears, and a turn running while nobody is looking is the
-   * one thing at rest the ring has to carry on its own.
+   * The capsule is the assistant's colour and nothing else. A dark rim made a
+   * creature peeking out from behind it read as coming out of a slot in a
+   * device rather than out of its own shape.
    */
-  test("wears a dark rim inside the capsule, not an outline over it", () => {
+  test("wears no rim", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
     const capsule = capsuleOf(container);
-    expect(capsule.style.borderWidth).toBe("2px");
-    expect(capsule.style.borderStyle).toBe("solid");
+    expect(capsule.style.borderWidth).toBe("");
+    expect(capsule.style.borderStyle).toBe("");
   });
 
   /**
@@ -1765,8 +1765,8 @@ describe("the avatar's resting collapse", () => {
       const { container } = render(<CompanionSurface phase={phase} />);
 
       const capsule = capsuleOf(container);
-      expect(capsule.style.width).toBe("32px");
-      expect(capsule.style.height).toBe("14px");
+      expect(capsule.style.width).toBe("28px");
+      expect(capsule.style.height).toBe("10px");
     }
   });
 
@@ -1787,12 +1787,65 @@ describe("the avatar's resting collapse", () => {
 
   /** The creature fades with it rather than being cut, and comes back whole. */
   test("fades the creature out at rest and back in expanded", () => {
-    const { container: resting } = render(
-      <CompanionSurface phase="resting" />,
-    );
+    const { container: resting } = render(<CompanionSurface phase="resting" />);
     expect(bobOf(resting)?.parentElement?.style.opacity).toBe("0");
 
     const { container: hovered } = render(<CompanionSurface phase="hover" />);
     expect(bobOf(hovered)?.parentElement?.style.opacity).toBe("1");
+  });
+});
+
+/** The capsule's peek, which is drawn only for a composed creature. */
+const peekOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(".companion-peek");
+
+describe("the resting capsule's peek", () => {
+  const CHARACTER = { bodyShape: "urchin", eyeStyle: "curious", color: "teal" };
+
+  test("is there at rest for a composed creature", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" character={CHARACTER} />,
+    );
+    expect(peekOf(container)).not.toBeNull();
+    expect(peekOf(container)?.style.opacity).toBe("1");
+  });
+
+  /** A custom image has no creature in it, so there is nobody to peek. */
+  test("is absent for a custom image", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarSrc="data:image/png;base64," />,
+    );
+    expect(peekOf(container)).toBeNull();
+  });
+
+  /**
+   * The creature is out of the capsule, and the capsule has faded where it
+   * stands; the peek goes with it rather than rising beside the creature.
+   */
+  test("fades with the capsule once the creature is out", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" character={CHARACTER} />,
+    );
+    expect(peekOf(container)?.style.opacity).toBe("0");
+  });
+
+  /** Rides the capsule's transform, so it is drawn at the capsule's one size. */
+  test("counters the creature's scale the way the capsule does", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        character={CHARACTER}
+        avatarBox={COMPANION_BASE_AVATAR_BOX * 2}
+      />,
+    );
+    expect(peekOf(container)?.style.transform).toContain("scale(0.5)");
+  });
+
+  test("is not drawn for a reader who asked for stillness", () => {
+    reducedMotion = true;
+    const { container } = render(
+      <CompanionSurface phase="resting" character={CHARACTER} />,
+    );
+    expect(peekOf(container)).toBeNull();
   });
 });

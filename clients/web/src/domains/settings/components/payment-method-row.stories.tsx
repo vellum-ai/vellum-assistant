@@ -26,14 +26,15 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * The default row: the brand run through `brandLabel` so the raw Stripe string
- * reads as "Visa", the last four digits, and the Replace card action.
+ * The default row: the brand named through `brandDisplayLabel` (the raw
+ * `"visa"` reads as "Visa"), the last four digits, and the Replace card
+ * action.
  */
 export const Default: Story = {};
 
 /**
  * The platform knows the card's expiry, so it trails the last four digits in
- * the same `MM / YY` form the modal's card-on-file row uses.
+ * the same `MM / YY` form the modal's replace subtitle uses.
  */
 export const WithExpiry: Story = {
   args: { expMonth: 4, expYear: 2042 },

@@ -1,16 +1,9 @@
 /**
- * Verifies how the loop derives the `mutableLatestUserMessage` cache-anchor
- * signal on `SendMessageOptions.config`.
+ * Verifies that a persisted memory-v3 spotlight already in history is sent
+ * as-is and does not flag the turn-start message as volatile.
  *
- * The signal means "the latest user message's bytes do not recur next turn", so
- * it is set from the history actually being sent: only when the latest user
- * message carries a memory-v3 `<memory_spotlight>` block, the one injected
- * block that is strip-and-replaced on the tail every turn. Every other injected
- * block is frozen into history and re-renders byte-identically, so turns
- * without a spotlight keep a normal cache anchor even when memory-v3 is live.
- *
- * When no spotlight is present the field is omitted entirely (not `false`) so
- * the wire stays byte-identical for conversations that never see one.
+ * Spotlight stays on the user message that was sent. The loop must not
+ * attach, strip, or mark that message mutable.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -25,17 +18,18 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 
+const spotlightText = wrapMemorySpotlightBlock("recalled: Alice's plan");
+
 const userMessage: Message = {
   role: "user",
   content: [{ type: "text", text: "hi" }],
 };
 
-/** A user turn whose tail block is the ephemeral memory-v3 spotlight. */
-const spotlightUserMessage: Message = {
+const userMessageWithSpotlight: Message = {
   role: "user",
   content: [
     { type: "text", text: "hi" },
-    { type: "text", text: wrapMemorySpotlightBlock("recalled: Alice's plan") },
+    { type: "text", text: spotlightText },
   ],
 };
 
@@ -64,22 +58,25 @@ function toolUseResponse(
 function makeRecordingProvider(responses: ProviderResponse[]): {
   provider: Provider;
   configs: () => Array<Record<string, unknown> | undefined>;
+  sent: () => Message[][];
 } {
   const configs: Array<Record<string, unknown> | undefined> = [];
+  const sent: Message[][] = [];
   let i = 0;
   const provider: Provider = {
     name: "mock",
     async sendMessage(
-      _messages: Message[],
+      messages: Message[],
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
+      sent.push(messages);
       configs.push(options?.config as Record<string, unknown> | undefined);
       const response = responses[i] ?? responses[responses.length - 1];
       i++;
       return response;
     },
   };
-  return { provider, configs: () => configs };
+  return { provider, configs: () => configs, sent: () => sent };
 }
 
 const echoTool: ToolDefinition = {
@@ -91,10 +88,11 @@ const echoTool: ToolDefinition = {
   },
 };
 
-describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () => {
-  test("sets mutableLatestUserMessage when the latest user message carries a spotlight block", async () => {
-    // GIVEN a provider that records the config of each LLM call
-    const { provider, configs } = makeRecordingProvider([textResponse("done")]);
+describe("AgentLoop.run: persisted spotlight in history", () => {
+  test("sends a spotlight already in history and does not flag the turn-start as volatile", async () => {
+    const { provider, configs, sent } = makeRecordingProvider([
+      textResponse("done"),
+    ]);
     const loop = new AgentLoop({
       provider,
       systemPrompt: "system",
@@ -102,23 +100,26 @@ describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () =
       config: { maxTokens: 1024 },
     });
 
-    // WHEN the loop runs over a history whose tail carries the spotlight
-    await loop.run({
+    const result = await loop.run({
       requestId: "test-request",
-      messages: [spotlightUserMessage],
+      messages: [userMessageWithSpotlight],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
 
-    // THEN the send carries the cache-anchor signal
-    expect(configs()).toHaveLength(1);
-    expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]![0]!.content).toEqual(userMessageWithSpotlight.content);
+    expect(result.history[0]!.content).toEqual(
+      userMessageWithSpotlight.content,
+    );
+    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("omits mutableLatestUserMessage when the latest user message carries no spotlight", async () => {
-    // GIVEN a provider that records the config of each LLM call
-    const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
+  test("does not set mutableLatestUserMessage when history has no spotlight", async () => {
+    const { provider, sent, configs } = makeRecordingProvider([
+      textResponse("hi"),
+    ]);
     const loop = new AgentLoop({
       provider,
       systemPrompt: "system",
@@ -126,8 +127,6 @@ describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () =
       config: { maxTokens: 1024 },
     });
 
-    // WHEN the loop runs over a spotlight-free history: the shape memory-v3
-    // produces whenever it selects nothing to spotlight
     await loop.run({
       requestId: "test-request",
       messages: [userMessage],
@@ -136,49 +135,12 @@ describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () =
       callSite: "mainAgent",
     });
 
-    // THEN the field is omitted entirely, not carried as false/undefined
-    expect(configs()).toHaveLength(1);
+    expect(sent()[0]).toEqual([userMessage]);
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("a text block merely opening with the spotlight tag is not treated as volatile", async () => {
-    // GIVEN a user message discussing the marker rather than carrying one
-    const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop({
-      provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      config: { maxTokens: 1024 },
-    });
-
-    // WHEN the loop runs
-    await loop.run({
-      requestId: "test-request",
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "<memory_spotlight>\nwhat does this tag do?",
-            },
-          ],
-        },
-      ],
-      onEvent: () => {},
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      callSite: "mainAgent",
-    });
-
-    // THEN the unterminated wrapper does not count: matching the full-wrapper
-    // requirement the per-turn strip applies
-    expect(configs()).toHaveLength(1);
-    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
-  });
-
-  test("the signal holds for every request in a tool loop", async () => {
-    // GIVEN a spotlight-bearing opening message and a tool round-trip
-    const { provider, configs } = makeRecordingProvider([
+  test("keeps a persisted spotlight on the opening user message through a tool loop", async () => {
+    const { provider, sent, configs } = makeRecordingProvider([
       toolUseResponse("t1", "echo", { value: "first" }),
       textResponse("done"),
     ]);
@@ -191,22 +153,21 @@ describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () =
       toolExecutor: async () => ({ content: "ok", isError: false }),
     });
 
-    // WHEN the loop runs
-    await loop.run({
+    const result = await loop.run({
       requestId: "test-request",
-      messages: [spotlightUserMessage],
+      messages: [userMessageWithSpotlight],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
 
-    // THEN both calls report the turn as volatile. The signal describes the
-    // turn-starting message, not whichever user message happens to be last, so
-    // the trailing tool-result turn does not clear it. Holding it steady is
-    // what keeps the provider marking that one block at a single TTL for the
-    // whole turn instead of writing it twice.
-    expect(configs()).toHaveLength(2);
-    expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
-    expect(configs()[1]?.mutableLatestUserMessage).toBe(true);
+    expect(sent()).toHaveLength(2);
+    expect(sent()[0]![0]!.content).toEqual(userMessageWithSpotlight.content);
+    expect(sent()[1]![0]!.content).toEqual(userMessageWithSpotlight.content);
+    expect(result.history[0]!.content).toEqual(
+      userMessageWithSpotlight.content,
+    );
+    expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
+    expect("mutableLatestUserMessage" in (configs()[1] ?? {})).toBe(false);
   });
 });

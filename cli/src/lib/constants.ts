@@ -18,8 +18,6 @@ export const DEFAULT_CES_PORT = 8090;
 
 export const VALID_REMOTE_HOSTS = [
   "local",
-  "gcp",
-  "aws",
   "docker",
   "custom",
   "vellum",

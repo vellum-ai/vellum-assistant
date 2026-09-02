@@ -1,16 +1,17 @@
 /**
- * Bridge to the iOS shell's `AppIcon` plugin
- * (`clients/ios/App/App/AppIconPlugin.swift`), which swaps the home-screen
- * icon between the alternates the build ships.
+ * Bridge to the native mobile shells' `AppIcon` plugin
+ * (`clients/ios/App/App/AppIconPlugin.swift` and the Android plugin of the same
+ * name), which swaps the home-screen icon between the alternates the build
+ * ships.
  *
- * iOS-only: alternate app icons are an iOS bundle feature with no Android
- * equivalent, and the web app has no home-screen icon to swap.
+ * Native mobile only: swapping the installed icon is a shell capability, and
+ * the web app has no home-screen icon to swap.
  *
  * `getState().available` is the only source of truth for which icon names
- * exist. The iOS shell loads this bundle remotely, so an arbitrarily old shell
- * can be running arbitrarily new web (see `docs/CAPACITOR.md` § The skew rule):
- * a name the web layer computes may simply not be in the installed build, and
- * only the shell can say. Every degrade path (older shell, non-iOS platform,
+ * exist. Both shells load this bundle remotely, so an arbitrarily old shell can
+ * be running arbitrarily new web (see `docs/CAPACITOR.md` § The skew rule): a
+ * name the web layer computes may simply not be in the installed build, and
+ * only the shell can say. Every degrade path (older shell, non-mobile platform,
  * bridge failure) resolves `supported: false` with an empty `available`, so
  * callers have one thing to check and no error branch to write.
  */
@@ -18,7 +19,7 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import { isNativeMobile } from "@/runtime/platform-detection";
 
 export interface AppIconState {
   /** Whether the device and build allow swapping the icon at all. */
@@ -52,7 +53,7 @@ function unsupported(): AppIconState {
  * any call is made and the `captureError`s below only ever see real faults.
  */
 function isAvailable(): boolean {
-  return isNativeIOS() && Capacitor.isPluginAvailable(APP_ICON_PLUGIN);
+  return isNativeMobile() && Capacitor.isPluginAvailable(APP_ICON_PLUGIN);
 }
 
 /** Reads what the installed shell can do, never throwing. */
@@ -79,8 +80,9 @@ export async function getAppIconState(): Promise<AppIconState> {
  * Swaps the home-screen icon to `name`, or back to the primary icon when
  * `name` is null. Resolves true only when the shell applied the change.
  *
- * iOS shows a system alert on every successful swap, so this must only ever
- * run from an explicit user action.
+ * iOS shows a system alert on every successful swap, and Android can reset a
+ * pinned home-screen shortcut, so this must only ever run from an explicit
+ * user action.
  */
 export async function setAppIcon(name: string | null): Promise<boolean> {
   if (!isAvailable()) {

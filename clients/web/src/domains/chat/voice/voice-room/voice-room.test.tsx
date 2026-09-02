@@ -44,6 +44,7 @@ import {
   seedLiveVoiceSession,
 } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -53,8 +54,11 @@ import {
   stubMediaDevices,
 } from "@/domains/chat/voice/voice-room/voice-camera.test-helper";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { publish } from "@/lib/event-bus";
+import { MIN_VERSION as SIGHT_MIN_VERSION } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -336,6 +340,9 @@ afterEach(() => {
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
   useAssistantIdentityStore.getState().clearIdentity();
+  // Flags are off for every case that does not ask for one, the same way they
+  // are before they hydrate in the app.
+  useClientFeatureFlagStore.getState().setStringFlags({}, null);
 });
 
 const connectCard = () => screen.queryByTestId("room-connect-card");
@@ -451,6 +458,22 @@ function seedCameraCapableAssistant() {
   useAssistantIdentityStore
     .getState()
     .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
+}
+
+/**
+ * The two halves of what makes Live reachable: an assistant that understands
+ * `sight_frame`, and the flag that ships the surface.
+ *
+ * A version above the sight floor clears the camera gate too, so this is the
+ * camera-capable seed plus what the shutter's hold needs on top of it.
+ */
+function seedLiveCapableAssistant() {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", SIGHT_MIN_VERSION, ASSISTANT_ID);
+  useClientFeatureFlagStore
+    .getState()
+    .setStringFlags({ visionMode: "on" }, null);
 }
 
 describe("VoiceRoom — visibility", () => {
@@ -2263,5 +2286,238 @@ describe("VoiceRoom: camera", () => {
     expect(screen.getByTestId("voice-room-state-announcer").textContent).toBe(
       "Listening…",
     );
+  });
+
+  /**
+   * Live: the mode holding the shutter enters, and the only one that samples.
+   *
+   * The room's part is the wiring, which is what these cover: one mode value
+   * reaching the pill, the shutter, the hint and the announcement together, and
+   * the hold being offered only where the frames it starts have somewhere to
+   * go. The gesture itself belongs to `camera-shutter.test.tsx` and the
+   * sampling to `use-voice-room-sight.test.tsx`.
+   */
+  describe("live mode", () => {
+    const shutter = () => screen.getByTestId("voice-room-shutter");
+    const pill = () => screen.getByTestId("camera-status-pill");
+    const hint = () => screen.queryByTestId("camera-shutter-hint");
+
+    /** Open the camera on an assistant and a flag that allow Live. */
+    async function openLiveCapableCamera(): Promise<void> {
+      stubMediaDevices(async () => fakeStream());
+      seedLiveCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+    }
+
+    /**
+     * Hold the shutter past its threshold, then let go.
+     *
+     * Real time rather than fake timers: the camera opens through promises the
+     * room awaits, and a clock this test controls would have to be advanced
+     * inside every one of them.
+     */
+    async function holdShutter(): Promise<void> {
+      const button = shutter();
+      fireEvent.pointerDown(button, {
+        button: 0,
+        pointerId: 1,
+        clientX: 0,
+        clientY: 0,
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 560));
+      });
+      // The release, click included: where the hold was not taken, that click
+      // is a photo, and the send behind it settles inside this act.
+      await act(async () => {
+        fireEvent.pointerUp(button, { button: 0, pointerId: 1 });
+        fireEvent.click(button);
+      });
+    }
+
+    test("a hold puts the whole surface into Live, and takes no photo", async () => {
+      await openLiveCapableCamera();
+
+      expect(pill().getAttribute("data-camera-mode")).toBe("photo");
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(shutter().getAttribute("aria-label")).toBe("Take a photo");
+      expect(hint()?.textContent).toBe("Tap photo · Hold for live");
+
+      await holdShutter();
+
+      // One mode value, four surfaces: the pill's fill, the shutter's core,
+      // the name of what the next press does, and the sentence the room's live
+      // region speaks.
+      expect(pill().getAttribute("data-camera-mode")).toBe("live");
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+      expect(shutter().getAttribute("aria-label")).toBe("Stop live");
+      expect(hint()?.textContent).toBe("Live · Tap to stop");
+      expect(screen.getByTestId("voice-room-state-announcer").textContent).toBe(
+        "Live. Listening…",
+      );
+      // The release of a hold is not a shutter press: a photo here would be
+      // one the user never asked for, sitting in the conversation.
+      expect(screen.queryByTestId("voice-room-photo-strip")).toBeNull();
+    });
+
+    test("tells a screen reader what the hold does, and what ends it", async () => {
+      await openLiveCapableCamera();
+      const description = () => {
+        const id = shutter().getAttribute("aria-describedby");
+        return id ? document.getElementById(id)?.textContent : null;
+      };
+
+      // The caption below the shutter is the sighted half of this and is
+      // aria-hidden, and `aria-keyshortcuts` names a key without naming the
+      // act, so the description is the whole of what assistive tech gets.
+      expect(description()).toBe("Hold to start live video.");
+
+      await holdShutter();
+
+      // The way out is the other gesture, which is worth saying: the way in
+      // was a hold.
+      expect(description()).toBe("Tap to stop live video.");
+    });
+
+    test("a tap while live goes back to photo", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      await act(async () => {
+        fireEvent.click(shutter());
+      });
+
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(shutter().getAttribute("aria-label")).toBe("Take a photo");
+      expect(hint()?.textContent).toBe("Tap photo · Hold for live");
+      // Stopping the stream is not taking a photo either.
+      expect(screen.queryByTestId("voice-room-photo-strip")).toBeNull();
+    });
+
+    test("closing the camera leaves Live behind", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      // The camera on screen is the consent, so the next viewfinder opens on
+      // photo rather than resuming a stream nobody just asked for.
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(hint()?.textContent).toBe("Tap photo · Hold for live");
+    });
+
+    test("offers no hold, and no hint, where Live cannot run", async () => {
+      stubMediaDevices(async () => fakeStream());
+      // Camera-capable but below the sight floor: this assistant answers every
+      // frame with the code the transport reads as a settings rejection.
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      // No caption for a gesture that would do nothing, nothing describing one
+      // to a screen reader, and the shutter is the plain tap target it has
+      // always been.
+      expect(hint()).toBeNull();
+      expect(shutter().getAttribute("aria-keyshortcuts")).toBeNull();
+      expect(shutter().getAttribute("aria-describedby")).toBeNull();
+
+      await holdShutter();
+
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(pill().getAttribute("data-camera-mode")).toBe("photo");
+    });
+
+    test("an assistant that refuses the frame withdraws the offer, not just the mode", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      await act(async () => {
+        useLiveVoiceStore.getState().noteSightFrameRefused(true);
+      });
+
+      // Every keep for the rest of the session is dropped before it is
+      // uploaded. Taking the mode down while leaving the hint and the hold up
+      // would offer a gesture whose whole result is a pill saying Live over a
+      // camera nothing is reading.
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(hint()).toBeNull();
+      expect(shutter().getAttribute("aria-keyshortcuts")).toBeNull();
+
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      // What a reconnect clearing the latch gives back is the hook's to say,
+      // and `use-voice-room-sight.test.tsx` says it: the session lifecycle a
+      // reset drives is the thing this room is mounted on.
+    });
+
+    test("dismissing the room ends Live before the room has gone", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      // What the chevron, Escape and the sheet's drag all reach.
+      await act(async () => {
+        minimizeVoiceRoom();
+      });
+
+      // The overlay is still here, playing its exit: `AnimatePresence` keeps
+      // it mounted, so its teardown is an animation away. Live is already
+      // down, which is what stops a frame still uploading from being shared
+      // with the call after the room was put away.
+      expect(shutter()).not.toBeNull();
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+    });
+
+    test("backgrounding the app ends Live", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+      expect(shutter().getAttribute("data-mode")).toBe("live");
+
+      await act(async () => {
+        publish("app.hidden", { signal: "visibility" });
+      });
+
+      // Back on photo, with the offer still standing: the hold is what the
+      // consent rides on, and it is not carried across being put away.
+      expect(shutter().getAttribute("data-mode")).toBe("photo");
+      expect(hint()?.textContent).toBe("Tap photo · Hold for live");
+    });
+
+    test("camera mode hands a keyboard the room from the corner down, live too", async () => {
+      await openLiveCapableCamera();
+      await holdShutter();
+
+      // The same walk as the photo-mode case above, with the shutter under the
+      // name of what it now does. Nothing new joins the row and nothing drops
+      // out of it: entering Live changes what a control says, not how many
+      // there are or which order they are reached in.
+      const order = Array.from(
+        document.querySelectorAll<HTMLElement>("button:not([disabled])"),
+      ).map((button) => button.getAttribute("aria-label"));
+
+      expect(order).toEqual([
+        "Minimize voice room",
+        "Stop live",
+        "Flip camera",
+        "Mute microphone",
+        "Mute assistant",
+        "Close camera",
+        "End voice session",
+      ]);
+    });
   });
 });

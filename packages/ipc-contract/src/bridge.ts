@@ -80,7 +80,7 @@ export interface LocalUpgradeOptions {
   force?: boolean;
 }
 
-export type ElectronHostOS = "macos" | "windows";
+export type ElectronHostOS = "macos" | "windows" | "linux";
 
 /**
  * What a pairing step failed on, for callers picking recovery copy. The

@@ -305,11 +305,11 @@ describe("AutoTopUpPaymentMethodModal Stripe element options", () => {
     });
   });
 
-  test("suppresses every wallet and asks for no email when the account has one", async () => {
+  test("offers Link, suppresses the other wallets, and asks for no email when the account has one", async () => {
     await renderModalWithForm();
 
     expect(paymentElementProps?.options?.wallets).toEqual({
-      link: "never",
+      link: "auto",
       applePay: "never",
       googlePay: "never",
     });
@@ -317,6 +317,9 @@ describe("AutoTopUpPaymentMethodModal Stripe element options", () => {
       billingDetails: { name: "never", address: "never", email: "never" },
     });
     expect(paymentElementProps?.options?.paymentMethodOrder).toBeUndefined();
+    // A Link member's default email would mount an OTP takeover ahead of the
+    // card fields.
+    expect(paymentElementProps?.options?.defaultValues).toBeUndefined();
   });
 
   test("asks for the email when the account does not know it", async () => {
@@ -872,36 +875,25 @@ describe("AutoTopUpPaymentMethodModal redirect return", () => {
   });
 });
 
+/**
+ * The shell owns the subtitle sentences and is tested on them directly, so
+ * these cases cover only what the modal decides: which mode it opens in, and
+ * that `cardOnFile` reaches the shell in replace mode.
+ */
 describe("AutoTopUpPaymentMethodModal modes", () => {
-  test("defaults to add mode and hides the card on file", async () => {
-    const { getByText, queryByTestId } = await renderModalWithForm();
+  test("defaults to add mode", async () => {
+    const { getByText } = await renderModalWithForm();
 
     expect(getByText("Add a card")).not.toBeNull();
-    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
-  test("replace mode shows the card being replaced", async () => {
-    const { getByText, getByTestId } = await renderModalWithForm({
+  test("replace mode hands the card on file to the shell", async () => {
+    const { getByText } = await renderModalWithForm({
       mode: "replace",
       cardOnFile: { brand: "visa", last4: "4242", expMonth: 4, expYear: 2042 },
     });
 
     expect(getByText("Replace your card")).not.toBeNull();
-    expect(
-      getByTestId("payment-method-modal-card-on-file").textContent,
-    ).toContain("Visa •••• 4242");
-  });
-
-  test("ignores a card on file in add mode", async () => {
-    const { queryByTestId } = await renderModalWithForm({
-      cardOnFile: {
-        brand: "visa",
-        last4: "4242",
-        expMonth: null,
-        expYear: null,
-      },
-    });
-
-    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
+    expect(getByText(/Replacing Visa •••• 4242/)).not.toBeNull();
   });
 });

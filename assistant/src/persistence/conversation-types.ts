@@ -363,7 +363,9 @@ export function isDesktopOriginatedUserMessage(
     return false;
   }
   const clientOs = parseClientOs((client as Record<string, unknown>).os);
-  return clientOs === "macos" || clientOs === "windows";
+  return (
+    clientOs === "macos" || clientOs === "windows" || clientOs === "linux"
+  );
 }
 
 /**

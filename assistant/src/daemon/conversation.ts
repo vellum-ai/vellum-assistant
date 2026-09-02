@@ -78,6 +78,7 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
+import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/types.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -306,12 +307,37 @@ function abortReasonOf(signal?: AbortSignal): unknown {
   );
 }
 
+/**
+ * Thrown by the processing fence when the claim it was asked about is no
+ * longer the live one, which is the conversation having moved on to another
+ * holder rather than anything failing.
+ */
+export class ProcessingClaimLostError extends Error {
+  constructor(conversationId: string) {
+    super(`Processing claim lost for conversation ${conversationId}`);
+    this.name = "ProcessingClaimLostError";
+  }
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
   /** @internal */ messages: Message[] = [];
   /** @internal */ agentLoop: AgentLoop;
   private _processing = false;
+  /**
+   * Which claim on the processing flag is the live one, as a value that changes
+   * every time the flag is taken. Zero while it is free.
+   *
+   * The flag itself is a boolean and cannot say who holds it, so a release has
+   * no way to tell its own hold from one taken since. This is what lets
+   * {@link releaseProcessing} refuse to release someone else's.
+   */
+  private processingOwner = 0;
+  private nextProcessingOwner = 0;
+  /** The live claim's marker write, awaited through the fence below. */
+  private processingMarker: { owner: number; landed: Promise<void> } | null =
+    null;
   /**
    * Pending {@link waitForIdle} resolvers, notified from the committed
    * `processing → false` transition inside {@link setProcessing}. Every
@@ -535,7 +561,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /** @internal */   currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
@@ -1296,7 +1322,8 @@ export class Conversation {
           // at the memory boundary after the `<info>` block but before
           // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+          //    <info>v2static</info>, <memory>v3cards</memory>,
+          //    <memory_spotlight>, <NOW.md>,
           //    <system_reminder>, <knowledge_base>, ...original]
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
@@ -1322,6 +1349,28 @@ export class Conversation {
           if (!isTail && typeof meta.nowScratchpadBlock === "string") {
             content = [
               { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
+          // The memory-v3 per-turn `<memory_spotlight>` persists under its
+          // own key as the wrapped block that was sent. Rehydrated on ALL
+          // rows (tail included), matching frozen cards: after a reload the
+          // last completed turn is the tail, and the next user message is
+          // appended without re-running loadFromDb. Prepended here, after
+          // now-md and before the v3 card block, so the inverted prepends
+          // land as [cards, spotlight, now-md, ...]. Trust-gated on
+          // `personalMemoryAllowed` like the cards: the spotlight carries
+          // matched personal-memory sections.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] === "string"
+          ) {
+            content = [
+              {
+                type: "text" as const,
+                text: meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] as string,
+              },
               ...content,
             ];
           }
@@ -1628,25 +1677,54 @@ export class Conversation {
     }
   }
 
-  async ensureActorScopedHistory(): Promise<void> {
-    const currentTrustClass = this.trustContext?.trustClass;
-    // Tracked alongside the trust class because `loadFromDb` gates
-    // personal-memory rehydration on `isPersonalMemoryAllowed`, which folds in
-    // the disabled-auth elevation of an unbound actor: two contexts can share a
-    // trust class and still differ here. A reuse that changes the answer has to
-    // reload, or stale personal-memory blocks persist into a turn that must not
-    // see them, or stay stripped from one that should.
-    const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
-      this.trustContext,
-    );
-    if (
+  /**
+   * Whether the resident history is the one an actor carrying `trustContext`
+   * would be given.
+   *
+   * Personal memory is asked alongside the trust class because `loadFromDb`
+   * gates personal-memory rehydration on `isPersonalMemoryAllowed`, which folds
+   * in the disabled-auth elevation of an unbound actor: two contexts can share
+   * a trust class and still differ here. A reuse that changes the answer has to
+   * reload, or stale personal-memory blocks persist into a turn that must not
+   * see them, or stay stripped from one that should.
+   */
+  private historyMatchesScope(trustContext: TrustContext | undefined): boolean {
+    return (
       !this.loadedHistoryStale &&
-      this.loadedHistoryTrustClass === currentTrustClass &&
-      this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
-    ) {
+      this.loadedHistoryTrustClass === trustContext?.trustClass &&
+      this.loadedHistoryPersonalMemoryAllowed ===
+        isPersonalMemoryAllowed(trustContext)
+    );
+  }
+
+  async ensureActorScopedHistory(): Promise<void> {
+    if (this.historyMatchesScope(this.trustContext)) {
       return;
     }
     await this.loadFromDb();
+  }
+
+  /**
+   * Mark stale when a row has been appended to the resident history under an
+   * actor this history is not scoped for.
+   *
+   * A persist that runs outside any turn has nothing ensuring the history for
+   * its sender first, so its row joins `this.messages` as it is. Left alone,
+   * the next turn under the resident scope reuses that array rather than
+   * reloading, and sends the model a row a reload would have filtered out.
+   *
+   * `trustContext` is the actor the row was attributed to, which for a caller
+   * that resolved none is the conversation's own, matching what the persist
+   * stamps. A scope that already matches is left alone: rows can arrive on a
+   * camera's cadence, and a reload apiece is a cost worth the comparison.
+   */
+  markHistoryStaleForForeignScope(
+    trustContext: TrustContext | undefined,
+  ): void {
+    if (this.historyMatchesScope(trustContext ?? this.trustContext)) {
+      return;
+    }
+    this.markHistoryStale();
   }
 
   /**
@@ -1821,7 +1899,12 @@ export class Conversation {
    */
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
+    const wasOwner = this.processingOwner;
     this._processing = value;
+    // Every set is a claim, including one over a flag another holder already
+    // has: a caller setting it unconditionally is asserting the hold is now
+    // theirs, and the previous holder's release must not undo that.
+    this.processingOwner = value ? ++this.nextProcessingOwner : 0;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
     // by reading the conversations row directly.
@@ -1830,6 +1913,7 @@ export class Conversation {
         setConversationProcessingStartedAt(this.conversationId, Date.now());
       } catch (err) {
         this._processing = wasProcessing;
+        this.processingOwner = wasOwner;
         throw err;
       }
     } else {
@@ -1850,6 +1934,171 @@ export class Conversation {
         conversationMetadataSyncTag(this.conversationId),
       ]);
     }
+  }
+
+  /**
+   * Take the processing flag if it is free, reporting the claim a later release
+   * has to name. Null means someone already holds it.
+   *
+   * The read and the take are one synchronous step, so no second acquirer can
+   * land between them, and the flag stays held while the marker write below
+   * retries: reverting it because that write lost a race would publish an idle
+   * conversation for as long as the retry sleeps, and anything polling for idle
+   * takes the flag in that window while this caller believes its turn is
+   * starting.
+   *
+   * The marker is a fence, not a hope. `processing_started_at` is what a
+   * reconnecting client and the out-of-process retrospective worker read to
+   * decide whether a turn is live, so a turn that proceeds while the column is
+   * null lets a client stop waiting mid-turn and lets the worker fork partial
+   * history. Every caller therefore awaits {@link ensureProcessingMarker}
+   * before doing anything with the hold, and gives the hold back when it does
+   * not land.
+   */
+  acquireProcessing(): number | null {
+    if (this._processing) {
+      return null;
+    }
+    this._processing = true;
+    const owner = ++this.nextProcessingOwner;
+    this.processingOwner = owner;
+    this.processingMarker = {
+      owner,
+      landed: this.mirrorProcessingStarted(owner, Date.now()),
+    };
+    return owner;
+  }
+
+  /**
+   * Resolve once this claim's processing marker is durable. Reject when the
+   * retry budget runs out without it landing, and reject when the claim is not
+   * the live one.
+   *
+   * Lost ownership is a failure here, not a pass. The caller does its work
+   * between this fence and its release, so answering "fine" for a hold that
+   * Stop or a teardown has already cleared would let that work run under a
+   * dead claim while a new turn acquires and writes alongside it.
+   *
+   * Asked again after the await because both can happen in one window: the
+   * write lands, and the hold is claimed away before this resumes. The fence
+   * has to describe the present, not the moment it started waiting.
+   */
+  async ensureProcessingMarker(owner: number): Promise<void> {
+    const marker = this.processingMarker;
+    if (!marker || marker.owner !== owner || this.processingOwner !== owner) {
+      throw new ProcessingClaimLostError(this.conversationId);
+    }
+    await marker.landed;
+    if (this.processingOwner !== owner) {
+      throw new ProcessingClaimLostError(this.conversationId);
+    }
+  }
+
+  /**
+   * Take the flag and wait out its marker, giving the claim back rather than
+   * ever leaving a live one unreleased.
+   *
+   * Null is "this conversation is someone else's", by either route: the flag
+   * was already held, or the hold was claimed away while the marker was still
+   * landing. Callers answer both with the busy behaviour they already owe.
+   *
+   * A throw is the marker itself refusing to persist, which is a real failure
+   * rather than a busy conversation, and the claim is already released before
+   * it is raised. Every acquire goes through here, so no call site can get the
+   * ordering wrong: there is no window where a claim exists and its release is
+   * not yet guaranteed.
+   */
+  async acquireProcessingFenced(): Promise<number | null> {
+    const owner = this.acquireProcessing();
+    if (owner === null) {
+      return null;
+    }
+    try {
+      await this.ensureProcessingMarker(owner);
+    } catch (err) {
+      // A no-op when the claim is already gone, which is exactly the case
+      // this is here to make harmless.
+      this.releaseProcessing(owner);
+      if (err instanceof ProcessingClaimLostError) {
+        return null;
+      }
+      throw err;
+    }
+    return owner;
+  }
+
+  /**
+   * Whether this claim is still the live hold on the conversation.
+   *
+   * For work that runs across awaits under a claim it took earlier. A Stop on
+   * a hold with no live turn behind it force-clears the flag, and the next
+   * request acquires, so a claim can go stale while its holder is mid-write.
+   * Asking here is a plain field read, which is what lets a write fence ask it
+   * in the same tick as the statement it guards.
+   */
+  holdsProcessingClaim(owner: number): boolean {
+    return this.processingOwner === owner;
+  }
+
+  /**
+   * Release a hold taken by {@link acquireProcessing}, and only that hold.
+   * Reports whether it released.
+   *
+   * A hold can be claimed away by any unconditional `setProcessing(true)`,
+   * which is how a turn starts. The earlier holder's release then has to do
+   * nothing: clearing there would release a turn that is still running and let
+   * the next one interleave into the rows it is still writing.
+   */
+  releaseProcessing(owner: number): boolean {
+    if (this.processingOwner !== owner) {
+      log.debug(
+        {
+          conversationId: this.conversationId,
+          owner,
+          holder: this.processingOwner,
+        },
+        "Not releasing the processing flag: another holder claimed it",
+      );
+      return false;
+    }
+    this.setProcessing(false);
+    return true;
+  }
+
+  /**
+   * Write a taken processing lock into the `processing_started_at` column,
+   * reporting through the promise {@link ensureProcessingMarker} hands back.
+   *
+   * The retry runs while the flag stays held, so the lock has no gap for
+   * another acquirer, and it re-checks ownership rather than the flag: a hold
+   * claimed since has written its own timestamp, and a late write from this one
+   * would describe the wrong turn.
+   */
+  private mirrorProcessingStarted(
+    owner: number,
+    startedAt: number,
+  ): Promise<void> {
+    const landed = withSqliteRetry(
+      () => {
+        if (this.processingOwner !== owner) {
+          return;
+        }
+        setConversationProcessingStartedAt(this.conversationId, startedAt);
+      },
+      {
+        op: "conversation:acquireProcessing",
+        context: { conversationId: this.conversationId },
+      },
+    );
+    // The caller awaits this, but only on its own next tick, so subscribe now
+    // rather than let a rejection land with nothing attached to it.
+    landed.catch((err: unknown) => {
+      log.error(
+        { err, conversationId: this.conversationId },
+        "Failed to persist the processing marker; the claim holding this conversation is given back",
+      );
+    });
+    return landed;
   }
 
   /**

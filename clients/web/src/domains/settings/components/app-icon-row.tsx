@@ -7,8 +7,8 @@
  * an avatar switched to an uploaded image leaves the old icon in place until
  * someone resets it from the picker.
  *
- * Draws nothing at all off native iOS, with the `ios-avatar-app-icon` flag
- * off, or on a build that ships no alternate icons.
+ * Draws nothing at all outside the native mobile shells, with the running
+ * shell's own flag off, or on a build that ships no alternate icons.
  */
 import { useState } from "react";
 
@@ -18,6 +18,7 @@ import { AppIconModal } from "@/domains/settings/components/app-icon-modal";
 import { useAppIconSync, type AppIconSync } from "@/hooks/use-app-icon-sync";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import {
   useShellEnvironment,
   type ShellEnvironment,
@@ -80,15 +81,31 @@ const PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, IconGround>> = {
 };
 
 /**
- * Ground to draw when the shell names no environment we know, keyed by
- * `VITE_SENTRY_ENVIRONMENT`. An unset value is a local build, which
- * `clients/ios/README.md` runs on the App Dev scheme, so it takes the same
- * pink.
+ * Ground the Android shells draw their launcher icon on, keyed by the shell's
+ * own environment.
+ *
+ * These are the per-flavor `launcher_background` resources in
+ * `clients/android/app/src/<flavor>/res/values/colors.xml`, which the platform
+ * declares in plain sRGB and ships no wide-gamut variant of, so they are named
+ * once rather than paired the way the iOS bundles above are. Production is
+ * absent for the same reason it is absent there: its `launcher_background` is
+ * already the catalog green {@link DEFAULT_APP_ICON_TRAITS} names.
  */
-const WEB_ENV_PRIMARY_ICON_GROUND: Record<string, IconGround> = {
-  local: DEV_GROUND,
-  dev: DEV_GROUND,
-  staging: STAGING_GROUND,
+const ANDROID_PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, string>> = {
+  dev: "#2457C5",
+  staging: "#C84C09",
+};
+
+/**
+ * Environment to fall back to when the shell names none, keyed by
+ * `VITE_SENTRY_ENVIRONMENT`. An unset value is a local build, which each
+ * project runs on its own dev build (the App Dev scheme in
+ * `clients/ios/README.md`, the `dev` flavor on Android), so it reads as dev.
+ */
+const WEB_ENV_SHELL_ENVIRONMENT: Record<string, ShellEnvironment> = {
+  local: "dev",
+  dev: "dev",
+  staging: "staging",
 };
 
 /** Whether the renderer parses a CSS Color 4 `color()` at all. */
@@ -108,24 +125,41 @@ function groundFill(ground: IconGround | undefined): string | undefined {
 }
 
 /**
+ * Environment whose primary icon the thumbnail stands in for: the shell's own
+ * wherever it named one, the web deploy's where it named none, and none at all
+ * while it has yet to answer.
+ */
+function primaryIconEnvironment(
+  shell: ShellEnvironment | null | undefined,
+): ShellEnvironment | undefined {
+  if (shell) {
+    return shell;
+  }
+  if (shell === null) {
+    return WEB_ENV_SHELL_ENVIRONMENT[
+      import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local"
+    ];
+  }
+  return undefined;
+}
+
+/**
  * Ground the running shell's primary icon carries, undefined on production and
  * while the shell has yet to answer, which draws the production green for the
- * frame or two that takes.
+ * frame or two that takes. The two platforms ship unrelated fields for the same
+ * environment, so the shell's OS picks the map and the shell's build keys it.
  */
 function primaryIconGround(
   shell: ShellEnvironment | null | undefined,
+  android: boolean,
 ): string | undefined {
-  if (shell) {
-    return groundFill(PRIMARY_ICON_GROUND[shell]);
+  const environment = primaryIconEnvironment(shell);
+  if (!environment) {
+    return undefined;
   }
-  if (shell === null) {
-    return groundFill(
-      WEB_ENV_PRIMARY_ICON_GROUND[
-        import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local"
-      ],
-    );
-  }
-  return undefined;
+  return android
+    ? ANDROID_PRIMARY_ICON_GROUND[environment]
+    : groundFill(PRIMARY_ICON_GROUND[environment]);
 }
 
 export function AppIconRow() {
@@ -152,6 +186,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
   const { components } = useAssistantAvatar(assistantId);
   const bundledComponents = useBundledAvatarComponents();
   const shellEnvironment = useShellEnvironment();
+  const isAndroidShell = useIsNativeAndroid();
   const [open, setOpen] = useState(false);
 
   // The daemon's catalog is what the avatar itself is drawn from, so the
@@ -183,7 +218,9 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
             color={traits.color}
             primary={isPrimary}
             fieldColor={
-              isPrimary ? primaryIconGround(shellEnvironment) : undefined
+              isPrimary
+                ? primaryIconGround(shellEnvironment, isAndroidShell)
+                : undefined
             }
             size={ROW_PREVIEW_SIZE}
           />
