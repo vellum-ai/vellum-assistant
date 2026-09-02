@@ -158,26 +158,51 @@ export function versionSupports(
   if (baseCmp !== 0) {
     return baseCmp > 0;
   }
-  // Base versions are equal. Dev pre-releases (e.g.
-  // `0.10.0-dev.202606211252.5cf8576`) are development builds AHEAD of
-  // the stable release with the same base — they contain unreleased
+  // Base versions are equal. Build pre-releases (`0.10.0-dev.…` from CI,
+  // `0.11.8-local.…` from a `vel up` image) are development builds AHEAD
+  // of the stable release with the same base — they contain unreleased
   // commits on top of it. So a dev build of 0.10.0 is newer than the
   // 0.10.0 stable release, not older (the opposite of strict semver).
-  const versionIsDev = parsed.pre !== null && parsed.pre.startsWith("dev");
-  const minIsDev = min.pre !== null && min.pre.startsWith("dev");
-  if (versionIsDev && minIsDev) {
-    // Two dev builds with the same base compare by their pre-release
-    // string, which encodes a timestamp (dev.YYYYMMDDHHMM.sha).
+  const versionBuild = parseBuildPreRelease(parsed.pre);
+  const minBuild = parseBuildPreRelease(min.pre);
+  if (versionBuild && minBuild) {
+    // Two builds with the same base compare by when they were built.
+    if (versionBuild.stamp !== null && minBuild.stamp !== null) {
+      return versionBuild.stamp >= minBuild.stamp;
+    }
     return comparePreRelease(parsed.pre!, min.pre!) >= 0;
   }
-  if (versionIsDev !== minIsDev) {
-    // Dev is ahead of stable with the same base.
-    return versionIsDev;
+  if ((versionBuild !== null) !== (minBuild !== null)) {
+    // A build is ahead of stable with the same base.
+    return versionBuild !== null;
   }
-  // Neither is dev — existing convention: strip pre-release suffixes,
-  // equal base versions count as supported (rc/beta/alpha testers get
-  // the new path the moment the patch version bumps).
+  // Neither is a build — existing convention: strip pre-release
+  // suffixes, equal base versions count as supported (rc/beta/alpha
+  // testers get the new path the moment the patch version bumps).
   return true;
+}
+
+/**
+ * A build pre-release, and when it was built.
+ *
+ * CI stamps `dev.YYYYMMDDHHMM.sha` and a `vel up` image stamps
+ * `local.YYYYMMDDHHMMSS.sha`; both are commits on top of the base
+ * release, so both order by their stamp rather than by their tag. The
+ * stamp is read to the minute, the precision the two tags share. A build
+ * tag with no stamp (`dev.1`) is still a build, and falls back to the
+ * pre-release string order.
+ */
+function parseBuildPreRelease(
+  pre: string | null,
+): { stamp: string | null } | null {
+  if (pre === null) {
+    return null;
+  }
+  const match = /^(?:dev|local)(?:\.(\d{12}))?/.exec(pre);
+  if (!match) {
+    return null;
+  }
+  return { stamp: match[1] ?? null };
 }
 
 /**

@@ -401,6 +401,37 @@ describe("channel-retry-sweep", () => {
     expect(eventRow?.processingStatus).toBe("processed");
   });
 
+  test("restores the triggering message's id and thread on replay", async () => {
+    seedFailedEventWithTrustClass("guardian", {
+      sourceMessageId: "1700000000.000200",
+      sourceThreadId: "1700000000.000100",
+    });
+
+    let capturedTrust: Record<string, unknown> | undefined;
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedTrust = (options as { trustContext?: Record<string, unknown> })
+        .trustContext;
+      const messageId = "message-location";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // The replayed turn names the same message and thread the live turn
+    // did, so the turn's chat and thread lines and approval-card source
+    // links read the same on a retry as on the first attempt.
+    expect(capturedTrust?.sourceMessageId).toBe("1700000000.000200");
+    expect(capturedTrust?.sourceThreadId).toBe("1700000000.000100");
+  });
+
   test("fences a non-guardian Slack replay in external_content and carries the ingress idempotency key", async () => {
     seedFailedSlackEvent({
       trustClass: "unverified_contact",

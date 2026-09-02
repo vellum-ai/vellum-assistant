@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import type { DictationContext } from "@vellumai/assistant-api";
 import type { HotkeySelection } from "@vellumai/ipc-contract";
 
 import {
@@ -26,6 +27,8 @@ import {
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import type { DictationPostResponse } from "@/generated/daemon/types.gen";
+import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -63,6 +66,67 @@ export function composeSelectionAsk(
   return `${quoted}${tail}\n\n${words}`;
 }
 
+/**
+ * The cleanup pass raced against a deadline rather than awaited, so a daemon
+ * that is not answering costs the hold the deadline and no more. Past it the
+ * late answer is dropped.
+ */
+async function postDictationWithDeadline(
+  words: string,
+  assistantId: string,
+  context: DictationContext,
+): Promise<DictationPostResponse | null> {
+  const abort = new AbortController();
+  return Promise.race([
+    postDictation(words, assistantId, context, abort.signal),
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        abort.abort();
+        resolve(null);
+      }, CLEANUP_DEADLINE_MS);
+    }),
+  ]);
+}
+
+/**
+ * Whether what a hold's words ask for can go back where the selection is.
+ *
+ * Editable, so a paste replaces the selection rather than landing nowhere.
+ * Whole, because the helper cuts a long selection short, and a rewrite of the
+ * part it kept pasted over all of it would take the rest with it.
+ */
+function canRewriteInPlace(selection: HotkeySelection): boolean {
+  return selection.editable && !selection.truncated;
+}
+
+/**
+ * What the words asked to be put in the selection's place, or null when they
+ * asked about it instead.
+ *
+ * The daemon reads the words over the selection and answers with the edit,
+ * or says they were a question. No answer in time, and the selection handed
+ * back as it was, are nothing to put anywhere either, and the words go to the
+ * assistant as the question they may well be. Character counts and timings
+ * only in the log.
+ */
+async function requestSelectionRewrite(
+  words: string,
+  selection: HotkeySelection,
+  assistantId: string,
+): Promise<string | null> {
+  const startedAt = Date.now();
+  const result = await postDictationWithDeadline(words, assistantId, {
+    cursorInTextField: true,
+    selectedText: selection.text,
+  });
+  const edited = result?.mode === "command" ? result.text.trim() : "";
+  const rewrite = edited && edited !== selection.text.trim() ? edited : null;
+  console.info(
+    `dictation: rewrite ${result ? result.mode : "skipped"} selectionChars=${selection.text.length} words=${words.length} outChars=${rewrite?.length ?? 0} ms=${Date.now() - startedAt}`,
+  );
+  return rewrite;
+}
+
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -87,6 +151,53 @@ function ensureConversationKey(): string {
 
 function showVoiceErrorToast(code: string): void {
   toast.error(formatVoiceError(code), { id: `voice-error:${code}` });
+}
+
+/**
+ * Put text at the cursor in the application in front, and where that cannot
+ * be done, in the composer, so nothing said is lost. A paste the system turned
+ * away says so once, with a stable id, and marks the recording so the overlay
+ * shows the failure rather than a check.
+ */
+async function landInFrontApp(
+  text: string,
+  assistantId: string | null,
+): Promise<void> {
+  const insertStartedAt = Date.now();
+  const frontAppInsertion = await insertTextIntoFrontApp(text);
+  console.info(
+    `dictation: inserted chars=${text.length} status=${frontAppInsertion.status} ms=${Date.now() - insertStartedAt}`,
+  );
+  if (frontAppInsertion.status === "inserted") {
+    return;
+  }
+
+  if (frontAppInsertion.status === "automation-denied") {
+    showVoiceErrorToast("dictation-automation-denied");
+    useVoiceRecordingStore
+      .getState()
+      .flagDictationInsertionError("dictation-automation-denied");
+  } else if (frontAppInsertion.status === "blocked") {
+    showVoiceErrorToast("dictation-paste-blocked");
+    useVoiceRecordingStore
+      .getState()
+      .flagDictationInsertionError("dictation-paste-blocked");
+  }
+
+  if (assistantId) {
+    useComposerStore
+      .getState()
+      .loadAssistantDrafts(
+        assistantId,
+        useConversationStore.getState().activeConversationId,
+      );
+  }
+
+  const conversationKey = ensureConversationKey();
+  const composer = useComposerStore.getState();
+  const nextInput = appendTranscript(composer.input, text);
+  composer.setInput(nextInput);
+  composer.saveDraft(conversationKey, nextInput);
 }
 
 export function GlobalPushToTalkBridge({
@@ -203,6 +314,24 @@ export function GlobalPushToTalkBridge({
       const selection = holdSelectionRef.current;
       holdSelectionRef.current = null;
       if (selection !== null) {
+        // Words over an editable selection may be asking for it changed. The
+        // daemon reads them either way: an edit comes back to be put where
+        // the selection is, and a question falls through to the ask below.
+        if (
+          assistantId &&
+          canRewriteInPlace(selection) &&
+          supportsSelectionRewrite(assistantId)
+        ) {
+          const rewrite = await requestSelectionRewrite(
+            rawText,
+            selection,
+            assistantId,
+          );
+          if (rewrite !== null) {
+            await landInFrontApp(rewrite, assistantId);
+            return;
+          }
+        }
         // A question about what was highlighted. Not pasted, and not cleaned
         // up: the cleanup pass rewrites words meant for a document, and these
         // are meant for the assistant, who hears them as said. The reply is
@@ -227,29 +356,11 @@ export function GlobalPushToTalkBridge({
       // list, and the only leg of this that can. A hold takes it too, now that
       // nothing else on its path is worth waiting for; what it costs is
       // measured rather than assumed. Character counts and timings only.
-      //
-      // Raced against a deadline rather than awaited, so a daemon that is not
-      // answering costs the hold the deadline and no more. Past it the raw
-      // words go down and the late answer is dropped.
       const cleanupStartedAt = Date.now();
-      const cleanupAbort = new AbortController();
       const dictationResult = assistantId
-        ? await Promise.race([
-            postDictation(
-              rawText,
-              assistantId,
-              {
-                cursorInTextField: true,
-              },
-              cleanupAbort.signal,
-            ),
-            new Promise<null>((resolve) => {
-              setTimeout(() => {
-                cleanupAbort.abort();
-                resolve(null);
-              }, CLEANUP_DEADLINE_MS);
-            }),
-          ])
+        ? await postDictationWithDeadline(rawText, assistantId, {
+            cursorInTextField: true,
+          })
         : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
@@ -257,41 +368,7 @@ export function GlobalPushToTalkBridge({
       console.info(
         `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
       );
-      const insertStartedAt = Date.now();
-      const frontAppInsertion = await insertTextIntoFrontApp(insertText);
-      console.info(
-        `dictation: inserted chars=${insertText.length} status=${frontAppInsertion.status} ms=${Date.now() - insertStartedAt}`,
-      );
-      if (frontAppInsertion.status === "inserted") {
-        return;
-      }
-
-      if (frontAppInsertion.status === "automation-denied") {
-        showVoiceErrorToast("dictation-automation-denied");
-        useVoiceRecordingStore
-          .getState()
-          .flagDictationInsertionError("dictation-automation-denied");
-      } else if (frontAppInsertion.status === "blocked") {
-        showVoiceErrorToast("dictation-paste-blocked");
-        useVoiceRecordingStore
-          .getState()
-          .flagDictationInsertionError("dictation-paste-blocked");
-      }
-
-      if (assistantId) {
-        useComposerStore
-          .getState()
-          .loadAssistantDrafts(
-            assistantId,
-            useConversationStore.getState().activeConversationId,
-          );
-      }
-
-      const conversationKey = ensureConversationKey();
-      const composer = useComposerStore.getState();
-      const nextInput = appendTranscript(composer.input, insertText);
-      composer.setInput(nextInput);
-      composer.saveDraft(conversationKey, nextInput);
+      await landInFrontApp(insertText, assistantId);
     },
     [assistantId],
   );

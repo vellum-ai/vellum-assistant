@@ -626,6 +626,9 @@
     "title": "刪除對話",
     "untitled": "未命名"
   },
+  "deletedMessageRow": {
+    "label": "此訊息已被刪除"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "下載 PDF 失敗"
   },

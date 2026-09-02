@@ -35,7 +35,8 @@ function serverHasNewAttachments(
 
 /**
  * Whether the server snapshot carries content the local view does not yet have:
- * a row absent locally, changed text, or a newly hydrated attachment.
+ * a row absent locally, changed text, a newly hydrated attachment, or a
+ * deletion on the row's channel (which leaves the stored text intact).
  */
 export function serverSnapshotHasNewContent(
   serverMessages: DisplayMessage[],
@@ -56,7 +57,8 @@ export function serverSnapshotHasNewContent(
     }
     if (
       messagePlainText(match) !== messagePlainText(sm) ||
-      serverHasNewAttachments(sm, match)
+      serverHasNewAttachments(sm, match) ||
+      sm.deletedAt !== match.deletedAt
     ) {
       return true;
     }

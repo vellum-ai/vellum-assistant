@@ -360,6 +360,21 @@ export const routeTree = [
     },
   },
 
+  // The display's edge, lit while a watch session reads the screen. Its own
+  // click-through window the size of the display, opened and closed by the
+  // shell with the session; standalone for the reason the surface is.
+  {
+    path: "/assistant/floating/companion-watch-glow",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: RootHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-watch-glow-page").then(
+          (m) => m.CompanionWatchGlowPage,
+        ),
+    },
+  },
+
   // Dictation overlay — live transcription pill rendered inside the
   // Electron dictation overlay BrowserWindow (a floating panel pinned
   // top-center of the screen while push-to-talk dictation is active).

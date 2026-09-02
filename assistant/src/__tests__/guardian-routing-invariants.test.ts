@@ -1905,6 +1905,32 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
   // Integration tests: verify listGuardianDecisionPrompts returns correct
   // action sets for each guardian request kind.
 
+  test("access_request prompt text carries the invite-flow sentence and no decision directive", async () => {
+    const convId = "conv-kind-access-request";
+    sim.seedRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      sourceConversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      questionText: "Alice is requesting access to the assistant.",
+      requestCode: "A1B2C3",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
+    expect(prompts).toHaveLength(1);
+    // The actions carry the decision; the invite flow has no action anywhere,
+    // so its sentence rides in the text.
+    expect(prompts[0]!.questionText).toBe(
+      'Alice is requesting access to the assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
+    expect(prompts[0]!.questionText).not.toContain("A1B2C3");
+  });
+
   test("tool_approval prompt uses approve_once + reject only (one-time decision pattern)", async () => {
     const convId = "conv-kind-tool-approval";
     sim.seedRequest({

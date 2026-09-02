@@ -18,6 +18,7 @@ import {
   listPendingRequestsByScope,
 } from "../../channels/gateway-guardian-requests.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import { buildAccessRequestInviteDirective } from "../../notifications/access-request-copy.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
@@ -197,18 +198,22 @@ function mapRequestToPrompt(
 }
 
 /**
- * The prompt's text is the ask alone. Its `actions` carry the decision, so
- * typed-reply directives here would duplicate them on every client.
+ * The prompt's text is the ask. Its `actions` carry the decision, so a
+ * typed decision directive here would duplicate them on every client. An
+ * access request also carries the invite-flow sentence, because no action
+ * anywhere offers that flow and the sentence is the only way to start it.
  */
 function buildKindAwareQuestionText(req: GuardianRequestWire): string {
-  return (
+  const baseText =
     req.questionText ??
     (req.toolName
       ? req.activityText
         ? `Approve tool: ${req.toolName} — ${req.activityText}`
         : `Approve tool: ${req.toolName}`
-      : `Guardian request: ${req.kind}`)
-  );
+      : `Guardian request: ${req.kind}`);
+  return req.kind === "access_request"
+    ? `${baseText}\n${buildAccessRequestInviteDirective()}`
+    : baseText;
 }
 
 // ---------------------------------------------------------------------------

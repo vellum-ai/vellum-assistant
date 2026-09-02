@@ -430,15 +430,6 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/minimax-m2p7",
-      displayName: "MiniMax M2.7",
-      vendor: "minimax",
-      family: "minimax-m",
-      contextWindowTokens: 196_608,
-      defaultContextWindowTokens: 196_608,
-      maxOutputTokens: 25_000,
-    },
-    {
       id: "accounts/fireworks/models/deepseek-v4-pro-0813",
       displayName: "DeepSeek V4 Pro",
       vendor: "deepseek",

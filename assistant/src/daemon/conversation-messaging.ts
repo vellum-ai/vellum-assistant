@@ -15,7 +15,6 @@ import {
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
-import { createUserMessage } from "../agent/message-types.js";
 import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
@@ -76,6 +75,13 @@ import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import {
+  assembleUserContentBlocks,
+  offloadLinkPlan,
+  offloadOversizedText,
+  OVERSIZED_CONTENT_FILENAME,
+  type PortOversizedContext,
+} from "./port-oversized-content.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
 import { postUnsendableImageNotice } from "./unsendable-image-notice.js";
@@ -272,11 +278,8 @@ export async function serializePersistedUserMessageContent(
   displayContent: string | undefined,
   attachments: MessageAttachmentInput[],
 ): Promise<string> {
-  return serializeUserContentBlocks(
-    content,
-    displayContent,
-    await attachmentsToContentBlocks(attachments),
-  );
+  const attachmentBlocks = await attachmentsToContentBlocks(attachments);
+  return serializeUserContentBlocks(content, displayContent, attachmentBlocks);
 }
 
 /**
@@ -1158,6 +1161,7 @@ export async function persistQueuedMessageBody(
   // exactly the shape a link-aware delete reads as collectible, so the cleanup
   // must stop at the insert.
   let preparedAttachments: PreparedUserAttachment[] = [];
+  let portedAttachmentIds: string[] = [];
   let messageInserted = false;
 
   try {
@@ -1336,22 +1340,42 @@ export async function persistQueuedMessageBody(
       preparedAttachments,
     );
     const sightFrameRenames = sightFrameBlockRenames(sightFrameEntries);
-    // The blocks are built from the ids the caller held, so a cloned frame is
-    // pointed at its stored row before the message reaches the live history.
+
+    const portCtx: PortOversizedContext = {
+      conversationId: ctx.conversationId,
+      conversationCreatedAt,
+    };
+    const persistText = displayContent !== undefined ? displayContent : content;
+    const persistOffload = await offloadOversizedText(persistText, portCtx);
+    const liveOffload =
+      persistText === content
+        ? persistOffload
+        : await offloadOversizedText(content, portCtx);
+    const attachmentBlocks = preparedAttachments.map((p) => p.block);
+    const persistBlocks = assembleUserContentBlocks(
+      persistOffload.text,
+      attachmentBlocks,
+      persistOffload.fileBlock,
+    );
+    const liveBlocks = assembleUserContentBlocks(
+      liveOffload.text,
+      attachmentBlocks,
+      liveOffload.fileBlock,
+    );
+    const offloadPlan = offloadLinkPlan(
+      persistOffload.attachmentId,
+      liveOffload.attachmentId,
+    );
+    portedAttachmentIds = offloadPlan.linkIds;
+
+    // Workspace-ref blocks (including offloaded oversized text) so the live
+    // turn matches persist: video and huge strings stay off the prompt.
     const cleanMessage = restampInlineAttachmentIds(
-      await createUserMessage(content, sentAttachments),
+      { role: "user", content: liveBlocks },
       sightFrameRenames,
     );
 
-    // When displayContent is provided (e.g. original text before recording
-    // intent stripping), persist that to DB so users see the full message
-    // after restart. The in-memory userMessage (sent to the LLM) still uses
-    // the stripped content.
-    const contentToPersist = serializeUserContentBlocks(
-      content,
-      displayContent,
-      preparedAttachments.map((p) => p.block),
-    );
+    const contentToPersist = JSON.stringify(persistBlocks);
     // Composed here rather than with the rest of the metadata above, because
     // materialization is what decides the id each frame is stored under.
     const sightFrameIds = sightFrameTagIds(sightFrameEntries);
@@ -1379,6 +1403,7 @@ export async function persistQueuedMessageBody(
     messageInserted = true;
 
     if (persistedUserMessage.deduplicated) {
+      discardAttemptAttachments(portedAttachmentIds);
       return { id: persistedUserMessage.id, deduplicated: true };
     }
 
@@ -1453,14 +1478,49 @@ export async function persistQueuedMessageBody(
     if (repairedBlocks) {
       updateMessageContent(
         persistedUserMessage.id,
-        serializeUserContentBlocks(content, displayContent, repairedBlocks),
+        JSON.stringify(
+          assembleUserContentBlocks(
+            persistOffload.text,
+            repairedBlocks,
+            persistOffload.fileBlock,
+          ),
+        ),
       );
     }
 
-    // Persist the resolved paths so history reloads can rebuild the same
-    // annotation block the in-memory message carries below.
+    let nextPortPosition =
+      preparedAttachments.reduce((max, p) => Math.max(max, p.position), -1) + 1;
+    for (const attachmentId of portedAttachmentIds) {
+      try {
+        const scopedId = linkAttachmentToMessage(
+          persistedUserMessage.id,
+          attachmentId,
+          nextPortPosition,
+        );
+        nextPortPosition += 1;
+        const storedPath = getFilePathForAttachment(scopedId) ?? undefined;
+        // Display-only offloads stay linked (GC + persisted workspace_ref)
+        // but must not be named on the model-facing list.
+        if (offloadPlan.modelFacingIds.has(attachmentId)) {
+          sentAttachments.push({
+            filename: OVERSIZED_CONTENT_FILENAME,
+            mimeType: "text/plain",
+            data: "",
+            storedPath,
+          });
+        }
+      } catch (err) {
+        log.error(
+          { attachmentId, err },
+          "Failed to link offloaded oversized content attachment",
+        );
+      }
+    }
+
+    // Same list enrichMessageWithSourcePaths sees, so history reload rebuilds
+    // an identical annotation block (prefix-cache parity).
     const attachmentStoredPaths =
-      extractAttachmentStoredPaths(attachmentInputs);
+      extractAttachmentStoredPaths(sentAttachments);
     if (attachmentStoredPaths) {
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
@@ -1510,9 +1570,10 @@ export async function persistQueuedMessageBody(
       ctx.messages.pop();
     }
     if (!messageInserted) {
-      const undiscarded = discardAttemptAttachments(
-        attemptCreatedAttachmentIds(attachmentInputs, preparedAttachments),
-      );
+      const undiscarded = discardAttemptAttachments([
+        ...attemptCreatedAttachmentIds(attachmentInputs, preparedAttachments),
+        ...portedAttachmentIds,
+      ]);
       if (undiscarded.length > 0) {
         options.onUndiscardedAttachments?.(undiscarded);
       }

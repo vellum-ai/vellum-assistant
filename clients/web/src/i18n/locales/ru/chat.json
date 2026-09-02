@@ -341,6 +341,9 @@
     "title": "Удалить диалог",
     "untitled": "Без названия"
   },
+  "deletedMessageRow": {
+    "label": "Это сообщение было удалено"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
   },

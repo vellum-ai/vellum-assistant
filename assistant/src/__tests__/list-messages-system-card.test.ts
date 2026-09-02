@@ -196,6 +196,57 @@ describe("handleListMessages system-card projection", () => {
     expect(projected?.reaction?.selfAuthored).toBe(true);
   });
 
+  test("projects deletedAt from a row deleted on its channel", async () => {
+    // Mirror the delete propagation stamp: the row keeps its content and the
+    // envelope carries the marker, in either shape the daemon writes.
+    const conv = createConversation();
+    const discordRow = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "A message later deleted" }]),
+      {
+        metadata: {
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "111",
+            eventKind: "message",
+            deletedAt: 1725100000000,
+          }),
+        },
+      },
+    );
+    const slackRow = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "The assistant's deleted post" }]),
+      {
+        metadata: {
+          slackMeta: JSON.stringify({
+            source: "slack",
+            channelId: "C0123",
+            channelTs: "1725100000.000100",
+            eventKind: "message",
+            deletedAt: 1725100001000,
+          }),
+        },
+      },
+    );
+
+    const response = (await handleListMessages({
+      queryParams: { conversationId: conv.id },
+    })) as { messages: Array<ProjectedMessage & { deletedAt?: number }> };
+    for (const message of response.messages) {
+      expect(() => ConversationMessageSchema.parse(message)).not.toThrow();
+    }
+    expect(
+      response.messages.find((m) => m.id === discordRow.id)?.deletedAt,
+    ).toBe(1725100000000);
+    expect(response.messages.find((m) => m.id === slackRow.id)?.deletedAt).toBe(
+      1725100001000,
+    );
+  });
+
   test("omits systemCard on ordinary user and assistant rows", async () => {
     const conv = createConversation();
     await addMessage(

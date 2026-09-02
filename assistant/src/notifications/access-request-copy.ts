@@ -337,17 +337,47 @@ export function stripAccessRequestReplyMechanics(
 }
 
 /**
+ * The text-only rendering of an access request: the context, then the
+ * typed directive when the request carries a code. This is the card's text
+ * sibling, what a client without buttons (the CLI, search, the model) sees
+ * in place of the card.
+ */
+export function buildAccessRequestTextFallback(
+  payload: Record<string, unknown>,
+): string {
+  const mechanics = buildAccessRequestReplyMechanics(payload);
+  const context = buildAccessRequestContextText(payload);
+  return mechanics ? `${context}\n${mechanics}` : context;
+}
+
+/**
+ * Whether text carries a positive invite-flow directive: a "reply ..."
+ * sentence naming the phrase, not preceded by a negation. A bare mention
+ * ("the open invite flow is disabled") or a negated form ("do not reply
+ * ...") does not count, so the canonical directive still gets appended.
+ */
+export function hasInviteFlowDirective(text: string): boolean {
+  const normalized = text
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .replace(/\s+/g, " ");
+  return /(?<!not )(?<!n't )(?<!never )reply\b[^.!?\n]*?"open invite flow"/i.test(
+    normalized,
+  );
+}
+
+/**
  * Ensure the invite-flow directive is in every text field of a channel's
  * access-request copy. It is context rather than mechanics (no surface has
  * an invite button, so the sentence is the only way to start the flow), and
- * model-composed copy can omit it, so it is appended when the phrase is
- * missing. A title stays a title.
+ * model-composed copy can omit, negate, or merely mention it, so the
+ * canonical sentence is appended whenever no positive directive is present.
+ * A title stays a title.
  */
 export function ensureAccessRequestInviteDirectiveInCopy(
   copy: RenderedChannelCopy,
 ): RenderedChannelCopy {
   const ensure = (text: string): string =>
-    /open invite flow/i.test(text)
+    hasInviteFlowDirective(text)
       ? text
       : `${text.trim()}\n${buildAccessRequestInviteDirective()}`;
   return {

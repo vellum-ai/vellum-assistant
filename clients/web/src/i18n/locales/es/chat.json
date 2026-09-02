@@ -648,6 +648,9 @@
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
+  "deletedMessageRow": {
+    "label": "Este mensaje fue eliminado"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
   },
