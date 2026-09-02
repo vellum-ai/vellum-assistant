@@ -93,38 +93,28 @@ const PluginStdioServerSchema = z.object({
   cwd: z.string().optional(),
 });
 
+/**
+ * Remote MCP entry. Agent Plugins 1.0.0 requires `type` and names no
+ * default. MCP's current remote transport is Streamable HTTP, so this
+ * host fills omitted `type` and the Claude-style `http` alias as
+ * `streamable-http`. `sse` stays explicit.
+ */
 const PluginHttpServerSchema = z.object({
-  type: z.enum(["streamable-http", "sse"]),
+  type: z
+    .union([
+      z.literal("streamable-http"),
+      z.literal("sse"),
+      z.literal("http").transform(() => "streamable-http" as const),
+    ])
+    .default("streamable-http"),
   url: z.string().min(1),
   headers: z.record(z.string(), z.string()).optional(),
 });
 
-const PluginMcpServerSchema = z.discriminatedUnion("type", [
+const PluginMcpServerSchema = z.union([
   PluginStdioServerSchema,
   PluginHttpServerSchema,
 ]);
-
-/**
- * Host default when an entry omits `type`, or uses the Claude-style
- * `http` alias.
- *
- * Agent Plugins 1.0.0 requires `type` and names no default. MCP's current
- * remote transport is Streamable HTTP, so this host fills omitted `type`
- * (and `http`) as `streamable-http`. `sse` and `stdio` stay explicit.
- */
-const PLUGIN_MCP_DEFAULT_TYPE = "streamable-http" as const;
-
-function normalizePluginMcpServer(raw: unknown): unknown {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return raw;
-  }
-  const record = raw as Record<string, unknown>;
-  const type = record.type;
-  if (type === undefined || type === "http") {
-    return { ...record, type: PLUGIN_MCP_DEFAULT_TYPE };
-  }
-  return raw;
-}
 
 const PluginMcpManifestSchema = z.object({
   mcpServers: z.record(z.string(), z.unknown()),
@@ -265,9 +255,7 @@ export function readPluginMcpServers(
         continue;
       }
 
-      const entry = PluginMcpServerSchema.safeParse(
-        normalizePluginMcpServer(raw),
-      );
+      const entry = PluginMcpServerSchema.safeParse(raw);
       if (!entry.success) {
         issues.push({
           pluginName: plugin.name,
