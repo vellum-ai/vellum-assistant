@@ -75,6 +75,7 @@ shim_source() {
   done
 }
 
+generation_failed=0
 for d in ${SCAN_DIRS}; do
   for bin in "${DATA_ROOT}/${d}/"*; do
     # Shims outrank every chroot bin dir on PATH, so only the
@@ -89,7 +90,10 @@ for d in ${SCAN_DIRS}; do
       continue
     fi
     shim="${SHIM_DIR}/${bin##*/}"
-    tmp="$(mktemp "${SHIM_DIR}/.shim.XXXXXX")" || continue
+    if ! tmp="$(mktemp "${SHIM_DIR}/.shim.XXXXXX")"; then
+      generation_failed=1
+      continue
+    fi
     if printf '%s\n' \
       '#!/bin/sh' \
       "${MARKER} ${target}" \
@@ -100,9 +104,14 @@ for d in ${SCAN_DIRS}; do
       :
     else
       rm -f "${tmp}"
+      generation_failed=1
     fi
   done
 done
+
+if [ "${generation_failed}" -ne 0 ]; then
+  exit 1
+fi
 
 # Drop shims that remain stale after desired replacements are installed.
 for shim in "${SHIM_DIR}"/*; do

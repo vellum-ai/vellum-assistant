@@ -84,11 +84,22 @@ describe("docker-kata-apt-shims", () => {
 
       writeExecutable(source, `#!/bin/sh\nexec ${secondTarget} "$@"\n`);
       const fakeBin = join(dataRoot, "fake-bin");
+      const failedOnce = join(dataRoot, "mv-failed-once");
       mkdirSync(fakeBin);
       writeExecutable(
         join(fakeBin, "mv"),
-        '#!/bin/sh\n[ -f "$3" ] || exit 91\nexec /bin/mv "$@"\n',
+        `#!/bin/sh
+if [ ! -e "${failedOnce}" ]; then
+  touch "${failedOnce}"
+  exit 91
+fi
+[ -f "$3" ] || exit 92
+exec /bin/mv "$@"
+`,
       );
+
+      expect(() => refreshShims(dataRoot, fakeBin)).toThrow();
+      expect(readFileSync(shim, "utf8")).toContain(firstTarget);
       refreshShims(dataRoot, fakeBin);
 
       const refreshedShim = readFileSync(shim, "utf8");
