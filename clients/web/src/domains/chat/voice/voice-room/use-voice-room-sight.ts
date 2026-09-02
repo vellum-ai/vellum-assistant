@@ -408,9 +408,10 @@ export function useVoiceRoomSight(
   // photo costs one hold; coming back to one that is already streaming costs
   // whatever it captured first.
   //
-  // Lowering the mode is what stops the source, one commit later, and the
-  // revocation is what covers the commit: it is synchronous with the edge, and
-  // every capture path reads it before it takes or shares a frame.
+  // The revocation is synchronous with the edge; lowering the mode stops the
+  // source only when React's next commit runs the sampling effect's cleanup.
+  // The revocation is what covers that window: every capture path reads it
+  // before it takes or shares a frame.
   //
   // The bus's own edge rather than a `visibilitychange` listener here: it is
   // published once per physical edge from the two sources that describe it,
