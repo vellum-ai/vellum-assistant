@@ -146,7 +146,7 @@ Conversations created by a schedule's runs land in the sidebar's Scheduled secti
 
 ## Conversation Reuse
 
-Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.
+Each run of a recurring schedule starts a fresh conversation unless `reuse_conversation: true` is set, in which case subsequent runs continue the conversation from the last successful run and keep its context (for example a `thread_ts` the run posted to earlier, so it can post into the same Slack thread again). Reuse is a property of the run's own conversation: a run never posts to a channel on its own, so what reaches Slack, Telegram, or Discord is only what the run sends explicitly (see Delivering Results). One-shot schedules always create a fresh conversation.
 
 - Only applies to **recurring** schedules; ignored for one-shot schedules.
 - If the prior conversation has been deleted, a new one is created automatically.
