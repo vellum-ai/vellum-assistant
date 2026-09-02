@@ -5,7 +5,15 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 
@@ -31,6 +39,18 @@ const STATE: CompanionSurfaceState = {
   // else here; the cases that care about it being absent say so.
   watchEnabled: true,
   intro: null,
+};
+
+/** The ordinary middle of a call, which is where the call row is drawn. */
+const LISTENING_CALL = {
+  phase: "listening" as const,
+  label: "Listening",
+  accentHex: "#5eead4",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "Ziggy",
 };
 
 /** Reset between cases, since `STATE` is what the mocked bridge hands back. */
@@ -734,6 +754,7 @@ describe("the working ring on the page", () => {
  * sentence and by a call, and the indicator is not.
  */
 describe("the watch session on the companion surface", () => {
+  /** The way in, which is on the call row. */
   const watchOf = (container: HTMLElement): HTMLButtonElement => {
     const found = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Teach"]',
@@ -743,12 +764,21 @@ describe("the watch session on the companion surface", () => {
     }
     return found;
   };
+  /**
+   * The way out, which is what the idle pill draws for a running session and
+   * so the one thing on it that says the screen is being read.
+   */
+  const stopOf = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop teaching"]',
+    );
 
   test("hands the press back to the window holding the session", async () => {
+    // From the call row, which is where Teach lives: the idle pill's one way
+    // in is Talk.
+    STATE.call = LISTENING_CALL;
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
-    const canvas = canvasOf(container);
-    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
 
     fireEvent.click(watchOf(container));
 
@@ -769,7 +799,7 @@ describe("the watch session on the companion surface", () => {
     const { container } = render(<CompanionSurfacePage />);
 
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+      expect(stopOf(container)).not.toBeNull();
     });
   });
 
@@ -783,7 +813,7 @@ describe("the watch session on the companion surface", () => {
     STATE.captureCount = 3;
     const { container } = render(<CompanionSurfacePage />);
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+      expect(stopOf(container)).not.toBeNull();
     });
 
     pushState({ ...STATE, captureCount: 4 });
@@ -802,7 +832,7 @@ describe("the watch session on the companion surface", () => {
     STATE.captureCount = 3;
     const { container } = render(<CompanionSurfacePage />);
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+      expect(stopOf(container)).not.toBeNull();
     });
 
     expect(container.querySelector(".companion-capture-pulse")).toBeNull();
@@ -816,7 +846,7 @@ describe("the watch session on the companion surface", () => {
     STATE.watching = true;
     const { container } = render(<CompanionSurfacePage />);
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+      expect(stopOf(container)).not.toBeNull();
     });
 
     expect(container.querySelector(".companion-capture-pulse")).toBeNull();
@@ -833,7 +863,7 @@ describe("the watch session on the companion surface", () => {
     fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
 
     await waitFor(() => {
-      expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+      expect(stopOf(container)).toBeNull();
     });
   });
 });
@@ -1089,11 +1119,18 @@ describe("the Watch flag on the companion surface", () => {
   const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
     container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
-  /** Open the pill, which is where the way into a session would be drawn. */
+  /**
+   * Open the call row, which is where the way into a session would be drawn:
+   * a call holds the pill open on its own.
+   */
   const openPill = async (container: HTMLElement): Promise<void> => {
     await pinSurface(container);
     await open(container);
   };
+
+  beforeEach(() => {
+    STATE.call = LISTENING_CALL;
+  });
 
   test("draws no way in when the pushed state says nothing about it", async () => {
     delete STATE.watchEnabled;

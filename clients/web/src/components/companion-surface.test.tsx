@@ -746,13 +746,11 @@ describe("the companion surface's revealed labels", () => {
 
   test("rests as icons, with no verb spelled out", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
-    for (const name of ["Talk", "Teach"]) {
-      const label = labelOf(container, name);
-      expect(label?.getAttribute("data-label")).toBe("hover");
-      expect(label?.className).toContain("hidden");
-    }
+    const label = labelOf(container, "Teach");
+    expect(label?.getAttribute("data-label")).toBe("hover");
+    expect(label?.className).toContain("hidden");
   });
 
   /**
@@ -783,10 +781,6 @@ describe("the companion surface's revealed labels", () => {
       "pinned",
     );
     expect(labelOf(container, "Talk")?.className).not.toContain("hidden");
-    // And only that one: a frame pointing at both is pointing at neither.
-    expect(labelOf(container, "Teach")?.getAttribute("data-label")).toBe(
-      "hover",
-    );
   });
 
   /**
@@ -796,7 +790,12 @@ describe("the companion surface's revealed labels", () => {
    */
   test("keeps the running session's name drawn", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching watchEnabled />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watching
+        watchEnabled
+      />,
     );
     expect(labelOf(container, "Teach")?.getAttribute("data-label")).toBe(
       "pinned",
@@ -822,11 +821,13 @@ describe("the companion surface's revealed labels", () => {
 });
 
 /**
- * Watch, the third way in, and the session it toggles.
+ * Teach, and the session it toggles.
  *
- * One control for both edges: the surface draws a single button and the side
- * holding the session decides which edge a press is, so what a test can hold is
- * that the press is reported and that a running session is drawn as one.
+ * A thing done from inside the call, so it rides the call row and not the idle
+ * pill, where Talk is the one way in. One control for both edges: the surface
+ * draws a single button and the side holding the session decides which edge a
+ * press is, so what a test can hold is that the press is reported and that a
+ * running session is drawn as one.
  */
 describe("the companion surface's Watch action", () => {
   const watchOf = (container: HTMLElement): HTMLButtonElement => {
@@ -839,24 +840,36 @@ describe("the companion surface's Watch action", () => {
     return found;
   };
 
-  test("sits on the idle pill beside Talk", () => {
+  test("is not on the idle pill, where Talk is the one way in", () => {
     const { container } = render(
       <CompanionSurface phase="hover" watchEnabled />,
     );
-    // After Talk, since this is the row's own ordering and the one a hand
-    // travelling out from the mascot crosses last.
     expect(
       [...container.querySelectorAll("button")].map((button) =>
         button.getAttribute("aria-label"),
       ),
-    ).toEqual(["Talk", "Teach"]);
+    ).toEqual(["Talk"]);
+  });
+
+  test("sits on the call row beside what the session is doing", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
+    );
+    // Ahead of the mutes and well away from End: two stops next to each
+    // other is a misclick that ends the wrong thing.
+    expect(
+      [...container.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Teach", "Mute microphone", "Mute assistant", "End session"]);
   });
 
   test("reports the press", () => {
     let presses = 0;
     const { container } = render(
       <CompanionSurface
-        phase="hover"
+        phase="call"
+        call={LISTENING_CALL}
         watchEnabled
         onWatch={() => {
           presses += 1;
@@ -868,21 +881,26 @@ describe("the companion surface's Watch action", () => {
   });
 
   /**
-   * A reader gets none of what this PR spends on the state: not the amber ring,
-   * not the held-down background. The pressed state is the whole of what
+   * A reader gets none of what this surface spends on the state: not the amber
+   * ring, not the held-down background. The pressed state is the whole of what
    * reaches them, so it is what says a session is running and that the press
    * they are on will end it.
    */
   test("reports its pressed state while the session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watching watchEnabled />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watching
+        watchEnabled
+      />,
     );
     expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
   });
 
   test("reports the state it is actually in while nothing runs", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
     expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
   });
@@ -894,28 +912,36 @@ describe("the companion surface's Watch action", () => {
    */
   test("reads as held down while the session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching watchEnabled />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watching
+        watchEnabled
+      />,
     );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
   });
 
   test("reads as idle while no session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(false);
   });
 
   /**
-   * The flag, not the phase, the same input the ring reads. The two are drawn
-   * in different places and must never be able to disagree about whether a
-   * session is running.
+   * A session running with no call to carry the toggle still has its stop:
+   * the idle row draws it for as long as the screen is being read.
    */
-  test("reads as held down on the idle pill while the session runs", () => {
+  test("leaves the stop on the idle pill for a session already running", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watching watchEnabled />,
+      <CompanionSurface phase="watching" watching watchEnabled />,
     );
-    expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
+    expect(
+      [...container.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Talk", "Stop teaching"]);
   });
 });
 
@@ -935,13 +961,19 @@ describe("the companion surface's Watch flag", () => {
     container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
   test("draws no way in when the answer has not arrived", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
     expect(watchButton(container)).toBeNull();
   });
 
   test("draws no way in when the answer is no", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled={false} />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled={false}
+      />,
     );
     expect(watchButton(container)).toBeNull();
   });
@@ -972,11 +1004,10 @@ describe("the companion surface's Watch flag", () => {
   });
 
   /**
-   * The idle row is where Watch itself is the stop, so hiding Watch there would
-   * leave a running session with nothing that ends it. The stop takes its
-   * place instead.
+   * The idle row carries the stop whatever the flag says: a running session
+   * with nothing that ends it is the failure this surface exists to prevent.
    */
-  test("puts the stop where the way in would have been", () => {
+  test("keeps the stop on the idle row", () => {
     const { container } = render(
       <CompanionSurface phase="watching" watching />,
     );
@@ -1088,71 +1119,6 @@ describe("the companion surface's stop control", () => {
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     expect(stopOf(container)).toBeNull();
-  });
-});
-
-/**
- * Teach rides the call. A screen read while talking is a question the
- * assistant can answer as it is asked, so the call row carries the same toggle
- * the idle row does rather than only the way out of a session already running.
- */
-describe("Teach on the call row", () => {
-  const teachOf = (container: HTMLElement): HTMLButtonElement | null =>
-    container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
-
-  test("is offered beside the call's own controls", () => {
-    const { container } = render(
-      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
-    );
-    expect(teachOf(container)).not.toBeNull();
-    expect(teachOf(container)?.getAttribute("aria-pressed")).toBe("false");
-  });
-
-  test("reads as held down while the session runs under the call", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="call"
-        watchEnabled
-        watching
-        call={LISTENING_CALL}
-      />,
-    );
-    expect(teachOf(container)?.getAttribute("aria-pressed")).toBe("true");
-  });
-
-  test("reports the press as the toggle it is", () => {
-    let presses = 0;
-    const { container } = render(
-      <CompanionSurface
-        phase="call"
-        watchEnabled
-        call={LISTENING_CALL}
-        onWatch={() => {
-          presses += 1;
-        }}
-      />,
-    );
-    const teach = teachOf(container);
-    if (!teach) {
-      throw new Error("Expected Teach to render");
-    }
-    fireEvent.click(teach);
-    expect(presses).toBe(1);
-  });
-
-  test("sits beside what the session is doing, not beside the end", () => {
-    const { container } = render(
-      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
-    );
-    const labels = Array.from(container.querySelectorAll("button")).map(
-      (button) => button.getAttribute("aria-label"),
-    );
-    expect(labels).toEqual([
-      "Teach",
-      "Mute microphone",
-      "Mute assistant",
-      "End session",
-    ]);
   });
 });
 
@@ -1412,12 +1378,8 @@ describe("the summary a finished watch session leaves on the surface", () => {
   // The phase without the state behind it is the ordinary row, not an empty
   // one: nothing on this surface should draw a question with no answer in it.
   test("draws the ordinary controls when there is no summary", () => {
-    // `watchEnabled` because this asserts the ordinary controls, and the flag
-    // is what decides whether Teach is among them.
-    const { container } = render(
-      <CompanionSurface phase="summary" watchEnabled />,
-    );
-    expect(buttonOf(container, "Teach")).not.toBeNull();
+    const { container } = render(<CompanionSurface phase="summary" />);
+    expect(buttonOf(container, "Talk")).not.toBeNull();
   });
 });
 

@@ -326,14 +326,13 @@ export const FALLBACK_WIDTHS: Record<
   Exclude<CompanionSurfacePhase, "resting">,
   number
 > = {
-  // Two icon-only controls, which is the row as it is first drawn: the labels
-  // are revealed one at a time under the pointer, and on the first frame there
-  // is no pointer on any of them yet.
-  hover: 84,
-  // The same row of controls hover draws, since the session is run from it
-  // rather than from a row of its own, plus the one word the running session
-  // pins open on the control holding it.
-  watching: 123,
+  // One icon-only control, which is the row as it is first drawn: the label
+  // is revealed under the pointer, and on the first frame there is no pointer
+  // on it yet.
+  hover: 40,
+  // Talk and the stop of a session already reading the screen, which is the
+  // only other control the idle row ever carries.
+  watching: 84,
   // Two labelled controls, both drawn: this row is a question waiting on an
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
@@ -563,8 +562,8 @@ export interface CompanionSurfaceProps {
   captureCount?: number;
 
   /**
-   * Whether Watch is offered at all, which is the feature flag rather than any
-   * fact about a session.
+   * Whether Teach is offered on the call row at all, which is the feature flag
+   * rather than any fact about a session.
    *
    * Separate from {@link CompanionSurfaceProps.watching} because the two answer
    * questions that can disagree in the one direction that matters: a session
@@ -1010,7 +1009,6 @@ export function CompanionSurface({
               <IdleBody
                 spotlight={spotlight}
                 watching={watching}
-                watchEnabled={watchEnabled}
                 onTalk={onTalk}
                 onWatch={onWatch}
               />
@@ -1399,15 +1397,12 @@ function DictatingBody({
 function IdleBody({
   spotlight,
   watching = false,
-  watchEnabled = false,
   onTalk,
   onWatch,
 }: {
   spotlight?: "talk";
-  /** Whether the session Watch starts is already running. */
+  /** Whether a session is reading the screen. */
   watching?: boolean;
-  /** Whether Watch is offered at all. See `CompanionSurfaceProps`. */
-  watchEnabled?: boolean;
   onTalk?: () => void;
   onWatch?: () => void;
 }) {
@@ -1421,29 +1416,26 @@ function IdleBody({
         active={spotlight === "talk"}
         onClick={onTalk}
       />
-      {/* Held down for as long as the session runs, so the row says which
-          control is holding the pill open and which press ends it. `pressed`
-          rather than `active`, because this one is a state and not a look: a
-          reader is told a session is running, where everything else this
-          surface does about it is a colour they never receive. */}
-      <TeachButton
-        watching={watching}
-        watchEnabled={watchEnabled}
-        onWatch={onWatch}
-      />
+      {/* **Talk is the one way in.** Teach is something done from inside the
+          call, so its toggle rides the call row and not this one. What this
+          row keeps is the way out: a session already reading the screen,
+          started in the app or under a call that has since ended, has to stay
+          stoppable from wherever the user looks, so the stop rides here for
+          as long as it runs. */}
+      {watching && <StopWatchingButton onWatch={onWatch} />}
     </>
   );
 }
 
 /**
- * The way into a watch session and the way out of it, on whichever row the
- * user is looking at.
+ * The way into a watch session and the way out of it, on the call row.
  *
- * One control for the two rows that draw it, because it is the same session
- * either way: a screen being read beside an idle pill and one being read
- * beside a call are the same capture, and the same press ends both. Its
- * pressed state is what tells a reader that, and its pinned word is what lets
- * a looking user find the press without hunting under icons.
+ * One control for both edges, held down for as long as the session runs, so
+ * the row says which press ends it. `pressed` rather than `active`, because
+ * this one is a state and not a look: a reader is told a session is running,
+ * where everything else this surface does about it is a colour they never
+ * receive. Its pinned word is what lets a looking user find the press without
+ * hunting under icons.
  *
  * Absent entirely when Watch is not offered, rather than disabled: a user who
  * cannot have the feature is not owed a control that explains itself by
@@ -1452,9 +1444,9 @@ function IdleBody({
  *
  * **The exit outlives the door.** A session running under a flag that has
  * since been turned off still reads the screen, so the row that would have
- * carried Teach carries the stop instead. Hiding the way in is the whole of
- * what the flag does; leaving a capture with nothing that ends it is not
- * something a flag is allowed to cause.
+ * carried Teach carries the stop instead, the same stop the idle row draws.
+ * Hiding the way in is the whole of what the flag does; leaving a capture
+ * with nothing that ends it is not something a flag is allowed to cause.
  */
 function TeachButton({
   watching,
@@ -1755,7 +1747,7 @@ function ApprovalBody({
 /**
  * End the watch session, on whichever row the user is looking at.
  *
- * One component for the two that draw it, because the label is the whole of
+ * One component for the rows that draw it, because the label is the whole of
  * what this control says. It carries no words, so an accessible name that
  * drifted between the idle row and the call row would be two different controls
  * to anyone reading the surface rather than looking at it, and this is the
