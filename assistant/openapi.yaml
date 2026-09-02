@@ -6657,6 +6657,8 @@ paths:
                     type: string
                   verified:
                     type: boolean
+                  cancelled:
+                    type: boolean
                 required:
                   - ok
                 additionalProperties: false
@@ -6754,6 +6756,8 @@ paths:
                   notesSaved:
                     type: boolean
                   nothingWritten:
+                    type: boolean
+                  cancelled:
                     type: boolean
                 required:
                   - ok
