@@ -29,10 +29,22 @@ const ASSISTANT_INITIATED_THREADS_FLAG_KEY =
 export function isAssistantInitiatedThreadsEnabled(
   config?: AssistantConfig,
 ): boolean {
-  return (
-    getAssistantFeatureFlagValue(
-      ASSISTANT_INITIATED_THREADS_FLAG_KEY,
-      config,
-    ) === "on"
+  const value = getAssistantFeatureFlagValue(
+    ASSISTANT_INITIATED_THREADS_FLAG_KEY,
+    config,
   );
+  /* Both shapes are the same answer, and the on arm arrives as either one
+     depending on which layer resolved it.
+
+     The registry and the gateway's persisted store carry the declared string
+     (`"on"`). The gateway's env-override path does not: its parser treats
+     `on` as a truthy word (`TRUTHY = {"true","1","yes","on"}` in
+     `feature-flag-env-overrides.ts`) and coerces it to boolean `true`, then
+     applies env last — so `VELLUM_FLAG_ASSISTANT_INITIATED_THREADS=on`
+     reaches the daemon as `true`, not `"on"`.
+
+     A strict `=== "on"` therefore reads the env kill-switch as OFF, which is
+     the exact opposite of what an operator setting it intends, and it fails
+     silently: the section simply does not render. Accept both. */
+  return value === true || value === "on";
 }
