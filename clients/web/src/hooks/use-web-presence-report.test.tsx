@@ -402,6 +402,27 @@ describe("useWebPresenceReport", () => {
     });
   });
 
+  // Focus is not a browser presence input: a visible tab in an unfocused
+  // browser window is still showing the conversation. The attention edge has
+  // one publisher, the Electron source, and it no-ops off Electron.
+  test("a blurred browser tab keeps its visible report", async () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+  });
+
   test("online reconnect while hidden never reports visible", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
@@ -875,6 +896,63 @@ describe("useWebPresenceReport: Electron renderer", () => {
 
     act(() => {
       publish("app.hidden", { signal: "window_attention" });
+    });
+
+    await flushPresence();
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  // A window that loses focus without leaving the screen publishes no
+  // lifecycle edge, so without the attention edge the last report stays fresh
+  // for the daemon's whole TTL and keeps suppressing replies to it.
+  test("a blur that keeps the window on screen reports invisible at once", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = false;
+
+    act(() => {
+      publish("app.attention", { attended: false });
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("taking focus back reports visible again", async () => {
+    windowAttended = false;
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = true;
+
+    act(() => {
+      publish("app.attention", { attended: true });
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("focus regained on an idle window reports invisible", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    advanceClock(IDLE_THRESHOLD_MS + 1);
+
+    act(() => {
+      publish("app.attention", { attended: true });
     });
 
     await flushPresence();

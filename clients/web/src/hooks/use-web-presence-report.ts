@@ -35,21 +35,23 @@
  *
  * Reports on mount, on every visibility edge (via the bus's `app.resume` /
  * `app.hidden`, not a raw `visibilitychange` listener, see
- * `docs/EVENT_BUS.md`), whenever the focused conversation changes (route or
- * active-conversation-id change), and on a periodic reconciliation tick while
- * visible. Each report reads visibility at post time rather than trusting
- * cached lifecycle state. "Focused" counts the active conversation id only
- * while the chat route for it is on screen, since `activeConversationId` is
- * never cleared on navigation away.
+ * `docs/EVENT_BUS.md`), on every desktop focus edge (`app.attention`),
+ * whenever the focused conversation changes (route or active-conversation-id
+ * change), and on a periodic reconciliation tick while visible. Each report
+ * reads visibility at post time rather than trusting cached lifecycle state.
+ * "Focused" counts the active conversation id only while the chat route for
+ * it is on screen, since `activeConversationId` is never cleared on
+ * navigation away.
  *
  * Visibility is necessary but not sufficient: a tab left on a second monitor
  * reports `visible` forever, so a client with no user input for
  * `IDLE_THRESHOLD_MS` stops counting and its report ages out of the daemon's
  * TTL, restoring the push. This mirrors the desktop reporter, which derives
- * attendance from system idle time for the same reason. The same aging covers
- * a desktop window that loses focus without leaving the screen, which
- * publishes no bus edge because `app.hidden` means backgrounded to the
- * consumers that tear down the camera and the stream on it.
+ * attendance from system idle time for the same reason. A desktop window that
+ * loses focus without leaving the screen does not wait out that aging: it
+ * publishes no `app.hidden`, since that edge means backgrounded to the
+ * consumers that tear down the camera and the stream on it, and reports off
+ * `app.attention` instead.
  *
  * The reconciliation tick exists because the daemon's presence gate is
  * TTL-bound (`WEB_PRESENCE_STALE_AFTER_MS` in
@@ -119,14 +121,17 @@ function isVisibleToUser(): boolean {
   );
 }
 
+/** Whether the user touched this client inside {@link IDLE_THRESHOLD_MS}. */
+function hasRecentInput(lastInteractionAt: number): boolean {
+  return Date.now() - lastInteractionAt <= IDLE_THRESHOLD_MS;
+}
+
 /**
  * Whether this client currently counts as presence: on screen, and touched by
  * the user inside {@link IDLE_THRESHOLD_MS}.
  */
 function isPresent(lastInteractionAt: number): boolean {
-  return (
-    isVisibleToUser() && Date.now() - lastInteractionAt <= IDLE_THRESHOLD_MS
-  );
+  return isVisibleToUser() && hasRecentInput(lastInteractionAt);
 }
 
 /**
@@ -294,6 +299,22 @@ export function useWebPresenceReport(assistantId: string | null): void {
         focusedConversationId,
       });
     }
+  });
+
+  useBusSubscription("app.attention", ({ attended }) => {
+    if (!supportsWebPresence) {
+      return;
+    }
+    // A desktop window can lose focus while staying on screen, which is not a
+    // lifecycle edge. Reporting here rather than letting the last report age
+    // out of the daemon's TTL is what keeps a reply to the conversation that
+    // window was showing from being suppressed for minutes after the user
+    // moved on. The edge carries where the window went; the idle clock still
+    // decides whether the user is at this client at all.
+    reportWebPresence(assistantId!, buildKey, {
+      visible: attended && hasRecentInput(lastInteractionAtRef.current),
+      focusedConversationId,
+    });
   });
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {

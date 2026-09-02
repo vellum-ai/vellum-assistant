@@ -126,6 +126,21 @@ export interface BusEventMap {
   "app.resume": { signal: AppResumeSignal };
   /** Page hidden / app backgrounded. */
   "app.hidden": { signal: AppHiddenSignal };
+  /**
+   * The Electron window this renderer runs in gained or lost the user's
+   * attention: on screen, unminimized, and holding keyboard focus. Separate
+   * from `app.resume` / `app.hidden`, which report only whether the window is
+   * on screen. A window sitting visible behind another app is still showing
+   * the transcript, so the consumers that release the camera hardware and
+   * tear down the SSE stream must not act on a focus change; this edge exists
+   * for the ones that ask whether the user is watching, today the web
+   * presence reporter that suppresses a redundant push.
+   *
+   * Off Electron this never fires. `document.hasFocus()` is window-level and
+   * false for a visible tab in an unfocused browser window, so visibility
+   * stays the browser's contract for whether a conversation is on screen.
+   */
+  "app.attention": { attended: boolean };
   /** Browser reported the network came back. Fires alongside `app.resume`. */
   "app.online": Record<string, never>;
   /** Browser reported the network went away. */
