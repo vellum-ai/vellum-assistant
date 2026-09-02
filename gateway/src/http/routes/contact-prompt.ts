@@ -749,19 +749,37 @@ async function writeContactRecord(input: {
       });
       // The guardian can rename the survivor on the same form. The rename is
       // its own write, ordered after the merge so a refused merge renames
-      // nothing.
+      // nothing. The merge has committed by this point, so a rename that
+      // cannot land leaves the survivor under its old name rather than
+      // reporting a merge that happened as failed.
+      let renamed: boolean | undefined;
       if (displayName !== undefined) {
-        await upsertContactRecordCore({
-          operation: "update",
-          contactId: contactId!,
-          displayName,
-        });
+        try {
+          await upsertContactRecordCore({
+            operation: "update",
+            contactId: contactId!,
+            displayName,
+          });
+          renamed = true;
+        } catch (renameErr) {
+          log.error(
+            { err: renameErr, requestId, contactId, donorContactId },
+            "contact-record-submit: merged, but the survivor could not be renamed",
+          );
+          renamed = false;
+        }
       }
       log.info(
-        { requestId, contactId, donorContactId },
+        { requestId, contactId, donorContactId, renamed },
         "contact-record-submit: merged",
       );
-      return { resolution: { contactId, merged: true } };
+      return {
+        resolution: {
+          contactId,
+          merged: true,
+          ...(renamed === false ? { renamed: false } : {}),
+        },
+      };
     }
 
     const { contact, notesSaved, nothingWritten } =

@@ -18,6 +18,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -126,6 +127,7 @@ const { initGatewayDb, getGatewayDb, resetGatewayDb } =
 const { contactChannels: gwContactChannels, contacts: gwContacts } =
   await import("../db/schema.js");
 const { eq } = await import("drizzle-orm");
+const { ContactStore } = await import("../db/contact-store.js");
 
 function makeRequest(body: Record<string, unknown>): Request {
   return new Request("http://localhost:7830/v1/contacts/record/submit", {
@@ -931,6 +933,50 @@ describe("contact record submit", () => {
       .get();
     expect(row!.displayName).toBe("Alice Chen");
     expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+  });
+
+  test("a merge whose rename cannot land still reports the merge", async () => {
+    seedContact("c-keep-gone", "Alice");
+    seedContact("c-donor-gone", "Alice Chen");
+    seedChannel("c-donor-gone", "email", "alice.chen@example.com");
+
+    // The survivor disappears between the merge and the rename, which is the
+    // window the rename's own transaction cannot cover.
+    const originalMerge = ContactStore.prototype.mergeContacts;
+    const spy = spyOn(
+      ContactStore.prototype,
+      "mergeContacts",
+    ).mockImplementation(async function (
+      this: InstanceType<typeof ContactStore>,
+      keepId: string,
+      mergeId: string,
+    ) {
+      const merged = await originalMerge.call(this, keepId, mergeId);
+      getGatewayDb().delete(gwContacts).where(eq(gwContacts.id, keepId)).run();
+      return merged;
+    });
+
+    try {
+      const res = await handleContactRecordSubmit(
+        makeRequest({
+          requestId: openForm("req-merge-rename-gone"),
+          operation: "merge",
+          contactId: "c-keep-gone",
+          donorContactId: "c-donor-gone",
+          displayName: "Alice C",
+        }),
+      );
+
+      // The donor is already gone, so reporting failure would describe a merge
+      // that happened as one that did not.
+      expect(res.status).toBe(200);
+      const resolved = resolveCall();
+      expect(resolved?.body.merged).toBe(true);
+      expect(resolved?.body.renamed).toBe(false);
+      expect(resolved?.body.error).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("merge refuses to absorb the guardian contact", async () => {
