@@ -136,6 +136,12 @@ function removeDuplicateTrailingAssistant(
   if (last.role !== "assistant" || prev.role !== "assistant") {
     return messages;
   }
+  // A row deleted on its channel is a standalone boundary the daemon and the
+  // cross-page fold both keep; dropping either side here would hide the
+  // tombstone or the reply the channel still shows.
+  if (last.deletedAt != null || prev.deletedAt != null) {
+    return messages;
+  }
   if (!hasSubstantiveContent(last)) {
     return messages;
   }

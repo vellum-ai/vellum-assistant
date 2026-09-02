@@ -103,6 +103,7 @@ import {
   recordInbound,
 } from "../../persistence/delivery-crud.js";
 import { markProcessed } from "../../persistence/delivery-status.js";
+import { publishConversationMessagesChanged } from "../sync/resource-sync-events.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -699,9 +700,11 @@ export async function handleChannelInbound({
         );
       }
       updateMessageMetadata(original.messageId, { providerMeta });
-      // The stamp lands in the store only; stale-marking makes a resident
-      // conversation's next turn reload and see the row as deleted.
+      // The stamp lands in the store only: stale-marking makes a resident
+      // conversation's next turn reload and see the row as deleted, and the
+      // invalidation makes a client showing the conversation refetch it.
       findConversation(original.conversationId)?.markHistoryStale();
+      publishConversationMessagesChanged(original.conversationId);
       log.info(
         {
           conversationExternalId,
@@ -723,6 +726,7 @@ export async function handleChannelInbound({
     // is intentionally not updated.
     updateMessageMetadata(original.messageId, { slackMeta: updatedSlackMeta });
     findConversation(original.conversationId)?.markHistoryStale();
+    publishConversationMessagesChanged(original.conversationId);
 
     log.info(
       {

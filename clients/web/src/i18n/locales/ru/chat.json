@@ -333,6 +333,9 @@
     "title": "Удалить диалог",
     "untitled": "Без названия"
   },
+  "deletedMessageRow": {
+    "label": "Это сообщение было удалено"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
   },
@@ -816,7 +819,6 @@
     "unmuteMicrophone": "Включить микрофон"
   },
   "transcript": {
-    "messageDeleted": "Это сообщение было удалено",
     "noResponse": "Решил не отвечать",
     "reactionAddedSelf": "Отреагировал(а) {emoji}",
     "reactionRemovedSelf": "Убрал(а) реакцию {emoji}",

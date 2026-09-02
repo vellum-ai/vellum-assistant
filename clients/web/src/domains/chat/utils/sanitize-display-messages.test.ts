@@ -199,6 +199,27 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     expect(result.map((m) => m.id)).toEqual(["msg-1"]);
   });
 
+  test("never drops a channel-deleted row against an identical neighbour, in either order", () => {
+    const twin = (id: string, deletedAt?: number) =>
+      makeMessage({
+        id,
+        role: "assistant",
+        textSegments: ["Final answer"],
+        timestamp: 1000,
+        ...(deletedAt !== undefined ? { deletedAt } : {}),
+      });
+    expect(
+      sanitizeDisplayMessages([twin("live"), twin("gone", 1725100001000)]).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["live", "gone"]);
+    expect(
+      sanitizeDisplayMessages([twin("gone", 1725100001000), twin("live")]).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["gone", "live"]);
+  });
+
   test("keeps both rows when only one is the assistant", () => {
     const user = makeMessage({
       id: "u",

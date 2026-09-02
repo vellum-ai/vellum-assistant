@@ -640,6 +640,9 @@
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
+  "deletedMessageRow": {
+    "label": "This message was deleted"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
   },
@@ -1807,7 +1810,6 @@
     "openTitle": "Open {path}"
   },
   "transcript": {
-    "messageDeleted": "This message was deleted",
     "noResponse": "Chose not to respond",
     "reactionAddedSelf": "Reacted with {emoji}",
     "reactionRemovedSelf": "Removed the {emoji} reaction",

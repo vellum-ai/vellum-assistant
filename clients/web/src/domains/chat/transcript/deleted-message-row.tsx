@@ -16,7 +16,7 @@ export function DeletedMessageRow() {
         variant="body-small-default"
         className="text-[var(--content-tertiary)] italic"
       >
-        {t("transcript.messageDeleted")}
+        {t("deletedMessageRow.label")}
       </Typography>
     </div>
   );

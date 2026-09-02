@@ -618,6 +618,9 @@
     "title": "删除对话",
     "untitled": "无标题"
   },
+  "deletedMessageRow": {
+    "label": "此消息已被删除"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "下载PDF失败"
   },
@@ -1735,7 +1738,6 @@
     "openTitle": "打开 {path}"
   },
   "transcript": {
-    "messageDeleted": "此消息已被删除",
     "noResponse": "决定不回复",
     "reactionAddedSelf": "已用 {emoji} 回应",
     "reactionRemovedSelf": "已移除 {emoji} 回应",
