@@ -60,6 +60,8 @@ interface ContactPromptResult {
   contactId?: string;
   /** Whether the channel is attested, as the guardian's checkbox left it. */
   verified?: boolean;
+  /** The guardian dismissed the form. Nothing was written. */
+  cancelled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +260,19 @@ async function readContactForPrompt(
 }
 
 /**
+ * The guardian closed the form without answering it. Nothing was written and
+ * nothing went wrong, so this is a success exit with a plain line rather than
+ * an error envelope a caller would read as a failed write.
+ */
+function reportFormDismissal(cmd: Command): void {
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { ok: true, cancelled: true });
+  } else {
+    process.stdout.write("Cancelled: nothing was written\n");
+  }
+}
+
+/**
  * Park on the guardian's answer to a contact-record form, then report what was
  * actually written. The submitted values can differ from the proposed ones, so
  * the result is re-read rather than echoed back from the request.
@@ -277,6 +292,7 @@ async function runRecordPrompt(
     contactId?: string;
     notesSaved?: boolean;
     nothingWritten?: boolean;
+    cancelled?: boolean;
   }>(
     "contacts_record_prompt",
     { body: { ...body, timeoutMs } },
@@ -288,6 +304,10 @@ async function runRecordPrompt(
       r as { ok: false; error?: string; statusCode?: number },
       cmd,
     );
+  }
+
+  if (r.result?.cancelled === true) {
+    return reportFormDismissal(cmd);
   }
 
   if (!r.result?.ok) {
@@ -627,6 +647,10 @@ export function registerContactsCommand(program: Command): void {
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
+
+          if (r.result?.cancelled === true) {
+            return reportFormDismissal(cmd);
           }
 
           if (!r.result?.ok) {

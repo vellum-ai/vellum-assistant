@@ -56,6 +56,8 @@ let readFails = false;
 let notesSaved: boolean | undefined;
 /** Whether the daemon reports that nothing the guardian submitted landed. */
 let nothingWritten: boolean | undefined;
+/** Whether the guardian closed the form instead of answering it. */
+let dismissed = false;
 
 const baseIpcImplementation = async (
   operationId: string,
@@ -69,6 +71,13 @@ const baseIpcImplementation = async (
       return { ok: false, error: "Contact not found", statusCode: 404 };
     }
     return { ok: true, result: { ok: true, contact: contactForRead } };
+  }
+  if (dismissed) {
+    // The rail keeps the human-readable reason alongside the marker.
+    return {
+      ok: true,
+      result: { ok: false, error: "Cancelled by user", cancelled: true },
+    };
   }
   return {
     ok: true,
@@ -84,7 +93,8 @@ mock.module("../../ipc/cli-client.js", () => ({
   cliIpcCall: cliIpcCallMock,
 }));
 
-const { runAssistantCommand } = await import("./run-assistant-command.js");
+const { runAssistantCommand, runAssistantCommandFull } =
+  await import("./run-assistant-command.js");
 
 function recordPromptBody(): Record<string, unknown> {
   const call = calls.find((c) => c.operationId === "contacts_record_prompt");
@@ -99,6 +109,7 @@ describe("contacts record prompts", () => {
     readFails = false;
     notesSaved = undefined;
     nothingWritten = undefined;
+    dismissed = false;
     // Global and sticky: the failure-path cases below set it, and a later test
     // asserting success would otherwise read their exit code as its own.
     // Cleared to 0 rather than undefined, which does not reset it.
@@ -324,6 +335,47 @@ describe("contacts record prompts", () => {
 
     expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(
       false,
+    );
+  });
+
+  describe("a dismissed form", () => {
+    const operations: [string, string[]][] = [
+      ["create", ["contacts", "create", "--name", "Alice"]],
+      ["update", ["contacts", "update", "ct_1", "--name", "Alice Chen"]],
+      ["delete", ["contacts", "delete", "ct_1"]],
+    ];
+
+    test.each(operations)(
+      "%s reports it as a clean exit",
+      async (_op, argv) => {
+        // Nothing was written and nothing failed, so an error envelope here
+        // would read as a write that went wrong.
+        dismissed = true;
+
+        const { stdout, stderr } = await runAssistantCommandFull(...argv);
+
+        expect(stdout).toContain("Cancelled: nothing was written");
+        expect(stderr).toBe("");
+        expect(process.exitCode).toBeFalsy();
+      },
+    );
+
+    test.each(operations)(
+      "%s --json emits one object carrying the marker",
+      async (_op, argv) => {
+        dismissed = true;
+
+        const { stdout, stderr } = await runAssistantCommandFull(
+          ...argv,
+          "--json",
+        );
+
+        // Parsing the whole of stdout is the assertion that it is one object:
+        // a second would make this throw.
+        expect(JSON.parse(stdout)).toEqual({ ok: true, cancelled: true });
+        expect(stderr).toBe("");
+        expect(process.exitCode).toBeFalsy();
+      },
     );
   });
 });
