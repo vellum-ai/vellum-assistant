@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -30,24 +31,34 @@ function writeExecutable(path: string, contents: string): void {
   chmodSync(path, 0o755);
 }
 
+function createDataRoot(): string {
+  const dataRoot = mkdtempSync(join(tmpdir(), "kata-apt-shims-"));
+  testRoots.push(dataRoot);
+  for (const dir of [
+    "usr/bin",
+    "usr/sbin",
+    "usr/games",
+    "usr/local/bin",
+    "usr/local/sbin",
+    "var/lib/dpkg",
+  ]) {
+    mkdirSync(join(dataRoot, dir), { recursive: true });
+  }
+  writeFileSync(join(dataRoot, "var/lib/dpkg/status"), "unchanged\n");
+  return dataRoot;
+}
+
+function refreshShims(dataRoot: string): void {
+  execFileSync("/bin/sh", [scriptPath], {
+    env: { ...process.env, VELLUM_APT_DATA_ROOT: dataRoot },
+  });
+}
+
 describe("docker-kata-apt-shims", () => {
   test.skipIf(process.platform !== "linux")(
     "refreshes a shim when a same-version reinstall retargets its trampoline",
     () => {
-      const dataRoot = mkdtempSync(join(tmpdir(), "kata-apt-shims-"));
-      testRoots.push(dataRoot);
-
-      for (const dir of [
-        "usr/bin",
-        "usr/sbin",
-        "usr/games",
-        "usr/local/bin",
-        "usr/local/sbin",
-        "var/lib/dpkg",
-      ]) {
-        mkdirSync(join(dataRoot, dir), { recursive: true });
-      }
-      writeFileSync(join(dataRoot, "var/lib/dpkg/status"), "unchanged\n");
+      const dataRoot = createDataRoot();
 
       const suffix = basename(dataRoot);
       const firstTarget = `/vellum-apt-shim-test/${suffix}-1`;
@@ -62,19 +73,40 @@ describe("docker-kata-apt-shims", () => {
       }
 
       writeExecutable(source, `#!/bin/sh\nexec ${firstTarget} "$@"\n`);
-      execFileSync("/bin/sh", [scriptPath], {
-        env: { ...process.env, VELLUM_APT_DATA_ROOT: dataRoot },
-      });
+      refreshShims(dataRoot);
       expect(readFileSync(shim, "utf8")).toContain(firstTarget);
 
       writeExecutable(source, `#!/bin/sh\nexec ${secondTarget} "$@"\n`);
-      execFileSync("/bin/sh", [scriptPath], {
-        env: { ...process.env, VELLUM_APT_DATA_ROOT: dataRoot },
-      });
+      refreshShims(dataRoot);
 
       const refreshedShim = readFileSync(shim, "utf8");
       expect(refreshedShim).toContain(secondTarget);
       expect(refreshedShim).not.toContain(firstTarget);
+    },
+  );
+
+  test.skipIf(process.platform !== "linux")(
+    "ignores non-executable entries and refreshes when they become runnable",
+    () => {
+      const dataRoot = createDataRoot();
+      const suffix = basename(dataRoot);
+      const target = `/vellum-apt-shim-test/${suffix}`;
+      const chrootTarget = `${dataRoot}${target}`;
+      const lowerSource = join(dataRoot, "usr/sbin/example-tool");
+      const higherSource = join(dataRoot, "usr/local/bin/example-tool");
+      const shim = join(dataRoot, ".host-shims/example-tool");
+
+      mkdirSync(join(chrootTarget, ".."), { recursive: true });
+      writeExecutable(chrootTarget, "#!/bin/sh\nexit 0\n");
+      writeExecutable(lowerSource, `#!/bin/sh\nexec ${target} "$@"\n`);
+      writeFileSync(higherSource, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+
+      refreshShims(dataRoot);
+      expect(readFileSync(shim, "utf8")).toContain(target);
+
+      chmodSync(higherSource, 0o755);
+      refreshShims(dataRoot);
+      expect(existsSync(shim)).toBe(false);
     },
   );
 });

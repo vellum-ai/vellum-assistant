@@ -25,15 +25,16 @@ mkdir -p "${SHIM_DIR}"
 
 # Scanning the bin dirs forks a few processes per file; skip it when the
 # overlay state is unchanged (read-only invocations like `apt list` or
-# `dpkg -l`). The stamp covers command names, links, and small executable
-# contents so same-version reinstalls and pip installs invalidate stale shims.
+# `dpkg -l`). The stamp covers command names, links, effective modes, and small
+# executable contents so reinstalls and pip changes invalidate stale shims.
 STAMP_FILE="${SHIM_DIR}/.overlay-stamp"
 STAMP="$(
   {
     md5sum "${DATA_ROOT}/var/lib/dpkg/status" 2>/dev/null
     for d in ${PRIORITY_DIRS}; do
       printf '%s\0' "${d}"
-      find "${DATA_ROOT}/${d}" -mindepth 1 -maxdepth 1 -printf '%P %y %l\0' 2>/dev/null | sort -z
+      find "${DATA_ROOT}/${d}" -mindepth 1 -maxdepth 1 -printf '%P %y %m %l\0' 2>/dev/null | sort -z
+      find -L "${DATA_ROOT}/${d}" -mindepth 1 -maxdepth 1 -printf '%P %y %m\0' 2>/dev/null | sort -z
     done
     for d in ${SCAN_DIRS}; do
       find -L "${DATA_ROOT}/${d}" -mindepth 1 -maxdepth 1 -type f -size -513c -perm /111 -print0 2>/dev/null |
@@ -66,8 +67,9 @@ wrapper_target() {
 # Highest-priority overlay dir that holds an entry for this shim name.
 shim_source() {
   for d in ${PRIORITY_DIRS}; do
-    if [ -e "${DATA_ROOT}/${d}/$1" ]; then
-      printf '%s\n' "${DATA_ROOT}/${d}/$1"
+    candidate="${DATA_ROOT}/${d}/$1"
+    if [ -f "${candidate}" ] && [ -x "${candidate}" ]; then
+      printf '%s\n' "${candidate}"
       return 0
     fi
   done
@@ -99,13 +101,19 @@ for d in ${SCAN_DIRS}; do
     if [ -e "${target}" ] || [ ! -x "${DATA_ROOT}${target}" ]; then
       continue
     fi
-    shim="${SHIM_DIR}/$(basename "${bin}")"
-    printf '%s\n' \
+    shim="${SHIM_DIR}/${bin##*/}"
+    tmp="$(mktemp "${SHIM_DIR}/.shim.XXXXXX")" || continue
+    if printf '%s\n' \
       '#!/bin/sh' \
       "${MARKER} ${target}" \
       "exec \"${DATA_ROOT}${target}\" \"\$@\"" \
-      >"${shim}"
-    chmod +x "${shim}"
+      >"${tmp}" &&
+      chmod 0755 "${tmp}" &&
+      mv -f "${tmp}" "${shim}"; then
+      :
+    else
+      rm -f "${tmp}"
+    fi
   done
 done
 

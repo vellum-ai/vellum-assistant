@@ -13,9 +13,7 @@ if vellum_is_kata_family_runtime && [ -x /app/assistant/docker-init-apt-root.sh 
   # Warm the chroot used by Kata-family apt wrappers without blocking assistant readiness.
   (
     /app/assistant/docker-init-apt-root.sh
-    # Persisted roots that predate the shim mechanism (or whose image lacked
-    # it) get their wrapper-script shims at startup, not only after the next
-    # package operation.
+    # Refresh persisted wrapper-script shims before commands use the overlay.
     /app/assistant/docker-kata-apt-shims.sh || true
   ) &
   KATA_APT_INIT_PID="$!"
