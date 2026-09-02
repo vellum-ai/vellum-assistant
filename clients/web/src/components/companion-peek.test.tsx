@@ -9,10 +9,6 @@ import {
   PEEK_EDGES,
   PEEK_EXPOSED_MAX,
   PEEK_INTERVAL_SECONDS,
-  PEEK_STRETCH,
-  bodySpanAt,
-  collapsedCollar,
-  collarPath,
   peekDelayMs,
   peekGeometry,
   pickEdge,
@@ -132,7 +128,6 @@ describe("which edge the creature comes out of", () => {
       const { container } = render(
         <CompanionPeek
           character={CHARACTER}
-          accentHex="#4C9B50"
           capsule={CAPSULE}
           enabled
           held
@@ -150,73 +145,10 @@ describe("which edge the creature comes out of", () => {
   });
 });
 
-describe("the collar between the capsule and the creature", () => {
-  /** Read off the artwork, so a narrow neck and a wide body come out as such. */
-  test("finds every catalog body where the cut lands", () => {
-    for (const shape of BUNDLED_COMPONENTS.bodyShapes) {
-      const metrics = avatarPeekMetrics(BUNDLED_COMPONENTS, {
-        bodyShape: shape.id,
-        eyeStyle: "curious",
-        color: "teal",
-      })!;
-      const geometry = peekGeometry(metrics, CAPSULE.width);
-      const span = bodySpanAt(shape.id, geometry.size, geometry.exposed);
-      expect(span).not.toBeNull();
-      expect(span!.left).toBeGreaterThanOrEqual(0);
-      expect(span!.right).toBeLessThanOrEqual(geometry.size);
-      expect(span!.right - span!.left).toBeGreaterThan(geometry.size / 4);
-    }
-  });
-
-  test("is nothing for a shape the catalog does not have", () => {
-    expect(bodySpanAt("teapot", 28, 10)).toBeNull();
-  });
-
-  test("runs from the capsule's cross-section to the creature's span", () => {
-    const d = collarPath(36, 28, { left: 8, right: 26 }, 5, PEEK_STRETCH + 1);
-    // Base corners on the bottom line, centred: 18 plus or minus 14.
-    expect(d.startsWith("M4 12")).toBe(true);
-    expect(d).toContain("L26 0");
-    expect(d.endsWith("32 12 Z")).toBe(true);
-  });
-
-  /** So the browser can tween the one into the other. */
-  test("collapses into the capsule with the same points", () => {
-    const flat = collapsedCollar(36, 28, 5);
-    const full = collarPath(36, 28, { left: 8, right: 26 }, 5, PEEK_STRETCH);
-    expect(flat.replace(/[\d.-]+/g, "#")).toBe(full.replace(/[\d.-]+/g, "#"));
-    // Every point on the base line, and none wider than the cross-section.
-    expect(flat).toContain("L32 12");
-    expect(flat.startsWith("M4 12")).toBe(true);
-    for (const y of flat.match(/ (-?[\d.]+)(?= [CLZ]|$)/g) ?? []) {
-      expect(Number(y)).toBe(12);
-    }
-  });
-
-  /** In the capsule's colour, so it is more of the same shape. */
-  test("is drawn in the accent", () => {
-    const { container } = render(
-      <CompanionPeek
-        character={CHARACTER}
-        accentHex="#E9642F"
-        capsule={CAPSULE}
-        enabled
-        held
-        edge="bottom"
-      />,
-    );
-    const collar = peekOf(container)?.querySelector(
-      ".companion-peek-collar path",
-    );
-    expect(collar?.getAttribute("fill")).toBe("#E9642F");
-  });
-});
-
 describe("the peek on screen", () => {
   test("is down until the first peek, then up, then down again", async () => {
     const props = {
       character: CHARACTER,
-      accentHex: "#4C9B50",
       capsule: CAPSULE,
       interval: FAST,
     };
@@ -242,13 +174,7 @@ describe("the peek on screen", () => {
 
   test("draws the creature's own artwork, which blinks and breathes", () => {
     const { container } = render(
-      <CompanionPeek
-        character={CHARACTER}
-        accentHex="#4C9B50"
-        capsule={CAPSULE}
-        enabled
-        held
-      />,
+      <CompanionPeek character={CHARACTER} capsule={CAPSULE} enabled held />,
     );
     // The composed creature is an inline SVG with the body and the eyes.
     expect(peekOf(container)?.querySelector("svg path")).not.toBeNull();
@@ -259,7 +185,6 @@ describe("the peek on screen", () => {
     const { container } = render(
       <CompanionPeek
         character={CHARACTER}
-        accentHex="#4C9B50"
         capsule={CAPSULE}
         enabled
         held
@@ -275,7 +200,6 @@ describe("the peek on screen", () => {
     const { container } = render(
       <CompanionPeek
         character={CHARACTER}
-        accentHex="#4C9B50"
         capsule={CAPSULE}
         enabled={false}
         interval={FAST}
@@ -289,7 +213,6 @@ describe("the peek on screen", () => {
     const { container } = render(
       <CompanionPeek
         character={{ bodyShape: "teapot", eyeStyle: "curious", color: "teal" }}
-        accentHex="#4C9B50"
         capsule={CAPSULE}
         enabled
         interval={FAST}

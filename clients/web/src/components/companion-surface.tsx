@@ -1479,22 +1479,16 @@ function Avatar({
         }}
         aria-hidden
       />
-      {/* Once in a while the creature pulls itself out of the capsule: it
-        rises out of one edge far enough to show its eyes, holds a moment, and
-        ducks back, with the capsule necking out to meet it; see
-        `CompanionPeek`, which is the chat page's composer peek over a smaller
-        edge. Only for a composed creature: a custom image has nobody to peek.
-
-        After the capsule so it paints over it. The neck is the capsule's own
-        colour and at rest has no area, so nothing shows over the pill until
-        the creature moves, and the capsule's shadow never falls across the
-        neck. Rides the capsule's transform and fade, so it is drawn at the
-        capsule's one size on every setting and goes with it when the creature
-        comes out for real. */}
+      {/* Once in a while the creature looks out of the capsule: it rises from
+        behind the top or bottom edge far enough to show its eyes, holds a
+        moment, and ducks back; see `CompanionPeek`, which is the chat page's
+        composer peek over a smaller rim. Only for a composed creature: a
+        custom image has nobody to peek. Rides the capsule's transform and
+        fade, so it is drawn at the capsule's one size on every setting and
+        goes with it when the creature comes out for real. */}
       {character !== undefined ? (
         <CompanionPeek
           character={character}
-          accentHex={accentHex}
           capsule={RESTING_BOX}
           // A working creature holds a focused pose, and stops blinking for the
           // same reason. The ring is carrying the state; nothing else should.

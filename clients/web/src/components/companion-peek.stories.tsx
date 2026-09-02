@@ -50,9 +50,8 @@ interface StoryArgs {
  * One creature's capsule with the creature peeking over it, drawn at the
  * zoom.
  *
- * The peek comes after the capsule and paints over it, which is the
- * arrangement the surface uses: the neck is the capsule's colour, so the order
- * only matters for keeping the capsule's shadow off it.
+ * The peek clips itself at the capsule's edge, so its order against the
+ * capsule does not matter; it follows the capsule as it does on the surface.
  */
 function Capsule({
   bodyShape,
@@ -88,7 +87,6 @@ function Capsule({
           />
           <CompanionPeek
             character={{ bodyShape, eyeStyle: args.eyeStyle, color }}
-            accentHex={accentHex}
             capsule={CAPSULE}
             enabled
             held={args.held}

@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import type { CompanionCharacter } from "@vellumai/ipc-contract";
@@ -11,14 +11,15 @@ import {
 } from "@/utils/avatar-peek-metrics";
 
 /**
- * The peek: the creature pulling itself out of the resting capsule.
+ * The peek: the creature looking out of the resting capsule.
  *
  * At rest the companion is a thin capsule in the assistant's colour and nothing
  * else (see `RESTING_HEIGHT` in `companion-surface.tsx`). That is the right
  * thing to leave on a desktop all day, and it is also a shape with nobody in
- * it. Every few seconds the creature rises out of one of the capsule's edges,
- * far enough to show its eyes, looks out for a moment, and ducks back in. The
- * marker stays a marker, and once in a while whoever is inside it looks out.
+ * it. Every few seconds the creature rises from behind the capsule's edge,
+ * far enough to show its eyes, looks out for a moment, and ducks back down.
+ * The marker stays a marker, and once in a while whoever is inside it looks
+ * out.
  *
  * **The same peek the chat page makes.** `ComposerPeek` surfaces the creature
  * over the composer's top rim when the input is focused; this is the same act
@@ -35,23 +36,15 @@ import {
  * for the top, and the whole frame is turned over for the bottom, which is
  * what keeps the eyes riding the rim either way. The capsule's ends are not
  * edges it comes out of: a creature cut sideways is far taller than the
- * capsule's end, and it read as a separate thing beside the pill.
- *
- * **The capsule stretches into the creature.** A creature rising out of a pill
- * that holds still reads as two things, one behind the other; a second pill
- * sliding out under it reads as a device with a slot. What reads as one body
- * is a collar: the capsule's own colour, running from the capsule's
- * cross-section out to the creature's actual width where it is cut, so the
- * pill necks up into a narrow creature and funnels out around a wide one. The
- * creature is cut {@link PEEK_STRETCH} past the capsule's edge at the top of
- * the rise and the collar fills that gap, growing on the same spring, so the
- * pill is visibly what the creature is pulling out of.
+ * capsule's end, and it read as a separate thing beside the pill. Nor does
+ * the capsule stretch to meet it: a collar joining the two was tried and read
+ * as a second shape rather than as the pill, and the plain rise reads as the
+ * creature behind the pill, which is what it is.
  *
  * **The creature's actual artwork.** The peeking creature is `AnimatedAvatar`,
- * so it blinks and breathes while it is up, and the collar's far end is read
- * off the body shape's path, so it meets each creature where that creature
- * actually is. A custom uploaded image has no creature to peek: the surface
- * passes no character and the capsule stays still.
+ * so it blinks and breathes while it is up, and a custom uploaded image has no
+ * creature to peek: the surface passes no character and the capsule stays
+ * still.
  *
  * **Random, inside a stated range.** A fixed period reads as a machine ticking;
  * a random one inside {@link PEEK_INTERVAL_SECONDS} reads as a creature
@@ -93,20 +86,7 @@ export const PEEK_HOLD_MS = 1600;
 const DUCK_SECONDS = 0.22;
 
 /**
- * How far past the capsule's edge the creature is cut at the top of the rise,
- * which is the length of the collar joining the two.
- */
-export const PEEK_STRETCH = 6;
-
-/**
- * How far the collar runs on past the cut, under the creature. The two edges
- * would otherwise meet on one line, and two antialiased edges on one line
- * leave a hairline of desktop between them.
- */
-const COLLAR_LAP = 1;
-
-/**
- * The most of the creature that shows past the collar, in points.
+ * The most of the creature that shows past the capsule, in points.
  *
  * A body whose face sits low would otherwise expose a tall slab of itself to
  * get its eyes over the edge; capping the exposure scales that creature down
@@ -115,7 +95,7 @@ const COLLAR_LAP = 1;
  */
 export const PEEK_EXPOSED_MAX = 14;
 
-/** Air between the eye ink's bottom and the cut, as a fraction of the square. */
+/** Air between the eye ink's bottom and the rim, as a fraction of the square. */
 const EYE_PAD_FRAC = 0.04;
 
 /**
@@ -128,8 +108,8 @@ const HEADROOM = 4;
  * How far the creature is drawn, on every axis, from the measurements.
  *
  * `size` is the creature's square. `exposed` is how much of it shows past the
- * cut at the top of the rise: down to just under the eye ink. `clip` is the
- * box it is drawn in, whose bottom edge is the cut, and `rest` is how far
+ * rim at the top of the rise: down to just under the eye ink. `clip` is the
+ * box it is drawn in, whose bottom edge is the rim, and `rest` is how far
  * below the top of the rise it sits when hidden: its whole exposure plus a
  * little, so nothing of it shows through the clip's bottom edge.
  */
@@ -212,241 +192,18 @@ export interface PeekCapsule {
   height: number;
 }
 
-interface Point {
-  x: number;
-  y: number;
-}
-
-const NUMBER = /-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi;
-const COMMAND = /([MLHVCZmlhvcz])([^MLHVCZmlhvcz]*)/g;
-
 /**
- * The artwork as polylines, one per subpath, in its own viewBox.
+ * Where the clip box, measured for the top (rim side down, creature rising
+ * up), sits for each edge, and how it is turned so its rim side faces the
+ * capsule.
  *
- * The catalog's paths are absolute moves, lines and cubics, closed; the
- * relative forms and the axis-aligned lines are read too, for a shape drawn
- * by a different hand. Anything else is skipped rather than thrown on.
- */
-export const flattenPath = (d: string, curveSteps = 8): Point[][] => {
-  const polylines: Point[][] = [];
-  let current: Point[] = [];
-  let cursor: Point = { x: 0, y: 0 };
-  let start: Point = { x: 0, y: 0 };
-
-  const close = () => {
-    if (current.length > 1) {
-      polylines.push(current);
-    }
-    current = [];
-  };
-
-  for (const [, letter, rest] of d.matchAll(COMMAND)) {
-    const nums = (rest?.match(NUMBER) ?? []).map(Number);
-    const command = letter?.toUpperCase();
-    const relative = letter === letter?.toLowerCase();
-    const at = (x: number, y: number): Point =>
-      relative ? { x: cursor.x + x, y: cursor.y + y } : { x, y };
-    switch (command) {
-      case "M":
-      case "L": {
-        if (command === "M") {
-          close();
-        }
-        for (let i = 0; i + 1 < nums.length; i += 2) {
-          cursor = at(nums[i]!, nums[i + 1]!);
-          if (command === "M" && i === 0) {
-            start = cursor;
-          }
-          current.push(cursor);
-        }
-        break;
-      }
-      case "H": {
-        for (const x of nums) {
-          cursor = { x: relative ? cursor.x + x : x, y: cursor.y };
-          current.push(cursor);
-        }
-        break;
-      }
-      case "V": {
-        for (const y of nums) {
-          cursor = { x: cursor.x, y: relative ? cursor.y + y : y };
-          current.push(cursor);
-        }
-        break;
-      }
-      case "C": {
-        for (let i = 0; i + 5 < nums.length; i += 6) {
-          const from = cursor;
-          const c1 = at(nums[i]!, nums[i + 1]!);
-          const c2 = at(nums[i + 2]!, nums[i + 3]!);
-          const to = at(nums[i + 4]!, nums[i + 5]!);
-          for (let step = 1; step <= curveSteps; step++) {
-            const t = step / curveSteps;
-            const u = 1 - t;
-            current.push({
-              x:
-                u * u * u * from.x +
-                3 * u * u * t * c1.x +
-                3 * u * t * t * c2.x +
-                t * t * t * to.x,
-              y:
-                u * u * u * from.y +
-                3 * u * u * t * c1.y +
-                3 * u * t * t * c2.y +
-                t * t * t * to.y,
-            });
-          }
-          cursor = to;
-        }
-        break;
-      }
-      case "Z": {
-        close();
-        cursor = start;
-        break;
-      }
-    }
-  }
-  close();
-  return polylines;
-};
-
-const outlines = new Map<string, Point[][]>();
-
-/** A body shape's outline, flattened once for the life of the module. */
-const outlineFor = (bodyShape: string): Point[][] | undefined => {
-  if (!outlines.has(bodyShape)) {
-    const shape = BUNDLED_COMPONENTS.bodyShapes.find(
-      (candidate) => candidate.id === bodyShape,
-    );
-    if (shape === undefined) {
-      return undefined;
-    }
-    outlines.set(bodyShape, flattenPath(shape.svgPath));
-  }
-  return outlines.get(bodyShape);
-};
-
-/**
- * Where a body is, left to right, on the line `cutY` points down from the top
- * of its `size` square: the span the collar has to meet.
- *
- * Measured on the artwork rather than assumed, because the cut lands under
- * the eyes and bodies differ wildly there: a burst is narrow at the neck, a
- * cloud is nearly its full width. The body is fit-centred in the square, the
- * way `AnimatedAvatar` lays it out. `null` when the line misses the body,
- * which a cut under the eyes never does on a catalog shape.
- */
-export const bodySpanAt = (
-  bodyShape: string,
-  size: number,
-  cutY: number,
-): { left: number; right: number } | null => {
-  const shape = BUNDLED_COMPONENTS.bodyShapes.find(
-    (candidate) => candidate.id === bodyShape,
-  );
-  const lines = outlineFor(bodyShape);
-  if (shape === undefined || lines === undefined) {
-    return null;
-  }
-  const vb = shape.viewBox;
-  const k = Math.min(size / vb.width, size / vb.height);
-  const tx = (size - vb.width * k) / 2;
-  const ty = (size - vb.height * k) / 2;
-  const y = (cutY - ty) / k;
-
-  let left = Infinity;
-  let right = -Infinity;
-  for (const line of lines) {
-    for (let i = 0; i < line.length; i++) {
-      const a = line[i]!;
-      const b = line[(i + 1) % line.length]!;
-      if (a.y === b.y || y < Math.min(a.y, b.y) || y > Math.max(a.y, b.y)) {
-        continue;
-      }
-      const x = a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y);
-      left = Math.min(left, x);
-      right = Math.max(right, x);
-    }
-  }
-  if (left === Infinity) {
-    return null;
-  }
-  return { left: left * k + tx, right: right * k + tx };
-};
-
-/**
- * The collar's outline, in a box `width` wide whose bottom edge sits `inset`
- * inside the capsule and whose top edge is {@link PEEK_STRETCH} and a lap
- * past it.
- *
- * The base is the capsule's cross-section, centred, on the box's bottom
- * edge: that line is the capsule's own centre line, so the base is under the
- * capsule. The far end is the creature's span at the cut, `reach` past the
- * capsule's edge. Each side is one S-curve between them, vertical at both
- * ends, which is what makes the join read as the pill pulled rather than the
- * pill plus a wedge.
- *
- * Collapsed, the far end sits on the base line at the base's own width (see
- * {@link collapsedCollar}), so the collar has no area and is inside the
- * capsule. The same points either way, so the browser can tween between the
- * two, and the far end widens as it travels rather than starting at the
- * creature's width: that is what keeps the first frames of a rise from
- * showing a sliver of collar wider than the capsule.
- */
-export const collarPath = (
-  width: number,
-  crossSection: number,
-  span: { left: number; right: number },
-  inset: number,
-  reach: number,
-): string => {
-  const n = (v: number) => String(Math.round(v * 100) / 100);
-  const base = inset + PEEK_STRETCH + COLLAR_LAP;
-  const far = PEEK_STRETCH + COLLAR_LAP - reach;
-  const a = crossSection / 2;
-  const cx = width / 2;
-  const mid1 = base - (base - far) * 0.45;
-  const mid2 = base - (base - far) * 0.55;
-  return [
-    `M${n(cx - a)} ${n(base)}`,
-    `C${n(cx - a)} ${n(mid1)} ${n(span.left)} ${n(mid2)} ${n(span.left)} ${n(far)}`,
-    `L${n(span.right)} ${n(far)}`,
-    `C${n(span.right)} ${n(mid2)} ${n(cx + a)} ${n(mid1)} ${n(cx + a)} ${n(base)}`,
-    "Z",
-  ].join(" ");
-};
-
-/** The collar collapsed into the capsule: no area, and nothing past the
- *  capsule's cross-section. */
-export const collapsedCollar = (
-  width: number,
-  crossSection: number,
-  inset: number,
-): string =>
-  collarPath(
-    width,
-    crossSection,
-    { left: width / 2 - crossSection / 2, right: width / 2 + crossSection / 2 },
-    inset,
-    -inset,
-  );
-
-/**
- * Where a box measured for the top (rim side down, creature rising up) sits
- * for each edge, and how it is turned so its rim side faces the capsule.
- *
- * `offset` is how far the box's rim side sits past the capsule's edge:
- * negative reaches inside. For the bottom the box is placed under the
- * capsule and turned over, which carries any clip with it: overflow is cut in
- * the box's own frame, so a turned box still hides everything past its rim
- * side.
+ * For the bottom the box is placed under the capsule and turned over, which
+ * carries the clip with it: overflow is cut in the box's own frame, so a
+ * turned box still hides everything past its rim side.
  */
 export const frameFor = (
   edge: PeekEdge,
   box: { width: number; height: number },
-  offset: number,
 ): { slot: CSSProperties; turn: number } => {
   const slot = {
     width: box.width,
@@ -454,54 +211,13 @@ export const frameFor = (
     left: "50%",
     marginLeft: -box.width / 2,
   };
-  const past = `calc(100% + ${offset}px)`;
   return edge === "top"
-    ? { slot: { ...slot, bottom: past }, turn: 0 }
-    : { slot: { ...slot, top: past }, turn: 180 };
+    ? { slot: { ...slot, bottom: "100%" }, turn: 0 }
+    : { slot: { ...slot, top: "100%" }, turn: 180 };
 };
-
-/** Which way is out of an edge, along the capsule's height. */
-const outwardSign = (edge: PeekEdge): number => (edge === "top" ? -1 : 1);
-
-/**
- * A box measured for the top, placed and turned for `edge`: the slot, and
- * inside it the box itself, centred and rotated.
- */
-function Turned({
-  edge,
-  box,
-  offset,
-  className,
-  children,
-}: {
-  edge: PeekEdge;
-  box: { width: number; height: number };
-  offset: number;
-  className?: string;
-  children: ReactNode;
-}) {
-  const frame = frameFor(edge, box, offset);
-  return (
-    <div className="absolute" style={frame.slot}>
-      <div
-        className={`absolute ${className ?? ""}`}
-        style={{
-          width: box.width,
-          height: box.height,
-          left: (Number(frame.slot.width) - box.width) / 2,
-          top: (Number(frame.slot.height) - box.height) / 2,
-          transform: `rotate(${frame.turn}deg)`,
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 export function CompanionPeek({
   character,
-  accentHex,
   capsule,
   enabled,
   held = false,
@@ -512,8 +228,6 @@ export function CompanionPeek({
 }: {
   /** The traits the creature is composed from. */
   character: CompanionCharacter;
-  /** The capsule's colour, which the collar is drawn in. */
-  accentHex: string;
   capsule: PeekCapsule;
   /**
    * Whether the next peek should be scheduled. Off while the creature is
@@ -527,7 +241,7 @@ export function CompanionPeek({
    */
   held?: boolean;
   /**
-   * Always come out of this edge. For the stories that line the four up; the
+   * Always come out of this edge. For the stories that line the two up; the
    * surface never passes it, and each peek draws its own.
    */
   edge?: PeekEdge;
@@ -542,19 +256,8 @@ export function CompanionPeek({
     () => avatarPeekMetrics(BUNDLED_COMPONENTS, character),
     [character],
   );
-  const geometry = useMemo(
-    () => (metrics === null ? null : peekGeometry(metrics, capsule.width)),
-    [metrics, capsule.width],
-  );
-  const span = useMemo(
-    () =>
-      geometry === null
-        ? null
-        : bodySpanAt(character.bodyShape, geometry.size, geometry.exposed),
-    [character.bodyShape, geometry],
-  );
   const count = usePeekClock(
-    enabled && !held && !reduce && geometry !== null && span !== null,
+    enabled && !held && !reduce && metrics !== null,
     interval,
   );
 
@@ -577,32 +280,18 @@ export function CompanionPeek({
     };
   }, [count]);
 
-  if (geometry === null || span === null || reduce) {
+  if (metrics === null || reduce) {
     return null;
   }
 
+  const geometry = peekGeometry(metrics, capsule.width);
   const up = held || risen;
   const edge = fixedEdge ?? drawnEdge;
-  const transition = held
-    ? { duration: 0 }
-    : up
-      ? { type: "spring" as const, stiffness: 280, damping: 14 }
-      : { duration: DUCK_SECONDS, ease: "easeIn" as const };
-
-  // The collar's box: from the capsule's centre line out to the cut.
-  const inset = capsule.height / 2;
-  const collar = {
-    width: geometry.clip.width,
-    height: inset + PEEK_STRETCH + COLLAR_LAP,
-  };
-  const spanInCollar = {
-    left: HEADROOM + span.left,
-    right: HEADROOM + span.right,
-  };
+  const frame = frameFor(edge, geometry.clip);
 
   return (
     // Sized as the capsule's own box and placed where the caller puts the
-    // capsule, so everything below can hang off its edges.
+    // capsule, so the clip below can hang off its edge.
     <div
       className={`companion-peek ${className ?? ""}`}
       style={{
@@ -614,21 +303,14 @@ export function CompanionPeek({
       data-edge={edge}
       aria-hidden
     >
-      {/* The creature, in a window whose rim side rides out from the
-        capsule's edge to the cut on the same spring as the rise. Overflow
-        hidden is what makes the creature come out from behind the capsule
-        rather than up in front of it. */}
-      <motion.div
-        className="absolute inset-0"
-        initial={false}
-        animate={{ y: up ? PEEK_STRETCH * outwardSign(edge) : 0 }}
-        transition={transition}
-      >
-        <Turned
-          edge={edge}
-          box={geometry.clip}
-          offset={0}
-          className="overflow-hidden"
+      {/* The slot against the chosen edge, and inside it the window the
+        creature rises into, turned so its rim side faces the capsule.
+        Overflow hidden is what makes the creature come out from behind the
+        capsule rather than up in front of it. */}
+      <div className="absolute" style={frame.slot}>
+        <div
+          className="absolute inset-0 overflow-hidden"
+          style={{ transform: `rotate(${frame.turn}deg)` }}
         >
           <motion.div
             className="absolute left-1/2"
@@ -640,7 +322,13 @@ export function CompanionPeek({
             }}
             initial={{ y: geometry.rest }}
             animate={{ y: up ? 0 : geometry.rest }}
-            transition={transition}
+            transition={
+              held
+                ? { duration: 0 }
+                : up
+                  ? { type: "spring", stiffness: 280, damping: 14 }
+                  : { duration: DUCK_SECONDS, ease: "easeIn" }
+            }
           >
             <AnimatedAvatar
               components={BUNDLED_COMPONENTS}
@@ -648,36 +336,8 @@ export function CompanionPeek({
               size={geometry.size}
             />
           </motion.div>
-        </Turned>
-      </motion.div>
-      {/* The collar, drawn after the creature so it sits over the creature's
-        base and under the surface's capsule: more of the pill, pulled out to
-        meet the creature. */}
-      <Turned edge={edge} box={collar} offset={-inset}>
-        <svg
-          className="companion-peek-collar"
-          width={collar.width}
-          height={collar.height}
-          viewBox={`0 0 ${collar.width} ${collar.height}`}
-        >
-          <motion.path
-            fill={accentHex}
-            initial={false}
-            animate={{
-              d: up
-                ? collarPath(
-                    collar.width,
-                    capsule.width,
-                    spanInCollar,
-                    inset,
-                    PEEK_STRETCH + COLLAR_LAP,
-                  )
-                : collapsedCollar(collar.width, capsule.width, inset),
-            }}
-            transition={transition}
-          />
-        </svg>
-      </Turned>
+        </div>
+      </div>
     </div>
   );
 }
