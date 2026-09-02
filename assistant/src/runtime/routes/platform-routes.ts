@@ -466,7 +466,7 @@ async function handleCallbackRoutesList(
  * is not a finite number, so the daemon never reports a made-up figure.
  */
 function parseUsd(value: string | null | undefined): number | null {
-  if (value == null) {
+  if (value == null || value.trim() === "") {
     return null;
   }
   const parsed = Number(value);

@@ -119,12 +119,17 @@ describe("platform_credits", () => {
     });
   });
 
-  test("reports a null daily limit when none is set", async () => {
-    stubFetch({ ...FULL_SUMMARY, daily_credit_limit_usd: null });
+  test("reports null for a null daily limit and an empty amount", async () => {
+    stubFetch({
+      ...FULL_SUMMARY,
+      daily_credit_limit_usd: null,
+      low_balance_threshold_usd: "",
+    });
 
     expect(await creditsHandler({})).toMatchObject({
       daily_spend: 3.25,
       daily_limit: null,
+      low_balance_threshold: null,
     });
   });
 
