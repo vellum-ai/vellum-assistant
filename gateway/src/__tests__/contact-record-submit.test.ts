@@ -1037,6 +1037,65 @@ describe("contact record submit", () => {
     ).toBeDefined();
   });
 
+  test("a merge carrying an explicit notes clear is rejected too", async () => {
+    seedContact("c-keep-null", "Alice");
+    seedContact("c-donor-null", "Alice C");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-notes-null"),
+        operation: "merge",
+        contactId: "c-keep-null",
+        donorContactId: "c-donor-null",
+        notes: null,
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor-null"))
+        .get(),
+    ).toBeDefined();
+  });
+
+  test("a merge renaming the survivor to blank is rejected before anything commits", async () => {
+    seedContact("c-keep-blank", "Alice");
+    seedContact("c-donor-blank", "Alice C");
+    seedChannel("c-donor-blank", "email", "alice.c@example.com");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-blank-name"),
+        operation: "merge",
+        contactId: "c-keep-blank",
+        donorContactId: "c-donor-blank",
+        displayName: "   ",
+      }),
+    );
+
+    // The rename runs after the merge commits, so accepting this would delete
+    // the donor and then report the whole submission as failed.
+    expect(res.status).toBe(400);
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor-blank"))
+        .get(),
+    ).toBeDefined();
+    const donorChannel = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.id, "c-donor-blank-email"))
+      .get();
+    expect(donorChannel?.contactId).toBe("c-donor-blank");
+  });
+
   test("a merge of a contact with itself is rejected", async () => {
     seedContact("c-self", "Alice");
 

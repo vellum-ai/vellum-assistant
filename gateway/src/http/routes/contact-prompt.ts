@@ -657,14 +657,23 @@ export async function handleContactRecordSubmit(
       );
     }
     // The merge combines both contacts' notes itself, so a submitted set would
-    // either be dropped or overwrite that. Refusing says so.
-    if (body.notes !== undefined && body.notes !== null) {
+    // either be dropped or overwrite that. A null is an explicit clear on the
+    // update path, so it is refused here too rather than passed over.
+    if (body.notes !== undefined) {
       return Response.json(
         {
           accepted: false,
           error:
             "A merge combines both contacts' notes, so notes cannot be submitted with it. Edit them afterwards with 'assistant contacts update'.",
         },
+        { status: 400 },
+      );
+    }
+    // The rename runs after the merge has committed, so a name that would be
+    // refused there has to be refused before anything is written.
+    if (typeof body.displayName === "string" && !body.displayName.trim()) {
+      return Response.json(
+        { accepted: false, error: "displayName must be a non-empty string" },
         { status: 400 },
       );
     }
