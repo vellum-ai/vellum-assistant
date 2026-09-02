@@ -650,12 +650,12 @@ describe("access-request instruction enforcement", () => {
       "telegram",
     ] as NotificationChannel[]);
 
-    expect(decision.renderedCopy.telegram?.body).toBe("Someone wants access.");
-    expect(decision.renderedCopy.telegram?.deliveryText).toBe(
-      "Someone wants access.",
-    );
+    const expected =
+      'Someone wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+    expect(decision.renderedCopy.telegram?.body).toBe(expected);
+    expect(decision.renderedCopy.telegram?.deliveryText).toBe(expected);
     expect(decision.renderedCopy.telegram?.conversationSeedMessage).toBe(
-      "Someone wants access.",
+      expected,
     );
   });
 
