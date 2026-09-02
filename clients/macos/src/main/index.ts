@@ -63,10 +63,10 @@ import {
   installConnectivityIpc,
   installStatusIpc,
 } from "@vellumai/electron-desktop/status";
-import { installWindowAttention } from "@vellumai/electron-desktop/window-attention";
 import "./auxiliary-windows.client";
 import { installDock } from "./dock";
 import { installShare } from "./share";
+import { installWindowAttentionFeature } from "./window-attention";
 import {
   installEscapeMonitor,
   setDictationRecording,
@@ -463,8 +463,7 @@ app
       logger: log,
     });
     installNotifications();
-    const teardownWindowAttention = installWindowAttention();
-    app.on("before-quit", teardownWindowAttention);
+    installWindowAttentionFeature();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.

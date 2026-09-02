@@ -6,12 +6,17 @@
  * 1. **Signal sources.** Wires each `runtime/event-sources/*` helper
  *    once at mount so DOM visibility, network online/offline,
  *    Capacitor app state, Capacitor deep links, Electron
- *    `powerMonitor`, Electron main-window attention, and Electron
- *    deep-link events flow into the bus. The DOM visibility source and
- *    the Electron attention source describe the same edge and both
- *    register unconditionally: only one of them can fire on a given
- *    host, because Electron disables the Page Visibility API and the
- *    attention bridge exists nowhere else.
+ *    `powerMonitor`, Electron window attention, and Electron
+ *    deep-link events flow into the bus. Both the DOM visibility source
+ *    and the Electron attention source register unconditionally, and
+ *    only one of them can fire on a given host: Electron disables the
+ *    Page Visibility API and the attention bridge exists nowhere else.
+ *    They report different facts. The DOM source publishes the
+ *    lifecycle edge, which means backgrounded to consumers that
+ *    release the camera and tear the SSE stream down; the attention
+ *    source publishes only `app.attention`, because a minimized
+ *    desktop app has to keep the stream that delivers its
+ *    notifications.
  *    The lifecycle diagnostics
  *    recorder is attached in the same effect so those signals are
  *    captured for support bundles, and boot/resume performance

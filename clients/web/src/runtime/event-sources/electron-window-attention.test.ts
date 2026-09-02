@@ -1,13 +1,17 @@
+/**
+ * The desktop attention source publishes `app.attention` and nothing else.
+ * A lifecycle edge from here would background every consumer that reads one,
+ * including the SSE teardown that delivers the notifications a minimized
+ * desktop app is waiting for, so the absence of `app.hidden` is pinned as
+ * hard as the presence of `app.attention`.
+ */
+
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
 
 import * as eventBus from "@/lib/event-bus";
-import {
-  isWindowAttended,
-  publishElectronWindowAttentionSource,
-} from "@/runtime/event-sources/electron-window-attention";
-import { __resetLifecycleEdgeForTests } from "@/runtime/event-sources/lifecycle-edge";
+import { publishElectronWindowAttentionSource } from "@/runtime/event-sources/electron-window-attention";
 
 const publishSpy = spyOn(eventBus, "publish");
 
@@ -39,11 +43,6 @@ function installBridge(): void {
   } as unknown as Window["vellum"];
 }
 
-/** An Electron host whose preload predates the attention channel. */
-function installBridgeWithoutAttention(): void {
-  window.vellum = { platform: "electron" } as unknown as Window["vellum"];
-}
-
 function start(): void {
   teardown = publishElectronWindowAttentionSource();
 }
@@ -54,10 +53,6 @@ function send(payload: unknown): void {
 }
 
 beforeEach(() => {
-  // The edge window is module state shared with every other source that
-  // publishes through it, so a case in another suite can otherwise swallow
-  // this one's first edge.
-  __resetLifecycleEdgeForTests();
   listener = null;
   unsubscribeCalls = 0;
   publishSpy.mockClear();
@@ -70,112 +65,17 @@ afterEach(() => {
   publishSpy.mockClear();
 });
 
-describe("isWindowAttended", () => {
-  test("is true off Electron, where the DOM is the authority", () => {
-    start();
-
-    expect(isWindowAttended()).toBe(true);
-    expect(publishSpy).not.toHaveBeenCalled();
-  });
-
-  test("is false under an Electron host that never reports", () => {
-    installBridgeWithoutAttention();
-    start();
-
-    expect(isWindowAttended()).toBe(false);
-  });
-
-  test("tracks the reported window state", () => {
-    installBridge();
-    start();
-
-    send(ATTENDED);
-    expect(isWindowAttended()).toBe(true);
-
-    send({ visible: true, focused: false, minimized: false });
-    expect(isWindowAttended()).toBe(false);
-
-    send({ visible: true, focused: true, minimized: true });
-    expect(isWindowAttended()).toBe(false);
-
-    send({ visible: false, focused: false, minimized: false });
-    expect(isWindowAttended()).toBe(false);
-
-    send(ATTENDED);
-    expect(isWindowAttended()).toBe(true);
-  });
-
-  test("is false for a payload the contract cannot read", () => {
-    installBridge();
-    start();
-
-    send(ATTENDED);
-    send({ visible: "yes" });
-
-    expect(isWindowAttended()).toBe(false);
-  });
-});
-
 describe("publishElectronWindowAttentionSource", () => {
-  test("seeds the baseline from the first payload without publishing", () => {
+  // The consumers mount before this source starts, so a focused window whose
+  // first report only seeded a baseline would leave them holding the
+  // unattended default with no edge coming to correct it.
+  test("publishes the first payload rather than only seeding a baseline", () => {
     installBridge();
     start();
 
     send(ATTENDED);
 
-    expect(publishSpy).not.toHaveBeenCalled();
-  });
-
-  test("publishes app.hidden when the window is minimized", () => {
-    installBridge();
-    start();
-
-    send(ATTENDED);
-    send({ visible: true, focused: false, minimized: true });
-
-    expect(publishSpy).toHaveBeenCalledWith("app.hidden", {
-      signal: "window_attention",
-    });
-  });
-
-  test("publishes app.hidden when the window is no longer visible", () => {
-    installBridge();
-    start();
-
-    send(ATTENDED);
-    send({ visible: false, focused: false, minimized: false });
-
-    expect(publishSpy).toHaveBeenCalledWith("app.hidden", {
-      signal: "window_attention",
-    });
-  });
-
-  test("publishes app.resume when the window comes back on screen", () => {
-    installBridge();
-    start();
-
-    send(ATTENDED);
-    send({ visible: true, focused: false, minimized: true });
-    publishSpy.mockClear();
-
-    send(ATTENDED);
-
-    expect(publishSpy).toHaveBeenCalledWith("app.resume", {
-      signal: "window_attention",
-    });
-  });
-
-  test("publishes no lifecycle edge for a focus change that keeps the window on screen", () => {
-    installBridge();
-    start();
-
-    send(ATTENDED);
-    send({ visible: true, focused: false, minimized: false });
-    send(ATTENDED);
-
-    expect(isWindowAttended()).toBe(true);
     expect(publishSpy.mock.calls).toEqual([
-      ["app.attention", { attended: false }],
       ["app.attention", { attended: true }],
     ]);
   });
@@ -185,11 +85,13 @@ describe("publishElectronWindowAttentionSource", () => {
     start();
 
     send(ATTENDED);
+    publishSpy.mockClear();
+
     send({ visible: true, focused: false, minimized: false });
 
-    expect(publishSpy).toHaveBeenCalledWith("app.attention", {
-      attended: false,
-    });
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
+    ]);
   });
 
   test("publishes app.attention when a window on screen takes focus back", () => {
@@ -202,21 +104,54 @@ describe("publishElectronWindowAttentionSource", () => {
 
     send(ATTENDED);
 
-    expect(publishSpy).toHaveBeenCalledWith("app.attention", {
-      attended: true,
-    });
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: true }],
+    ]);
   });
 
-  test("publishes app.attention alongside the lifecycle edge on a minimize", () => {
+  // Minimizing must not background the renderer. `app.hidden` tears the SSE
+  // stream down behind a five second grace, and the desktop has no push
+  // fallback, so every notification broadcast while minimized would be lost.
+  test("publishes no lifecycle edge when the window is minimized", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    publishSpy.mockClear();
+
+    send({ visible: true, focused: false, minimized: true });
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
+    ]);
+  });
+
+  test("publishes no lifecycle edge when the window is no longer visible", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    publishSpy.mockClear();
+
+    send({ visible: false, focused: false, minimized: false });
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
+    ]);
+  });
+
+  test("publishes no lifecycle edge when the window comes back on screen", () => {
     installBridge();
     start();
 
     send(ATTENDED);
     send({ visible: true, focused: false, minimized: true });
+    publishSpy.mockClear();
+
+    send(ATTENDED);
 
     expect(publishSpy.mock.calls).toEqual([
-      ["app.attention", { attended: false }],
-      ["app.hidden", { signal: "window_attention" }],
+      ["app.attention", { attended: true }],
     ]);
   });
 
@@ -225,16 +160,20 @@ describe("publishElectronWindowAttentionSource", () => {
     start();
 
     send(ATTENDED);
+    publishSpy.mockClear();
+
     send(ATTENDED);
 
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
-  test("publishes no lifecycle edge for a payload the contract cannot read", () => {
+  test("reports a payload the contract cannot read as unattended", () => {
     installBridge();
     start();
 
     send(ATTENDED);
+    publishSpy.mockClear();
+
     send({ minimized: null });
 
     expect(publishSpy.mock.calls).toEqual([
@@ -242,16 +181,27 @@ describe("publishElectronWindowAttentionSource", () => {
     ]);
   });
 
-  test("unsubscribes on teardown and returns to the no-payload default", () => {
+  test("publishes nothing off Electron", () => {
+    start();
+
+    expect(publishSpy).not.toHaveBeenCalled();
+  });
+
+  test("unsubscribes on teardown and republishes the next first payload", () => {
     installBridge();
     start();
-    send({ visible: false, focused: false, minimized: true });
+    send(ATTENDED);
 
     teardown?.();
     teardown = null;
-
     expect(unsubscribeCalls).toBe(1);
-    delete window.vellum;
-    expect(isWindowAttended()).toBe(true);
+
+    publishSpy.mockClear();
+    start();
+    send(ATTENDED);
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: true }],
+    ]);
   });
 });

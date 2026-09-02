@@ -16,16 +16,18 @@
  * different question, whether the user is at that computer at all, so never
  * reuse that path for this.
  *
- * Under Electron the visibility answer comes from the main process rather
- * than the DOM. Vellum windows disable background throttling, which disables
- * the Page Visibility API with it, so `document.visibilityState` is pinned to
- * `"visible"` in that renderer and reading it would report a minimized window
- * as watched. `isWindowAttended()` is the authoritative read there, and it
- * requires focus as well as being on screen because main can see both. A
- * browser tab keeps visibility-only semantics: `document.hasFocus()` is
- * window-level and can be false for a visible tab in an unfocused browser
- * window, while visibility is the existing contract for whether the
- * conversation is on screen.
+ * `isVisibleToUser()` from `runtime/window-attention.ts` answers "is this
+ * client on screen" on every platform, and `use-notification-intent-sync`
+ * asks it the same way. Under Electron the answer comes from the main
+ * process rather than the DOM: Vellum windows disable background throttling,
+ * which disables the Page Visibility API with it, so
+ * `document.visibilityState` is pinned to `"visible"` in that renderer and
+ * reading it would report a minimized window as watched. That read requires
+ * focus as well as being on screen, because main can see both. A browser tab
+ * keeps visibility-only semantics: `document.hasFocus()` is window-level and
+ * can be false for a visible tab in an unfocused browser window, while
+ * visibility is the existing contract for whether the conversation is on
+ * screen.
  *
  * Every desktop window reports for itself, and a conversation pop-out is a
  * separate page load, so it is its own `"web"` client with its own report.
@@ -35,10 +37,12 @@
  *
  * Reports on mount, on every visibility edge (via the bus's `app.resume` /
  * `app.hidden`, not a raw `visibilitychange` listener, see
- * `docs/EVENT_BUS.md`), on every desktop focus edge (`app.attention`),
- * whenever the focused conversation changes (route or active-conversation-id
- * change), and on a periodic reconciliation tick while visible. Each report
- * reads visibility at post time rather than trusting cached lifecycle state.
+ * `docs/EVENT_BUS.md`), on every desktop attention edge (`app.attention`),
+ * on the desktop's screen-lock and system-suspend edges (`power.lock` /
+ * `power.suspend`, and back on `power.unlock` / `power.resume`), whenever the
+ * focused conversation changes (route or active-conversation-id change), and
+ * on a periodic reconciliation tick while visible. Each report reads
+ * visibility at post time rather than trusting cached lifecycle state.
  * "Focused" counts the active conversation id only while the chat route for
  * it is on screen, since `activeConversationId` is never cleared on
  * navigation away.
@@ -48,10 +52,17 @@
  * `IDLE_THRESHOLD_MS` stops counting and its report ages out of the daemon's
  * TTL, restoring the push. This mirrors the desktop reporter, which derives
  * attendance from system idle time for the same reason. A desktop window that
- * loses focus without leaving the screen does not wait out that aging: it
- * publishes no `app.hidden`, since that edge means backgrounded to the
- * consumers that tear down the camera and the stream on it, and reports off
- * `app.attention` instead.
+ * loses focus without leaving the screen does not wait out that aging: the
+ * desktop publishes no lifecycle edge at all, since `app.hidden` means
+ * backgrounded to the consumers that tear down the camera and the stream on
+ * it, and reports off `app.attention` instead.
+ *
+ * A locked screen is the one state neither of those catches: the window stays
+ * visible, focused and unminimized behind the lock, and the idle clock only
+ * expires ten minutes after the last keystroke. `power.lock` and
+ * `power.suspend` report `visible: false` at once so the reply goes to the
+ * phone the user just walked away with, and `power.unlock` / `power.resume`
+ * report fresh state on the way back.
  *
  * The reconciliation tick exists because the daemon's presence gate is
  * TTL-bound (`WEB_PRESENCE_STALE_AFTER_MS` in
@@ -73,8 +84,8 @@ import { useLocation } from "react-router";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useSupportsWebPresence } from "@/lib/backwards-compat/use-supports-web-presence";
-import { isWindowAttended } from "@/runtime/event-sources/electron-window-attention";
 import { isElectron } from "@/runtime/is-electron";
+import { isVisibleToUser } from "@/runtime/window-attention";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isConversationChatPath } from "@/utils/routes";
@@ -106,20 +117,6 @@ const INTERACTION_EVENTS = [
   "wheel",
   "touchstart",
 ] as const;
-
-/**
- * Whether this client is on screen for the user. Under Electron that is the
- * main process's window report rather than the DOM, which cannot answer it
- * there. See the module doc comment.
- */
-function isVisibleToUser(): boolean {
-  if (isElectron()) {
-    return isWindowAttended();
-  }
-  return (
-    typeof document === "undefined" || document.visibilityState === "visible"
-  );
-}
 
 /** Whether the user touched this client inside {@link IDLE_THRESHOLD_MS}. */
 function hasRecentInput(lastInteractionAt: number): boolean {
@@ -263,6 +260,34 @@ export function useWebPresenceReport(assistantId: string | null): void {
     lastInteractionAtRef.current = Date.now();
   }, []);
 
+  /**
+   * Report this client as away. A locked screen or a suspended machine leaves
+   * the window visible, focused and unminimized, so no window signal and no
+   * DOM read says the user left, and the idle clock only expires ten minutes
+   * after the last keystroke. Reporting at once is what sends the reply to
+   * the phone the user walked away with.
+   */
+  const reportAway = () => {
+    if (!supportsWebPresence) {
+      return;
+    }
+    reportWebPresence(assistantId!, buildKey, {
+      visible: false,
+      focusedConversationId,
+    });
+  };
+
+  /** Report whatever this client's own state says, on the way back. */
+  const reportPresence = () => {
+    if (!supportsWebPresence) {
+      return;
+    }
+    reportWebPresence(assistantId!, buildKey, {
+      visible: isPresent(lastInteractionAtRef.current),
+      focusedConversationId,
+    });
+  };
+
   useBusSubscription("app.resume", ({ signal }) => {
     if (!supportsWebPresence) {
       return;
@@ -270,19 +295,16 @@ export function useWebPresenceReport(assistantId: string | null): void {
     if (signal === "online") {
       // Reachability, not a foreground edge. It says nothing about where the
       // user is, so the DOM and the idle clock still decide.
-      reportWebPresence(assistantId!, buildKey, {
-        visible: isPresent(lastInteractionAtRef.current),
-        focusedConversationId,
-      });
+      reportPresence();
       return;
     }
     // In a browser the edge is the evidence, not `visibilityState`. On iOS
     // the Capacitor app-state source and the DOM event describe one physical
     // edge and `lifecycle-edge.ts` publishes only the first to arrive, so the
     // DOM can still read stale here and the losing source never fires to
-    // correct it. Under Electron the edge only says the window came on
-    // screen, which a window restored behind another app also satisfies, so
-    // real window state decides there.
+    // correct it. The desktop publishes no lifecycle edge, so one arriving
+    // under Electron came from the DOM source, which cannot see where a
+    // Vellum window is; real window state decides there.
     lastInteractionAtRef.current = Date.now();
     reportWebPresence(assistantId!, buildKey, {
       visible: isElectron() ? isVisibleToUser() : true,
@@ -291,14 +313,9 @@ export function useWebPresenceReport(assistantId: string | null): void {
   });
 
   useBusSubscription("app.hidden", () => {
-    if (supportsWebPresence) {
-      // Authoritative for the same reason the resume edge is: backgrounded is
-      // what the edge means, whatever the DOM has caught up to.
-      reportWebPresence(assistantId!, buildKey, {
-        visible: false,
-        focusedConversationId,
-      });
-    }
+    // Authoritative for the same reason the resume edge is: backgrounded is
+    // what the edge means, whatever the DOM has caught up to.
+    reportAway();
   });
 
   useBusSubscription("app.attention", ({ attended }) => {
@@ -315,6 +332,22 @@ export function useWebPresenceReport(assistantId: string | null): void {
       visible: attended && hasRecentInput(lastInteractionAtRef.current),
       focusedConversationId,
     });
+  });
+
+  useBusSubscription("power.lock", () => {
+    reportAway();
+  });
+
+  useBusSubscription("power.suspend", () => {
+    reportAway();
+  });
+
+  useBusSubscription("power.unlock", () => {
+    reportPresence();
+  });
+
+  useBusSubscription("power.resume", () => {
+    reportPresence();
   });
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {

@@ -14,7 +14,6 @@ import {
   type NotificationCreateOptions,
   type NotificationLike,
 } from "@vellumai/electron-desktop/notifications";
-import { installWindowAttention } from "@vellumai/electron-desktop/window-attention";
 import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import { handle } from "../ipc.client";
@@ -159,8 +158,6 @@ const notifications: CapabilityModule<DesktopCapabilityRegistry> = {
       ...(helperPath ? { create: createHelperToastFactory(helperPath) } : {}),
     });
     installNotifications();
-    const teardownWindowAttention = installWindowAttention();
-    app.once("before-quit", teardownWindowAttention);
   },
 };
 
