@@ -260,7 +260,6 @@ const state = (): CompanionSurfaceState => {
 /** A context as the app's window publishes one. */
 const context = (over: Record<string, unknown> = {}) => ({
   assistantName: "Ziggy",
-  turns: [],
   working: false,
   ...over,
 });
@@ -601,8 +600,7 @@ describe("the session main holds", () => {
 describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
     expect(introOnAdvance("meet", "next")).toBe("talk");
-    expect(introOnAdvance("talk", "next")).toBe("type");
-    expect(introOnAdvance("type", "next")).toBe("menu");
+    expect(introOnAdvance("talk", "next")).toBe("menu");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
@@ -613,7 +611,7 @@ describe("introOnAdvance", () => {
 
   test("dismiss ends the run from any beat", () => {
     expect(introOnAdvance("meet", "dismiss")).toBe(null);
-    expect(introOnAdvance("type", "dismiss")).toBe(null);
+    expect(introOnAdvance("talk", "dismiss")).toBe(null);
   });
 
   // A press that arrives after the run is already over. The renderer can be a
@@ -1257,23 +1255,16 @@ describe("the watch flag when the app's window goes away", () => {
   });
 
   /**
-   * The tail and the name are a record of what was said and this surface is
-   * still where it is read, the same bargain `clearCompanionWorking` makes.
+   * The name is a record of whose surface this is and the surface is still
+   * where it is read, the same bargain `clearCompanionWorking` makes.
    */
-  test("leaves the conversation and the name standing", () => {
-    send(
-      "vellum:companion:setContext",
-      context({
-        watching: true,
-        turns: [{ role: "user", text: "hello" }],
-      }),
-    );
+  test("leaves the name standing", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
 
     mainWindowOpen = false;
     fireVisibilityChange();
 
     expect(state().assistantName).toBe("Ziggy");
-    expect(state().turns).toEqual([{ role: "user", text: "hello" }]);
   });
 
   test("says nothing when no session was running", () => {

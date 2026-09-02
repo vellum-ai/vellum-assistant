@@ -83,17 +83,14 @@ const captureLanded = () => {
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 // The summary store is the real one: it holds nothing but a value and a timer,
 // and what this hook owns is publishing the phase it reports.
-const { beginWatchRetro, clearWatchRetro, settleWatchRetro } = await import(
-  "@/domains/chat/watch/watch-retro"
-);
-const { useVoiceRecordingStore } = await import(
-  "@/domains/chat/voice/voice-recording-store"
-);
+const { beginWatchRetro, clearWatchRetro, settleWatchRetro } =
+  await import("@/domains/chat/watch/watch-retro");
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -221,7 +218,6 @@ describe("the working flag the companion mirror publishes", () => {
     await waitFor(() => {
       expect(published.length).toBeGreaterThan(before);
     });
-    expect(latest().turns).toEqual([]);
   });
 });
 

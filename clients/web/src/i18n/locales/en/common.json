@@ -148,10 +148,6 @@
     "talk": {
       "body": "Start a voice conversation.",
       "title": "Talk"
-    },
-    "type": {
-      "body": "Send a message from here and read the reply here too.",
-      "title": "Type"
     }
   },
   "companionSurface": {
@@ -160,18 +156,14 @@
     "dictating": "Listening",
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
-    "goBack": "Go back",
-    "messagePlaceholder": "Message {name}",
     "muteAssistant": "Mute assistant",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
-    "send": "Send",
     "showSummary": "Show summary",
     "stopTeaching": "Stop teaching",
     "summarizing": "Summarizing",
     "talk": "Talk",
     "teach": "Teach",
-    "type": "Type",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },

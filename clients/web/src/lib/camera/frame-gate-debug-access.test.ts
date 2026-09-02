@@ -249,6 +249,211 @@ describe("camera gate readout access", () => {
     expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
   });
 
+  /**
+   * What another window's write does to this one.
+   *
+   * The owner check is this module's and the payload's shape is the store's,
+   * which is the whole reason the listener is wired here: a second window can
+   * sign the browser into a different account, so the payload it leaves behind
+   * is not automatically this tab's to read.
+   */
+  describe("another tab's write", () => {
+    /** The payload a tab owned by `ownerUserId` leaves on the key. */
+    function payloadFrom(ownerUserId: string, minDetail: number): string {
+      return JSON.stringify({
+        state: {
+          hudEnabled: true,
+          ownerUserId,
+          overrides: { ...defaultFrameGateOverrides(), minDetail },
+        },
+        version: 0,
+      });
+    }
+
+    /** Leave a payload behind and tell this tab about it, as another tab does. */
+    async function arriveFromAnotherTab(
+      ownerUserId: string,
+      minDetail: number,
+    ): Promise<void> {
+      const newValue = payloadFrom(ownerUserId, minDetail);
+      localStorage.setItem(STORAGE_KEY, newValue);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    /** Leave the key holding something this tab could not read, and announce it. */
+    async function arriveUnreadable(raw: string | null): Promise<void> {
+      if (raw === null) {
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        localStorage.setItem(STORAGE_KEY, raw);
+      }
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue: raw }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    test("from the same account reaches this tab, and the gate with it", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(false);
+
+      await arriveFromAnotherTab(STAFF_USER.id ?? "", 42);
+
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(true);
+      expect(state.overrides.minDetail).toBe(42);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
+    });
+
+    test("naming no owner is read, and the claim then settles it", async () => {
+      // A slice written before any account claimed it. Nobody owns it, so
+      // there is no account for this tab to disagree with and it is read; the
+      // claim that follows is what binds it, and binding a preference no
+      // session recorded is what puts the switch back to shipped. That is the
+      // store's standing rule for an unowned payload, not a new one.
+      useAuthStore.setState({ user: STAFF_USER });
+      const store = useCameraGateDebugStore.getState();
+      store.setHudEnabled(true);
+      store.setOverride("minDetail", 30);
+
+      const newValue = JSON.stringify({
+        state: {
+          hudEnabled: true,
+          ownerUserId: null,
+          overrides: { ...defaultFrameGateOverrides(), minDetail: 42 },
+        },
+        version: 0,
+      });
+      localStorage.setItem(STORAGE_KEY, newValue);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const state = useCameraGateDebugStore.getState();
+      expect(state.ownerUserId).toBe(STAFF_USER.id);
+      expect(state.hudEnabled).toBe(false);
+      expect(state.overrides.minDetail).toBe(
+        DEFAULT_FRAME_GATE_OPTIONS.minDetail,
+      );
+    });
+
+    test("from another account is refused outright, with nothing written back", async () => {
+      // Adopting it and correcting afterwards would persist the correction,
+      // the other tab would read that and correct it back, and two signed-in
+      // accounts would trade the key with nobody touching a switch. Refusing
+      // to read it is what has no second half.
+      useAuthStore.setState({ user: STAFF_USER });
+      const store = useCameraGateDebugStore.getState();
+      store.setHudEnabled(true);
+      store.setOverride("minDetail", 30);
+
+      const foreign = payloadFrom(OTHER_STAFF_USER.id ?? "", 42);
+      localStorage.setItem(STORAGE_KEY, foreign);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue: foreign }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Nothing of this tab's moved, and nothing of this tab's was written:
+      // the key still holds the other account's payload byte for byte, which
+      // is theirs until somebody's next boot claims it. A correction would
+      // have replaced it with one owned by this account, which is the write
+      // the other tab would have answered.
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(true);
+      expect(state.overrides.minDetail).toBe(30);
+      expect(state.ownerUserId).toBe(STAFF_USER.id);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(30);
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(foreign);
+    });
+
+    test("that cannot be read is left alone", async () => {
+      // A key that was removed, a hand-edited value, and a payload with no
+      // state in it. None of them says whose preference this is, so none is
+      // acted on, and none throws out of the handler. The last shape is the
+      // one a restore would visibly take: it parses, so a handler that went
+      // ahead would merge it and put this session's switch out.
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(true);
+
+      await arriveUnreadable(null);
+      await arriveUnreadable("not json at all");
+      await arriveUnreadable(JSON.stringify({ version: 0 }));
+
+      expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
+    });
+
+    test("is checked against the key as it stands, not the value it announced", async () => {
+      // A third window replaces the key between this event being queued and
+      // this handler running. The event still names this account, and the
+      // restore would take the key, so trusting the event would smuggle the
+      // other account's payload in behind a check that passed.
+      useAuthStore.setState({ user: STAFF_USER });
+      const store = useCameraGateDebugStore.getState();
+      store.setHudEnabled(true);
+      store.setOverride("minDetail", 30);
+
+      const announced = payloadFrom(STAFF_USER.id ?? "", 42);
+      const onDiskNow = payloadFrom(OTHER_STAFF_USER.id ?? "", 99);
+      localStorage.setItem(STORAGE_KEY, onDiskNow);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue: announced }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(true);
+      expect(state.overrides.minDetail).toBe(30);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(30);
+      // Byte for byte what the third window left, so this tab wrote nothing.
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(onDiskNow);
+    });
+
+    test("under another key is not this store's to answer", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(true);
+
+      // A payload nobody announced. Reading it would mean any key's event
+      // restores this slice, which is a switch moving under a session that
+      // changed nothing.
+      localStorage.setItem(STORAGE_KEY, payloadFrom(STAFF_USER.id ?? "", 42));
+      localStorage.setItem("vellum:debug:somethingElse", "{}");
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "vellum:debug:somethingElse",
+          newValue: "{}",
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
+      localStorage.removeItem("vellum:debug:somethingElse");
+    });
+
+    test("stops arriving once the access sync is torn down", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(false);
+      stopAccessSync?.();
+      stopAccessSync = null;
+
+      await arriveFromAnotherTab(STAFF_USER.id ?? "", 42);
+
+      expect(useCameraGateDebugStore.getState().hudEnabled).toBe(false);
+    });
+  });
+
   test("a switch left on by a session with no access never reaches the gate", () => {
     const store = useCameraGateDebugStore.getState();
     store.setHudEnabled(true);

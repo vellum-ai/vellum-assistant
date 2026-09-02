@@ -148,28 +148,20 @@
     "talk": {
       "body": "开始语音对话。",
       "title": "交谈"
-    },
-    "type": {
-      "body": "从这里发送消息，并在这里阅读回复。",
-      "title": "输入"
     }
   },
   "companionSurface": {
     "allow": "允许",
     "deny": "拒绝",
     "endSession": "结束会话",
-    "goBack": "返回",
-    "messagePlaceholder": "向 {name} 发送消息",
     "muteAssistant": "静音助手",
     "muteMicrophone": "静音麦克风",
     "notNow": "暂不",
-    "send": "发送",
     "showSummary": "显示摘要",
     "stopTeaching": "停止教学",
     "summarizing": "正在摘要",
     "talk": "交谈",
     "teach": "教学",
-    "type": "输入",
     "unmuteAssistant": "取消助手静音",
     "unmuteMicrophone": "取消麦克风静音"
   },

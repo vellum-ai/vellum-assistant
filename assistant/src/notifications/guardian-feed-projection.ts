@@ -13,13 +13,11 @@
  * daemon updates it wherever `withdrawGuardianRequestCards` settles the
  * other surfaces.
  */
-import { z } from "zod";
 
 import {
   type FeedItem,
   type FeedItemGuardianIntent,
   type FeedItemGuardianRequest,
-  FeedItemGuardianStatusSchema,
   isPendingGuardianFeedItem,
 } from "../api/responses/home.js";
 import {
@@ -46,19 +44,6 @@ import {
 import { readPayloadString } from "./notification-utils.js";
 
 const log = getLogger("guardian-feed-projection");
-
-// The wire enum in `api/responses/home.ts` cannot import the gateway
-// contract (the api directory is copied verbatim into client packages),
-// so it mirrors `GuardianRequestStatusSchema` by value. This assignment
-// fails to compile if the enums ever diverge in either direction.
-type FeedStatus = z.infer<typeof FeedItemGuardianStatusSchema>;
-type StatusEnumsAligned = [GuardianRequestStatus] extends [FeedStatus]
-  ? [FeedStatus] extends [GuardianRequestStatus]
-    ? true
-    : never
-  : never;
-const _statusEnumsAligned: StatusEnumsAligned = true;
-void _statusEnumsAligned;
 
 /**
  * The signal events that carry a guardian request. `guardian.question`

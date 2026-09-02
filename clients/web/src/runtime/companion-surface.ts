@@ -118,40 +118,12 @@ export function activateCompanionApp(): void {
 }
 
 /**
- * Tell main whether the composer is open, which is how long the window may
- * hold the keyboard.
- *
- * The keyboard twin of {@link setCompanionInteractive}, and reported from here
- * for the same reason: main owns the window but only the page knows whether
- * there is a field on screen to type into. A surface that kept key status after
- * its field closed would eat the next thing the user typed into the app they
- * are working in.
- */
-export function setCompanionComposing(composing: boolean): void {
-  bridge()?.setComposing?.(composing);
-}
-
-/**
- * Send what the user typed on the surface.
- *
- * Like {@link startCompanionVoice}, the message is handed to main and
- * dispatched to the window that owns a conversation to put it in. Nothing is
- * awaited: this page has no transport, and the reply arrives where replies
- * always arrive.
- */
-export function submitCompanionMessage(
-  message: string,
-  startsConversation: boolean,
-): void {
-  bridge()?.submit?.(message, startsConversation);
-}
-
-/**
- * Publish the assistant's name and the tail of the open conversation.
+ * Publish the assistant's name and what the app's window knows about the turn
+ * and the sessions it is running.
  *
  * The one call in this module made from the app's own window rather than from
- * the surface's route: the surface holds neither, so the window that does has
- * to hand them over. Main holds them and pushes them back down with the rest of
+ * the surface's route: the surface holds none of it, so the window that does
+ * has to hand it over. Main holds it and pushes it back down with the rest of
  * the surface's state.
  */
 export function setCompanionContext(context: CompanionContext): void {
@@ -161,8 +133,7 @@ export function setCompanionContext(context: CompanionContext): void {
 
 /**
  * The last context published, so {@link clearCompanionWorking} can correct one
- * field of it without its caller having to hold the conversation it was
- * published beside.
+ * field of it without its caller having to hold the rest.
  */
 let lastContext: CompanionContext | null = null;
 
@@ -170,11 +141,10 @@ let lastContext: CompanionContext | null = null;
  * Stop claiming a turn is in flight.
  *
  * `working` is the one part of the context that is a claim about right now.
- * Main deliberately holds the last context it was given so the card survives
- * the surface's renderer reloading, and the tail and the name are worth holding
- * that way because they describe something that happened. A retained
- * `working: true` describes something that is happening, and a publisher going
- * away does not make it so.
+ * Main deliberately holds the last context it was given so the surface survives
+ * its own renderer reloading, and the name is worth holding that way because
+ * it describes something settled. A retained `working: true` describes
+ * something that is happening, and a publisher going away does not make it so.
  *
  * It has to be said rather than inferred. The surface is opened by main, from
  * the assistant it has and the user's tray preference, not by the window
@@ -241,15 +211,4 @@ export function advanceCompanionIntro(action: CompanionIntroAction): void {
  */
 export function showCompanionContextMenu(): void {
   bridge()?.showContextMenu?.();
-}
-
-/**
- * Hand a link from the card to the host, which opens it in the browser.
- *
- * The surface's window denies every navigation and every `window.open`, so an
- * anchor cannot follow itself and the shared `openExternalUrl` helper has
- * nothing to work with here. Main validates the scheme on the far side.
- */
-export function openCompanionLink(url: string): void {
-  bridge()?.openLink?.(url);
 }

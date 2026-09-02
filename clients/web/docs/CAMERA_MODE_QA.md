@@ -19,10 +19,11 @@ scrim.
       the mobile sheet, on a notched device and on a Dynamic Island device. The
       pill sits below the island, on the minimize control's line, and never
       behind it.
-- [ ] The pill clears the corner control. Give the assistant a name of 40
+- [ ] The pill clears both corner controls. Give the assistant a name of 40
       characters or more and open the camera at portrait phone width. The name
       truncates to an ellipsis, the dot and "Photo" stay whole, and the pill's
-      edge never reaches the minimize control.
+      edge never reaches the view-options button or the minimize control behind
+      it.
 - [ ] The pill clears the grabber. In the mobile sheet, the pill sits below the
       grabber and the grabber still takes the pull-down.
 - [ ] The sheet goes full-bleed for the camera. Open the camera in the mobile
@@ -50,9 +51,27 @@ scrim.
       spoken once, as "Photo. Listening" or "Photo. {name} speaking". Mute the
       mic mid-turn and the announcement carries "Muted". Nothing says the state
       a second time.
-- [ ] VoiceOver reaches every control. Swipe through the chrome: minimize,
-      flash, shutter, flip, mic, speaker, camera, end. Each name matches what a
-      press does, and the flash names the state it is in rather than the act.
+- [ ] VoiceOver reaches every control. Swipe through the chrome: view options,
+      minimize, flash, shutter, flip, mic, speaker, camera, end. Each name
+      matches what a press does, and the flash names the state it is in rather
+      than the act.
+- [ ] View options opens as a panel, not a sheet. Tap the sliders button in the
+      corner with the camera up. The panel opens anchored under the button, its
+      switches take a tap, and tapping the feed outside it dismisses it. It is
+      never announced as a modal dialog that traps VoiceOver, and it never
+      arrives dead to touch.
+- [ ] The kept-frame switch reaches the thumbnail. Enter Live, wait for the
+      crimson thumbnail beside the photo strip, then turn "Kept frame" off. The
+      thumbnail goes, the row it sat in goes with it when no photos are in the
+      strip, and the assistant keeps answering questions about what the camera
+      is pointed at. Turn it back on and the next keep draws again.
+- [ ] Both switches survive a reload and a second tab. Set them, background and
+      relaunch the app: they come back as set. With two web tabs open, a change
+      in one is reflected in the other's panel.
+- [ ] The readout row appears only where the readout does. On a staff or
+      flagged session the panel has two rows; on an ordinary session it has one.
+      This panel is the only place the readout is switched on and off, so check
+      Settings, Debug, General carries no row for it.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
@@ -132,9 +151,12 @@ rather than the pill going on claiming a stream nothing is reading.
       Display), reload, open the camera. The status dot holds still and fully
       lit. The shutter's capture pulse still fires and is shorter. The core's
       morph has no overshoot.
-- [ ] Keyboard walk. Tab from the top of the room: minimize, shutter, flip, mic,
-      speaker, camera, end. Every focus ring is a white outline legible over the
-      feed, including over a white frame.
+- [ ] Keyboard walk. Tab from the top of the room: view options, minimize,
+      shutter, flip, mic, speaker, camera, end. Every focus ring is a white
+      outline legible over the feed, including over a white frame.
+- [ ] Escape closes the panel before it minimizes the room. With the view
+      options open, one Escape closes the panel and leaves the room up; a second
+      minimizes the room.
 - [ ] A mouse can hold. Press and keep the button down on the shutter for half a
       second: Live starts, and releasing takes no photo. Press and drag off the
       button before the half second and nothing happens at all.
@@ -179,6 +201,17 @@ the redesign is called shipped.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber
       and end session as exits. The build keeps the top-right minimize control,
       which is the only discoverable exit on desktop. Confirm.
+- [ ] Pill centring with two corner controls. The design centres the pill on the
+      screen against a single corner control. The build centres it in the band
+      the corner cluster leaves, so it sits a little left of screen centre: with
+      two 52px controls there, a screen-centred pill reaches under them at phone
+      width before its own floor width is spent. Confirm the band centring, or
+      ask for a pill that may narrow past its floor instead.
+- [ ] View options as a panel on touch. The chat column's other panels open as a
+      bottom sheet on a phone. This one stays anchored on every form factor: the
+      room is itself a sheet whose flush camera state inerts the overlay host it
+      shares, so a nested sheet arrives inert. Confirm the anchored panel on a
+      phone, or ask for the sheet and the room's inerting reworked with it.
 - [ ] Capture feedback reaches the deep-link overlay too. The shutter is shared,
       so dimming the core while a frame uploads restyles the overlay's shutter
       as well as the room's, and it is an opacity dip rather than the core
