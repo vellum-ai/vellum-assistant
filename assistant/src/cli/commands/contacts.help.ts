@@ -286,9 +286,10 @@ Which contact it binds to depends on --role:
                      form hints only: the contact is created with role
                      "contact" either way.
 
-This cannot add a channel to an arbitrary existing contact. To name a contact
-first, run 'contacts create'; to let someone bind their own address, use
-'contacts invites create'.
+To add a channel to a contact that already exists, run
+'contacts channels add <contactId>': it names the contact on the form and binds
+to it instead of matching by address. To let someone bind their own address,
+use 'contacts invites create'.
 
 The channel is saved unverified unless the guardian leaves the form's "mark
 verified" box checked, which attests it the same way Contacts Verify me does.
@@ -312,10 +313,75 @@ status (active, pending, revoked, blocked, unverified) and a policy
 (allow, deny) that controls how the assistant handles messages
 from that channel.
 
+Channels are read through their contact: 'assistant contacts get <contactId>'
+lists them with their IDs. There is no delete verb by design: access is
+withdrawn with 'update-status --status revoked', which keeps the record of who
+had it, and deleting the contact takes its channels with it.
+
 Examples:
+  $ assistant contacts channels add <contactId> --channel email --address alice@example.com
   $ assistant contacts channels update-status <channelId> --status revoked --reason "No longer needed"
   $ assistant contacts channels update-status <channelId> --policy deny`,
       subcommands: [
+        {
+          name: "add",
+          args: "<contactId>",
+          description:
+            "Add a channel to an existing contact, for the guardian to confirm",
+          options: [
+            {
+              flags: "--channel <channel>",
+              description:
+                "Channel type to bind (email, phone, telegram, whatsapp, slack)",
+              required: true,
+            },
+            {
+              flags: "--address <address>",
+              description:
+                "Address to pre-fill; the guardian can edit it before submitting",
+            },
+            {
+              flags: "--verify",
+              description:
+                "Pre-check the form's 'mark verified' box. The guardian decides: unchecked, the channel stays unverified.",
+            },
+            {
+              flags: "--label <label>",
+              description: "Display label shown on the form",
+            },
+            {
+              flags: "--description <description>",
+              description: "Longer description shown on the form",
+            },
+            {
+              flags: "--timeout <ms>",
+              description:
+                "How long the form stays open (ms). The command waits for it to close.",
+              defaultValue: String(300_000),
+            },
+          ],
+          helpText: `
+Arguments:
+  contactId   UUID of the contact to bind the channel to. Run
+              'assistant contacts list' to find IDs.
+
+Opens an address form in the guardian's app naming this contact, so they can
+see where the channel is going. Whatever address they submit binds to that
+contact, and no second contact is created. Unlike 'contacts prompt', the target
+is fixed by the id, not matched from the address.
+
+Two contacts cannot share one address. An address already held by a different
+contact is refused when the form is submitted, naming that contact, and nothing
+is written. Passing --address also checks up front and warns when it looks
+taken, without refusing: that check reads the local mirror, so only the refusal
+on submit is authoritative.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts channels add 7a3b1c2d-4e5f-6789-abcd-ef0123456789 --channel email --address alice@example.com
+  $ assistant contacts channels add abc-123 --channel phone --verify --json`,
+        },
         {
           name: "update-status",
           args: "<channelId>",
