@@ -8,6 +8,10 @@
  * Presence also requires recent user input, so `Date.now` is stubbed to drive
  * the idle threshold.
  *
+ * The Electron renderer reports through the same hook but reads window state
+ * from the main process instead of the DOM, so `isWindowAttended` is stubbed
+ * for those cases.
+ *
  * `window.setInterval`/`clearInterval` are stubbed with an armed-timer
  * capture (bun's test runner has no fake timers), matching the pattern in
  * `domains/settings/pair-device/pair-device-test-helpers.ts`; reconciliation
@@ -108,6 +112,11 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electron,
 }));
 
+let windowAttended = true;
+mock.module("@/runtime/event-sources/electron-window-attention", () => ({
+  isWindowAttended: () => windowAttended,
+}));
+
 const postCalls: Array<{
   url: string;
   path: unknown;
@@ -180,6 +189,7 @@ beforeEach(() => {
     .setIdentity("test-assistant", "0.11.5", "assistant-1");
   useConversationStore.getState().reset();
   electron = false;
+  windowAttended = true;
   postCalls.length = 0;
   postMock.mockClear();
   navigate = null;
@@ -349,16 +359,6 @@ describe("useWebPresenceReport", () => {
     expect(postCalls).toHaveLength(1);
   });
 
-  test("does not report from the Electron renderer", async () => {
-    electron = true;
-    useConversationStore.getState().setActiveConversationId("conv-1");
-
-    renderReportAt("assistant-1", routes.conversation("conv-1"));
-
-    await flushPresence();
-    expect(postCalls).toHaveLength(0);
-  });
-
   test("re-reports when the focused conversation changes via route navigation", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
@@ -400,6 +400,27 @@ describe("useWebPresenceReport", () => {
       visible: true,
       focusedConversationId: "conv-1",
     });
+  });
+
+  // Focus is not a browser presence input: a visible tab in an unfocused
+  // browser window is still showing the conversation. The attention edge has
+  // one publisher, the Electron source, and it no-ops off Electron.
+  test("a blurred browser tab keeps its visible report", async () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
   });
 
   test("online reconnect while hidden never reports visible", async () => {
@@ -508,15 +529,6 @@ describe("useWebPresenceReport: reconciliation", () => {
       visible: true,
       focusedConversationId: null,
     });
-  });
-
-  test("does not arm reconciliation from the Electron renderer", async () => {
-    electron = true;
-    useConversationStore.getState().setActiveConversationId("conv-1");
-
-    renderReportAt("assistant-1", routes.conversation("conv-1"));
-
-    expect(reconciliationTimers()).toHaveLength(0);
   });
 
   describe("idle", () => {
@@ -802,5 +814,163 @@ describe("useWebPresenceReport: reconciliation", () => {
     unmount();
 
     expect(reconciliationTimers()[0]?.cleared).toBe(true);
+  });
+});
+
+describe("useWebPresenceReport: Electron renderer", () => {
+  beforeEach(() => {
+    electron = true;
+    useConversationStore.getState().setActiveConversationId("conv-1");
+  });
+
+  test("an attended window reports and arms reconciliation", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+    expect(reconciliationTimers()).toHaveLength(1);
+  });
+
+  test("an unattended window reports invisible despite the DOM", async () => {
+    windowAttended = false;
+    // Vellum windows disable the Page Visibility API, so the DOM reads
+    // visible wherever the window actually is.
+    setVisibilityState("visible");
+
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+
+    await flushPresence();
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  // The edge fires when the window comes on screen, which a window restored
+  // behind another app also satisfies. Reporting visible there would suppress
+  // a push nobody is looking at.
+  test("a foreground edge on an unfocused window reports invisible", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = false;
+
+    act(() => {
+      publish("app.resume", { signal: "window_attention" });
+    });
+
+    await flushPresence();
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("a foreground edge on a focused window reports visible", async () => {
+    windowAttended = false;
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = true;
+
+    act(() => {
+      publish("app.resume", { signal: "window_attention" });
+    });
+
+    await flushPresence();
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("an off-screen edge reports invisible", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = false;
+
+    act(() => {
+      publish("app.hidden", { signal: "window_attention" });
+    });
+
+    await flushPresence();
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  // A window that loses focus without leaving the screen publishes no
+  // lifecycle edge, so without the attention edge the last report stays fresh
+  // for the daemon's whole TTL and keeps suppressing replies to it.
+  test("a blur that keeps the window on screen reports invisible at once", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = false;
+
+    act(() => {
+      publish("app.attention", { attended: false });
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("taking focus back reports visible again", async () => {
+    windowAttended = false;
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = true;
+
+    act(() => {
+      publish("app.attention", { attended: true });
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("focus regained on an idle window reports invisible", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    advanceClock(IDLE_THRESHOLD_MS + 1);
+
+    act(() => {
+      publish("app.attention", { attended: true });
+    });
+
+    await flushPresence();
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("a tick while unattended reports nothing", async () => {
+    windowAttended = false;
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+
+    tickReconciliation();
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(0);
   });
 });

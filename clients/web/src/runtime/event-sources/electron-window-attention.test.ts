@@ -165,7 +165,7 @@ describe("publishElectronWindowAttentionSource", () => {
     });
   });
 
-  test("publishes no edge for a focus change that keeps the window on screen", () => {
+  test("publishes no lifecycle edge for a focus change that keeps the window on screen", () => {
     installBridge();
     start();
 
@@ -174,17 +174,72 @@ describe("publishElectronWindowAttentionSource", () => {
     send(ATTENDED);
 
     expect(isWindowAttended()).toBe(true);
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
+      ["app.attention", { attended: true }],
+    ]);
+  });
+
+  test("publishes app.attention when a window on screen loses focus", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    send({ visible: true, focused: false, minimized: false });
+
+    expect(publishSpy).toHaveBeenCalledWith("app.attention", {
+      attended: false,
+    });
+  });
+
+  test("publishes app.attention when a window on screen takes focus back", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    send({ visible: true, focused: false, minimized: false });
+    publishSpy.mockClear();
+
+    send(ATTENDED);
+
+    expect(publishSpy).toHaveBeenCalledWith("app.attention", {
+      attended: true,
+    });
+  });
+
+  test("publishes app.attention alongside the lifecycle edge on a minimize", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    send({ visible: true, focused: false, minimized: true });
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
+      ["app.hidden", { signal: "window_attention" }],
+    ]);
+  });
+
+  test("repeats no attention edge for a payload that changes nothing", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    send(ATTENDED);
+
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
-  test("publishes no edge for a payload the contract cannot read", () => {
+  test("publishes no lifecycle edge for a payload the contract cannot read", () => {
     installBridge();
     start();
 
     send(ATTENDED);
     send({ minimized: null });
 
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
+    ]);
   });
 
   test("unsubscribes on teardown and returns to the no-payload default", () => {
