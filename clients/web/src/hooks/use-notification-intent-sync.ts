@@ -4,9 +4,9 @@
  * Turns daemon-pushed notification intents into local browser or
  * Capacitor notifications. Skips guardian-scoped notifications
  * (the web client does not participate in guardian binding) and
- * notifications targeting the conversation the user is actively
- * viewing (verified by both store state and URL pathname, since
- * `activeConversationId` persists across route changes).
+ * notifications for the conversation the user is watching right now,
+ * which takes three facts: the store's active conversation, a route
+ * that mounts the chat surface, and a window that is on screen.
  *
  * Acks every notification back to the daemon so delivery audit
  * trails stay consistent with the macOS client.
@@ -16,14 +16,18 @@
  * - runtime/notifications.ts — notification scheduling and ack API
  */
 
+import { useLocation } from "react-router";
+
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
+import { isWindowAttended } from "@/runtime/event-sources/electron-window-attention";
 import {
   extractConversationId,
   postLocalNotification,
   sendNotificationIntentAck,
 } from "@/runtime/notifications";
 import { useConversationStore } from "@/stores/conversation-store";
+import { isConversationChatPath } from "@/utils/routes";
 
 /**
  * Subscribes to `notification_intent` SSE events via the event bus
@@ -32,6 +36,10 @@ import { useConversationStore } from "@/stores/conversation-store";
  * @param assistantId — current assistant; `null` disables the subscription
  */
 export function useNotificationIntentSync(assistantId: string | null): void {
+  // Basename-relative, unlike `window.location.pathname`, which carries the
+  // public ingress prefix in remote-gateway mode.
+  const { pathname } = useLocation();
+
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
     if (event.type !== "notification_intent") {
@@ -48,10 +56,10 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       return;
     }
 
-    // Suppress the banner when the user is already viewing the target
-    // conversation. `activeConversationId` is never cleared on navigation,
-    // so we also verify the URL matches the conversation route — otherwise
-    // a stale id would suppress notifications on home/settings/etc.
+    // Suppress only when the message is already in front of the user.
+    // `activeConversationId` survives navigation, so the route has to agree;
+    // a window minimized on that conversation shows nothing, and a skip there
+    // would ack a delivery nobody saw.
     const metadataConversationId = extractConversationId(
       event.deepLinkMetadata,
     );
@@ -59,7 +67,8 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       metadataConversationId &&
       metadataConversationId ===
         useConversationStore.getState().activeConversationId &&
-      window.location.pathname.startsWith("/assistant/conversations/")
+      isConversationChatPath(pathname) &&
+      isWindowAttended()
     ) {
       if (assistantId && event.deliveryId) {
         void sendNotificationIntentAck(assistantId, event.deliveryId, true);
