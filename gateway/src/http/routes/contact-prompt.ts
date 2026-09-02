@@ -192,8 +192,8 @@ export async function handleContactPromptSubmit(
  *
  * Read from the daemon rather than taken from the client, so a client that
  * does not send the target fields still binds where the command said. Returns
- * null when the daemon could not be reached; the caller then falls back to
- * whatever the client echoed.
+ * null when the daemon could not be reached, which leaves the client's echo as
+ * the only thing the caller has to bind by.
  */
 async function readParkedPromptTarget(requestId: string): Promise<{
   verify?: boolean;
@@ -214,7 +214,7 @@ async function readParkedPromptTarget(requestId: string): Promise<{
   } catch (err) {
     log.warn(
       { err, requestId },
-      "contact-prompt-submit: contact_prompt_flags IPC failed; falling back to what the client submitted",
+      "contact-prompt-submit: contact_prompt_flags IPC failed; the parked target is unreadable",
     );
     return null;
   }
@@ -241,6 +241,27 @@ async function bindSubmittedChannel(input: {
     canonicalizeInboundIdentity(channelType, address) ?? address.trim();
 
   const parked = await readParkedPromptTarget(requestId);
+
+  // An untargeted form and a targeted one whose target cannot be read look
+  // identical from here, so resolving from the address risks handing the
+  // address to a contact other than the one the guardian's card named. The
+  // claim this write holds was granted moments ago, which makes an unreadable
+  // target an anomaly worth refusing: nothing is written and the guardian can
+  // submit again.
+  if (parked === null && !input.contactId) {
+    log.error(
+      { requestId, channelType, address: normalizedAddress },
+      "contact-prompt-submit: the parked target is unreadable and the client echoed none",
+    );
+    return {
+      failure: {
+        error:
+          "Could not read the form's target from the assistant. Nothing was written; try again.",
+        status: 503,
+      },
+    };
+  }
+
   const parkedVerify = parked?.verify;
   // The command fixes the target and the form cannot edit it, so the parked
   // value leads and the client's echo stands in for a read that failed. The
@@ -249,13 +270,6 @@ async function bindSubmittedChannel(input: {
   const targetContactId = parked?.contactId ?? input.contactId;
   const proposedName = displayName ?? parked?.displayName;
   const proposedNotes = parked?.notes;
-
-  if (parked === null && !input.contactId) {
-    log.error(
-      { requestId, channelType, address: normalizedAddress },
-      "contact-prompt-submit: the parked target is unreadable and the client echoed none; resolving the contact from the address",
-    );
-  }
 
   try {
     // A named target decides the bind, whatever role the client sent: the form

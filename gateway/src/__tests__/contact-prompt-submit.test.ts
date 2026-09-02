@@ -1304,6 +1304,37 @@ describe("handleContactPromptSubmit", () => {
     expect(channels[0].contactId).toBe("c-alice");
   });
 
+  test("targeted bind: 503 when neither the parked target nor an echo says who to bind", async () => {
+    seedContact("c-alice", "Alice");
+    ipcThrowOn.set("contact_prompt_flags", new Error("daemon unreachable"));
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-unreadable",
+        address: "mystery@example.com",
+        channelType: "email",
+      }),
+    );
+
+    // An untargeted form is indistinguishable from one whose target could not
+    // be read, so resolving from the address could bind it to somebody the
+    // guardian's card never named.
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(false);
+    expect(body.error).toContain("Nothing was written");
+
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
+    expectNoEmit(ipcMock);
+
+    // The parked command hears why, rather than sitting until its settle timer.
+    expect(resolveCall(ipcMock).body.error).toContain("Nothing was written");
+  });
+
   test("targeted bind: the named target wins over a submitted guardian role", async () => {
     seedGuardian();
     seedContact("c-alice", "Alice");
