@@ -5,6 +5,8 @@
  * authenticated fetch for all platform API calls.
  */
 
+import type { PlatformCredentialVerificationStatus } from "@vellumai/service-contracts/platform-credential";
+
 import { getPlatformAssistantId } from "../config/env.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -329,7 +331,7 @@ export class VellumPlatformClient {
    * The platform exposes no dedicated credential-verification endpoint, so
    * the carrier is named here rather than left implicit at call sites.
    */
-  async verifyCredential(): Promise<"valid" | "rejected" | "unknown"> {
+  async verifyCredential(): Promise<PlatformCredentialVerificationStatus> {
     if (!this.assistantId) {
       return "unknown";
     }

@@ -1,4 +1,8 @@
 import {
+  type PlatformCredentialVerificationStatus,
+  PlatformVerifyCredentialResponseSchema,
+} from "@vellumai/service-contracts/platform-credential";
+import {
   chmodSync,
   readFileSync,
   writeFileSync,
@@ -366,7 +370,7 @@ export interface GatewayCredentialResult {
 export async function verifyGatewayManagedCredential(
   gatewayUrl: string,
   bearerToken?: string,
-): Promise<"valid" | "rejected" | "unknown" | null> {
+): Promise<PlatformCredentialVerificationStatus | null> {
   try {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (bearerToken) {
@@ -385,10 +389,11 @@ export async function verifyGatewayManagedCredential(
       return null;
     }
 
-    const json = (await response.json()) as { status?: unknown };
-    const status = json.status;
-    if (status === "valid" || status === "rejected" || status === "unknown") {
-      return status;
+    const parsed = PlatformVerifyCredentialResponseSchema.safeParse(
+      await response.json(),
+    );
+    if (parsed.success) {
+      return parsed.data.status;
     }
     return null;
   } catch {

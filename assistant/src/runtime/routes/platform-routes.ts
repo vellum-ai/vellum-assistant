@@ -25,6 +25,10 @@
  *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
+import {
+  type PlatformVerifyCredentialResponse,
+  PlatformVerifyCredentialResponseSchema,
+} from "@vellumai/service-contracts/platform-credential";
 import { z } from "zod";
 
 import { isPlatformRemote } from "../../config/env-registry.js";
@@ -88,18 +92,8 @@ const PlatformConnectResponseSchema = z.object({
    */
   credentialRejected: z.boolean().optional(),
 });
-type PlatformConnectResponse = z.infer<typeof PlatformConnectResponseSchema>;
-
-/**
- * Result of asking the platform, right now, whether the stored managed
- * credential authenticates. The route performs the check; nothing caches the
- * answer, so a caller that needs it fresh asks again.
- */
-const PlatformVerifyCredentialResponseSchema = z.object({
-  status: z.enum(["valid", "rejected", "unknown"]),
-});
-type PlatformVerifyCredentialResponse = z.infer<
-  typeof PlatformVerifyCredentialResponseSchema
+export type PlatformConnectResponse = z.infer<
+  typeof PlatformConnectResponseSchema
 >;
 
 const PlatformDisconnectResponseSchema = z.object({
