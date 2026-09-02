@@ -24760,8 +24760,8 @@ paths:
       operationId: platform_verifycredential_post
       summary: Verify the Vellum-managed credential against the platform
       description:
-        Asks the platform whether the stored assistant API key authenticates, and records the result. POST because
-        it performs the check rather than reading a cached one.
+        Asks the platform whether the stored assistant API key authenticates. POST because it performs a check; the
+        result is returned, not stored.
       tags:
         - platform
       responses:

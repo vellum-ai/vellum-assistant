@@ -289,7 +289,10 @@ export interface ReprovisionApiKeyResponse {
  * Reprovision (rotate) the API key for a self-hosted local assistant.
  *
  * Calls `POST /v1/assistants/self-hosted-local/reprovision-api-key/`.
- * Returns a fresh API key. The previous key is revoked server-side.
+ * Returns a fresh API key. The platform keeps the previous key valid for a
+ * grace period rather than revoking it on the spot, so a rotation whose
+ * replacement never gets stored leaves the assistant on a key that still
+ * works until that window closes.
  */
 export async function reprovisionAssistantApiKey(
   token: string,
@@ -400,9 +403,10 @@ export async function verifyGatewayManagedCredential(
  * Returns a result distinguishing "key not found" (`value: null,
  * unreachable: false`) from "gateway unreachable" (`value: null,
  * unreachable: true`). Callers should only reprovision when the gateway
- * is reachable but the key is genuinely missing — reprovisioning while
- * the gateway is down would revoke the old key server-side without being
- * able to inject the replacement.
+ * is reachable: the platform keeps the outgoing key valid for a grace
+ * period, so reprovisioning while the gateway is down does not break the
+ * assistant immediately, but it starts a clock on a key the caller cannot
+ * yet replace.
  *
  * Never throws.
  */
@@ -429,7 +433,7 @@ export async function readGatewayCredential(
 
     if (!response.ok) {
       // 5xx means the gateway/daemon backend is down — treat as unreachable
-      // so callers don't revoke a potentially valid key.
+      // so callers don't rotate away from a working key they cannot replace.
       return { value: null, unreachable: response.status >= 500 };
     }
 

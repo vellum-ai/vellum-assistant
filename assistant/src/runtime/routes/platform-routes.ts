@@ -289,7 +289,8 @@ async function handlePlatformConnect(
 
 /**
  * Check the stored managed credential against the platform and report what it
- * found, recording the verdict on the way through.
+ * found. Nothing is stored: each caller that needs the answer asks, so there is
+ * no verdict to go stale.
  *
  * Exists so a client that has just written a replacement can confirm it works
  * before telling the reader it does. Storing a credential proves only that the
@@ -802,7 +803,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Verify the Vellum-managed credential against the platform",
     description:
-      "Asks the platform whether the stored assistant API key authenticates, and records the result. POST because it performs the check rather than reading a cached one.",
+      "Asks the platform whether the stored assistant API key authenticates. POST because it performs a check; the result is returned, not stored.",
     tags: ["platform"],
     handler: handlePlatformVerifyCredential,
     responseBody: PlatformVerifyCredentialResponseSchema,

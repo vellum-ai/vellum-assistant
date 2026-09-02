@@ -42,7 +42,8 @@ export interface ResolvedAssistantApiKey {
  * A stored key the platform has rejected is skipped, because reinjecting it
  * repairs nothing while looking like a repair. Rotation is still withheld
  * when the gateway is merely unreachable: rotating without being able to
- * store the replacement would retire a key the assistant still needs.
+ * store the replacement would start the platform's grace clock on a key the
+ * assistant still needs, with nothing to hand it in exchange.
  */
 export async function resolveAssistantApiKeyForInjection(
   args: ResolveAssistantApiKeyArgs,

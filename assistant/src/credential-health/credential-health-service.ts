@@ -712,10 +712,11 @@ export async function checkAssistantApiKey(): Promise<CredentialHealthResult | n
     return {
       ...base,
       status: "revoked",
-      // Names the recovery the app actually performs. The replacement is
-      // provisioned by a signed-in client on open, so telling the reader to
-      // reconnect something would describe work they do not do, and would go
-      // stale the moment it succeeds.
+      // Names the recovery the app actually performs. A replacement is
+      // provisioned only when someone asks for one, from the repair action or
+      // by logging in from the command line, so the copy points at that
+      // action rather than at reconnecting something the reader never
+      // connected.
       details:
         "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused. Restoring takes a moment and will not affect anything else.",
       canAutoRecover: true,
