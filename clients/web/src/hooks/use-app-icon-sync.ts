@@ -70,8 +70,7 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   const isNativeAndroid = useIsNativeAndroid();
   const androidFlagEnabled =
     useClientFeatureFlagStore.use.androidAvatarAppIcon();
-  // The picker is unconditional on iOS shells. Android keeps its own flag, so
-  // its rollout opens on its own schedule.
+  // Android keeps its own flag, so its rollout opens on its own schedule.
   const gateOpen = isNativeIOS || (isNativeAndroid && androidFlagEnabled);
 
   const { state } = useAssistantAvatar(assistantId);

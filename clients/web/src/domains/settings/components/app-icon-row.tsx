@@ -7,8 +7,8 @@
  * an avatar switched to an uploaded image leaves the old icon in place until
  * someone resets it from the picker.
  *
- * Draws nothing at all outside the native mobile shells, with the running
- * shell's own flag off, or on a build that ships no alternate icons.
+ * Draws nothing at all outside the native mobile shells, on Android with
+ * `android-avatar-app-icon` off, or on a build that ships no alternate icons.
  */
 import { useState } from "react";
 
