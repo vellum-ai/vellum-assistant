@@ -1,0 +1,157 @@
+/**
+ * Unit tests for the daemon `contacts_prompt` route's binding target.
+ *
+ * The command, not the form, decides which contact a submitted address binds
+ * to. The target therefore rides both the broadcast (so the card can say where
+ * the channel is going) and the parked form's meta, which is what a client too
+ * old to echo it reads back through `contact_prompt_flags`.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+type Broadcast = Record<string, unknown>;
+
+let broadcasts: Broadcast[] = [];
+
+const broadcastMock = mock((message: Broadcast) => {
+  broadcasts.push(message);
+});
+
+const actualHub = await import("../../assistant-event-hub.js");
+mock.module("../../assistant-event-hub.js", () => ({
+  ...actualHub,
+  broadcastMessage: broadcastMock,
+}));
+
+const { CONTACT_PROMPT_ROUTES } = await import("../contact-prompt-routes.js");
+
+function routeFor(operationId: string) {
+  const route = CONTACT_PROMPT_ROUTES.find(
+    (r) => r.operationId === operationId,
+  );
+  if (!route) {
+    throw new Error(`route ${operationId} not registered`);
+  }
+  return route;
+}
+
+const addressPrompt = routeFor("contacts_prompt");
+const resolvePrompt = routeFor("resolve_contact_prompt");
+const promptFlags = routeFor("contact_prompt_flags");
+
+/** The broadcast for the only prompt parked so far. */
+function parkedRequest(): Broadcast {
+  const message = broadcasts.find((b) => b.type === "contact_request");
+  expect(message).toBeDefined();
+  return message!;
+}
+
+/** Settle the parked form so the test's pending call returns. */
+async function settle(pending: Promise<unknown>, requestId: string) {
+  resolvePrompt.handler({ body: { requestId, contactId: "ct_1" } });
+  await pending;
+}
+
+describe("contacts_prompt binding target", () => {
+  beforeEach(() => {
+    broadcasts = [];
+    broadcastMock.mockClear();
+  });
+
+  test("broadcasts the target contact and its name", async () => {
+    const pending = addressPrompt.handler({
+      body: {
+        channel: "email",
+        contactId: "ct_1",
+        contactDisplayName: "Alice",
+      },
+    }) as Promise<Record<string, unknown>>;
+
+    const message = parkedRequest();
+    expect(message.contactId).toBe("ct_1");
+    expect(message.contactDisplayName).toBe("Alice");
+    expect(message.displayName).toBeUndefined();
+    expect(message.notes).toBeUndefined();
+
+    await settle(pending, message.requestId as string);
+  });
+
+  test("broadcasts a proposed name and notes for a contact to create", async () => {
+    const pending = addressPrompt.handler({
+      body: { channel: "email", displayName: "Bob", notes: "Plumber" },
+    }) as Promise<Record<string, unknown>>;
+
+    const message = parkedRequest();
+    expect(message.displayName).toBe("Bob");
+    expect(message.notes).toBe("Plumber");
+    expect(message.contactId).toBeUndefined();
+
+    await settle(pending, message.requestId as string);
+  });
+
+  test("a plain prompt carries no target at all", async () => {
+    const pending = addressPrompt.handler({
+      body: { channel: "email" },
+    }) as Promise<Record<string, unknown>>;
+
+    const message = parkedRequest();
+    for (const key of [
+      "contactId",
+      "contactDisplayName",
+      "displayName",
+      "notes",
+    ]) {
+      expect(message[key]).toBeUndefined();
+    }
+
+    // And the gateway reads back only the verify flag, so an untargeted
+    // submission still resolves by address the way it always has.
+    expect(
+      promptFlags.handler({ body: { requestId: message.requestId } }),
+    ).toEqual({ verify: false });
+
+    await settle(pending, message.requestId as string);
+  });
+
+  test("the gateway reads the target back off the parked form", async () => {
+    const pending = addressPrompt.handler({
+      body: { channel: "email", contactId: "ct_1", verify: true },
+    }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequest().requestId as string;
+
+    // Read from the daemon rather than the submission, so a client that
+    // predates the field still binds where the command said.
+    expect(promptFlags.handler({ body: { requestId } })).toEqual({
+      verify: true,
+      contactId: "ct_1",
+    });
+
+    await settle(pending, requestId);
+  });
+
+  test("the proposed name and notes are parked too", async () => {
+    const pending = addressPrompt.handler({
+      body: { channel: "email", displayName: "Bob", notes: "Plumber" },
+    }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequest().requestId as string;
+
+    expect(promptFlags.handler({ body: { requestId } })).toEqual({
+      verify: false,
+      displayName: "Bob",
+      notes: "Plumber",
+    });
+
+    await settle(pending, requestId);
+  });
+
+  test("naming a contact and proposing a new one is refused, and opens no form", async () => {
+    const result = (await addressPrompt.handler({
+      body: { channel: "email", contactId: "ct_1", displayName: "Bob" },
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toContain("contactId");
+    expect(String(result.error)).toContain("displayName");
+    expect(broadcasts).toHaveLength(0);
+  });
+});
