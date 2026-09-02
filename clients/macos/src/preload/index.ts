@@ -70,6 +70,7 @@ import {
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
+  createWindowAttentionSubscriber,
 } from "@vellumai/electron-desktop/preload";
 
 export type {
@@ -396,6 +397,7 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
     },
+    onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
   },
   bundleConfirm: createBundleConfirmBridge(ipcRenderer),
   quickInput: {

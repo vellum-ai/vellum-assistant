@@ -14,11 +14,12 @@ import {
   type NotificationCreateOptions,
   type NotificationLike,
 } from "@vellumai/electron-desktop/notifications";
+import { installWindowAttention } from "@vellumai/electron-desktop/window-attention";
 import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import { handle } from "../ipc.client";
 import log from "../logger";
-import { ensureVisible } from "../main-window";
+import { current, ensureVisible } from "../main-window";
 
 /**
  * Linux notifications feature. Delivery prefers a native helper toast module
@@ -158,6 +159,10 @@ const notifications: CapabilityModule<DesktopCapabilityRegistry> = {
       ...(helperPath ? { create: createHelperToastFactory(helperPath) } : {}),
     });
     installNotifications();
+    const teardownWindowAttention = installWindowAttention({
+      currentMainWindow: current,
+    });
+    app.once("before-quit", teardownWindowAttention);
   },
 };
 

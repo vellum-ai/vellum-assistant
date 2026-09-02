@@ -12,8 +12,16 @@ type SaveDialogResult = { canceled: boolean; filePath?: string };
 let saveDialogResult: SaveDialogResult = { canceled: true };
 const saveDialogCalls: Array<{ options: { defaultPath?: string } }> = [];
 
+const quitListeners: Array<() => void> = [];
 mock.module("electron", () => ({
-  app: { getAppPath: () => "/nonexistent-app-path", once: () => undefined },
+  app: {
+    getAppPath: () => "/nonexistent-app-path",
+    once: (event: string, listener: () => void) => {
+      if (event === "before-quit") {
+        quitListeners.push(listener);
+      }
+    },
+  },
   dialog: {
     showSaveDialog: (_window: unknown, options: { defaultPath?: string }) => {
       saveDialogCalls.push({ options });
@@ -41,7 +49,9 @@ mock.module("./ipc.client", () => ({
 mock.module("./logger", () => ({
   default: { info: () => undefined, warn: () => undefined },
 }));
+const currentMainWindow = () => null;
 mock.module("./main-window", () => ({
+  current: currentMainWindow,
   ensureVisible: () => Promise.resolve(),
 }));
 // The shared module imports `electron.Notification`, which does not exist
@@ -49,6 +59,14 @@ mock.module("./main-window", () => ({
 mock.module("@vellumai/electron-desktop/notifications", () => ({
   configureNotifications: () => undefined,
   installNotifications: () => undefined,
+}));
+const windowAttentionDeps: Array<{ currentMainWindow: () => unknown }> = [];
+const teardownWindowAttention = mock(() => undefined);
+mock.module("@vellumai/electron-desktop/window-attention", () => ({
+  installWindowAttention: (deps: { currentMainWindow: () => unknown }) => {
+    windowAttentionDeps.push(deps);
+    return teardownWindowAttention;
+  },
 }));
 
 class FakeSidecarClient {
@@ -84,7 +102,8 @@ mock.module("@vellumai/native-sidecar/supervisor", () => ({
   NativeSidecarClient: FakeSidecarClient,
 }));
 
-const { createHelperToastFactory } = await import("./features/notifications");
+const { createHelperToastFactory, default: notificationsFeature } =
+  await import("./features/notifications");
 const { default: shareFeature, sanitizeFilename } =
   await import("./features/share");
 const { DesktopCapabilityRegistry } =
@@ -95,6 +114,23 @@ beforeEach(() => {
   saveDialogCalls.length = 0;
   saveDialogResult = { canceled: true };
   FakeSidecarClient.instances.length = 0;
+  quitListeners.length = 0;
+  windowAttentionDeps.length = 0;
+  teardownWindowAttention.mockClear();
+});
+
+describe("notifications feature", () => {
+  test("installs the window-attention publisher and tears it down on quit", () => {
+    notificationsFeature.install(new DesktopCapabilityRegistry());
+
+    expect(windowAttentionDeps).toHaveLength(1);
+    expect(windowAttentionDeps[0]!.currentMainWindow).toBe(currentMainWindow);
+    expect(teardownWindowAttention).not.toHaveBeenCalled();
+
+    expect(quitListeners).toHaveLength(1);
+    quitListeners[0]!();
+    expect(teardownWindowAttention).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("helper toast factory", () => {
