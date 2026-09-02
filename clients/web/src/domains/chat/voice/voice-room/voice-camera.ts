@@ -61,7 +61,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
@@ -72,6 +71,7 @@ import {
   stopNativeVoiceCamera,
 } from "@/runtime/native-voice-camera";
 import { useVoicePrefsStore, type FlashMode } from "@/stores/voice-prefs-store";
+import { decodeBase64Payload } from "@/utils/base64";
 
 /** Which way the camera points. `environment` is the rear/world-facing one. */
 export type VoiceCameraFacing = "environment" | "user";
@@ -748,10 +748,7 @@ export function useVoiceCamera(
       );
       if (encoded) {
         try {
-          const dataUri = encoded.startsWith("data:")
-            ? encoded
-            : `data:image/jpeg;base64,${encoded}`;
-          const bytes = dataUriToUint8Array(dataUri);
+          const bytes = decodeBase64Payload(encoded);
           if (bytes) {
             file = new File([bytes], filename, {
               type: "image/jpeg",

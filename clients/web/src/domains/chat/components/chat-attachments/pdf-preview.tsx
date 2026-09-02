@@ -16,7 +16,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import PDF_WORKER_URL from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
-import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
+import { decodeBase64Payload } from "@/utils/base64";
 import { PreviewTruncationNotice } from "@/domains/chat/components/local-file/preview/preview-truncation-notice";
 import { useTranslation } from "@/i18n";
 
@@ -109,7 +109,7 @@ export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
 
         let source: string | { data: Uint8Array };
         if (url.startsWith("data:")) {
-          const bytes = dataUriToUint8Array(url);
+          const bytes = decodeBase64Payload(url);
           source = bytes ? { data: bytes } : url;
         } else {
           source = url;

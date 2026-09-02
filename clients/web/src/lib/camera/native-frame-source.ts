@@ -39,6 +39,8 @@
  *   DOM event.
  */
 
+import { decodeBase64Payload } from "@/utils/base64";
+
 import type { FrameGate, FrameGateDecision } from "./frame-gate";
 import { createFrameGridProducer, type FrameSource } from "./frame-sampler";
 
@@ -109,27 +111,6 @@ async function decodeWithImageBitmap(blob: Blob): Promise<DecodedFrame | null> {
 }
 
 /**
- * Wrap the bridge's base64 in a Blob.
- *
- * The bridge answers with bare base64, but tolerating a data URI costs one
- * branch and covers a plugin that decides to send one.
- */
-function jpegBlobFromBase64(encoded: string): Blob | null {
-  const base64 = encoded.startsWith("data:")
-    ? (encoded.match(/;base64,(.*)$/)?.[1] ?? "")
-    : encoded;
-  if (!base64) {
-    return null;
-  }
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return new Blob([bytes], { type: "image/jpeg" });
-}
-
-/**
  * Create a native frame source.
  *
  * Nothing is polled until {@link NativeFrameSource.start}, so a source can be
@@ -185,10 +166,13 @@ export function createNativeFrameSource(
       if (!encoded || generation !== run) {
         return;
       }
-      const blob = jpegBlobFromBase64(encoded);
-      if (!blob) {
+      // The bridge answers with bare base64, and the shared decoder also takes
+      // the data URI a plugin might send instead.
+      const bytes = decodeBase64Payload(encoded);
+      if (!bytes) {
         return;
       }
+      const blob = new Blob([bytes], { type: "image/jpeg" });
       const frame = await decode(blob);
       if (!frame) {
         return;
