@@ -917,6 +917,122 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  /**
+   * A Space key held long enough to repeat.
+   *
+   * The activation is suspended per keydown, not per press, so a repeat let
+   * through re-arms the very activation the first keydown was taken to
+   * withhold. What the browser does with that re-armed activation on release
+   * (fire a click) is not something happy-dom performs, so these pin the
+   * prevention itself, which is the whole of the mechanism.
+   */
+  describe("a held Space that repeats", () => {
+    /** Whether the button took the default: a cancelled event dispatches false. */
+    function pressSpaceAgain(): boolean {
+      return fireEvent.keyDown(shutter(), { key: " ", repeat: true });
+    }
+
+    test("keeps every repeat of the press it suspended, offer or no offer", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        const onClick = () => {
+          taps += 1;
+        };
+        const { rerender } = render(
+          <CameraShutter
+            onClick={onClick}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        fireEvent.keyDown(shutter(), { key: " " });
+        // Still down, still under the threshold: the press is this button's
+        // and its activation stays suspended.
+        expect(pressSpaceAgain()).toBe(false);
+
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+        // The hold entered Live, so the room has no second hold to offer and
+        // takes it back with the mode. The key is still down, and the repeats
+        // still belong to the press that was suspended.
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            ariaLabel="Stop live"
+            testId="s"
+            mode="live"
+          />,
+        );
+        expect(pressSpaceAgain()).toBe(false);
+        expect(pressSpaceAgain()).toBe(false);
+
+        // Nothing the browser could fire on this release was left armed, so
+        // the release of the hold does not stop the Live the hold started.
+        fireEvent.keyUp(shutter(), { key: " " });
+        expect(taps).toBe(0);
+      });
+    });
+
+    test("takes nothing from a press it did not suspend", () => {
+      withFakeTimers(() => {
+        render(
+          <CameraShutter onClick={noop} ariaLabel="Take photo" testId="s" />,
+        );
+
+        // No hold on offer, so nothing is armed and the native Space
+        // activation is the shutter's only way to take a photo from a
+        // keyboard. Preventing either of these would lose it.
+        expect(fireEvent.keyDown(shutter(), { key: " " })).toBe(true);
+        expect(pressSpaceAgain()).toBe(true);
+      });
+    });
+
+    test("leaves the press after it free to stop Live", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        const onClick = () => {
+          taps += 1;
+        };
+        const { rerender } = render(
+          <CameraShutter
+            onClick={onClick}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        fireEvent.keyDown(shutter(), { key: " " });
+        advanceBy(HOLD_MS);
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            ariaLabel="Stop live"
+            testId="s"
+            mode="live"
+          />,
+        );
+        expect(pressSpaceAgain()).toBe(false);
+        fireEvent.keyUp(shutter(), { key: " " });
+        expect(taps).toBe(0);
+
+        // A deliberate tap afterwards is a press of its own, and Live has no
+        // hold to offer, so it keeps its activation and stops the stream. The
+        // click stands in for the one the browser fires from it, which
+        // happy-dom does not perform.
+        expect(fireEvent.keyDown(shutter(), { key: " " })).toBe(true);
+        fireEvent.keyUp(shutter(), { key: " " });
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+  });
+
   test("a bare activation after a keyboard hold is not eaten by it", () => {
     withFakeTimers((advanceBy) => {
       let taps = 0;

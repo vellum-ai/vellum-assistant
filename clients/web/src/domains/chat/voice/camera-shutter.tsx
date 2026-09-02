@@ -217,6 +217,18 @@ export function CameraShutter({
    * component's own, which a wrapping `Tooltip` already owns.
    */
   const handledEndRef = useRef<Event | null>(null);
+  /**
+   * A Space press whose native activation this button has taken the default
+   * of, and which has not ended yet.
+   *
+   * The suspension is per keydown, not per press: a key held past the auto
+   * repeat delay sends more of them, and one allowed through re-arms the
+   * activation the first was taken to withhold. So every repeat of this press
+   * has to be taken too, whatever the caller is offering by the time it
+   * arrives, since a hold that enters Live withdraws the offer while the key
+   * is still down.
+   */
+  const spacePressRef = useRef(false);
 
   /**
    * Nothing of the last press is left to answer for.
@@ -229,6 +241,7 @@ export function CameraShutter({
     heldRef.current = false;
     abandonedRef.current = false;
     pressPointerIdRef.current = null;
+    spacePressRef.current = false;
   }, []);
 
   /**
@@ -344,9 +357,6 @@ export function CameraShutter({
    */
   useEffect(() => {
     const settleIfElsewhere = (event: Event) => {
-      if (!heldRef.current && !abandonedRef.current) {
-        return;
-      }
       if (event === handledEndRef.current) {
         return;
       }
@@ -354,6 +364,9 @@ export function CameraShutter({
         if (event.key !== " ") {
           return;
         }
+        // The Space press ended at whatever took focus. No repeat of it can
+        // reach this button either, so its suspension ends with it.
+        spacePressRef.current = false;
       } else if (
         pressPointerIdRef.current === null ||
         // The DOM's, qualified because this module's `PointerEvent` is the
@@ -361,6 +374,9 @@ export function CameraShutter({
         (event as globalThis.PointerEvent).pointerId !==
           pressPointerIdRef.current
       ) {
+        return;
+      }
+      if (!heldRef.current && !abandonedRef.current) {
         return;
       }
       settlePress();
@@ -435,6 +451,15 @@ export function CameraShutter({
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     onKeyDown?.(event);
     if (event.repeat) {
+      // Held past the auto repeat delay. The press is already underway, so
+      // there is nothing to begin, but its suspension has to be renewed: an
+      // unprevented repeat re-arms the activation the first keydown withheld,
+      // and the release then fires a click for a press that was a hold. Only
+      // for a press this button actually suspended, so a shutter with no hold
+      // on offer keeps the native Space activation its photos are taken by.
+      if (event.key === " " && spacePressRef.current) {
+        event.preventDefault();
+      }
       return;
     }
     beginPress();
@@ -451,6 +476,7 @@ export function CameraShutter({
     // so the release can decide whether this press was a tap. A press that
     // turns out to be one re-dispatches the click below.
     event.preventDefault();
+    spacePressRef.current = true;
     armHold();
   };
 
@@ -463,6 +489,8 @@ export function CameraShutter({
     // the handling below rather than reading it as an end that landed
     // elsewhere.
     handledEndRef.current = event.nativeEvent;
+    // The press is over, so no repeat of it can arrive to be suspended.
+    spacePressRef.current = false;
     // The press this key began is over, whatever is on offer by the time it
     // ends. A fired hold raises a suppression for a click only a pointer
     // release produces, so left up it waits for one that never comes and is
