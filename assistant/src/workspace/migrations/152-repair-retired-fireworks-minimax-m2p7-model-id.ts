@@ -8,21 +8,19 @@ import type { WorkspaceMigration } from "./types.js";
  * Repair the retired Fireworks MiniMax M2.7 model ID in workspace LLM
  * config.
  *
- * Fireworks withdrew the serverless deployment of
- * `accounts/fireworks/models/minimax-m2p7` (2026-08): the model page still
- * claims serverless support, but chat/completions calls fail with a 404
- * "Model not found, inaccessible, and/or not deployed". Existing configs
- * can pin the ID in `llm.default`, `llm.callSites.*`, and `llm.profiles.*`,
- * both from picking it directly and from migration 137, which wrote it
- * over retired `minimax-m2p5` pins.
+ * Fireworks has no serverless deployment of
+ * `accounts/fireworks/models/minimax-m2p7`: the model page claims
+ * serverless support, but chat/completions calls fail with a 404 "Model
+ * not found, inaccessible, and/or not deployed". Existing configs can pin
+ * the ID in `llm.default`, `llm.callSites.*`, and `llm.profiles.*`.
  *
  * Repair those leaves only on an exact stale match, replacing with
  * `accounts/fireworks/models/minimax-m3`: the only MiniMax model Fireworks
- * still serves serverless, at the same per-token pricing. Because m3 is
- * also the balanced-intent template's model, a repaired hand-edited
- * `custom-*` profile can read as unedited to `ensureByokDefaultProfiles`
- * and collapse into the balanced default. That is acceptable: the
- * collapsed copy routes to the same model this migration writes.
+ * serves serverless, at the same per-token pricing. Because m3 is also the
+ * balanced-intent template's model, a repaired hand-edited `custom-*`
+ * profile can read as unedited to `ensureByokDefaultProfiles` and collapse
+ * into the balanced default. That is acceptable: the collapsed copy routes
+ * to the same model this migration writes.
  *
  * Provider guard: the stale ID belongs to the `fireworks` provider and also
  * appears in managed profiles stamped `provider: "vellum"` (which route

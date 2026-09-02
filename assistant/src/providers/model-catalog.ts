@@ -1007,10 +1007,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       // MiniMax M2.7 (accounts/fireworks/models/minimax-m2p7) is
-      // intentionally absent: Fireworks withdrew its serverless deployment
-      // 2026-08 (the model page still claims serverless support, but the
-      // serving API 404s it). Workspace migration 152 repairs stale pins
-      // to minimax-m3.
+      // intentionally absent: Fireworks has no serverless deployment for
+      // it (the model page claims serverless support, but the serving API
+      // returns 404).
       {
         id: "accounts/fireworks/models/deepseek-v4-pro-0813",
         displayName: "DeepSeek V4 Pro",
