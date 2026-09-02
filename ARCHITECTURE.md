@@ -790,6 +790,12 @@ graph LR
     WAKE -->|"assistant report only"| CONV
 ```
 
+## Pod Desktop Stream
+
+A containerized assistant can serve an interactive desktop on demand: one `Xtigervnc` X server (display `:99`, built-in VNC server on `localhost:5999`, `-localhost -SecurityTypes None`), `openbox`, the `vncconfig -nowin` clipboard bridge, and Playwright's Chromium with its own profile under `$VELLUM_WORKSPACE_DIR/data/desktop-profile`. `DesktopSessionManager` (`assistant/src/desktop/desktop-session-manager.ts`) owns the tree: the first viewer starts it, one viewer holds the slot at a time, the tree lingers five minutes after the last viewer leaves so a reconnect is instant, and it is torn down on that expiry, when the X server or window manager exits, or by `RuntimeHttpServer.stop()`. A browser exit is normal use and only costs the next viewer a fresh window. Gated by the `pod-desktop` flag and `IS_CONTAINERIZED` (`desktop-feature.ts`), so a daemon without the X binaries never advertises it.
+
+**Transport.** `/v1/desktop/stream` is a pure RFB byte pipe: after the upgrade, every frame in both directions is binary and `DesktopStreamBridge` (`desktop-stream-bridge.ts`) pumps it to and from the VNC port, buffering client bytes that arrive before that socket is up. Nothing is signaled in-band; outcomes are close codes: `1008` desktop disabled, `1013` another viewer holds the slot, `1011` the desktop failed to start or died under the viewer, `1001` runtime shutting down. The daemon upgrade is gated exactly as `/v1/watch/stream` (private-network peer and origin, gateway service token), and a disabled feature is reported with `1008` after the upgrade rather than a pre-upgrade 404 because the gateway relays close codes, not HTTP statuses, to the browser. VNC needs no password: only same-pod processes can reach the loopback port, and the authenticated upgrade is the only bridge to it.
+
 ## Maintenance Rule
 
 When architecture changes, update the relevant domain architecture document(s) above and keep this index aligned.
