@@ -232,10 +232,12 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       source: "auto-analysis",
       content: "derivedtoken should not include auto-analysis output.",
     });
+    // A notification-source conversation holds posts the daemon delivered
+    // to a chat; those are evidence, so the source is not excluded.
     const notification = await seedConversation({
       title: "Notification conversation",
       source: "notification",
-      content: "derivedtoken should not include notification output.",
+      content: "derivedtoken appears in a delivered notification.",
     });
     const current = await seedConversation({
       title: "Current conversation",
@@ -268,9 +270,14 @@ describe("searchConversationSource (qdrant lexical index)", () => {
       10,
     );
 
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
+    const locators = result.evidence.map((item) => item.locator);
+    expect(locators).toHaveLength(2);
+    expect(locators).toEqual(
+      expect.arrayContaining([
+        `${visible.conversation.id}#${visible.message.id}`,
+        `${notification.conversation.id}#${notification.message.id}`,
+      ]),
+    );
   });
 
   test("includes archived, scheduled, and background conversations", async () => {

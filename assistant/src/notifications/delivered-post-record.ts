@@ -16,6 +16,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import {
@@ -62,6 +63,9 @@ export async function recordDeliveredChannelPost(
     },
   });
   await makeSentMessageIdReconciler(row.id)(post.providerMessageId);
+  // A resident conversation reloads its history on the next turn so the
+  // post is in context; the client refetches the transcript.
+  findConversation(post.conversationId)?.markHistoryStale();
   publishConversationMessagesChanged(post.conversationId);
   return { messageId: row.id };
 }

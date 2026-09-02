@@ -8,6 +8,7 @@
  * carry that metadata, only body/title.
  */
 
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type FeedItem,
   type FeedItemStatus,
@@ -15,6 +16,7 @@ import {
 } from "../home/feed-types.js";
 import { patchFeedItemContent } from "../home/feed-writer.js";
 import { updateMessageContent } from "../persistence/conversation-crud.js";
+import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { findLatestDecisionByEventId } from "./decisions-store.js";
@@ -216,10 +218,14 @@ async function updateChannelDeliveries(
         rewrittenMessageIds.add(result.messageId);
       }
       // The channel has the new body; the row that records this delivery
-      // follows it, so the two cannot disagree.
+      // follows it, so the two cannot disagree. The row is re-indexed so
+      // search finds the new body, and a resident conversation reloads it
+      // on its next turn.
       if (patch.body !== undefined && delivery.canonicalMessageId) {
         updateMessageContent(delivery.canonicalMessageId, patch.body);
+        enqueueLexicalIndexForMessage(delivery.canonicalMessageId);
         if (delivery.conversationId) {
+          findConversation(delivery.conversationId)?.markHistoryStale();
           publishConversationMessagesChanged(delivery.conversationId);
         }
       }
