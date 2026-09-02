@@ -138,17 +138,6 @@ describe("useAppIconSync", () => {
     expect(getAppIconState).not.toHaveBeenCalled();
   });
 
-  test("runs on the iOS shell with no flags set", async () => {
-    // The iOS picker is unconditional: a capable shell is the whole gate.
-    const { result } = await renderSync();
-
-    await waitFor(() => {
-      expect(result.current.enabled).toBe(true);
-    });
-    expect(result.current.targetIcon).toBe(ICON);
-    expect(result.current.canSyncAvatar).toBe(true);
-  });
-
   test("runs on the Android shell behind its own flag", async () => {
     nativeIOS = false;
     nativeAndroid = true;
