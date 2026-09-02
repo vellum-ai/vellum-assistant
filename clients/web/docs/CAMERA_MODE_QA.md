@@ -155,9 +155,9 @@ which is the thing to watch for battery and heat below.
 
 ## Small screens and rotation
 
-Both shells. The camera's floor had never been drawn at phone width with Live
-running, because Live only reached the phones with the native frame source, so
-until then the kept-frame thumbnail could appear on a desktop only.
+Both shells. Live reaches a phone through the native frame source, so the kept
+frame and the photo strip share a floor at widths no desktop imposes on them,
+and every check here is about what that floor does as it runs out of room.
 
 Handsets, not simulators: the iOS Simulator provides no camera feed, so it
 answers nothing here.
@@ -178,12 +178,12 @@ answers nothing here.
       and legible over a bright frame, and that the scrim does not reach the
       status pill at the top.
 - [ ] Rotating with Live running. Enter Live, rotate the device, rotate back.
-      Android recreates the camera fragment on rotation and this has never been
-      run with sampling active, so watch for all of: the pill stays Live or
-      drops cleanly back to photo (never Live over a dead poll), the tuning
-      readout's decision rate is unchanged rather than doubled, no keep from
-      before the rotation lands in the transcript after one from after it, and
-      the viewfinder is live video rather than a frozen frame.
+      Android recreates the camera fragment on rotation, and no automated test
+      covers a rotation with sampling active, so watch for all of: the pill
+      stays Live or drops cleanly back to photo (never Live over a dead poll),
+      the tuning readout's decision rate is unchanged rather than doubled, no
+      keep from before the rotation lands in the transcript after one from
+      after it, and the viewfinder is live video rather than a frozen frame.
 
 ## Android
 
@@ -204,12 +204,13 @@ answers nothing here.
       the "Live on iPhone" section here too: the hold enters Live, keeps pulse
       and land in the transcript, and a device that keeps nothing shows the
       slow-bridge signature rather than hanging.
-- [ ] Haptics reach Android at all. The shell has always linked the plugin and
-      the app never asked it for these two effects, so this is the first build
-      where either fires here. Hold the shutter: a light tap at half a second,
-      then one per keep, the same as iPhone. Check the rest of the app kept its
-      manners with them: a long-press on a conversation row, a pull to refresh,
-      and a send all tap once, none of them twice.
+- [ ] Haptics on Android. The light impact is the only effect this shell fires,
+      so it is the whole surface to check. Hold the shutter: a tap at half a
+      second, then one per keep, the same as iPhone. Then the gesture that has
+      an effect at each end: pull the transcript to refresh and feel exactly one
+      tap, as it crosses the threshold. Its completion is a heavier impact or a
+      notification, neither of which Android fires, so a second tap there is the
+      regression to watch for.
 - [ ] TalkBack says it once. Same check as VoiceOver above.
 
 ## Desktop web and macOS

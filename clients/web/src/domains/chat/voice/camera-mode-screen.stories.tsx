@@ -418,17 +418,19 @@ export const LongAssistantName: Story = {
 };
 
 /**
- * The floor with everything on it at once, at the narrowest width the app runs
- * at: three photo receipts, Live's kept frame beside them, and the shutter in
+ * The floor at its fullest, at the narrowest width the app runs at: the photo
+ * strip at its three-tile cap, Live's kept frame beside it, and the shutter in
  * Live below.
  *
  * The read to check is the capture row's right edge against the shutter's
  * column. Four 44px tiles and the 8px between them is 200px of content behind a
- * 24px offset, so at 320px the row ends well short of the right edge and sits
- * on a line of its own above the shutter, rather than wrapping, scrolling, or
- * running under the flip control. This is the combination that had never been
- * drawn at phone width: Live only reached the phones with the native frame
- * source, so before that the kept frame could only ever appear on a desktop.
+ * 24px offset, so at 320px the row ends well short of the right edge and holds
+ * a line of its own above the shutter, rather than wrapping, scrolling, or
+ * running under the flip control.
+ *
+ * This composition belongs to a phone and reaches one only through the native
+ * frame source, so this story is where its geometry is answerable: a desktop
+ * width has slack enough to hide whether the row fits.
  */
 export const NarrowPhoneCaptureRow: Story = {
   args: { mode: "live", photos: 3, keptFrame: true },

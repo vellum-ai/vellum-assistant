@@ -83,27 +83,29 @@ describe("haptic on iOS", () => {
 });
 
 describe("haptic on Android", () => {
-  test("fires both impacts", async () => {
+  test("fires the light impact", async () => {
     nativePlatform = "android";
 
     await haptic.light();
-    await haptic.medium();
     await haptic.refreshThreshold();
 
-    expect(impactMock).toHaveBeenCalledTimes(3);
+    expect(impactMock).toHaveBeenCalledTimes(2);
     expect(impactMock.mock.calls.map(([options]) => options.style)).toEqual([
       "LIGHT",
-      "MEDIUM",
       "LIGHT",
     ]);
   });
 
-  test("fires neither notification", async () => {
+  test("fires nothing that reports the end of a gesture", async () => {
+    // The pull to refresh crosses its threshold on `light` and finishes on one
+    // of these three. Widening any of them makes that one gesture buzz twice.
     nativePlatform = "android";
 
+    await haptic.medium();
     await haptic.success();
     await haptic.error();
 
+    expect(impactMock).not.toHaveBeenCalled();
     expect(notificationMock).not.toHaveBeenCalled();
   });
 });

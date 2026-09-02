@@ -23,15 +23,23 @@ const lightImpact = (enabled: boolean): Promise<void> =>
 const light = (): Promise<void> => lightImpact(isNativeMobile());
 
 /**
- * Thin haptic-feedback wrapper. The impacts run on both native mobile shells,
- * the notifications only on native iOS. The pull-to-refresh threshold is the
- * light impact under the name its call site reads by. The lazy imports keep the
- * plugin out of plain browser contexts.
+ * Thin haptic-feedback wrapper. The lazy imports keep the plugin out of plain
+ * browser contexts.
+ *
+ * The light impact runs on both native mobile shells. Everything else runs on
+ * native iOS only, and the split is deliberate rather than an omission: a
+ * gesture is usually reported by a light impact on the way in and a heavier one
+ * on the way out (the pull to refresh crosses its threshold on `light` and
+ * finishes on `medium` or a notification), so widening the second half would
+ * make one gesture buzz an Android device twice.
+ *
+ * The pull-to-refresh threshold is the light impact under the name its call
+ * site reads by.
  */
 export const haptic = {
   light,
   medium: () =>
-    runWhen(isNativeMobile(), async () => {
+    runWhen(isNativeIOS(), async () => {
       const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
       await Haptics.impact({ style: ImpactStyle.Medium });
     }),
