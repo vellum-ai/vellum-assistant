@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
+import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import {
   CompanionIntro,
   introPhase,
@@ -19,6 +20,7 @@ import {
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   getCompanionState,
+  listCompanionCaptureSources,
   moveCompanionBy,
   setCompanionInteractive,
   showCompanionContextMenu,
@@ -29,6 +31,8 @@ import {
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionCardGrowth,
   CompanionCharacter,
   CompanionGrowth,
@@ -107,6 +111,17 @@ export function CompanionSurfacePage() {
   );
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
+  // Whether a session started from the app's window can be told what to
+  // read, which is that window's answer about its assistant's version. It
+  // decides whether Teach asks first or starts at once.
+  const [watchTargets, setWatchTargets] = useState(false);
+  // The picker Teach opened, or null while none is open. This window's own,
+  // unlike everything above it: the choice is made here and leaves here as a
+  // pick, so a reload mid-choice costs only the card.
+  const [picking, setPicking] = useState(false);
+  // What the host listed for it, or null while the host is still being asked.
+  const [captureSources, setCaptureSources] =
+    useState<CompanionCaptureSources | null>(null);
   const [hovered, setHovered] = useState(false);
   // Which beat of the one-time introduction is on screen, or null when none is.
   // Main's, like the session: this window can reload mid-run, and a beat held
@@ -124,6 +139,9 @@ export function CompanionSurfacePage() {
   // two controls in the run, and a click-through window would drop presses on
   // them onto whatever is behind it.
   const introRef = useRef<HTMLDivElement | null>(null);
+  // The picker's card, hit-tested for the reason the introduction's is: every
+  // row on it is a press.
+  const pickerRef = useRef<HTMLDivElement | null>(null);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -168,6 +186,10 @@ export function CompanionSurfacePage() {
       // control this decides starts reading the user's screen, so a state of
       // not knowing has to read as not offering it.
       setWatchEnabled(state.watchEnabled === true);
+      // Off unless positively on, for the reason the flag is: a pick taken
+      // from the user is a promise about what will be read, and a window that
+      // has not said its assistant can keep it is one that cannot.
+      setWatchTargets(state.watchTargets === true);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -189,6 +211,56 @@ export function CompanionSurfacePage() {
       setCompanionInteractive(false);
     };
   }, []);
+
+  /**
+   * The picker closes on its own when the choice stops being askable.
+   *
+   * A session starting is the pick answered, whichever window answered it. A
+   * call ending takes the row Teach sits on with it, and a card left over a
+   * bar that is gone would be asking a question nobody can act on.
+   */
+  const inCall = call !== null || dialing;
+  useEffect(() => {
+    if (watching || !inCall) {
+      setPicking(false);
+    }
+  }, [watching, inCall]);
+
+  /**
+   * Teach, with no session running.
+   *
+   * Where the app's window can aim a session, the press opens the picker and
+   * the pick starts the session; a second press closes it unanswered. Where it
+   * cannot, or where the shell has no list to offer, the press starts the
+   * whole-screen session it always started, so Teach never does nothing.
+   */
+  const onTeach = () => {
+    if (!watchTargets) {
+      toggleCompanionWatch();
+      return;
+    }
+    if (picking) {
+      setPicking(false);
+      return;
+    }
+    setCaptureSources(null);
+    setPicking(true);
+    void listCompanionCaptureSources().then((listed) => {
+      if (listed !== null) {
+        setCaptureSources(listed);
+        return;
+      }
+      // A shell that predates the picker. The question cannot be asked, so
+      // it is not left on screen; the session starts the old way instead.
+      setPicking(false);
+      toggleCompanionWatch();
+    });
+  };
+
+  const onPick = (pick: CompanionCapturePick) => {
+    setPicking(false);
+    toggleCompanionWatch(pick);
+  };
 
   const setInteractive = (next: boolean) => {
     if (interactiveRef.current === next) {
@@ -353,12 +425,21 @@ export function CompanionSurfacePage() {
         event.clientX,
         event.clientY,
       );
+    // The picker's card, for the same reason and for as long as it is drawn.
+    const pickerCard = pickerRef.current;
+    const onPicker =
+      pickerCard !== null &&
+      containsPoint(
+        pickerCard.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // Hover is the creature noticing a hand on *it*, so the card does not feed
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
     setHovered(onSurface);
-    setInteractive(onSurface || onIntro);
+    setInteractive(onSurface || onIntro || onPicker);
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
@@ -544,7 +625,29 @@ export function CompanionSurfacePage() {
         // One press for both edges, and it leaves this window the way Talk
         // does: the session lives in the renderer holding the chat layout,
         // and this page only asks for it. What comes back is `watching`.
-        onWatch={toggleCompanionWatch}
+        // Wrapped so the click's event never rides along as a pick.
+        onWatch={() => {
+          toggleCompanionWatch();
+        }}
+        // The way in, when there is a choice to make first. The stop stays on
+        // `onWatch`; this is only ever the press with no session running.
+        onTeach={onTeach}
+        picking={picking}
+        // Beside the bar while the choice is open, on the canvas main
+        // reserves for a card. The pick leaves this window the way every
+        // press does; the frame that answers it is main's.
+        picker={
+          picking ? (
+            <CompanionCapturePicker
+              sources={captureSources}
+              cardGrowth={cardGrowth}
+              avatarBox={avatarBox}
+              optionsBox={optionsBox}
+              cardRef={pickerRef}
+              onPick={onPick}
+            />
+          ) : null
+        }
         // Out through main and back down into whichever renderer holds the
         // session. This page has no session to act on: it draws one.
         onControl={(action, requestId) => {

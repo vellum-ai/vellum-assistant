@@ -4,10 +4,12 @@ import {
   screen,
   type Display,
   type MenuItemConstructorOptions,
+  type Rectangle,
 } from "electron";
 import { z } from "zod";
 
 import {
+  companionCapturePickSchema,
   companionContextSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
@@ -61,7 +63,13 @@ import {
   createFloatingWindow,
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
+import {
+  listCaptureSources,
+  resolveCapturePick,
+  windowBoundsFor,
+} from "./companion-capture-sources";
 import { handle, on } from "./ipc";
+import log from "./logger";
 import {
   current as currentMainWindow,
   dispatchToMain,
@@ -383,18 +391,30 @@ export const callSurfaceFor = (
 ): boolean => current !== null || dial;
 
 /**
- * The edge glow drawn around the display while a watch session reads it.
+ * The frame drawn around what a watch session reads: a display, or the one
+ * window the user picked.
  *
  * The session's, not the call's: a call is a microphone, and the creature's
- * ring already says one is running, where a screen being read is a fact about
- * the whole screen and is framed like one. Its own window rather than a
- * bigger canvas: the canvas is sized once for the pill's reach and the glow
- * wants the whole display, and a click-through sheet the size of a display
- * with the pill's hit-testing inside it would put the forwarded mouse-move on
- * every pixel of the screen.
+ * ring already says one is running, where a surface being read is a fact
+ * about that surface and is framed like one. Its own window rather than a
+ * bigger canvas: the canvas is sized once for the pill's reach and the frame
+ * wants the whole of whatever is read, and a click-through sheet the size of
+ * a display with the pill's hit-testing inside it would put the forwarded
+ * mouse-move on every pixel of the screen.
  */
-const WATCH_GLOW_KIND = "companion-watch-glow";
-const WATCH_GLOW_ROUTE = "/floating/companion-watch-glow";
+const WATCH_FRAME_KIND = "companion-watch-frame";
+const WATCH_FRAME_ROUTE = "/floating/companion-watch-frame";
+
+/**
+ * How often the frame asks where a picked window is.
+ *
+ * A window the user is dragging moves every frame, and nothing tells this
+ * process when another app's window moves, so the frame polls the helper's
+ * window list and follows. Four times a second is a frame that keeps up with
+ * a deliberate drag without the helper answering a list call for every
+ * mouse-move.
+ */
+const FRAME_FOLLOW_MS = 250;
 
 /**
  * Where the avatar sat before the call took the surface to the bottom of the
@@ -457,6 +477,13 @@ const currentState = (): CompanionSurfaceState => {
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
     captureCount: context.captureCount ?? 0,
+    // Passed through as it arrived, for the reason `watchRetro` is: every
+    // shape it can hold names something being read, and absence is the whole
+    // screen.
+    captureTarget: context.captureTarget,
+    // Settled to a boolean the way `watching` is, since a picker offered on
+    // an unknown answer is a promise nothing downstream can keep.
+    watchTargets: context.watchTargets === true,
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -647,7 +674,7 @@ const pushState = (): void => {
   // The glow reads the same state the surface does, for the same reason the
   // surface holds none of it: one push, two windows, no second idea of which
   // call is running or what colour it is.
-  for (const kind of [COMPANION_KIND, WATCH_GLOW_KIND]) {
+  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND]) {
     const win = getFloatingWindow(kind);
     if (win) {
       win.webContents.send("vellum:companion:state", state);
@@ -713,10 +740,15 @@ const refreshGrowth = (): void => {
     y: Math.round(centre.y),
   });
   const { workArea } = display;
-  // The light follows the surface from display to display. Before the early
-  // return below, since a drag across displays need not change either growth.
-  if (getFloatingWindow(WATCH_GLOW_KIND) !== null) {
-    placeWatchGlow(display);
+  // A frame around the whole screen follows the surface from display to
+  // display; one around a picked display or window stays on it. Before the
+  // early return below, since a drag across displays need not change either
+  // growth.
+  if (
+    getFloatingWindow(WATCH_FRAME_KIND) !== null &&
+    context.captureTarget === undefined
+  ) {
+    placeWatchFrame(display.bounds);
   }
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
@@ -766,19 +798,19 @@ const displayUnder = (point: { x: number; y: number }): Display =>
   });
 
 /**
- * Light the edge of a display, or move the light to it.
+ * Frame a rectangle of the desktop, or move the frame to it.
  *
- * The whole display rather than its work area, the way a shared screen is
- * framed: the menu bar draws over the top edge, and a frame that stopped
- * short of it would read as a window's border rather than the screen's.
+ * For a display, its whole bounds rather than its work area, the way a shared
+ * screen is framed: the menu bar draws over the top edge, and a frame that
+ * stopped short of it would read as a window's border rather than the
+ * screen's. For a window, the window's own bounds, so the frame is its edge.
  *
  * One step below the surface at the same level, so the pill is always drawn
- * over the light and never under it. Click-through with nothing forwarded:
- * there is nothing on it to point at.
+ * over the frame and never under it, and above the window it frames. Click-
+ * through with nothing forwarded: there is nothing on it to point at.
  */
-const placeWatchGlow = (display: Display): void => {
-  const { bounds } = display;
-  const existing = getFloatingWindow(WATCH_GLOW_KIND);
+const placeWatchFrame = (bounds: Rectangle): void => {
+  const existing = getFloatingWindow(WATCH_FRAME_KIND);
   if (existing !== null) {
     const current = existing.getBounds();
     if (
@@ -789,11 +821,14 @@ const placeWatchGlow = (display: Display): void => {
     ) {
       existing.setBounds(bounds);
     }
+    if (!existing.isVisible()) {
+      existing.showInactive();
+    }
     return;
   }
   const win = createFloatingWindow({
-    kind: WATCH_GLOW_KIND,
-    route: WATCH_GLOW_ROUTE,
+    kind: WATCH_FRAME_KIND,
+    route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
     ignoreMouseEvents: true,
@@ -810,30 +845,113 @@ const placeWatchGlow = (display: Display): void => {
   win.setAlwaysOnTop(true, "floating", -1);
 };
 
-const closeWatchGlow = (): void => {
-  getFloatingWindow(WATCH_GLOW_KIND)?.close();
+const closeWatchFrame = (): void => {
+  getFloatingWindow(WATCH_FRAME_KIND)?.close();
 };
 
 /**
- * Light the display being read, or put the light out, to match what the
- * app's window last said about the session.
- *
- * Idempotent, and run after every change to the context. The display is the
- * one under the avatar, which is where the user's eye already is for this
- * surface's state, or under the cursor when the surface is hidden: the light
- * is the session's rather than the surface's, since a hidden pill is not a
- * screen that has stopped being read.
+ * The poll keeping the frame on a picked window, or `null` when the frame is
+ * on a display, which does not move.
  */
-const syncWatchGlow = (): void => {
+let frameFollow: ReturnType<typeof setInterval> | null = null;
+
+const stopFollowingWindow = (): void => {
+  if (frameFollow !== null) {
+    clearInterval(frameFollow);
+    frameFollow = null;
+  }
+};
+
+/**
+ * Keep the frame on `windowId` for as long as the session reads it.
+ *
+ * Asked once now and then on a timer, since nothing tells this process when
+ * another app's window moves. A window that is not on screen (minimized, on
+ * another space, or closed) hides the frame rather than closing it: the
+ * session is still reading it, or trying to, and the frame comes back with
+ * the window. The lookups are serialized by the `busy` latch so a slow helper
+ * answer cannot pile up behind the timer.
+ */
+const followWindow = (windowId: number): void => {
+  stopFollowingWindow();
+  let busy = false;
+  const place = (): void => {
+    if (busy) {
+      return;
+    }
+    busy = true;
+    void windowBoundsFor(windowId)
+      .then((bounds) => {
+        // The session may have ended, or moved to another target, while the
+        // helper was answering. A frame placed for it would be for nothing.
+        if (
+          context.watching !== true ||
+          context.captureTarget?.kind !== "window" ||
+          context.captureTarget.windowId !== windowId
+        ) {
+          return;
+        }
+        if (bounds === null) {
+          getFloatingWindow(WATCH_FRAME_KIND)?.hide();
+          return;
+        }
+        placeWatchFrame(bounds);
+      })
+      .catch((err: unknown) => {
+        log.warn("[companion] could not place the frame on its window:", err);
+      })
+      .finally(() => {
+        busy = false;
+      });
+  };
+  place();
+  frameFollow = setInterval(place, FRAME_FOLLOW_MS);
+};
+
+/**
+ * Frame what is being read, or take the frame down, to match what the app's
+ * window last said about the session.
+ *
+ * Idempotent, and run after every change to the context. A session started
+ * on a pick frames exactly that: the display by its id, or the window by its
+ * id, followed as it moves. A session with no target reads the whole screen,
+ * and the display framed is the one under the avatar, which is where the
+ * user's eye already is for this surface's state, or under the cursor when
+ * the surface is hidden: the frame is the session's rather than the
+ * surface's, since a hidden pill is not a screen that has stopped being
+ * read.
+ *
+ * A picked display that has since been unplugged falls back to the display
+ * under the surface. The session's reads of it fail and its frame would be
+ * off every screen, so framing where the user is looking says the session is
+ * still open, which is the one thing the frame must always say.
+ */
+const syncWatchFrame = (): void => {
   if (context.watching !== true) {
-    closeWatchGlow();
+    stopFollowingWindow();
+    closeWatchFrame();
     return;
   }
+  const target = context.captureTarget;
+  if (target?.kind === "window") {
+    followWindow(target.windowId);
+    return;
+  }
+  stopFollowingWindow();
+  if (target?.kind === "display") {
+    const display = screen
+      .getAllDisplays()
+      .find((candidate) => candidate.id === target.displayId);
+    if (display !== undefined) {
+      placeWatchFrame(display.bounds);
+      return;
+    }
+  }
   const win = getFloatingWindow(COMPANION_KIND);
-  placeWatchGlow(
+  placeWatchFrame(
     displayUnder(
       win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
-    ),
+    ).bounds,
   );
 };
 
@@ -1063,9 +1181,39 @@ export const installCompanionWindow = (): void => {
    * else, and here that work is the subject of the session: bringing Vellum
    * forward would cover the very thing the session exists to watch.
    */
-  on("vellum:companion:toggleWatch", z.tuple([]), () => {
-    dispatchWithoutRaising({ kind: "toggleWatch" });
-  });
+  on(
+    "vellum:companion:toggleWatch",
+    // An empty tuple is a press with no pick: the stop edge, or a start from
+    // a surface with no picker. Two shapes rather than an optional element,
+    // so a press sent with no argument at all parses as exactly that.
+    z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
+    ([pick]) => {
+      if (pick === undefined) {
+        dispatchWithoutRaising({ kind: "toggleWatch" });
+        return;
+      }
+      // A tab is resolved here, before the command leaves: it takes a round
+      // trip through Chrome that the window owning the session has no way
+      // to make. A pick that cannot be resolved starts nothing, and says so
+      // in the log; a whole-screen session in place of the tab the user
+      // chose would read more than they agreed to.
+      void resolveCapturePick(pick).then((target) => {
+        if (target === null) {
+          return;
+        }
+        dispatchWithoutRaising({ kind: "toggleWatch", target });
+      });
+    },
+  );
+
+  /**
+   * What a session could read right now, for the picker Teach opens. Listed
+   * on demand: the desktop changes under every push, and the list is only
+   * worth anything at the moment it is drawn.
+   */
+  handle("vellum:companion:listCaptureSources", z.tuple([]), () =>
+    listCaptureSources(),
+  );
 
   /**
    * The answer to the summary question, delivered to the window that asked it.
@@ -1108,7 +1256,7 @@ export const installCompanionWindow = (): void => {
     z.tuple([companionContextSchema]),
     ([next]) => {
       context = next;
-      syncWatchGlow();
+      syncWatchFrame();
       pushState();
     },
   );
@@ -1308,10 +1456,11 @@ export const installCompanionWindow = (): void => {
     context = {
       ...context,
       watching: false,
+      captureTarget: undefined,
       dictating: undefined,
       dictationText: undefined,
     };
-    syncWatchGlow();
+    syncWatchFrame();
     pushState();
   });
 
@@ -1411,9 +1560,9 @@ export const openCompanionWindow = (): void => {
     callHome = null;
   });
   // A surface shown mid-call is the call's from its first frame, and one
-  // shown mid-session has the light beside it rather than under the cursor.
+  // shown mid-session has the frame beside it rather than under the cursor.
   syncCallSurface();
-  syncWatchGlow();
+  syncWatchFrame();
 };
 
 const closeCompanionWindow = (): void => {

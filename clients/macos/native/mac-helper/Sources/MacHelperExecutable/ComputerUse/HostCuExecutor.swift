@@ -67,6 +67,7 @@ enum HostCuActionRunner {
 
         // For observe-only requests, skip action execution and just capture state
         let isObserveOnly = toolName == "computer_use_observe" || toolName == "cu_observe"
+        let captureTarget = captureTarget(from: input)
 
         var executionResult: String? = nil
         var executionError: String? = nil
@@ -190,10 +191,26 @@ enum HostCuActionRunner {
             executionResult: executionResult,
             executionError: executionError,
             stepNumber: stepNumber,
-            conversationId: conversationId
+            conversationId: conversationId,
+            captureTarget: captureTarget
         )
 
         return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+    }
+
+    // MARK: - Capture Target
+
+    /// What an observe request asks to read, when it asks for less than the
+    /// main display. The daemon carries the companion's pick as exactly one
+    /// of these keys; a window wins over a display should both ever arrive.
+    private static func captureTarget(from input: [String: Any]) -> CaptureTarget? {
+        if let windowId = (input["captureWindowId"] as? NSNumber)?.uint32Value {
+            return .window(windowId)
+        }
+        if let displayId = (input["captureDisplayId"] as? NSNumber)?.uint32Value {
+            return .display(displayId)
+        }
+        return nil
     }
 
     // MARK: - Tool Name Mapping
@@ -349,7 +366,8 @@ enum HostCuActionRunner {
         executionResult: String?,
         executionError: String?,
         stepNumber: Int,
-        conversationId: String
+        conversationId: String,
+        captureTarget: CaptureTarget? = nil
     ) async -> ObservationData {
         var axTreeText: String?
         var axDiffText: String?
@@ -361,7 +379,18 @@ enum HostCuActionRunner {
         var screenHeightPt: Int?
         var secondaryWindowsText: String?
 
-        if let result = await enumerator.enumerateCurrentWindow() {
+        // A window target reads that window's tree, focused or not, so the
+        // tree describes what the screenshot shows. Falls back to the focused
+        // window when the pick cannot be matched, which is still a tree.
+        var windowResult: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+        if case .window(let windowId) = captureTarget {
+            windowResult = await enumerator.enumerateWindow(windowId: windowId)
+        }
+        if windowResult == nil {
+            windowResult = await enumerator.enumerateCurrentWindow()
+        }
+
+        if let result = windowResult {
             axTreeText = AccessibilityTreeEnumerator.formatAXTree(
                 elements: result.elements,
                 windowTitle: result.windowTitle,
@@ -388,7 +417,7 @@ enum HostCuActionRunner {
 
             // Capture screenshot
             do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540)
+                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
                 screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx
@@ -404,7 +433,7 @@ enum HostCuActionRunner {
             // No focused window — try screenshot as fallback
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
             do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540)
+                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
                 screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx

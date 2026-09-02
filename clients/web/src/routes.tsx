@@ -373,17 +373,18 @@ export const routeTree = [
     },
   },
 
-  // The display's edge, lit while a watch session reads the screen. Its own
-  // click-through window the size of the display, opened and closed by the
-  // shell with the session; standalone for the reason the surface is.
+  // The frame around what a watch session reads: a display, or the window
+  // the user picked. Its own click-through window the size of that surface,
+  // opened, moved and closed by the shell with the session; standalone for
+  // the reason the companion surface is.
   {
-    path: "/assistant/floating/companion-watch-glow",
+    path: "/assistant/floating/companion-watch-frame",
     ErrorBoundary: RouteErrorBoundary,
     HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
-        import("@/components/companion-watch-glow-page").then(
-          (m) => m.CompanionWatchGlowPage,
+        import("@/components/companion-watch-frame-page").then(
+          (m) => m.CompanionWatchFramePage,
         ),
     },
   },
