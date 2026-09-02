@@ -584,6 +584,7 @@ describe("native frame source overlap", () => {
       now: () => clock,
     });
 
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
     source.start();
     capture.holdNext();
     await startPair();
@@ -597,18 +598,21 @@ describe("native frame source overlap", () => {
     expect(offers).toHaveLength(0);
 
     // Releasing it resumes the pair the tick opened, which still owes its
-    // second sample a spacing later.
+    // second sample. Nothing is offered from it: the primer was requested two
+    // seconds ago, so the pair is far outside the motion window and discarded
+    // exactly as any other too-wide pair is.
     capture.releaseHeld();
     await settle();
-    expect(offers).toHaveLength(0);
     await finishPair();
     expect(capture.callCount()).toBe(2);
-    expect(offers).toHaveLength(1);
+    expect(offers).toHaveLength(0);
 
-    // The poll is not wedged by the ticks it dropped.
+    // The poll is not wedged by the ticks it dropped or by the pair it threw
+    // away: the next one is whole and lands inside the window.
     await pollTimes(1);
     expect(capture.callCount()).toBe(4);
-    expect(offers).toHaveLength(2);
+    expect(offers).toHaveLength(1);
+    debug.mockRestore();
     source.stop();
   });
 });
@@ -1112,6 +1116,71 @@ describe("native frame source pair timing", () => {
     expect(decisions[0]!.motion).not.toBeNull();
     expect(decisions[0]!.keep).toBe(false);
     expect(decisions[0]!.reason).toBe("moving");
+    source.stop();
+  });
+
+  test("counts a slow first capture against the gap it could have caused", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    // The primer's bridge call takes 100ms and the judged frame's is instant.
+    // Stamped at their answers, this pair would measure a gap of roughly zero
+    // while its two pictures could be 100ms apart.
+    source.start();
+    capture.latencyNext(100);
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
+    await advanceInSteps(100);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+
+    expect(observed).toHaveLength(1);
+    expect(offers).toHaveLength(1);
+    // The primer's own latency is inside the measured gap, because its picture
+    // could have been taken at the moment it was requested. Stamped at the
+    // answer instead, this difference is about zero.
+    const gapMs = offers[0]!.nowMs - observed[0]!.nowMs;
+    expect(gapMs).toBeGreaterThanOrEqual(100);
+    // And still offered, because 100 is a bound the window can hold: the two
+    // pictures cannot have been further apart than that.
+    expect(gapMs).toBeLessThanOrEqual(NATIVE_PAIR_MAX_GAP_MS);
+    source.stop();
+  });
+
+  test("discards a pair a slow first capture pushed outside the window", async () => {
+    const { gate, offers } = createRecordingGate();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    // Long enough on its own to put the two pictures further apart than the
+    // window can hold. Measured from the answer this reads as a fast pair and
+    // a moving frame is kept as settled, which is the whole failure.
+    source.start();
+    capture.latencyNext(NATIVE_PAIR_MAX_GAP_MS + 10);
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS + 10);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+
+    expect(offers).toHaveLength(0);
+    expect(debug).toHaveBeenCalledWith(
+      "[native-frame-source] pair outside the motion window, skipped:",
+      expect.objectContaining({ limitMs: NATIVE_PAIR_MAX_GAP_MS }),
+    );
+    debug.mockRestore();
     source.stop();
   });
 

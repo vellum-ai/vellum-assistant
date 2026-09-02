@@ -81,11 +81,16 @@ scrim.
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection
       callout, the magnifier, or a share sheet over the viewfinder.
-- [ ] The native preview offers no Live. In the installed app, with the plugin
-      drawing the preview, press and keep pressing the shutter. Nothing enters
-      Live: the pill stays "Photo", there is no hint under the shutter, and
-      letting go takes an ordinary photo, the same as a tap. VoiceOver reads no
-      keyboard shortcut on the shutter.
+- [ ] The native preview offers Live. In the installed app, with the plugin
+      drawing the preview, press and keep pressing the shutter. At half a second
+      the pill says Live and the hint changes to "Live · Tap to stop", the same
+      as in the browser, and letting go takes no photo. Tap to stop and the
+      shutter takes ordinary photos again.
+- [ ] Keeps pulse behind the native preview. With Live running, hold the phone
+      steady on a subject. Within a few seconds the crimson held-frame thumbnail
+      appears beside the photo strip and a frame lands in the transcript; move
+      to a new subject and another follows. Nothing ever pulsing is the
+      slow-bridge case in the section below, not a hang.
 
 ### Live on iPhone
 
@@ -154,6 +159,10 @@ which is the thing to watch for battery and heat below.
 - [ ] The scrims reach the native preview. Point at a white wall: the top and
       bottom bands darken enough to read the pill and the row, and the middle of
       the frame stays untinted.
+- [ ] Live behind the native preview. Android runs the same poll as iOS, so run
+      the "Live on iPhone" section here too: the hold enters Live, keeps pulse
+      and land in the transcript, and a device that keeps nothing shows the
+      slow-bridge signature rather than hanging.
 - [ ] TalkBack says it once. Same check as VoiceOver above.
 
 ## Desktop web and macOS

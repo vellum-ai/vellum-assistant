@@ -122,18 +122,41 @@ export const NATIVE_PAIR_SPACING_MS = Math.round(
  */
 export const NATIVE_PAIR_MAX_GAP_MS = DEFAULT_FRAME_GATE_OPTIONS.motionMaxAgeMs;
 
-/** A sample off the bridge, stamped with the moment it landed. */
+/** A sample off the bridge, stamped with a bound on when its picture was taken. */
 interface CapturedSample {
   readonly encoded: string;
   /**
-   * When the capture resolved, which is what the gate is stamped with.
+   * A bound on when this picture was taken, and what the gate is stamped with.
    *
-   * Not when the decode finished: a pair is compared across the time between
-   * the two PICTURES, and a decode that ran between them would count against a
-   * window it has nothing to do with.
+   * The bridge says when it answered, never when the sensor fired, so all that
+   * is known is that the picture was taken somewhere between the request and
+   * the answer. The two samples of a pair therefore take opposite ends: see
+   * {@link CaptureBound}.
+   *
+   * Never the decode's time. A pair is compared across the interval between two
+   * PICTURES, and a decode that ran between them would count against a window
+   * it has nothing to do with.
    */
   readonly capturedAtMs: number;
 }
+
+/**
+ * Which end of a capture's own window to record.
+ *
+ * A capture spans a request and an answer with the picture somewhere inside,
+ * so a pair's measured gap is only trustworthy if it cannot understate the true
+ * separation. The primer records the EARLIEST moment its picture could have
+ * been taken and the judged frame the LATEST, which makes their difference an
+ * upper bound: a pair measuring inside the gate's motion window is certainly
+ * inside it, and every error the bound makes discards a usable pair rather than
+ * accepting an unusable one.
+ *
+ * Stamping both at the answer would understate it. A primer whose bridge call
+ * ran longer than the judged frame's reports a gap shorter than the pictures
+ * really were apart, and the gate then measures motion across an interval it
+ * would have refused.
+ */
+type CaptureBound = "earliest" | "latest";
 
 /** That sample decoded and reduced, ready for the gate. */
 interface DecodedSample {
@@ -251,12 +274,14 @@ export function createNativeFrameSource(
    */
   let samplingGeneration: number | null = null;
 
-  /** Ask the bridge for one sample and stamp the moment it answers. */
-  async function captureStamped(run: number): Promise<CapturedSample | null> {
+  /** Ask the bridge for one sample and bound when its picture was taken. */
+  async function captureStamped(
+    run: number,
+    bound: CaptureBound,
+  ): Promise<CapturedSample | null> {
+    const requestedAtMs = now();
     const encoded = await captureSample();
-    // The closest moment to the native snap that JS can observe, and the only
-    // one that keeps a decode out of the gap the gate measures.
-    const capturedAtMs = now();
+    const capturedAtMs = bound === "earliest" ? requestedAtMs : now();
     // A stop, a flip, or a camera mid-teardown answers with nothing. That is
     // the ordinary shape of this call and not a reason to end the poll.
     if (!encoded || generation !== run) {
@@ -295,9 +320,13 @@ export function createNativeFrameSource(
   /**
    * Wait until `targetMs`, on the timer the cadence already runs on.
    *
-   * Measured from the first capture rather than from the moment its decode
-   * finished, so decoding the primer runs inside the spacing instead of being
-   * added to it. A decode slower than the spacing simply leaves no wait.
+   * The pair's spacing is measured from the primer's own stamp, which is when
+   * it was REQUESTED. So the spacing budget covers the primer's bridge call
+   * too: a call that outruns it leaves no wait at all and the second sample is
+   * asked for at once. That is the right way round. The budget exists to keep
+   * the two pictures inside the gate's window, and a slow primer has already
+   * spent it, so adding a further delay would only push a pair that is already
+   * marginal past the limit and turn an offer into a discard.
    */
   function waitUntil(targetMs: number): Promise<void> {
     return new Promise((resolve) => {
@@ -316,7 +345,7 @@ export function createNativeFrameSource(
       // so the frame that IS offered has something recent to measure motion
       // against. Its grid is read synchronously by `observe`, so the buffer the
       // producer reuses for the second sample is free to overwrite it.
-      const first = await captureStamped(run);
+      const first = await captureStamped(run, "earliest");
       if (!first || generation !== run) {
         return;
       }
@@ -330,7 +359,7 @@ export function createNativeFrameSource(
       ).then(
         // A run that ended while the spacing elapsed does not spend a bridge
         // call on a frame nobody can use.
-        () => (generation === run ? captureStamped(run) : null),
+        () => (generation === run ? captureStamped(run, "latest") : null),
         // A bridge that refuses the second call costs this tick and no more.
         () => null,
       );
