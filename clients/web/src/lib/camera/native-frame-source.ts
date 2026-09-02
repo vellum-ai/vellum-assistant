@@ -27,6 +27,12 @@
  *   history, and only the owner of the camera knows one happened.
  * - It does not upload. It hands the offered JPEG back with the decision and
  *   the owner decides what a keep is worth.
+ * - It does not watch the app's lifecycle. Backgrounding is the owner's to
+ *   answer, through the deduped `app.hidden` bus edge that also covers the
+ *   Capacitor shells (see `docs/EVENT_BUS.md`), and the owner answers it by
+ *   stopping this source. A `visibilitychange` listener here would be a second
+ *   opinion about the same edge, blind to the one the shells report without a
+ *   DOM event.
  */
 
 import type { FrameGate, FrameGateDecision } from "./frame-gate";
@@ -77,7 +83,7 @@ export interface NativeFrameSourceOptions {
 export interface NativeFrameSource {
   /** Begin polling. Starting an already-started source restarts its cadence. */
   start(): void;
-  /** Stop polling and detach the listeners. Idempotent. */
+  /** Stop polling. Idempotent. */
   stop(): void;
 }
 
@@ -125,24 +131,40 @@ export function createNativeFrameSource(
   const decode = options.decode ?? decodeWithImageBitmap;
   const grids = createFrameGridProducer();
 
-  let running = false;
   let timer: ReturnType<typeof setInterval> | null = null;
-  // A sample outlives the tick that asked for it: a bridge round trip plus a
-  // decode can outrun the cadence on a busy device. Two in flight would queue
-  // on the bridge and hand the gate frames out of order, so a tick that finds
-  // one already running is dropped rather than deferred.
-  let sampling = false;
+  /**
+   * Which run of this source is current. Bumped by every stop, and so by every
+   * start.
+   *
+   * A capture and a decode are both awaits, and a run can end and another begin
+   * inside either one. Without a number to compare against, a sample of the
+   * camera that was pointing somewhere else lands looking exactly like a fresh
+   * one, and the gate scores the new run's first frame against a scene the user
+   * has already turned away from.
+   */
+  let generation = 0;
+  /**
+   * The run whose sample is on the bridge right now, or null when none is.
+   *
+   * A sample outlives the tick that asked for it: a round trip plus a decode
+   * can outrun the cadence on a busy device. Two in flight would queue on the
+   * bridge, so a tick that finds its own run already sampling is dropped rather
+   * than deferred. Held per run, not as a flag, so a sample stranded by a
+   * restart cannot suppress the new run's ticks until it settles.
+   */
+  let samplingGeneration: number | null = null;
 
   async function sampleOnce(): Promise<void> {
-    if (sampling) {
+    const run = generation;
+    if (samplingGeneration === run) {
       return;
     }
-    sampling = true;
+    samplingGeneration = run;
     try {
       const encoded = await captureSample();
       // A stop, a flip, or a camera mid-teardown answers with nothing. That is
       // the ordinary shape of this call and not a reason to end the poll.
-      if (!encoded || !running) {
+      if (!encoded || generation !== run) {
         return;
       }
       const blob = jpegBlobFromBase64(encoded);
@@ -154,7 +176,7 @@ export function createNativeFrameSource(
         return;
       }
       try {
-        if (!running) {
+        if (generation !== run) {
           return;
         }
         const grid = grids.gridFrom(frame.image);
@@ -171,50 +193,27 @@ export function createNativeFrameSource(
       // its retry. Nothing a single sample can do is worth ending the poll.
       console.debug("[native-frame-source] sample failed:", err);
     } finally {
-      sampling = false;
+      // Only this run's claim. A newer run holds its own, and clearing that
+      // would let a second sample onto the bridge beside it.
+      if (samplingGeneration === run) {
+        samplingGeneration = null;
+      }
     }
   }
 
-  function schedule(): void {
-    if (!running || timer !== null) {
-      return;
-    }
-    // A hidden shell has released the camera, and a frame nobody can see is not
-    // worth a decision. Polling resumes from the visibility listener.
-    if (document.visibilityState === "hidden") {
-      return;
-    }
-    timer = setInterval(() => {
-      void sampleOnce();
-    }, intervalMs);
-  }
-
-  function cancelPending(): void {
+  function stop(): void {
+    generation += 1;
     if (timer !== null) {
       clearInterval(timer);
     }
     timer = null;
   }
 
-  function handleVisibilityChange(): void {
-    if (document.visibilityState === "hidden") {
-      cancelPending();
-      return;
-    }
-    schedule();
-  }
-
-  function stop(): void {
-    running = false;
-    cancelPending();
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }
-
   function start(): void {
     stop();
-    running = true;
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    schedule();
+    timer = setInterval(() => {
+      void sampleOnce();
+    }, intervalMs);
   }
 
   return { start, stop };

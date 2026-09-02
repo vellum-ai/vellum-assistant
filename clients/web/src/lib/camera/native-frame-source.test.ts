@@ -4,8 +4,8 @@
  * The gate's own tests prove the decision and the sampler's prove the downscale
  * chain. These prove what is specific to polling a bridge: a tick that fires
  * while the last sample is still out, a sample that rejects because the camera
- * went away, a poll that has to stop while the shell is backgrounded, and a
- * teardown that leaves nothing running.
+ * went away, a sample from a run that has ended arriving during the next one,
+ * and a teardown that leaves nothing running.
  *
  * The canvas is faked for the same reason the sampler's tests fake it, so an
  * exact grid can be asserted. The decode is injected because no DOM
@@ -109,14 +109,6 @@ function grayReadback(valueFor: (cell: number) => number): Uint8ClampedArray {
     rgba[cell * 4 + 3] = 255;
   }
   return rgba;
-}
-
-function setVisibility(value: "visible" | "hidden"): void {
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    get: () => value,
-  });
-  document.dispatchEvent(new Event("visibilitychange"));
 }
 
 /**
@@ -255,13 +247,11 @@ beforeEach(() => {
   jest.useFakeTimers();
   readback = grayReadback((cell) => cell);
   canvasContexts = stubCanvasContexts(() => readback);
-  setVisibility("visible");
 });
 
 afterEach(() => {
   jest.useRealTimers();
   HTMLCanvasElement.prototype.getContext = realGetContext;
-  delete (document as unknown as Record<string, unknown>).visibilityState;
 });
 
 describe("native frame source cadence", () => {
@@ -538,8 +528,8 @@ describe("native frame source failure tolerance", () => {
   });
 });
 
-describe("native frame source visibility", () => {
-  test("suspends while the shell is hidden and resumes when it returns", async () => {
+describe("native frame source run generation", () => {
+  test("refuses a capture from a run that ended before it landed", async () => {
     const { gate, offers } = createRecordingGate();
     const capture = createCaptureStub();
     const decode = createDecodeStub();
@@ -551,22 +541,24 @@ describe("native frame source visibility", () => {
     });
 
     source.start();
+    capture.holdNext();
     await pollTimes(1);
-    expect(offers).toHaveLength(1);
+    expect(capture.callCount()).toBe(1);
 
-    setVisibility("hidden");
-    await pollTimes(3);
-    // A backgrounded shell has released the camera, so every sample would be a
-    // failed bridge call anyway.
-    expect(offers).toHaveLength(1);
+    source.stop();
+    source.start();
+    capture.releaseHeld();
+    await settle();
 
-    setVisibility("visible");
-    await pollTimes(1);
-    expect(offers).toHaveLength(2);
+    // The camera that sample was taken from has been stopped and reopened, so
+    // it is a view of a scene the user has already turned away from. Scoring
+    // the new run's first frame against it is a motion reading of a cut.
+    expect(offers).toHaveLength(0);
+    expect(decode.decodeCount()).toBe(0);
     source.stop();
   });
 
-  test("does not resume a stopped source", async () => {
+  test("refuses a decode from a run that ended before it landed", async () => {
     const { gate, offers } = createRecordingGate();
     const capture = createCaptureStub();
     const decode = createDecodeStub();
@@ -578,17 +570,53 @@ describe("native frame source visibility", () => {
     });
 
     source.start();
-    source.stop();
+    decode.holdNext();
+    await pollTimes(1);
+    expect(decode.decodeCount()).toBe(1);
 
-    setVisibility("hidden");
-    setVisibility("visible");
-    await pollTimes(2);
+    source.stop();
+    source.start();
+    decode.releaseHeld();
+    await settle();
+
+    // A run can also end inside the decode, which is the second await this
+    // frame crosses.
     expect(offers).toHaveLength(0);
+    // Refused is not leaked: the image it decoded is still freed.
+    expect(decode.releaseCount()).toBe(1);
+    source.stop();
+  });
+
+  test("samples on the first tick of a run started over a stranded sample", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+    });
+
+    source.start();
+    capture.holdNext();
+    await pollTimes(1);
+    expect(capture.callCount()).toBe(1);
+
+    source.stop();
+    source.start();
+    await pollTimes(1);
+
+    // The stranded sample holds its own run's claim, not the source's, so the
+    // new run is not blind until a capture nobody is waiting for settles.
+    expect(capture.callCount()).toBe(2);
+    expect(offers).toHaveLength(1);
+    source.stop();
   });
 });
 
 describe("native frame source cleanup", () => {
-  test("stops polling and stops listening", async () => {
+  test("stops polling", async () => {
     const { gate, offers } = createRecordingGate();
     const capture = createCaptureStub();
     const decode = createDecodeStub();
@@ -607,37 +635,6 @@ describe("native frame source cleanup", () => {
     await pollTimes(3);
     expect(capture.callCount()).toBe(1);
     expect(offers).toHaveLength(1);
-  });
-
-  test("detaches the visibility listener it attached", () => {
-    const added = spyOn(document, "addEventListener");
-    const removed = spyOn(document, "removeEventListener");
-    const { gate } = createRecordingGate();
-    const capture = createCaptureStub();
-    const decode = createDecodeStub();
-    const source = createNativeFrameSource({
-      gate,
-      captureSample: capture.captureSample,
-      onDecision: () => {},
-      decode: decode.decode,
-    });
-
-    source.start();
-    source.stop();
-
-    const attached = added.mock.calls.find(
-      ([type]) => type === "visibilitychange",
-    )?.[1];
-    const detached = removed.mock.calls.find(
-      ([type]) => type === "visibilitychange",
-    )?.[1];
-    // The source outlives no run: a listener left behind accumulates one
-    // handler per hold for the life of the page.
-    expect(attached).toBeDefined();
-    expect(detached).toBe(attached);
-
-    added.mockRestore();
-    removed.mockRestore();
   });
 
   test("stops idempotently", async () => {
