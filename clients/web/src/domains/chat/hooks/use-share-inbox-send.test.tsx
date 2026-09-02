@@ -151,6 +151,32 @@ describe("useShareInboxSend", () => {
     expect(consumePendingComposerFocus()).toBe(true);
   });
 
+  it("sends only this share and leaves a pre-existing strip attachment", () => {
+    useComposerStore.setState({
+      attachments: [
+        {
+          kind: "uploaded",
+          localId: "already-there",
+          id: "att-existing",
+          filename: "old.png",
+          mimeType: "image/png",
+          sizeBytes: 12,
+          previewUrl: null,
+          thumbnailUrl: null,
+        },
+      ],
+    });
+    park({ threadId: "abc-123", isNewDraft: true, text: "just text" });
+    const { sendMessage } = renderSend({
+      activeConversationId: "abc-123",
+      conversationExistsOnServer: false,
+    });
+    expect(sendMessage).toHaveBeenCalledWith("just text", []);
+    const remaining = useComposerStore.getState().attachments;
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.localId).toBe("already-there");
+  });
+
   it("demotes an expired park instead of sending", () => {
     park({ threadId: "abc-123", isNewDraft: true, text: "late" });
     usePendingDeepLinkStore.setState((s) => ({

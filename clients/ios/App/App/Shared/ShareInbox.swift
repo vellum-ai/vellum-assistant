@@ -346,7 +346,7 @@ enum ShareInbox {
         }
         let root = itemURL.standardizedFileURL
         var exported: [ShareInboxExportedFile] = []
-        for file in files {
+        for (index, file) in files.enumerated() {
             guard isSafeRelativePath(file.relativePath) else {
                 continue
             }
@@ -354,7 +354,7 @@ enum ShareInbox {
             guard src.path.hasPrefix(root.path + "/") else {
                 continue
             }
-            let destName = sanitizedFilename(file.filename)
+            let destName = "\(index)-\(sanitizedFilename(file.filename))"
             let dest = exportDirectory.appendingPathComponent(destName)
             do {
                 if FileManager.default.fileExists(atPath: dest.path) {
@@ -366,7 +366,7 @@ enum ShareInbox {
             }
             exported.append(
                 ShareInboxExportedFile(
-                    filename: destName,
+                    filename: sanitizedFilename(file.filename),
                     mimeType: file.mimeType,
                     path: dest.path
                 )

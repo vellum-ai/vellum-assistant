@@ -19,6 +19,32 @@ final class ShareInboxTests: XCTestCase {
         super.tearDown()
     }
 
+    func testExportKeepsSameNamedFilesOnDistinctPaths() throws {
+        let first = Data("one".utf8)
+        let second = Data("two".utf8)
+        let id = ShareInbox.write(
+            destination: .newConversation,
+            text: nil,
+            files: [
+                (filename: "photo.jpg", mimeType: "image/jpeg", data: first),
+                (filename: "photo.jpg", mimeType: "image/jpeg", data: second),
+            ],
+            containerURL: container
+        )
+        XCTAssertNotNil(id)
+        let consumed = ShareInbox.consume(
+            id: id!,
+            exportDirectory: exportDir,
+            containerURL: container
+        )
+        XCTAssertEqual(consumed?.files.count, 2)
+        let paths = consumed?.files.map(\.path) ?? []
+        XCTAssertEqual(Set(paths).count, 2)
+        let bodies = try paths.map { try Data(contentsOf: URL(fileURLWithPath: $0)) }
+        XCTAssertEqual(Set(bodies), [first, second])
+        XCTAssertEqual(consumed?.files.map(\.filename), ["photo.jpg", "photo.jpg"])
+    }
+
     func testWriteAndConsumeCopiesFilesThenDeletesInbox() throws {
         let bytes = Data("hello".utf8)
         let id = ShareInbox.write(

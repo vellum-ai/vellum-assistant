@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
-  selectUploadingCount,
+  type ChatAttachment,
   useComposerStore,
 } from "@/domains/chat/composer-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
@@ -31,6 +31,26 @@ interface InFlightShare {
   threadId: string;
   isNewDraft: boolean;
   text: string;
+  /** Composer `localId`s this share queued. Existing strip items stay out. */
+  ownedLocalIds: string[];
+}
+
+function ownedAttachments(
+  attachments: ChatAttachment[],
+  ownedLocalIds: string[],
+): ChatAttachment[] {
+  if (ownedLocalIds.length === 0) {
+    return [];
+  }
+  const owned = new Set(ownedLocalIds);
+  return attachments.filter((att) => owned.has(att.localId));
+}
+
+function removeOwnedAttachments(ownedLocalIds: string[]): void {
+  const composer = useComposerStore.getState();
+  for (const localId of ownedLocalIds) {
+    composer.removeAttachment(localId);
+  }
 }
 
 /**
@@ -40,9 +60,12 @@ interface InFlightShare {
  *
  * Files are queued through `addFiles` so they take the same upload,
  * resize, and vision-gate path as a dropped attachment. The send waits
- * until every upload finishes. A failed upload demotes to a composer
- * pre-fill (files already in the strip) rather than sending a partial
- * set. Empty text with files is a valid send.
+ * until every *owned* upload finishes, then sends and removes only
+ * those items, so a share into the conversation already on screen
+ * leaves the user's existing strip alone. A failed owned upload
+ * demotes to a composer pre-fill (owned files already in the strip)
+ * rather than sending a partial set. Empty text with files is a valid
+ * send.
  *
  * Existing threads use the same confirmation as `useDeepLinkThreadSend`:
  * a stale picker id must not mint a new conversation. A share aimed at a
@@ -78,7 +101,7 @@ export function useShareInboxSend({
     const inFlight = inFlightRef.current;
     if (inFlight !== null) {
       if (activeConversationId !== inFlight.threadId) {
-        useComposerStore.getState().resetAttachments();
+        removeOwnedAttachments(inFlight.ownedLocalIds);
         if (inFlight.text.length > 0) {
           useComposerStore.getState().saveDraft(inFlight.threadId, inFlight.text);
         }
@@ -86,12 +109,11 @@ export function useShareInboxSend({
         breadcrumb("saved as the target thread's draft: user navigated away");
         return;
       }
-      const uploading = selectUploadingCount(attachments);
-      if (uploading > 0) {
+      const owned = ownedAttachments(attachments, inFlight.ownedLocalIds);
+      if (owned.some((att) => att.kind === "uploading")) {
         return;
       }
-      const failed = attachments.some((att) => att.kind === "failed");
-      if (failed) {
+      if (owned.some((att) => att.kind === "failed")) {
         inFlightRef.current = null;
         if (inFlight.text.length > 0) {
           store.setPendingComposerMessage(inFlight.text);
@@ -100,7 +122,7 @@ export function useShareInboxSend({
         breadcrumb("demoted to pre-fill: attachment upload failed");
         return;
       }
-      const toSend: DisplayAttachment[] = attachments
+      const toSend: DisplayAttachment[] = owned
         .filter(
           (att): att is Extract<typeof att, { kind: "uploaded" }> =>
             att.kind === "uploaded",
@@ -114,7 +136,7 @@ export function useShareInboxSend({
           thumbnailUrl: att.thumbnailUrl ?? null,
         }));
       inFlightRef.current = null;
-      useComposerStore.getState().resetAttachments();
+      removeOwnedAttachments(inFlight.ownedLocalIds);
       void sendMessage(inFlight.text, toSend);
       breadcrumb("sent");
       return;
@@ -172,14 +194,22 @@ export function useShareInboxSend({
     if (parked === null) {
       return;
     }
+    const beforeIds = new Set(
+      useComposerStore.getState().attachments.map((att) => att.localId),
+    );
+    if (parked.files.length > 0 && assistantId) {
+      useComposerStore.getState().addFiles(parked.files, assistantId);
+    }
+    const ownedLocalIds = useComposerStore
+      .getState()
+      .attachments.filter((att) => !beforeIds.has(att.localId))
+      .map((att) => att.localId);
     inFlightRef.current = {
       threadId: parked.threadId,
       isNewDraft: parked.isNewDraft,
       text: parked.text,
+      ownedLocalIds,
     };
-    if (parked.files.length > 0 && assistantId) {
-      useComposerStore.getState().addFiles(parked.files, assistantId);
-    }
   }, [
     pending,
     attachments,
