@@ -23,6 +23,7 @@ import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
+import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -229,7 +230,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       // A row deleted on its channel renders as a tombstone whatever else it
       // is: the channel no longer shows it, so neither does the transcript.
       // The shell keeps the row addressable and its content behind Inspect.
-      if (item.message.deletedAt != null) {
+      if (isChannelDeleted(item.message)) {
         return (
           <SubstitutedMessageShell
             message={item.message}
