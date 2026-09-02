@@ -5,8 +5,8 @@
  * The availability rule itself belongs to `lib/camera/frame-gate-debug-access`
  * and is stubbed here, so what is under test is the component's own wiring:
  * which rows a session sees, which store each row writes, and the panel
- * portaling inside the component's box rather than beside the room, which is
- * what keeps it clear of the sheet's inert sweep.
+ * rendering into the host it is handed. Which element that host is, and where
+ * the room puts it, is the room's own subject in `voice-room.test.tsx`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -34,9 +34,17 @@ const trigger = () => screen.getByTestId("camera-view-settings");
 const panel = () => screen.queryByTestId("camera-view-settings-panel");
 const row = (name: string) => screen.queryByRole("switch", { name });
 
+/** Stands in for the element the room owns and hands down. */
+let panelHost: HTMLDivElement | null = null;
+
+/** Render the control with a host to put its panel in. */
+function renderSettings(): void {
+  render(<CameraViewSettings panelHost={panelHost} />);
+}
+
 /** Open the panel the way a user does. */
 async function openPanel(): Promise<void> {
-  render(<CameraViewSettings />);
+  renderSettings();
   await act(async () => {
     fireEvent.click(trigger());
   });
@@ -44,17 +52,21 @@ async function openPanel(): Promise<void> {
 
 beforeEach(() => {
   hudAvailable = false;
+  panelHost = document.createElement("div");
+  document.body.appendChild(panelHost);
   useCameraGateDebugStore.setState({ hudEnabled: false });
   useVoicePrefsStore.setState({ showKeptFrame: true });
 });
 
 afterEach(() => {
   cleanup();
+  panelHost?.remove();
+  panelHost = null;
 });
 
 describe("CameraViewSettings", () => {
   test("shows the button, and nothing else until it is pressed", async () => {
-    render(<CameraViewSettings />);
+    renderSettings();
 
     expect(trigger().getAttribute("aria-label")).toBe("Camera view options");
     expect(panel()).toBeNull();
@@ -71,7 +83,7 @@ describe("CameraViewSettings", () => {
     // `VoiceRoomControl` is the room's element rather than the design
     // library's, so a trigger composed onto it only works because it passes
     // what it is handed through to the button underneath.
-    render(<CameraViewSettings />);
+    renderSettings();
     expect(trigger().getAttribute("aria-haspopup")).toBe("dialog");
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
 
@@ -82,14 +94,15 @@ describe("CameraViewSettings", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });
 
-  test("the panel lands inside the button's own box, not beside the room", async () => {
+  test("the panel renders into the host it is handed, not beside the trigger", async () => {
     await openPanel();
 
-    // The room portals its sheet into `#viewport-overlays` and inerts that
-    // host's other children while the camera is flush, so a panel portaled
-    // there arrives dead. This one is a descendant of the control it opens
-    // from, which that sweep never reaches.
-    expect(trigger().parentElement?.contains(panel())).toBe(true);
+    // The host is the room's, and being the room's is what keeps the panel
+    // clear of both the sheet's inert sweep and the corner cluster's own
+    // stacking context. Rendering beside the trigger would put it back in the
+    // second of those.
+    expect(panelHost?.contains(panel())).toBe(true);
+    expect(trigger().parentElement?.contains(panel())).toBe(false);
   });
 
   test("a session without the readout gets the thumbnail row alone", async () => {
@@ -105,6 +118,27 @@ describe("CameraViewSettings", () => {
 
     expect(row("Frame gate readout")).not.toBeNull();
     expect(row("Kept frame")).not.toBeNull();
+  });
+
+  test("each switch points at its own description", async () => {
+    hudAvailable = true;
+    await openPanel();
+
+    /** The text a screen reader is given after the switch's name. */
+    const describedText = (name: string): string | undefined => {
+      const id = row(name)?.getAttribute("aria-describedby");
+      return id ? (document.getElementById(id)?.textContent ?? "") : undefined;
+    };
+
+    // The thumbnail row's line is the only place the panel says the sending
+    // carries on, so a switch that did not point at it would offer to turn
+    // Live's signal off with the reassurance left on screen and out of reach.
+    expect(describedText("Kept frame")).toBe(
+      "The last frame Live sent, beside your photos. Live keeps sending either way.",
+    );
+    expect(describedText("Frame gate readout")).toBe(
+      "The tuning readout for what Live keeps.",
+    );
   });
 
   test("the thumbnail row writes the voice preference", async () => {

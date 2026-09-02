@@ -238,6 +238,23 @@ const CAMERA_PILL_LEFT = `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})`;
 const CAMERA_PILL_RIGHT = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 7.25rem)`;
 
 /**
+ * The tier the camera's view-options panel renders on, above every layer the
+ * room draws: the chrome band and the control rows at `z-10`, and the connect
+ * card at `z-20`.
+ *
+ * The panel is the one surface here the user opened on purpose, so nothing the
+ * room paints may cover it. It cannot simply live in the corner cluster it is
+ * triggered from: that cluster is a `z-10` positioned element and so its own
+ * stacking context, which the later `z-10` control rows paint over, and in a
+ * short viewport (a phone held sideways) the rows reach the panel's box.
+ *
+ * The host is a zero-size element rather than a full-bleed layer, so it can
+ * never take a press meant for the feed; the panel inside it is positioned
+ * against the trigger rather than against the host.
+ */
+const VIEW_OPTIONS_HOST_LAYER = "z-30";
+
+/**
  * The flash button's accessible name, per state.
  *
  * It names the state and not the act, because the button has three states and
@@ -570,6 +587,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // Whether the viewfinder draws the accented thumbnail of the newest frame
   // Live gave the call. The camera's view options write it.
   const showKeptFrame = useVoicePrefsStore.use.showKeptFrame();
+  // Where the view-options panel renders. See the host element near the foot
+  // of the room, and {@link VIEW_OPTIONS_HOST_LAYER}.
+  const [viewOptionsHost, setViewOptionsHost] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   // Backwards-compat fallback for assistants that can still raise
   // `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts
@@ -1107,7 +1129,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})` }}
         className="absolute top-[var(--room-chrome-top)] z-10 flex items-center gap-1"
       >
-        {cameraOpen ? <CameraViewSettings /> : null}
+        {cameraOpen ? <CameraViewSettings panelHost={viewOptionsHost} /> : null}
         <VoiceRoomControl
           label={t("voiceRoom.minimizeAria")}
           tooltip={t("voiceRoom.minimizeTooltip")}
@@ -1499,6 +1521,20 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           <X className="size-5" strokeWidth={2.5} />
         </VoiceRoomControl>
       </div>
+
+      {/* The view-options panel's host: last of the room's chrome, so it wins
+          a tie on DOM order as well as on its tier. Inside the room, which is
+          what keeps it out of the sheet's inert sweep (that covers the portal
+          host's own children) and visible under the native preview, which
+          hides everything outside this subtree. See
+          {@link VIEW_OPTIONS_HOST_LAYER}. */}
+      {cameraOpen ? (
+        <div
+          ref={setViewOptionsHost}
+          data-testid="camera-view-settings-host"
+          className={cn("absolute left-0 top-0", VIEW_OPTIONS_HOST_LAYER)}
+        />
+      ) : null}
 
       {/* Screen readers get session-state changes here; the avatar is the
           visual channel, so this stays off-screen.

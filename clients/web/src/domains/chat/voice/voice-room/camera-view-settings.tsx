@@ -11,9 +11,10 @@
  * Anchored on every form factor, a touch phone included. The room is itself a
  * bottom sheet portaled into `#viewport-overlays`, and while the camera is
  * flush `useInertBehindSheet` marks that host's other children `inert`, so a
- * second sheet portaled beside the room lands inert and dead. The panel
- * portals into this component's own box inside the room instead, which is
- * below the level that sweep reaches.
+ * second sheet portaled beside the room lands inert and dead. The panel goes
+ * into {@link CameraViewSettingsProps.panelHost} instead, an element the room
+ * owns inside itself, which is below the level that sweep reaches and above
+ * the chrome the corner button sits in.
  *
  * Over the feed the panel takes the shared over-media scrim rather than a
  * theme surface, for the reason `camera-mode-paint.ts` gives: what is behind
@@ -42,9 +43,16 @@ import { VoiceRoomControl } from "./voice-room-control";
 /**
  * One row: what the switch shows, what it costs, and the switch.
  *
- * The copy carries its own color rather than the design library's label and
- * helper slots, which paint in theme tokens the feed behind this panel makes
- * unreadable.
+ * The copy goes through the design library's own label and helper slots, so
+ * the switch is named by the first and described by the second, and the line
+ * saying Live keeps sending is read out with the switch that would hide its
+ * signal rather than sitting unattached beside it.
+ *
+ * Each string carries its own color in a span inside those slots. The slots
+ * paint in theme tokens, which is right over a surface the app painted and
+ * wrong over an arbitrary camera frame; the inner span is what the text
+ * actually takes. The row is reversed so the copy leads and the switch closes
+ * it, matching the panel's reading order rather than the slots' default.
  */
 function ViewOptionRow({
   title,
@@ -58,24 +66,29 @@ function ViewOptionRow({
   onChange: (next: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-body-medium-default text-white">{title}</p>
-        <p className="text-body-small-default text-white/65">{description}</p>
-      </div>
-      <div className="shrink-0 pt-0.5">
-        <Toggle checked={checked} onChange={onChange} aria-label={title} />
-      </div>
-    </div>
+    <Toggle
+      checked={checked}
+      onChange={onChange}
+      className="w-full flex-row-reverse justify-between"
+      label={<span className="text-white">{title}</span>}
+      helperText={<span className="text-white/65">{description}</span>}
+    />
   );
 }
 
-export function CameraViewSettings() {
+export interface CameraViewSettingsProps {
+  /**
+   * Where the panel renders. The room owns it, so the panel clears the corner
+   * cluster's own stacking context: portaled into that cluster it would sit at
+   * the chrome's tier and the control row painted over it. Null until the room
+   * has committed the element, which no press can beat.
+   */
+  panelHost: HTMLElement | null;
+}
+
+export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
-  // The panel's portal target, held in state so the first render that has the
-  // box also has somewhere to portal into.
-  const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null);
   const hudAvailable = useCameraGateHudAvailable();
   const hudEnabled = useCameraGateDebugStore.use.hudEnabled();
   const setHudEnabled = useCameraGateDebugStore.use.setHudEnabled();
@@ -83,54 +96,52 @@ export function CameraViewSettings() {
   const setShowKeptFrame = useVoicePrefsStore.use.setShowKeptFrame();
 
   return (
-    <div ref={setPanelHost}>
-      <PortalContainerProvider container={panelHost}>
-        <Popover.Root open={open} onOpenChange={setOpen}>
-          <Popover.Trigger asChild>
-            <VoiceRoomControl
-              label={t("cameraViewOptions.buttonAria")}
-              bare
-              surface="camera"
-              pressed={open}
-              data-testid="camera-view-settings"
-              // Corner chrome is bare, so an open panel is the one state the
-              // treatment has no fill for: it takes the hover fill instead.
-              className={open ? "bg-black/60 text-white" : undefined}
-            >
-              <SlidersHorizontal className="size-5" />
-            </VoiceRoomControl>
-          </Popover.Trigger>
-          <Popover.Content
-            side="bottom"
-            align="end"
-            sideOffset={8}
-            data-testid="camera-view-settings-panel"
-            style={cameraModeStyle()}
-            className={cn(
-              "flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-lg p-3 shadow-lg",
-              CAMERA_MEDIA_GLASS_CLASS,
-            )}
+    <PortalContainerProvider container={panelHost}>
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger asChild>
+          <VoiceRoomControl
+            label={t("cameraViewOptions.buttonAria")}
+            bare
+            surface="camera"
+            pressed={open}
+            data-testid="camera-view-settings"
+            // Corner chrome is bare, so an open panel is the one state the
+            // treatment has no fill for: it takes the hover fill instead.
+            className={open ? "bg-black/60 text-white" : undefined}
           >
-            <p className="text-label-small-default uppercase tracking-wide text-white/60">
-              {t("cameraViewOptions.title")}
-            </p>
-            {hudAvailable ? (
-              <ViewOptionRow
-                title={t("cameraViewOptions.gateHudTitle")}
-                description={t("cameraViewOptions.gateHudDescription")}
-                checked={hudEnabled}
-                onChange={setHudEnabled}
-              />
-            ) : null}
+            <SlidersHorizontal className="size-5" />
+          </VoiceRoomControl>
+        </Popover.Trigger>
+        <Popover.Content
+          side="bottom"
+          align="end"
+          sideOffset={8}
+          data-testid="camera-view-settings-panel"
+          style={cameraModeStyle()}
+          className={cn(
+            "flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-lg p-3 shadow-lg",
+            CAMERA_MEDIA_GLASS_CLASS,
+          )}
+        >
+          <p className="text-label-small-default uppercase tracking-wide text-white/60">
+            {t("cameraViewOptions.title")}
+          </p>
+          {hudAvailable ? (
             <ViewOptionRow
-              title={t("cameraViewOptions.keptFrameTitle")}
-              description={t("cameraViewOptions.keptFrameDescription")}
-              checked={showKeptFrame}
-              onChange={setShowKeptFrame}
+              title={t("cameraViewOptions.gateHudTitle")}
+              description={t("cameraViewOptions.gateHudDescription")}
+              checked={hudEnabled}
+              onChange={setHudEnabled}
             />
-          </Popover.Content>
-        </Popover.Root>
-      </PortalContainerProvider>
-    </div>
+          ) : null}
+          <ViewOptionRow
+            title={t("cameraViewOptions.keptFrameTitle")}
+            description={t("cameraViewOptions.keptFrameDescription")}
+            checked={showKeptFrame}
+            onChange={setShowKeptFrame}
+          />
+        </Popover.Content>
+      </Popover.Root>
+    </PortalContainerProvider>
   );
 }

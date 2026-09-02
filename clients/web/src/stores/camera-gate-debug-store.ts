@@ -20,6 +20,13 @@
  *   only ever applied to the account it belongs to: `claimForUser` drops it
  *   for anyone else, so a shared browser never hands one person's thresholds
  *   to the next, whether the previous session was signed out of or expired.
+ * - Cross-tab updates: the persist middleware doesn't sync across tabs on its
+ *   own. We listen for `storage` events on the key and call
+ *   `persist.rehydrate()` to pull in the other tab's write, so the two places
+ *   the switch is offered (Settings, and the camera's view options) agree
+ *   across every window the account has open. The restored payload goes
+ *   through the same `merge` a reload does, so a hand-edited or stale value
+ *   from another tab is clamped and claimed exactly as one from disk.
  *
  * **What every write does.** A write moves this slice and nothing else. The
  * gate's live options record is owned by `lib/camera/frame-gate-debug.ts` and
@@ -194,6 +201,18 @@ const useCameraGateDebugStoreBase = create<CameraGateDebugStore>()(
 export const useCameraGateDebugStore = createSelectors(
   useCameraGateDebugStoreBase,
 );
+
+// ---------------------------------------------------------------------------
+// Cross-tab sync
+// ---------------------------------------------------------------------------
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === CAMERA_GATE_DEBUG_STORE_KEY) {
+      void useCameraGateDebugStoreBase.persist.rehydrate();
+    }
+  });
+}
 
 /**
  * Put the readout back to its shipped state when a session ends.

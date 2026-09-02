@@ -1216,6 +1216,75 @@ describe("VoiceRoom: top-right corner", () => {
     // room draws once the feed is gone.
     expect(screen.queryByTestId("camera-view-settings")).toBeNull();
   });
+
+  /**
+   * Where the view-options panel is drawn, which is the room's answer rather
+   * than the control's.
+   *
+   * Two constraints pull opposite ways. Inside the room, or the sheet's inert
+   * sweep over the portal host's other children reaches it; outside the corner
+   * cluster, or the control rows that follow that cluster at the same tier
+   * paint over it in a short viewport.
+   */
+  describe("the view-options panel's host", () => {
+    /** Open the camera and then the panel. */
+    async function openViewOptions(): Promise<void> {
+      stubMediaDevices(async () => fakeStream());
+      seedCameraCapableAssistant();
+      startOwnedSession("listening");
+      render(<VoiceRoom />);
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("camera-view-settings"));
+      });
+    }
+
+    test("sits above every layer the room draws, and last among them", async () => {
+      await openViewOptions();
+      const host = screen.getByTestId("camera-view-settings-host");
+
+      // Over the chrome band and the control rows at `z-10`, and over the
+      // connect card at `z-20`.
+      expect(host.className).toContain("z-30");
+
+      // Last in the room as well, so the tier is not the only thing holding
+      // it up.
+      for (const testId of [
+        "voice-room-camera-controls",
+        "voice-room-controls",
+      ]) {
+        const earlier = screen.getByTestId(testId);
+        expect(
+          earlier.compareDocumentPosition(host) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeGreaterThan(0);
+      }
+    });
+
+    test("keeps the panel in the room and out of the corner cluster", async () => {
+      await openViewOptions();
+      const panel = screen.getByTestId("camera-view-settings-panel");
+
+      expect(
+        screen.getByTestId("camera-view-settings-host").contains(panel),
+      ).toBe(true);
+      // Still the room's own subtree: the portal host the sheet shares with
+      // the app's other overlays never sees it, and the native preview, which
+      // hides everything outside the room, still draws it.
+      expect(roomDialog()?.contains(panel)).toBe(true);
+      expect(
+        document.getElementById("viewport-overlays")?.contains(panel) ?? false,
+      ).toBe(false);
+      // And not back inside the cluster, whose tier the control rows beat.
+      expect(
+        screen
+          .getByTestId("camera-view-settings")
+          .parentElement?.contains(panel),
+      ).toBe(false);
+    });
+  });
 });
 
 describe("VoiceRoom — mute toggle", () => {
