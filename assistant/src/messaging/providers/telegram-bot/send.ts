@@ -452,10 +452,12 @@ export async function sendTelegramTypingIndicator(
 /**
  * Telegram caps a message, and so a draft's text, at 4096 characters.
  *
- * A draft is a preview rather than the reply, so an over-long partial is
- * trimmed to the tail Telegram will accept instead of being split across
- * drafts: splitting would animate the reader back to the start of the reply
- * every time it grew past the cap.
+ * A draft is a preview rather than the reply, so an over-long partial keeps
+ * its tail rather than being split across drafts: splitting would animate the
+ * reader back to the start of the reply every time it grew past the cap. The
+ * tail is also the live end of the draft, so a reply past the cap keeps
+ * moving instead of freezing on a prefix, and anything drawn beneath it
+ * stays visible.
  */
 export const TELEGRAM_DRAFT_TEXT_LIMIT = 4096;
 
@@ -506,7 +508,7 @@ export async function sendTelegramMessageDraft(
     await callTelegramBotApi("sendMessageDraft", {
       chat_id: numericChatId,
       draft_id: draftId,
-      text: text.slice(0, TELEGRAM_DRAFT_TEXT_LIMIT),
+      text: text.slice(-TELEGRAM_DRAFT_TEXT_LIMIT),
       ...threadIdPayloadFields(opts),
     });
     return true;

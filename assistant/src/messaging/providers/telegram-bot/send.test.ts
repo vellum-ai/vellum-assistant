@@ -35,6 +35,7 @@ const {
   sendTelegramReaction,
   sendTelegramReply,
   sendTelegramRichReply,
+  TELEGRAM_DRAFT_TEXT_LIMIT,
 } = await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
@@ -544,6 +545,28 @@ describe("telegramTransport.streamReply", () => {
 
     expect(callsTo("sendMessageDraft")).toHaveLength(0);
     expect(result).toEqual({ ok: false });
+  });
+
+  test("a draft past the cap keeps its live tail, not a frozen prefix", async () => {
+    // Telegram caps a draft at 4096. Keeping the head would freeze the preview
+    // the moment the reply passed the cap, and would cut off anything drawn
+    // beneath it; the tail is the part still moving.
+    const body = "HEADMARK" + "a".repeat(5_000);
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: body + "TAILMARK",
+      appended: "TAILMARK",
+      plan: { steps: [{ label: "Summarize", status: "in_progress" }] },
+    });
+
+    const sent = (callsTo("sendMessageDraft")[0]![1] as { text: string }).text;
+    expect(sent.length).toBe(TELEGRAM_DRAFT_TEXT_LIMIT);
+    // The newest text and the plan beneath it survive; the stale head is what
+    // gets dropped, which is the opposite of a frozen prefix.
+    expect(sent).toContain("TAILMARK");
+    expect(sent).toContain("Summarize");
+    expect(sent).not.toContain("HEADMARK");
   });
 
   test("a refused draft reports not-ok so the caller falls back", async () => {

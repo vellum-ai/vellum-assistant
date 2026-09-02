@@ -78,7 +78,7 @@ export function channelCanStreamReply(replyCallbackUrl?: string): boolean {
 type StreamState = "idle" | "streaming" | "fallback";
 
 /**
- * Owns the live-content lifecycle of one Slack DM reply: it consumes the
+ * Owns the live-content lifecycle of one growing reply: it consumes the
  * assistant token stream once, opens a streamed message (in plan display
  * mode) on the first deliverable text or progress plan, whichever comes
  * first, coalesces deltas into `appendStream` calls, advances a native plan
@@ -104,11 +104,16 @@ export function createChannelReplySession(params: {
   /** Gap between coalesced `appendStream` calls. Defaults to {@link STREAM_COALESCE_MS}. */
   coalesceMs?: number;
   /**
-   * Invoked once with the streamed message `ts` the moment the Slack stream
-   * opens. Lets the caller durably record the `ts` before delivery finalizes,
-   * so a crash mid-turn leaves a breadcrumb: a retry or deduplicated
-   * redelivery reconciles against the already-visible message instead of
-   * posting a duplicate reply.
+   * Invoked once with the streamed message's id the moment a stream that
+   * BECOMES the reply opens, so the caller can durably record it before
+   * delivery finalizes: a crash mid-turn then leaves a breadcrumb, and a
+   * retry reconciles against the already-visible message instead of posting
+   * a duplicate reply.
+   *
+   * Never invoked for a preview stream. A preview leaves no message behind,
+   * so there is nothing for a retry to reconcile against, and recording its
+   * id would point recovery at a message that never existed: the retry would
+   * try to edit it and the reply would be lost rather than posted.
    */
   onStreamOpen?: (streamTs: string) => void;
 }): ChannelReplySession | undefined {
@@ -143,11 +148,11 @@ export function createChannelReplySession(params: {
   let pendingSegmentBoundary = false;
 
   let activeProgress: StreamPlan | undefined;
-  // Fingerprint of the plan state last delivered to Slack, so progress that
+  // Fingerprint of the plan state last delivered, so progress that
   // advances without new body text still flushes as a task-only append.
   let deliveredProgressKey: string | undefined;
-  // Set once a chunks-only append is rejected (e.g. a Slack tier that
-  // requires `markdown_text` on every append): the session stops attempting
+  // Set once a plan-only append is rejected (a channel that requires words
+  // on every operation): the session stops attempting
   // them and progress rides the next text append or `stopStream` instead,
   // so a rejecting workspace pays one failed call per turn, not one per
   // progress update.
@@ -159,7 +164,7 @@ export function createChannelReplySession(params: {
   const cleanedText = (): string =>
     stripVellumLinks(rawText).replace(NO_RESPONSE_INLINE_RE, "");
 
-  // Text safe to append to Slack's append-only stream: while more deltas may
+  // Text safe to hand to an append-only stream: while more deltas may
   // arrive, a trailing `[label](vellum://…)` link that is still being assembled
   // is withheld so its internal path is never emitted before the link closes
   // (and `stripVellumLinks` can remove it). Once `finished`, no delta can
@@ -211,23 +216,25 @@ export function createChannelReplySession(params: {
           confirmedLength = firstChunk.length;
           deliveredProgressKey = progressKey(plan);
           state = "streaming";
-          // The stream is already open on Slack's side, so an `onStreamOpen`
+          // The stream is already open on the channel's side, so an `onStreamOpen`
           // failure must not downgrade to fallback and repost the visible
           // reply. Losing the breadcrumb only forfeits crash-window dedup —
           // strictly better than a guaranteed duplicate post.
           try {
-            params.onStreamOpen?.(result.ts);
+            if (streamIsTheReply) {
+              params.onStreamOpen?.(result.ts);
+            }
           } catch (err) {
             log.warn(
               { err, chatId },
-              "Slack onStreamOpen callback failed; keeping streamed state",
+              "onStreamOpen callback failed; keeping streamed state",
             );
           }
         } else {
           state = "fallback";
         }
       } catch (err) {
-        log.warn({ err, chatId }, "Slack startStream failed; falling back");
+        log.warn({ err, chatId }, "Stream start failed; falling back");
         state = "fallback";
       }
     });
@@ -280,7 +287,7 @@ export function createChannelReplySession(params: {
           taskOnlyAppendsDisabled = true;
           log.warn(
             { err, chatId },
-            "Slack task-only appendStream failed; deferring progress to text appends",
+            "Plan-only append failed; deferring progress to text appends",
           );
         }
       }
@@ -479,7 +486,7 @@ export function createChannelReplySession(params: {
         } catch (err) {
           log.warn(
             { err, chatId },
-            "Slack stopStream failed; falling back to durable delivery",
+            "Stream stop failed; falling back to durable delivery",
           );
           state = "fallback";
         }

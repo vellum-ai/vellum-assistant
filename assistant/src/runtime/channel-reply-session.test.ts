@@ -243,6 +243,42 @@ describe("createChannelReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
+  test("a preview stream never records an id for crash recovery", async () => {
+    // The breadcrumb exists so a retry can reconcile against a message the
+    // reader can already see. A preview leaves none, and its id names nothing
+    // durable, so recording it would send recovery to edit a message that
+    // never existed and lose the reply instead of posting it.
+    transportImpl = { streamReply: () => undefined, streamPersists: false };
+    const opened: string[] = [];
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      onStreamOpen: (ts) => opened.push(ts),
+    })!;
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    expect(opened).toEqual([]);
+  });
+
+  test("a stream that becomes the reply does record its id", async () => {
+    const opened: string[] = [];
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      onStreamOpen: (ts) => opened.push(ts),
+    })!;
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(opened).toEqual(["stream-ts-1"]);
+  });
+
   test("streams a fast turn as a single start then stop", async () => {
     const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,

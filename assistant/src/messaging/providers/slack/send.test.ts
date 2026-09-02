@@ -483,6 +483,35 @@ describe("sendSlackStreamOp append chunking", () => {
     );
   });
 
+  test("opens on the first chunk and drains the rest, for an oversized start", async () => {
+    // A turn that completes before the first coalesced flush arrives whole in
+    // `start`. Slack caps that call the same as an append, so an unchunked
+    // start is rejected and the reply never streams at all.
+    const opening = "z".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 3_000);
+    const result = await sendSlackStreamOp("C-STREAM", {
+      action: "start",
+      anchorMessageId: "1700000000.000001",
+      text: opening,
+      appended: opening,
+    });
+
+    const starts = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.startStream",
+    );
+    const appends = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.appendStream",
+    );
+    expect(starts).toHaveLength(1);
+    expect(
+      (starts[0]![1] as { markdownText?: string }).markdownText?.length,
+    ).toBe(SLACK_STREAM_MARKDOWN_LIMIT);
+    expect(appends).toHaveLength(1);
+    expect(
+      (appends[0]![1] as { markdownText?: string }).markdownText?.length,
+    ).toBe(3_000);
+    expect(result.ok).toBe(true);
+  });
+
   test("carries the plan on the first call only, so it advances once", async () => {
     const appended = "y".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 10);
     await sendSlackStreamOp("C-STREAM", {
