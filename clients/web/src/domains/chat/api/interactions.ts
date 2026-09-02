@@ -297,20 +297,28 @@ export async function submitConfirmation(
 export async function submitContactPrompt(
   assistantId: string,
   requestId: string,
-  address: string,
-  channelType: string,
-  role?: string,
-  displayName?: string,
-  /**
-   * The verify checkbox as the guardian left it. Sent explicitly (rather than
-   * read back from the parked command) so the attest matches the form.
-   */
-  verify?: boolean,
+  input: {
+    address: string;
+    channelType: string;
+    role?: string;
+    /**
+     * The contact the broadcast named. The parked form is what the gateway
+     * binds to; this echo is what it falls back to when it cannot read one.
+     */
+    contactId?: string;
+    /** Name for a contact this address creates, as the guardian left it. */
+    displayName?: string;
+    /**
+     * The verify checkbox as the guardian left it. Sent explicitly (rather than
+     * read back from the parked command) so the attest matches the form.
+     */
+    verify?: boolean;
+  },
 ): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
     const { data, error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
-      body: { requestId, address, channelType, role, displayName, verify },
+      body: { requestId, ...input },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to submit contact prompt");

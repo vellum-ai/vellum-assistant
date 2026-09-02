@@ -520,12 +520,15 @@
   },
   "contactPromptCard": {
     "addContact": "Add a contact",
+    "addingToContact": "Adding a channel to {name}",
     "cancel": "Cancel",
     "contactSaved": "Contact saved",
     "dismiss": "Dismiss",
     "enterAddress": "Enter {channel} address",
     "markVerified": "Mark this address verified",
     "markVerifiedHelp": "A verified address is allowed to message your assistant.",
+    "namePlaceholder": "Name",
+    "notesLabel": "Notes",
     "save": "Save",
     "saving": "Saving…"
   },
