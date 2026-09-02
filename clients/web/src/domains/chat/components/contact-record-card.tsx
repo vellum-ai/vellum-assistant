@@ -161,9 +161,30 @@ export function ContactRecordCard({
                       survivor: request.currentDisplayName ?? "",
                     })}
               </Typography>
-              <ChannelList
-                channels={isDelete ? request.channels : request.donorChannels}
-              />
+              {isDelete ? (
+                <ChannelList channels={request.channels} />
+              ) : (
+                <>
+                  <Typography
+                    variant="label-small-default"
+                    className="mt-2 text-[var(--content-secondary)]"
+                  >
+                    {t("contactRecordCard.mergeDonorChannels", {
+                      name: request.donorDisplayName ?? "",
+                    })}
+                  </Typography>
+                  <ChannelList channels={request.donorChannels} />
+                  <Typography
+                    variant="label-small-default"
+                    className="mt-2 text-[var(--content-secondary)]"
+                  >
+                    {t("contactRecordCard.mergeSurvivorChannels", {
+                      name: request.currentDisplayName ?? "",
+                    })}
+                  </Typography>
+                  <ChannelList channels={request.channels} />
+                </>
+              )}
             </>
           )}
         </div>

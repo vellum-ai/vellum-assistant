@@ -287,6 +287,8 @@
     "deleteWarning": "Вместе с ним удаляются его каналы, и он больше не сможет связаться с вашим ассистентом.",
     "dismiss": "Закрыть",
     "merge": "Объединить",
+    "mergeDonorChannels": "Переходят от {name}",
+    "mergeSurvivorChannels": "Уже у {name}",
     "mergeTitle": "Объединить {donor} с {survivor}?",
     "mergeWarning": "Эти каналы перейдут к {survivor}, а запись {donor} будет удалена.",
     "namePlaceholder": "Имя",

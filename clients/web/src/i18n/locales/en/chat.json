@@ -543,6 +543,8 @@
     "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
     "dismiss": "Dismiss",
     "merge": "Merge",
+    "mergeDonorChannels": "Moving from {name}",
+    "mergeSurvivorChannels": "Already on {name}",
     "mergeTitle": "Merge {donor} into {survivor}?",
     "mergeWarning": "These channels move to {survivor}, and the {donor} record is deleted.",
     "namePlaceholder": "Name",

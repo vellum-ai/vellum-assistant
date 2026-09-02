@@ -358,6 +358,29 @@ describe("ContactRecordCard", () => {
     expect(screen.getByText(/\+15555550142/)).toBeDefined();
   });
 
+  test("merge shows the survivor's channels too, so same-named records are distinguishable", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "merge",
+          contactId: "c-1",
+          currentDisplayName: "Alice Chen",
+          channels: [{ type: "email", address: "survivor@example.com" }],
+          donorContactId: "c-2",
+          donorDisplayName: "Alice Chen",
+          donorChannels: [{ type: "phone", address: "+15555550142" }],
+        }}
+      />,
+    );
+
+    // Two contacts can share a name, so the addresses on each side are what
+    // say which record survives.
+    expect(screen.getByText(/survivor@example.com/)).toBeDefined();
+    expect(screen.getByText(/\+15555550142/)).toBeDefined();
+  });
+
   test("merge says so when the donor has no channels to move", () => {
     render(
       <ContactRecordCard
@@ -370,11 +393,13 @@ describe("ContactRecordCard", () => {
           donorContactId: "c-2",
           donorDisplayName: "Alice C",
           donorChannels: [],
+          channels: [{ type: "email", address: "survivor@example.com" }],
         }}
       />,
     );
 
     expect(screen.getByText(/no channels/i)).toBeDefined();
+    expect(screen.getByText(/survivor@example.com/)).toBeDefined();
   });
 
   test("merge offers the surviving name and no notes field", () => {

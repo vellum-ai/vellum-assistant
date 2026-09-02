@@ -543,6 +543,8 @@
     "deleteWarning": "Esto también elimina sus canales, por lo que ya no podrá contactar con tu asistente.",
     "dismiss": "Descartar",
     "merge": "Combinar",
+    "mergeDonorChannels": "Se trasladan de {name}",
+    "mergeSurvivorChannels": "Ya están en {name}",
     "mergeTitle": "¿Combinar a {donor} con {survivor}?",
     "mergeWarning": "Estos canales pasan a {survivor} y se elimina el registro de {donor}.",
     "namePlaceholder": "Nombre",
