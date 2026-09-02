@@ -12,6 +12,7 @@ export function registerPlatformConnectCommand(platform: Command): void {
         alreadyConnected?: boolean;
         baseUrl?: string;
         showPlatformLogin?: boolean;
+        credentialRejected?: boolean;
       }>("platform_connect", {});
       if (!r.ok) {
         return exitFromIpcResult(
@@ -27,6 +28,13 @@ export function registerPlatformConnectCommand(platform: Command): void {
           log.info(
             `Already connected to platform at ${r.result.baseUrl}. ` +
               `Run 'assistant platform disconnect' first to reconnect.`,
+          );
+        } else if (r.result?.credentialRejected) {
+          // The daemon's login signal has no shipped consumer, so this line is
+          // the only thing that tells the user what replaces the key.
+          log.info(
+            "The stored platform credential was rejected by the platform. " +
+              "Run 'vellum login' to sign in again and replace it.",
           );
         } else {
           log.info(
