@@ -801,9 +801,16 @@ function stripGuardianRequestCodeInCopy(
     const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
     return stripped.length > 0 ? stripped : (fallbackText ?? text);
   };
+  // A title is a headline, never the ask, so a code-only title keeps its
+  // text rather than taking the question.
+  const strippedTitle = stripGuardianRequestCodeInstructions(
+    copy.title,
+    requestCode,
+  );
 
   return {
     ...copy,
+    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
     body: strip(copy.body),
     deliveryText: copy.deliveryText
       ? strip(copy.deliveryText)

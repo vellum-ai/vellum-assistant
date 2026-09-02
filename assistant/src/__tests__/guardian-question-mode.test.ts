@@ -364,7 +364,7 @@ describe("guardian-question-mode", () => {
       },
     } as const;
     const instructionOnly = {
-      title: "Tool Grant Request",
+      title: "Tool Grant Request. Approval code: A1B2C3",
       body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
       deliveryText: "Approval code: A1B2C3",
     };
@@ -373,8 +373,17 @@ describe("guardian-question-mode", () => {
       "vellum",
       signal,
     );
+    expect(vellum.title).toBe("Tool Grant Request.");
     expect(vellum.body).toBe("Allow bash to run ls /tmp?");
     expect(vellum.deliveryText).toBe("Allow bash to run ls /tmp?");
+    // A title is a headline, so a code-only one keeps its text.
+    expect(
+      applyGuardianReplyMechanics(
+        { ...instructionOnly, title: "Approval code: A1B2C3" },
+        "vellum",
+        signal,
+      ).title,
+    ).toBe("Approval code: A1B2C3");
 
     // With no question text to fall back on, the field keeps its text rather
     // than becoming empty copy the broadcaster would skip.
