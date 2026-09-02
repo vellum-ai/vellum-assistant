@@ -207,15 +207,15 @@ describe("assistant mcp list", () => {
     expect(stdout).toContain("https://example.com/mcp");
   });
 
-  test("shows disabled status", async () => {
+  test("prints the status string from the list response", async () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: true,
         result: {
           servers: [
             {
-              id: "disabled-server",
-              status: "✗ disabled",
+              id: "error-server",
+              status: "error",
               transport: { type: "sse", url: "https://example.com/sse" },
             },
           ],
@@ -225,7 +225,7 @@ describe("assistant mcp list", () => {
 
     const { stdout, exitCode } = await runMcpList();
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("disabled");
+    expect(stdout).toContain("error");
   });
 
   test("shows stdio command info", async () => {
