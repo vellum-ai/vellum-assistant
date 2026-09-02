@@ -8,6 +8,7 @@ import type {
 import { AgentLoop } from "../agent/loop.js";
 import type { StopContext } from "../plugin-api/types.js";
 import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
+import { buildInjectionEchoNudgeText } from "../plugins/defaults/injection-echo-reject/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
 import type {
@@ -2767,5 +2768,193 @@ describe("AgentLoop", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].options?.config?.callSite).toBeUndefined();
+  });
+
+  test("rejects a reserved-envelope completion, drops its tools, and retries with the rejection in context", async () => {
+    const leakedText =
+      "<turn_context>\ncurrent_time: noon\n</turn_context>\nAlice here. The ACK looks clean.";
+    const recoveredText = "Fixed. Two things landed.";
+    let toolExecutorCalls = 0;
+    const { provider, calls } = createMockProvider([
+      {
+        content: [
+          { type: "text", text: leakedText },
+          {
+            type: "tool_use",
+            id: "tu_echo",
+            name: "read_file",
+            input: { path: "threads.md" },
+          },
+        ],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 20 },
+        stopReason: "tool_use",
+      },
+      textResponse(recoveredText),
+    ]);
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: async () => {
+        toolExecutorCalls += 1;
+        return { content: "should not run", isError: false };
+      },
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(toolExecutorCalls).toBe(0);
+
+    const retryMessages = calls[1].messages;
+    const lastRetryMsg = retryMessages[retryMessages.length - 1];
+    expect(lastRetryMsg.role).toBe("user");
+    expect(
+      lastRetryMsg.content.some(
+        (block) =>
+          block.type === "text" &&
+          block.text.includes(buildInjectionEchoNudgeText("turn_context")),
+      ),
+    ).toBe(true);
+    expect(
+      retryMessages.some((message) =>
+        message.content.some(
+          (block) => block.type === "text" && block.text.includes("Alice here"),
+        ),
+      ),
+    ).toBe(false);
+
+    const lastAssistant = [...history]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    expect(lastAssistant?.content).toEqual([
+      { type: "text", text: recoveredText },
+    ]);
+    expect(
+      history.some((message) =>
+        message.content.some(
+          (block) =>
+            block.type === "text" && block.text.includes("<turn_context>"),
+        ),
+      ),
+    ).toBe(false);
+
+    const streamed = events
+      .filter(
+        (event): event is Extract<AgentEvent, { type: "text_delta" }> =>
+          event.type === "text_delta",
+      )
+      .map((event) => event.text)
+      .join("");
+    expect(streamed).toBe(recoveredText);
+    expect(streamed).not.toContain("<turn_context>");
+    expect(
+      events.some((event) => event.type === "tool_use"),
+    ).toBe(false);
+  });
+
+  test("holds streamed reserved-tag chunks until classified, then drops them", async () => {
+    const calls: { messages: Message[] }[] = [];
+    let sendCount = 0;
+    const provider: Provider = {
+      name: "chunked-mock",
+      async sendMessage(messages, options) {
+        calls.push({ messages: [...messages] });
+        sendCount += 1;
+        if (sendCount === 1) {
+          options?.onEvent?.({ type: "text_delta", text: "<turn" });
+          options?.onEvent?.({ type: "text_delta", text: "_context>\nleaked" });
+          options?.onEvent?.({
+            type: "tool_use_preview_start",
+            toolUseId: "tu_echo",
+            toolName: "read_file",
+          });
+          return {
+            content: [
+              { type: "text", text: "<turn_context>\nleaked" },
+              {
+                type: "tool_use",
+                id: "tu_echo",
+                name: "read_file",
+                input: { path: "threads.md" },
+              },
+            ],
+            model: "mock-model",
+            usage: { inputTokens: 10, outputTokens: 8 },
+            stopReason: "tool_use",
+          };
+        }
+        options?.onEvent?.({ type: "text_delta", text: "Ready to continue." });
+        return textResponse("Ready to continue.");
+      },
+    };
+
+    const events: AgentEvent[] = [];
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: async () => ({ content: "no", isError: false }),
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
+
+    expect(calls).toHaveLength(2);
+    const streamed = events
+      .filter(
+        (event): event is Extract<AgentEvent, { type: "text_delta" }> =>
+          event.type === "text_delta",
+      )
+      .map((event) => event.text)
+      .join("");
+    expect(streamed).toBe("Ready to continue.");
+    expect(
+      events.some((event) => event.type === "tool_use_preview_start"),
+    ).toBe(false);
+  });
+
+  test("streams a mid-message reserved tag without rejecting", async () => {
+    const body =
+      "Here is an example <turn_context> tag that the platform injects.";
+    const { provider, calls } = createMockProvider([textResponse(body)]);
+    const events: AgentEvent[] = [];
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(history[1]?.content).toEqual([{ type: "text", text: body }]);
+    const streamed = events
+      .filter(
+        (event): event is Extract<AgentEvent, { type: "text_delta" }> =>
+          event.type === "text_delta",
+      )
+      .map((event) => event.text)
+      .join("");
+    expect(streamed).toBe(body);
   });
 });

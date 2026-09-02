@@ -36,6 +36,7 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { RESERVED_INJECTION_OPENER_PATTERN } from "../context/reserved-injection-envelope.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
@@ -2319,20 +2320,12 @@ function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
 }
 
 /**
- * Matches any runtime-injection tag that should never appear inside a
- * generated summary. A hit means the summary echoed an injection tag —
- * either parroted from history the summarizer read or invented outright.
- * The durable summary should be clean prose, so the match is surfaced via
- * telemetry.
- */
-const SUMMARY_MEMORY_ECHO_PATTERN =
-  /<(?:memory|memory_context|memory_image|turn_context|workspace|workspace_top_level|knowledge_base|pkb|system_reminder|now_scratchpad|NOW\.md|active_thread|active_subagents|active_workspace|active_dynamic_page|channel_capabilities|transport_hints|system_notice|non_interactive_context|temporal_context|guardian_context|inbound_actor_context|channel_turn_context|interface_turn_context|channel_command_context|voice_call_control)\b/i;
-
-/**
  * Compute light-weight quality signals for a compaction summary. Emitted
  * on every `context_compacted` event so regressions (short outputs,
  * header collapse, memory-injection leakage) are visible without having
- * to read the summary text from the DB.
+ * to read the summary text from the DB. `hadMemoryEcho` uses the shared
+ * reserved-opener pattern so a leaked injection tag in the summary is
+ * the same set the live-reply reject uses.
  */
 export function computeSummaryQualitySignals(summaryText: string): {
   charCount: number;
@@ -2341,6 +2334,6 @@ export function computeSummaryQualitySignals(summaryText: string): {
 } {
   const charCount = summaryText.length;
   const headerCount = (summaryText.match(/^## /gm) ?? []).length;
-  const hadMemoryEcho = SUMMARY_MEMORY_ECHO_PATTERN.test(summaryText);
+  const hadMemoryEcho = RESERVED_INJECTION_OPENER_PATTERN.test(summaryText);
   return { charCount, headerCount, hadMemoryEcho };
 }

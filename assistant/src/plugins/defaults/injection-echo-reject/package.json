@@ -1,0 +1,14 @@
+{
+  "name": "default-injection-echo-reject",
+  "version": "1.0.0",
+  "description": "Rejects an assistant completion that opens with a reserved runtime-injection envelope and re-queries with the rejection in context.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}

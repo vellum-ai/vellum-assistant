@@ -2,6 +2,7 @@ import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
+import { classifyLeadingReservedInjection } from "../context/reserved-injection-envelope.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -521,8 +522,9 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
  * It is a backstop, not the primary guard: each recovery class owns a
  * one-shot per-conversation bound that stops it repeating within a turn, so
  * the legitimate ceiling is one continue per class (empty-response nudge,
- * ordering repair, image downscale). This sits above that sum to leave
- * headroom while still catching pathological alternation between classes.
+ * injection-echo reject, ordering repair, image downscale). This sits above
+ * that sum to leave headroom while still catching pathological alternation
+ * between classes.
  */
 const MAX_POST_MODEL_CALL_CONTINUES = 5;
 
@@ -1655,6 +1657,137 @@ export class AgentLoop {
         // the client would otherwise see nothing.
         let streamedVisibleText = false;
 
+        // Main-agent completions that open with a reserved injection wrapper
+        // are held until the leading tag is classified. A reserved opener
+        // suppresses the live stream so a post-model-call reject can retry
+        // without leaving leaked envelope text on the client.
+        const classifyReservedOnMainAgent = callSite === "mainAgent";
+        let reservedEnvelopeState: "pending" | "clean" | "reserved" =
+          "pending";
+        let reservedEnvelopeBuffer = "";
+        let suppressedReservedInjection = false;
+        type HeldToolPreviewEvent =
+          | {
+              type: "tool_use_preview_start";
+              toolUseId: string;
+              toolName: string;
+            }
+          | {
+              type: "input_json_delta";
+              toolName: string;
+              toolUseId: string;
+              accumulatedJson: string;
+            };
+        const heldToolPreviewEvents: HeldToolPreviewEvent[] = [];
+
+        const emitLiveTextDelta = (text: string): void => {
+          if (deferAssistantOutput) {
+            return;
+          }
+          if (substitutionMap.size > 0) {
+            const combined = streamingPending + text;
+            const { emit, pending } = applyStreamingSubstitution(
+              combined,
+              substitutionMap,
+            );
+            streamingPending = pending;
+            if (emit.length > 0) {
+              streamedVisibleText = true;
+              onEvent({ type: "text_delta", text: emit });
+            }
+          } else {
+            if (text.length > 0) {
+              streamedVisibleText = true;
+            }
+            onEvent({ type: "text_delta", text });
+          }
+        };
+
+        const flushHeldToolPreviews = (): void => {
+          for (const held of heldToolPreviewEvents) {
+            onEvent(held);
+          }
+          heldToolPreviewEvents.length = 0;
+        };
+
+        const shouldHoldToolPreviews = (): boolean => {
+          if (!classifyReservedOnMainAgent) {
+            return false;
+          }
+          if (reservedEnvelopeState === "reserved") {
+            return true;
+          }
+          if (reservedEnvelopeState !== "pending") {
+            return false;
+          }
+          return reservedEnvelopeBuffer.replace(/^\s+/, "").startsWith("<");
+        };
+
+        const handleTextDelta = (text: string): void => {
+          if (deferAssistantOutput) {
+            return;
+          }
+          if (
+            !classifyReservedOnMainAgent ||
+            reservedEnvelopeState === "clean"
+          ) {
+            emitLiveTextDelta(text);
+            return;
+          }
+          if (reservedEnvelopeState === "reserved") {
+            return;
+          }
+          reservedEnvelopeBuffer += text;
+          const classification = classifyLeadingReservedInjection(
+            reservedEnvelopeBuffer,
+            { complete: false },
+          );
+          if (classification.status === "pending") {
+            return;
+          }
+          if (classification.status === "reserved") {
+            reservedEnvelopeState = "reserved";
+            suppressedReservedInjection = true;
+            reservedEnvelopeBuffer = "";
+            heldToolPreviewEvents.length = 0;
+            return;
+          }
+          reservedEnvelopeState = "clean";
+          const buffered = reservedEnvelopeBuffer;
+          reservedEnvelopeBuffer = "";
+          emitLiveTextDelta(buffered);
+          flushHeldToolPreviews();
+        };
+
+        const settleReservedEnvelopeBuffer = (): void => {
+          if (
+            !classifyReservedOnMainAgent ||
+            reservedEnvelopeState !== "pending"
+          ) {
+            return;
+          }
+          if (reservedEnvelopeBuffer.length === 0) {
+            reservedEnvelopeState = "clean";
+            return;
+          }
+          const classification = classifyLeadingReservedInjection(
+            reservedEnvelopeBuffer,
+            { complete: true },
+          );
+          if (classification.status === "reserved") {
+            reservedEnvelopeState = "reserved";
+            suppressedReservedInjection = true;
+            reservedEnvelopeBuffer = "";
+            heldToolPreviewEvents.length = 0;
+            return;
+          }
+          reservedEnvelopeState = "clean";
+          const buffered = reservedEnvelopeBuffer;
+          reservedEnvelopeBuffer = "";
+          emitLiveTextDelta(buffered);
+          flushHeldToolPreviews();
+        };
+
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1673,38 +1806,39 @@ export class AgentLoop {
               );
             }
             if (event.type === "text_delta") {
-              // Held when the turn's output is deferred — the final text is
-              // emitted once, after the `post-model-call` hook runs.
-              if (deferAssistantOutput) {
-                return;
-              }
-              // Apply sensitive-output placeholder substitution (chunk-safe)
-              if (substitutionMap.size > 0) {
-                const combined = streamingPending + event.text;
-                const { emit, pending } = applyStreamingSubstitution(
-                  combined,
-                  substitutionMap,
-                );
-                streamingPending = pending;
-                if (emit.length > 0) {
-                  streamedVisibleText = true;
-                  onEvent({ type: "text_delta", text: emit });
-                }
-              } else {
-                if (event.text.length > 0) {
-                  streamedVisibleText = true;
-                }
-                onEvent({ type: "text_delta", text: event.text });
-              }
+              handleTextDelta(event.text);
             } else if (event.type === "thinking_delta") {
               onEvent({ type: "thinking_delta", thinking: event.thinking });
             } else if (event.type === "tool_use_preview_start") {
+              if (reservedEnvelopeState === "reserved") {
+                return;
+              }
+              if (shouldHoldToolPreviews()) {
+                heldToolPreviewEvents.push({
+                  type: "tool_use_preview_start",
+                  toolUseId: event.toolUseId,
+                  toolName: event.toolName,
+                });
+                return;
+              }
               onEvent({
                 type: "tool_use_preview_start",
                 toolUseId: event.toolUseId,
                 toolName: event.toolName,
               });
             } else if (event.type === "input_json_delta") {
+              if (reservedEnvelopeState === "reserved") {
+                return;
+              }
+              if (shouldHoldToolPreviews()) {
+                heldToolPreviewEvents.push({
+                  type: "input_json_delta",
+                  toolName: event.toolName,
+                  toolUseId: event.toolUseId,
+                  accumulatedJson: event.accumulatedJson,
+                });
+                return;
+              }
               onEvent({
                 type: "input_json_delta",
                 toolName: event.toolName,
@@ -1886,8 +2020,12 @@ export class AgentLoop {
           estimatedInputTokens: preSendEstimatedTokens,
         });
 
+        settleReservedEnvelopeBuffer();
+
         // Flush any buffered streaming text from the substitution pipeline
-        if (streamingPending.length > 0) {
+        if (suppressedReservedInjection) {
+          streamingPending = "";
+        } else if (streamingPending.length > 0) {
           const flushed = applySubstitutions(streamingPending, substitutionMap);
           if (flushed.length > 0) {
             streamedVisibleText = true;
@@ -2129,7 +2267,9 @@ export class AgentLoop {
           // then silently replaces, with no retraction — so accept the turn
           // instead of discarding visible output.
           const replyWasStreamedLive =
-            responseHasVisibleText && !deferAssistantOutput;
+            responseHasVisibleText &&
+            !deferAssistantOutput &&
+            !suppressedReservedInjection;
           if (replyWasStreamedLive) {
             rlog.warn(
               { turn: toolUseTurns },
