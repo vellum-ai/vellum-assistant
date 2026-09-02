@@ -227,8 +227,12 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   later reaction or delete naming the assistant's own post resolve back to
   its row exactly; the envelope stays the row's self-description, and the
   capped envelope scan in `findMessageByProviderMessageId` survives only as
-  the transitional fallback for rows reconciled before the table. Inbound
-  Slack rows still write `slackMeta` (transitional: the end state is this
+  the transitional fallback for rows reconciled before the table. A reply
+  still pending for the retry sweep that was reserved with Slack's own
+  pre-send envelope converges onto this envelope when that reconciliation
+  stamps it (`providerMetadataOfPreSendSlackEnvelope`, transitional in the
+  same way). Inbound Slack rows still write `slackMeta` (transitional: the
+  end state is this
   envelope on every Slack row, with `slackMeta` as the read-compat arm for
   historical rows). The two envelopes map onto each other on read, in both
   directions: `readProviderMetadata` serves a `slackMeta` row as this shape

@@ -4,6 +4,7 @@ import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
   mergeSlackMetadata,
+  providerMetadataOfPreSendSlackEnvelope,
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
@@ -393,6 +394,47 @@ describe("mergeSlackMetadata", () => {
     const parsed = readSlackMetadata(merged);
     expect(parsed?.reaction).toEqual(reactionMeta.reaction);
     expect(parsed?.displayName).toBe("Bob");
+  });
+});
+
+describe("providerMetadataOfPreSendSlackEnvelope", () => {
+  test("reads a pre-send Slack envelope as the neutral shape, Slack's own fields riding along", () => {
+    expect(
+      providerMetadataOfPreSendSlackEnvelope({
+        slackMeta: JSON.stringify({
+          source: "slack",
+          eventKind: "message",
+          channelId: "C1",
+          threadTs: "1700000000.000001",
+          timestampTimezone: "America/New_York",
+        }),
+      }),
+    ).toEqual({
+      source: "slack",
+      conversationExternalId: "C1",
+      eventKind: "message",
+      threadId: "1700000000.000001",
+      timestampTimezone: "America/New_York",
+    });
+  });
+
+  test("reads as null for a reconciled row, a non-Slack envelope, and a row without slackMeta", () => {
+    expect(
+      providerMetadataOfPreSendSlackEnvelope({
+        slackMeta: JSON.stringify({
+          source: "slack",
+          eventKind: "message",
+          channelId: "C1",
+          channelTs: "1700000000.000002",
+        }),
+      }),
+    ).toBeNull();
+    expect(
+      providerMetadataOfPreSendSlackEnvelope({
+        slackMeta: JSON.stringify({ source: "telegram", channelId: "C1" }),
+      }),
+    ).toBeNull();
+    expect(providerMetadataOfPreSendSlackEnvelope({})).toBeNull();
   });
 });
 

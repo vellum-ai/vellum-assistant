@@ -1424,6 +1424,118 @@ describe("channel-reply-delivery", () => {
       expect(recordedOutboundPosts.length).toBe(0);
     });
 
+    it("stamps a reply reserved with Slack's pre-send envelope and converges it onto the neutral one", async () => {
+      // Transitional: such a row is pending for the retry sweep only when a
+      // daemon that reserved Slack replies under `slackMeta` left it there.
+      conversationMessages.push({
+        id: "msg-presend-slack",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          slackMeta: JSON.stringify({
+            source: "slack",
+            eventKind: "message",
+            channelId: "C321",
+            threadTs: "1700000000.000001",
+            timestampTimezone: "America/New_York",
+            timestampTimezoneLabel: "EST",
+          }),
+        }),
+      });
+      renderedHistoryContent = {
+        text: "hello",
+        textSegments: ["hello"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700000321.000111";
+
+      await deliverReplyViaCallback(
+        "conv-presend",
+        "C321",
+        "http://gateway/deliver/slack",
+        "assistant-presend",
+      );
+
+      expect(recordedOutboundPosts).toHaveLength(1);
+      expect(recordedOutboundPosts[0]).toMatchObject({
+        sourceChannel: "slack",
+        externalChatId: "C321",
+        providerMessageId: "1700000321.000111",
+        messageId: "msg-presend-slack",
+      });
+      const row = conversationMessages.find(
+        (m) => m.id === "msg-presend-slack",
+      );
+      const outer = JSON.parse(row?.metadata ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      // One envelope per row: the pre-send Slack one is gone, the turn's
+      // other keys survive.
+      expect(outer.slackMeta).toBeUndefined();
+      expect(outer.userMessageChannel).toBe("slack");
+      expect(envelopeOf("msg-presend-slack")).toEqual({
+        source: "slack",
+        conversationExternalId: "C321",
+        eventKind: "message",
+        threadId: "1700000000.000001",
+        messageId: "1700000321.000111",
+        timestampTimezone: "America/New_York",
+        timestampTimezoneLabel: "EST",
+      });
+      const { readSlackMetadataFromMessageMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      expect(readSlackMetadataFromMessageMetadata(row?.metadata)).toMatchObject(
+        {
+          channelTs: "1700000321.000111",
+          threadTs: "1700000000.000001",
+          timestampTimezoneLabel: "EST",
+        },
+      );
+    });
+
+    it("leaves a Slack reply that already names its post under slackMeta alone", async () => {
+      conversationMessages.push({
+        id: "msg-slack-complete",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          slackMeta: JSON.stringify({
+            source: "slack",
+            eventKind: "message",
+            channelId: "C321",
+            channelTs: "1700000100.000001",
+          }),
+        }),
+      });
+      renderedHistoryContent = {
+        text: "hello",
+        textSegments: ["hello"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700000321.000222";
+
+      await deliverReplyViaCallback(
+        "conv-complete",
+        "C321",
+        "http://gateway/deliver/slack",
+        "assistant-complete",
+      );
+
+      expect(updateMessageMetadataCalls.length).toBe(0);
+      expect(recordedOutboundPosts.length).toBe(0);
+    });
+
     it("records every segment of a split reply: the first as messageId, the rest as additional posts, all in the index", async () => {
       pushPartialAssistantRow("conv-multi", "msg-multi", "C999");
       twoSegments();

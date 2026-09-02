@@ -9,6 +9,7 @@ import {
   readProviderMessageMetadata,
 } from "../messaging/provider-message-metadata.js";
 import { editChannelMessage } from "../messaging/providers/index.js";
+import { providerMetadataOfPreSendSlackEnvelope } from "../messaging/providers/slack/message-metadata.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getMessageById,
@@ -541,7 +542,8 @@ export async function deliverReplyViaCallback(
 /**
  * Build an `onMessageTs` handler that reconciles the persisted assistant
  * row's provider message ids from the transport's authoritative ones. Every
- * channel's reply row carries the neutral envelope, so there is one rule:
+ * channel's reply row carries the neutral envelope (`readReplyEnvelope`
+ * names the one pending row that may not yet), so there is one rule:
  * the first reported id becomes `providerMeta.messageId`, the further posts
  * of a reply split at tool boundaries or length limits accumulate under
  * `additionalMessageIds`, and every id lands in the `channel_outbound_posts`
@@ -568,9 +570,7 @@ function makeSentMessageIdReconciler(
       if (row === null || row.metadata === null) {
         return;
       }
-      const providerMeta = readProviderMessageMetadata(
-        safeParseRecord(row.metadata).providerMeta,
-      );
+      const providerMeta = readReplyEnvelope(safeParseRecord(row.metadata));
       if (
         providerMeta === null ||
         providerIdPatchFor(providerMeta, ts) === null
@@ -621,9 +621,8 @@ function stampSentMessageId(messageId: string, ts: string): void {
   if (row === null || row.metadata === null) {
     return;
   }
-  const providerMeta = readProviderMessageMetadata(
-    safeParseRecord(row.metadata).providerMeta,
-  );
+  const envelope = safeParseRecord(row.metadata);
+  const providerMeta = readReplyEnvelope(envelope);
   if (providerMeta === null) {
     return;
   }
@@ -646,7 +645,27 @@ function stampSentMessageId(messageId: string, ts: string): void {
         ? { deletedAt }
         : {}),
     }),
+    // A row reserved with Slack's pre-send envelope converges on the neutral
+    // one here: `updateMessageMetadata` serializes the merged envelope with
+    // `JSON.stringify`, which drops a key set to undefined.
+    ...(envelope.slackMeta !== undefined ? { slackMeta: undefined } : {}),
   });
+}
+
+/**
+ * The envelope a reply row stamps its sent ids onto: the neutral one every
+ * reply the daemon reserves carries, or, for a reply still pending from a
+ * daemon that reserved Slack replies under Slack's own envelope, the neutral
+ * reading of that pre-send envelope (transitional; see
+ * `providerMetadataOfPreSendSlackEnvelope`).
+ */
+function readReplyEnvelope(
+  envelope: Record<string, unknown>,
+): ProviderMessageMetadata | null {
+  return (
+    readProviderMessageMetadata(envelope.providerMeta) ??
+    providerMetadataOfPreSendSlackEnvelope(envelope)
+  );
 }
 
 /**

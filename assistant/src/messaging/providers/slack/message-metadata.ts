@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { safeParseRecord } from "../../../util/json.js";
 import {
   type ProviderMessageMetadata,
   readProviderMessageMetadata,
@@ -426,6 +427,43 @@ export function slackMetadataAsProviderMetadata(
       : {}),
     ...(meta.editedAt !== undefined ? { editedAt: meta.editedAt } : {}),
     ...(meta.deletedAt !== undefined ? { deletedAt: meta.deletedAt } : {}),
+  };
+}
+
+/**
+ * The neutral envelope of a reply row reserved with Slack's own pre-send
+ * envelope: a `slackMeta` naming the channel and thread but no `channelTs`,
+ * the id the post-send reconciliation fills in.
+ *
+ * Transitional: a reply the daemon reserves carries the neutral envelope from
+ * the start, so this serves only a reply still pending for the retry sweep
+ * that a daemon reserving Slack replies under `slackMeta` left there; the
+ * reconciliation stamps it and converges the row onto the neutral envelope,
+ * Slack's own fields riding the schema's passthrough. Delete once no such
+ * row can be pending. A `slackMeta` that already names its post is a
+ * reconciled row and reads as null here; `readSlackMetadata` serves it.
+ */
+export function providerMetadataOfPreSendSlackEnvelope(
+  envelope: Record<string, unknown>,
+): ProviderMessageMetadata | null {
+  if (typeof envelope.slackMeta !== "string") {
+    return null;
+  }
+  const { source, channelId, channelTs, threadTs, ...slackFields } =
+    safeParseRecord(envelope.slackMeta);
+  if (
+    source !== "slack" ||
+    typeof channelId !== "string" ||
+    channelTs !== undefined
+  ) {
+    return null;
+  }
+  return {
+    ...slackFields,
+    source: "slack",
+    conversationExternalId: channelId,
+    eventKind: "message",
+    ...(typeof threadTs === "string" ? { threadId: threadTs } : {}),
   };
 }
 
