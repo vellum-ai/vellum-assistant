@@ -366,9 +366,10 @@ export function stripAccessRequestReplyMechanics(
 
 /**
  * {@link stripAccessRequestReplyMechanics} over every text field of a
- * channel's copy. A field that was nothing but mechanics keeps its text
- * rather than becoming empty: downstream treats an empty body as missing
- * copy.
+ * channel's copy. A field that was nothing but mechanics becomes the
+ * requester context, the deterministic ask, so a card surface never shows
+ * the mechanics it exists to avoid. A title is a headline, never the ask,
+ * so a mechanics-only title keeps its text rather than becoming empty.
  */
 export function stripAccessRequestReplyMechanicsFromCopy(
   copy: RenderedChannelCopy,
@@ -376,11 +377,14 @@ export function stripAccessRequestReplyMechanicsFromCopy(
 ): RenderedChannelCopy {
   const strip = (text: string): string => {
     const stripped = stripAccessRequestReplyMechanics(text, payload);
-    return stripped.length > 0 ? stripped : text;
+    return stripped.length > 0
+      ? stripped
+      : buildAccessRequestContextText(payload);
   };
+  const strippedTitle = stripAccessRequestReplyMechanics(copy.title, payload);
   return {
     ...copy,
-    title: strip(copy.title),
+    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
     body: strip(copy.body),
     deliveryText: copy.deliveryText
       ? strip(copy.deliveryText)

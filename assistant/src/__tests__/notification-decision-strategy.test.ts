@@ -14,6 +14,7 @@ import {
   buildAccessRequestIdentityLine,
   buildAccessRequestReplyMechanics,
   stripAccessRequestReplyMechanics,
+  stripAccessRequestReplyMechanicsFromCopy,
 } from "../notifications/access-request-copy.js";
 import type { ConversationCandidateSet } from "../notifications/conversation-candidates.js";
 import { composeFallbackCopy } from "../notifications/copy-composer.js";
@@ -810,6 +811,29 @@ describe("notification decision strategy", () => {
       const text =
         'Alice wants access. Ticket ZZ9999 tracks it. Reply "ZZ9999 trust" is not ours.';
       expect(stripAccessRequestReplyMechanics(text, payload)).toBe(text);
+    });
+
+    test("a field that was only mechanics becomes the requester context; a title keeps its text", () => {
+      const mechanics =
+        'Reply "A1B2C3 trust" to trust them, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+      const stripped = stripAccessRequestReplyMechanicsFromCopy(
+        {
+          title: "Request code: A1B2C3",
+          body: mechanics,
+          deliveryText: mechanics,
+          conversationSeedMessage: "Alice wants access.\n" + mechanics,
+        },
+        { ...payload, sourceChannel: "telegram" },
+      );
+      const context = buildAccessRequestContextText({
+        ...payload,
+        sourceChannel: "telegram",
+      });
+      expect(context).toContain("Alice");
+      expect(stripped.body).toBe(context);
+      expect(stripped.deliveryText).toBe(context);
+      expect(stripped.conversationSeedMessage).toBe("Alice wants access.");
+      expect(stripped.title).toBe("Request code: A1B2C3");
     });
 
     test("strips the invite directive without a request code", () => {
