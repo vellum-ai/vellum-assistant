@@ -360,6 +360,21 @@ export const routeTree = [
     },
   },
 
+  // The display's edge, lit while the companion is on a call. Its own
+  // click-through window the size of the display, opened and closed by the
+  // shell with the call; standalone for the reason the surface is.
+  {
+    path: "/assistant/floating/companion-call-glow",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: RootHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-call-glow-page").then(
+          (m) => m.CompanionCallGlowPage,
+        ),
+    },
+  },
+
   // Dictation overlay — live transcription pill rendered inside the
   // Electron dictation overlay BrowserWindow (a floating panel pinned
   // top-center of the screen while push-to-talk dictation is active).

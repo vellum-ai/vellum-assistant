@@ -21,7 +21,7 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP } =
+const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP, CALL_SLOT_GAP } =
   await import("./companion-surface");
 
 afterEach(() => {
@@ -546,8 +546,11 @@ describe("the companion surface's anchor in the canvas", () => {
    * window by the creature, so the creature has to sit on the same point in
    * every state the surface can be in.
    */
-  test("keeps the avatar's own point in every phase", () => {
-    for (const phase of PHASES) {
+  test("keeps the avatar's own point in every phase but the call", () => {
+    // The call bar is the one exception, and a deliberate one: the creature
+    // moves into the bar's slot, and the bar is what stays on the point. See
+    // "the companion surface's call bar".
+    for (const phase of PHASES.filter((candidate) => candidate !== "call")) {
       const { container } = render(<CompanionSurface phase={phase} />);
       expect(avatarOf(container).style.left).toBe("50%");
       expect(avatarOf(container).style.top).toBe("calc(100% - 54px)");
@@ -1154,6 +1157,97 @@ describe("Teach on the call row", () => {
 });
 
 /**
+ * The call bar: the pill closed around the creature for a call, rather than
+ * hanging off its side. Centred on the creature's own point so the host can
+ * centre it on the display, and lit at its edge in the assistant's colour.
+ */
+describe("the companion surface's call bar", () => {
+  const pillOf = (container: HTMLElement): HTMLElement => {
+    const pill = container.querySelector<HTMLElement>(
+      ".transition-\\[width\\]",
+    );
+    if (!pill) {
+      throw new Error("Expected the pill to render");
+    }
+    return pill;
+  };
+  const creatureOf = (container: HTMLElement): HTMLElement => {
+    const creature = container.querySelector<HTMLElement>(".size-11");
+    if (!creature) {
+      throw new Error("Expected the creature to render");
+    }
+    return creature;
+  };
+
+  test("is centred on the creature's point rather than hung off its side", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    const pill = pillOf(container);
+    expect(pill.style.left).toBe("50%");
+    expect(pill.style.transform).toBe("translate(-50%, -50%)");
+  });
+
+  test("hangs off the creature's side in every other open phase", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    const pill = pillOf(container);
+    expect(pill.style.left).not.toBe("50%");
+    expect(pill.style.transform).toBe("translateY(-100%)");
+  });
+
+  test("takes the creature into its leading slot", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(creatureOf(container).style.left).toMatch(/^calc\(50% - /);
+  });
+
+  test("leaves the creature on its own point outside a call", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(creatureOf(container).style.left).toBe("50%");
+  });
+
+  test("keeps the creature's slot clear ahead of the body", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    const row = pillOf(container).querySelector<HTMLElement>(".h-11.shrink-0");
+    expect(row?.style.paddingInlineStart).toBe(
+      `${INNER_GAP + 44 + CALL_SLOT_GAP}px`,
+    );
+    expect(row?.style.paddingInlineEnd).toBe(`${INNER_GAP}px`);
+  });
+
+  test("carries the call's own lit edge", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        accentHex="#ff9f45"
+      />,
+    );
+    const body = container.querySelector<HTMLElement>(".companion-call-bar");
+    expect(body).not.toBeNull();
+    expect(body?.style.getPropertyValue("--companion-ring-accent")).toBe(
+      "#ff9f45",
+    );
+  });
+
+  test("is the plain pill again outside a call", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(container.querySelector(".companion-call-bar")).toBeNull();
+  });
+
+  test("lights for the dial too, which is the call's first beat", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(container.querySelector(".companion-call-bar")).not.toBeNull();
+    expect(pillOf(container).style.left).toBe("50%");
+  });
+});
+
+/**
  * The dial: Talk pressed, and the session it asked for not yet on the surface.
  *
  * The press leaves the surface at once and the session opens after a network
@@ -1344,8 +1438,12 @@ describe("the companion surface's width ceiling", () => {
    * with the clearance at either end left off is not one that fits.
    */
   test("holds for every measured body once the pill's own clearance is on it", () => {
+    // The call bar's clearance includes the creature's slot at its leading
+    // end, since the creature is inside that bar rather than beside it.
+    const clearance = (phase: string): number =>
+      phase === "call" ? 2 * INNER_GAP + 44 + CALL_SLOT_GAP : 2 * INNER_GAP;
     const over = Object.entries(FALLBACK_WIDTHS).filter(
-      ([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING,
+      ([phase, width]) => width + clearance(phase) > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
   });

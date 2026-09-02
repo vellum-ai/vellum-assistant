@@ -13,7 +13,7 @@ import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
-import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
+import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
   answerCompanionWatchRetro,
@@ -368,26 +368,9 @@ export function CompanionSurfacePage() {
     setInteractive(onSurface || onIntro);
   };
 
-  // The avatar's own colour. A running call publishes one, and it wins: it is
-  // the colour the call surfaces elsewhere are already tinted with. Outside a
-  // call the character's palette id resolves to the same hex the app draws the
-  // creature in, so the resting capsule is the assistant's colour rather than
-  // the component's teal default.
-  //
-  // The call's hex is `""` until the avatar resolves and the contract makes no
-  // promise it parses, so anything that is not an obvious `#RRGGBB` falls
-  // through rather than being handed to CSS, where an invalid value silently
-  // drops the custom property and takes the glyph's colour with it. The
-  // resolver is handed `null` components on purpose: this window has no daemon
-  // query, so the bundled palette is the only one it can read.
-  const callAccentHex =
-    call !== null && /^#[0-9a-f]{6}$/i.test(call.accentHex)
-      ? call.accentHex
-      : undefined;
-  const accentHex =
-    callAccentHex ??
-    resolveAvatarAccentHex(null, character ?? null) ??
-    undefined;
+  // The avatar's own colour, shared with the display's edge glow so the two
+  // lights cannot come apart. See `companionAccentHexFor`.
+  const accentHex = companionAccentHexFor(call, character);
 
   return (
     <div

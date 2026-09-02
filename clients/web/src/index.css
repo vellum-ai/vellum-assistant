@@ -399,6 +399,45 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: companion-capture-pulse 700ms ease-out 1;
 }
 
+/* The call surface: the handlebar's own edge and the display's, both lit in
+ * the assistant's colour, so a live call is something the whole screen says
+ * the way a shared screen is framed. `--companion-ring-accent` is set per
+ * instance from the accent the companion's windows share. */
+@keyframes companion-call-glow-in {
+  from { opacity: 0; }
+}
+
+@keyframes companion-call-breathe {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
+}
+
+.companion-call-bar {
+  border-color: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 55%, transparent);
+  background: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 12%, rgb(23 24 27 / 0.95));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 25%, transparent),
+    0 0 20px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 45%, transparent),
+    0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+.companion-call-glow {
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
+    inset 0 0 40px 4px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 45%, transparent),
+    inset 0 0 120px 20px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 18%, transparent);
+  animation:
+    companion-call-glow-in 600ms ease-out 1,
+    companion-call-breathe 3s ease-in-out infinite;
+}
+
+/* Held lit rather than dropped: the light is what says the call is running. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-call-glow {
+    animation: none;
+  }
+}
+
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is
