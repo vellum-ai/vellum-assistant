@@ -16,7 +16,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../../db/connection.js";
-import { ContactStore } from "../../db/contact-store.js";
+import { ContactStore, MergeContactsError } from "../../db/contact-store.js";
 import {
   contactChannels as gwContactChannels,
   contacts as gwContacts,
@@ -27,6 +27,7 @@ import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 import {
   ContactRecordNativeError,
   deleteContactCore,
+  mergeContactsCore,
   upsertContactRecordCore,
 } from "./contacts-control-plane-proxy.js";
 import {
@@ -557,8 +558,10 @@ async function channelResolution(args: {
 
 interface ContactRecordSubmitBody {
   requestId: string;
-  operation?: "create" | "update" | "delete";
+  operation?: "create" | "update" | "delete" | "merge";
   contactId?: string;
+  /** The contact being merged away. Required for a merge. */
+  donorContactId?: string;
   displayName?: string;
   notes?: string | null;
   /** The channels the delete confirmation listed. */
@@ -571,13 +574,14 @@ interface ContactRecordSubmitBody {
  * POST /v1/contacts/record/submit
  *
  * The record half of the contact-form rail: the guardian confirmed (and may
- * have edited) a create, update, or delete the assistant proposed. Writes it,
- * then unblocks the parked CLI call.
+ * have edited) a create, update, delete, or merge the assistant proposed.
+ * Writes it, then unblocks the parked CLI call.
  *
  * The submitted operation is trusted as posted rather than checked against the
  * parked proposal. A caller who can reach this route can already reach
- * `POST /v1/contacts` and `DELETE /v1/contacts/:id` at the same edge auth, so
- * a readback would buy no privilege, only a round trip.
+ * `POST /v1/contacts`, `POST /v1/contacts/merge` and `DELETE /v1/contacts/:id`
+ * at the same edge auth, so a readback would buy no privilege, only a round
+ * trip.
  */
 export async function handleContactRecordSubmit(
   req: Request,
@@ -592,7 +596,7 @@ export async function handleContactRecordSubmit(
     );
   }
 
-  const { requestId, operation, contactId } = body;
+  const { requestId, operation, contactId, donorContactId } = body;
 
   if (!requestId || typeof requestId !== "string") {
     return Response.json(
@@ -619,12 +623,14 @@ export async function handleContactRecordSubmit(
   if (
     operation !== "create" &&
     operation !== "update" &&
-    operation !== "delete"
+    operation !== "delete" &&
+    operation !== "merge"
   ) {
     return Response.json(
       {
         accepted: false,
-        error: 'operation must be one of: "create", "update", "delete"',
+        error:
+          'operation must be one of: "create", "update", "delete", "merge"',
       },
       { status: 400 },
     );
@@ -635,6 +641,21 @@ export async function handleContactRecordSubmit(
       { accepted: false, error: `contactId is required to ${operation}` },
       { status: 400 },
     );
+  }
+
+  if (operation === "merge") {
+    if (!donorContactId || typeof donorContactId !== "string") {
+      return Response.json(
+        { accepted: false, error: "donorContactId is required to merge" },
+        { status: 400 },
+      );
+    }
+    if (donorContactId === contactId) {
+      return Response.json(
+        { accepted: false, error: "Cannot merge a contact with itself" },
+        { status: 400 },
+      );
+    }
   }
 
   // A non-string displayName (an explicit null included) reads as omitted, so
@@ -653,6 +674,7 @@ export async function handleContactRecordSubmit(
         requestId,
         operation,
         contactId,
+        donorContactId,
         displayName,
         notes: body.notes,
         expectedChannels: Array.isArray(body.expectedChannels)
@@ -671,13 +693,21 @@ export async function handleContactRecordSubmit(
  */
 async function writeContactRecord(input: {
   requestId: string;
-  operation: "create" | "update" | "delete";
+  operation: "create" | "update" | "delete" | "merge";
   contactId?: string;
+  donorContactId?: string;
   displayName?: string;
   notes?: string | null;
   expectedChannels?: Array<{ type: string; address: string }>;
 }): Promise<GuardianFormWriteOutcome> {
-  const { requestId, operation, contactId, displayName, notes } = input;
+  const {
+    requestId,
+    operation,
+    contactId,
+    donorContactId,
+    displayName,
+    notes,
+  } = input;
 
   try {
     if (operation === "delete") {
@@ -689,6 +719,28 @@ async function writeContactRecord(input: {
       await deleteContactCore(contactId!, input.expectedChannels);
       log.info({ requestId, contactId }, "contact-record-submit: deleted");
       return { resolution: { contactId } };
+    }
+
+    if (operation === "merge") {
+      await mergeContactsCore({
+        keepId: contactId!,
+        mergeId: donorContactId!,
+      });
+      // The guardian can rename the survivor on the same form. The rename is
+      // its own write, ordered after the merge so a refused merge renames
+      // nothing.
+      if (displayName !== undefined) {
+        await upsertContactRecordCore({
+          operation: "update",
+          contactId: contactId!,
+          displayName,
+        });
+      }
+      log.info(
+        { requestId, contactId, donorContactId },
+        "contact-record-submit: merged",
+      );
+      return { resolution: { contactId, merged: true } };
     }
 
     const { contact, notesSaved, nothingWritten } =
@@ -705,7 +757,10 @@ async function writeContactRecord(input: {
     );
     return { resolution: { contactId: writtenId, notesSaved, nothingWritten } };
   } catch (err) {
-    if (err instanceof ContactRecordNativeError) {
+    if (
+      err instanceof ContactRecordNativeError ||
+      err instanceof MergeContactsError
+    ) {
       return { failure: { error: err.message, status: err.statusCode } };
     }
     log.error({ err, requestId, operation }, "contact-record-submit: failed");

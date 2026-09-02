@@ -239,7 +239,7 @@ export const ROUTES: GatewayRouteDefinition[] = [
     operationId: "contactsRecordSubmit",
     summary: "Submit a contact-record form",
     description:
-      "Completes a contact_record_request the assistant broadcast: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command. A cancelled submission unblocks it without writing.",
+      "Completes a contact_record_request the assistant broadcast: writes the record the guardian confirmed, then unblocks the waiting command. A create or update writes display name and notes, never a channel; a merge moves the donor's channels to the survivor and deletes the donor. A cancelled submission unblocks the command without writing.",
     tags: ["contacts"],
     requestBody: ContactRecordSubmitRequestSchema,
     responseBody: z.object({
