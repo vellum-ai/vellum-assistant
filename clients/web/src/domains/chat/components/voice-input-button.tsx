@@ -1064,7 +1064,10 @@ export const VoiceInputButton = forwardRef<
       // timeslice should come back paired with that consumer.
       recorder.start();
       sessionStartedAtRef.current = Date.now();
-      vsStartRecording();
+      // Carried on the store because the key may be up again by now: the
+      // flag was read before the awaits above, and the surface that draws
+      // this recording reads the store, not the flag.
+      vsStartRecording({ hold: holdSession });
       onError?.(null);
     } catch (err) {
       mediaRecorderRef.current = null;

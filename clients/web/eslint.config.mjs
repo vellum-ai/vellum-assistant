@@ -269,9 +269,7 @@ const authBoundaryAllowedPaths = [
  * globs relative to `clients/web/`. Never shrink this list to silence a
  * violation; fix the copy or add an eslint-disable with a reason.
  */
-const i18nEnforcedPaths = [
-  "src/**/*.{ts,tsx}",
-];
+const i18nEnforcedPaths = ["src/**/*.{ts,tsx}"];
 
 /**
  * Paths where em dashes are enforced. See root `AGENTS.md`, "Em Dashes".
@@ -289,6 +287,10 @@ const emDashEnforcedPaths = [
   "src/i18n/**/*.{ts,tsx}",
   "src/domains/terminal/**/*.{ts,tsx}",
   "src/domains/chat/channel-sidecar/**/*.{ts,tsx}",
+  // File-scoped rather than the whole `surfaces/` directory, which carries
+  // pre-existing em dashes that must not be swept retroactively.
+  "src/domains/chat/components/surfaces/watch-retro-surface.tsx",
+  "src/domains/chat/components/surfaces/watch-retro-surface.test.tsx",
 ];
 
 const eslintConfig = defineConfig([

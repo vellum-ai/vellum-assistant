@@ -217,7 +217,9 @@
   },
   "detailPrimitives": {
     "copied": "已复制",
-    "copy": "复制"
+    "copy": "复制",
+    "showLess": "显示更少",
+    "showMore": "显示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止录音"
@@ -316,6 +318,9 @@
   },
   "lazyBoundary": {
     "loadError": "此部分无法加载。请重新加载页面重试。"
+  },
+  "localNotification": {
+    "goToConversation": "前往对话"
   },
   "macosAppBanner": {
     "ariaLabel": "下载 macOS 应用",

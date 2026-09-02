@@ -672,8 +672,9 @@ export function ChatComposer({
       // welcome card), and dismissible on all of them. The card precedes the
       // live-voice `getUserMedia` alert, so `docs/CAPACITOR.md` § OS permission
       // requests governs it: dismissing cancels outright and never reaches
-      // `getUserMedia`, so the only path that *does* reach the alert is still
-      // the direct one ("Start talking").
+      // `getUserMedia`, so the only path that does reach the alert is still
+      // the direct one ("Start talking"). A widget or Siri launch can open
+      // the card by accident; dismiss is how that user gets out.
       if (firstRunCardIntercepts()) {
         return;
       }

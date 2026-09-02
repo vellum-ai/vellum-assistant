@@ -1285,6 +1285,25 @@ describe("the watch flag when the app's window goes away", () => {
 
     expect(pushes.length).toBe(before);
   });
+
+  /**
+   * A held key's recording lives in the same window, and goes down with it
+   * the same way. Left standing, the pill would go on listening to a
+   * microphone that is no longer open, with the last words it heard in it.
+   */
+  test("gives up a dictation the same way", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ dictating: "listening", dictationText: "the quick brown" }),
+    );
+    expect(state().dictating).toBe("listening");
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().dictating).toBeUndefined();
+    expect(state().dictationText).toBeUndefined();
+  });
 });
 
 /**

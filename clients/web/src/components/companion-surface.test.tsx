@@ -1785,6 +1785,99 @@ describe("the avatar's resting collapse", () => {
     expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
   });
 
+  /** The box the words are drawn in, the one that takes its direction from them. */
+  const transcriptBox = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>("[dir=auto]");
+
+  /**
+   * The words are the point of the state. A speaker dictating into another
+   * application cannot see what landed there yet, and this is the only surface
+   * telling them anything.
+   */
+  test("draws the words once there are any", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="dictating"
+        dictating="listening"
+        dictationText="the quick brown fox"
+      />,
+    );
+
+    expect(container.textContent).toContain("the quick brown fox");
+  });
+
+  /** Until then the status word stands in, rather than an empty line. */
+  test("falls back to the status word with nothing recognised yet", () => {
+    const { container } = render(
+      <CompanionSurface phase="dictating" dictating="listening" />,
+    );
+
+    expect(container.textContent).toContain("Listening");
+  });
+
+  test("says it is thinking once the keys are up", () => {
+    const { container } = render(
+      <CompanionSurface phase="dictating" dictating="transcribing" />,
+    );
+
+    expect(container.textContent).toContain("Thinking");
+  });
+
+  /**
+   * A line that filled from the start would freeze on the opening words and
+   * leave the speaker watching the part they are least unsure of. The words
+   * sit at the end of their box, so a run longer than the box overflows at
+   * the start, where the clipping is. The end is the words' own: the box
+   * takes its direction from them rather than forcing one, so a right-to-left
+   * transcript keeps its last words in view the same way.
+   */
+  test("clips the words from the front, not the end", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="dictating"
+        dictating="listening"
+        dictationText="a sentence long enough to run past the end of the pill"
+      />,
+    );
+
+    const box = transcriptBox(container);
+    expect(box).not.toBeNull();
+    expect(box?.className).toContain("justify-end");
+    expect(box?.className).toContain("overflow-hidden");
+    expect(box?.getAttribute("dir")).toBe("auto");
+    expect(box?.style.direction).toBe("");
+    // Revised several times a second; a live region would read every guess.
+    expect(box?.getAttribute("aria-live")).toBeNull();
+  });
+
+  /**
+   * Every other body here is as wide as its content, and a sentence has no
+   * width to be as wide as. A stated width is what keeps the pill inside the
+   * canvas main sized for it, and what keeps it still: the box is the same
+   * size with three words as with three hundred, and the same size as the
+   * status word's box before there were any, so the pill grows to its
+   * dictating width once rather than on every partial.
+   */
+  test("gives the words a fixed box rather than measuring them", () => {
+    const widthOf = (text?: string) => {
+      const { container } = render(
+        <CompanionSurface
+          phase="dictating"
+          dictating="listening"
+          dictationText={text}
+        />,
+      );
+      const box =
+        transcriptBox(container) ??
+        container.querySelector<HTMLElement>(".truncate");
+      return box?.style.width;
+    };
+
+    expect(widthOf("x".repeat(400))).toBe("244px");
+    expect(widthOf("three words here")).toBe("244px");
+    expect(widthOf(undefined)).toBe("244px");
+  });
+
   /** The creature fades with it rather than being cut, and comes back whole. */
   test("fades the creature out at rest and back in expanded", () => {
     const { container: resting } = render(<CompanionSurface phase="resting" />);

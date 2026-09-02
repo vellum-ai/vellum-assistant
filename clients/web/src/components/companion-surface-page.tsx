@@ -89,6 +89,7 @@ export function CompanionSurfacePage() {
   const [dictating, setDictating] = useState<CompanionDictating | undefined>(
     undefined,
   );
+  const [dictationText, setDictationText] = useState("");
   const [turns, setTurns] = useState<CompanionTurn[]>([]);
   // Empty until the app's window publishes one, which the surface covers with
   // the component's own fallback wording rather than drawing a blank name.
@@ -178,6 +179,7 @@ export function CompanionSurfacePage() {
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
       setDictating(state.dictating);
+      setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
       // Absence is no reads, for the same reason absence is no session: a
       // state that cannot say how much of the screen was taken has not
@@ -508,6 +510,7 @@ export function CompanionSurfacePage() {
         assistantName={assistantName === "" ? undefined : assistantName}
         call={call ?? undefined}
         dictating={dictating}
+        dictationText={dictationText}
         // Unlike the turns, this is drawn whether or not the exchange on the
         // card is this surface's own: the question it answers is whether the
         // assistant is busy, and it is busy on someone else's conversation just

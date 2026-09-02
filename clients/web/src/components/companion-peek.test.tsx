@@ -9,6 +9,7 @@ import {
   PEEK_EDGES,
   PEEK_EXPOSED_MAX,
   PEEK_INTERVAL_SECONDS,
+  PEEK_SIZE_MAX,
   peekDelayMs,
   peekGeometry,
   pickEdge,
@@ -55,13 +56,36 @@ describe("how far the creature comes up", () => {
     }
   });
 
-  test("draws a high-faced creature at full size", () => {
+  /**
+   * The size cap, not the capsule's width: a square as wide as the capsule
+   * puts a full-width body's sides past the capsule's rounded ends.
+   */
+  test("draws a high-faced creature at the size cap, inside the capsule", () => {
     const geometry = peekGeometry(
       { eyeCenterFrac: 0.3, eyeHalfFrac: 0.05 },
       CAPSULE.width,
     );
-    expect(geometry.size).toBe(CAPSULE.width);
-    expect(geometry.exposed).toBeCloseTo(28 * 0.39);
+    expect(PEEK_SIZE_MAX).toBeLessThan(CAPSULE.width);
+    expect(geometry.size).toBe(PEEK_SIZE_MAX);
+    expect(geometry.exposed).toBeCloseTo(PEEK_SIZE_MAX * 0.39);
+  });
+
+  /**
+   * The ghost is the catalog creature the cap constrains: its face sits high
+   * enough that exposure alone would draw it at the capsule's full width.
+   */
+  test("never draws any creature in the catalog wider than the cap", () => {
+    for (const shape of BUNDLED_COMPONENTS.bodyShapes) {
+      for (const eyes of BUNDLED_COMPONENTS.eyeStyles) {
+        const metrics = avatarPeekMetrics(BUNDLED_COMPONENTS, {
+          bodyShape: shape.id,
+          eyeStyle: eyes.id,
+          color: "teal",
+        });
+        const geometry = peekGeometry(metrics!, CAPSULE.width);
+        expect(geometry.size).toBeLessThanOrEqual(PEEK_SIZE_MAX);
+      }
+    }
   });
 
   /** Rather than exposing a tall slab of body to get its eyes over the rim. */

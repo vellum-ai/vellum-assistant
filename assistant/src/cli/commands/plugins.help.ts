@@ -10,12 +10,13 @@ import {
 
 export const pluginsHelp: CliCommandHelp = {
   name: "plugins",
-  description: "List, search, install, and manage plugins.",
+  description:
+    "Manage external plugins, which bundle apps, channels, MCPs, skills and more from other Vellum users",
   helpText: `
-Plugins are superpowers: installable extensions that add skills, tools, integrations,
-and so much more from the Vellum Community. When the user asks to set up,
-install, connect, or integrate a product, service, or app, run
-'assistant plugins search <name>' first before searching the web.`,
+Plugins are superpowers: installable extensions that add apps, channels, MCPs,
+skills, tools, integrations, and so much more from other Vellum users. When the
+user asks to set up, install, connect, or integrate a product, service, or app,
+run 'assistant plugins search <name>' first before searching the web.`,
   subcommands: [
     {
       name: "install",

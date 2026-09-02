@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  collapseHorizontalWhitespace,
   describeMedia,
   mediaEmbeds,
+  sanitizeMultilineMessagePreview,
   stripMarkdownForPreview,
 } from "../notification-utils.js";
 
@@ -227,6 +229,35 @@ describe("mediaEmbeds", () => {
         mediaEmbeds("![a][ref]\n\n[ref]: vellum://workspace/a.png")[0]?.tracked,
       ).toBe(false);
     });
+  });
+});
+
+describe("collapseHorizontalWhitespace", () => {
+  test("keeps paragraph breaks and trims line padding", () => {
+    expect(collapseHorizontalWhitespace("  Here:\n\n  item  \n  other  ")).toBe(
+      "Here:\n\nitem\nother",
+    );
+  });
+
+  test("collapses three or more newlines to one blank line", () => {
+    expect(collapseHorizontalWhitespace("a\n\n\n\nb")).toBe("a\n\nb");
+  });
+});
+
+describe("sanitizeMultilineMessagePreview", () => {
+  test("keeps newlines and strips other control characters", () => {
+    expect(sanitizeMultilineMessagePreview("Hello\n\tWorld")).toBe(
+      "Hello\nWorld",
+    );
+    expect(sanitizeMultilineMessagePreview("Test\r\nMessage")).toBe(
+      "Test\nMessage",
+    );
+  });
+
+  test("clamps to the shared preview budget", () => {
+    const result = sanitizeMultilineMessagePreview("A".repeat(250));
+    expect(result).toHaveLength(200);
+    expect(result.endsWith("…")).toBe(true);
   });
 });
 

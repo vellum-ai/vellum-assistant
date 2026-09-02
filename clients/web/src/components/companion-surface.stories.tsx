@@ -122,7 +122,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "watching", "call", "typing"],
+      options: ["resting", "hover", "dictating", "watching", "call", "typing"],
     },
     backdrop: {
       control: "inline-radio",
@@ -263,6 +263,41 @@ export const RestingPeeks: Story = {
       })}
     </div>
   ),
+};
+
+/**
+ * Mid-dictation, with the words arriving.
+ *
+ * The state the surface spends a hold in: the user is talking into another
+ * application and this is the only thing on screen telling them anything is
+ * being heard.
+ */
+export const Dictating: Story = {
+  args: {
+    phase: "dictating",
+    dictating: "listening",
+    dictationText: "the quick brown fox jumps over the lazy dog",
+  },
+};
+
+/** Long enough to run past the pill, so the front of it is clipped away. */
+export const DictatingLongSentence: Story = {
+  args: {
+    phase: "dictating",
+    dictating: "listening",
+    dictationText:
+      "I was thinking we could take the whole thing apart and start again from the shape of the problem rather than the code",
+  },
+};
+
+/** Before the recogniser has produced anything to show. */
+export const DictatingSilent: Story = {
+  args: { phase: "dictating", dictating: "listening" },
+};
+
+/** The keys are up and the last of it is still being transcribed. */
+export const DictatingTranscribing: Story = {
+  args: { phase: "dictating", dictating: "transcribing" },
 };
 
 /**
