@@ -50,6 +50,9 @@ export interface BackgroundFailureReport {
    * Conversation this failure is displayed in, when the caller has one.
    * Set it only when the notification would duplicate what is already on
    * screen; `sourceContextId` is polymorphic and cannot be trusted for this.
+   * Holding a conversation id is not enough on its own: the caller has to
+   * know that this particular failure was rendered there, otherwise
+   * suppression destroys the only signal the user would ever get.
    */
   presenceConversationId?: string;
 }
