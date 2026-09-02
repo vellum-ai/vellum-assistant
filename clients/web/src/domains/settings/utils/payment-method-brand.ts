@@ -14,8 +14,18 @@ const BRAND_LABELS: Record<string, string> = {
   unionpay: "UnionPay",
 };
 
-export function brandLabel(brand: string): string {
-  return BRAND_LABELS[brand.toLowerCase()] ?? brand;
+/**
+ * The display label, or null when there is no brand to name. Stripe's own
+ * `"unknown"`, for a card whose network it could not identify, counts as no
+ * brand: passed through it reads as a word mid sentence, as in "Replacing
+ * unknown •••• 4242".
+ */
+export function brandLabel(brand: string | null): string | null {
+  const key = brand?.toLowerCase();
+  if (key == null || key === "unknown") {
+    return null;
+  }
+  return BRAND_LABELS[key] ?? brand;
 }
 
 /** The brand label, or the one fallback for a card Stripe gave no brand for. */
@@ -23,7 +33,7 @@ export function brandDisplayLabel(
   t: TFunction<"settings">,
   brand: string | null,
 ): string {
-  return brand ? brandLabel(brand) : t("paymentMethodRow.savedCard");
+  return brandLabel(brand) ?? t("paymentMethodRow.savedCard");
 }
 
 /** Carries its own leading separator, so callers render it as-is. */

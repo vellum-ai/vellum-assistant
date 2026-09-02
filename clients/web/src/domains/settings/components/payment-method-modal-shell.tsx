@@ -270,35 +270,38 @@ function replaceSubtitle(
   t: TFunction<"settings">,
   card: CardOnFile | null,
 ): string {
-  const brand = card?.brand ? brandLabel(card.brand) : null;
-  const last4 = card?.last4 ?? null;
+  const brand = brandLabel(card?.brand ?? null);
+  const last4 = card?.last4;
+  if (!brand && !last4) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitle");
+  }
+
   // `cardExpiryLabel` carries its own leading separator, so the sentences take
   // it behind a single space, or take nothing at all.
-  const expiryLabel = card
-    ? cardExpiryLabel(t, card.expMonth, card.expYear)
-    : null;
+  const expiryLabel = cardExpiryLabel(
+    t,
+    card?.expMonth ?? null,
+    card?.expYear ?? null,
+  );
   const expiry = expiryLabel ? ` ${expiryLabel}` : "";
 
-  if (brand && last4) {
-    return t("autoTopUpPaymentMethodModal.replaceSubtitleCard", {
-      brand,
-      last4,
-      expiry,
-    });
-  }
-  if (last4) {
-    return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoBrand", {
-      last4,
-      expiry,
-    });
-  }
-  if (brand) {
+  if (!last4) {
     return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoLast4", {
       brand,
       expiry,
     });
   }
-  return t("autoTopUpPaymentMethodModal.replaceSubtitle");
+  if (!brand) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoBrand", {
+      last4,
+      expiry,
+    });
+  }
+  return t("autoTopUpPaymentMethodModal.replaceSubtitleCard", {
+    brand,
+    last4,
+    expiry,
+  });
 }
 
 /** Titles the success panel, and the screen-reader title above it. */
@@ -306,9 +309,10 @@ function savedPanelTitle(
   t: TFunction<"settings">,
   card: SavedCard | null,
 ): string {
-  return card?.brand && card.last4
+  const brand = brandLabel(card?.brand ?? null);
+  return brand && card?.last4
     ? t("autoTopUpPaymentMethodModal.savedTitle", {
-        brand: brandLabel(card.brand),
+        brand,
         last4: card.last4,
       })
     : t("autoTopUpPaymentMethodModal.savedTitleGeneric");

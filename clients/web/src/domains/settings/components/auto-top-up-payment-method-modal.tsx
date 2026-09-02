@@ -64,7 +64,7 @@ export interface AutoTopUpPaymentMethodModalProps {
   open: boolean;
   onClose: () => void;
   mode?: PaymentMethodModalMode;
-  /** The card being replaced; rendered only in `replace` mode. */
+  /** The card being replaced; named in the subtitle only in `replace` mode. */
   cardOnFile?: CardOnFile | null;
   /** Seeds the Address Element so a known billing address is not retyped. */
   billingAddress?: BillingAddress | null;
@@ -568,11 +568,9 @@ function SetupCardForm({
           wallets: { link: "auto", applePay: "never", googlePay: "never" },
           // The Address Element below owns the billing address (the saved PM
           // needs it for tax) and always collects a name, so both are
-          // suppressed here. Email is asked for only when the account does
-          // not already know it, since Link's banner carries its own email
-          // entry; `defaultValues` is deliberately not passed, because a
-          // member email there would mount an OTP takeover ahead of the card
-          // fields (revisit separately).
+          // suppressed here. `defaultValues` is deliberately not passed: a
+          // Link member's email there would mount an OTP takeover ahead of the
+          // card fields.
           fields: {
             billingDetails: {
               name: "never",

@@ -2,11 +2,13 @@
  * The payment-method modal chrome in each of its states.
  *
  * The real modal mounts Stripe Elements as `children`, and those iframes
- * cannot load in Storybook, so the stories pass grey blocks the same height as
- * the Stripe inputs. That keeps the header, state slot, and footer laid out at
- * the real proportions while the shell stays reviewable without a publishable
- * key. The two loading stories are the exception: the skeleton that covers that
- * boot is our own component, so they render the real one.
+ * cannot load in Storybook, so the stories pass grey blocks at the height of
+ * the manual-entry fields. That keeps the header, state slot, and footer laid
+ * out at the manual-entry proportions while the shell stays reviewable without
+ * a publishable key; the live form runs taller whenever Link renders its banner
+ * or its signed-in panel. The two loading stories are the exception: the
+ * skeleton that covers that boot is our own component, so they render the real
+ * one.
  *
  * Light, dark, and velvet all come from the theme toolbar, so there is no
  * per-theme story.
@@ -58,6 +60,28 @@ export const ReplaceIdle: Story = {
   args: {
     mode: "replace",
     cardOnFile: { brand: "visa", last4: "4242", expMonth: 4, expYear: 2042 },
+  },
+};
+
+/**
+ * A card the platform has digits but no brand for: the subtitle names the
+ * ending instead of the network.
+ */
+export const ReplaceCardWithoutBrand: Story = {
+  args: {
+    mode: "replace",
+    cardOnFile: { brand: null, last4: "4242", expMonth: 4, expYear: 2042 },
+  },
+};
+
+/**
+ * The mirror case, a brand with no digits: the subtitle names the network on
+ * its own rather than trailing four empty dots.
+ */
+export const ReplaceCardWithoutLast4: Story = {
+  args: {
+    mode: "replace",
+    cardOnFile: { brand: "visa", last4: null, expMonth: 4, expYear: 2042 },
   },
 };
 
