@@ -523,9 +523,9 @@ describe("AppIconRow", () => {
       await waitFor(() => {
         expect(previewFill()).toBe(flavorLauncherBackground("dev"));
       });
-      // Naming one ground for both platforms is only honest while the flavor
-      // declares that shared color, so the row cannot drift back to a literal
-      // of its own without failing here.
+      // Naming one ground for both platforms holds only while the flavor
+      // resource and the shared constant agree, so this comparison fails
+      // whenever either side moves alone.
       expect(flavorLauncherBackground("dev")).toBe(APP_ICON_GROUNDS.dev);
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
