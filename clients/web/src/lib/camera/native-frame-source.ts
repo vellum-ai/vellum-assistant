@@ -73,8 +73,10 @@
  *   instance of it: the plugin holds one capture callback, so every sample
  *   queues behind the last (see `captureSlot`). A bridge that answers slowly
  *   therefore slows the poll rather than corrupting it, and the pair's own
- *   bound turns the added delay into a discard rather than a false accept. A
- *   bridge that never answers at all stops the poll for good, which a stop and
+ *   bound turns the added delay into a discard rather than a false accept.
+ *   Only a call that was ISSUED can hold the queue: a sample whose run ends
+ *   while it is still waiting leaves without touching the bridge. An issued
+ *   call that is never answered does stop the poll for good, which a stop and
  *   a restart do not clear: there is no cure for it here, because releasing the
  *   queue would issue exactly the concurrent call the queue exists to prevent,
  *   and a camera that has stopped answering has nothing more to give. It looks
@@ -256,8 +258,9 @@ async function decodeWithImageBitmap(blob: Blob): Promise<DecodedFrame | null> {
  * source or per generation, which is the only scope the plugin's own single
  * slot actually has.
  *
- * Generations still decide what a RESULT is worth. This only decides when a
- * call may be issued.
+ * Generations decide both whether a queued call is still worth issuing when
+ * the slot reaches it and what its result is worth once it answers. The queue
+ * decides only the order.
  */
 let captureSlot: Promise<void> = Promise.resolve();
 
@@ -315,11 +318,19 @@ export function createNativeFrameSource(
    * asked for it, which would inflate the pair's gap and discard a pair that
    * was really taken back to back.
    */
-  function issueCapture(): Promise<{
+  function issueCapture(run: number): Promise<{
     encoded: string | null;
     requestedAtMs: number;
-  }> {
+  } | null> {
     const issued = captureSlot.then(async () => {
+      // Read when the slot opens, not only when the call returns. A run that
+      // ended while this waited belongs to a camera that may be closed, and a
+      // request into a closed camera can wait forever on a queue that has no
+      // timeout, stranding every sample behind it for the life of the tab.
+      // Leaving without touching the bridge costs nothing and frees the slot.
+      if (generation !== run) {
+        return null;
+      }
       const requestedAtMs = now();
       const encoded = await captureSample();
       return { encoded, requestedAtMs };
@@ -338,7 +349,11 @@ export function createNativeFrameSource(
     run: number,
     bound: CaptureBound,
   ): Promise<CapturedSample | null> {
-    const { encoded, requestedAtMs } = await issueCapture();
+    const issued = await issueCapture(run);
+    if (!issued) {
+      return null;
+    }
+    const { encoded, requestedAtMs } = issued;
     const capturedAtMs = bound === "earliest" ? requestedAtMs : now();
     // A stop, a flip, or a camera mid-teardown answers with nothing. That is
     // the ordinary shape of this call and not a reason to end the poll.

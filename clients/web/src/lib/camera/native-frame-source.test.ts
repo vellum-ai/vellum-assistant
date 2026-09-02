@@ -1384,6 +1384,46 @@ describe("native frame source bridge serialization", () => {
     newer.stop();
   });
 
+  test("drops a queued sample whose run ended before the slot reached it", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const offers: FrameGateDecision[] = [];
+    const source = makeSource(capture, decode, (decision) => {
+      offers.push(decision);
+    });
+
+    // One call goes out and stays out.
+    source.start();
+    capture.holdNext();
+    await startPair();
+    expect(capture.callCount()).toBe(1);
+
+    // A second run queues a sample behind it, then ends while it waits.
+    source.stop();
+    source.start();
+    await pollTimes(1);
+    expect(capture.callCount()).toBe(1);
+    source.stop();
+
+    capture.releaseHeld();
+    await settle();
+
+    // The queued sample belongs to a run whose camera may be closed, and a
+    // request into a closed camera can wait forever on a queue with no
+    // timeout. It leaves without touching the bridge instead, which is also
+    // what keeps the slot free for whoever comes next.
+    expect(capture.callCount()).toBe(1);
+
+    source.start();
+    await pollTimes(1);
+
+    // The slot was not wedged: the camera reopens and sampling resumes.
+    expect(capture.callCount()).toBe(3);
+    expect(capture.maxConcurrent()).toBe(1);
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
   test("stamps a queued sample when it is issued, not when it was asked for", async () => {
     const capture = createCaptureStub();
     const decode = createDecodeStub();
