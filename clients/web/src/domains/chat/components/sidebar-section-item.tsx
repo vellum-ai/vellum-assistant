@@ -38,6 +38,14 @@ import {
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
 
+/**
+ * The assistant section shows at most five realizations before scrolling
+ * within itself: 5 rows at 30px plus the 4px gaps between them. A glanceable
+ * stack rather than a feed — the section is a person's short list, not
+ * another Chats.
+ */
+const ASSISTANT_SECTION_MAX_HEIGHT = 5 * 30 + 4 * 4;
+
 export interface SidebarSectionItemProps {
   section: SidebarSection;
   /** Owns this section's query; `null` keeps it on the derived rows. */
@@ -104,17 +112,37 @@ export function SidebarSectionItem({
       value={section.key}
       icon={sectionIcon(section)}
       /* The assistant's own eyes stand where the topic glyph would, because
-         this section is a person rather than a category. `AssistantEyesMark`
-         renders `null` without a character avatar (custom image, or still
-         loading), and the slot collapses to the Lucide fallback in that
-         case — so a custom-image avatar gets a plain header rather than a
-         gap where a mark should be. */
+         this section is a person rather than a category — set in a disc of
+         the full avatar accent, the same treatment the switcher pill gives
+         the avatar. `AssistantEyesMark` renders `null` without a character
+         avatar (custom image, or still loading); the accent var is absent in
+         exactly those cases too, so the disc falls back to the same surface
+         the label pill resolves to and the pair reads as one plain pill
+         rather than an empty colored dot. */
       iconNode={
         isAssistantSection ? (
-          <AssistantEyesMark assistantId={assistantId} width={16} />
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent,var(--surface-lift))]">
+            <AssistantEyesMark assistantId={assistantId} width={23} />
+          </span>
         ) : undefined
       }
       label={label}
+      /* The whole header on its own surface: a deeper cut of the accent than
+         the card's 18%, spanning disc, label, unread dot, and chevron edge
+         to edge — one pill, not a pill with the controls stranded outside
+         it. Geometry is the Figma spec (8300:166976) at its native size: a
+         32px disc inset 2px inside a 36px pill, the same height as a
+         collapsed side-menu item, whose full roundness is likewise half of
+         36. The title's own horizontal padding is inline style from
+         `sidebar-nav-geometry`, so the 2px disc inset needs the `!`
+         overrides; the trailing cluster's `pr-[6px]` is the pill's right
+         padding. Row-axis centering of the 32px disc in the 36px row is
+         what yields the inset above and below. */
+      headerClassName={
+        isAssistantSection
+          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-0.5! [&_[data-slot=collapsible-nav-section-title]]:pr-2!"
+          : undefined
+      }
       /* The one section painted in the assistant's own color, so it reads as
          coming from someone rather than as another bucket. `--avatar-accent`
          is published on `<html>` by `useAvatarAccentVar` and is *absent* for
@@ -124,10 +152,20 @@ export function SidebarSectionItem({
          other card paints. A `transparent` fallback would instead punch a
          hole in the card. 18% is the balance point: strong enough that the
          card reads as a different surface at a glance, short of reading as
-         selected — the rows on top still have to read as ordinary rows. */
+         selected — the rows on top still have to read as ordinary rows.
+
+         `mt-auto` is the anchor half of the section's bottom pin. The order
+         pin (`pinAssistantSectionLast`) makes it the last card, but only the
+         last *space-claiming* section grows to fill the rail, and when that
+         section is collapsed nothing does — the leftover height would open
+         below this card and float it mid-rail. Auto margin sends that
+         leftover above it instead, so the card sits against the Preferences
+         footer whatever the sections above are doing; when a grown section
+         has already consumed the leftover, there is no free space and the
+         margin is inert. */
       cardClassName={
         isAssistantSection
-          ? "bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_18%,var(--surface-lift))]"
+          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_18%,var(--surface-lift))]"
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from
@@ -144,6 +182,7 @@ export function SidebarSectionItem({
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
       isLast={isLast}
+      maxHeight={isAssistantSection ? ASSISTANT_SECTION_MAX_HEIGHT : undefined}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
       /* The only section that renders at zero, so the only one with anything

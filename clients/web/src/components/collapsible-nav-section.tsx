@@ -185,6 +185,22 @@ interface CollapsibleNavSectionSectionProps extends Omit<
    */
   iconNode?: ReactNode;
   label: string;
+  /**
+   * Extra classes for the label span - a section that inks its title
+   * differently states that here. The span keeps its structural classes
+   * (`min-w-0 flex-1 truncate`) either way, so a styled label still fills the
+   * row and still truncates.
+   */
+  labelClassName?: string;
+  /**
+   * Extra classes for the whole header row - for a section that draws its
+   * header on its own surface (the assistant-initiated section's
+   * accent-tinted pill, which spans disc, label, indicator, and chevron).
+   * The title's horizontal geometry is inline style from
+   * `sidebar-nav-geometry`, so a header surface that needs different insets
+   * overrides them with `!` utilities against the title slot.
+   */
+  headerClassName?: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
   /**
@@ -240,6 +256,8 @@ function CollapsibleNavSectionSection({
   icon: Icon,
   iconNode,
   label,
+  labelClassName,
+  headerClassName,
   trailing,
   contextMenuContent,
   touchMenuContent,
@@ -266,17 +284,18 @@ function CollapsibleNavSectionSection({
   const iconSlot = glyph ? (
     <span
       data-slot="collapsible-nav-section-icon"
-      /* Hugs the glyph. A chip-width box with the glyph centred in it padded
-         the icon away from both edges, so the header read as indented from
-         the row surfaces below it. Centring is the collapsed rail's need,
-         and the rail draws its own tiles. */
+      /* A chip-width box with the glyph centred in it padded the icon away
+         from both edges, so the header read as indented from the row surfaces
+         below it. Centring is the collapsed rail's need, and the rail draws
+         its own tiles. */
       className={cn(
-        "relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center",
-        /* Only a Lucide glyph takes the tertiary ink: it draws in
-           `currentColor`. A custom node carries its own colour (the eye
-           sprite's paths are filled from the avatar palette), so tinting the
-           box would do nothing to it and would only mislead the next reader. */
-        !iconNode && "text-[var(--content-tertiary)]",
+        "relative inline-flex shrink-0 items-center justify-center",
+        /* Only the Lucide branch takes the 14px box and the tertiary ink: a
+           Lucide glyph draws in `currentColor` at a known size. A custom node
+           carries its own colour and its own geometry (the assistant
+           section's accent disc is a full row-height circle), so the slot
+           hugs it instead of boxing it. */
+        !iconNode && "h-[14px] w-[14px] text-[var(--content-tertiary)]",
       )}
     >
       {glyph}
@@ -306,7 +325,9 @@ function CollapsibleNavSectionSection({
   const titleContent = (
     <>
       {iconSlot}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className={cn("min-w-0 flex-1 truncate", labelClassName)}>
+        {label}
+      </span>
     </>
   );
 
@@ -333,6 +354,7 @@ function CollapsibleNavSectionSection({
            so nothing escapes the card. */
         card && "h-5",
         drag && "cursor-grab active:cursor-grabbing",
+        headerClassName,
       )}
       {...drag?.headerProps}
     >

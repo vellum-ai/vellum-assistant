@@ -12,9 +12,11 @@
  * `useSidebarSectionsQuery`; seeding `sidebarSectionsQueryKey` makes that
  * query resolve from cache, so the section list here is the one the app
  * builds, in the order the app orders it. Each section's rows come from its
- * own `useSectionConversations`, seeded the same way. No network, no daemon,
- * no feature flag — the daemon's flag decides whether the `assistant` index
- * row exists, and seeding it is exactly the on state.
+ * own `useSectionConversations`, seeded the same way, and the avatar query is
+ * seeded with a real character from the bundled catalog so the header eyes and
+ * the accent tint are the avatar's own. No network, no daemon, no feature
+ * flag — the daemon's flag decides whether the `assistant` index row exists,
+ * and seeding it is exactly the on state.
  *
  * Every seeded value is a production type (`SidebarIndexSection`,
  * `ConversationListPage`, `Conversation`), so a drift in any of those shapes
@@ -24,10 +26,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
+import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import type { CharacterTraits } from "@/types/avatar";
 import type { Conversation } from "@/types/conversation-types";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import {
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_ASSISTANT_GROUP_ID,
@@ -40,8 +47,27 @@ import { listPage } from "@/utils/conversation-list.test-helper";
 
 const ASSISTANT_ID = "asst-storybook";
 
-/** The avatar accent the section tint reads. Swap to audit other colors. */
-const ACCENT = "#C4436A";
+/**
+ * A real character avatar from the bundled catalog, so the header eyes, the
+ * pill's avatar, and the section tint all come from one identity. Swap the
+ * `color` id to audit the tint against other palette entries; the accent is
+ * derived from it, so the two cannot drift apart.
+ */
+const AVATAR_TRAITS: CharacterTraits = {
+  bodyShape: "blob",
+  eyeStyle: "curious",
+  color: "pink",
+};
+
+/**
+ * The exact hex `useAvatarAccentVar` would publish for these traits. The hook
+ * lives in `RootLayout`, which stories do not mount, so the wrapper publishes
+ * the var itself, but derived rather than hand-picked: the tint under review
+ * is the one this avatar actually produces. (`?? undefined` only narrows the
+ * unreachable null arm; the trait color is a bundled palette id.)
+ */
+const ACCENT =
+  resolveAvatarAccentHex(BUNDLED_COMPONENTS, AVATAR_TRAITS) ?? undefined;
 
 /**
  * Threads the way a heartbeat realization actually reads — an observation the
@@ -61,6 +87,22 @@ const ASSISTANT_THREADS: Conversation[] = [
   {
     conversationId: "a3",
     title: "You've rewritten the same paragraph four times",
+  },
+  {
+    conversationId: "a4",
+    title: "Two of your integrations have been quiet for a while",
+  },
+  {
+    conversationId: "a5",
+    title: "Overnight: a pattern in what you keep deferring",
+  },
+  {
+    conversationId: "a6",
+    title: "The gym sessions moved to mornings and stuck",
+  },
+  {
+    conversationId: "a7",
+    title: "Your reading list doubled this month",
   },
 ];
 
@@ -122,6 +164,18 @@ function seededClient(assistantThreads: Conversation[]): QueryClient {
     listPage(PINNED),
   );
 
+  /* The avatar, so the eyes in the section header and the switcher pill's
+     character render. Both spellings of the key carry it, since the hook
+     appends its manifest-support flag and a story cannot know which way that
+     resolves (same pattern as assistant-switcher.stories). */
+  for (const supportsManifest of [true, false]) {
+    client.setQueryData([...avatarQueryKey(ASSISTANT_ID), supportsManifest], {
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+      customImageUrl: null,
+    } satisfies AvatarData);
+  }
+
   return client;
 }
 
@@ -136,6 +190,13 @@ function Scene({
   useAssistantIdentityStore
     .getState()
     .setIdentity(assistantName, "0.12.0", ASSISTANT_ID);
+  /* The other half of that gate: `useSectionConversations` serves a section's
+     own query only while the assistant is active (`live`), and falls back to
+     the derived rows (empty here) otherwise. The store boots as `loading`,
+     which read as an assistant section with no threads. */
+  useAssistantLifecycleStore.setState({
+    assistantState: { kind: "active", isLocal: true },
+  });
   // A clean layout store, so a stored section order from another story cannot
   // decide this one's arrangement.
   useSidebarLayoutStore.setState({
@@ -162,7 +223,13 @@ function Scene({
           variant="rail"
           onSelectConversation={() => {}}
           footerAction={
-            <div className="rounded-full bg-[var(--surface-lift)] px-3 py-2 text-body-small-lighter text-[var(--content-secondary)]">
+            /* Stands at the real footer's height: the app's Preferences
+               trigger is a `PanelItem` pill at
+               `h-[var(--side-menu-tile-size,36px)]`, and the height
+               comparisons this story exists for (the assistant header pill,
+               the collapsed section pills) are against that 36px, so a
+               content-sized mock here would misreport them. */
+            <div className="flex h-9 items-center rounded-full bg-[var(--surface-lift)] px-3 text-body-small-lighter text-[var(--content-secondary)]">
               Preferences
             </div>
           }

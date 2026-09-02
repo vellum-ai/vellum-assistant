@@ -17,31 +17,54 @@
  * the app reads fails the build here rather than looking fine in Storybook and
  * breaking in the app.
  *
- * `--avatar-accent` is published on `<html>` by `useAvatarAccentVar` in the
- * real app. Storybook has no assistant, so each story sets it on its own
- * wrapper — same variable, same `color-mix`. Change the hex to audit the tint
- * against other palette colors; the light end is the one worth checking, since
- * a 7% mix has to stay distinguishable from a plain card without reading as a
- * highlight.
+ * The avatar query is seeded with a real character from the bundled catalog,
+ * so the eyes come from an actual eye style and the tint from an actual
+ * palette color. `--avatar-accent` is published on `<html>` by
+ * `useAvatarAccentVar` in the real app; Storybook does not mount `RootLayout`,
+ * so each story sets it on its own wrapper, derived from the same traits.
+ * Change the trait `color` id to audit the tint against other palette colors;
+ * the light end (yellow) is the one worth checking, since the mix has to stay
+ * distinguishable from a plain card without reading as a highlight.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
+import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
+import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import type { CharacterTraits } from "@/types/avatar";
 import type { Conversation } from "@/types/conversation-types";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SYSTEM_ASSISTANT_GROUP_ID } from "@/utils/conversation-list-fetchers";
 import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 const ASSISTANT_ID = "asst-storybook";
 
-/** The avatar accent the tint reads. Swap to audit other palette colors. */
-const ACCENT = "#C4436A";
+/**
+ * A real character avatar from the bundled catalog: the eyes render from its
+ * eye style, the tint from its palette color. Swap the `color` id to audit
+ * other palette entries; the accent below is derived, so they cannot drift.
+ */
+const AVATAR_TRAITS: CharacterTraits = {
+  bodyShape: "blob",
+  eyeStyle: "curious",
+  color: "pink",
+};
+
+/**
+ * The exact hex `useAvatarAccentVar` would publish for these traits.
+ * (`?? undefined` only narrows the unreachable null arm; the trait color is a
+ * bundled palette id.)
+ */
+const ACCENT =
+  resolveAvatarAccentHex(BUNDLED_COMPONENTS, AVATAR_TRAITS) ?? undefined;
 
 /**
  * Threads written the way a heartbeat realization actually reads — an
@@ -101,7 +124,10 @@ function chatsSection(): SidebarSection {
  * A client whose caches are already populated, so every section query resolves
  * from cache on first render and opens no request.
  */
-function seededClient(threads: Conversation[]): QueryClient {
+function seededClient(
+  threads: Conversation[],
+  withCharacterAvatar: boolean,
+): QueryClient {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
@@ -117,6 +143,18 @@ function seededClient(threads: Conversation[]): QueryClient {
     conversationListQueryKey(ASSISTANT_ID, { groupId: "system:all" }),
     listPage(CHATS),
   );
+  if (withCharacterAvatar) {
+    /* Both spellings of the key, since the hook appends its manifest-support
+       flag and a story cannot know which way that resolves (same pattern as
+       assistant-switcher.stories). */
+    for (const supportsManifest of [true, false]) {
+      client.setQueryData([...avatarQueryKey(ASSISTANT_ID), supportsManifest], {
+        components: BUNDLED_COMPONENTS,
+        traits: AVATAR_TRAITS,
+        customImageUrl: null,
+      } satisfies AvatarData);
+    }
+  }
   return client;
 }
 
@@ -125,6 +163,13 @@ function openGate(name: string | null): void {
   useAssistantIdentityStore
     .getState()
     .setIdentity(name, "0.12.0", ASSISTANT_ID);
+  /* The other half of that gate: `useSectionConversations` serves a section's
+     own query only while the assistant is active (`live`), and falls back to
+     the derived rows (empty here) otherwise. The store boots as `loading`,
+     which read as an assistant section with no threads. */
+  useAssistantLifecycleStore.setState({
+    assistantState: { kind: "active", isLocal: true },
+  });
 }
 
 const LIST_CONTEXT: React.ComponentProps<
@@ -140,18 +185,29 @@ function Scene({
   threads,
   assistantName,
   withNeighbour = true,
+  withCharacterAvatar = true,
 }: {
   threads: Conversation[];
   assistantName: string | null;
   withNeighbour?: boolean;
+  /**
+   * `false` is the custom-image / still-loading avatar: no seeded character,
+   * and no published accent var, exactly as `useAvatarAccentVar` leaves it.
+   */
+  withCharacterAvatar?: boolean;
 }) {
   openGate(assistantName);
   return (
-    <QueryClientProvider client={seededClient(threads)}>
+    <QueryClientProvider client={seededClient(threads, withCharacterAvatar)}>
       <ConversationListProvider value={LIST_CONTEXT}>
         {/* The rail's real width, so title truncation reads truthfully. */}
         <div
-          style={{ width: 248, ["--avatar-accent" as string]: ACCENT }}
+          style={{
+            width: 248,
+            ["--avatar-accent" as string]: withCharacterAvatar
+              ? ACCENT
+              : undefined,
+          }}
           className="flex flex-col gap-2"
         >
           <CollapsibleNavSection.Root
@@ -211,12 +267,17 @@ export const Unnamed: Story = {
 
 /**
  * Nothing yet — the state the section spends its first days in, and the only
- * reason it renders at zero at all.
- *
- * The eyes are absent here on purpose: `AssistantEyesMark` reads the real
- * avatar and renders `null` without one, which is exactly what a custom-image
- * avatar gets in the app.
+ * reason it renders at zero at all. The brain glyph above the copy takes the
+ * avatar accent, so hero and card tint come from the same identity.
  */
 export const Empty: Story = {
   args: { threads: [], assistantName: "Ada" },
+};
+
+/**
+ * The custom-image / still-loading degradation: no accent var is published,
+ * so the card is untinted and the brain glyph falls back to the tertiary ink.
+ */
+export const EmptyCustomImageAvatar: Story = {
+  args: { threads: [], assistantName: "Ada", withCharacterAvatar: false },
 };
