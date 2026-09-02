@@ -4,7 +4,7 @@ import {
   searchMessageIdsLexical,
 } from "@vellumai/plugin-api";
 
-import { readSlackMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
+import { readSlackMetadataFromMessageMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
 import { isLexicalBackfillComplete } from "../../../../../persistence/checkpoints.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
@@ -12,6 +12,7 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
+import { safeParseRecord } from "../../../../../util/json.js";
 import { getLogger } from "../../logging.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
@@ -296,25 +297,11 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
     return null;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawMetadata);
-  } catch {
-    return null;
-  }
-
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
-  }
-
-  const metadata = parsed as Record<string, unknown>;
-  if (typeof metadata.slackMeta !== "string") {
-    return null;
-  }
-  const slackMeta = readSlackMetadata(metadata.slackMeta);
+  const slackMeta = readSlackMetadataFromMessageMetadata(rawMetadata);
   if (!slackMeta) {
     return null;
   }
+  const metadata = safeParseRecord(rawMetadata);
 
   return {
     ...(slackMeta.displayName ? { displayName: slackMeta.displayName } : {}),
