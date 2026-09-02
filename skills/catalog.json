@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-02T12:58:28.000Z"
+      "updatedAt": "2026-09-02T13:18:50.000Z"
     },
     {
       "id": "public-ingress",
@@ -1073,16 +1073,20 @@
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, search, export)",
+      "description": "Manage conversation threads (rename, list, search, export) and explain conversation retention / auto-delete TTL",
       "metadata": {
         "emoji": "💬",
         "vellum": {
           "category": "productivity",
-          "display-name": "Conversations"
+          "display-name": "Conversations",
+          "activation-hints": [
+            "rename, list, search, or export conversations",
+            "conversation retention, conversation TTL, or auto-deleting old conversations"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T21:25:08.000Z"
+      "updatedAt": "2026-09-02T21:39:56.000Z"
     },
     {
       "id": "vellum-github-app-setup",
@@ -1194,6 +1198,8 @@
             "what model the assistant is running on",
             "how Vellum works or its architecture",
             "its current configuration or settings",
+            "what workspace config.json is, which keys it accepts, or what a default means",
+            "conversation retention, conversation TTL, or auto-deleting old conversations",
             "what it can do, or what skills/tools are available",
             "whether a service is connected, and in which sense",
             "how to self-host a Vellum assistant",
@@ -1205,7 +1211,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T07:15:43.000Z"
+      "updatedAt": "2026-09-02T21:39:56.000Z"
     },
     {
       "id": "vellum-skills-catalog",
