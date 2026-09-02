@@ -146,6 +146,19 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     expect(result.map((m) => m.id)).toEqual(["empty-asst"]);
   });
 
+  test("never drops a user row deleted on its channel", () => {
+    // The tombstone renders whatever the content holds, so an emptied row
+    // is still a row.
+    const deleted = makeMessage({
+      id: "deleted",
+      role: "user",
+      ...textBody(""),
+      deletedAt: 1725100001000,
+    });
+    const result = sanitizeDisplayMessages([deleted]);
+    expect(result.map((m) => m.id)).toEqual(["deleted"]);
+  });
+
   test("never drops queued user rows", () => {
     const queued = makeMessage({
       id: "queued",

@@ -223,6 +223,12 @@ function canFoldAdjacentAssistant(
   ) {
     return false;
   }
+  // A row deleted on its channel renders as a tombstone over its content;
+  // folding would drop the donor's deletion or spread the survivor's over
+  // text the channel still shows.
+  if (survivor.deletedAt != null || donor.deletedAt != null) {
+    return false;
+  }
   return true;
 }
 

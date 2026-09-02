@@ -816,6 +816,7 @@
     "unmuteMicrophone": "Включить микрофон"
   },
   "transcript": {
+    "messageDeleted": "Это сообщение было удалено",
     "noResponse": "Решил не отвечать",
     "reactionAddedSelf": "Отреагировал(а) {emoji}",
     "reactionRemovedSelf": "Убрал(а) реакцию {emoji}",

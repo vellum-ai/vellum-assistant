@@ -1735,6 +1735,7 @@
     "openTitle": "打开 {path}"
   },
   "transcript": {
+    "messageDeleted": "此消息已被删除",
     "noResponse": "决定不回复",
     "reactionAddedSelf": "已用 {emoji} 回应",
     "reactionRemovedSelf": "已移除 {emoji} 回应",

@@ -71,6 +71,11 @@ function isInvalidMessage(message: DisplayMessage): boolean {
   if (message.queueStatus === "queued") {
     return false;
   }
+  // A row deleted on its channel renders as a tombstone whatever its content
+  // holds, so it is never a blank bubble.
+  if (message.deletedAt != null) {
+    return false;
+  }
 
   // Any meaningful signal short-circuits as valid. Without one of these the
   // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary

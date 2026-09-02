@@ -1757,6 +1757,7 @@
     "openTitle": "Abrir {path}"
   },
   "transcript": {
+    "messageDeleted": "Este mensaje fue eliminado",
     "noResponse": "Decidió no responder",
     "reactionAddedSelf": "Reaccionó con {emoji}",
     "reactionRemovedSelf": "Quitó la reacción {emoji}",
