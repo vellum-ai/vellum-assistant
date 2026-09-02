@@ -41,11 +41,10 @@ export const containsPoint = (
  * way from the creature to the controls. A window that went click-through
  * halfway would drop the press the user was travelling to make.
  *
- * **Vertically it is the composer row and nothing above it.** Every phase but
- * `typing` draws a pill that is that row, so `rowHeight` costs those nothing;
- * the card stands a whole panel higher, and a strip drawn to its full height
- * would hand the window a column of empty canvas beside it to swallow presses
- * in.
+ * **Vertically it is the pill's own row.** Every phase draws a pill one row
+ * tall, so the strip is as tall as the pill and no taller: a strip stretched to
+ * a larger creature's height would hand the window the dead corners beside the
+ * pill to swallow presses in.
  *
  * Degenerate when the two overlap, which reads as no bridge at all: the strip's
  * left edge lands past its right, and no point is inside it.
@@ -53,22 +52,8 @@ export const containsPoint = (
 export const bridgeRect = (
   avatar: SurfaceRect,
   pill: SurfaceRect,
-  {
-    rowHeight,
-    cardGrowth,
-  }: {
-    /**
-     * The composer row's height in screen pixels, which is the options box: the
-     * row is one base box tall and the surface is drawn scaled by that box.
-     */
-    rowHeight: number;
-    cardGrowth: CompanionCardGrowth;
-  },
 ): SurfaceRect => {
-  // The row holds the avatar's line either way: it is the card's last child
-  // growing up and its first growing down.
-  const top = cardGrowth === "up" ? pill.bottom - rowHeight : pill.top;
-  const row = { top, bottom: top + rowHeight };
+  const row = { top: pill.top, bottom: pill.bottom };
   return pill.left >= avatar.right
     ? { left: avatar.right, right: pill.left, ...row }
     : { left: pill.right, right: avatar.left, ...row };
@@ -96,8 +81,6 @@ export const onCompanionSurface = (
   {
     avatar,
     pill,
-    rowHeight,
-    cardGrowth,
   }: {
     avatar: SurfaceRect;
     /**
@@ -106,9 +89,6 @@ export const onCompanionSurface = (
      * pointer can be.
      */
     pill: SurfaceRect | null;
-    /** The composer row's height in screen pixels. See {@link bridgeRect}. */
-    rowHeight: number;
-    cardGrowth: CompanionCardGrowth;
   },
 ): boolean => {
   const inside = (rect: SurfaceRect): boolean =>
@@ -119,9 +99,7 @@ export const onCompanionSurface = (
   if (pill === null) {
     return false;
   }
-  return (
-    inside(pill) || inside(bridgeRect(avatar, pill, { rowHeight, cardGrowth }))
-  );
+  return inside(pill) || inside(bridgeRect(avatar, pill));
 };
 
 /**

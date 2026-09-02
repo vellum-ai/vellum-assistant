@@ -1680,6 +1680,9 @@ describe("normalizeSlackMessageDelete", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("slack-system");
+    // No author means no identity claim: the daemon applies the delete to a
+    // row it can resolve in the chat instead of gating it on membership.
+    expect(result!.event.source.actorUnattributed).toBe(true);
   });
 
   it("resolves an unrouted channel delete to the local assistant", () => {
@@ -1733,9 +1736,11 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result!.event.source.chatType).toBeUndefined();
   });
 
-  it("does not filter deletes by bot user (handled upstream)", () => {
-    // Self-authored deletes are filtered in processEventPayload's single
-    // self-filter, not in the normalizer.
+  it("forwards a delete of the assistant's own post unattributed when the caller says so", () => {
+    // Which author is the assistant is the caller's knowledge (the
+    // self-filter in processEventPayload); the normalizer only turns that
+    // answer into the wire fact. Slack names the post's author and never who
+    // deleted it, so the bot's own id is not an actor to enforce.
     const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
@@ -1746,11 +1751,24 @@ describe("normalizeSlackMessageDelete", () => {
         ts: "1700000000.000100",
       },
     });
-    // Self-authored deletes are now filtered upstream in processEventPayload.
-    const result = normalizeSlackMessageDelete(event, "evt-del-self", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-self", config, {
+      selfAuthored: true,
+    });
 
     expect(result).not.toBeNull();
-    expect(result!.event.actor.actorExternalId).toBe("UBOT");
+    expect(result!.event.actor.actorExternalId).toBe("slack-system");
+    expect(result!.event.source.actorUnattributed).toBe(true);
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+
+    // Without the caller's answer the author stays the actor, as for any
+    // member's post.
+    const attributed = normalizeSlackMessageDelete(
+      event,
+      "evt-del-self-2",
+      config,
+    );
+    expect(attributed!.event.actor.actorExternalId).toBe("UBOT");
+    expect(attributed!.event.source.actorUnattributed).toBeUndefined();
   });
 });
 

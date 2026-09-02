@@ -747,6 +747,9 @@ describe("VoiceInputButton: a hold takes the stream's final", () => {
     markHoldDictation(true);
     const onTranscript = mock(async (_text: string) => {});
     await startSession(onTranscript);
+    // The store carries which microphone this is, for the surfaces that only
+    // hear about the recording once the key is already up again.
+    expect(useVoiceRecordingStore.getState().hold).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
     await waitFor(() => expect(onTranscript).toHaveBeenCalled());

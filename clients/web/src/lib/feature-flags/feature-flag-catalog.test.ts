@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   ASSISTANT_FLAG_DEFAULTS,
+  ASSISTANT_STRING_FLAG_DEFAULTS,
   CLIENT_FLAG_DEFAULTS,
   CLIENT_STRING_FLAG_DEFAULTS,
   getEnvFlagOverridesForScope,
@@ -83,6 +84,13 @@ describe("feature flag catalog", () => {
   test("exposes the MCP add-server gate without a page-level MCP gate", () => {
     expect("mcpSettings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect(ASSISTANT_FLAG_DEFAULTS.mcpAddServer).toBe(false);
+  });
+
+  test("does not expose the GA iOS avatar app icon as a feature flag", () => {
+    expect("iosAvatarAppIcon" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("iosAvatarAppIcon" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("iosAvatarAppIcon" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect("iosAvatarAppIcon" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 
   test("does not expose GA summarize-up-to-here as a feature flag", () => {

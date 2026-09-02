@@ -131,6 +131,10 @@ routing after a restart even though the card is absent from the model's history.
 Two instruction modes exist per request kind (`notifications/guardian-question-mode.ts`):
 **approval** ("CODE approve" / approve–reject buttons) and **answer**
 ("CODE <your answer>" / option buttons). `pending_question` is answer-mode.
+Whether a channel's copy carries the "CODE <reply>" instruction at all is one
+rule, `guardianCopyCarriesReplyMechanics`: text chats do, while the vellum
+bell and banner, the platform push, and Slack approval cards act through the
+card and have it stripped.
 
 ## Worked example: `ask_question` on a channel
 

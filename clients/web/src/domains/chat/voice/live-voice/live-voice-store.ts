@@ -267,13 +267,28 @@ export interface LiveVoiceSessionStarter {
    * is live, so the assistant speaks without waiting for the user. It becomes
    * a real user message in the conversation, so a caller passes one only where
    * that reads honestly. See `voice-entry-greeting.ts` for the rule and the
-   * copy.
+   * copy. `seedVisible` renders it as the user's own message rather than
+   * hiding it, for a seed that is their words; `endAfterSeedReply` ends the
+   * session once its reply has been heard.
    */
   start(
     assistantId: string,
     conversationId: string | null,
-    options?: { seedText?: string },
+    options?: LiveVoiceSeedOptions,
   ): void;
+  /**
+   * Put a typed turn to the running session. Returns whether it went out: a
+   * session that is not up, or an assistant without typed turns, takes
+   * nothing, and the caller keeps the words.
+   */
+  sendText(text: string): boolean;
+}
+
+/** The first turn a session takes on a caller's behalf, and what follows it. */
+export interface LiveVoiceSeedOptions {
+  seedText?: string;
+  seedVisible?: boolean;
+  endAfterSeedReply?: boolean;
 }
 
 export interface LiveVoiceState {

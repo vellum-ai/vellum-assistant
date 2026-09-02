@@ -1,5 +1,6 @@
+import { Slot } from "@radix-ui/react-slot";
 import {
-  createElement,
+  type ElementType,
   type HTMLAttributes,
   type ReactNode,
   type Ref,
@@ -57,6 +58,22 @@ export interface TypographyProps extends HTMLAttributes<HTMLElement> {
   children?: ReactNode;
   htmlFor?: string;
   ref?: Ref<HTMLElement>;
+  /**
+   * Render the single child element instead of `as`, merging the variant
+   * class onto it. For elements outside `TypographyAs`, such as `<th>`,
+   * `<td>`, `<a href>` or `<button type>`, whose own props cannot be added
+   * to `HTMLAttributes<HTMLElement>` one at a time. Uses Radix's `Slot`,
+   * matching `Button` and `Card`.
+   *
+   * `children` must be a single React element: Slot calls `Children.only`
+   * and throws on multiple children, and a plain string renders nothing.
+   *
+   * Slot gives the child precedence on ordinary props, so a child that sets
+   * its own `data-slot` keeps it and this component's marker does not apply.
+   * The variant class still merges either way, so styling is unaffected and
+   * only a `[data-slot="typography"]` selector stops matching.
+   */
+  asChild?: boolean;
 }
 
 export function Typography({
@@ -65,16 +82,18 @@ export function Typography({
   className,
   children,
   ref,
+  asChild = false,
   ...rest
 }: TypographyProps) {
-  return createElement(
-    as,
-    {
-      ...rest,
-      ref,
-      "data-slot": "typography",
-      className: cn(VARIANT_CLASS[variant], className),
-    },
-    children,
+  const Comp: ElementType = asChild ? Slot : as;
+  return (
+    <Comp
+      {...rest}
+      ref={ref}
+      data-slot="typography"
+      className={cn(VARIANT_CLASS[variant], className)}
+    >
+      {children}
+    </Comp>
   );
 }
