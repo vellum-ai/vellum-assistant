@@ -40,10 +40,13 @@ export interface ResolvedAssistantApiKey {
  * assistant already holds, then a rotation.
  *
  * A stored key the platform has rejected is skipped, because reinjecting it
- * repairs nothing while looking like a repair. Rotation is still withheld
- * when the gateway is merely unreachable: rotating without being able to
- * store the replacement would start the platform's grace clock on a key the
- * assistant still needs, with nothing to hand it in exchange.
+ * repairs nothing while looking like a repair. The verdict is asked for
+ * before the key is read, so the key returned is one the verdict covers: a
+ * repair that lands between the two requests is then read, not overwritten
+ * by the value it replaced. Rotation is still withheld when the gateway is
+ * merely unreachable: rotating without being able to store the replacement
+ * would start the platform's grace clock on a key the assistant still needs,
+ * with nothing to hand it in exchange.
  */
 export async function resolveAssistantApiKeyForInjection(
   args: ResolveAssistantApiKeyArgs,
@@ -52,26 +55,24 @@ export async function resolveAssistantApiKeyForInjection(
     return { apiKey: args.registrationApiKey, source: "registration" };
   }
 
-  const cached = await readGatewayCredential(
+  const status = await verifyGatewayManagedCredential(
     args.runtimeUrl,
-    "vellum:assistant_api_key",
     args.bearerToken,
   );
-
-  // Only worth asking when there is a key to ask about: with none stored the
-  // answer changes nothing, and a first login would pay for the round trip
-  // every time.
-  if (cached.value) {
-    const status = await verifyGatewayManagedCredential(
+  // A settled rejection came from a gateway that answered, so the
+  // replacement can be stored; the rejected key is not worth reading.
+  if (status !== "rejected") {
+    const cached = await readGatewayCredential(
       args.runtimeUrl,
+      "vellum:assistant_api_key",
       args.bearerToken,
     );
-    if (status !== "rejected") {
+    if (cached.value) {
       return { apiKey: cached.value, source: "stored" };
     }
-  }
-  if (cached.unreachable) {
-    return { apiKey: null, source: "unavailable" };
+    if (cached.unreachable) {
+      return { apiKey: null, source: "unavailable" };
+    }
   }
 
   const reprovision = await reprovisionAssistantApiKey(

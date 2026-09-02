@@ -26,6 +26,7 @@
  */
 
 import {
+  type PlatformCredentialVerificationStatus,
   type PlatformVerifyCredentialResponse,
   PlatformVerifyCredentialResponseSchema,
 } from "@vellumai/service-contracts/platform-credential";
@@ -284,10 +285,9 @@ async function handlePlatformConnect(
     credentialRejected = true;
   }
 
-  // The outcome travels in the response: the caller is the CLI, which tells
-  // the user what to do. The broadcast is kept for any client that listens
-  // for it; no shipped client currently does, so it must not be the only
-  // way the answer reaches anyone.
+  // The outcome travels in the response, where the CLI reads it and tells the
+  // user what to do. Nothing shipped consumes the signal below, so the
+  // response is the only path the answer reaches anyone by.
   broadcastMessage({ type: "show_platform_login" });
 
   return credentialRejected
@@ -296,26 +296,15 @@ async function handlePlatformConnect(
 }
 
 /**
- * Check the stored managed credential against the platform and report what it
- * found. Nothing is stored: each caller that needs the answer asks, so there is
- * no verdict to go stale.
- *
- * Exists so a client that has just written a replacement can confirm it works
- * before telling the reader it does. Storing a credential proves only that the
- * write landed; a replacement can be rejected in turn, and a repair reported
- * as successful on the strength of the write alone would be a receipt for
- * something that never happened.
- */
-/**
  * Ask the platform whether the stored managed credential authenticates.
+ * Nothing is stored: each caller that needs the answer asks, so there is no
+ * verdict to go stale.
  *
  * Shared by the verification route and by connect, so the two cannot disagree
  * about what "connected" means. Never throws: an unsettled answer is
  * `"unknown"`, which no caller treats as evidence of a dead credential.
  */
-async function verifyStoredCredential(): Promise<
-  "valid" | "rejected" | "unknown"
-> {
+async function verifyStoredCredential(): Promise<PlatformCredentialVerificationStatus> {
   try {
     const { checkAssistantApiKey } =
       await import("../../credential-health/credential-health-service.js");

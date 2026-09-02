@@ -29,11 +29,13 @@ export function registerPlatformConnectCommand(platform: Command): void {
               `Run 'assistant platform disconnect' first to reconnect.`,
           );
         } else if (r.result?.credentialRejected) {
-          // The daemon's login signal has no shipped consumer, so this line is
-          // the only thing that tells the user what replaces the key.
+          // No client shows a login screen for the daemon's signal, so this
+          // line is what tells the user what replaces the key. A plain sign-in
+          // stops at "already logged in" before the credential pass runs;
+          // --force runs it.
           log.info(
             "The stored platform credential was rejected by the platform. " +
-              "Run 'vellum login' to sign in again and replace it.",
+              "Run 'vellum login --force' to sign in again and replace it.",
           );
         } else {
           log.info(
