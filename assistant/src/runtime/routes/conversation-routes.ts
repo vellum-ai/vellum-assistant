@@ -8,6 +8,7 @@ import {
   type ClientMetadataField,
   sanitizeClientMetadataValue,
 } from "@vellumai/service-contracts/client-metadata";
+import { pickReactionEmojiFields } from "@vellumai/service-contracts/reactions";
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
@@ -1023,12 +1024,7 @@ export async function handleListMessages({
             const r = reactionMeta.reaction;
             reaction = {
               emoji: r.emoji,
-              ...(r.emojiKind !== undefined ? { emojiKind: r.emojiKind } : {}),
-              ...(r.emojiName !== undefined ? { emojiName: r.emojiName } : {}),
-              ...(r.emojiId !== undefined ? { emojiId: r.emojiId } : {}),
-              ...(r.emojiAnimated !== undefined
-                ? { emojiAnimated: r.emojiAnimated }
-                : {}),
+              ...pickReactionEmojiFields(r),
               op: r.op,
               targetMessageId: r.targetMessageId,
               ...(r.actorDisplayName

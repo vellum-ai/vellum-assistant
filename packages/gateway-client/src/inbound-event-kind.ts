@@ -74,7 +74,10 @@ export function inboundEventRefersToAnotherMessage(
   return kind !== "message";
 }
 
-import type { ReactionEmojiKind } from "@vellumai/service-contracts/reactions";
+import {
+  pickReactionEmojiFields,
+  type ReactionEmojiKind,
+} from "@vellumai/service-contracts/reactions";
 
 /** The structured payload of a reaction event. */
 export interface InboundReactionPayload {
@@ -132,14 +135,9 @@ export function resolveInboundReactionPayload(fields: {
       fields.reaction.emojiKind !== undefined &&
       fields.reaction.emojiName !== undefined
         ? {
+            ...pickReactionEmojiFields(fields.reaction),
             emojiKind: fields.reaction.emojiKind,
             emojiName: fields.reaction.emojiName,
-            ...(fields.reaction.emojiId !== undefined
-              ? { emojiId: fields.reaction.emojiId }
-              : {}),
-            ...(fields.reaction.emojiAnimated !== undefined
-              ? { emojiAnimated: fields.reaction.emojiAnimated }
-              : {}),
           }
         : classifyLegacyReactionEmoji(emoji);
     return { op, emoji, targetMessageId, ...typed };

@@ -28,6 +28,7 @@ import {
   type InboundReactionPayload,
   resolveInboundEventKind,
 } from "@vellumai/gateway-client";
+import { pickReactionEmojiFields } from "@vellumai/service-contracts/reactions";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { createApprovalCopyGenerator } from "../../../daemon/approval-generators.js";
@@ -566,14 +567,7 @@ function reactionFacts(params: {
     chatId: params.conversationExternalId,
     targetMessageId: params.reactedMessageTs,
     emoji: params.reaction.emoji,
-    emojiKind: params.reaction.emojiKind,
-    emojiName: params.reaction.emojiName,
-    ...(params.reaction.emojiId !== undefined
-      ? { emojiId: params.reaction.emojiId }
-      : {}),
-    ...(params.reaction.emojiAnimated !== undefined
-      ? { emojiAnimated: params.reaction.emojiAnimated }
-      : {}),
+    ...pickReactionEmojiFields(params.reaction),
     op: params.reaction.op,
     ...(params.actorExternalId
       ? { actorExternalId: params.actorExternalId }

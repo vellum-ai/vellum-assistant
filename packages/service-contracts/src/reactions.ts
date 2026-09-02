@@ -38,3 +38,23 @@ export const ReactionEmojiFieldsSchema = z.object({
   emojiAnimated: z.boolean().optional(),
 });
 export type ReactionEmojiFields = z.infer<typeof ReactionEmojiFieldsSchema>;
+
+/**
+ * The typed emoji fields a source actually carries, with undefined ones
+ * omitted: an absent key and a present-but-undefined one serialize alike, but the
+ * stored envelope and the response should carry only what was declared. Every writer of a reaction shape (the wire
+ * payload, both stored envelopes, the response projection) copies the
+ * fields through this rather than restating the four-way pick.
+ */
+export function pickReactionEmojiFields(
+  source: ReactionEmojiFields,
+): ReactionEmojiFields {
+  return {
+    ...(source.emojiKind !== undefined ? { emojiKind: source.emojiKind } : {}),
+    ...(source.emojiName !== undefined ? { emojiName: source.emojiName } : {}),
+    ...(source.emojiId !== undefined ? { emojiId: source.emojiId } : {}),
+    ...(source.emojiAnimated !== undefined
+      ? { emojiAnimated: source.emojiAnimated }
+      : {}),
+  };
+}
