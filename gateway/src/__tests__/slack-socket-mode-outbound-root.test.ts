@@ -917,6 +917,55 @@ describe("LUM-2941: the assistant's own bot_message echoes", () => {
     }
   });
 
+  test("forwards a delete of our own post in a channel with no tracking left", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      // No root armed, no thread tracked, channel unsubscribed: the state a
+      // post is in once its speculative root or thread TTL has lapsed. The
+      // daemon still holds the row, so the deletion is admitted on the
+      // strength of the post being ours.
+      expect(store.hasThread(BOT_POST_TS)).toBe(false);
+      deliver(client, ws, "Ev-del-ours-untracked", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: CHANNEL,
+        channel_type: "channel",
+        deleted_ts: BOT_POST_TS,
+        previous_message: {
+          user: "UBOT",
+          text: "an old triage post",
+          ts: BOT_POST_TS,
+        },
+      });
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.event.source.actorUnattributed).toBe(true);
+
+      // Someone else's deletion in the same untracked channel keeps the
+      // scoped admission and is dropped.
+      deliver(client, ws, "Ev-del-theirs-untracked", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: CHANNEL,
+        channel_type: "channel",
+        deleted_ts: "1785430000.000900",
+        previous_message: {
+          user: "U0000000AL1",
+          text: "their message",
+          ts: "1785430000.000900",
+        },
+      });
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("does not forward our own bot_message DM echo back to the daemon", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

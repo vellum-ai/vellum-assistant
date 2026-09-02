@@ -1426,7 +1426,13 @@ export class SlackSocketModeClient {
         isMessageChanged = this.admitMessageEdit(classified.event);
         break;
       case "message_deleted":
-        isMessageDeleted = this.admitMessageDelete(classified.event);
+        // The assistant's own post is admitted wherever it was made: the
+        // daemon holds the row, and the thread or root that once admitted
+        // traffic around the post may have expired by the time someone
+        // deletes it. Every other author keeps the scoped admission.
+        isMessageDeleted = deletesOwnPost
+          ? !!classified.event.deleted_ts
+          : this.admitMessageDelete(classified.event);
         break;
       case "reaction_added":
         isReactionAdded = this.admitReaction(classified.event);
