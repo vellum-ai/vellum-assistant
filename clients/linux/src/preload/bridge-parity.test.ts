@@ -78,7 +78,13 @@ const LINUX_ONLY_SURFACE = [
   "menu.popup",
   "menu.titles",
 ];
-const MACOS_ONLY_SURFACE = ["helper.hotkey.fnPushToTalk"];
+// The macOS helper watches the raw keyboard, which is where the Fn tap and
+// the bare-modifier hold come from. The Linux sidecar has no such tap, so
+// its hotkey surface is the shortcut chord alone.
+const MACOS_ONLY_SURFACE = [
+  "helper.hotkey.fnPushToTalk",
+  "helper.hotkey.setModifierHold",
+];
 
 test("the composed Linux bridge satisfies every applicable VellumBridge key", () => {
   const bridge = composeLinuxBridge();
