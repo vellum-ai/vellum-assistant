@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-02T12:58:28.000Z"
+      "updatedAt": "2026-09-02T13:18:50.000Z"
     },
     {
       "id": "public-ingress",
@@ -880,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T21:17:09.000Z"
+      "updatedAt": "2026-09-02T20:00:00.000Z"
     },
     {
       "id": "slack-app-setup",
