@@ -68,6 +68,13 @@
  * and clear on their own edge, `power.unlock` and `power.resume`: see
  * {@link screenLocked} and {@link systemSuspended}.
  *
+ * A latch only covers a lock this renderer watched happen, and a renderer that
+ * mounts behind one has nothing to ask. Mount is therefore not input under
+ * Electron, which also launches at login and reloads after a crash with nobody
+ * arriving. The desktop idle clock starts on the first real interaction, and
+ * short of one this client reports away. A browser tab mounts from a
+ * navigation the user performed, so its mount is input.
+ *
  * The reconciliation tick exists because the daemon's presence gate is
  * TTL-bound (`WEB_PRESENCE_STALE_AFTER_MS` in
  * `assistant/src/runtime/web-presence.ts`): without a re-report, a tab left
@@ -318,9 +325,19 @@ export function useWebPresenceReport(assistantId: string | null): void {
   // every reply push while nobody is reading it.
   const lastInteractionAtRef = useRef(0);
   // Stamped in an effect rather than at `useRef`, which `react-hooks/purity`
-  // forbids. Declared ahead of the reporting effects so mount, which is the
-  // user arriving, counts as input before the first report reads it.
+  // forbids, and declared ahead of the reporting effects so the stamp lands
+  // before the first report reads it.
+  //
+  // A browser tab mounts because the user navigated to it, so its mount is
+  // input. A desktop renderer mounts on its own: it launches at login,
+  // reloads after a crash, and starts up behind a lock screen, where the
+  // window reads visible, focused and unminimized and no lock edge has
+  // reached {@link screenLocked}. The desktop counts real input only, so a
+  // renderer nobody is at reports away and the reply reaches the phone.
   useEffect(() => {
+    if (isElectron()) {
+      return;
+    }
     lastInteractionAtRef.current = Date.now();
   }, []);
 
