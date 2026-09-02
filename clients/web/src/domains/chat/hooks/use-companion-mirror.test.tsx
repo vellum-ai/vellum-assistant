@@ -94,7 +94,6 @@ const { beginWatchRetro, clearWatchRetro, settleWatchRetro } = await import(
 const { useVoiceRecordingStore } = await import(
   "@/domains/chat/voice/voice-recording-store"
 );
-const { markHoldDictation } = await import("@/utils/hold-to-dictate");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -115,7 +114,6 @@ afterEach(() => {
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
   useChatSessionStore.setState({ snapshot: null } as never);
-  markHoldDictation(false);
   useVoiceRecordingStore.getState().reset();
 });
 
@@ -512,7 +510,7 @@ describe("the watch session at teardown", () => {
 /**
  * The dictation, which is the surface's business only when a held key started
  * it. The recording store is the real one and is shared with the composer's
- * microphone, so which recording is running is decided at its start.
+ * microphone; it carries which of the two opened it.
  */
 describe("dictating", () => {
   const recording = useVoiceRecordingStore.getState;
@@ -532,8 +530,7 @@ describe("dictating", () => {
 
   test("draws a hold's words as they arrive", () => {
     render(<Mirror />);
-    markHoldDictation(true);
-    recording().startRecording();
+    recording().startRecording({ hold: true });
     recording().setInterimTranscript("the quick brown");
 
     expect(latest().dictating).toBe("listening");
@@ -542,33 +539,16 @@ describe("dictating", () => {
 
   /**
    * The keys come up before the recording is over, and the wait after them is
-   * the stretch with nothing else on screen to explain it. The hold flag has
-   * already dropped by then, so the surface has to remember whose recording
-   * this was.
+   * the stretch with nothing else on screen to explain it.
    */
   test("stays with the hold through the wait after the keys come up", () => {
     render(<Mirror />);
-    markHoldDictation(true);
-    recording().startRecording();
-    markHoldDictation(false);
+    recording().startRecording({ hold: true });
     recording().stopRecording();
 
     expect(latest().dictating).toBe("transcribing");
 
     recording().reset();
-
-    expect(latest().dictating).toBeUndefined();
-  });
-
-  /** And having remembered one hold, it does not mistake the next composer recording for another. */
-  test("forgets the hold once its recording is over", () => {
-    render(<Mirror />);
-    markHoldDictation(true);
-    recording().startRecording();
-    markHoldDictation(false);
-    recording().reset();
-
-    recording().startRecording();
 
     expect(latest().dictating).toBeUndefined();
   });
