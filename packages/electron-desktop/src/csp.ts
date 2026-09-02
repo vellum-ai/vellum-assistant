@@ -45,11 +45,13 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // and confirms SetupIntents against api.stripe.com (connect-src).
 // hooks.stripe.com hosts the 3D Secure challenge frame. link.com /
 // *.link.com host the Link wallet frames the payment element mounts while
-// `wallets.link` is enabled: the banner, the OTP sheet, and the saved-card
-// panel. This is Stripe's
-// documented CSP set for Stripe.js: https://docs.stripe.com/security/guide
-// (minus maps.googleapis.com, which only applies when supplying your own
-// Google Maps key to the Address Element).
+// `wallets.link` is enabled (the banner, the OTP sheet, the saved-card panel)
+// and the requests those frames issue, so they appear in frame-src and
+// connect-src alike. Together that covers the frame and connection halves of
+// Stripe's documented CSP set for Stripe.js
+// (https://docs.stripe.com/security/guide); its img-src hosts already fall
+// under the broad `https:` in img-src below, and maps.googleapis.com applies
+// only when supplying your own Google Maps key to the Address Element.
 // frame-src is the only directive that names Stripe hosts alongside 'self';
 // without it frames fall back to `default-src 'self'`, which blocks the
 // Element iframes. Keeping the list to 'self' + Stripe hosts costs the
@@ -73,7 +75,7 @@ export const CSP_POLICY = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://${WILDCARD_HOST} https://js.stripe.com https://*.js.stripe.com`,
   "style-src 'self' 'unsafe-inline'",
-  `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com https://storage.googleapis.com https://*.storage.googleapis.com https://api.stripe.com ws://localhost:* ws://127.0.0.1:*`,
+  `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com https://storage.googleapis.com https://*.storage.googleapis.com https://api.stripe.com https://link.com https://*.link.com ws://localhost:* ws://127.0.0.1:*`,
   "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com",
   "img-src 'self' https: data: blob:",
   // Hosted voice-preview samples: ElevenLabs premades live in the
