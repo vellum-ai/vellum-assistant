@@ -356,7 +356,7 @@ describe("contacts record prompts", () => {
 
         expect(stdout).toContain("Cancelled: nothing was written");
         expect(stderr).toBe("");
-        expect(process.exitCode).toBeFalsy();
+        expect(process.exitCode).toBe(130);
       },
     );
 
@@ -374,7 +374,7 @@ describe("contacts record prompts", () => {
         // a second would make this throw.
         expect(JSON.parse(stdout)).toEqual({ ok: true, cancelled: true });
         expect(stderr).toBe("");
-        expect(process.exitCode).toBeFalsy();
+        expect(process.exitCode).toBe(130);
       },
     );
   });

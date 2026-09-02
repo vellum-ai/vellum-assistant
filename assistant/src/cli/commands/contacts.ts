@@ -261,8 +261,12 @@ async function readContactForPrompt(
 
 /**
  * The guardian closed the form without answering it. Nothing was written and
- * nothing went wrong, so this is a success exit with a plain line rather than
- * an error envelope a caller would read as a failed write.
+ * nothing went wrong, so this reports a plain line rather than an error
+ * envelope a caller would read as a failed write.
+ *
+ * Exit 130 is the conventional user-interrupt code, and the same one
+ * `credentials request` uses for a declined prompt, so a caller can tell a
+ * deliberate dismissal from a genuine failure without parsing output.
  */
 function reportFormDismissal(cmd: Command): void {
   if (shouldOutputJson(cmd)) {
@@ -270,6 +274,7 @@ function reportFormDismissal(cmd: Command): void {
   } else {
     process.stdout.write("Cancelled: nothing was written\n");
   }
+  process.exitCode = 130;
 }
 
 /**

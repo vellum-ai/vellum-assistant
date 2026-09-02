@@ -128,7 +128,7 @@ describe("contacts address prompt", () => {
 
     expect(stdout).toContain("Cancelled: nothing was written");
     expect(stderr).toBe("");
-    expect(process.exitCode).toBeFalsy();
+    expect(process.exitCode).toBe(130);
   });
 
   test("a dismissal in --json emits one object carrying the marker", async () => {
@@ -146,7 +146,7 @@ describe("contacts address prompt", () => {
     // second would make this throw.
     expect(JSON.parse(stdout)).toEqual({ ok: true, cancelled: true });
     expect(stderr).toBe("");
-    expect(process.exitCode).toBeFalsy();
+    expect(process.exitCode).toBe(130);
   });
 
   test("a form that failed still reports an error and exits nonzero", async () => {
