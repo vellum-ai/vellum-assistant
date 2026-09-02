@@ -244,7 +244,7 @@ const RESTING_HEIGHT = 10;
  * peeking out from behind a bordered pill reads as peeking out of a slot in a
  * device, and the pill is meant to be the creature's own colour and nothing
  * else. The ring still carries a turn at rest: its bright arc orbits and its
- * glow falls on the desktop, and neither needs a dark line to be seen.
+ * light falls on the desktop, and neither needs a dark line to be seen.
  *
  * One statement of it, because two things are sized from it and they must not
  * drift. The capsule is drawn at it, and the box the working ring rides matches
@@ -767,7 +767,7 @@ export function CompanionSurface({
     // **On the creature's visible bottom.** The pill's bottom edge sits on the
     // bottom of the artwork, so the two keep one baseline whatever the pill is
     // carrying. The line is the artwork, not the avatar's *box*, which runs an
-    // `INNER_GAP` further down to hold the glow and the bob's slack. Which edge
+    // `INNER_GAP` further down to hold the bob's slack. Which edge
     // of the canvas that line is measured from is the host's call (see
     // `CompanionSurfaceCardGrowth`).
     top: lineAt(cardGrowth, baseline),
@@ -935,8 +935,8 @@ export function CompanionSurface({
           </div>
         </div>
       </div>
-      {/* Drawn after the pill so the glow, which falls off well past the
-        creature, lands over the pill's leading edge rather than under it. */}
+      {/* Drawn after the pill so the creature lands over the pill's leading
+        edge rather than under it. */}
       <Avatar
         accentHex={accentHex}
         avatarSrc={avatarSrc}
@@ -993,16 +993,14 @@ export function CompanionSurface({
  * in the pill, which is what lets the pill change width and shape underneath
  * without the creature moving a pixel.
  *
- * The glow sits behind the image and is blurred well past it, so it falls off
- * into the desktop rather than ending on an edge. A halo sized to its own
- * source has nowhere to fall off and reads as a ring around the avatar rather
- * than as light coming off it.
+ * No light behind the creature. It once sat on a blurred disc of its own
+ * accent, and the halo went because it made the creature read as a lit control
+ * rather than as something standing on the desktop.
  *
  * **The bob is a wrapper, not a class on the artwork.** `AnimatedAvatar` owns
  * `transform` on its own `<svg>` for the breathe and the morph, and a second
  * animation on that node would silently replace one of them. Everything that
- * belongs to the creature rides inside the wrapper, glow included, so the light
- * travels with what is casting it. The edge sits outside the wrapper: it is
+ * belongs to the creature rides inside the wrapper. The edge sits outside it: it is
  * drawn on the shape rather than on the artwork, so a ring saying something is
  * running holds still while the creature breathes under it.
  *
@@ -1123,7 +1121,7 @@ function Avatar({
         {@link RESTING_BOX}. The shadow stays, since it is what holds any of
         this against a desktop the surface does not own. */}
       <div
-        className="absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
+        className="companion-capsule absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
         style={{
           width: RESTING_BOX.width,
           height: RESTING_BOX.height,
@@ -1173,14 +1171,6 @@ function Avatar({
           className="companion-avatar-bob relative grid place-items-center"
           style={{ animation: reduce ? "none" : undefined }}
         >
-          <span
-            className="companion-glow absolute size-10 rounded-full blur-lg"
-            style={{
-              background: accentHex,
-              animation: reduce ? "none" : undefined,
-            }}
-            aria-hidden
-          />
           {character !== undefined ? (
             // The live creature, composed here rather than shipped as pixels. It
             // blinks, twitches and breathes on its own, which is the whole reason

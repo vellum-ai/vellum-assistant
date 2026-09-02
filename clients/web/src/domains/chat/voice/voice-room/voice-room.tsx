@@ -165,6 +165,7 @@ import {
   cameraModeStyle,
 } from "./camera-mode-paint";
 import { CameraShutterHint } from "./camera-shutter-hint";
+import { CameraViewSettings } from "./camera-view-settings";
 import {
   CameraStatusPill,
   useCameraStatusAnnouncement,
@@ -222,15 +223,42 @@ const AVATAR_SIZE = 220;
 const CORNER_GAP = "1.25rem";
 
 /**
- * Ceiling on the camera status pill, which is centred on the same line as the
- * top-right minimize control and grows in both directions from there. A
- * configured assistant name is arbitrarily long, so without this the pill runs
- * under that control and off a phone-width room. Each side gives up the corner
- * chrome's own offset, the control's 3.25rem box, and a gap so the two never
- * touch; a percentage resolves against the room, which is what the pill has to
- * fit inside.
+ * The band the camera status pill is centred in, on the same line as the
+ * top-right corner chrome. A configured assistant name is arbitrarily long, so
+ * without a bound the pill runs under that chrome and off a phone-width room.
+ *
+ * Each side gives up only what stands on it: the room's corner offset on the
+ * left, and on the right that offset plus the cluster plus a 0.5rem gap the
+ * two never close. Reserving the right's share on both sides instead would
+ * leave a phone-width room less than the pill's own floor, and the pill would
+ * overhang the cluster rather than truncate inside its ceiling.
+ *
+ * Two right-hand reserves because the cluster is two sizes. Minimize stands
+ * there alone at 3.25rem; where the view options join it the cluster is both
+ * controls and the 0.25rem between them. Reserving for two against a corner
+ * holding one would shift the pill off the band's centre for a control that
+ * is not there.
  */
-const CAMERA_PILL_MAX_WIDTH = `calc(100% - 2 * (max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem))`;
+const CAMERA_PILL_LEFT = `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})`;
+const CAMERA_PILL_RIGHT_ONE_CONTROL = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
+const CAMERA_PILL_RIGHT_TWO_CONTROLS = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 7.25rem)`;
+
+/**
+ * The tier the camera's view-options panel renders on, above every layer the
+ * room draws: the chrome band and the control rows at `z-10`, and the connect
+ * card at `z-20`.
+ *
+ * The panel is the one surface here the user opened on purpose, so nothing the
+ * room paints may cover it. It cannot simply live in the corner cluster it is
+ * triggered from: that cluster is a `z-10` positioned element and so its own
+ * stacking context, which the later `z-10` control rows paint over, and in a
+ * short viewport (a phone held sideways) the rows reach the panel's box.
+ *
+ * The host is a zero-size element rather than a full-bleed layer, so it can
+ * never take a press meant for the feed; the panel inside it is positioned
+ * against the trigger rather than against the host.
+ */
+const VIEW_OPTIONS_HOST_LAYER = "z-30";
 
 /**
  * The flash button's accessible name, per state.
@@ -562,6 +590,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // preference is the Settings page's, read here.
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
+  // Whether the viewfinder draws the accented thumbnail of the newest frame
+  // Live gave the call. The camera's view options write it.
+  const showKeptFrame = useVoicePrefsStore.use.showKeptFrame();
+  // Where the view-options panel renders. See the host element near the foot
+  // of the room, and {@link VIEW_OPTIONS_HOST_LAYER}.
+  const [viewOptionsHost, setViewOptionsHost] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   // Backwards-compat fallback for assistants that can still raise
   // `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts
@@ -607,6 +643,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       facing: camera.facing,
       nativePreview: camera.native,
     });
+  // The thumbnail the room draws, which the view options can stand down. Only
+  // the drawing: the frame behind it was sampled, sent and recorded in the
+  // transcript before this is read, and the hook goes on holding it either way
+  // so a retraction still has something to take back.
+  const keptFrame = showKeptFrame ? heldFrame : null;
   // Closing the viewfinder is the other way a user ends Live, and it does not
   // go through `setLive`. The mode comes down behind it, on the render the
   // close schedules, which is too late for a frame whose upload lands in
@@ -636,6 +677,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // the room is on, so the offer and the mode answer to one value: a shutter
   // that takes the hold is a shutter whose Live has somewhere to read from.
   const liveOffered = cameraOpen && liveAvailable;
+  // The view options are on offer wherever Live is. Both switches name
+  // something only a Live run produces: the thumbnail of the last frame it
+  // sent, and the readout of the gate deciding which frames those are. Where
+  // Live cannot run there is nothing for either to show, so the corner carries
+  // no button rather than a panel of switches that do nothing.
+  const viewOptionsOffered = liveOffered;
   // The shutter's two acts, which are two different sentences rather than one
   // with the mode pushed into it.
   const shutterLabel = live
@@ -778,7 +825,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // flush camera sheet reach the notch: the former clamps its gap up to the
   // inset, the latter adds the gap to it so the grabber fits between. The panel
   // and the header-resting sheet start below the app's own chrome, where the
-  // inset is not their edge to clear.
+  // inset is not their edge to clear. The band's two edges ride along, since
+  // the pill's slot is told where they are the same way, and the right one
+  // follows how many controls the corner is holding: see
+  // {@link CAMERA_PILL_RIGHT_TWO_CONTROLS}.
   const topBandVars = {
     "--room-chrome-top": fullscreen
       ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
@@ -788,6 +838,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     "--room-grabber-top": cameraSheet
       ? `calc(0.5rem + ${SAFE_AREA_TOP})`
       : "0.5rem",
+    "--camera-pill-left": CAMERA_PILL_LEFT,
+    "--camera-pill-right": viewOptionsOffered
+      ? CAMERA_PILL_RIGHT_TWO_CONTROLS
+      : CAMERA_PILL_RIGHT_ONE_CONTROL,
   } as CSSProperties;
 
   const body = (
@@ -1041,10 +1095,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       ) : null}
 
       {/* Camera mode's status readout: what the camera is doing, and what the
-          session is doing. Top-centre, on the same offset the corner chrome
-          uses, so it shares a line with the minimize control instead of
-          floating on a rhythm of its own; that offset already clears the
-          sheet's grabber.
+          session is doing. On the same offset the corner chrome uses, so it
+          shares a line with that chrome instead of floating on a rhythm of its
+          own; that offset already clears the sheet's grabber. Centred in the
+          band the chrome leaves rather than on the room, which is what keeps a
+          long name inside a ceiling at phone width: see
+          {@link CAMERA_PILL_RIGHT_TWO_CONTROLS}.
 
           Camera-only. With the viewfinder closed the room says all of this
           through the look itself (the avatar's visual, the state caption, the
@@ -1053,8 +1109,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {cameraOpen ? (
         <div
           data-testid="camera-status-pill-slot"
-          className="pointer-events-none absolute left-1/2 top-[var(--room-chrome-top)] z-10 -translate-x-1/2"
-          style={{ maxWidth: CAMERA_PILL_MAX_WIDTH }}
+          className="pointer-events-none absolute left-[var(--camera-pill-left)] right-[var(--camera-pill-right)] top-[var(--room-chrome-top)] z-10 flex justify-center"
         >
           <CameraStatusPill
             mode={cameraMode}
@@ -1065,21 +1120,24 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </div>
       ) : null}
 
-      {/* Top-right: minimize, alone.
+      {/* Top-right: minimize, with the camera's view options beside it.
 
           The corner is where every other surface in the app puts "get this off
-          my screen", and that is now exactly what it does — the session keeps
+          my screen", and that is exactly what it does: the session keeps
           running on the composer's voice bar or the title-bar pill. It used to
           END the call, which put the most destructive act in the room at the
           one spot muscle memory reaches for without looking; hanging up moved
           into the control row below, where it sits among the other things you
           do to a call and has to be aimed at.
 
-          Never gated behind avatar readiness, so the room can always be
-          dismissed even mid-load / on failure. Nothing else shares the corner:
-          the in-session settings gear was deleted because a cluster of small
-          chrome competed with the room's own cast for attention. Voice and
-          listening language are Settings' now. */}
+          Minimize is never gated behind avatar readiness, so the room can
+          always be dismissed even mid-load / on failure, and it keeps the
+          extreme corner. View options sits inboard of it and only where Live
+          is on offer, which is the only place its switches name anything the
+          room draws; every other room carries nothing but minimize here, since
+          a cluster of small chrome against the look competes with the room's
+          own cast for attention. Voice and listening language are Settings'
+          either way. */}
       <div
         // An equal gap from both edges, so the control reads as sitting in the
         // corner rather than floating near it. The top comes off the room's own
@@ -1087,6 +1145,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})` }}
         className="absolute top-[var(--room-chrome-top)] z-10 flex items-center gap-1"
       >
+        {viewOptionsOffered ? (
+          <CameraViewSettings panelHost={viewOptionsHost} />
+        ) : null}
         <VoiceRoomControl
           label={t("voiceRoom.minimizeAria")}
           tooltip={t("voiceRoom.minimizeTooltip")}
@@ -1238,8 +1299,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               the assistant has it. Aligned left so it never sits under the
               shutter, and `aria-hidden` because the live region already
               announces failures in words. */}
-          {photos.length > 0 || heldFrame ? (
-            <div className="flex items-center gap-2 self-start pl-6">
+          {photos.length > 0 || keptFrame ? (
+            <div
+              data-testid="voice-room-capture-row"
+              className="flex items-center gap-2 self-start pl-6"
+            >
               {photos.length > 0 ? (
                 <ul
                   aria-hidden
@@ -1280,11 +1344,13 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
                   `aria-hidden` for the same reason as the strip: every keep
                   lands in the transcript as its own message, which is the
-                  accessible record of it. */}
-              {heldFrame ? (
+                  accessible record of it. That record is also why the camera's
+                  view options can stand this down: what it draws is a
+                  convenience, and the transcript is the account. */}
+              {keptFrame ? (
                 <img
-                  key={heldFrame.attachmentId}
-                  src={heldFrame.previewUrl}
+                  key={keptFrame.attachmentId}
+                  src={keptFrame.previewUrl}
                   alt=""
                   aria-hidden
                   data-testid="voice-room-sight-frame"
@@ -1473,6 +1539,20 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           <X className="size-5" strokeWidth={2.5} />
         </VoiceRoomControl>
       </div>
+
+      {/* The view-options panel's host: last of the room's chrome, so it wins
+          a tie on DOM order as well as on its tier. Inside the room, which is
+          what keeps it out of the sheet's inert sweep (that covers the portal
+          host's own children) and visible under the native preview, which
+          hides everything outside this subtree. See
+          {@link VIEW_OPTIONS_HOST_LAYER}. */}
+      {viewOptionsOffered ? (
+        <div
+          ref={setViewOptionsHost}
+          data-testid="camera-view-settings-host"
+          className={cn("absolute left-0 top-0", VIEW_OPTIONS_HOST_LAYER)}
+        />
+      ) : null}
 
       {/* Screen readers get session-state changes here; the avatar is the
           visual channel, so this stays off-screen.

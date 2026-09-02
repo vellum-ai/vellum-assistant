@@ -86,6 +86,23 @@ export function describeSurfaceDataStringParseFailure(
   }
 }
 
+/**
+ * Required string that coerces a scalar, treating an absent field as blank.
+ *
+ * `z.coerce.string()` is not a validator on a missing field: it stringifies
+ * whatever it is handed, so `undefined` parses successfully as the literal
+ * "undefined" and a trailing `.catch()` never runs. That string then renders,
+ * and a field the model simply failed to send reads to the user as a word
+ * nobody wrote. A blank is what the callers already handle: an empty title
+ * falls back to a default, and an empty prompt or label is what the watch
+ * retro card filters an unanswerable question out on.
+ */
+const coercedString = () =>
+  z.preprocess(
+    (value) => (value === undefined || value === null ? "" : value),
+    z.coerce.string().catch(""),
+  );
+
 /** Optional string that drops (rather than rejects on) a non-string value. */
 const tolerantString = () => z.string().optional().catch(undefined);
 
@@ -111,7 +128,7 @@ export const CardSurfaceDataSchema = z.object({
   subtitle: z.string().optional(),
   body: z.string().optional(),
   metadata: z
-    .array(z.object({ label: z.coerce.string(), value: z.coerce.string() }))
+    .array(z.object({ label: coercedString(), value: coercedString() }))
     .optional(),
   /** Optional template name for specialized rendering (e.g. "weather_forecast"). */
   template: z.string().optional(),
@@ -298,7 +315,7 @@ export const FormFieldSchema = z.object({
     .optional()
     .catch(undefined),
   options: z
-    .array(z.object({ label: z.coerce.string(), value: z.coerce.string() }))
+    .array(z.object({ label: coercedString(), value: coercedString() }))
     .optional()
     .catch(undefined),
 });
@@ -353,7 +370,7 @@ export const TableColumnSchema = z.object({
 export type TableColumn = z.infer<typeof TableColumnSchema>;
 
 export const TableCellValueSchema = z.object({
-  text: z.coerce.string().catch(""),
+  text: coercedString(),
   /** SF Symbol name. */
   icon: tolerantString(),
   /** Semantic token: "success" | "warning" | "error" | "muted". */
@@ -402,7 +419,7 @@ export const DynamicPagePreviewSchema = z.object({
   description: tolerantString(),
   icon: tolerantString(),
   metrics: z
-    .array(z.object({ label: z.coerce.string(), value: z.coerce.string() }))
+    .array(z.object({ label: coercedString(), value: coercedString() }))
     .optional()
     .catch(undefined),
   context: z.enum(["app_create", "general"]).optional().catch(undefined),
@@ -467,7 +484,7 @@ export const WorkResultSectionTypeSchema = z.enum([
 export type WorkResultSectionType = z.infer<typeof WorkResultSectionTypeSchema>;
 
 const workResultLabelValue = () => ({
-  label: z.coerce.string().catch(""),
+  label: coercedString(),
   value: z.union([z.string(), z.number()]).catch(""),
 });
 
@@ -483,7 +500,7 @@ export type WorkResultMetadata = z.infer<typeof WorkResultMetadataSchema>;
 
 export const WorkResultItemSchema = z.object({
   id: tolerantString(),
-  title: z.coerce.string().catch(""),
+  title: coercedString(),
   description: tolerantString(),
   status: tolerantString(),
   tone: WorkResultToneSchema.optional().catch(undefined),
@@ -506,7 +523,7 @@ export type WorkResultDiff = z.infer<typeof WorkResultDiffSchema>;
 
 export const WorkResultSectionSchema = z.object({
   id: tolerantString(),
-  title: z.coerce.string().catch(""),
+  title: coercedString(),
   description: tolerantString(),
   type: WorkResultSectionTypeSchema.optional().catch(undefined),
   items: recordArray(WorkResultItemSchema).optional().catch(undefined),
@@ -558,17 +575,17 @@ export type WatchRetroQuestionKind = z.infer<
  * deliberately not the model's guess.
  */
 export const WatchRetroOptionSchema = z.object({
-  id: z.coerce.string().catch(""),
-  label: z.coerce.string().catch(""),
+  id: coercedString(),
+  label: coercedString(),
   /** Short qualifier under the label, e.g. marking the model's own reading. */
   note: tolerantString(),
 });
 export type WatchRetroOption = z.infer<typeof WatchRetroOptionSchema>;
 
 export const WatchRetroQuestionSchema = z.object({
-  id: z.coerce.string().catch(""),
+  id: coercedString(),
   kind: WatchRetroQuestionKindSchema.catch("pick"),
-  prompt: z.coerce.string().catch(""),
+  prompt: coercedString(),
   /** Eyebrow above the prompt, naming why this one is being asked. */
   eyebrow: tolerantString(),
   /** `fill` only: the pre-filled value, so skipping keeps a working answer. */
@@ -583,7 +600,7 @@ export const WATCH_RETRO_MAX_QUESTIONS = 3;
 
 export const WatchRetroSurfaceDataSchema = z.object({
   /** The task, named in one line. The card's title. */
-  task: z.coerce.string().catch(""),
+  task: coercedString(),
   /** What the task is for. The one sentence that makes the steps mean something. */
   purpose: tolerantString(),
   /**

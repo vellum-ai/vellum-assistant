@@ -122,7 +122,7 @@ export interface CompanionLayout {
    * the pill's bottom sits on.
    *
    * Shorter than {@link CompanionLayout.avatarHalf}: the box runs past the
-   * drawing to hold the glow and the bob's slack, and it is the drawing the eye
+   * drawing to hold the bob's slack, and it is the drawing the eye
    * lines the pill up with.
    */
   baseline: number;

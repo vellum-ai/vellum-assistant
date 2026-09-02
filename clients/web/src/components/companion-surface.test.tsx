@@ -56,10 +56,6 @@ const ringOf = (container: HTMLElement): HTMLElement | null =>
 const bobOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>(".companion-avatar-bob");
 
-/** The creature's own light, which rides inside the bob. */
-const glowOf = (container: HTMLElement): HTMLElement | null =>
-  container.querySelector<HTMLElement>(".companion-glow");
-
 describe("the companion surface's working ring", () => {
   test("is absent while nothing is running", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
@@ -487,7 +483,7 @@ describe("the companion surface's anchor in the canvas", () => {
   /**
    * The creature's visible bottom is the fixed point. The pill's bottom sits on
    * it rather than on the avatar's box, which runs a further 8 points down to
-   * hold the glow, and the mascot never moves whichever way the pill or the
+   * hold the bob's slack, and the mascot never moves whichever way the pill or the
    * card grows.
    */
   test("sits the pill's bottom on the creature's visible bottom", () => {
@@ -1413,17 +1409,26 @@ describe("the companion surface's text selection", () => {
  * a screenshot.
  */
 describe("the resting avatar's idle motion", () => {
-  test("bobs on a wrapper of its own, with the glow riding inside it", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" accentHex="#ff8800" />,
-    );
+  test("bobs on a wrapper of its own", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
 
-    const bob = bobOf(container);
-    expect(bob).not.toBeNull();
+    expect(bobOf(container)).not.toBeNull();
+  });
 
-    const glow = glowOf(container);
-    expect(glow?.parentElement).toBe(bob);
-    expect(glow?.style.background.toLowerCase()).toContain("#ff8800");
+  /**
+   * The creature carries no light of its own: a blurred disc of the accent
+   * behind it made it read as a lit control rather than as something standing
+   * on the desktop, so nothing is painted behind the artwork in any phase.
+   */
+  test("draws nothing behind the creature", () => {
+    for (const phase of PHASES) {
+      const { container } = render(
+        <CompanionSurface phase={phase} accentHex="#ff8800" />,
+      );
+      expect(container.querySelector(".companion-glow")).toBeNull();
+      expect(bobOf(container)?.querySelector(".blur-lg")).toBeNull();
+      cleanup();
+    }
   });
 
   /**
@@ -1468,43 +1473,27 @@ describe("the resting avatar's idle motion", () => {
   });
 
   /**
-   * The glow is the creature's own light and the creature is on screen in every
-   * phase, so it is lit in every phase. Nothing stacks under it: the pill is a
-   * separate shape a gap away rather than a body the halo would read as a
-   * second ring around.
-   */
-  test("glows in every phase, not only at rest", () => {
-    for (const phase of PHASES) {
-      const { container } = render(<CompanionSurface phase={phase} />);
-      expect(glowOf(container)).not.toBeNull();
-      cleanup();
-    }
-  });
-
-  /**
    * A reader who has asked for stillness gets it from two places: the
    * `prefers-reduced-motion` block beside the keyframes, and the inline
    * `animation: none` here. The doubling is deliberate, since a stylesheet that
    * failed to load is a surface that moves anyway, and this is the half a
    * reader of the component can see.
    *
-   * Held still rather than dropped: the glow is the creature's own light and
-   * the bob's baseline is where the creature belongs, so both stay drawn.
+   * Held still rather than dropped: the bob's baseline is where the creature
+   * belongs, so it stays drawn.
    */
-  test("holds the bob and the glow still under reduced motion", () => {
+  test("holds the bob still under reduced motion", () => {
     reducedMotion = true;
 
     const { container } = render(<CompanionSurface phase="resting" />);
 
     expect(bobOf(container)?.style.animation).toBe("none");
-    expect(glowOf(container)?.style.animation).toBe("none");
   });
 
-  test("leaves both running for a reader who asked for nothing", () => {
+  test("leaves it running for a reader who asked for nothing", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
     expect(bobOf(container)?.style.animation).toBe("");
-    expect(glowOf(container)?.style.animation).toBe("");
   });
 
   /**

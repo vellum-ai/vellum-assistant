@@ -286,7 +286,7 @@ export function hasAccessRequestInstructions(
   }
   const handshakeOffered = options?.handshakeOffered ?? true;
   const normalized = normalizeForDirectiveMatching(text);
-  const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedCode = RegExp.escape(requestCode);
   // Each directive must follow "reply" without a preceding negation word.
   // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
   const trustRe = buildCodeDirectiveRegex(escapedCode, "trust");

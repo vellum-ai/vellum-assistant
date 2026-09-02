@@ -632,10 +632,6 @@ export function hasGuardianRequestCodeInstruction(
   }
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function normalizeInstructionText(value: string): string {
   return value
     .replace(/[ \t]+\n/g, "\n")
@@ -662,7 +658,7 @@ export function stripConflictingGuardianRequestInstructions(
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): string {
-  const escapedCode = escapeRegExp(requestCode);
+  const escapedCode = RegExp.escape(requestCode);
   const next =
     mode === "answer"
       ? text.replace(buildApprovalInstructionPattern(escapedCode), "")
@@ -681,7 +677,7 @@ export function stripGuardianRequestCodeInstructions(
   text: string,
   requestCode: string,
 ): string {
-  const escapedCode = escapeRegExp(requestCode);
+  const escapedCode = RegExp.escape(requestCode);
   const next = text
     .replace(buildApprovalInstructionPattern(escapedCode), "")
     .replace(buildAnswerInstructionPattern(escapedCode), "")

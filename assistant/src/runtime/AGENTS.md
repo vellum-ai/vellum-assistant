@@ -210,27 +210,37 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   channel, including one this repo has no code for, which is why a new
   channel belongs here rather than in a sixth key of its own.
 
-  Every channel except Slack writes it: a reaction row carries the whole
-  shape (`inbound-stages/reaction-intercept.ts`), an edit or a delete
-  stamps `editedAt` / `deletedAt` onto whatever the row already said about
-  itself through `mergeProviderMessageMetadata`
-  (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`), and an
-  outbound assistant reply is stamped with a partial envelope at reserve time
-  (`buildAssistantChannelMetadata`) whose `messageId` (and, for a reply
+  Every row the daemon authors writes it on every channel, Slack included:
+  an outbound assistant reply is stamped with a partial envelope at reserve
+  time (`buildAssistantChannelMetadata`) whose `messageId` (and, for a reply
   split into several posts, `additionalMessageIds`) the post-send
   reconciliation in `channel-reply-delivery.ts` back-fills from the
-  transport's delivery results. The same reconciliation writes each id into
+  transport's delivery results, the assistant's own reaction rows write it
+  (`daemon/reaction-record.ts`), and bot-authored Slack backfill rows write
+  it. Every channel except Slack writes it for inbound rows too: a reaction
+  row carries the whole shape (`inbound-stages/reaction-intercept.ts`), and
+  an edit or a delete stamps `editedAt` / `deletedAt` onto whatever the row
+  already said about itself through `mergeProviderMessageMetadata`
+  (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`). The same reconciliation writes each id into
   the `channel_outbound_posts` index (the outbound counterpart of
   `channel_inbound_events`' provider-id resolution), which is what lets a
   later reaction or delete naming the assistant's own post resolve back to
   its row exactly; the envelope stays the row's self-description, and the
   capped envelope scan in `findMessageByProviderMessageId` survives only as
-  the transitional fallback for rows reconciled before the table. Slack
-  keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
-  onto this shape on read, so the channel-agnostic readers in
-  `persistence/delivery-crud.ts` (thread evidence, and finding the
-  conversation that holds a given provider message id) serve both without a
-  per-channel branch.
+  the transitional fallback for rows reconciled before the table. A reply
+  still pending for the retry sweep that was reserved with Slack's own
+  pre-send envelope converges onto this envelope when that reconciliation
+  stamps it (`providerMetadataOfPreSendSlackEnvelope`, transitional in the
+  same way). Inbound Slack rows still write `slackMeta` (transitional: the
+  end state is this
+  envelope on every Slack row, with `slackMeta` as the read-compat arm for
+  historical rows). The two envelopes map onto each other on read, in both
+  directions: `readProviderMetadata` serves a `slackMeta` row as this shape
+  to the channel-agnostic readers in `persistence/delivery-crud.ts`, and
+  `readSlackMetadataFromMessageMetadata` serves a neutral row as Slack's
+  view (`slackViewOfProviderMetadata`, Slack's own fields riding the
+  schema's passthrough) to the Slack renderers and backfill readers, so no
+  reader on either side carries a per-envelope branch.
 
 ### Channel verification: gateway-owned
 

@@ -318,4 +318,43 @@ describe("WatchRetroSurface", () => {
     fireEvent.click(screen.getByText("Save skill"));
     expect(screen.queryByText("What decides this?")).toBeNull();
   });
+
+  /**
+   * What a payload with the question text under the wrong key degrades to.
+   *
+   * `watch_retro_report` refuses this shape now, so it should not reach a
+   * card. If one ever does, the record is still the half the user is owed, and
+   * a question with no text is dropped the same way an optionless one is. The
+   * schema is what makes that possible: an absent required string parses as
+   * blank rather than as the word "undefined", which used to render.
+   */
+  test("a question whose text arrived under the wrong key leaves the record intact", () => {
+    render(
+      <CardSurface
+        surface={surface({
+          questions: [
+            {
+              id: "scope",
+              kind: "pick",
+              question: "Where does this routine end?",
+              options: [
+                { value: "Just read" },
+                { value: "Also draft or send replies" },
+              ],
+            },
+          ],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText("Filing a Linear bug from a Sentry alert"),
+    ).toBeDefined();
+    expect(screen.getByText("Open the Sentry issue")).toBeDefined();
+    expect(screen.queryByText("undefined")).toBeNull();
+    // Dropped rather than drawn: the record page is the only page, so it
+    // carries the closing button rather than a hand-off to a blank question.
+    expect(screen.getByText("Save skill")).toBeDefined();
+  });
 });

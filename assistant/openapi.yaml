@@ -4263,6 +4263,18 @@ paths:
                         - removed
                     emoji:
                       type: string
+                    emojiKind:
+                      type: string
+                      enum:
+                        - unicode
+                        - shortcode
+                        - custom
+                    emojiName:
+                      type: string
+                    emojiId:
+                      type: string
+                    emojiAnimated:
+                      type: boolean
                     targetMessageId:
                       type: string
                   required:
@@ -21064,6 +21076,18 @@ paths:
                           properties:
                             emoji:
                               type: string
+                            emojiKind:
+                              type: string
+                              enum:
+                                - unicode
+                                - shortcode
+                                - custom
+                            emojiName:
+                              type: string
+                            emojiId:
+                              type: string
+                            emojiAnimated:
+                              type: boolean
                             op:
                               type: string
                               enum:
@@ -21133,6 +21157,18 @@ paths:
                               properties:
                                 emoji:
                                   type: string
+                                emojiKind:
+                                  type: string
+                                  enum:
+                                    - unicode
+                                    - shortcode
+                                    - custom
+                                emojiName:
+                                  type: string
+                                emojiId:
+                                  type: string
+                                emojiAnimated:
+                                  type: boolean
                                 op:
                                   type: string
                                   enum:

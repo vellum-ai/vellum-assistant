@@ -104,6 +104,58 @@ describe("handleListMessages system-card projection", () => {
     expect(silentRow?.noResponse).toBe(true);
   });
 
+  test("projects a reaction's typed emoji fields to the response", async () => {
+    const conv = createConversation();
+    const row = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "[reaction]" }]),
+      {
+        metadata: {
+          messageKind: "reaction",
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.1",
+              emoji: "<:party_blob:111>",
+              emojiKind: "custom",
+              emojiName: "party_blob",
+              emojiId: "111",
+              emojiAnimated: true,
+              op: "added",
+            },
+          }),
+        },
+      },
+    );
+
+    const response = (await handleListMessages({
+      queryParams: { conversationId: conv.id },
+    })) as {
+      messages: Array<
+        ProjectedMessage & {
+          reaction?: {
+            emoji: string;
+            emojiKind?: string;
+            emojiName?: string;
+            emojiId?: string;
+            emojiAnimated?: boolean;
+          };
+        }
+      >;
+    };
+    const projected = response.messages.find((m) => m.id === row.id);
+    expect(projected?.reaction).toMatchObject({
+      emoji: "<:party_blob:111>",
+      emojiKind: "custom",
+      emojiName: "party_blob",
+      emojiId: "111",
+      emojiAnimated: true,
+    });
+  });
+
   test("projects the reaction fact from a reaction row's envelope", async () => {
     const conv = createConversation();
     const row = await addMessage(

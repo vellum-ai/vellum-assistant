@@ -33,10 +33,7 @@ import {
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
-import {
-  readSlackMetadata,
-  readSlackMetadataFromMessageMetadata,
-} from "../messaging/providers/slack/message-metadata.js";
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
   compareSlackTs,
   extractTagLineTexts,
@@ -76,9 +73,11 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { trustClassSchema } from "../runtime/trust-class.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
@@ -1162,29 +1161,12 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
  *   renderer drops the redundant `@user` placeholder.
  */
 function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
-  let slackMeta: ReturnType<typeof readSlackMetadata> = null;
-  let provenanceTrustClass: TrustClass | undefined;
-  if (row.metadata) {
-    try {
-      const outer = JSON.parse(row.metadata) as {
-        slackMeta?: unknown;
-        provenanceTrustClass?: unknown;
-      };
-      if (typeof outer.slackMeta === "string") {
-        slackMeta = readSlackMetadata(outer.slackMeta);
-      }
-      if (
-        outer.provenanceTrustClass === "guardian" ||
-        outer.provenanceTrustClass === "trusted_contact" ||
-        outer.provenanceTrustClass === "unverified_contact" ||
-        outer.provenanceTrustClass === "unknown"
-      ) {
-        provenanceTrustClass = outer.provenanceTrustClass;
-      }
-    } catch {
-      // Malformed metadata — fall through to legacy/null treatment.
-    }
-  }
+  const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata);
+  const provenanceTrustClass = row.metadata
+    ? trustClassSchema.safeParse(
+        safeParseRecord(row.metadata).provenanceTrustClass,
+      ).data
+    : undefined;
 
   const isReaction = slackMeta?.eventKind === "reaction";
   let senderLabel: string | null;
@@ -2611,10 +2593,9 @@ export async function applyRuntimeInjections(
   // so the provider prefix through those messages stays byte-identical.
   // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
   // spotlight blocks exist and this is a content no-op.
-  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(
-    runMessages,
-    [MEMORY_SPOTLIGHT_MATCHER],
-  );
+  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(runMessages, [
+    MEMORY_SPOTLIGHT_MATCHER,
+  ]);
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
