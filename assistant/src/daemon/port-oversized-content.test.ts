@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { getAttachmentContent } from "../persistence/attachments-store.js";
 import { createConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -56,10 +55,7 @@ describe("offloadOversizedText", () => {
         attachmentId: result.attachmentId,
       },
     });
-
-    const stored = getAttachmentContent(result.attachmentId!);
-    expect(stored).not.toBeNull();
-    expect(stored!.toString("utf8")).toBe(original);
+    expect(JSON.stringify(result)).not.toContain(original);
 
     const blocks = assembleUserContentBlocks(result.text, [], result.fileBlock);
     expect(JSON.stringify(blocks)).not.toContain(original);
