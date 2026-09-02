@@ -15,6 +15,19 @@ import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
+
+/**
+ * What a floating window shows while its route's chunk loads: nothing.
+ *
+ * These routes are drawn in transparent, click-through windows the desktop
+ * shell floats over the desktop, sized well past what they draw. A spinner
+ * centred in one of those is a spinner floating over the desktop with nothing
+ * around it, and the shell's HTML splash is kept off them for the same reason
+ * (`index.html`). The surface appears when it is ready.
+ */
+function FloatingHydrateFallback() {
+  return null;
+}
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
@@ -351,7 +364,7 @@ export const routeTree = [
   {
     path: "/assistant/floating/companion",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/companion-surface-page").then(
@@ -366,7 +379,7 @@ export const routeTree = [
   {
     path: "/assistant/floating/companion-watch-glow",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/companion-watch-glow-page").then(
@@ -383,7 +396,7 @@ export const routeTree = [
   {
     path: "/assistant/floating/dictation-overlay",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/dictation-overlay-page").then(
@@ -396,7 +409,7 @@ export const routeTree = [
   {
     path: "/assistant/dictation-overlay",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/dictation-overlay-page").then(

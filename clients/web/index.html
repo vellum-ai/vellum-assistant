@@ -116,6 +116,29 @@
       }
     })();
 
+    // Floating windows draw no splash.
+    //
+    // The desktop shell floats a few routes over the desktop in transparent,
+    // click-through windows sized well past what they draw: the companion
+    // surface's canvas, the edge glow the size of a display. The splash is a
+    // full-viewport panel in the theme colour, so on one of those it is a
+    // dark rectangle the size of the window, held until the route's chunk
+    // arrives and React replaces it. Nothing is the right thing to show there:
+    // the surface appears when it is ready, and the desktop shows through
+    // until then. Stamped here, before first paint, for the reason the theme
+    // is: a splash that painted and then vanished is the flash this exists to
+    // prevent. The legacy overlay path is kept for a shell mid-update
+    // (`routes.tsx`), and it floats the same way without the segment.
+    (function () {
+      var path = window.location.pathname;
+      if (
+        path.indexOf("/floating/") !== -1 ||
+        /\/dictation-overlay$/.test(path)
+      ) {
+        document.documentElement.setAttribute("data-floating", "");
+      }
+    })();
+
     // Boot splash label.
     //
     // `index.html` is one static file served to every locale, so the label in the
@@ -302,6 +325,10 @@
         background: #17191C;
         color: #8D99A5;
       }
+    }
+
+    :root[data-floating] #boot-splash {
+      display: none;
     }
   </style>
 </head>
