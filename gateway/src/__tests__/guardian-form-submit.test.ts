@@ -97,8 +97,6 @@ describe("submitGuardianForm", () => {
 
     expect(res.status).toBe(200);
     expect(write).not.toHaveBeenCalled();
-    // The marker is what a client branches on; the string stays because an
-    // older daemon has nothing else to read.
     expect(resolveCall()?.body).toEqual({
       requestId: "req-2",
       error: "Cancelled by user",
