@@ -1564,6 +1564,7 @@
     "settings": "設定"
   },
   "toolDetailPanel": {
+    "changes": "變更",
     "closeAria": "關閉工具詳細資料",
     "denied": "此工具呼叫未獲核准，因此沒有執行。",
     "emptyOutput": "該工具沒有回傳任何輸出。",

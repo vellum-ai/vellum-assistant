@@ -1,0 +1,232 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+
+import { Notice } from "@vellumai/design-library";
+
+import { SectionLabel } from "@/components/detail-primitives";
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+import { DetailShell } from "@/components/detail-shell";
+import {
+  bashDetail,
+  bashErrorDetail,
+  bashStreamingDetail,
+  fileEditDetail,
+} from "@/domains/chat/components/tool-detail-story-fixtures";
+import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
+import { FileEditDetail } from "@/domains/chat/components/tool-activity/file-edit-detail";
+import { RiskChip } from "@/domains/chat/components/tool-activity/risk-chip";
+import { ToolDetailPanel } from "@/domains/chat/components/tool-detail-panel";
+import {
+  getRiskBadgeWeakStyle,
+  getRiskNoticeTone,
+  getRiskToleranceHint,
+} from "@/domains/chat/utils/risk";
+import { FileText, SquareTerminal } from "lucide-react";
+
+/**
+ * Proposals for the tool-specific renderers, so the choice can be made against
+ * something real rather than described.
+ *
+ * **None of these are registered.** `tool-activity-renderers.ts` is unchanged,
+ * so nothing here reaches the product. Each proposal is a real component built
+ * from primitives the repository already has, which is also the point: the
+ * question is which of them we want, not whether they are affordable.
+ *
+ * Each pair below is "Current" then "Proposed", on the same fixture, in the
+ * real drawer at its real 400px default width.
+ *
+ * ## What these proposals do not decide
+ *
+ * - **Syntax highlighting.** There is no highlighter in the repository, and
+ *   adding one is a dependency and bundle-size call. Everything here is
+ *   monochrome, and highlighting would be additive to the same shapes.
+ * - **Whether risk stays first.** `RiskChip` shows the information as a pill;
+ *   where the pill belongs in the panel is a layout decision, not a rendering
+ *   one.
+ *
+ * ## What they reuse
+ *
+ * Nothing here adds a dependency.
+ *
+ * - The diff is `FileDiffView` + `computeLineDiff` + `DiffRows`, which already
+ *   render diffs for ACP runs and skill revision history. `computeLineDiff` is
+ *   a dependency-free LCS and `DiffRows` soft-wraps rather than scrolling,
+ *   which is what makes a diff legible at 400px. Shipping it means lifting
+ *   `FileDiffView` out of `acp-run-chat-view/` once it has a second consumer.
+ * - The risk pill is `RiskBadge`, which matches the macOS `RiskBadgeView`
+ *   convention and has tests and stories, and which nothing in the app
+ *   currently renders.
+ * - The terminal reuses `ClampedContent` and `CopyButton`.
+ */
+const meta: Meta = {
+  title: "Chat/ToolDetailPanel Proposals",
+  parameters: {
+    layout: "fullscreen",
+    docs: { story: { inline: false, height: "620px" } },
+  },
+  decorators: [
+    (Story) => (
+      <DetailPanelStoryFrame>
+        <Story />
+      </DetailPanelStoryFrame>
+    ),
+  ],
+};
+
+export default meta;
+type Story = StoryObj;
+
+/** Frames a proposal in the real drawer shell, the way the panel would. */
+function Proposed({
+  title,
+  Glyph,
+  children,
+}: {
+  title: string;
+  Glyph: typeof FileText;
+  children: React.ReactNode;
+}) {
+  return (
+    <DetailShell
+      Glyph={Glyph}
+      title={title}
+      closeLabel="Close"
+      closeVariant="outlined"
+      onClose={() => {}}
+    >
+      {children}
+    </DetailShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// file_edit
+// ---------------------------------------------------------------------------
+
+/** What ships today: the before and after as two escaped JSON string literals. */
+export const FileEditCurrent: Story = {
+  render: () => <ToolDetailPanel detail={fileEditDetail} onClose={() => {}} />,
+};
+
+/**
+ * Proposed: the same pair as a unified diff, through the renderer the skill
+ * revision history and ACP runs already use.
+ */
+export const FileEditProposed: Story = {
+  render: () => (
+    <Proposed title={fileEditDetail.activity} Glyph={FileText}>
+      <FileEditDetail
+        detail={fileEditDetail}
+        result={fileEditDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />
+    </Proposed>
+  ),
+};
+
+// ---------------------------------------------------------------------------
+// bash
+// ---------------------------------------------------------------------------
+
+/** What ships today: the command quoted inside a JSON object, output below. */
+export const BashCurrent: Story = {
+  render: () => <ToolDetailPanel detail={bashDetail} onClose={() => {}} />,
+};
+
+/** Proposed: a prompt line and its output on one surface. */
+export const BashProposed: Story = {
+  render: () => (
+    <Proposed title={bashDetail.activity} Glyph={SquareTerminal}>
+      <BashDetail
+        detail={bashDetail}
+        result={bashDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />
+    </Proposed>
+  ),
+};
+
+/** Proposed, failing: the output carries the error tone rather than a label. */
+export const BashProposedError: Story = {
+  render: () => (
+    <Proposed title={bashErrorDetail.activity} Glyph={SquareTerminal}>
+      <BashDetail
+        detail={bashErrorDetail}
+        result={bashErrorDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError
+      />
+    </Proposed>
+  ),
+};
+
+/** Proposed, running: the streamed tail lands in the same block. */
+export const BashProposedRunning: Story = {
+  render: () => (
+    <Proposed title={bashStreamingDetail.activity} Glyph={SquareTerminal}>
+      <BashDetail
+        detail={bashStreamingDetail}
+        result={undefined}
+        streamedOutput={bashStreamingDetail.streamedOutput}
+        isRunning
+        isError={false}
+      />
+    </Proposed>
+  ),
+};
+
+// ---------------------------------------------------------------------------
+// Risk
+// ---------------------------------------------------------------------------
+
+const LEVELS = ["low", "medium", "high", "workspace", "elevated"];
+
+/**
+ * What ships today: a section label and a full-width tone bar per call,
+ * spending three lines on one word and a sentence.
+ */
+export const RiskCurrent: Story = {
+  render: () => (
+    <Proposed title="Risk, as it renders today" Glyph={FileText}>
+      <div className="flex flex-col gap-5">
+        {LEVELS.map((level) => {
+          const style = getRiskBadgeWeakStyle(level);
+          const hint = getRiskToleranceHint(level);
+          return (
+            <div key={level}>
+              <SectionLabel>Risk Level</SectionLabel>
+              <Notice tone={getRiskNoticeTone(level)}>
+                <span className={style.text}>
+                  {hint ? `${style.label} → ${hint}` : style.label}
+                </span>
+              </Notice>
+            </div>
+          );
+        })}
+      </div>
+    </Proposed>
+  ),
+};
+
+/**
+ * Proposed: the level as a pill, the tolerance sentence on hover. Levels with
+ * no tolerance tier (`workspace`, unrecognised) carry no tooltip, because
+ * there is no sentence for them.
+ *
+ * Hover a pill to see the tooltip; it is the real one, so it needs a pointer.
+ */
+export const RiskProposed: Story = {
+  render: () => (
+    <Proposed title="Risk, as a pill" Glyph={FileText}>
+      <div className="flex flex-wrap items-center gap-2">
+        {LEVELS.map((level) => (
+          <RiskChip key={level} level={level} />
+        ))}
+      </div>
+    </Proposed>
+  ),
+};
