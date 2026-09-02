@@ -166,4 +166,17 @@ describe("contacts_prompt binding target", () => {
     expect(String(result.error)).toContain("displayName");
     expect(broadcasts).toHaveLength(0);
   });
+
+  test("naming a contact and proposing notes is refused, and opens no form", async () => {
+    // A targeted bind writes no record, so notes riding along would be
+    // reported as saved and dropped.
+    const result = (await addressPrompt.handler({
+      body: { channel: "email", contactId: "ct_1", notes: "Met at the talk" },
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toContain("contactId");
+    expect(String(result.error)).toContain("notes");
+    expect(broadcasts).toHaveLength(0);
+  });
 });

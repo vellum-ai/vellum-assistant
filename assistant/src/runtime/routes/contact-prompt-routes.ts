@@ -240,11 +240,11 @@ async function handleContactPrompt({
     timeoutMs,
   } = ContactPromptParams.parse(body);
 
-  if (contactId && displayName) {
+  if (contactId && (displayName !== undefined || notes !== undefined)) {
     return {
       ok: false,
       error:
-        "Pass either contactId (bind to an existing contact) or displayName (create a new one), not both.",
+        "Pass either contactId (bind to an existing contact) or displayName and notes (create a new one), not both. A contact that already exists is edited with 'assistant contacts update'.",
     };
   }
 
