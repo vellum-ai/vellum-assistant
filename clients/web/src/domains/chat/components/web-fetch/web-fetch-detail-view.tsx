@@ -20,7 +20,7 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { CodeBlock } from "@/components/detail-primitives";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
-import type { ToolDetailPayload } from "@/stores/viewer-store";
+import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
 const CONTENT_MARKER = "\nContent:\n";
@@ -147,19 +147,31 @@ function SourceCard({ url, status }: { url: string; status: string | null }) {
 
 export function WebFetchDetailView({
   detail,
-}: { detail: ToolDetailPayload }) {
+  result,
+  isRunning,
+  isError,
+}: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
   const [showRaw, setShowRaw] = useState(false);
+  // The live result, not the open-time snapshot: this renderer owns its output,
+  // so a fetch that lands while the drawer is open reaches the user only if the
+  // view reads what `ToolDetailBody` resolved.
+  const body = typeof result === "string" ? result : "";
   const fallbackUrl =
     typeof detail.input?.url === "string" ? detail.input.url : undefined;
   const parsed = useMemo(
-    () => parseWebFetchResult(detail.result ?? "", fallbackUrl),
-    [detail.result, fallbackUrl],
+    () => parseWebFetchResult(body, fallbackUrl),
+    [body, fallbackUrl],
   );
 
-  // A failed fetch has no parseable body — show the raw error verbatim.
-  if (detail.status === "error") {
-    return <CodeBlock text={detail.result ?? t("webFetchDetailView.fetchFailed")} />;
+  // A failed fetch has no parseable body, so its error shows verbatim.
+  if (isError) {
+    return (
+      <CodeBlock
+        text={body || t("webFetchDetailView.fetchFailed")}
+        tone="error"
+      />
+    );
   }
 
   return (
@@ -188,22 +200,26 @@ export function WebFetchDetailView({
             as="h3"
             className="text-[var(--content-emphasised)]"
           >
-            {showRaw ? t("webFetchDetailView.rawResult") : t("webFetchDetailView.content")}
+            {showRaw
+              ? t("webFetchDetailView.rawResult")
+              : t("webFetchDetailView.content")}
           </Typography>
-          {detail.result && (
+          {body && (
             <button
               type="button"
               onClick={() => setShowRaw((v) => !v)}
               className="cursor-pointer text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
             >
               <Typography variant="label-small-default" as="span">
-                {showRaw ? t("webFetchDetailView.viewExtracted") : t("webFetchDetailView.viewRaw")}
+                {showRaw
+                  ? t("webFetchDetailView.viewExtracted")
+                  : t("webFetchDetailView.viewRaw")}
               </Typography>
             </button>
           )}
         </div>
         {showRaw ? (
-          <CodeBlock text={detail.result ?? ""} />
+          <CodeBlock text={body} />
         ) : parsed.content ? (
           // Deliberately NO `assistantId`: this is text extracted from a
           // remote page, the least-trusted content in the app. Passing one
@@ -218,7 +234,7 @@ export function WebFetchDetailView({
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            {detail.status === "running"
+            {isRunning
               ? t("webFetchDetailView.fetching")
               : t("webFetchDetailView.noContent")}
           </Typography>
