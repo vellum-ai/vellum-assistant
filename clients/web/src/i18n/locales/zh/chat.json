@@ -729,6 +729,10 @@
     "secureHint": "此值将安全发送，不会存储在您的浏览器中。",
     "selectPlaceholder": "选择..."
   },
+  "frameGateHud": {
+    "collapse": "隐藏帧筛选读数",
+    "expand": "显示帧筛选读数"
+  },
   "groupActions": {
     "archiveAll": "全部归档…",
     "copyGroupId": "复制群组 ID",

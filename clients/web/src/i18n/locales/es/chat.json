@@ -751,6 +751,10 @@
     "secureHint": "Este valor se enviará de forma segura y no se guardará en tu navegador.",
     "selectPlaceholder": "Seleccionar..."
   },
+  "frameGateHud": {
+    "collapse": "Ocultar la lectura del filtro de fotogramas",
+    "expand": "Mostrar la lectura del filtro de fotogramas"
+  },
   "groupActions": {
     "archiveAll": "Archivar todas…",
     "copyGroupId": "Copiar ID del grupo",
