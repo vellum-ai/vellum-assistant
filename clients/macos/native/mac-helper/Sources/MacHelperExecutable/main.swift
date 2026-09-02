@@ -257,16 +257,16 @@ final class MacHelper: @unchecked Sendable {
             // was. Character counts only in the log; the text itself is the
             // user's.
             let readStarted = Date()
-            let selection = FrontSelection.read()
+            let outcome = FrontSelection.read()
             let heldMs = Int(Date().timeIntervalSince(readStarted) * 1000)
             params["heldMs"] = heldMs
-            if let selection {
+            if let selection = outcome.selection {
                 params["selection"] = [
                     "text": selection.text,
                     "truncated": selection.truncated,
                 ]
-                log("modifier hold down with selection chars=\(selection.text.count) truncated=\(selection.truncated) readMs=\(heldMs)")
             }
+            log("modifier hold down: selection \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(heldMs)")
         } else if state == "up" {
             guard isModifierHoldDown else { return }
             isModifierHoldDown = false
@@ -1173,10 +1173,18 @@ private func writePermissionStatusAndExit() {
 if CommandLine.arguments.contains("--front-selection") {
     // A probe for what the application in front exposes: run it with something
     // highlighted and it prints what a hold would carry, then exits.
-    let selection = FrontSelection.read()
-    var payload: [String: Any] = ["trusted": AXIsProcessTrusted()]
-    payload["text"] = selection?.text ?? NSNull()
-    payload["truncated"] = selection?.truncated ?? false
+    let outcome = FrontSelection.read()
+    var payload: [String: Any] = [
+        "trusted": outcome.trusted,
+        "promptShown": outcome.promptShown,
+        "app": outcome.bundleId ?? NSNull(),
+        "focused": outcome.focused,
+        "role": outcome.role ?? NSNull(),
+        "path": outcome.path.rawValue,
+        "chars": outcome.chars,
+    ]
+    payload["text"] = outcome.selection?.text ?? NSNull()
+    payload["truncated"] = outcome.selection?.truncated ?? false
     let data = try! JSONSerialization.data(withJSONObject: payload, options: [])
     FileHandle.standardOutput.write(data)
     FileHandle.standardOutput.write(Data("\n".utf8))

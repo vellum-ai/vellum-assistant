@@ -1,36 +1,80 @@
 import AppKit
 import ApplicationServices
+import Carbon
 
-/// The text selected in the application in front, read over Accessibility.
+/// The text selected in the application in front.
 ///
 /// Read at the moment a hold begins, so a hold made with something highlighted
-/// carries what was highlighted. Accessibility is the only way in: a copy
-/// keystroke would land on the app in front while the hold's own modifiers are
-/// still down, and the hold detector would read the key as a chord and drop the
-/// hold. Applications that expose no selection over Accessibility (a terminal,
-/// a canvas) read as having none.
+/// carries what was highlighted. Accessibility first: the focused element's
+/// selected text, or its selected range picked out of its value. Where that
+/// yields nothing and there is a focused element, a copy keystroke is sent to
+/// the application in front and the pasteboard read and put back. The keystroke
+/// is posted to that application's process rather than the HID stream, so the
+/// raw key monitor that watches the hold never sees it as a chord.
 ///
 /// The read happens on the keyboard event's own thread, ahead of the edge it
-/// travels on, so it is held to a few short waits: an application that does
-/// not answer costs the edge at most `maxReadSeconds`, and the edge carries
-/// how long it was held so the far side can take that off its own clock.
+/// travels on, so it is held to short waits: an application that does not
+/// answer costs the edge at most a few of `requestTimeoutSeconds` and, when the
+/// copy runs, `copyWaitSeconds`. The edge carries how long it was held so the
+/// far side can take that off its own clock.
 enum FrontSelection {
     /// How much of a selection travels. The rest is dropped and flagged.
     static let maxChars = 4000
 
     /// The longest one Accessibility request is given to answer.
     static let requestTimeoutSeconds: Float = 0.05
-    /// The most a read can take, every request having timed out.
-    static let maxReadSeconds: Float = requestTimeoutSeconds * 4
+    /// How long the pasteboard is given to change after the copy keystroke.
+    static let copyWaitSeconds: TimeInterval = 0.12
 
     struct Selection {
         let text: String
         let truncated: Bool
     }
 
-    /// The current selection, or nil where there is none or it cannot be read.
-    static func read() -> Selection? {
-        guard AXIsProcessTrusted() else { return nil }
+    /// Where the text came from, for the log.
+    enum Path: String {
+        case selectedText
+        case range
+        case copy
+        case none
+    }
+
+    /// Everything a read learned, the text aside: what the log carries. No
+    /// user content in here; the bundle id and role name the application and
+    /// the kind of control, not what is in them.
+    struct Outcome {
+        var trusted: Bool
+        var promptShown = false
+        var bundleId: String?
+        var focused = false
+        var role: String?
+        var path: Path = .none
+        var chars = 0
+        var selection: Selection?
+
+        var logLine: String {
+            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars)"
+        }
+    }
+
+    /// Whether the Accessibility prompt has been shown by this process. Shown
+    /// the first time a hold needs a selection and the helper is not trusted,
+    /// and not again: the prompt is the system's own dialog, and a hold is
+    /// not the moment to keep raising it.
+    private nonisolated(unsafe) static var promptedForTrust = false
+
+    /// The current selection, and how it was found.
+    static func read() -> Outcome {
+        var outcome = Outcome(trusted: AXIsProcessTrusted())
+        outcome.bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if !outcome.trusted {
+            if !promptedForTrust {
+                promptedForTrust = true
+                outcome.promptShown = true
+                _ = ActionExecutor.checkAccessibilityPermission(prompt: true)
+            }
+            return outcome
+        }
 
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
@@ -41,29 +85,45 @@ enum FrontSelection {
             let focusedValue = focusedRef,
             CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
         else {
-            return nil
+            return outcome
         }
         let focused = focusedValue as! AXUIElement
         AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
+        outcome.focused = true
+        outcome.role = stringAttribute(focused, kAXRoleAttribute as CFString)
 
         var text = stringAttribute(focused, kAXSelectedTextAttribute as CFString) ?? ""
-        if text.isEmpty {
+        var path = Path.selectedText
+        if isBlank(text) {
             // Some text views answer the range but not the selected text
             // itself; the value is the whole document, and the range picks
             // the selection out of it.
             text = selectionFromRange(focused) ?? ""
+            path = .range
         }
+        if isBlank(text) {
+            text = selectionFromCopy() ?? ""
+            path = .copy
+        }
+        guard !isBlank(text) else {
+            return outcome
+        }
+
+        outcome.path = path
+        outcome.chars = text.count
         // Whitespace decides only whether anything is selected. What is
         // selected travels as it is: the indentation of a selected snippet is
         // part of what the user is asking about.
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-
         if text.count > maxChars {
-            return Selection(text: String(text.prefix(maxChars)), truncated: true)
+            outcome.selection = Selection(text: String(text.prefix(maxChars)), truncated: true)
+        } else {
+            outcome.selection = Selection(text: text, truncated: false)
         }
-        return Selection(text: text, truncated: false)
+        return outcome
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func selectionFromRange(_ element: AXUIElement) -> String? {
@@ -92,6 +152,59 @@ enum FrontSelection {
             return nil
         }
         return String(utf16[start..<end])
+    }
+
+    /// Copy whatever the application in front has selected and read it off
+    /// the pasteboard, then put the pasteboard back as it was. A pasteboard
+    /// that does not change inside `copyWaitSeconds` means nothing was
+    /// selected, and it is left untouched.
+    private static func selectionFromCopy() -> String? {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            return nil
+        }
+        let pasteboard = NSPasteboard.general
+        let changeCountBefore = pasteboard.changeCount
+        let saved: [[NSPasteboard.PasteboardType: Data]] = (pasteboard.pasteboardItems ?? []).map { item in
+            var contents: [NSPasteboard.PasteboardType: Data] = [:]
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    contents[type] = data
+                }
+            }
+            return contents
+        }
+
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: false)
+        else {
+            return nil
+        }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.postToPid(pid)
+        up.postToPid(pid)
+
+        let deadline = Date().addingTimeInterval(copyWaitSeconds)
+        while pasteboard.changeCount == changeCountBefore, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        guard pasteboard.changeCount != changeCountBefore else {
+            return nil
+        }
+        let text = pasteboard.string(forType: .string)
+
+        pasteboard.clearContents()
+        let items = saved.map { contents -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            for (type, data) in contents {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        if !items.isEmpty {
+            pasteboard.writeObjects(items)
+        }
+        return text
     }
 
     private static func stringAttribute(_ element: AXUIElement, _ attribute: CFString) -> String? {
