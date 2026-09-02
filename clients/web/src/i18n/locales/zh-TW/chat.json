@@ -96,6 +96,13 @@
     "navAria": "助理導覽",
     "searchShortcut": "搜尋 ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "隱藏休眠畫面",
+    "sleeping": "您的助理正在休眠",
+    "sleepingNamed": "{name} 正在休眠",
+    "waking": "您的助理正在喚醒…",
+    "wakingNamed": "{name} 正在喚醒…"
+  },
   "assistantSwitcher": {
     "collapse": "隱藏助理",
     "currentAssistant": "{name}，目前助理",

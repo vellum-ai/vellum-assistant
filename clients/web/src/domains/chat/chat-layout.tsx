@@ -91,6 +91,7 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
 import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
 import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -1180,6 +1181,9 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             {chatContent}
+            {/* Self-gates on the conversation route and the assistant's
+                sleeping/waking status. */}
+            <AssistantSleepStage />
             {/* A popout narrowed below the mobile breakpoint lands in this
                 branch, still headerless, so it still needs the floating
                 session surface (see the desktop popout branch below). */}
@@ -1305,6 +1309,10 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             {chatContent}
+            {/* Self-gates on the conversation route and the assistant's
+                sleeping/waking status. Mounted ahead of the voice room so the
+                room paints over it when both are up. */}
+            <AssistantSleepStage />
             {/* Live-voice room, desktop: an inset panel scoped to the content
                 area, so the title bar above and the sidenav beside it stay
                 visible and interactive. Self-gates on

@@ -97,6 +97,13 @@
     "search": "Search",
     "searchShortcut": "Search ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Hide the sleep screen",
+    "sleeping": "Your assistant is asleep",
+    "sleepingNamed": "{name} is asleep",
+    "waking": "Your assistant is waking up…",
+    "wakingNamed": "{name} is waking up…"
+  },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
     "currentAssistant": "{name}, current assistant",

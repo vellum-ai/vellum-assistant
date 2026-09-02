@@ -97,6 +97,13 @@
     "search": "Buscar",
     "searchShortcut": "Buscar ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Ocultar la pantalla de reposo",
+    "sleeping": "Tu asistente está durmiendo",
+    "sleepingNamed": "{name} está durmiendo",
+    "waking": "Tu asistente se está despertando…",
+    "wakingNamed": "{name} se está despertando…"
+  },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
     "currentAssistant": "{name}, asistente actual",

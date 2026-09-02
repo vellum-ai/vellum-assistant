@@ -37,6 +37,13 @@
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Не удалось загрузить все диалоги в этом разделе. Повторите попытку."
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Скрыть экран сна",
+    "sleeping": "Ваш ассистент спит",
+    "sleepingNamed": "{name} спит",
+    "waking": "Ваш ассистент просыпается…",
+    "wakingNamed": "{name} просыпается…"
+  },
   "assistantSwitcher": {
     "collapse": "Скрыть ассистентов",
     "currentAssistant": "{name}, текущий ассистент",
