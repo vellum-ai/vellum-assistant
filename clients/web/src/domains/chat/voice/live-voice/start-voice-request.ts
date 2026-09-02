@@ -40,6 +40,7 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import { toast } from "@vellumai/design-library/components/toast";
+import { VOICE_START_REQUEST_TTL_MS } from "@vellumai/ipc-contract";
 
 /**
  * How long a parked start-voice request stays live.
@@ -51,8 +52,12 @@ import { toast } from "@vellumai/design-library/components/toast";
  * until some unrelated `ChatLayout` mount drains it and a full-screen voice
  * session opens out of nowhere. A minute is far longer than any legitimate
  * cold launch and far shorter than "later".
+ *
+ * The contract's number, because the companion's dial is drawn against it:
+ * the shell holds the dial for longer than this, so a request that could
+ * still become a session is never one the pill has stopped showing.
  */
-export const PENDING_VOICE_START_TTL_MS = 60_000;
+export const PENDING_VOICE_START_TTL_MS = VOICE_START_REQUEST_TTL_MS;
 
 /**
  * The navigation a start needs from its caller: a path, and whether it
@@ -161,11 +166,13 @@ export function startVoiceFromSurface(
 /**
  * Take back a start that has been asked for and not yet served.
  *
- * What an end pressed with no session running means: the companion's dial is
- * the only surface that offers one, and the request behind it is either still
- * parked or partway through its preflight. Spending it here is what stops that
- * preflight from opening the room a second after the user closed the pill.
- * The companion itself closes on the press; this is the half it cannot reach.
+ * What ending the companion's dial means: the request behind it is either
+ * still parked or partway through its preflight, and spending it here is what
+ * stops that preflight from opening the room a second after the user closed
+ * the pill. Reached through the `cancelVoiceStart` command, which the root
+ * layout consumes on every route, so the press lands whether or not the
+ * layout that owns sessions is mounted yet. The companion itself closes on
+ * the press; this is the half it cannot reach.
  */
 export function cancelPendingVoiceStart(): void {
   usePendingDeepLinkStore

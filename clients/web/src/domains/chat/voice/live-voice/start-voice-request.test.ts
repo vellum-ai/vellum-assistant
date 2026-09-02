@@ -66,6 +66,7 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const {
   PENDING_VOICE_START_TTL_MS,
   askVoiceFromSurface,
+  cancelPendingVoiceStart,
   drainPendingVoiceStart,
   requestVoiceStart,
   startVoiceFromSurface,
@@ -470,6 +471,51 @@ describe("a request that will never be served is discarded", () => {
 // ---------------------------------------------------------------------------
 // Exactly-once
 // ---------------------------------------------------------------------------
+
+/**
+ * The companion's dial, ended: the request behind it is taken back wherever it
+ * has got to, so the preflight it may be in the middle of opens nothing.
+ */
+describe("cancelling a pending start", () => {
+  test("spends a parked request", () => {
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+
+    cancelPendingVoiceStart();
+
+    expect(isParked()).toBe(false);
+  });
+
+  test("stops a drain that is mid-preflight from starting", async () => {
+    identityHydrated();
+    registerStarter();
+    const preflight: { settle: (() => void) | null } = { settle: null };
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          preflight.settle = () => {
+            resolve(preflightVerdict);
+          };
+        }),
+    );
+
+    requestVoiceStart(navigate);
+    await Promise.resolve();
+    cancelPendingVoiceStart();
+    preflight.settle?.();
+    await drainPendingVoiceStart(navigate);
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalledWith(
+      expect.stringContaining("/conversation"),
+      expect.anything(),
+    );
+  });
+
+  test("is a no-op with nothing parked", () => {
+    cancelPendingVoiceStart();
+    expect(isParked()).toBe(false);
+  });
+});
 
 describe("one-shot delivery", () => {
   test("repeat drains after a start are free", async () => {

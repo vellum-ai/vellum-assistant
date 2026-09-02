@@ -12,6 +12,7 @@ import {
   voiceActivityControlSchema,
   voiceActivityStartSchema,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
   companionBoxFor,
@@ -331,11 +332,13 @@ let call: VoiceActivityState | null = null;
  * The window asked to start a session answers every press it decides on, with
  * a `start` or with an `end`, so this only catches the presses it never gets
  * to decide: a request parked behind a layout that does not mount, or a window
- * that went away mid-preflight. Longer than any preflight and shorter than the
- * minute a parked request lives, since a dial that outlives its request is a
- * pill claiming a call that is no longer coming.
+ * that went away mid-preflight. Longer than the request itself can live, by a
+ * margin for a preflight that began at the end of that life, so the dial is
+ * never gone while a session can still arrive from it: a pill that closed on a
+ * call still coming would reopen on the call a moment later, which is the one
+ * thing worse than a long dial.
  */
-export const COMPANION_DIAL_TIMEOUT_MS = 20_000;
+export const COMPANION_DIAL_TIMEOUT_MS = VOICE_START_REQUEST_TTL_MS + 5_000;
 
 /**
  * Whether Talk has been pressed and no session has answered it yet. See
@@ -1040,11 +1043,16 @@ export const installCompanionWindow = (): void => {
     z.tuple([voiceActivityControlSchema]),
     ([control]) => {
       // The end control on a dial is the user changing their mind. The pill
-      // closes here rather than waiting for the window asked to answer, since
-      // that window may hold nothing that can: the press still travels, and
-      // the drain it reaches spends the request rather than starting from it.
-      if (control.action === "endSession") {
+      // closes here rather than waiting for the window asked to answer, and
+      // the request is taken back by a command rather than by this control:
+      // the control is heard only where a session is owned, and a dial can be
+      // ended from a route where nothing owns one yet. The command lands in
+      // the root layout, which is mounted wherever the request was parked.
+      if (control.action === "endSession" && dialing) {
         setDialing(false);
+        if (currentMainWindow() !== null) {
+          dispatchToMain({ kind: "cancelVoiceStart" });
+        }
       }
       const surface = getFloatingWindow(COMPANION_KIND);
       for (const win of BrowserWindow.getAllWindows()) {

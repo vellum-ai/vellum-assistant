@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  VOICE_START_REQUEST_TTL_MS,
   COMPANION_SIZES,
   companionBoxFor,
   companionCardSideFor,
@@ -578,9 +579,41 @@ describe("the dial", () => {
     expect(dialOnTalk({ ...START })).toBe(false);
   });
 
-  test("is bounded, and by less than a parked request lives", () => {
-    expect(COMPANION_DIAL_TIMEOUT_MS).toBeGreaterThan(0);
-    expect(COMPANION_DIAL_TIMEOUT_MS).toBeLessThan(60_000);
+  /**
+   * A dial that closed while its request could still become a session would
+   * reopen on that session a moment later, so the bound outlives the request.
+   */
+  test("outlives the request it is drawn for", () => {
+    expect(COMPANION_DIAL_TIMEOUT_MS).toBeGreaterThan(
+      VOICE_START_REQUEST_TTL_MS,
+    );
+  });
+
+  /**
+   * The press that ends a dial takes the request back by a command the root
+   * layout consumes, since the session's own controls are heard only where a
+   * session is owned and a dial can be ended before any layout owns one.
+   */
+  test("ending it takes the request back through a command", () => {
+    mainWindowOpen = true;
+    dispatched.length = 0;
+    send("vellum:companion:startVoice");
+    dispatched.length = 0;
+
+    send("vellum:voiceActivity:control", { action: "endSession" });
+
+    expect(dispatched).toEqual([{ kind: "cancelVoiceStart" }]);
+    expect(state().dialing).toBe(false);
+  });
+
+  test("an end with no dial takes nothing back", () => {
+    mainWindowOpen = true;
+    send("vellum:voiceActivity:end");
+    dispatched.length = 0;
+
+    send("vellum:voiceActivity:control", { action: "endSession" });
+
+    expect(dispatched).toEqual([]);
   });
 });
 

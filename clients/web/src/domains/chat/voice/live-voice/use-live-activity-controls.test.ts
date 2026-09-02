@@ -28,7 +28,6 @@ mock.module("@/domains/chat/confirmation-actions", () => ({
 
 import { applyLiveActivityControl } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import {
   useLiveVoiceStore,
   type LiveVoiceSessionControls,
@@ -71,10 +70,6 @@ function pendingConfirmation(requestId: string): void {
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   useInteractionStore.getState().resetSecretAndConfirmation();
-  usePendingDeepLinkStore.setState({
-    pendingVoiceStartAt: null,
-    pendingVoiceStartAsk: null,
-  });
   handleConfirmationSubmit.mockClear();
   for (const control of Object.values(controls)) {
     control.mockClear();
@@ -181,32 +176,6 @@ describe("applyLiveActivityControl", () => {
     expect(controls.setMuted).not.toHaveBeenCalled();
     expect(controls.setOutputMuted).not.toHaveBeenCalled();
     expect(handleConfirmationSubmit).not.toHaveBeenCalled();
-  });
-
-  /**
-   * The companion's dial is the one surface that offers an end with no session
-   * behind it, and what it ends is the request still on its way to becoming
-   * one. Spent here, so the preflight that request is in the middle of does
-   * not open the room a beat after the user closed the pill.
-   */
-  test("an end with no session takes back a start still on its way", () => {
-    session("idle");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
-
-    applyLiveActivityControl("endSession");
-
-    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
-  });
-
-  test("a mute with no session leaves a pending start where it is", () => {
-    session("idle");
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
-
-    applyLiveActivityControl("muteMicrophone");
-
-    expect(
-      usePendingDeepLinkStore.getState().pendingVoiceStartAt,
-    ).not.toBeNull();
   });
 
   test("a press against a failed session does nothing", () => {
