@@ -8,6 +8,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../../lib/cli-command-help.js";
+import { formatCostUsd } from "../../lib/cli-output.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -34,6 +35,45 @@ interface PlatformCreditsResult {
   unit: "USD";
   stale: boolean;
   as_of: string;
+  daily_spend: number | null;
+  daily_limit: number | null;
+  daily_limit_reached: boolean;
+  daily_limit_snoozed: boolean;
+  low_balance_threshold: number | null;
+  low_balance_warning: boolean;
+}
+
+/** Human-readable lines for `assistant platform credits`. */
+function formatCreditsLines(result: PlatformCreditsResult): string[] {
+  const staleNote = result.stale ? " (pending data may be stale)" : "";
+  const lines = [
+    `Remaining: ${formatCostUsd(result.remaining)} ${result.unit} (as of ${result.as_of})${staleNote}`,
+    `Settled:   ${formatCostUsd(result.settled)}   Pending: ${formatCostUsd(result.pending)}`,
+  ];
+  if (result.daily_spend !== null) {
+    const limit =
+      result.daily_limit === null
+        ? "no daily limit set"
+        : `daily limit ${formatCostUsd(result.daily_limit)}`;
+    const limitState = result.daily_limit_reached
+      ? " (limit reached)"
+      : result.daily_limit_snoozed
+        ? " (limit skipped for today)"
+        : "";
+    lines.push(
+      `Today:     ${formatCostUsd(result.daily_spend)} spent, ${limit}${limitState}`,
+    );
+  }
+  if (result.low_balance_warning) {
+    const threshold =
+      result.low_balance_threshold === null
+        ? ""
+        : ` of ${formatCostUsd(result.low_balance_threshold)}`;
+    lines.push(
+      `Warning:   balance is below the low-balance threshold${threshold}`,
+    );
+  }
+  return lines;
 }
 
 interface PlatformSubscriptionResult {
@@ -138,15 +178,9 @@ export function registerPlatformCommand(program: Command): void {
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, result);
           } else {
-            const staleNote = result.stale
-              ? " (pending data may be stale)"
-              : "";
-            log.info(
-              `Remaining: $${result.remaining.toFixed(2)} ${result.unit} (as of ${result.as_of})${staleNote}`,
-            );
-            log.info(
-              `Settled:   $${result.settled.toFixed(2)}   Pending: $${result.pending.toFixed(2)}`,
-            );
+            for (const line of formatCreditsLines(result)) {
+              log.info(line);
+            }
           }
         },
       );

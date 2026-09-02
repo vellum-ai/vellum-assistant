@@ -24435,10 +24435,10 @@ paths:
   /v1/platform/credits:
     get:
       operationId: platform_credits_get
-      summary: Get the organization's remaining credit balance
+      summary: Get the organization's remaining credit balance and daily-limit state
       description:
         Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
-        billing summary.
+        billing summary, plus today's spend against the daily credit limit and the low-balance warning state.
       tags:
         - platform
       responses:
@@ -24462,6 +24462,24 @@ paths:
                     type: boolean
                   as_of:
                     type: string
+                  daily_spend:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  daily_limit:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  daily_limit_reached:
+                    type: boolean
+                  daily_limit_snoozed:
+                    type: boolean
+                  low_balance_threshold:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  low_balance_warning:
+                    type: boolean
                 required:
                   - remaining
                   - settled
@@ -24469,6 +24487,12 @@ paths:
                   - unit
                   - stale
                   - as_of
+                  - daily_spend
+                  - daily_limit
+                  - daily_limit_reached
+                  - daily_limit_snoozed
+                  - low_balance_threshold
+                  - low_balance_warning
                 additionalProperties: false
   /v1/platform/disconnect:
     post:

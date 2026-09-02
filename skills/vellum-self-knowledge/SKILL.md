@@ -1,6 +1,6 @@
 ---
 name: vellum-self-knowledge
-description: Answer questions about Vellum's architecture, configuration, and hosting from live sources of truth
+description: Answer questions about Vellum, its config, billing, and hosting from live sources of truth
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
@@ -8,15 +8,15 @@ metadata:
     category: "system"
     display-name: "Vellum Self-Knowledge"
     activation-hints:
-      - "what model the assistant is running on"
+      - "what model it runs on"
       - "how Vellum works or its architecture"
-      - "its current configuration or settings"
-      - "what it can do, or what skills/tools are available"
+      - "its current config or settings"
+      - "what it can do or which skills/tools exist"
       - "whether a service is connected, and in which sense"
-      - "how to self-host a Vellum assistant"
-      - "how to configure your own model API key"
+      - "its credit balance, plan, spend, or daily limit"
+      - "how to self-host or use your own model API key"
     avoid-when:
-      - "changing configuration (use in-chat config instead)"
+      - "changing configuration"
 ---
 
 ## Critical Rule
@@ -37,6 +37,10 @@ The CLI is the single source of truth for anything about the running assistant's
 | Config schema (what's configurable)       | `assistant config schema [path]`                                           |
 | Available/installed skills                | `assistant skills list --json`                                             |
 | Platform connection                       | `assistant platform status --json`                                         |
+| Credit balance, spend today, daily limit  | `assistant platform credits --json`                                        |
+| Plan and subscription status              | `assistant platform subscription --json`                                   |
+| Plan catalog and pricing                  | `assistant platform plans --json`                                          |
+| Invoices                                  | `assistant platform invoices list --json`                                  |
 | Auth/identity                             | `assistant auth info --json`                                               |
 | Which providers exist, and in which sense | `assistant oauth providers list --json`                                    |
 | Whether one is actually connected         | `assistant oauth status <provider>`                                        |
@@ -71,6 +75,14 @@ recall which they did.
 `channels list` reports delivery health for channels that have a readiness
 probe, which is not all of them. It answers whether a channel is working, not
 whether something is connected.
+
+Credit, plan, and spend questions are answered by the platform's billing
+ledger through `platform credits` and `platform subscription`, never by
+estimate. `usage totals` is a local token-cost estimate, not the balance. When
+`platform credits` fails or the assistant is not connected to the platform,
+say plainly that you cannot see the balance and point to Settings > Billing.
+Do not guess a number, an allowance model, or a reset schedule, and never
+imply you checked when you did not.
 
 ### 2. Vellum Docs Site — Conceptual Knowledge
 

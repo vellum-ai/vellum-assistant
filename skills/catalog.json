@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-02T12:58:28.000Z"
+      "updatedAt": "2026-09-02T13:18:50.000Z"
     },
     {
       "id": "public-ingress",
@@ -1184,28 +1184,28 @@
     {
       "id": "vellum-self-knowledge",
       "name": "vellum-self-knowledge",
-      "description": "Answer questions about Vellum's architecture, configuration, and hosting from live sources of truth",
+      "description": "Answer questions about Vellum, its config, billing, and hosting from live sources of truth",
       "metadata": {
         "emoji": "🪞",
         "vellum": {
           "category": "system",
           "display-name": "Vellum Self-Knowledge",
           "activation-hints": [
-            "what model the assistant is running on",
+            "what model it runs on",
             "how Vellum works or its architecture",
-            "its current configuration or settings",
-            "what it can do, or what skills/tools are available",
+            "its current config or settings",
+            "what it can do or which skills/tools exist",
             "whether a service is connected, and in which sense",
-            "how to self-host a Vellum assistant",
-            "how to configure your own model API key"
+            "its credit balance, plan, spend, or daily limit",
+            "how to self-host or use your own model API key"
           ],
           "avoid-when": [
-            "changing configuration (use in-chat config instead)"
+            "changing configuration"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T07:15:43.000Z"
+      "updatedAt": "2026-09-02T23:18:44.000Z"
     },
     {
       "id": "vellum-skills-catalog",
