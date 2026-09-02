@@ -2046,23 +2046,35 @@ export async function handleSendMessage(
     ? buildSelfIntroMessage(body.onboarding ?? undefined)
     : undefined;
 
-  let effectiveContent: string | undefined;
-  if (isScanPath) {
-    const scanVariant = websiteUrl
-      ? ("website" as const)
-      : ("content-source" as const);
-    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
-    // Fall through to normal inference path below
-  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
-    effectiveContent = body.onboarding.initialMessage;
-  } else if (isWakeUp && selfIntro) {
-    // Rewrite to the self-introduction and fall through to real inference
-    // (mirrors the scan path above).
-    effectiveContent = selfIntro;
-  } else if (isWakeUp) {
-    const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
+  /**
+   * Take the flag for an operation whose idle decision was made several awaits
+   * ago, fencing the marker before the operation writes anything. Null means
+   * the flag went to someone else in the meantime and the caller owes its own
+   * busy behaviour.
+   */
+  const claimAfterAwaits = async (): Promise<number | null> => {
+    const claim = conversation.acquireProcessing();
+    if (claim === null) {
+      return null;
+    }
+    try {
+      await conversation.ensureProcessingMarker(claim);
+    } catch (err) {
+      conversation.releaseProcessing(claim);
+      throw err;
+    }
+    return claim;
+  };
 
-    conversation.setProcessing(true);
+  /**
+   * Answer a first wake-up with the canned greeting, under a claim the caller
+   * already holds. Its own function so the branch below can decline the claim
+   * and fall through to the ordinary path instead.
+   */
+  const serveCannedFirstGreeting = async (
+    cannedGreeting: string,
+    greetingOwner: number,
+  ) => {
     let cleanupDeferred = false;
     try {
       const rawContent = content ?? "";
@@ -2162,11 +2174,41 @@ export async function handleSendMessage(
       cleanupDeferred = true;
       return response;
     } finally {
-      if (!cleanupDeferred && conversation.isProcessing()) {
-        conversation.setProcessing(false);
+      if (!cleanupDeferred && conversation.releaseProcessing(greetingOwner)) {
         void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
+  };
+
+  let effectiveContent: string | undefined;
+  if (isScanPath) {
+    const scanVariant = websiteUrl
+      ? ("website" as const)
+      : ("content-source" as const);
+    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
+    // Fall through to normal inference path below
+  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
+    effectiveContent = body.onboarding.initialMessage;
+  } else if (isWakeUp && selfIntro) {
+    // Rewrite to the self-introduction and fall through to real inference
+    // (mirrors the scan path above).
+    effectiveContent = selfIntro;
+  } else if (isWakeUp) {
+    const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
+
+    // Taken rather than set. The idle read behind this branch is several
+    // awaits old, so a hold taken since belongs to a real turn, and greeting
+    // over it would run two operations into one history. Declining and
+    // falling through is what the sibling branches above already do, and the
+    // gate below turns that into the queued answer a busy conversation owes.
+    const greetingOwner = await claimAfterAwaits();
+    if (greetingOwner !== null) {
+      return serveCannedFirstGreeting(cannedGreeting, greetingOwner);
+    }
+    log.info(
+      { conversationId: mapping.conversationId },
+      "Canned first greeting yielded: the conversation is already held",
+    );
   }
 
   if (isFirstOnboarding) {
@@ -2340,26 +2382,6 @@ export async function handleSendMessage(
       conversationId: mapping.conversationId,
       requestId,
     };
-  };
-
-  /**
-   * Take the flag for an operation whose idle decision was made several awaits
-   * ago, fencing the marker before the operation writes anything. Null means
-   * the flag went to someone else in the meantime and the caller owes its own
-   * busy behaviour.
-   */
-  const claimAfterAwaits = async (): Promise<number | null> => {
-    const claim = conversation.acquireProcessing();
-    if (claim === null) {
-      return null;
-    }
-    try {
-      await conversation.ensureProcessingMarker(claim);
-    } catch (err) {
-      conversation.releaseProcessing(claim);
-      throw err;
-    }
-    return claim;
   };
 
   if (conversation.isProcessing()) {

@@ -550,6 +550,36 @@ describe("handleSendMessage canned wake-up greeting", () => {
     }
   });
 
+  test("queues a first greeting whose flag went away during the awaits", async () => {
+    // The canned wake-up greeting used to claim the flag unconditionally, so
+    // it greeted over a turn already writing and both mutated one history.
+    // It declines instead and falls through, the way its sibling branches do,
+    // and the gate below answers as a busy conversation owes.
+    const { conversation, persistUserMessage, runAgentLoop } =
+      makeConversation();
+    conversation.setProcessing(true);
+    const stub = conversation as unknown as { isProcessing: () => boolean };
+    stub.isProcessing = () => false;
+    // What the real one does while another holder has the flag, which is what
+    // the fall-through below runs into.
+    persistUserMessage.mockImplementationOnce(async () => {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    });
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("Wake up, my friend!"),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    // No greeting rows: the branch never ran.
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
   test("persists the clientMessageId on the user row", async () => {
     const { conversation, runAgentLoop } = makeConversation();
     const res = await callHandler(
