@@ -102,6 +102,7 @@ import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { resolveReactionEmoji } from "../../messaging/reaction-emoji.js";
 import { readProviderMetadata } from "../../messaging/read-provider-metadata.js";
 import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.js";
 import {
@@ -1028,6 +1029,7 @@ export async function handleListMessages({
             reaction = {
               emoji: r.emoji,
               ...pickReactionEmojiFields(r),
+              emojiDisplay: resolveReactionEmoji(r).display,
               op: r.op,
               targetMessageId: r.targetMessageId,
               ...(r.actorDisplayName

@@ -152,6 +152,36 @@ describe("sendSlackReaction", () => {
     });
   });
 
+  test("a unicode character maps back to the name Slack knows it by", async () => {
+    await sendSlackReaction("C1", "🎉", "123.456", "add");
+    expect(callSlackApiMock).toHaveBeenCalledWith("reactions.add", {
+      channel: "C1",
+      name: "tada",
+      timestamp: "123.456",
+    });
+  });
+
+  test("a toned character carries Slack's skin tone suffix", async () => {
+    await sendSlackReaction("C1", "👍🏼", "123.456", "add");
+    expect(callSlackApiMock).toHaveBeenCalledWith("reactions.add", {
+      channel: "C1",
+      name: "+1::skin-tone-3",
+      timestamp: "123.456",
+    });
+  });
+
+  test("a character Slack has no name for is rejected without a call", async () => {
+    const callsBefore = callSlackApiMock.mock.calls.length;
+    const result = await sendSlackReaction(
+      "C1",
+      "not an emoji",
+      "123.456",
+      "add",
+    );
+    expect(result).toEqual({ ok: false });
+    expect(callSlackApiMock.mock.calls).toHaveLength(callsBefore);
+  });
+
   test("remove routes to reactions.remove", async () => {
     await sendSlackReaction("C1", "tada", "123.456", "remove");
     expect(callSlackApiMock).toHaveBeenCalledWith("reactions.remove", {

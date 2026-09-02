@@ -88,6 +88,7 @@ export {
   inboundEventRefersToAnotherMessage,
   isInboundEventKind,
   resolveInboundEventKind,
+  classifyReactionEmojiSpelling,
   parseDiscordEmojiMention,
   resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";

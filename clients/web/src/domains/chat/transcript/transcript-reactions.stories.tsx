@@ -45,23 +45,27 @@ const REACTION_LINES: TranscriptItem[] = [
   ),
   reactionRow("r1", "user", {
     emoji: "heart",
+    emojiDisplay: "❤️",
     op: "added",
     targetMessageId: "m2",
     actorDisplayName: "Alice",
   }),
   reactionRow("r2", "assistant", {
     emoji: "🎉",
+    emojiDisplay: "🎉",
     op: "added",
     targetMessageId: "m1",
     selfAuthored: true,
   }),
   reactionRow("r3", "user", {
     emoji: "+1",
+    emojiDisplay: "👍",
     op: "added",
     targetMessageId: "m2",
   }),
   reactionRow("r4", "user", {
     emoji: "heart",
+    emojiDisplay: "❤️",
     op: "removed",
     targetMessageId: "m2",
     actorDisplayName: "Alice",
@@ -79,24 +83,28 @@ const EMOJI_RESOLUTION: TranscriptItem[] = [
   message("m1", "assistant", "Deployed. Watching the error rates now."),
   reactionRow("e1", "user", {
     emoji: "🎉",
+    emojiDisplay: "🎉",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Alice",
   }),
   reactionRow("e2", "user", {
     emoji: "heart",
+    emojiDisplay: "❤️",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Bob",
   }),
   reactionRow("e3", "user", {
     emoji: "<:vex:12345>",
+    emojiDisplay: ":vex:",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Carol",
   }),
   reactionRow("e4", "user", {
     emoji: "<:heart:99>",
+    emojiDisplay: ":heart:",
     op: "added",
     targetMessageId: "m1",
     actorDisplayName: "Dave",
@@ -118,6 +126,7 @@ const SLACK_SHAPED: TranscriptItem[] = [
       ...textBody("[reaction]"),
       reaction: {
         emoji: "raised_hands",
+        emojiDisplay: "🙌",
         op: "added",
         targetMessageId: "1725100000.000200",
         actorDisplayName: "Bob",
@@ -145,6 +154,7 @@ const SLACK_SHAPED: TranscriptItem[] = [
       ...textBody("[reaction]"),
       reaction: {
         emoji: "raised_hands",
+        emojiDisplay: "🙌",
         op: "removed",
         targetMessageId: "1725100000.000200",
         actorDisplayName: "Bob",

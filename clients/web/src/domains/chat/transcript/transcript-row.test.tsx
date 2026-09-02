@@ -53,6 +53,7 @@ describe("TranscriptRow reaction dispatch", () => {
       ...textBody("[reaction]"),
       reaction: {
         emoji: "🎉",
+        emojiDisplay: "🎉",
         op: "added",
         targetMessageId: "555.1",
         selfAuthored: true,
@@ -76,6 +77,7 @@ describe("TranscriptRow reaction dispatch", () => {
       role: "assistant",
       reaction: {
         emoji: "<:vex:12345>",
+        emojiDisplay: ":vex:",
         op: "added",
         targetMessageId: "555.2",
         selfAuthored: true,

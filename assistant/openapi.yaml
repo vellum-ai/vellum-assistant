@@ -21088,6 +21088,8 @@ paths:
                               type: string
                             emojiAnimated:
                               type: boolean
+                            emojiDisplay:
+                              type: string
                             op:
                               type: string
                               enum:
@@ -21101,6 +21103,7 @@ paths:
                               type: boolean
                           required:
                             - emoji
+                            - emojiDisplay
                             - op
                             - targetMessageId
                           additionalProperties: false

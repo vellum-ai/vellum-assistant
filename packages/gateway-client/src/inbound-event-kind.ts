@@ -139,7 +139,7 @@ export function resolveInboundReactionPayload(fields: {
             emojiKind: fields.reaction.emojiKind,
             emojiName: fields.reaction.emojiName,
           }
-        : classifyLegacyReactionEmoji(emoji);
+        : classifyReactionEmojiSpelling(emoji);
     return { op, emoji, targetMessageId, ...typed };
   }
   const cb = fields.callbackData;
@@ -158,7 +158,7 @@ export function resolveInboundReactionPayload(fields: {
         op: removed ? "removed" : "added",
         emoji,
         targetMessageId: target,
-        ...classifyLegacyReactionEmoji(emoji),
+        ...classifyReactionEmojiSpelling(emoji),
       }
     : null;
 }
@@ -186,15 +186,16 @@ export function parseDiscordEmojiMention(
 
 /**
  * Recover an emoji's kind from its spelling alone. This is the one inference
- * the design permits, reserved for a payload that carries the string and no
- * typed fields: a persisted row or a replayed retry payload. A payload that
- * declares its kind never reaches this.
+ * the design permits, reserved for a value that carries the string and no
+ * typed fields: a persisted row, a replayed retry payload, or the emoji the
+ * model hands `react_to_message`, whose contract is the spelling. A payload
+ * that declares its kind never reaches this.
  *
  * A mention form is unambiguous. Past that the two remaining kinds are told
  * apart by whether the string is a name at all: a channel's shortcode is
  * ASCII word characters, and anything else is the character itself.
  */
-function classifyLegacyReactionEmoji(
+export function classifyReactionEmojiSpelling(
   emoji: string,
 ): Pick<
   InboundReactionPayload,

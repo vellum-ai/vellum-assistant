@@ -37,8 +37,10 @@ export const reactToMessageInputSchema = z.looseObject({
     .string()
     .min(1)
     .describe(
-      "The emoji, in this channel's own form: a Slack emoji name like " +
-        "thumbsup (colons optional), a unicode emoji on other channels.",
+      "The emoji as it appears in this conversation: a unicode emoji, or " +
+        "a custom emoji in the channel's own form (Discord's <:name:id>, a " +
+        "Slack workspace emoji's :name:). Slack emoji names like thumbsup " +
+        "also work.",
     ),
   action: z
     .enum(["add", "remove"])
