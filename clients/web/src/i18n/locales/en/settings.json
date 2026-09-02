@@ -293,6 +293,7 @@
     "savedSubtitle": "Auto-reload is active again",
     "savedTitle": "{brand} •••• {last4} saved",
     "savedTitleGeneric": "Card saved",
+    "savedTitleNoBrand": "Card ending in {last4} saved",
     "setupError": "Failed to start card setup. Please try again.",
     "termsAdd": "Vellum can charge this card for auto-reload and subscription renewals. Remove it any time from Billing.",
     "termsReplace": "Your old card stays with Stripe until you remove it from Billing; Vellum stops charging it now.",

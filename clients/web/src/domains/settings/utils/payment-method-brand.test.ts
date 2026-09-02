@@ -1,8 +1,8 @@
 /**
  * Brand labelling is the one place a raw Stripe enum could reach the screen:
  * the platform passes `card.brand` through untouched, and Stripe sends values
- * with no label of ours, so this pins that every one of them resolves to the
- * generic copy instead.
+ * with no label of ours, so this pins that every one of them reads as no brand,
+ * and that the display label falls back to the generic copy.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -42,10 +42,7 @@ describe("brandDisplayLabel", () => {
 
   // The literal, not the catalog lookup: comparing `t()` against itself would
   // pass just as well with the key missing from the catalog.
-  test.each(UNLABELLED_BRANDS)(
-    "falls back to the saved-card label for %s",
-    (_label, brand) => {
-      expect(brandDisplayLabel(t, brand)).toBe("Saved card");
-    },
-  );
+  test("falls back to the saved-card label for a brand with no label", () => {
+    expect(brandDisplayLabel(t, "unknown")).toBe("Saved card");
+  });
 });

@@ -293,6 +293,7 @@
     "savedSubtitle": "自動加值已重新啟用",
     "savedTitle": "{brand} •••• {last4} 已儲存",
     "savedTitleGeneric": "信用卡已儲存",
+    "savedTitleNoBrand": "卡號末四碼為 {last4} 的信用卡已儲存",
     "setupError": "無法啟動信用卡設定。請再試一次。",
     "termsAdd": "Vellum 可以使用這張卡收取自動加值和訂閱續訂的費用。您可以隨時從帳單設定中移除它。",
     "termsReplace": "在您從帳單設定中移除之前，舊卡會保留在 Stripe；Vellum 從現在起不再向這張卡收取費用。",

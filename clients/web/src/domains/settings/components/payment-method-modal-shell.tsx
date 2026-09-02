@@ -300,18 +300,26 @@ function replaceSubtitle(
   });
 }
 
-/** Titles the success panel, and the screen-reader title above it. */
+/**
+ * Titles the success panel, and the screen-reader title above it.
+ *
+ * A brand we can name nothing for keeps the digits rather than dropping to the
+ * card-less copy. Without the digits there is nothing to name the card by, so
+ * a brand on its own reads as the card-less copy.
+ */
 function savedPanelTitle(
   t: TFunction<"settings">,
   card: SavedCard | null,
 ): string {
   const brand = brandLabel(card?.brand);
-  return brand && card?.last4
-    ? t("autoTopUpPaymentMethodModal.savedTitle", {
-        brand,
-        last4: card.last4,
-      })
-    : t("autoTopUpPaymentMethodModal.savedTitleGeneric");
+  const last4 = card?.last4;
+  if (!last4) {
+    return t("autoTopUpPaymentMethodModal.savedTitleGeneric");
+  }
+  if (!brand) {
+    return t("autoTopUpPaymentMethodModal.savedTitleNoBrand", { last4 });
+  }
+  return t("autoTopUpPaymentMethodModal.savedTitle", { brand, last4 });
 }
 
 function SavedPanel({

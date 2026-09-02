@@ -24,7 +24,7 @@ const BRAND_LABELS: Record<string, string> = {
  */
 export function brandLabel(brand: string | null | undefined): string | null {
   const key = brand?.toLowerCase();
-  if (!key || key === "unknown") {
+  if (!key) {
     return null;
   }
   return BRAND_LABELS[key] ?? null;
