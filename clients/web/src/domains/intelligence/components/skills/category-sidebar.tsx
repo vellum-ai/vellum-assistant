@@ -5,6 +5,22 @@ import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categ
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
+const CATEGORY_KEYS = {
+  email: "categories.email",
+  calendar: "categories.calendar",
+  messaging: "categories.messaging",
+  browsing: "categories.browsing",
+  productivity: "categories.productivity",
+  development: "categories.development",
+  voice: "categories.voice",
+  commerce: "categories.commerce",
+  content: "categories.content",
+  health: "categories.health",
+  system: "categories.system",
+  integrations: "categories.integrations",
+  other: "categories.other",
+} as const;
+
 interface CategorySidebarProps {
   selected: string | null;
   onSelect: (category: string | null) => void;
@@ -26,8 +42,10 @@ export function CategorySidebar({
   ariaLabel,
 }: CategorySidebarProps) {
   const { t } = useTranslation("intelligence");
-  const getCategoryLabel = (cat: CategoryInfo) =>
-    t(`categories.${cat.slug}`, cat.label);
+  const getCategoryLabel = (cat: CategoryInfo) => {
+    const key = CATEGORY_KEYS[cat.slug as keyof typeof CATEGORY_KEYS];
+    return key ? t(key, cat.label) : cat.label;
+  };
 
   const sortedCategories = [...categories].sort((a, b) =>
     getCategoryLabel(a).localeCompare(getCategoryLabel(b)),
