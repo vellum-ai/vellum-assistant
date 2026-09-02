@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import android.content.pm.PackageManager;
 import com.getcapacitor.JSObject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +15,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -135,6 +138,60 @@ public class AppIconPluginTest {
         assertEquals(2, available.length());
         assertEquals(GOOFY_TEAL, available.getString(0));
         assertEquals(GRUMPY_GREEN, available.getString(1));
+    }
+
+    /**
+     * A device that applied an alternate holds an explicit disable on the
+     * primary alias, and that override survives an install that no longer
+     * declares the alternate: the applied alias drops out of the build's
+     * aliases and nothing is left to launch, so the primary goes back on.
+     */
+    @Test
+    public void restoresThePrimaryWhenNoDeclaredAliasDrawsTheApp() {
+        Map<String, Integer> enabledSettings = new LinkedHashMap<>();
+        enabledSettings.put(PRIMARY_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+        enabledSettings.put(GRUMPY_GREEN_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+        // An alternate left at the manifest default is disabled, not drawing.
+        enabledSettings.put(GOOFY_TEAL_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+
+        assertTrue(AppIconPlugin.restoresPrimaryAlias(enabledSettings));
+    }
+
+    @Test
+    public void leavesTheLauncherAloneWhileAnAlternateIsEnabled() {
+        Map<String, Integer> enabledSettings = new LinkedHashMap<>();
+        enabledSettings.put(PRIMARY_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+        enabledSettings.put(GRUMPY_GREEN_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_ENABLED);
+        enabledSettings.put(GOOFY_TEAL_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+
+        assertFalse(AppIconPlugin.restoresPrimaryAlias(enabledSettings));
+    }
+
+    /**
+     * A recorded target is applied before the invariant is checked, so the
+     * restore only ever reads the state that pass left: the primary back at the
+     * manifest default for a reset, or the target alternate enabled. Neither
+     * needs a second write.
+     */
+    @Test
+    public void anAppliedTargetNeedsNoRestore() {
+        Map<String, Integer> afterReset = new LinkedHashMap<>();
+        afterReset.put(PRIMARY_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
+        afterReset.put(GRUMPY_GREEN_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+        afterReset.put(GOOFY_TEAL_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+
+        Map<String, Integer> afterAlternate = new LinkedHashMap<>();
+        afterAlternate.put(PRIMARY_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+        afterAlternate.put(GRUMPY_GREEN_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
+        afterAlternate.put(GOOFY_TEAL_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_ENABLED);
+
+        assertFalse(AppIconPlugin.restoresPrimaryAlias(afterReset));
+        assertFalse(AppIconPlugin.restoresPrimaryAlias(afterAlternate));
+    }
+
+    @Test
+    public void restoresNothingWhenTheBuildDeclaresNoPrimaryAlias() {
+        assertFalse(AppIconPlugin.restoresPrimaryAlias(Collections.emptyMap()));
     }
 
     /**

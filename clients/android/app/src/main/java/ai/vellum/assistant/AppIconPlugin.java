@@ -15,7 +15,9 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Exposes the alternate launcher icons this build ships, mirroring
@@ -38,6 +40,13 @@ import java.util.List;
  * enabled, except while an alternate is active, when it is explicitly disabled.
  * Alternates are explicitly enabled or disabled, so an alternate reading back
  * as {@code COMPONENT_ENABLED_STATE_ENABLED} is the applied icon.
+ *
+ * An enabled-state override outlives the install that wrote it, so exactly one
+ * declared alias drawing the app is an invariant {@link #load()} enforces on
+ * every start: when none of them draws it, the primary alias goes back to
+ * {@code COMPONENT_ENABLED_STATE_DEFAULT}. That is the shape of a device
+ * holding an explicit disable on the primary and an applied alternate this
+ * build does not declare, which otherwise leaves no launcher entry at all.
  *
  * Toggling a launcher component makes the launcher re-resolve the app, which
  * some launchers answer by dropping the running task. So {@code set} only
@@ -69,7 +78,10 @@ public class AppIconPlugin extends Plugin {
 
     @Override
     public void load() {
-        NativeFailureGuard.run("Unable to reconcile the Android app icon", this::applyPendingAlias);
+        NativeFailureGuard.run(
+            "Unable to reconcile the Android app icon",
+            this::reconcileLauncherAliases
+        );
     }
 
     @PluginMethod
@@ -168,6 +180,40 @@ public class AppIconPlugin extends Plugin {
         return alias != null && aliasClassNames.contains(alias) ? alias : null;
     }
 
+    /**
+     * Whether the primary alias has to go back to the manifest default, given
+     * the enabled setting each alias this build declares reads back as: it does
+     * when the build declares a primary alias and none of the declared aliases
+     * is drawing the app, which is the state an applied alternate that the
+     * build does not declare leaves behind.
+     */
+    static boolean restoresPrimaryAlias(Map<String, Integer> enabledSettings) {
+        if (!enabledSettings.containsKey(PRIMARY_ALIAS)) {
+            return false;
+        }
+        for (Map.Entry<String, Integer> entry : enabledSettings.entrySet()) {
+            if (drawsLauncherIcon(entry.getKey(), entry.getValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether an alias is drawing the app in the launcher. An explicit enable
+     * always draws, and the manifest default draws only for the primary alias,
+     * the one alias the manifest declares enabled.
+     */
+    private static boolean drawsLauncherIcon(String aliasClassName, int enabledSetting) {
+        if (enabledSetting == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+            return true;
+        }
+        return (
+            enabledSetting == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT &&
+            PRIMARY_ALIAS.equals(aliasClassName)
+        );
+    }
+
     static JSObject statePayload(boolean supported, String current, List<String> available) {
         JSObject payload = new JSObject();
         payload.put("supported", supported);
@@ -219,6 +265,40 @@ public class AppIconPlugin extends Plugin {
             }
         }
         return null;
+    }
+
+    /**
+     * Apply whatever {@code set} last recorded, then hold the launcher to
+     * exactly one enabled alias whether or not anything was recorded.
+     */
+    private void reconcileLauncherAliases() {
+        applyPendingAlias();
+        restoreLauncherIfOrphaned();
+    }
+
+    /**
+     * Put the primary alias back on the launcher when no alias this build
+     * declares is drawing the app, which is where an applied alternate that
+     * this build does not declare leaves a device: the enabled-state overrides
+     * survive the install, so the alternate is gone and the primary stays
+     * explicitly disabled with nothing left to launch.
+     */
+    private void restoreLauncherIfOrphaned() {
+        PackageManager packageManager = getContext().getPackageManager();
+        Map<String, Integer> enabledSettings = new LinkedHashMap<>();
+        for (String aliasClassName : aliasClassNames()) {
+            enabledSettings.put(
+                aliasClassName,
+                packageManager.getComponentEnabledSetting(component(aliasClassName))
+            );
+        }
+        if (restoresPrimaryAlias(enabledSettings)) {
+            setEnabledState(
+                packageManager,
+                PRIMARY_ALIAS,
+                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+            );
+        }
     }
 
     /**
