@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 
+import { sleep } from "../util/retry.js";
 import {
   type FakeDesktopOptions,
   KILL_GRACE_MS,
@@ -10,12 +11,20 @@ import {
   newFakeDesktop,
   newViewer,
   settle,
-  sleep,
 } from "./__tests__/fake-desktop.js";
 import {
   DESKTOP_VNC_PORT,
   type DesktopChildRole,
 } from "./desktop-session-manager.js";
+
+const BUSY = {
+  ok: false,
+  loss: { code: 4013, reason: "Desktop is in use by another viewer" },
+} as const;
+const SHUTTING_DOWN = {
+  ok: false,
+  loss: { code: 1001, reason: "The assistant is shutting down" },
+} as const;
 
 const profileDir = mkdtempSync(join(tmpdir(), "desktop-session-test-"));
 afterAll(() => {
@@ -28,7 +37,18 @@ function newManager(options: Omit<FakeDesktopOptions, "profileDir"> = {}) {
 
 describe("DesktopSessionManager process tree", () => {
   test("concurrent callers share one start of the whole tree", async () => {
-    const h = newManager();
+    const h = newManager({
+      sourceEnv: {
+        PATH: "/usr/bin",
+        HOME: "/data",
+        LANG: "C.UTF-8",
+        PLAYWRIGHT_BROWSERS_PATH: "/opt/ms-playwright",
+        // Neither the kata chroot overlay nor secrets reach the desktop.
+        LD_LIBRARY_PATH: "/data/system/usr/lib",
+        VELLUM_SANDBOX_RUNTIME: "kata",
+        OPENAI_API_KEY: "sk-secret",
+      },
+    });
     await Promise.all([
       h.manager.ensureDesktopRunning(),
       h.manager.ensureDesktopRunning(),
@@ -47,8 +67,15 @@ describe("DesktopSessionManager process tree", () => {
     expect(x).toContain("-localhost");
     expect(x[x.indexOf("-SecurityTypes") + 1]).toBe("None");
     expect(x[x.indexOf("-rfbport") + 1]).toBe(String(DESKTOP_VNC_PORT));
+    expect(x[x.indexOf("-geometry") + 1]).toBe("1440x900");
     for (const role of ["window-manager", "clipboard", "browser"] as const) {
-      expect(h.child(role).request.env.DISPLAY).toBe(":99");
+      expect(h.child(role).request.env).toEqual({
+        PATH: "/usr/bin",
+        HOME: "/data",
+        LANG: "C.UTF-8",
+        PLAYWRIGHT_BROWSERS_PATH: "/opt/ms-playwright",
+        DISPLAY: ":99",
+      });
     }
     expect(h.child("window-manager").request.cmd).toEqual(["/usr/bin/openbox"]);
     expect(h.child("clipboard").request.cmd).toEqual([
@@ -58,6 +85,10 @@ describe("DesktopSessionManager process tree", () => {
     const browser = h.child("browser").request.cmd;
     expect(browser[0]).toBe("/fake/chromium");
     expect(browser).toContain(`--user-data-dir=${profileDir}`);
+    // Explicit geometry matching the X server, so the window does not depend
+    // on openbox being up to honor --start-maximized.
+    expect(browser).toContain("--window-position=0,0");
+    expect(browser).toContain("--window-size=1440,900");
 
     // A running tree is reused rather than started again.
     await h.manager.ensureDesktopRunning();
@@ -92,6 +123,32 @@ describe("DesktopSessionManager process tree", () => {
 
     h.setVncReady(true);
     await h.manager.ensureDesktopRunning();
+    expect(h.count("x-server")).toBe(2);
+  });
+
+  test("a retry spawns its X server only after the failed one is gone", async () => {
+    const h = newManager();
+    h.setVncReady(false);
+    const { viewer, lost } = newViewer();
+    h.manager.acquireViewerSlot(viewer);
+
+    await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(/not ready/);
+    // The viewer hears about it before the kill grace, not after.
+    expect(lost).toEqual([{ code: 4011, reason: "Desktop failed to start" }]);
+    const first = h.child("x-server");
+    expect(h.killed).toEqual([{ child: first, signal: "SIGTERM" }]);
+
+    // Reconnect while the first X server is still ignoring its SIGTERM.
+    h.setVncReady(true);
+    const retry = h.manager.ensureDesktopRunning();
+    await sleep(KILL_GRACE_MS / 2);
+    expect(h.count("x-server")).toBe(1);
+
+    await retry;
+    expect(h.killed).toEqual([
+      { child: first, signal: "SIGTERM" },
+      { child: first, signal: "SIGKILL" },
+    ]);
     expect(h.count("x-server")).toBe(2);
   });
 
@@ -229,11 +286,12 @@ describe("DesktopSessionManager process tree", () => {
       ...Array(4).fill("SIGTERM"),
       ...Array(4).fill("SIGKILL"),
     ]);
-    expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual({
-      ok: false,
-      reason: "shutting-down",
+    expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual(
+      SHUTTING_DOWN,
+    );
+    await expect(h.manager.ensureDesktopRunning()).rejects.toMatchObject({
+      loss: SHUTTING_DOWN.loss,
     });
-    await expect(h.manager.ensureDesktopRunning()).rejects.toThrow();
   });
 
   test("destroy skips the hard kill when every child exits on SIGTERM", async () => {
@@ -253,16 +311,10 @@ describe("DesktopSessionManager viewer slot", () => {
     const second = newViewer().viewer;
 
     expect(h.manager.acquireViewerSlot(first)).toEqual({ ok: true });
-    expect(h.manager.acquireViewerSlot(second)).toEqual({
-      ok: false,
-      reason: "busy",
-    });
+    expect(h.manager.acquireViewerSlot(second)).toEqual(BUSY);
 
     h.manager.releaseViewerSlot(second);
-    expect(h.manager.acquireViewerSlot(second)).toEqual({
-      ok: false,
-      reason: "busy",
-    });
+    expect(h.manager.acquireViewerSlot(second)).toEqual(BUSY);
 
     h.manager.releaseViewerSlot(first);
     expect(h.manager.acquireViewerSlot(second)).toEqual({ ok: true });

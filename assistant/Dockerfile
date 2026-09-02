@@ -112,6 +112,7 @@ RUN apt-get update && apt-get install -y \
     xauth \
     xclip \
     xdg-utils \
+    xfonts-base \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder instead of re-installing
@@ -119,6 +120,13 @@ COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
 COPY --from=builder /app /app
+
+# Bake Playwright's Chromium for the pod desktop so the first viewer never
+# waits on a download; its shared libraries are in the apt list above. Only
+# node_modules is needed, so this sits before the source copies and survives
+# them changing.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN cd /app/assistant && bunx playwright install chromium && chmod -R a+rX /opt/ms-playwright
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/avatar-catalog /app/packages/avatar-catalog
@@ -134,11 +142,6 @@ COPY packages/slack-text /app/packages/slack-text
 COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
-
-# Bake Playwright's Chromium for the pod desktop so the first viewer never
-# waits on a download; its shared libraries are in the apt list above.
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN cd /app/assistant && bunx playwright install chromium && chmod -R a+rX /opt/ms-playwright
 
 # Materialize the git-ignored offline plugin manifest from its canonical source.
 # `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON

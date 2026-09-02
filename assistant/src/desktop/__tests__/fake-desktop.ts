@@ -1,3 +1,4 @@
+import { sleep } from "../../util/retry.js";
 import {
   type DesktopChild,
   type DesktopChildRole,
@@ -7,7 +8,7 @@ import {
 } from "../desktop-session-manager.js";
 
 /** A child the test exits by hand. */
-export class FakeChild implements DesktopChild {
+class FakeChild implements DesktopChild {
   private static nextPid = 1000;
   readonly pid = FakeChild.nextPid++;
   readonly exited: Promise<number>;
@@ -40,6 +41,7 @@ export interface FakeDesktopOptions {
   missingBinaries?: string[];
   /** Whether a SIGTERM makes the fake child exit on its own. */
   exitOnTerm?: boolean;
+  sourceEnv?: NodeJS.ProcessEnv;
 }
 
 export function newFakeDesktop(options: FakeDesktopOptions) {
@@ -70,6 +72,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     readyDeadlineMs: 30,
     killGraceMs: KILL_GRACE_MS,
     profileDir: options.profileDir,
+    sourceEnv: options.sourceEnv,
   });
   return {
     manager,
@@ -93,13 +96,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
 }
 
 /** Let one awaited step (a path resolution, an exit callback) land. */
-export async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+export const settle = (): Promise<void> => sleep(0);
 
 export function newViewer() {
   const lost: DesktopLoss[] = [];
