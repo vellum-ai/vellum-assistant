@@ -209,7 +209,7 @@ async function enqueueStandaloneImagePersist(
       );
       reclaimOrDefer(
         conversationId,
-        ticket.attachmentId,
+        [ticket.attachmentId],
         ticket.content,
         uuidv7(),
       );
@@ -270,12 +270,15 @@ async function enqueueStandaloneImagePersist(
  * the same contention the rest of this module waits out, and the caller owes
  * the upload an outcome rather than a log line.
  */
-function reclaimDroppedFrame(attachmentId: string): boolean {
+function reclaimDroppedFrame(attachmentIds: readonly string[]): boolean {
   try {
-    deleteOrphanAttachments([attachmentId]);
+    deleteOrphanAttachments([...attachmentIds]);
     return true;
   } catch (err) {
-    log.warn({ err, attachmentId }, "Could not reclaim a dropped camera frame");
+    log.warn(
+      { err, attachmentIds },
+      "Could not reclaim a dropped camera frame",
+    );
     return false;
   }
 }
@@ -290,14 +293,14 @@ function reclaimDroppedFrame(attachmentId: string): boolean {
  */
 function reclaimOrDefer(
   conversationId: string,
-  attachmentId: string,
+  attachmentIds: readonly string[],
   content: string,
   messageId: string,
 ): void {
-  if (reclaimDroppedFrame(attachmentId)) {
+  if (reclaimDroppedFrame(attachmentIds)) {
     return;
   }
-  deferFrameReclaimDecision(conversationId, messageId, attachmentId, content);
+  deferFrameReclaimDecision(conversationId, messageId, attachmentIds, content);
 }
 
 /** Conversations with a standalone-image persist still in flight. */
@@ -323,7 +326,14 @@ const RECLAIM_RECHECK_QUICK_PASSES = 10;
 interface PendingFrameReclaim {
   conversationId: string;
   messageId: string;
-  attachmentId: string;
+  /**
+   * Every id this attempt is answerable for: the one the caller handed in, and
+   * any the persist materialized for itself. A pre-uploaded frame already
+   * linked to another conversation is cloned into this one under a fresh id,
+   * and the caller's id reclaims nothing for it, that row still being linked
+   * where it came from.
+   */
+  attachmentIds: readonly string[];
   /** Row text, so a frame found to have landed can still be announced. */
   content: string;
   attempts: number;
@@ -360,13 +370,13 @@ let reclaimRecheckTimer: ReturnType<typeof setTimeout> | null = null;
 function deferFrameReclaimDecision(
   conversationId: string,
   messageId: string,
-  attachmentId: string,
+  attachmentIds: readonly string[],
   content: string,
 ): void {
   pendingFrameReclaims.push({
     conversationId,
     messageId,
-    attachmentId,
+    attachmentIds,
     content,
     attempts: 0,
   });
@@ -450,7 +460,7 @@ function drainFrameReclaimRechecks(): void {
       announceDeferredImage(pending);
       continue;
     }
-    if (inserted === "absent" && reclaimDroppedFrame(pending.attachmentId)) {
+    if (inserted === "absent" && reclaimDroppedFrame(pending.attachmentIds)) {
       continue;
     }
     keepWaitingForStore(pending);
@@ -469,7 +479,7 @@ function keepWaitingForStore(pending: PendingFrameReclaim): void {
     log.warn(
       {
         conversationId: pending.conversationId,
-        attachmentId: pending.attachmentId,
+        attachmentIds: pending.attachmentIds,
       },
       "Still cannot settle a camera frame; asking less often until the store answers",
     );
@@ -572,7 +582,10 @@ function persistStandaloneImage(
   kind: "photo" | "sight_frame",
   persistOptions: Omit<
     PersistMessageOptions,
-    "attachments" | "requestId" | "insertPrecondition"
+    | "attachments"
+    | "requestId"
+    | "insertPrecondition"
+    | "onUndiscardedAttachments"
   >,
   acceptedIncarnation?: number,
 ): Promise<LiveVoicePhotoResult> {
@@ -595,7 +608,7 @@ function persistStandaloneImage(
       deferFrameReclaimDecision(
         conversationId,
         uuidv7(),
-        attachmentId,
+        [attachmentId],
         persistOptions.content,
       );
     }
@@ -609,7 +622,7 @@ function persistStandaloneImage(
     if (kind === "sight_frame") {
       reclaimOrDefer(
         conversationId,
-        attachmentId,
+        [attachmentId],
         persistOptions.content,
         uuidv7(),
       );
@@ -650,7 +663,7 @@ function dropReplacedImage(
     "Standalone image dropped: its conversation was replaced before the write",
   );
   if (kind === "sight_frame") {
-    reclaimOrDefer(conversationId, attachmentId, content, uuidv7());
+    reclaimOrDefer(conversationId, [attachmentId], content, uuidv7());
   }
   return { ok: false };
 }
@@ -662,13 +675,21 @@ async function writeStandaloneImage(
   incarnation: number,
   persistOptions: Omit<
     PersistMessageOptions,
-    "attachments" | "requestId" | "insertPrecondition"
+    | "attachments"
+    | "requestId"
+    | "insertPrecondition"
+    | "onUndiscardedAttachments"
   >,
 ): Promise<LiveVoicePhotoResult> {
   const { content } = persistOptions;
   // The id the row is inserted under, so a failure can ask whether the insert
   // landed before deciding the frame is safe to reclaim.
   const requestId = uuidv7();
+  // Ids the persist materialized for this attempt and then could not delete.
+  // A frame already linked elsewhere is cloned into this conversation under a
+  // fresh id, and nothing but the persist knows it: reclaiming under the id
+  // this module holds would leave the clone behind for good.
+  const strandedClones: string[] = [];
   try {
     const attachments = resolveAttachmentsForPersist([attachmentId]);
     if (attachments.length === 0) {
@@ -693,7 +714,7 @@ async function writeStandaloneImage(
         "Standalone image dropped: its conversation was deleted while it waited",
       );
       if (kind === "sight_frame") {
-        reclaimOrDefer(conversationId, attachmentId, content, uuidv7());
+        reclaimOrDefer(conversationId, [attachmentId], content, uuidv7());
       }
       return { ok: false };
     }
@@ -716,7 +737,7 @@ async function writeStandaloneImage(
         "Standalone image timed out waiting for the conversation to go idle",
       );
       if (kind === "sight_frame") {
-        reclaimOrDefer(conversationId, attachmentId, content, uuidv7());
+        reclaimOrDefer(conversationId, [attachmentId], content, uuidv7());
       }
       return { ok: false };
     }
@@ -745,6 +766,9 @@ async function writeStandaloneImage(
         // otherwise join a conversation it was never taken in.
         insertPrecondition: () =>
           isSameIncarnation(conversationId, incarnation),
+        onUndiscardedAttachments: (ids) => {
+          strandedClones.push(...ids);
+        },
       });
 
       // The row just joined the resident history, and this write ran outside
@@ -805,7 +829,12 @@ async function writeStandaloneImage(
     }
     if (kind === "sight_frame") {
       if (inserted === "absent") {
-        reclaimOrDefer(conversationId, attachmentId, content, requestId);
+        reclaimOrDefer(
+          conversationId,
+          [attachmentId, ...strandedClones],
+          content,
+          requestId,
+        );
       } else {
         // The store would not say whether the row landed. The refusal below
         // reports the frame as handled, so the upload cannot simply be left,
@@ -814,7 +843,7 @@ async function writeStandaloneImage(
         deferFrameReclaimDecision(
           conversationId,
           requestId,
-          attachmentId,
+          [attachmentId, ...strandedClones],
           content,
         );
       }

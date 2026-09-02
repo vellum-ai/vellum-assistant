@@ -40,7 +40,7 @@ import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversat
 import * as dbConnection from "../../persistence/db-connection.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { conversations } from "../../persistence/schema/index.js";
+import { attachments, conversations } from "../../persistence/schema/index.js";
 import * as slowSyncLog from "../../persistence/slow-sync-log.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -133,13 +133,13 @@ mock.module("../../persistence/slow-sync-log.js", () => ({
  * Fail the next orphan delete the way contention does, which is the one thing
  * standing between a dropped frame and its bytes.
  */
-let failNextReclaim = false;
+let failNextReclaims = 0;
 const realAttachmentsStore = { ...attachmentsStore };
 mock.module("../../persistence/attachments-store.js", () => ({
   ...realAttachmentsStore,
   deleteOrphanAttachments: (ids: string[]) => {
-    if (failNextReclaim) {
-      failNextReclaim = false;
+    if (failNextReclaims > 0) {
+      failNextReclaims -= 1;
       throw Object.assign(new Error("database is locked"), {
         code: "SQLITE_BUSY",
       });
@@ -256,6 +256,15 @@ function watchEchoes(conversationId: string) {
     echoes: () => published.filter((e) => e.type === "user_message_echo"),
     dispose: () => subscription.dispose(),
   };
+}
+
+/** Every attachment row in the store, so a test can spot one made since. */
+function allAttachmentIds(): string[] {
+  return getDb()
+    .select({ id: attachments.id })
+    .from(attachments)
+    .all()
+    .map((row) => row.id);
 }
 
 function conversationCount(): number {
@@ -885,6 +894,57 @@ describe("standalone image persists are serialized per conversation", () => {
     }
   });
 
+  test("a deferred reclaim collects the clone, not just the id it was handed", async () => {
+    // A frame already linked to another conversation is CLONED into this one
+    // before the insert precondition runs. If the precondition then refuses
+    // and the persist's own clone cleanup hits contention, retrying under the
+    // caller's id reclaims nothing: that row is still linked where it came
+    // from, and the clone nobody names survives every pass.
+    const source = liveConversation("Live voice clone reclaim source");
+    const live = liveConversation("Live voice clone reclaim");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(source.id);
+      const beforePersist = new Set(allAttachmentIds());
+
+      // Replaced mid-persist, so the precondition refuses after the clone was
+      // made, and the clone cleanup that follows fails once on contention.
+      duringPersistBeforeInsert = () => {
+        deleteConversationRows(live.id);
+        createConversation({ id: live.id, title: "Recreated" });
+        // The persist's own clone cleanup fails, and so does the reclaim that
+        // follows it, so the record reaches the deferred pass.
+        failNextReclaims = 2;
+      };
+
+      expect(
+        await persistAmbientSightFrame(live.id, arrivedAs, "voice"),
+      ).toEqual({ ok: false });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(_pendingFrameReclaimCountForTests()).toBe(1);
+      // The clone outlived the failed cleanup, so something still owes it.
+      const clones = allAttachmentIds().filter((id) => !beforePersist.has(id));
+      expect(clones).toHaveLength(1);
+      expect(frameStored(clones[0])).toBe(true);
+
+      _drainFrameReclaimRechecksForTests();
+
+      expect(_pendingFrameReclaimCountForTests()).toBe(0);
+      // The clone is gone, and the original it was copied from is untouched
+      // and still linked to the message that owns it.
+      expect(frameStored(clones[0])).toBe(false);
+      expect(frameStored(arrivedAs)).toBe(true);
+      expect(
+        getAttachmentsForMessage(getMessages(source.id)[0].id),
+      ).toHaveLength(1);
+    } finally {
+      duringPersistBeforeInsert = null;
+      failNextReclaims = 0;
+      live.dispose();
+      source.dispose();
+    }
+  });
+
   test("a newer keep replaces one that is still waiting to start", async () => {
     // The chain is bounded this way: keeps arrive every few seconds while each
     // job can wait out a turn for far longer, so a queued keep that a newer
@@ -992,7 +1052,7 @@ describe("standalone image persists are serialized per conversation", () => {
       // A turn that outlasts the wait, so the keep is dropped and its upload
       // becomes the daemon's to collect.
       live.activeConversation.setProcessing(true);
-      failNextReclaim = true;
+      failNextReclaims = 1;
       expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
         ok: false,
       });
@@ -1002,7 +1062,7 @@ describe("standalone image persists are serialized per conversation", () => {
 
       // The recheck's own delete can fail too, and that keeps the record
       // rather than spending it.
-      failNextReclaim = true;
+      failNextReclaims = 1;
       _drainFrameReclaimRechecksForTests();
       expect(frameStored(frame)).toBe(true);
       expect(_pendingFrameReclaimCountForTests()).toBe(1);
@@ -1013,7 +1073,7 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(frameStored(frame)).toBe(false);
       expect(getMessages(live.id)).toHaveLength(0);
     } finally {
-      failNextReclaim = false;
+      failNextReclaims = 0;
       live.activeConversation.setProcessing(false);
       live.dispose();
       _setProcessingWaitMsForTests(restoreWait);

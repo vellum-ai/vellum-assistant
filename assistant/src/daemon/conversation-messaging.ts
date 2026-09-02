@@ -507,17 +507,19 @@ async function prepareUserAttachmentReferences(
  * backstop, and swallowed on failure: cleaning up must never mask the error
  * that caused it.
  */
-function discardAttemptAttachments(attachmentIds: string[]): void {
+function discardAttemptAttachments(attachmentIds: string[]): string[] {
   if (attachmentIds.length === 0) {
-    return;
+    return [];
   }
   try {
     deleteOrphanAttachments(attachmentIds);
+    return [];
   } catch (err) {
     log.warn(
       { err, attachmentIds },
       "Could not discard the attachments of a failed persist attempt",
     );
+    return attachmentIds;
   }
 }
 
@@ -1011,6 +1013,17 @@ export interface PersistMessageOptions {
    * than checked here, so each attempt asks for itself.
    */
   insertPrecondition?: () => boolean;
+  /**
+   * Told the ids this attempt materialized for itself and then could not
+   * delete, so a caller that owns the cleanup can come back to them.
+   *
+   * An attachment already linked to another conversation is CLONED into this
+   * one under a fresh id, and only this function knows that id. A caller
+   * retrying the delete under the id it handed in would reclaim nothing: that
+   * row is still linked where it came from, and the clone nobody names
+   * survives every pass.
+   */
+  onUndiscardedAttachments?: (attachmentIds: readonly string[]) => void;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -1498,9 +1511,12 @@ export async function persistQueuedMessageBody(
       ctx.messages.pop();
     }
     if (!messageInserted) {
-      discardAttemptAttachments(
+      const undiscarded = discardAttemptAttachments(
         attemptCreatedAttachmentIds(attachmentInputs, preparedAttachments),
       );
+      if (undiscarded.length > 0) {
+        options.onUndiscardedAttachments?.(undiscarded);
+      }
     }
     throw err;
   }
