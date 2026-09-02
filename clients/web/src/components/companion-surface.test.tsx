@@ -1843,20 +1843,30 @@ describe("the avatar's resting collapse", () => {
 
   /**
    * Every other body here is as wide as its content, and a sentence has no
-   * width to be as wide as. A stated ceiling is what keeps the pill inside the
-   * canvas main sized for it.
+   * width to be as wide as. A stated width is what keeps the pill inside the
+   * canvas main sized for it, and what keeps it still: the box is the same
+   * size with three words as with three hundred, and the same size as the
+   * status word's box before there were any, so the pill grows to its
+   * dictating width once rather than on every partial.
    */
-  test("bounds the words rather than measuring them", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="dictating"
-        dictating="listening"
-        dictationText={"x".repeat(400)}
-      />,
-    );
+  test("gives the words a fixed box rather than measuring them", () => {
+    const widthOf = (text?: string) => {
+      const { container } = render(
+        <CompanionSurface
+          phase="dictating"
+          dictating="listening"
+          dictationText={text}
+        />,
+      );
+      const box =
+        container.querySelector<HTMLElement>("bdi")?.parentElement ??
+        container.querySelector<HTMLElement>(".truncate");
+      return box?.style.width;
+    };
 
-    const box = container.querySelector<HTMLElement>("bdi")?.parentElement;
-    expect(box?.style.maxWidth).toBe("244px");
+    expect(widthOf("x".repeat(400))).toBe("244px");
+    expect(widthOf("three words here")).toBe("244px");
+    expect(widthOf(undefined)).toBe("244px");
   });
 
   /** The creature fades with it rather than being cut, and comes back whole. */

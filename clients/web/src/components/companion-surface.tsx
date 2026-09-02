@@ -341,9 +341,9 @@ export const FALLBACK_WIDTHS: Record<
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
   summary: 220,
-  // The transcript at its widest, beside the icon and the row's own clearance.
-  // The words are drawn in a box of a stated width rather than measured, so
-  // this is the state's actual width rather than a guess at one.
+  // The transcript box beside the icon and the row's own clearance. The box
+  // has a stated width whatever is in it, so this is the state's actual width
+  // rather than a guess at one.
   dictating: TRANSCRIPT_WIDTH + 32,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
@@ -1630,19 +1630,26 @@ function DictatingBody({
            beginning, and the run inside is isolated so the words themselves
            keep their own order and their punctuation stays where it was said.
  
-           Bounded rather than measured: every other state on this surface is
-           as wide as its content, and a sentence has no width to be as wide
-           as. The ceiling is what keeps the pill inside the canvas main sized
-           for it. */
+           A stated width rather than a measured one: every other state on
+           this surface is as wide as its content, and a sentence has no width
+           to be as wide as. The box is the same size with three words in it
+           as with thirty, and the same size as the status word's box before
+           there were any, so the pill takes its dictating width once and
+           holds it while the words change underneath. A box that grew with
+           its words would be re-measured on every partial, and the pill's
+           width transition would run for as long as the speaker talked. */
         <span
           className="overflow-hidden text-left text-[12px] whitespace-nowrap text-white/85"
-          style={{ maxWidth: TRANSCRIPT_WIDTH, direction: "rtl" }}
+          style={{ width: TRANSCRIPT_WIDTH, direction: "rtl" }}
           aria-live="polite"
         >
           <bdi>{words}</bdi>
         </span>
       ) : (
-        <span className="truncate text-[12px] text-white/85">
+        <span
+          className="truncate text-[12px] text-white/85"
+          style={{ width: TRANSCRIPT_WIDTH }}
+        >
           {dictating === "listening"
             ? t("companionSurface.dictating")
             : t("companionSurface.dictatingTranscribing")}
