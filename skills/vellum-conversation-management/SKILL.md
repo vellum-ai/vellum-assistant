@@ -1,12 +1,15 @@
 ---
 name: vellum-conversation-management
-description: Manage conversation threads (rename, list, search, export)
+description: Manage conversation threads (rename, list, search, export) and explain conversation retention / auto-delete TTL
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
   vellum:
     category: "productivity"
     display-name: "Conversations"
+    activation-hints:
+      - "rename, list, search, or export conversations"
+      - "conversation retention, conversation TTL, or auto-deleting old conversations"
 ---
 
 Tools for managing conversation threads via the `assistant conversations` CLI.
@@ -50,3 +53,17 @@ Export a conversation as markdown or JSON:
 ```bash
 assistant conversations export [conversationId] [--format md|json] [-o file]
 ```
+
+## Auto-delete (retention)
+
+Old conversations can be deleted automatically via workspace config, not
+this CLI. The key is `memory.cleanup.conversationRetentionDays` (`0` keeps
+conversations forever). Query the live spec before explaining or changing it:
+
+```bash
+assistant config schema memory.cleanup.conversationRetentionDays
+assistant config get memory.cleanup.conversationRetentionDays
+```
+
+For the full `config.json` explanation path, use the vellum-self-knowledge
+skill and its `references/config-json.md`.

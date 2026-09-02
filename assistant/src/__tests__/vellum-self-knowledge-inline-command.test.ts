@@ -4,7 +4,7 @@
  * rather than static content.
  */
 
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -146,5 +146,23 @@ describe("vellum-self-knowledge skill", () => {
     expect(result.content).toContain("CLI first");
     expect(result.content).toContain("Docs second");
     expect(result.content).toContain("Source code last");
+  });
+
+  test("points at the config.json reference for workspace config questions", async () => {
+    const result = await executeSkillLoad({ skill: "vellum-self-knowledge" });
+    expect(result.content).toContain("references/config-json.md");
+    expect(result.content).toContain("assistant config schema");
+    expect(result.content).toContain("assistant config get <path>");
+  });
+
+  test("config.json reference tells the assistant to query schema, not invent keys", () => {
+    const reference = readFileSync(
+      join(SKILL_SRC_DIR, "references", "config-json.md"),
+      "utf-8",
+    );
+    expect(reference).toContain("assistant config schema");
+    expect(reference).toContain("Never invent keys");
+    expect(reference).toContain("memory.cleanup.conversationRetentionDays");
+    expect(reference).toContain("0");
   });
 });

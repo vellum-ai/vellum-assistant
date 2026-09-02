@@ -11,6 +11,8 @@ metadata:
       - "what model the assistant is running on"
       - "how Vellum works or its architecture"
       - "its current configuration or settings"
+      - "what workspace config.json is, which keys it accepts, or what a default means"
+      - "conversation retention, conversation TTL, or auto-deleting old conversations"
       - "what it can do, or what skills/tools are available"
       - "whether a service is connected, and in which sense"
       - "how to self-host a Vellum assistant"
@@ -34,6 +36,7 @@ The CLI is the single source of truth for anything about the running assistant's
 | ----------------------------------------- | -------------------------------------------------------------------------- |
 | Current model, provider, config           | `assistant config get llm`                                                 |
 | Full config                               | `assistant config list`                                                    |
+| One config value                          | `assistant config get <dotted.path>`                                       |
 | Config schema (what's configurable)       | `assistant config schema [path]`                                           |
 | Available/installed skills                | `assistant skills list --json`                                             |
 | Platform connection                       | `assistant platform status --json`                                         |
@@ -51,6 +54,13 @@ The CLI is the single source of truth for anything about the running assistant's
 | Version                                   | `assistant --version`                                                      |
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
+
+When the question is about `$VELLUM_WORKSPACE_DIR/config.json` itself
+(what the file is, which keys exist, what a default or "off" value means,
+whether conversation retention / TTL exists), read
+[references/config-json.md](references/config-json.md), then query
+`assistant config schema [path]` and `assistant config get <path>`.
+Do not invent keys. A setting can exist and still be off.
 
 "Is X connected?" has two answers and a service can have either, both, or
 neither. It takes both commands: the providers list is a catalog and says
