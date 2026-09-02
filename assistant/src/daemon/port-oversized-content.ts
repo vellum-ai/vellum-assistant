@@ -61,6 +61,28 @@ export async function offloadOversizedText(
   };
 }
 
+/**
+ * Persist may offload a display-only copy (raw Slack, etc.) that must stay
+ * linked for GC but must not be named on the model-facing attachment list.
+ * The live offload is the only one `enrichMessageWithSourcePaths` may see.
+ */
+export function offloadLinkPlan(
+  persistAttachmentId: string | undefined,
+  liveAttachmentId: string | undefined,
+): { linkIds: string[]; modelFacingIds: ReadonlySet<string> } {
+  const linkIds = [
+    ...new Set(
+      [persistAttachmentId, liveAttachmentId].filter(
+        (id): id is string => id !== undefined,
+      ),
+    ),
+  ];
+  return {
+    linkIds,
+    modelFacingIds: new Set(liveAttachmentId ? [liveAttachmentId] : []),
+  };
+}
+
 export function assembleUserContentBlocks(
   text: string,
   attachmentBlocks: ContentBlock[],

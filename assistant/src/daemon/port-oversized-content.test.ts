@@ -5,6 +5,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   assembleUserContentBlocks,
+  offloadLinkPlan,
   offloadOversizedText,
   OVERSIZED_CONTENT_FILENAME,
   OVERSIZED_CONTENT_NOTE,
@@ -64,5 +65,25 @@ describe("offloadOversizedText", () => {
     expect(JSON.stringify(blocks)).not.toContain(original);
     expect(blocks[0]).toEqual({ type: "text", text: OVERSIZED_CONTENT_NOTE });
     expect(blocks[1]).toEqual(result.fileBlock);
+  });
+});
+
+describe("offloadLinkPlan", () => {
+  test("same persist and live id is linked and model-facing", () => {
+    const plan = offloadLinkPlan("att-1", "att-1");
+    expect(plan.linkIds).toEqual(["att-1"]);
+    expect([...plan.modelFacingIds]).toEqual(["att-1"]);
+  });
+
+  test("display-only persist offload is linked but not model-facing", () => {
+    const plan = offloadLinkPlan("att-display", undefined);
+    expect(plan.linkIds).toEqual(["att-display"]);
+    expect(plan.modelFacingIds.size).toBe(0);
+  });
+
+  test("distinct persist and live ids keep only live model-facing", () => {
+    const plan = offloadLinkPlan("att-display", "att-live");
+    expect(plan.linkIds).toEqual(["att-display", "att-live"]);
+    expect([...plan.modelFacingIds]).toEqual(["att-live"]);
   });
 });

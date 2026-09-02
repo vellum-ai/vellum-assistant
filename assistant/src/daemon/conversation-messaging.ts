@@ -77,6 +77,7 @@ import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import {
   assembleUserContentBlocks,
+  offloadLinkPlan,
   offloadOversizedText,
   OVERSIZED_CONTENT_FILENAME,
   type PortOversizedContext,
@@ -1361,13 +1362,11 @@ export async function persistQueuedMessageBody(
       attachmentBlocks,
       liveOffload.fileBlock,
     );
-    portedAttachmentIds = [
-      ...new Set(
-        [persistOffload.attachmentId, liveOffload.attachmentId].filter(
-          (id): id is string => id !== undefined,
-        ),
-      ),
-    ];
+    const offloadPlan = offloadLinkPlan(
+      persistOffload.attachmentId,
+      liveOffload.attachmentId,
+    );
+    portedAttachmentIds = offloadPlan.linkIds;
 
     // Workspace-ref blocks (including offloaded oversized text) so the live
     // turn matches persist: video and huge strings stay off the prompt.
@@ -1499,12 +1498,17 @@ export async function persistQueuedMessageBody(
           nextPortPosition,
         );
         nextPortPosition += 1;
-        sentAttachments.push({
-          filename: OVERSIZED_CONTENT_FILENAME,
-          mimeType: "text/plain",
-          data: "",
-          storedPath: getFilePathForAttachment(scopedId) ?? undefined,
-        });
+        const storedPath = getFilePathForAttachment(scopedId) ?? undefined;
+        // Display-only offloads stay linked (GC + persisted workspace_ref)
+        // but must not be named on the model-facing list.
+        if (offloadPlan.modelFacingIds.has(attachmentId)) {
+          sentAttachments.push({
+            filename: OVERSIZED_CONTENT_FILENAME,
+            mimeType: "text/plain",
+            data: "",
+            storedPath,
+          });
+        }
       } catch (err) {
         log.error(
           { attachmentId, err },
@@ -1513,10 +1517,10 @@ export async function persistQueuedMessageBody(
       }
     }
 
-    // Persist the resolved paths so history reloads can rebuild the same
-    // annotation block the in-memory message carries below.
+    // Same list enrichMessageWithSourcePaths sees, so history reload rebuilds
+    // an identical annotation block (prefix-cache parity).
     const attachmentStoredPaths =
-      extractAttachmentStoredPaths(attachmentInputs);
+      extractAttachmentStoredPaths(sentAttachments);
     if (attachmentStoredPaths) {
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
