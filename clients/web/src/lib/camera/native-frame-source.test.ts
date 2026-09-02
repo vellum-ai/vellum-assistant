@@ -587,6 +587,70 @@ describe("native frame source run generation", () => {
     source.stop();
   });
 
+  test("refuses a capture the owner invalidated while it was in flight", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+    });
+
+    source.start();
+    capture.holdNext();
+    await pollTimes(1);
+    expect(capture.callCount()).toBe(1);
+
+    // The camera flipped while that sample was on the bridge. Its bytes are of
+    // the view the user just turned away from, and every guard downstream reads
+    // the world as it is when a frame is OFFERED, which is now.
+    source.invalidate();
+    capture.releaseHeld();
+    await settle();
+
+    expect(offers).toHaveLength(0);
+    expect(decode.decodeCount()).toBe(0);
+
+    // The cadence is untouched: the replacement camera is one tick away, not
+    // one restart away.
+    await pollTimes(1);
+    expect(capture.callCount()).toBe(2);
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
+  test("refuses a decode the owner invalidated while it was in flight", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+    });
+
+    source.start();
+    decode.holdNext();
+    await pollTimes(1);
+    expect(decode.decodeCount()).toBe(1);
+
+    // The change can also land inside the decode, which is the second await a
+    // sample crosses before anyone sees it.
+    source.invalidate();
+    decode.releaseHeld();
+    await settle();
+
+    expect(offers).toHaveLength(0);
+    expect(decode.releaseCount()).toBe(1);
+
+    await pollTimes(1);
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
   test("samples on the first tick of a run started over a stranded sample", async () => {
     const { gate, offers } = createRecordingGate();
     const capture = createCaptureStub();

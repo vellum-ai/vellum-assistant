@@ -24,7 +24,11 @@
  *   running. It is handed a capture function and forgets it on {@link
  *   NativeFrameSource.stop}.
  * - It does not call {@link FrameGate.reset}. A flip invalidates the gate's
- *   history, and only the owner of the camera knows one happened.
+ *   history, and only the owner of the camera knows one happened. The owner
+ *   says so with {@link NativeFrameSource.invalidate}, which is also what
+ *   refuses the sample such a change caught in flight: the bytes were taken of
+ *   the world before it, and nothing downstream can tell them apart from bytes
+ *   taken after.
  * - It does not upload. It hands the offered JPEG back with the decision and
  *   the owner decides what a keep is worth.
  * - It does not watch the app's lifecycle. Backgrounding is the owner's to
@@ -83,6 +87,17 @@ export interface NativeFrameSourceOptions {
 export interface NativeFrameSource {
   /** Begin polling. Starting an already-started source restarts its cadence. */
   start(): void;
+  /**
+   * Refuse whatever is in flight, and keep polling.
+   *
+   * For the boundaries only the owner can see: the camera flipping, a transport
+   * reconnect. The sample crossing the bridge was taken of the world before the
+   * change, and by the time it is offered the change has happened, so every
+   * guard downstream reads it as current. Stopping and starting would refuse it
+   * too, at the cost of a whole interval of blindness for a poll that has
+   * nothing to recover from.
+   */
+  invalidate(): void;
   /** Stop polling. Idempotent. */
   stop(): void;
 }
@@ -133,14 +148,14 @@ export function createNativeFrameSource(
 
   let timer: ReturnType<typeof setInterval> | null = null;
   /**
-   * Which run of this source is current. Bumped by every stop, and so by every
-   * start.
+   * Which run of this source is current. Bumped by every invalidate, and so by
+   * every stop and every start.
    *
-   * A capture and a decode are both awaits, and a run can end and another begin
-   * inside either one. Without a number to compare against, a sample of the
-   * camera that was pointing somewhere else lands looking exactly like a fresh
-   * one, and the gate scores the new run's first frame against a scene the user
-   * has already turned away from.
+   * A capture and a decode are both awaits, and the world can change inside
+   * either one: the run can end, or the camera behind it can be replaced.
+   * Without a number to compare against, a sample of the scene that is gone
+   * lands looking exactly like a fresh one, and the gate scores against a view
+   * the user has already turned away from.
    */
   let generation = 0;
   /**
@@ -150,7 +165,10 @@ export function createNativeFrameSource(
    * can outrun the cadence on a busy device. Two in flight would queue on the
    * bridge, so a tick that finds its own run already sampling is dropped rather
    * than deferred. Held per run, not as a flag, so a sample stranded by a
-   * restart cannot suppress the new run's ticks until it settles.
+   * restart or an invalidate cannot suppress the new run's ticks until it
+   * settles. Crossing a run boundary is therefore the one case where two
+   * samples can be out at once, which is the price of not going blind for an
+   * interval over a frame nobody wants.
    */
   let samplingGeneration: number | null = null;
 
@@ -201,8 +219,12 @@ export function createNativeFrameSource(
     }
   }
 
-  function stop(): void {
+  function invalidate(): void {
     generation += 1;
+  }
+
+  function stop(): void {
+    invalidate();
     if (timer !== null) {
       clearInterval(timer);
     }
@@ -216,5 +238,5 @@ export function createNativeFrameSource(
     }, intervalMs);
   }
 
-  return { start, stop };
+  return { start, invalidate, stop };
 }

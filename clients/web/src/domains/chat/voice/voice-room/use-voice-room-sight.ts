@@ -100,7 +100,10 @@ import {
   recordFrameGateKeep,
 } from "@/lib/camera/frame-gate-debug";
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
-import { createNativeFrameSource } from "@/lib/camera/native-frame-source";
+import {
+  createNativeFrameSource,
+  type NativeFrameSource,
+} from "@/lib/camera/native-frame-source";
 import { captureError } from "@/lib/sentry/capture-error";
 import { captureNativeVoiceCameraSample } from "@/runtime/native-voice-camera";
 
@@ -217,6 +220,15 @@ export function useVoiceRoomSight(
   // cannot close over a render's value.
   const heldRef = useRef<VoiceRoomSightFrame | null>(null);
   const gateRef = useRef<FrameGate | null>(null);
+  /**
+   * The running native poll, so a change it cannot see can reach the sample it
+   * has on the bridge.
+   *
+   * Null on the browser path, which has nothing to be told: that sampler
+   * encodes its frame from the element when the gate keeps one, so the picture
+   * and the decision are of the same moment and a flip is already in both.
+   */
+  const nativeSourceRef = useRef<NativeFrameSource | null>(null);
   const frameCountRef = useRef(0);
   /**
    * The ordering gate: sends leave in the order the gate KEPT the frames, not
@@ -652,7 +664,16 @@ export function useVoiceRoomSight(
 
   /**
    * Void every capture aimed at the world that just changed: the frames still
-   * encoding, the view on screen, and the gate's baseline.
+   * encoding, the sample still crossing the bridge, the view on screen, and the
+   * gate's baseline.
+   *
+   * The bridge is the one the epoch cannot speak for on its own. A capture
+   * stamps itself with the epoch when the gate KEEPS a frame, which on the
+   * native path is after the sample was taken: the bytes are of the old camera
+   * and the stamp is of the new world, so the frame passes every guard on the
+   * way out and is persisted as what the call is looking at now. Only the
+   * source knows when it asked for those bytes, so it is the source that
+   * refuses them.
    *
    * Nothing is sent. Keeps already persisted stay in the transcript, which is
    * where the user can see and delete them; this speaks only for the live
@@ -663,6 +684,7 @@ export function useVoiceRoomSight(
     rebaseSendOrder();
     hold(null);
     gateRef.current?.reset(performance.now());
+    nativeSourceRef.current?.invalidate();
   }, [hold, rebaseSendOrder]);
 
   useEffect(() => {
@@ -721,6 +743,7 @@ export function useVoiceRoomSight(
         },
       });
       source.start();
+      nativeSourceRef.current = source;
       stopSampling = source.stop;
     }
     return () => {
@@ -733,6 +756,7 @@ export function useVoiceRoomSight(
       rebaseSendOrder();
       stopSampling();
       gateRef.current = null;
+      nativeSourceRef.current = null;
       hold(null);
     };
   }, [
@@ -749,7 +773,8 @@ export function useVoiceRoomSight(
   // score against the old baseline is meaningless and every capture still
   // encoding belongs to the camera that is gone. The source keeps running: on
   // the browser path it is the same element with a new stream behind it, and on
-  // the native path the poll never knew which camera it was reading.
+  // the native path the poll never knew which camera it was reading, so it
+  // needs the sample it is holding refused rather than the cadence broken.
   //
   // The frame on screen is the old camera's view, and the exposure warmup plus
   // the gate's rate floor put the replacement seconds away, so leaving it up

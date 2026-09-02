@@ -44,10 +44,15 @@ mock.module("@/lib/camera/frame-sampler", () => ({
 let nativeSourceOptions: NativeFrameSourceOptions | null = null;
 const nativeStart = mock(() => {});
 const nativeStop = mock(() => {});
+const nativeInvalidate = mock(() => {});
 mock.module("@/lib/camera/native-frame-source", () => ({
   createNativeFrameSource: (options: NativeFrameSourceOptions) => {
     nativeSourceOptions = options;
-    return { start: nativeStart, stop: nativeStop };
+    return {
+      start: nativeStart,
+      invalidate: nativeInvalidate,
+      stop: nativeStop,
+    };
   },
 }));
 
@@ -246,6 +251,7 @@ beforeEach(() => {
   nativeSourceOptions = null;
   nativeStart.mockClear();
   nativeStop.mockClear();
+  nativeInvalidate.mockClear();
   captureNativeVoiceCameraSample.mockClear();
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
@@ -1727,5 +1733,92 @@ describe("useVoiceRoomSight: the native preview", () => {
 
     expect(nativeStop).toHaveBeenCalled();
     expect(view.result.current.live).toBe(false);
+  });
+});
+
+describe("useVoiceRoomSight: refusing the native sample a change caught in flight", () => {
+  /**
+   * The hook's half of the fix. The refusal itself is the source's, and its own
+   * suite proves it: a sample invalidated mid-flight is never offered, and the
+   * next tick still is. What can only be proved here is that the boundaries
+   * reach the running poll at all, and that they reach nothing else.
+   *
+   * The seam exists because the epoch cannot cover this on its own. A capture
+   * stamps itself when the gate KEEPS a frame, which on the native path is
+   * after the bytes were taken, so a frame of the outgoing camera carries the
+   * incoming camera's stamp and passes every guard on its way to the transcript.
+   */
+  test("tells the running poll when the camera flips", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: true,
+      });
+    });
+
+    expect(nativeInvalidate).toHaveBeenCalledTimes(1);
+    // Told, not restarted: the replacement camera is one tick away rather than
+    // a whole interval, and the gate keeps the rate floor a rebuild would drop.
+    expect(nativeStop).not.toHaveBeenCalled();
+    expect(nativeStart).toHaveBeenCalledTimes(1);
+  });
+
+  test("tells the running poll when the transport reconnects", () => {
+    renderSight({ nativePreview: true, live: true });
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+
+    // The same hole, reached without a flip: the generation survives a
+    // reconnect by design, so a sample from before the gap would be persisted
+    // to the fresh session as the current view.
+    expect(nativeInvalidate).toHaveBeenCalledTimes(1);
+    expect(nativeStop).not.toHaveBeenCalled();
+  });
+
+  test("says nothing to a poll that is no longer running", () => {
+    const { view } = renderSight({ nativePreview: true, live: true });
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    expect(nativeStop).toHaveBeenCalled();
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: true,
+      });
+    });
+
+    // A stopped source has already refused everything it held, and a reference
+    // kept past the run would be one this hook could still reach into.
+    expect(nativeInvalidate).not.toHaveBeenCalled();
+  });
+
+  test("says nothing on the browser path, which has nothing to refuse", () => {
+    const { view } = renderSight({ live: true });
+    nativeInvalidate.mockClear();
+
+    act(() => {
+      view.rerender({
+        cameraOpen: true,
+        facing: "user",
+        nativePreview: false,
+      });
+    });
+
+    // That sampler encodes its frame from the element at the moment of the
+    // keep, so the picture and the decision are of the same camera.
+    expect(nativeInvalidate).not.toHaveBeenCalled();
+    expect(samplerStop).not.toHaveBeenCalled();
   });
 });
