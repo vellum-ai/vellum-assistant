@@ -116,6 +116,8 @@ mock.module("@/stores/organization-store", () => ({
 
 const { MIN_VERSION: VERIFY_ROUTE_MIN_VERSION } =
   await import("@/lib/backwards-compat/credential-verification");
+const { VERSION_RESOLUTION_TIMEOUT_MS } =
+  await import("@/lib/backwards-compat/utils");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const {
@@ -396,22 +398,32 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   // left must not vouch for the one being repaired. The gate reads as
   // unsupported, so verification is skipped rather than 404ing after a
   // successful rotation.
-  test("a version held for a different assistant does not enable verification", async () => {
-    seedRejectedCredential();
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity(
-        "test-asst",
-        VERIFY_ROUTE_MIN_VERSION,
-        "some-other-assistant",
-      );
-    verifyCredentialStatus = "rejected";
+  //
+  // The scoped wait is bounded, not satisfiable: the store never holds a
+  // version for this owner, so the repair waits out
+  // VERSION_RESOLUTION_TIMEOUT_MS by design before it decides. That equals the
+  // runner's default per-test budget, so the test carries its own budget
+  // derived from the constant rather than racing it.
+  test(
+    "a version held for a different assistant does not enable verification",
+    async () => {
+      seedRejectedCredential();
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity(
+          "test-asst",
+          VERIFY_ROUTE_MIN_VERSION,
+          "some-other-assistant",
+        );
+      verifyCredentialStatus = "rejected";
 
-    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+      await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
 
-    expect(requestNames()).toContain("reprovision-api-key");
-    expect(requestNames()).not.toContain("verify-credential");
-  });
+      expect(requestNames()).toContain("reprovision-api-key");
+      expect(requestNames()).not.toContain("verify-credential");
+    },
+    VERSION_RESOLUTION_TIMEOUT_MS + 5_000,
+  );
 
   // Rotation replaces a credential, so it happens because someone asked and at
   // no other time. Routine identity resolution sees the same stored key and
