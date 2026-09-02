@@ -2,15 +2,18 @@
  * Tests for the native frame source.
  *
  * The gate's own tests prove the decision and the sampler's prove the downscale
- * chain. These prove what is specific to polling a bridge: a tick that fires
- * while the last sample is still out, a sample that rejects because the camera
- * went away, a sample from a run that has ended arriving during the next one,
- * and a teardown that leaves nothing running.
+ * chain. These prove what is specific to polling a bridge: a tick that takes a
+ * pair so the frame it offers has a motion baseline, a tick that fires while
+ * the last pair is still out, a sample that rejects because the camera went
+ * away, a sample from a run that has ended arriving during the next one, and a
+ * teardown that leaves nothing running.
  *
  * The canvas is faked for the same reason the sampler's tests fake it, so an
  * exact grid can be asserted. The decode is injected because no DOM
  * implementation outside a browser turns real JPEG bytes into a drawable image,
- * and a stub decoder still exercises the shared chain behind it.
+ * and a stub decoder still exercises the shared chain behind it. The clock is
+ * injected because the thing under test is what the gate is told the time is:
+ * a real one advances by microseconds while the fake timers jump a second.
  */
 
 import {
@@ -24,6 +27,8 @@ import {
 } from "bun:test";
 
 import {
+  createFrameGate,
+  DEFAULT_FRAME_GATE_OPTIONS,
   FRAME_GRID_CELLS,
   FRAME_GRID_SIZE,
   type FrameGate,
@@ -34,6 +39,7 @@ import type { FrameSource } from "./frame-sampler";
 import {
   createNativeFrameSource,
   NATIVE_FRAME_SAMPLE_INTERVAL_MS,
+  NATIVE_PAIR_SPACING_MS,
   type DecodedFrame,
 } from "./native-frame-source";
 
@@ -55,16 +61,25 @@ interface RecordedOffer {
   readonly nowMs: number;
 }
 
-function createRecordingGate(): { gate: FrameGate; offers: RecordedOffer[] } {
+function createRecordingGate(): {
+  gate: FrameGate;
+  offers: RecordedOffer[];
+  /** Frames primed as a motion baseline, which never become decisions. */
+  observed: RecordedOffer[];
+} {
   const offers: RecordedOffer[] = [];
+  const observed: RecordedOffer[] = [];
   const gate: FrameGate = {
     offer(grid, nowMs) {
       offers.push({ grid, cells: Array.from(grid), nowMs });
       return STUB_DECISION;
     },
+    observe(grid, nowMs) {
+      observed.push({ grid, cells: Array.from(grid), nowMs });
+    },
     reset() {},
   };
-  return { gate, offers };
+  return { gate, offers, observed };
 }
 
 interface FakeContext {
@@ -123,10 +138,41 @@ async function settle(): Promise<void> {
   }
 }
 
-/** Advance past `count` poll intervals and let the samples they start finish. */
-async function pollTimes(count: number): Promise<void> {
-  jest.advanceTimersByTime(NATIVE_FRAME_SAMPLE_INTERVAL_MS * count);
+/**
+ * The clock the source stamps the gate with, advanced with the fake timers.
+ *
+ * Reset per case, so every case reads times from zero.
+ */
+let clock = 0;
+
+/** Move both clocks, which is the only way they can be read as one. */
+async function advance(ms: number): Promise<void> {
+  clock += ms;
+  jest.advanceTimersByTime(ms);
   await settle();
+}
+
+/**
+ * Reach a tick and let its first sample land, leaving the pair open.
+ *
+ * The second sample is a pair spacing away, which is where a flip, a stop, or
+ * an invalidate can land mid-pair.
+ */
+async function startPair(intervalMs = NATIVE_FRAME_SAMPLE_INTERVAL_MS) {
+  await advance(intervalMs);
+}
+
+/** Close a pair {@link startPair} opened, which is what produces the offer. */
+async function finishPair(): Promise<void> {
+  await advance(NATIVE_PAIR_SPACING_MS);
+}
+
+/** Advance past `count` whole ticks, each taking its pair. */
+async function pollTimes(count: number): Promise<void> {
+  for (let tick = 0; tick < count; tick++) {
+    await startPair();
+    await finishPair();
+  }
 }
 
 interface CaptureStub {
@@ -245,6 +291,7 @@ let canvasContexts: FakeContext[];
 
 beforeEach(() => {
   jest.useFakeTimers();
+  clock = 0;
   readback = grayReadback((cell) => cell);
   canvasContexts = stubCanvasContexts(() => readback);
 });
@@ -255,8 +302,8 @@ afterEach(() => {
 });
 
 describe("native frame source cadence", () => {
-  test("takes one sample per interval and nothing before the first", async () => {
-    const { gate, offers } = createRecordingGate();
+  test("takes one pair per interval and nothing before the first", async () => {
+    const { gate, offers, observed } = createRecordingGate();
     const capture = createCaptureStub();
     const decode = createDecodeStub();
     const source = createNativeFrameSource({
@@ -264,6 +311,7 @@ describe("native frame source cadence", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -272,8 +320,21 @@ describe("native frame source cadence", () => {
     await settle();
     expect(capture.callCount()).toBe(0);
 
-    await pollTimes(3);
-    expect(capture.callCount()).toBe(3);
+    // The first sample of a tick primes the motion baseline and is never
+    // judged; the second is the one offered.
+    await startPair();
+    expect(capture.callCount()).toBe(1);
+    expect(observed).toHaveLength(1);
+    expect(offers).toHaveLength(0);
+
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
+    expect(observed).toHaveLength(1);
+    expect(offers).toHaveLength(1);
+
+    await pollTimes(2);
+    expect(capture.callCount()).toBe(6);
+    expect(observed).toHaveLength(3);
     expect(offers).toHaveLength(3);
     source.stop();
   });
@@ -287,13 +348,17 @@ describe("native frame source cadence", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
       intervalMs: 250,
     });
 
     source.start();
-    jest.advanceTimersByTime(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
-    await settle();
-    expect(capture.callCount()).toBe(4);
+    await advance(249);
+    expect(capture.callCount()).toBe(0);
+
+    await startPair(1);
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
     source.stop();
   });
 
@@ -306,27 +371,27 @@ describe("native frame source cadence", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
-    jest.advanceTimersByTime(600);
-    await settle();
+    await advance(600);
 
     source.start();
-    jest.advanceTimersByTime(400);
-    await settle();
+    await advance(400);
     // A restart is a new camera, and the first sample of one is a full
     // interval out rather than whatever was left of the last run's.
     expect(capture.callCount()).toBe(0);
 
-    jest.advanceTimersByTime(600);
-    await settle();
+    await advance(600);
     expect(capture.callCount()).toBe(1);
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
 
     // Two intervals against one gate would double the bridge cost and hand the
-    // gate two frames a millisecond apart.
+    // gate two pairs a millisecond apart.
     await pollTimes(1);
-    expect(capture.callCount()).toBe(2);
+    expect(capture.callCount()).toBe(4);
     source.stop();
   });
 });
@@ -341,6 +406,7 @@ describe("native frame source grid production", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -351,11 +417,14 @@ describe("native frame source grid production", () => {
     // The decoded image goes to the intermediate canvas and the intermediate
     // canvas goes to the grid, which is the two-step area average the browser
     // path uses. Reading the image straight into 16x16 point samples it, and
-    // the gate's thresholds were not calibrated on that.
+    // the gate's thresholds were not calibrated on that. Both frames of the
+    // pair go through it, so the primer and the judged frame are comparable.
     expect(intermediate!.drawn).toEqual([
+      [decode.image, 0, 0, INTERMEDIATE_SIZE, INTERMEDIATE_SIZE],
       [decode.image, 0, 0, INTERMEDIATE_SIZE, INTERMEDIATE_SIZE],
     ]);
     expect(grid!.drawn).toEqual([
+      [intermediate!.canvas, 0, 0, FRAME_GRID_SIZE, FRAME_GRID_SIZE],
       [intermediate!.canvas, 0, 0, FRAME_GRID_SIZE, FRAME_GRID_SIZE],
     ]);
     expect(offers).toHaveLength(1);
@@ -379,6 +448,7 @@ describe("native frame source grid production", () => {
         samples.push(sample);
       },
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -406,6 +476,7 @@ describe("native frame source grid production", () => {
         samples.push(sample);
       },
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -424,22 +495,25 @@ describe("native frame source grid production", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
     await pollTimes(2);
     expect(offers).toHaveLength(2);
-    expect(decode.releaseCount()).toBe(2);
+    // Both frames of both pairs: the primer is decoded and freed like any
+    // other, it just never reaches a decision.
+    expect(decode.releaseCount()).toBe(4);
 
     // A decode that lands after the poll ended is judged by nobody, and the
     // image it produced still has to be freed.
     decode.holdNext();
-    await pollTimes(1);
+    await startPair();
     source.stop();
     decode.releaseHeld();
     await settle();
     expect(offers).toHaveLength(2);
-    expect(decode.releaseCount()).toBe(3);
+    expect(decode.releaseCount()).toBe(5);
   });
 });
 
@@ -453,26 +527,33 @@ describe("native frame source overlap", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
     capture.holdNext();
-    await pollTimes(1);
+    await startPair();
     expect(capture.callCount()).toBe(1);
 
-    // Two ticks pass while the first sample is still on the bridge. Letting
-    // either through would queue a second capture behind the first.
+    // Two ticks pass while the pair's first sample is still on the bridge.
+    // Letting either through would queue a second capture behind it, and the
+    // claim covers the whole pair rather than one sample of it.
     await pollTimes(2);
     expect(capture.callCount()).toBe(1);
     expect(offers).toHaveLength(0);
 
+    // Releasing it resumes the pair the tick opened, which still owes its
+    // second sample a spacing later.
     capture.releaseHeld();
     await settle();
+    expect(offers).toHaveLength(0);
+    await finishPair();
+    expect(capture.callCount()).toBe(2);
     expect(offers).toHaveLength(1);
 
-    // The poll is not wedged by the tick it dropped.
+    // The poll is not wedged by the ticks it dropped.
     await pollTimes(1);
-    expect(capture.callCount()).toBe(2);
+    expect(capture.callCount()).toBe(4);
     expect(offers).toHaveLength(2);
     source.stop();
   });
@@ -489,6 +570,7 @@ describe("native frame source failure tolerance", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -514,6 +596,7 @@ describe("native frame source failure tolerance", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -538,11 +621,12 @@ describe("native frame source run generation", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
     capture.holdNext();
-    await pollTimes(1);
+    await startPair();
     expect(capture.callCount()).toBe(1);
 
     source.stop();
@@ -567,11 +651,12 @@ describe("native frame source run generation", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
     decode.holdNext();
-    await pollTimes(1);
+    await startPair();
     expect(decode.decodeCount()).toBe(1);
 
     source.stop();
@@ -596,11 +681,12 @@ describe("native frame source run generation", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
     capture.holdNext();
-    await pollTimes(1);
+    await startPair();
     expect(capture.callCount()).toBe(1);
 
     // The camera flipped while that sample was on the bridge. Its bytes are of
@@ -616,7 +702,7 @@ describe("native frame source run generation", () => {
     // The cadence is untouched: the replacement camera is one tick away, not
     // one restart away.
     await pollTimes(1);
-    expect(capture.callCount()).toBe(2);
+    expect(capture.callCount()).toBe(3);
     expect(offers).toHaveLength(1);
     source.stop();
   });
@@ -630,6 +716,7 @@ describe("native frame source run generation", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -660,11 +747,12 @@ describe("native frame source run generation", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
     capture.holdNext();
-    await pollTimes(1);
+    await startPair();
     expect(capture.callCount()).toBe(1);
 
     source.stop();
@@ -673,7 +761,7 @@ describe("native frame source run generation", () => {
 
     // The stranded sample holds its own run's claim, not the source's, so the
     // new run is not blind until a capture nobody is waiting for settles.
-    expect(capture.callCount()).toBe(2);
+    expect(capture.callCount()).toBe(3);
     expect(offers).toHaveLength(1);
     source.stop();
   });
@@ -689,6 +777,7 @@ describe("native frame source cleanup", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.start();
@@ -697,7 +786,7 @@ describe("native frame source cleanup", () => {
 
     source.stop();
     await pollTimes(3);
-    expect(capture.callCount()).toBe(1);
+    expect(capture.callCount()).toBe(2);
     expect(offers).toHaveLength(1);
   });
 
@@ -710,6 +799,7 @@ describe("native frame source cleanup", () => {
       captureSample: capture.captureSample,
       onDecision: () => {},
       decode: decode.decode,
+      now: () => clock,
     });
 
     source.stop();
@@ -718,5 +808,159 @@ describe("native frame source cleanup", () => {
     source.stop();
     await pollTimes(2);
     expect(offers).toHaveLength(0);
+  });
+});
+
+/**
+ * The reason a tick takes two samples.
+ *
+ * These run the REAL gate rather than the recording stub, because what is under
+ * test is a decision: whether the settle check can still reject a frame taken
+ * mid-pan. Only the two thresholds the poll cadence would otherwise decide are
+ * moved, so the settle threshold under test is the shipped one.
+ */
+describe("native frame source motion pairing", () => {
+  function panTuning() {
+    return {
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      // A camera that just opened, and a rate floor that has already elapsed.
+      // Both would otherwise reject before the settle check is reached.
+      warmupMs: 0,
+      minIntervalMs: 0,
+    };
+  }
+
+  test("the pair spacing fits inside the gate's motion window", () => {
+    // Past the window the gate reports no motion at all and the pair buys
+    // nothing. Half of it leaves the second capture's own bridge and decode
+    // latency room to vary without pushing the pair outside.
+    expect(NATIVE_PAIR_SPACING_MS).toBeGreaterThan(0);
+    expect(NATIVE_PAIR_SPACING_MS).toBeLessThan(
+      DEFAULT_FRAME_GATE_OPTIONS.motionMaxAgeMs,
+    );
+  });
+
+  test("rejects a panned frame and keeps a settled one, at a poll a second", async () => {
+    const gate = createFrameGate(panTuning());
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const decisions: FrameGateDecision[] = [];
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: (decision) => {
+        decisions.push(decision);
+      },
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+
+    // A pan. The frame offered looks nothing like the one taken a pair spacing
+    // before it, which is a camera in motion and so a smeared picture.
+    readback = grayReadback((cell) => cell);
+    await startPair();
+    readback = grayReadback((cell) => 255 - cell);
+    await finishPair();
+
+    expect(decisions).toHaveLength(1);
+    // Without the primer this is null, the settle check never runs, and the
+    // frame is kept: a blurred view of a room the user is still turning past,
+    // uploaded and persisted as what the call is being shown.
+    expect(decisions[0]!.motion).not.toBeNull();
+    expect(decisions[0]!.keep).toBe(false);
+    expect(decisions[0]!.reason).toBe("moving");
+
+    // The camera comes to rest: both frames of the pair are the same view, a
+    // whole poll interval after the pan.
+    await startPair();
+    await finishPair();
+
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]!.motion).toBe(0);
+    expect(decisions[1]!.keep).toBe(true);
+  });
+
+  test("offers nothing when the pair's second sample fails", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(observed).toHaveLength(1);
+
+    capture.emptyNext();
+    await finishPair();
+
+    // Never the primer as a fallback. It has no baseline of its own, so
+    // offering it is exactly the blind keep the pair exists to stop.
+    expect(offers).toHaveLength(0);
+
+    await pollTimes(1);
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
+  test("abandons the pair when the camera flips between its two samples", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(observed).toHaveLength(1);
+
+    source.invalidate();
+    await finishPair();
+
+    // The primer describes the camera that is gone, so a frame scored against
+    // it is a motion reading of a cut. The second sample is not even taken.
+    expect(offers).toHaveLength(0);
+    expect(capture.callCount()).toBe(1);
+
+    // The next tick opens a whole pair against the camera that is there now.
+    await pollTimes(1);
+    expect(offers).toHaveLength(1);
+    expect(capture.callCount()).toBe(3);
+    source.stop();
+  });
+
+  test("abandons the pair when the poll stops between its two samples", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(observed).toHaveLength(1);
+
+    source.stop();
+    await finishPair();
+
+    expect(offers).toHaveLength(0);
+    expect(capture.callCount()).toBe(1);
   });
 });
