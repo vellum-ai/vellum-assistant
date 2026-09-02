@@ -791,11 +791,11 @@ describe("standalone image persists are serialized per conversation", () => {
     }
   });
 
-  test("a frame does not release a turn that claimed the flag mid-write", async () => {
-    // The flag is a boolean and cannot say who holds it. A turn claims it
-    // unconditionally, which is how every turn starts, so a frame that clears
-    // it on the way out frees a turn that is still running and lets the next
-    // one interleave into the rows it is still writing.
+  test("a frame does not write into or release a turn that claimed the flag", async () => {
+    // A turn claims the flag unconditionally, which is how every turn starts.
+    // The frame's write fence reads the claim as no longer its own and refuses
+    // the row, and its release is refused for the same reason, so the turn
+    // keeps a conversation nothing else wrote into.
     const live = liveConversation("Live voice keep flag claimed away");
     try {
       const frame = await uploadFrame("claimed-away.png");
@@ -804,10 +804,11 @@ describe("standalone image persists are serialized per conversation", () => {
         live.activeConversation.setProcessing(true);
       };
 
-      expect(
-        await persistAmbientSightFrame(live.id, frame, "voice"),
-      ).toMatchObject({ ok: true });
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
+        ok: false,
+      });
 
+      expect(getMessages(live.id)).toHaveLength(0);
       // The turn still holds it: the frame released only its own claim.
       expect(live.activeConversation.isProcessing()).toBe(true);
     } finally {
@@ -1039,6 +1040,38 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(live.activeConversation.isProcessing()).toBe(false);
       marker.mockRestore();
     } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+    }
+  });
+
+  test("a keep does not write under a claim a Stop took away mid-write", async () => {
+    // Stop on a standalone hold force-clears the flag, because no turn owns
+    // the claim to signal, and the next request acquires. The incarnation is
+    // unchanged, so without the ownership term the frame writes under a dead
+    // claim alongside the turn that now holds the conversation, and the
+    // refused release afterwards cannot undo the row.
+    const live = liveConversation("Live voice keep stopped mid-write");
+    try {
+      const frame = await uploadFrame("stopped-mid-write.png");
+
+      duringPersistBeforeInsert = () => {
+        // What `abortConversation` does for a hold with no live turn behind
+        // it, followed by the next request taking the conversation.
+        live.activeConversation.setProcessing(false);
+        expect(live.activeConversation.acquireProcessing()).not.toBeNull();
+      };
+
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
+        ok: false,
+      });
+
+      expect(getMessages(live.id)).toHaveLength(0);
+      expect(frameStored(frame)).toBe(false);
+      // The claim taken during the Stop is untouched by the frame's release.
+      expect(live.activeConversation.isProcessing()).toBe(true);
+    } finally {
+      duringPersistBeforeInsert = null;
       live.activeConversation.setProcessing(false);
       live.dispose();
     }

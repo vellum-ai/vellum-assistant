@@ -756,13 +756,23 @@ async function writeStandaloneImage(
         ...persistOptions,
         attachments,
         requestId,
-        // Asked again in the insert's own tick. The persist awaits attachment
-        // materialization and content building before it writes, and a delete
-        // and recreate under the same id can land in any of those windows: the
-        // recreated row is a valid foreign-key target, so the frame would
-        // otherwise join a conversation it was never taken in.
+        // Asked again in the insert's own tick, about both things that can
+        // stop being true across the awaits the persist takes to materialize
+        // the attachment and build its content.
+        //
+        // A delete and recreate under the same id leaves a valid foreign-key
+        // target, so without the first term the frame joins a conversation it
+        // was never taken in. A Stop on this hold force-clears the flag, since
+        // no turn owns it, and the next request acquires, so without the
+        // second the frame writes under a dead claim alongside that turn. The
+        // release afterwards is refused either way, but a refused release
+        // cannot undo a row.
+        //
+        // Refusing is also the right reading of the Stop: the user asked the
+        // conversation to stop, and this frame is the camera's, not theirs.
         insertPrecondition: () =>
-          isSameIncarnation(conversationId, incarnation),
+          isSameIncarnation(conversationId, incarnation) &&
+          conversation.holdsProcessingClaim(owner),
         onUndiscardedAttachments: (ids) => {
           strandedClones.push(...ids);
         },

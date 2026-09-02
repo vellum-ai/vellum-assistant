@@ -2004,6 +2004,19 @@ export class Conversation {
   }
 
   /**
+   * Whether this claim is still the live hold on the conversation.
+   *
+   * For work that runs across awaits under a claim it took earlier. A Stop on
+   * a hold with no live turn behind it force-clears the flag, and the next
+   * request acquires, so a claim can go stale while its holder is mid-write.
+   * Asking here is a plain field read, which is what lets a write fence ask it
+   * in the same tick as the statement it guards.
+   */
+  holdsProcessingClaim(owner: number): boolean {
+    return this.processingOwner === owner;
+  }
+
+  /**
    * Release a hold taken by {@link acquireProcessing}, and only that hold.
    * Reports whether it released.
    *
