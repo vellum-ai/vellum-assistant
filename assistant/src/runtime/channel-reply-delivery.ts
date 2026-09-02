@@ -4,7 +4,10 @@ import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
-import { readProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
+import {
+  everyPostDeleted,
+  readProviderMessageMetadata,
+} from "../messaging/provider-message-metadata.js";
 import { editChannelMessage } from "../messaging/providers/index.js";
 import {
   mergeSlackMetadata,
@@ -567,44 +570,70 @@ function makeSentMessageIdReconciler(
 }
 
 /**
- * The index entry a reported id earns, read from the row's envelope: null
- * when the row carries neither envelope or already names the id (a
- * redelivery). The pre-send Slack envelope lacks `channelTs`, which is the
- * state being reconciled and the one the strict reader rejects, so its chat
- * id is read leniently.
+ * A row's outbound envelope as the reconciliation reads it. The pre-send
+ * Slack envelope lacks `channelTs`, which is the state being reconciled and
+ * the one the strict reader rejects, so the chat id is read leniently and
+ * `reconciled` stays null until the first stamp lands.
+ */
+type OutboundEnvelope =
+  | {
+      kind: "slack";
+      raw: string;
+      channelId: string;
+      reconciled: SlackMessageMetadata | null;
+    }
+  | { kind: "neutral"; providerMeta: ProviderMessageMetadata };
+
+function readOutboundEnvelope(metadata: string): OutboundEnvelope | null {
+  const envelope = safeParseRecord(metadata);
+  const raw =
+    typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
+  if (raw !== null) {
+    const channelId = safeParseRecord(raw).channelId;
+    if (typeof channelId !== "string" || !channelId) {
+      return null;
+    }
+    return {
+      kind: "slack",
+      raw,
+      channelId,
+      reconciled: readSlackMetadata(raw),
+    };
+  }
+  const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
+  return providerMeta === null ? null : { kind: "neutral", providerMeta };
+}
+
+/** Whether the row already names the id, which makes the report a redelivery. */
+function envelopeNamesPost(envelope: OutboundEnvelope, ts: string): boolean {
+  if (envelope.kind === "slack") {
+    const meta = envelope.reconciled;
+    return (
+      meta !== null &&
+      (meta.channelTs === ts || meta.additionalChannelTs?.includes(ts) === true)
+    );
+  }
+  return providerIdPatchFor(envelope.providerMeta, ts) === null;
+}
+
+/**
+ * The index entry a reported id earns: null when the row carries neither
+ * envelope or already names the id.
  */
 function outboundPostFor(
   metadata: string,
   ts: string,
 ): { sourceChannel: string; externalChatId: string } | null {
-  const envelope = safeParseRecord(metadata);
-  const slackMetaRaw =
-    typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
-  if (slackMetaRaw !== null) {
-    const channelId = safeParseRecord(slackMetaRaw).channelId;
-    if (typeof channelId !== "string" || !channelId) {
-      return null;
-    }
-    const reconciled = readSlackMetadata(slackMetaRaw);
-    if (reconciled !== null && slackRowNames(reconciled, ts)) {
-      return null;
-    }
-    return { sourceChannel: "slack", externalChatId: channelId };
-  }
-  const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
-  if (providerMeta === null || providerIdPatchFor(providerMeta, ts) === null) {
+  const envelope = readOutboundEnvelope(metadata);
+  if (envelope === null || envelopeNamesPost(envelope, ts)) {
     return null;
   }
-  return {
-    sourceChannel: providerMeta.source,
-    externalChatId: providerMeta.conversationExternalId,
-  };
-}
-
-function slackRowNames(meta: SlackMessageMetadata, ts: string): boolean {
-  return (
-    meta.channelTs === ts || meta.additionalChannelTs?.includes(ts) === true
-  );
+  return envelope.kind === "slack"
+    ? { sourceChannel: "slack", externalChatId: envelope.channelId }
+    : {
+        sourceChannel: envelope.providerMeta.source,
+        externalChatId: envelope.providerMeta.conversationExternalId,
+      };
 }
 
 /**
@@ -624,17 +653,15 @@ function stampSentMessageId(messageId: string, ts: string): void {
   if (row === null || row.metadata === null) {
     return;
   }
-  const envelope = safeParseRecord(row.metadata);
-  const slackMetaRaw =
-    typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
-  if (slackMetaRaw !== null) {
-    const reconciled = readSlackMetadata(slackMetaRaw);
-    if (reconciled !== null && slackRowNames(reconciled, ts)) {
-      return;
-    }
+  const envelope = readOutboundEnvelope(row.metadata);
+  if (envelope === null || envelopeNamesPost(envelope, ts)) {
+    return;
+  }
+  if (envelope.kind === "slack") {
+    const { raw, reconciled } = envelope;
     // The deleted list is read leniently too: a deletion naming this post
     // may have been stamped while the envelope still lacked `channelTs`.
-    const rawDeleted = safeParseRecord(slackMetaRaw).deletedChannelTs;
+    const rawDeleted = safeParseRecord(raw).deletedChannelTs;
     const deleted = Array.isArray(rawDeleted)
       ? rawDeleted.filter((id): id is string => typeof id === "string")
       : [];
@@ -651,20 +678,16 @@ function stampSentMessageId(messageId: string, ts: string): void {
               ts,
             ],
           };
-    const allDeleted = posts.every((id) => deleted.includes(id));
     updateMessageMetadata(messageId, {
       slackMeta: mergeSlackMetadata(
-        slackMetaRaw,
+        raw,
         patch,
-        allDeleted ? undefined : { unset: ["deletedAt"] },
+        everyPostDeleted(posts, deleted) ? undefined : { unset: ["deletedAt"] },
       ),
     });
     return;
   }
-  const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
-  if (providerMeta === null) {
-    return;
-  }
+  const { providerMeta } = envelope;
   const patch = providerIdPatchFor(providerMeta, ts);
   if (patch === null) {
     return;
@@ -674,14 +697,15 @@ function stampSentMessageId(messageId: string, ts: string): void {
     ...(providerMeta.additionalMessageIds ?? []),
     ts,
   ];
-  const deleted = providerMeta.deletedMessageIds ?? [];
   const { deletedAt, ...rest } = providerMeta;
-  const allDeleted = posts.every((id) => deleted.includes(id));
   updateMessageMetadata(messageId, {
     providerMeta: JSON.stringify({
       ...rest,
       ...patch,
-      ...(allDeleted && deletedAt !== undefined ? { deletedAt } : {}),
+      ...(deletedAt !== undefined &&
+      everyPostDeleted(posts, providerMeta.deletedMessageIds)
+        ? { deletedAt }
+        : {}),
     }),
   });
 }

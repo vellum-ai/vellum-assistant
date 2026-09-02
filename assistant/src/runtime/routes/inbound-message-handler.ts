@@ -46,7 +46,10 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
+import {
+  everyPostDeleted,
+  type ProviderMessageMetadata,
+} from "../../messaging/provider-message-metadata.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
@@ -89,7 +92,6 @@ import {
   addMessage,
   getMessageById,
   getMessages,
-  type MessageRow,
   selectProviderMetaCandidateMetadata,
   updateMessageContent,
   updateMessageMetadata,
@@ -174,7 +176,7 @@ const deleteOutboundReconcileRetries = 2;
  * construction, as is a row whose envelope names no post at all.
  */
 function postDeletionState(
-  row: MessageRow | null,
+  role: string | undefined,
   rowPostIds: readonly string[],
   priorDeletedIds: readonly string[] | undefined,
   deletedId: string,
@@ -183,8 +185,7 @@ function postDeletionState(
     new Set([...(priorDeletedIds ?? []), deletedId]),
   );
   const fullyDeleted =
-    row?.role !== "assistant" ||
-    rowPostIds.every((id) => deletedIds.includes(id));
+    role !== "assistant" || everyPostDeleted(rowPostIds, deletedIds);
   return { deletedIds, fullyDeleted };
 }
 
@@ -696,7 +697,7 @@ export async function handleChannelInbound({
       let providerMeta: string;
       if (base?.messageId) {
         const { deletedIds, fullyDeleted } = postDeletionState(
-          row,
+          row?.role,
           [base.messageId, ...(base.additionalMessageIds ?? [])],
           base.deletedMessageIds,
           deletedMessageTs,
@@ -740,7 +741,7 @@ export async function handleChannelInbound({
     // serves them to every channel-agnostic reader as the neutral ones.
     const slackMeta = readSlackMetadata(existingSlackMeta);
     const { deletedIds, fullyDeleted } = postDeletionState(
-      row,
+      row?.role,
       slackMeta
         ? [slackMeta.channelTs, ...(slackMeta.additionalChannelTs ?? [])]
         : [],
