@@ -6704,9 +6704,10 @@ paths:
                     - create
                     - update
                     - delete
+                    - merge
                   description: Which record write the guardian is being asked to confirm.
                 contactId:
-                  description: Target contact. Required for update and delete.
+                  description: Target contact. Required for update, delete and merge (the survivor).
                   type: string
                 currentDisplayName:
                   description:
@@ -6722,6 +6723,25 @@ paths:
                   description:
                     The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show
                     what access is about to be lost.
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      address:
+                        type: string
+                    required:
+                      - type
+                      - address
+                donorContactId:
+                  description: The contact being merged away. Present only on a merge.
+                  type: string
+                donorDisplayName:
+                  description: That contact's name, so the confirmation can say who is being absorbed.
+                  type: string
+                donorChannels:
+                  description: The channels moving to the survivor.
                   type: array
                   items:
                     type: object
