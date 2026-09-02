@@ -49,12 +49,33 @@ enum FrontSelection {
     /// The most pasteboard text that is saved and put back around a copy.
     static let maxRestoredBytes = 256 * 1024
 
-    /// The pasteboard types a saved string gives back whole: the one type
-    /// the snapshot below reads. Anything else on the pasteboard, an image,
-    /// a file, rich text beside its plain text, a legacy string type, is
-    /// something the restore could not put back, so no copy is attempted
-    /// over it. An empty pasteboard qualifies.
-    private static let restorableTypes: Set<NSPasteboard.PasteboardType> = [.string]
+    /// The pasteboard types the snapshot below saves and gives back whole:
+    /// the text forms, which every browser and editor writes together and
+    /// which are held as data rather than promised. Anything else on the
+    /// pasteboard, an image, a file, a promised representation, is something
+    /// the restore could not put back without waiting on its owner, so no
+    /// copy is attempted over it. An empty pasteboard qualifies.
+    private static let restorableTypes: Set<NSPasteboard.PasteboardType> = [
+        .string,
+        .html,
+        .rtf,
+        NSPasteboard.PasteboardType("public.utf8-plain-text"),
+        // The legacy names the system writes beside the modern ones.
+        NSPasteboard.PasteboardType("NSStringPboardType"),
+        NSPasteboard.PasteboardType("Apple HTML pasteboard type"),
+        NSPasteboard.PasteboardType("NeXT Rich Text Format v1.0 pasteboard type"),
+        NSPasteboard.PasteboardType("com.apple.webarchive"),
+        NSPasteboard.PasteboardType("org.chromium.web-custom-data"),
+        NSPasteboard.PasteboardType("org.chromium.source-url"),
+    ]
+
+    /// The roles a copied selection can be put back into. A copy proves a
+    /// selection by leaving it where it was, so editability has to come from
+    /// the control instead: a text control in front is one a paste replaces
+    /// the selection in.
+    private static let textControlRoles: Set<String> = [
+        "AXTextArea", "AXTextField", "AXComboBox", "AXSearchField",
+    ]
 
     /// Everything a read learned, the text aside: what the log carries. No
     /// user content in here; the bundle id and role name the application and
@@ -136,12 +157,17 @@ enum FrontSelection {
 
         outcome.path = path
         outcome.chars = text.count
-        // Only a selection Accessibility handed over directly is one a result
-        // can be put back over. The copy proves a selection by leaving it
-        // where it was, and an editor that copies the current line on an
-        // empty selection (VS Code) would report a selection nothing is over;
-        // a paste there would insert beside the line rather than replace it.
-        let editable = path == .copy ? false : isEditable(focused)
+        // A selection Accessibility handed over directly is editable when the
+        // element says its text can be set. One that had to be copied out is
+        // editable when the focused control is a text control, since the
+        // copy says nothing about the control: a canvas editor (Google Docs)
+        // answers every Accessibility read with a one-character placeholder
+        // and only the copy carries its selection. Known edge: an editor
+        // that copies the current line on an empty selection (VS Code) reads
+        // as a selection nothing is over.
+        let editable = path == .copy
+            ? textControlRoles.contains(outcome.role ?? "")
+            : isEditable(focused)
         // Whitespace decides only whether anything is selected. What is
         // selected travels as it is: the indentation of a selected snippet is
         // part of what the user is asking about.
@@ -214,14 +240,13 @@ enum FrontSelection {
     /// that does not change inside `copyWaitSeconds` means nothing was
     /// selected, and it is left untouched.
     ///
-    /// What is saved is the pasteboard's text, as `ActionExecutor` saves it
-    /// around a paste: reading every representation of everything on the
-    /// pasteboard is unbounded work on the keyboard callback (a lazily
-    /// supplied image waits on its owner), and a pasteboard holding an image
-    /// or a file is left alone rather than replaced with text. The restore
-    /// also mirrors `ActionExecutor`'s guard: it only happens while the
-    /// pasteboard still holds the copy, so a write by anyone else in the
-    /// meantime is never overwritten.
+    /// What is saved is the pasteboard's text forms, capped in bytes: reading
+    /// every representation of everything on the pasteboard is unbounded
+    /// work on the keyboard callback (a lazily supplied image waits on its
+    /// owner), so a pasteboard holding an image or a file is left alone
+    /// rather than replaced with text. The restore mirrors `ActionExecutor`'s
+    /// guard: it only happens while the pasteboard still holds the copy, so
+    /// a write by anyone else in the meantime is never overwritten.
     private static func selectionFromCopy() -> CopyResult {
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
             return .nothing
@@ -231,9 +256,15 @@ enum FrontSelection {
         if types.contains(where: { !restorableTypes.contains($0) }) {
             return .skipped
         }
-        let savedData = types.contains(.string) ? pasteboard.data(forType: .string) : nil
-        if let savedData, savedData.count > maxRestoredBytes {
-            return .skipped
+        var saved: [(NSPasteboard.PasteboardType, Data)] = []
+        var savedBytes = 0
+        for type in types {
+            guard let data = pasteboard.data(forType: type) else { continue }
+            savedBytes += data.count
+            if savedBytes > maxRestoredBytes {
+                return .skipped
+            }
+            saved.append((type, data))
         }
         let changeCountBefore = pasteboard.changeCount
 
@@ -261,8 +292,8 @@ enum FrontSelection {
         // it since owns it now, and what was saved is not theirs to lose.
         if pasteboard.changeCount == changeCountAfterCopy {
             pasteboard.clearContents()
-            if let savedData {
-                pasteboard.setData(savedData, forType: .string)
+            for (type, data) in saved {
+                pasteboard.setData(data, forType: type)
             }
         }
         return text.map { .text($0) } ?? .nothing
