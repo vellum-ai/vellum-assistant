@@ -80,6 +80,23 @@ export async function captureNativeVoiceCameraFrame(
   }, null);
 }
 
+/**
+ * Capture a low-cost JPEG sample of the live preview as base64, or null when
+ * the camera cannot serve one.
+ *
+ * Served from the buffer the preview is already producing rather than from the
+ * photo pipeline, so it is cheap enough to poll while the preview runs. A
+ * rejection is routine: the camera stops and flips underneath a poll.
+ */
+export async function captureNativeVoiceCameraSample(
+  quality: number,
+): Promise<string | null> {
+  return callNativeVoice(async () => {
+    const { value } = await CameraPreview.captureSample({ quality });
+    return value || null;
+  }, null);
+}
+
 /** Flip the active native camera, returning whether the switch succeeded. */
 export async function flipNativeVoiceCamera(): Promise<boolean> {
   return callNativeVoice(async () => {
