@@ -105,6 +105,7 @@ function createContext(): MessagingConversationContext {
       owner += 1;
       return owner;
     },
+    ensureProcessingMarker: async () => {},
     releaseProcessing: (claim: number) => {
       if (claim !== owner) {
         return false;

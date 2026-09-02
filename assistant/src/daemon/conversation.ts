@@ -322,6 +322,9 @@ export class Conversation {
    */
   private processingOwner = 0;
   private nextProcessingOwner = 0;
+  /** The live claim's marker write, awaited through the fence below. */
+  private processingMarker: { owner: number; landed: Promise<void> } | null =
+    null;
   /**
    * Pending {@link waitForIdle} resolvers, notified from the committed
    * `processing → false` transition inside {@link setProcessing}. Every
@@ -1902,15 +1905,19 @@ export class Conversation {
    * has to name. Null means someone already holds it.
    *
    * The read and the take are one synchronous step, so no second acquirer can
-   * land between them.
+   * land between them, and the flag stays held while the marker write below
+   * retries: reverting it because that write lost a race would publish an idle
+   * conversation for as long as the retry sleeps, and anything polling for idle
+   * takes the flag in that window while this caller believes its turn is
+   * starting.
    *
-   * The mirror write is detached and never fails the acquire, which is the
-   * difference from {@link setProcessing}. Reverting the flag because an
-   * advisory write lost a race publishes an idle conversation for as long as
-   * the caller's retry sleeps, and anything polling for an idle conversation
-   * takes the flag in that window while the caller still believes its own turn
-   * is starting. The column is advisory state the boot-time stale-processing
-   * sweep already recovers, so it is not worth a hole in the lock.
+   * The marker is a fence, not a hope. `processing_started_at` is what a
+   * reconnecting client and the out-of-process retrospective worker read to
+   * decide whether a turn is live, so a turn that proceeds while the column is
+   * null lets a client stop waiting mid-turn and lets the worker fork partial
+   * history. Every caller therefore awaits {@link ensureProcessingMarker}
+   * before doing anything with the hold, and gives the hold back when it does
+   * not land.
    */
   acquireProcessing(): number | null {
     if (this._processing) {
@@ -1919,8 +1926,28 @@ export class Conversation {
     this._processing = true;
     const owner = ++this.nextProcessingOwner;
     this.processingOwner = owner;
-    this.mirrorProcessingStarted(owner, Date.now());
+    this.processingMarker = {
+      owner,
+      landed: this.mirrorProcessingStarted(owner, Date.now()),
+    };
     return owner;
+  }
+
+  /**
+   * Resolve once this claim's processing marker is durable, or reject when the
+   * retry budget runs out without it landing.
+   *
+   * Awaited immediately after {@link acquireProcessing} and before the hold is
+   * used for anything. A claim that is no longer the live one has nothing to
+   * wait for: the hold it is asking about is gone, and its caller learns that
+   * from the release it is about to be refused.
+   */
+  async ensureProcessingMarker(owner: number): Promise<void> {
+    const marker = this.processingMarker;
+    if (!marker || marker.owner !== owner) {
+      return;
+    }
+    await marker.landed;
   }
 
   /**
@@ -1949,15 +1976,19 @@ export class Conversation {
   }
 
   /**
-   * Mirror a taken processing lock into the advisory `processing_started_at`
-   * column, without ever reporting failure back to the acquire.
+   * Write a taken processing lock into the `processing_started_at` column,
+   * reporting through the promise {@link ensureProcessingMarker} hands back.
    *
-   * The retry re-checks ownership rather than the flag: a hold claimed since
-   * has written its own timestamp, and a late write from this one would
-   * describe the wrong turn.
+   * The retry runs while the flag stays held, so the lock has no gap for
+   * another acquirer, and it re-checks ownership rather than the flag: a hold
+   * claimed since has written its own timestamp, and a late write from this one
+   * would describe the wrong turn.
    */
-  private mirrorProcessingStarted(owner: number, startedAt: number): void {
-    void withSqliteRetry(
+  private mirrorProcessingStarted(
+    owner: number,
+    startedAt: number,
+  ): Promise<void> {
+    const landed = withSqliteRetry(
       () => {
         if (this.processingOwner !== owner) {
           return;
@@ -1968,12 +1999,16 @@ export class Conversation {
         op: "conversation:acquireProcessing",
         context: { conversationId: this.conversationId },
       },
-    ).catch((err: unknown) => {
+    );
+    // The caller awaits this, but only on its own next tick, so subscribe now
+    // rather than let a rejection land with nothing attached to it.
+    landed.catch((err: unknown) => {
       log.error(
         { err, conversationId: this.conversationId },
-        "Failed to persist the processing marker; the conversation is held in memory and the column stays advisory",
+        "Failed to persist the processing marker; the claim holding this conversation is given back",
       );
     });
+    return landed;
   }
 
   /**

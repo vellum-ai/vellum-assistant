@@ -221,6 +221,7 @@ export interface MessagingConversationContext {
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
   acquireProcessing(): number | null;
+  ensureProcessingMarker(owner: number): Promise<void>;
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
@@ -1065,6 +1066,12 @@ export async function persistUserMessage(
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
+    // The marker is what a reconnecting client and the out-of-process
+    // retrospective worker read to decide a turn is live, so nothing this turn
+    // writes may precede it. A budget that runs out without it landing gives
+    // the hold back through the catch below and fails the send rather than
+    // running a turn no other reader can see.
+    await ctx.ensureProcessingMarker(owner);
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,

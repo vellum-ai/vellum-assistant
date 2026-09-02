@@ -1,5 +1,7 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 
+import { eq } from "drizzle-orm";
+
 import {
   createMockProvider,
   textResponse,
@@ -823,6 +825,58 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(live.activeConversation.releaseProcessing(owner! - 1)).toBe(false);
       expect(live.activeConversation.isProcessing()).toBe(true);
 
+      expect(live.activeConversation.releaseProcessing(owner!)).toBe(true);
+      expect(live.activeConversation.isProcessing()).toBe(false);
+    } finally {
+      storeUnreadable = false;
+      live.dispose();
+    }
+  });
+
+  test("an acquire does not proceed until its processing marker lands", async () => {
+    // `processing_started_at` is what a reconnecting client and the
+    // out-of-process retrospective worker read to decide a turn is live, so a
+    // turn that writes rows while the column is null lets a client stop
+    // waiting mid-turn and lets the worker fork partial history.
+    const live = liveConversation("Live voice marker fence");
+    try {
+      const owner = live.activeConversation.acquireProcessing();
+      expect(owner).not.toBeNull();
+
+      // Held for the whole write, so no second acquirer can slip in behind a
+      // marker that is still landing.
+      expect(live.activeConversation.isProcessing()).toBe(true);
+      await live.activeConversation.ensureProcessingMarker(owner!);
+
+      expect(
+        getDb()
+          .select({ startedAt: conversations.processingStartedAt })
+          .from(conversations)
+          .where(eq(conversations.id, live.id))
+          .get()?.startedAt,
+      ).not.toBeNull();
+
+      expect(live.activeConversation.releaseProcessing(owner!)).toBe(true);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("a claim whose marker will not land is given back", async () => {
+    // The fence has to fail closed: a hold nobody can see is worse than an
+    // operation that reports it could not start.
+    const live = liveConversation("Live voice marker fence failure");
+    try {
+      storeUnreadable = true;
+      const owner = live.activeConversation.acquireProcessing();
+      expect(owner).not.toBeNull();
+
+      await expect(
+        live.activeConversation.ensureProcessingMarker(owner!),
+      ).rejects.toThrow();
+      storeUnreadable = false;
+
+      // The caller gives the hold back, and the flag is free again.
       expect(live.activeConversation.releaseProcessing(owner!)).toBe(true);
       expect(live.activeConversation.isProcessing()).toBe(false);
     } finally {
