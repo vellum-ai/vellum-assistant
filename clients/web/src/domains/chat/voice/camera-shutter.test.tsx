@@ -978,6 +978,90 @@ describe("CameraShutter: holding it", () => {
       });
     });
 
+    test("rides through a key that is no part of it", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        const onClick = () => {
+          taps += 1;
+        };
+        const { rerender } = render(
+          <CameraShutter
+            onClick={onClick}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // A modifier struck mid-hold, which is neither an activation nor part
+        // of this press. Settling the press for it would leave the threshold
+        // armed with nothing recording what it belongs to.
+        fireEvent.keyDown(shutter(), { key: " " });
+        fireEvent.keyDown(shutter(), { key: "Shift" });
+        expect(pressSpaceAgain()).toBe(false);
+
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            ariaLabel="Stop live"
+            testId="s"
+            mode="live"
+          />,
+        );
+        expect(pressSpaceAgain()).toBe(false);
+
+        // The release of the hold does not stop the Live it started.
+        fireEvent.keyUp(shutter(), { key: " " });
+        expect(taps).toBe(0);
+      });
+    });
+
+    test("gives the press up when another activation arrives mid-hold", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // Enter is an activation of its own, and the user striking it has
+        // moved on from the hold they were part way through. One gesture at a
+        // time: the threshold goes with the press it belonged to, and Enter is
+        // the plain tap it always is. The click stands in for the one the
+        // browser fires from Enter, which happy-dom does not perform.
+        fireEvent.keyDown(shutter(), { key: " " });
+        advanceBy(HOLD_MS - 1);
+        fireEvent.keyDown(shutter(), { key: "Enter" });
+        fireEvent.click(shutter());
+
+        // Nothing of the abandoned press lands afterwards.
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(0);
+        expect(taps).toBe(1);
+        expect(pulse()).not.toBeNull();
+
+        // And the shutter is not left half pressed: an ordinary tap after it
+        // behaves like any other.
+        press();
+        release();
+        expect(taps).toBe(2);
+      });
+    });
+
     test("takes nothing from a press it did not suspend", () => {
       withFakeTimers(() => {
         render(

@@ -462,6 +462,21 @@ export function CameraShutter({
       }
       return;
     }
+    // Only the two keys that activate a button are part of a press. A
+    // modifier, a letter, a shortcut struck while one is underway belongs to
+    // whatever else the user is doing, and settling the press here for it
+    // would leave the threshold armed with nothing recording the press it
+    // came from: the repeats after it go unsuspended, and the release fires
+    // the activation the hold was taken to withhold.
+    if (event.key !== " " && event.key !== "Enter") {
+      return;
+    }
+    // A second activation arriving mid-press ends the one underway rather than
+    // running beside it. The threshold goes with it, so nothing that press
+    // began can land after the user has moved on to another key, and the
+    // flags go with `beginPress` so the new activation is answered as the
+    // plain one it is.
+    abandonPress();
     beginPress();
     if (!holdOffered || disabled) {
       return;
