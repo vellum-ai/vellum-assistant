@@ -23,6 +23,7 @@ import {
   callSlackApi,
   callSlackApiForm,
   completeSlackUpload,
+  SLACK_STREAM_MARKDOWN_LIMIT,
   startSlackStream,
   stopSlackStream,
   uploadToSlackUrl,
@@ -345,13 +346,28 @@ export async function sendSlackStreamOp(
       return { ok: ts !== undefined, ts };
     }
     case "append": {
-      await appendSlackStream({
-        channel,
-        streamTs: op.streamId,
-        markdownText: op.appended,
-        planTitle,
-        tasks,
-      });
+      // `chat.appendStream` caps `markdown_text` per call, so a delta wider
+      // than the cap drains across successive calls. The cap is Slack's, so
+      // the split is Slack's: the caller hands over one delta of any size.
+      // The plan rides the first call, which is what advances the plan block
+      // alongside the text; a delta of nothing still sends one call so a
+      // plan that moved on its own reaches the message.
+      const appended = op.appended ?? "";
+      const chunks: string[] = [];
+      for (let i = 0; i < appended.length; i += SLACK_STREAM_MARKDOWN_LIMIT) {
+        chunks.push(appended.slice(i, i + SLACK_STREAM_MARKDOWN_LIMIT));
+      }
+      if (chunks.length === 0) {
+        chunks.push("");
+      }
+      for (const [index, chunk] of chunks.entries()) {
+        await appendSlackStream({
+          channel,
+          streamTs: op.streamId,
+          markdownText: chunk.length > 0 ? chunk : undefined,
+          ...(index === 0 ? { planTitle, tasks } : {}),
+        });
+      }
       return { ok: true, ts: op.streamId };
     }
     case "stop": {

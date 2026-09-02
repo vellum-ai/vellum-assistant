@@ -6,16 +6,13 @@ import type {
   ToolUseStartEvent,
 } from "../api/index.js";
 import {
-  extractThreadTsFromCallbackUrl,
-  isSlackDeliveryCallbackUrl,
-} from "../channels/slack-callback-url.js";
-import type { ChannelId } from "../channels/types.js";
-import {
   incompleteVellumLinkSuffixLength,
   stripVellumLinks,
 } from "../daemon/assistant-attachments.js";
-import { sendChannelStreamOp } from "../messaging/providers/index.js";
-import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
+import {
+  getTransportForCallback,
+  sendChannelStreamOp,
+} from "../messaging/providers/index.js";
 import { getLogger } from "../util/logger.js";
 import { needsBoundarySpace } from "../util/text-spacing.js";
 import {
@@ -27,7 +24,7 @@ import {
   mergeTaskProgressData,
 } from "./task-progress.js";
 
-const log = getLogger("slack-reply-session");
+const log = getLogger("channel-reply-session");
 
 /**
  * Minimum gap between coalesced `appendStream` calls. `chat.appendStream` is a
@@ -48,52 +45,34 @@ const STREAM_COALESCE_MS = 400;
  *   text nor a plan, or a failed `startStream`); finalize posts the full
  *   reply normally.
  */
-export type SlackStreamReconciliation =
+export type StreamReconciliation =
   | { mode: "streamed"; messageTs: string; deliveredSegmentCount: number }
   | { mode: "fallback" };
 
-export type SlackReplySession = {
+export type ChannelReplySession = {
   observeEvent: (msg: AssistantEvent) => void;
   /**
    * Settle in-flight stream operations, finalize the stream, and report how
    * durable delivery should reconcile. Call once after processing completes.
    */
-  finish: () => Promise<SlackStreamReconciliation>;
+  finish: () => Promise<StreamReconciliation>;
 };
 
 /**
- * Whether a turn is eligible for native Slack reply streaming. Every eligible
- * turn resolves to a threaded reply, since `chat.startStream` requires a
- * `thread_ts`. Assistant-container DMs carry that thread implicitly; channel
- * turns (including app-mention threads) thread under the inbound message.
+ * Whether a channel can carry a reply that grows while the turn runs.
  *
- * DMs infer the reader, so they stream without recipient identity. Channels
- * must name the reader: `chat.startStream` requires both `recipient_user_id`
- * and `recipient_team_id`, so a channel turn missing either falls back to
- * durable delivery.
- *
- * @see https://docs.slack.dev/reference/methods/chat.startStream/
+ * Only the channel-level half is answered here, and only by asking whether
+ * the transport implements the operation: implementing it is the whole of
+ * declaring it. Whether THIS conversation can carry one is the platform's
+ * own rule (Slack streams into a thread, Telegram only into a private chat),
+ * so it is answered by the transport's own reply to `start` and reaches this
+ * module as an ordinary not-ok, which falls back exactly like a failure.
  */
-export function shouldStreamSlackReply(params: {
-  sourceChannel: ChannelId;
-  chatType?: string;
-  replyCallbackUrl?: string;
-  recipientUserId?: string;
-  recipientTeamId?: string;
-}): boolean {
-  if (params.sourceChannel !== "slack") {
+export function channelCanStreamReply(replyCallbackUrl?: string): boolean {
+  if (!replyCallbackUrl) {
     return false;
   }
-  if (!isSlackDeliveryCallbackUrl(params.replyCallbackUrl)) {
-    return false;
-  }
-  if (extractThreadTsFromCallbackUrl(params.replyCallbackUrl) === null) {
-    return false;
-  }
-  if (params.chatType === "im") {
-    return true;
-  }
-  return Boolean(params.recipientUserId && params.recipientTeamId);
+  return getTransportForCallback(replyCallbackUrl)?.streamReply !== undefined;
 }
 
 type StreamState = "idle" | "streaming" | "fallback";
@@ -110,14 +89,17 @@ type StreamState = "idle" | "streaming" | "fallback";
  * via the normal path. Returns `undefined` for turns that are not eligible to
  * stream.
  */
-export function createSlackReplySession(params: {
-  sourceChannel: ChannelId;
-  chatType?: string;
+export function createChannelReplySession(params: {
   replyCallbackUrl?: string;
   chatId: string;
-  /** Slack user ID of the reader; required to stream into a channel. */
+  /**
+   * The one reader a restricted stream is shown to, when the turn names one.
+   * Travels as the operation's `audience`; a channel that cannot restrict a
+   * growing reply ignores it, and one that requires a named reader in a room
+   * refuses the start without it.
+   */
   recipientUserId?: string;
-  /** Slack team ID of the reader; required to stream into a channel. */
+  /** The reader's org, alongside {@link recipientUserId}. */
   recipientTeamId?: string;
   /** Gap between coalesced `appendStream` calls. Defaults to {@link STREAM_COALESCE_MS}. */
   coalesceMs?: number;
@@ -129,17 +111,20 @@ export function createSlackReplySession(params: {
    * posting a duplicate reply.
    */
   onStreamOpen?: (streamTs: string) => void;
-}): SlackReplySession | undefined {
-  if (!shouldStreamSlackReply(params) || !params.replyCallbackUrl) {
+}): ChannelReplySession | undefined {
+  if (
+    !params.replyCallbackUrl ||
+    !channelCanStreamReply(params.replyCallbackUrl)
+  ) {
     return undefined;
   }
   const { chatId, recipientUserId, recipientTeamId } = params;
   const coalesceMs = params.coalesceMs ?? STREAM_COALESCE_MS;
   const replyCallbackUrl = params.replyCallbackUrl;
-  const threadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
-  if (threadTs === null) {
-    return undefined;
-  }
+  // What the stream leaves behind is the channel's business; the session only
+  // needs to know whether the reply is still owed once the stream ends.
+  const streamIsTheReply =
+    getTransportForCallback(replyCallbackUrl)?.streamPersists === true;
 
   let state: StreamState = "idle";
   let started = false;
@@ -204,11 +189,10 @@ export function createSlackReplySession(params: {
       if (clean.trim().length === 0 && !plan) {
         return;
       }
-      const firstChunk = clean.slice(0, SLACK_STREAM_MARKDOWN_LIMIT);
+      const firstChunk = clean;
       try {
         const result = await sendChannelStreamOp(replyCallbackUrl, chatId, {
           action: "start",
-          anchorMessageId: threadTs,
           text: clean,
           appended: firstChunk,
           ...(plan ? { plan } : {}),
@@ -258,29 +242,22 @@ export function createSlackReplySession(params: {
       const clean = streamableText();
       const plan = activeProgress;
       const key = progressKey(plan);
-      // `chat.appendStream` caps `markdown_text` per call, so a delta wider
-      // than the limit drains across successive append calls. Each append
-      // carries the current task state, advancing the plan alongside text.
-      while (confirmedLength < clean.length) {
-        const chunk = clean.slice(
-          confirmedLength,
-          confirmedLength + SLACK_STREAM_MARKDOWN_LIMIT,
-        );
+      // One operation per flush, carrying the whole delta. A channel whose
+      // API caps a single call splits it on its own side, where the cap is
+      // known; the plan rides along so it advances with the text.
+      if (confirmedLength < clean.length) {
         try {
           await sendChannelStreamOp(replyCallbackUrl, chatId, {
             action: "append",
             streamId: streamTs,
             text: clean,
-            appended: chunk,
+            appended: clean.slice(confirmedLength),
             ...(plan ? { plan } : {}),
           });
-          confirmedLength += chunk.length;
+          confirmedLength = clean.length;
           deliveredProgressKey = key ?? deliveredProgressKey;
         } catch (err) {
-          log.warn(
-            { err, chatId },
-            "Slack appendStream failed; deferring delta",
-          );
+          log.warn({ err, chatId }, "Stream append failed; deferring delta");
           return;
         }
       }
@@ -510,7 +487,9 @@ export function createSlackReplySession(params: {
 
       await opChain;
 
-      if (state === "streaming" && streamTs) {
+      // A preview stream reports `fallback`: the draft evaporates, so the
+      // reply is still owed and durable delivery sends it as it always would.
+      if (state === "streaming" && streamTs && streamIsTheReply) {
         return { mode: "streamed", messageTs: streamTs, deliveredSegmentCount };
       }
       return { mode: "fallback" };

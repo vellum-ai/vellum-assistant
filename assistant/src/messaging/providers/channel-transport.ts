@@ -189,4 +189,20 @@ export interface ChannelTransport {
     chatId: string,
     op: StreamOp,
   ): Promise<ChannelDeliveryResult>;
+
+  /**
+   * Whether what `streamReply` leaves behind is the reply itself.
+   *
+   * True for a channel that finalizes the streamed message in place, so the
+   * reply is already delivered once the stream ends and durable delivery must
+   * not send it again. Omitted by a channel whose stream is only a preview:
+   * the draft evaporates and the reply is still owed, so durable delivery
+   * sends it as it would for a channel that never streamed.
+   *
+   * Omission is the safe default on purpose. A channel that forgets to
+   * declare it posts the reply through the ordinary path, which at worst
+   * repeats what a persisting stream already showed; the opposite mistake
+   * loses the reply entirely.
+   */
+  readonly streamPersists?: boolean;
 }

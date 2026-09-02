@@ -22,7 +22,18 @@ let streamOpImpl: (op: StreamOp) => Promise<{
   ok: boolean;
   ts?: string;
 }> = async () => ({ ok: true, ts: "stream-ts-1" });
+/**
+ * What the transport lookup reports for the callback under test. A channel
+ * declares it can stream by implementing the method, so `undefined` here is a
+ * channel that cannot, and `streamPersists` is what says whether the stream
+ * leaves the reply behind.
+ */
+let transportImpl:
+  | { streamReply?: unknown; streamPersists?: boolean }
+  | undefined = { streamReply: () => undefined, streamPersists: true };
+
 mock.module("../messaging/providers/index.js", () => ({
+  getTransportForCallback: () => transportImpl,
   sendChannelStreamOp: async (
     _callbackUrl: string,
     _chatId: string,
@@ -53,11 +64,10 @@ mock.module("./gateway-client.js", () => ({
 }));
 
 import type { AssistantEvent } from "../api/index.js";
-import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import {
-  createSlackReplySession,
-  shouldStreamSlackReply,
-} from "./slack-reply-session.js";
+  channelCanStreamReply,
+  createChannelReplySession,
+} from "./channel-reply-session.js";
 
 const CHANNEL = "D-STREAM";
 const THREAD_TS = "1700000000.000001";
@@ -155,105 +165,86 @@ const streamedMarkdown = (): string =>
     .join("");
 
 beforeEach(() => {
+  // A channel that streams and whose stream is the reply, which is what the
+  // suite below assumes unless a test says otherwise.
+  transportImpl = { streamReply: () => undefined, streamPersists: true };
   deliverCalls.length = 0;
   sentStreamOps.length = 0;
   streamOpImpl = async () => ({ ok: true, ts: "stream-ts-1" });
   deliverImpl = async () => ({ ok: true, ts: "stream-ts-1" });
 });
 
-describe("shouldStreamSlackReply", () => {
-  test("admits a threaded Slack DM", () => {
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
-        chatType: "im",
-        replyCallbackUrl: CALLBACK_URL,
-      }),
-    ).toBe(true);
+describe("channelCanStreamReply", () => {
+  test("a channel whose transport implements streamReply can stream", () => {
+    transportImpl = { streamReply: () => undefined, streamPersists: true };
+    expect(channelCanStreamReply(CALLBACK_URL)).toBe(true);
   });
 
-  test("rejects a DM whose callback URL carries no thread_ts", () => {
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
-        chatType: "im",
-        replyCallbackUrl: `https://example.test/deliver/slack?channel=${CHANNEL}`,
-      }),
-    ).toBe(false);
+  test("a channel whose transport omits streamReply cannot", () => {
+    // Omitting the method is how a channel with no such primitive declares
+    // it, so there is nothing else to consult.
+    transportImpl = { streamPersists: false };
+    expect(channelCanStreamReply(CALLBACK_URL)).toBe(false);
   });
 
-  test("admits a channel turn carrying both recipient IDs", () => {
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
-        chatType: "channel",
-        replyCallbackUrl: CALLBACK_URL,
-        recipientUserId: "U123",
-        recipientTeamId: "T123",
-      }),
-    ).toBe(true);
+  test("no callback URL is no channel to ask", () => {
+    expect(channelCanStreamReply(undefined)).toBe(false);
   });
 
-  test("admits an app-mention turn (no chatType) carrying both recipient IDs", () => {
+  test("a session is not created for a channel that cannot stream", () => {
+    transportImpl = undefined;
     expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
-        replyCallbackUrl: CALLBACK_URL,
-        recipientUserId: "U123",
-        recipientTeamId: "T123",
-      }),
-    ).toBe(true);
-  });
-
-  test("rejects a channel turn missing the recipient team ID", () => {
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
-        chatType: "channel",
-        replyCallbackUrl: CALLBACK_URL,
-        recipientUserId: "U123",
-      }),
-    ).toBe(false);
-  });
-
-  test("rejects a channel turn missing the recipient user ID", () => {
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "slack",
-        chatType: "channel",
-        replyCallbackUrl: CALLBACK_URL,
-        recipientTeamId: "T123",
-      }),
-    ).toBe(false);
-  });
-
-  test("rejects non-Slack channels", () => {
-    expect(
-      shouldStreamSlackReply({
-        sourceChannel: "telegram",
-        chatType: "im",
-        replyCallbackUrl: CALLBACK_URL,
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("createSlackReplySession", () => {
-  test("returns undefined for an ineligible turn", () => {
-    expect(
-      createSlackReplySession({
-        sourceChannel: "slack",
-        chatType: "channel",
+      createChannelReplySession({
         replyCallbackUrl: CALLBACK_URL,
         chatId: CHANNEL,
       }),
     ).toBeUndefined();
   });
+});
+
+describe("createChannelReplySession", () => {
+  test("a start the channel refuses falls back without streaming", async () => {
+    // Whether THIS conversation can carry a growing reply is the platform's
+    // rule, answered by the transport's own reply to `start`. Slack refusing
+    // a turn with no thread, and Telegram refusing a chat that is not
+    // private, both arrive here as the same not-ok.
+    streamOpImpl = async () => ({ ok: false });
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
+    expect(reconciliation).toEqual({ mode: "fallback" });
+  });
+
+  test("a preview stream leaves the reply still owed", async () => {
+    // Telegram's draft evaporates rather than becoming the reply, so a
+    // channel that does not persist its stream reports `fallback`: durable
+    // delivery still sends the reply, exactly as for a channel that never
+    // streamed. Reporting `streamed` here would drop the reply entirely.
+    transportImpl = { streamReply: () => undefined, streamPersists: false };
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    // The preview really was streamed...
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    // ...and the reply is still owed.
+    expect(reconciliation).toEqual({ mode: "fallback" });
+  });
 
   test("streams a fast turn as a single start then stop", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -266,7 +257,6 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: THREAD_TS,
         text: "The complete answer.",
         appended: "The complete answer.",
       },
@@ -284,9 +274,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("stamps recipient IDs on the start op for a channel turn", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "channel",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       recipientUserId: "U123",
@@ -301,7 +289,6 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: THREAD_TS,
         text: "The complete answer.",
         appended: "The complete answer.",
         audience: { kind: "oneReader", userId: "U123", userOrgId: "T123" },
@@ -315,9 +302,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("coalesces mid-stream deltas into incremental appends", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -332,7 +317,6 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: THREAD_TS,
         text: "First half. ",
         appended: "First half. ",
       },
@@ -351,32 +335,29 @@ describe("createSlackReplySession", () => {
     expect(reconciliation.mode).toBe("streamed");
   });
 
-  test("drains a body wider than the markdown limit across calls", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+  test("hands a body of any width over as one delta", async () => {
+    // Splitting belongs to the channel whose API sets the cap, so the session
+    // must not pre-split: a channel with a wider cap, or none, would be paying
+    // for Slack's. What it owes is the whole delta, once.
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
 
-    const body = "x".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 4_000);
+    const body = "x".repeat(20_000);
     session.observeEvent(textDelta(body));
     session.observeEvent(messageComplete("assistant-msg-1"));
     await session.finish();
 
     const ops = slackStreamOps();
-    expect(ops.map((op) => op.action)).toEqual(["start", "append", "stop"]);
-    expect((ops[0]!.appended ?? "").length).toBe(SLACK_STREAM_MARKDOWN_LIMIT);
-    expect((ops[1]!.appended ?? "").length).toBe(4_000);
-    const streamed = (ops[0]!.appended ?? "") + (ops[1]!.appended ?? "");
-    expect(streamed).toBe(body);
+    expect(ops.map((op) => op.action)).toEqual(["start", "stop"]);
+    expect(ops[0]!.appended).toBe(body);
+    expect(ops[0]!.text).toBe(body);
   });
 
   test("falls back when startStream returns no stream ts", async () => {
     streamOpImpl = async () => ({ ok: false });
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -393,9 +374,7 @@ describe("createSlackReplySession", () => {
     streamOpImpl = async () => {
       throw new Error("rate limited");
     };
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -414,9 +393,7 @@ describe("createSlackReplySession", () => {
       }
       return { ok: true, ts: "stream-ts-1" };
     };
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -435,9 +412,7 @@ describe("createSlackReplySession", () => {
     // transient breadcrumb write error) must not knock the session into
     // fallback — that would repost the already-visible streamed reply.
     const onStreamOpenCalls: string[] = [];
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       onStreamOpen: (streamTs) => {
@@ -466,9 +441,7 @@ describe("createSlackReplySession", () => {
     // `chat.appendStream` accepts a chunks-only call, so a plan that advances
     // during tool work lands live instead of waiting for the final stop.
     // @see https://docs.slack.dev/reference/methods/chat.appendStream/
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -522,9 +495,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("does not re-append unchanged task progress", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -548,9 +519,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("does not advance a plan the surface tool rejected", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -598,9 +567,7 @@ describe("createSlackReplySession", () => {
       }
       return { ok: true, ts: "stream-ts-1" };
     };
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -639,9 +606,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("never opens a stream for a no_response-only turn", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -657,9 +622,7 @@ describe("createSlackReplySession", () => {
   test("holds the stream while a no_response sentinel arrives in pieces", async () => {
     // A coalesce timer must not open a stream on the leading `<` of a slowly
     // streamed `<no_response/>`, which would leak a stray partial message.
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -685,9 +648,7 @@ describe("createSlackReplySession", () => {
     // Slack streams are append-only, so a `[label](vellum://…)` link split
     // across deltas must not stream its internal path before the closing `)`
     // arrives — once emitted it could not be retracted.
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -714,9 +675,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("counts deliverable text segments split at tool boundaries", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -738,9 +697,7 @@ describe("createSlackReplySession", () => {
     // The model ends one segment with a period and opens the next with a
     // capital letter, supplying no separating whitespace on either side.
     // Concatenating them raw would fuse "Sentence one.Sentence two.".
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -758,9 +715,7 @@ describe("createSlackReplySession", () => {
     // Multiple `message_complete` events fire within one streamed turn (one
     // per model response). Text from the second response must not fuse onto
     // the first.
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -775,9 +730,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("does not double-space a boundary the model already spaced", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -794,9 +747,7 @@ describe("createSlackReplySession", () => {
   test("does not fuse mid-word deltas within a single segment", async () => {
     // Intra-segment token deltas carry the model's own spacing and must never
     // be altered — only tool/message boundaries introduce a separating space.
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
     })!;
@@ -811,9 +762,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("opens the stream in plan mode and advances task cards", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -841,7 +790,6 @@ describe("createSlackReplySession", () => {
     const ops = slackStreamOps();
     expect(ops[0]).toEqual({
       action: "start",
-      anchorMessageId: THREAD_TS,
       text: "Working on it.",
       appended: "Working on it.",
       plan: {
@@ -871,9 +819,7 @@ describe("createSlackReplySession", () => {
     // stream starts, so the start must open in plan mode even with no plan
     // active yet — otherwise the late-arriving task cards can never render
     // as a plan.
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -895,7 +841,6 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: THREAD_TS,
         text: "On it, starting now.",
         appended: "On it, starting now.",
       },
@@ -929,9 +874,7 @@ describe("createSlackReplySession", () => {
     // early on a multi-step turn. At that moment the model has written no
     // prose, so a stream that waits for text holds the plan back until the
     // final answer, when the steps it narrates are already finished.
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -950,7 +893,6 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: THREAD_TS,
         text: "",
         appended: "",
         plan: {
@@ -964,9 +906,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("advances plan steps live while the turn is still working", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -1014,9 +954,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("carries the plan title and step details onto stream ops", async () => {
-    const session = createSlackReplySession({
-      sourceChannel: "slack",
-      chatType: "im",
+    const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
       coalesceMs: 5,
@@ -1044,7 +982,6 @@ describe("createSlackReplySession", () => {
     const ops = slackStreamOps();
     expect(ops[0]).toEqual({
       action: "start",
-      anchorMessageId: THREAD_TS,
       text: "Working on it.",
       appended: "Working on it.",
       plan: {

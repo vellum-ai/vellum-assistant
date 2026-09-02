@@ -444,3 +444,96 @@ describe("editTelegramMessage", () => {
     expect(sendMessageCalls()).toHaveLength(0);
   });
 });
+
+describe("telegramTransport.streamReply", () => {
+  const ctx: CallbackContext = {
+    callbackUrl: "https://example.test/deliver/telegram?chatId=123",
+    params: {},
+  };
+
+  test("opens a draft carrying the whole partial reply", async () => {
+    const result = await telegramTransport.streamReply?.(ctx, "123", {
+      action: "start",
+      text: "Looking that up",
+      appended: "Looking that up",
+    });
+
+    const calls = callsTo("sendMessageDraft");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![1]).toMatchObject({
+      chat_id: "123",
+      text: "Looking that up",
+    });
+    // The id is minted here, not handed back by Telegram, and must be usable
+    // as the stream id the later append addresses.
+    expect(Number(result?.ts)).toBeGreaterThan(0);
+    expect(result?.ok).toBe(true);
+  });
+
+  test("advances one draft by resending the whole text under the same id", async () => {
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: "Looking that up. Found it.",
+      appended: ". Found it.",
+    });
+
+    const calls = callsTo("sendMessageDraft");
+    expect(calls).toHaveLength(1);
+    // Telegram animates between drafts sharing an id, so the call carries the
+    // whole reply so far rather than the delta.
+    expect(calls[0]![1]).toMatchObject({
+      chat_id: "123",
+      draft_id: 4242,
+      text: "Looking that up. Found it.",
+    });
+  });
+
+  test("draws a plan into the draft, since Telegram has no task primitive", async () => {
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "append",
+      streamId: "4242",
+      text: "Working.",
+      plan: {
+        title: "Answering",
+        steps: [
+          { label: "Search docs", status: "completed" },
+          { label: "Summarize", status: "in_progress" },
+          { label: "Reply", status: "pending" },
+        ],
+      },
+    });
+
+    const body = callsTo("sendMessageDraft")[0]![1] as { text: string };
+    expect(body.text).toBe(
+      "Working.\n\nAnswering\n✓ Search docs\n▸ Summarize\n· Reply",
+    );
+  });
+
+  test("stopping does nothing, because sending the reply clears the draft", async () => {
+    const result = await telegramTransport.streamReply?.(ctx, "123", {
+      action: "stop",
+      streamId: "4242",
+      text: "All done.",
+    });
+
+    expect(callsTo("sendMessageDraft")).toHaveLength(0);
+    expect(result).toEqual({ ok: true, ts: "4242" });
+  });
+
+  test("a refused draft reports not-ok so the caller falls back", async () => {
+    // Telegram offers drafts in private chats only; anywhere else the call is
+    // rejected, and that rejection is the whole of the per-conversation rule.
+    callTelegramBotApiMock.mockImplementation(async () => {
+      throw new Error("Bad Request: chat type is not supported");
+    });
+
+    const result = await telegramTransport.streamReply?.(ctx, "123", {
+      action: "start",
+      text: "Looking that up",
+      appended: "Looking that up",
+    });
+
+    expect(result).toEqual({ ok: false });
+  });
+});

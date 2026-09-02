@@ -444,3 +444,55 @@ export async function sendTelegramTypingIndicator(
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Live message drafts (sendMessageDraft)
+// ---------------------------------------------------------------------------
+
+/**
+ * Telegram caps a message, and so a draft's text, at 4096 characters.
+ *
+ * A draft is a preview rather than the reply, so an over-long partial is
+ * trimmed to the tail Telegram will accept instead of being split across
+ * drafts: splitting would animate the reader back to the start of the reply
+ * every time it grew past the cap.
+ */
+export const TELEGRAM_DRAFT_TEXT_LIMIT = 4096;
+
+/**
+ * Show, or advance, the live draft of a reply still being written.
+ *
+ * `sendMessageDraft` takes the whole partial reply rather than a delta and
+ * lets Telegram's clients animate the difference, which is why every call
+ * passes the full text. Reusing one `draft_id` is what makes those calls read
+ * as one growing draft: a different id replaces the draft without animation.
+ * Empty text is meaningful, rendering Telegram's own "Thinking..." placeholder,
+ * so it is passed through rather than skipped.
+ *
+ * Private chats only, and the draft expires on its own or the moment the bot
+ * sends a real message, so nothing has to clear it.
+ *
+ * @see https://core.telegram.org/bots/api#sendmessagedraft
+ */
+export async function sendTelegramMessageDraft(
+  chatId: string,
+  draftId: number,
+  text: string,
+  opts?: TelegramSendOptions,
+): Promise<boolean> {
+  try {
+    await callTelegramBotApi("sendMessageDraft", {
+      chat_id: chatId,
+      draft_id: draftId,
+      text: text.slice(0, TELEGRAM_DRAFT_TEXT_LIMIT),
+      ...threadIdPayloadFields(opts),
+    });
+    return true;
+  } catch (err) {
+    log.debug(
+      { err, chatId, draftId },
+      "Failed to send Telegram message draft",
+    );
+    return false;
+  }
+}

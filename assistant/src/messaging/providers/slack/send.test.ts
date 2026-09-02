@@ -10,7 +10,13 @@ type CallSlackApi = typeof import("./api.js").callSlackApi;
 
 const callSlackApiMock = mock<CallSlackApi>(async () => ({ ok: true }));
 
+// Spread the real module so a factory listing only what today's tests touch
+// cannot break the next import send.ts adds; the stubs below then override
+// exactly the calls this suite asserts on.
+const actualSlackApi = await import("./api.js");
+
 mock.module("./api.js", () => ({
+  ...actualSlackApi,
   callSlackApi: (method: string, body: Record<string, unknown>) =>
     callSlackApiMock(method, body),
   callSlackApiForm: async () => ({}),
@@ -32,8 +38,10 @@ const {
   sendSlackAgentSessionStatus,
   sendSlackReaction,
   sendSlackReply,
+  sendSlackStreamOp,
   updateSlackMessage,
 } = await import("./send.js");
+const { SLACK_STREAM_MARKDOWN_LIMIT } = await import("./api.js");
 
 describe("sendSlackAgentSessionStatus", () => {
   const threadTs = "1700000000.000100";
@@ -440,5 +448,73 @@ describe("sendSlackReply approval fallback", () => {
       }),
     ).rejects.toThrow();
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendSlackStreamOp append chunking", () => {
+  const streamTs = "1700000000.000900";
+
+  beforeEach(() => {
+    callSlackApiMock.mockReset();
+    callSlackApiMock.mockImplementation(async () => ({ ok: true }));
+  });
+
+  test("splits a delta wider than Slack's per-call cap across calls", async () => {
+    // The cap is Slack's, so the split is Slack's: callers hand over one delta
+    // of any width and this is what makes it fit.
+    const appended = "x".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 4_000);
+    await sendSlackStreamOp("C-STREAM", {
+      action: "append",
+      streamId: streamTs,
+      text: appended,
+      appended,
+    });
+
+    const calls = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.appendStream",
+    );
+    expect(calls).toHaveLength(2);
+    const first = calls[0]![1] as { markdownText?: string };
+    const second = calls[1]![1] as { markdownText?: string };
+    expect(first.markdownText?.length).toBe(SLACK_STREAM_MARKDOWN_LIMIT);
+    expect(second.markdownText?.length).toBe(4_000);
+    expect((first.markdownText ?? "") + (second.markdownText ?? "")).toBe(
+      appended,
+    );
+  });
+
+  test("carries the plan on the first call only, so it advances once", async () => {
+    const appended = "y".repeat(SLACK_STREAM_MARKDOWN_LIMIT + 10);
+    await sendSlackStreamOp("C-STREAM", {
+      action: "append",
+      streamId: streamTs,
+      text: appended,
+      appended,
+      plan: { steps: [{ label: "Step", status: "in_progress" }] },
+    });
+
+    const calls = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.appendStream",
+    );
+    expect(calls).toHaveLength(2);
+    expect((calls[0]![1] as { tasks?: unknown }).tasks).toBeDefined();
+    expect((calls[1]![1] as { tasks?: unknown }).tasks).toBeUndefined();
+  });
+
+  test("a plan that moved with no new words still reaches the message", async () => {
+    await sendSlackStreamOp("C-STREAM", {
+      action: "append",
+      streamId: streamTs,
+      text: "unchanged",
+      plan: { steps: [{ label: "Step", status: "completed" }] },
+    });
+
+    const calls = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.appendStream",
+    );
+    expect(calls).toHaveLength(1);
+    const body = calls[0]![1] as { markdownText?: string; tasks?: unknown };
+    expect(body.markdownText).toBeUndefined();
+    expect(body.tasks).toBeDefined();
   });
 });
