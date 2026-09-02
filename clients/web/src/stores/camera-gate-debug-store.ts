@@ -2,9 +2,9 @@
  * Zustand store for the camera frame gate's tuning readout.
  *
  * Owns two things: whether the readout is on, and the threshold values its
- * sliders hold. The settings panel writes the first, the readout writes the
- * second, and both are remembered across reloads so a tuning session survives
- * the dev-server restarts that tuning involves.
+ * sliders hold. The camera's view options write the first, the readout writes
+ * the second, and both are remembered across reloads so a tuning session
+ * survives the dev-server restarts that tuning involves.
  *
  * **Storage model:**
  *
@@ -22,9 +22,9 @@
  *   to the next, whether the previous session was signed out of or expired.
  * - Cross-tab updates: the persist middleware doesn't sync across tabs on its
  *   own. {@link watchCameraGateDebugStorage} listens for `storage` events on
- *   the key and re-reads the slice, so the two places the switch is offered
- *   (Settings, and the camera's view options) agree across every window the
- *   account has open. The restored payload goes through the same `merge` a
+ *   the key and re-reads the slice, so every window the account has open
+ *   agrees about the switch rather than each holding the value it last wrote.
+ *   The restored payload goes through the same `merge` a
  *   reload does, so a stale or hand-edited value is clamped exactly as one
  *   from disk. A payload belonging to another account is not restored at all:
  *   the owner named in the event is checked first, by a caller that knows

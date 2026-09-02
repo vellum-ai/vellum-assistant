@@ -216,7 +216,7 @@ describe("CameraViewSettings", () => {
     expect(row("Kept frame")?.getAttribute("aria-checked")).toBe("false");
   });
 
-  test("the readout row writes the switch the Settings page shares", async () => {
+  test("the readout row writes the persisted switch", async () => {
     hudAvailable = true;
     await openPanel();
 

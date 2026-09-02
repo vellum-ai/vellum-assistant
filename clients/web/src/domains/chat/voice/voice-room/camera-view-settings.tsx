@@ -2,11 +2,11 @@
  * Camera mode's view options: the corner button, and the compact panel it
  * opens.
  *
- * Two rows, and neither changes what the camera does. The frame-gate readout
- * shares the switch the Settings page writes, so one preference answers both
- * entry points; the kept-frame thumbnail is a voice preference of its own.
- * Hiding either one hides a drawing, and Live goes on sampling, sending and
- * recording every kept frame in the transcript.
+ * Two rows, and neither changes what the camera does. This is where the
+ * frame-gate readout is switched on and off, over the viewfinder its numbers
+ * describe; the kept-frame thumbnail is a voice preference of its own. Hiding
+ * either one hides a drawing, and Live goes on sampling, sending and recording
+ * every kept frame in the transcript.
  *
  * Anchored on every form factor, a touch phone included. The room is itself a
  * bottom sheet portaled into `#viewport-overlays`, and while the camera is

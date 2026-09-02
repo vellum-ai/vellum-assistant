@@ -70,8 +70,8 @@ scrim.
       in one is reflected in the other's panel.
 - [ ] The readout row appears only where the readout does. On a staff or
       flagged session the panel has two rows; on an ordinary session it has one.
-      Where both exist, Settings, Debug, General and this panel move the same
-      switch in both directions.
+      This panel is the only place the readout is switched on and off, so check
+      Settings, Debug, General carries no row for it.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
