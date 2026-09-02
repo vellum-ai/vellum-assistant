@@ -92,15 +92,16 @@ function RetroPreview({ templateData }: { templateData: RetroTemplateData }) {
   );
 }
 
-/** Tap off the record, so the story opens on the first question. */
+/** Tap off the recap, so the story opens on the first question. */
 async function toFirstQuestion(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
-  await userEvent.click(await canvas.findByText("That's it"));
+  await userEvent.click(await canvas.findByText("Looks right"));
 }
 
 const TRIGGER_QUESTION = {
   id: "trigger",
   kind: "fill",
+  eyebrow: "Trigger",
   prompt: "What would you say to start this?",
   suggestion: "file this Sentry bug",
 };
@@ -108,6 +109,7 @@ const TRIGGER_QUESTION = {
 const PRIORITY_QUESTION = {
   id: "priority",
   kind: "pick",
+  eyebrow: "Priority",
   prompt: "You set this one to High. What decides that?",
   options: [
     {
@@ -123,6 +125,7 @@ const PRIORITY_QUESTION = {
 const RESOLVE_QUESTION = {
   id: "resolve",
   kind: "gate",
+  eyebrow: "Resolving",
   prompt: "Resolving the Sentry issue once the ticket exists, on my own?",
   options: [
     { id: "confirm", label: "Ask me first", note: "The safer default" },
@@ -132,8 +135,8 @@ const RESOLVE_QUESTION = {
 
 const FULL_REPORT: RetroTemplateData = {
   task: "Filing a Linear bug from a Sentry alert",
-  purpose: "So an overnight crash has a ticket waiting by morning.",
-  eyebrow: "Watched 4 min, 11 screens",
+  purpose: "So an overnight crash has a ticket by morning.",
+  eyebrow: "Taught in 4 min, 11 screens",
   steps: [
     "Open the Sentry issue from the alert email",
     "Copy the stack trace and the first-seen timestamp",
@@ -183,7 +186,7 @@ export const BoundedRecording: Story = {
       templateData={{
         task: "Triaging the overnight alert queue",
         purpose: "So the queue is empty before standup.",
-        eyebrow: "Watched 12 min, 40 screens",
+        eyebrow: "Taught in 12 min, 40 screens",
         coverage:
           "The recording starts partway in, so the first few alerts are missing and nothing was seen about how the queue is opened.",
         steps: [
@@ -256,10 +259,9 @@ export const LongContent: Story = {
   render: () => (
     <RetroPreview
       templateData={{
-        task: "Preparing the weekly competitor-intel digest for the leadership channel",
-        purpose:
-          "So Monday's leadership sync opens with the week's competitive movement already summarized and sourced.",
-        eyebrow: "Watched 18 min, 63 screens",
+        task: "Weekly competitor-intel digest",
+        purpose: "So Monday's sync opens with the week already summarized.",
+        eyebrow: "Taught in 18 min, 63 screens",
         coverage:
           "The recording ends before the digest was posted, so nothing was seen about which channel it goes to or who is tagged on it.",
         steps: [
@@ -276,6 +278,7 @@ export const LongContent: Story = {
           {
             id: "scope",
             kind: "pick",
+            eyebrow: "Scope",
             prompt:
               "Some weeks a competitor gets no mention at all. What decides whether one appears in the digest?",
             options: [
@@ -314,8 +317,8 @@ export const UnusableQuestionDropped: Story = {
   render: () => (
     <RetroPreview
       templateData={{
-        task: "Checking Slack for unread messages between terminal work",
-        eyebrow: "Watched 14 sec, 1 narration",
+        task: "Checking Slack between terminal work",
+        eyebrow: "Taught in 14 sec",
         steps: [
           "Work in the terminal",
           "Switch to Slack",
@@ -333,4 +336,21 @@ export const UnusableQuestionDropped: Story = {
       }}
     />
   ),
+};
+
+/**
+ * The summary, reached by tapping through every question. The last page before
+ * anything is saved, and the only place the session can be dropped.
+ */
+export const Summary: Story = {
+  render: () => <RetroPreview templateData={FULL_REPORT} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText("Looks right"));
+    await userEvent.click(await canvas.findByText("Next"));
+    await userEvent.click(
+      await canvas.findByText("Over 100 events in an hour"),
+    );
+    await userEvent.click(await canvas.findByText("Ask me first"));
+  },
 };

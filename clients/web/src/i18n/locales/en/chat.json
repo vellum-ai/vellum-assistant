@@ -1817,11 +1817,21 @@
     "reactionSomeone": "Someone"
   },
   "watchRetroSurface": {
-    "discard": "Discard",
+    "back": "Back",
+    "dontSave": "Don't save",
+    "looksRight": "Looks right",
     "next": "Next",
     "save": "Save skill",
     "skip": "Skip",
-    "thatsIt": "That's it",
+    "somethingOff": "Something's off",
+    "stepCount": "{count, plural, one {# step} other {# steps}}",
+    "stepQuestion": "Question {number}",
+    "stepRecap": "Recap",
+    "stepSummary": "Save",
+    "summarySay": "Say",
+    "summarySteps": "Steps",
+    "summaryTitle": "Ready to save",
+    "summaryUnanswered": "Not set",
     "untitledTask": "What I saw"
   }
 }
