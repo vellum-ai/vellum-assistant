@@ -530,9 +530,9 @@
     "connectSlack": "连接 Slack",
     "connecting": "正在连接…",
     "credentialsSaved": "凭据已保存",
-    "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个令牌。",
-    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个令牌。",
-    "savedBody": "两个令牌都已保存。Slack 这边已完成。"
+    "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个 Token。",
+    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个 Token。",
+    "savedBody": "两个 Token都已保存。Slack 这边已完成。"
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -622,7 +622,7 @@
     "openBotFather": "打开 BotFather",
     "stepDisplayName": "给它一个显示名称，这是人们在聊天中看到的名称",
     "stepSendNewBot": "发送 <strong>/newbot</strong>",
-    "stepTokenReply": "BotFather 会在 <strong>Use this token to access the HTTP API</strong> 之后回复一个令牌",
+    "stepTokenReply": "BotFather 会在 <strong>Use this token to access the HTTP API</strong> 之后回复一个 Token",
     "stepUsername": "给它一个用户名，该用户名必须是唯一的，并以 <strong>bot</strong> 结尾"
   },
   "telegramSetupWizard": {
@@ -802,7 +802,11 @@
     "body": "语音提供商、转录和 API 密钥位于<modelsLink>模型与服务</modelsLink>中。"
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "建议关闭"
+    "recommendedOff": "建议关闭",
+    "userTranscriptLabel": "显示你说的话",
+    "userTranscriptDescription": "在你说话时实时转录文字。",
+    "assistantTranscriptLabel": "显示助手说的话",
+    "assistantTranscriptDescription": "在语音回复旁同步显示文本。"
   },
   "windowsMenuBar": {
     "developer": "开发者",
@@ -836,6 +840,24 @@
       "slack": "下载您的助手头像以上传为应用图标。",
       "discord": "下载您的助手头像以上传为机器人图标。",
       "telegram": "下载您的助手头像，然后使用 /setuserpic 发送给 BotFather。"
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "严格",
+      "description": "执行任何操作前均需确认。不自动批准任何操作。"
+    },
+    "conservative": {
+      "label": "保守",
+      "description": "自动批准低风险操作，例如网络搜索以及在其自身工作区中读写文件。"
+    },
+    "relaxed": {
+      "label": "宽松",
+      "description": "自动批准低风险与中等风险操作，例如修改其工作区之外的文件。"
+    },
+    "fullAccess": {
+      "label": "完全访问",
+      "description": "自动批准所有操作，包括高风险和无法识别的命令。助手将绝不请求权限确认。"
     }
   }
 }

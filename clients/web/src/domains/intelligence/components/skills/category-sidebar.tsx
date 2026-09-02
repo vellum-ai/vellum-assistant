@@ -26,8 +26,11 @@ export function CategorySidebar({
   ariaLabel,
 }: CategorySidebarProps) {
   const { t } = useTranslation("intelligence");
+  const getCategoryLabel = (cat: CategoryInfo) =>
+    t(`categories.${cat.slug}`, cat.label);
+
   const sortedCategories = [...categories].sort((a, b) =>
-    a.label.localeCompare(b.label),
+    getCategoryLabel(a).localeCompare(getCategoryLabel(b)),
   );
 
   return (
@@ -49,7 +52,7 @@ export function CategorySidebar({
           <CategoryRow
             key={cat.slug}
             icon={Icon}
-            label={cat.label}
+            label={getCategoryLabel(cat)}
             count={counts[cat.slug] ?? 0}
             isActive={selected === cat.slug}
             showCount={showCounts}
