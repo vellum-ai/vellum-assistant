@@ -26,7 +26,14 @@ export function RiskChip({ level }: { level?: string }) {
   }
   return (
     <Tooltip content={hint}>
-      <RiskBadge level={level} />
+      {/* `Tooltip` mounts its trigger with Radix `asChild`, which needs a child
+          that forwards the ref and spreads the props it is handed. `RiskBadge`
+          accepts only its own three props, so the trigger has to be a real
+          element wrapping it. Shipping this would be a good moment to let the
+          badge forward the rest of its props instead. */}
+      <span className="inline-flex">
+        <RiskBadge level={level} />
+      </span>
     </Tooltip>
   );
 }

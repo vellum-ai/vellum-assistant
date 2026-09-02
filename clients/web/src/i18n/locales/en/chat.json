@@ -1638,6 +1638,7 @@
   "toolDetailPanel": {
     "changes": "Changes",
     "closeAria": "Close tool details",
+    "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
     "output": "Output",

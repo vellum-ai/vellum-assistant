@@ -1588,6 +1588,7 @@
   "toolDetailPanel": {
     "changes": "Cambios",
     "closeAria": "Cerrar detalles de la herramienta",
+    "command": "Comando",
     "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
     "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "output": "Salida",

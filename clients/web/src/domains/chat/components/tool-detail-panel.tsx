@@ -13,20 +13,7 @@ import { useTranslation } from "@/i18n";
  * text via `useLiveThinkingText` (see `ThinkingDetailBody`).
  */
 
-import {
-  Bolt,
-  Brain,
-  Code,
-  FileText,
-  Globe,
-  Monitor,
-  Pen,
-  Plug,
-  Sparkles,
-  SquareTerminal,
-  UserPlus,
-  type LucideIcon,
-} from "lucide-react";
+import { Bolt, Brain } from "lucide-react";
 
 import { Notice, Typography } from "@vellumai/design-library";
 
@@ -37,10 +24,8 @@ import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
-import {
-  deriveStepLabelFromName,
-  type IconName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import {
   getRiskBadgeWeakStyle,
   getRiskNoticeTone,
@@ -51,25 +36,6 @@ import {
   isToolCallRunning,
 } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-
-/**
- * Concrete lucide icon for each `IconName` produced by `deriveStepLabel`.
- * Local copy of the map used by `phase-grouped-step-list` so this panel picks
- * a matching header glyph without importing card internals.
- */
-const ICON_MAP: Record<IconName, LucideIcon> = {
-  code: Code,
-  terminal: SquareTerminal,
-  file: FileText,
-  globe: Globe,
-  pen: Pen,
-  monitor: Monitor,
-  plug: Plug,
-  sparkle: Sparkles,
-  "user-plus": UserPlus,
-  bolt: Bolt,
-  brain: Brain,
-};
 
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
