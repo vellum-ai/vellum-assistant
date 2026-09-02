@@ -1,9 +1,9 @@
 /**
- * The desktop attention source publishes `app.attention` and nothing else.
- * A lifecycle edge from here would background every consumer that reads one,
- * including the SSE teardown that delivers the notifications a minimized
- * desktop app is waiting for, so the absence of `app.hidden` is pinned as
- * hard as the presence of `app.attention`.
+ * The desktop attention source publishes two channels off one payload:
+ * `app.attention` for whether the user is watching, and the lifecycle edge
+ * for whether the window is on screen. The edge is what gives the camera
+ * hardware back and drops Live capture consent on a minimize, so its presence
+ * is pinned as hard as the focus-only cases that must not publish one.
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -12,6 +12,7 @@ import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
 
 import * as eventBus from "@/lib/event-bus";
 import { publishElectronWindowAttentionSource } from "@/runtime/event-sources/electron-window-attention";
+import { __resetLifecycleEdgeForTests } from "@/runtime/event-sources/lifecycle-edge";
 
 const publishSpy = spyOn(eventBus, "publish");
 
@@ -53,6 +54,10 @@ function send(payload: unknown): void {
 }
 
 beforeEach(() => {
+  // The edge window is module state shared with every other source that
+  // publishes through it, so a case in another suite can otherwise swallow
+  // this one's first edge.
+  __resetLifecycleEdgeForTests();
   listener = null;
   unsubscribeCalls = 0;
   publishSpy.mockClear();
@@ -69,7 +74,7 @@ describe("publishElectronWindowAttentionSource", () => {
   // The consumers mount before this source starts, so a focused window whose
   // first report only seeded a baseline would leave them holding the
   // unattended default with no edge coming to correct it.
-  test("publishes the first payload rather than only seeding a baseline", () => {
+  test("publishes the first payload's attention rather than only seeding a baseline", () => {
     installBridge();
     start();
 
@@ -109,10 +114,8 @@ describe("publishElectronWindowAttentionSource", () => {
     ]);
   });
 
-  // Minimizing must not background the renderer. `app.hidden` tears the SSE
-  // stream down behind a five second grace, and the desktop has no push
-  // fallback, so every notification broadcast while minimized would be lost.
-  test("publishes no lifecycle edge when the window is minimized", () => {
+  // Minimizing is the edge the camera and Live capture consent come off.
+  test("publishes app.hidden when the window is minimized", () => {
     installBridge();
     start();
 
@@ -123,10 +126,11 @@ describe("publishElectronWindowAttentionSource", () => {
 
     expect(publishSpy.mock.calls).toEqual([
       ["app.attention", { attended: false }],
+      ["app.hidden", { signal: "window_attention" }],
     ]);
   });
 
-  test("publishes no lifecycle edge when the window is no longer visible", () => {
+  test("publishes app.hidden when the window is no longer visible", () => {
     installBridge();
     start();
 
@@ -137,10 +141,11 @@ describe("publishElectronWindowAttentionSource", () => {
 
     expect(publishSpy.mock.calls).toEqual([
       ["app.attention", { attended: false }],
+      ["app.hidden", { signal: "window_attention" }],
     ]);
   });
 
-  test("publishes no lifecycle edge when the window comes back on screen", () => {
+  test("publishes app.resume when the window comes back on screen", () => {
     installBridge();
     start();
 
@@ -152,6 +157,38 @@ describe("publishElectronWindowAttentionSource", () => {
 
     expect(publishSpy.mock.calls).toEqual([
       ["app.attention", { attended: true }],
+      ["app.resume", { signal: "window_attention" }],
+    ]);
+  });
+
+  // A window sitting visible behind another app is still showing the
+  // transcript, so a focus change must not background this renderer.
+  test("publishes no lifecycle edge for a focus change that keeps the window on screen", () => {
+    installBridge();
+    start();
+
+    send(ATTENDED);
+    send({ visible: true, focused: false, minimized: false });
+    send(ATTENDED);
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: true }],
+      ["app.attention", { attended: false }],
+      ["app.attention", { attended: true }],
+    ]);
+  });
+
+  // The first payload is the current state rather than a transition into it,
+  // so nothing is backgrounded or foregrounded by a window merely reporting
+  // where it already was.
+  test("seeds the on-screen baseline from the first payload without an edge", () => {
+    installBridge();
+    start();
+
+    send({ visible: false, focused: false, minimized: true });
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["app.attention", { attended: false }],
     ]);
   });
 
@@ -167,7 +204,7 @@ describe("publishElectronWindowAttentionSource", () => {
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
-  test("reports a payload the contract cannot read as unattended", () => {
+  test("reports a payload the contract cannot read as unattended, with no edge", () => {
     installBridge();
     start();
 
@@ -197,6 +234,7 @@ describe("publishElectronWindowAttentionSource", () => {
     expect(unsubscribeCalls).toBe(1);
 
     publishSpy.mockClear();
+    __resetLifecycleEdgeForTests();
     start();
     send(ATTENDED);
 

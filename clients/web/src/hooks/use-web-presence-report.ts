@@ -52,10 +52,10 @@
  * `IDLE_THRESHOLD_MS` stops counting and its report ages out of the daemon's
  * TTL, restoring the push. This mirrors the desktop reporter, which derives
  * attendance from system idle time for the same reason. A desktop window that
- * loses focus without leaving the screen does not wait out that aging: the
- * desktop publishes no lifecycle edge at all, since `app.hidden` means
- * backgrounded to the consumers that tear down the camera and the stream on
- * it, and reports off `app.attention` instead.
+ * loses focus without leaving the screen does not wait out that aging: losing
+ * focus is not a lifecycle edge, since `app.hidden` means backgrounded to the
+ * consumers that give the camera hardware back, so that case reports off
+ * `app.attention` instead.
  *
  * A locked screen is the one state neither of those catches: the window stays
  * visible, focused and unminimized behind the lock, and the idle clock only
@@ -64,8 +64,9 @@
  * once, so the reply goes to the phone the user just walked away with. The
  * latch is what makes that last. A one-shot report would be undone by the next
  * reconciliation tick, which asks the window where it is and hears "visible,
- * focused, unminimized" from behind the lock screen. Only `power.unlock`
- * clears it: see {@link machineAway}.
+ * focused, unminimized" from behind the lock screen. The two latch separately
+ * and clear on their own edge, `power.unlock` and `power.resume`: see
+ * {@link screenLocked} and {@link systemSuspended}.
  *
  * The reconciliation tick exists because the daemon's presence gate is
  * TTL-bound (`WEB_PRESENCE_STALE_AFTER_MS` in
@@ -127,37 +128,59 @@ function hasRecentInput(lastInteractionAt: number): boolean {
 }
 
 /**
- * Whether the desktop machine is locked or asleep, latched until an unlock
- * edge clears it.
+ * Whether the desktop screen is locked, latched until an unlock edge clears it.
  *
  * Module scope because it describes the machine this renderer runs on rather
  * than any one mount, and because a lock outlives whatever component tree
- * happens to be up. Off Electron it is never set: `power.lock` and
- * `power.suspend` have one publisher, `runtime/event-sources/electron-power.ts`,
- * and the runtime wrapper under it no-ops in a browser and in the Capacitor
- * shell.
+ * happens to be up. Off Electron it is never set: `power.lock` has one
+ * publisher, `runtime/event-sources/electron-power.ts`, and the runtime
+ * wrapper under it no-ops in a browser and in the Capacitor shell.
+ *
+ * `power.resume` deliberately leaves this alone. A machine that wakes from
+ * sleep on macOS or Windows wakes to its lock screen, so clearing here on a
+ * wake would hand the reconciliation tick back the "visible" answer the latch
+ * exists to override, and suppression would resume for the rest of the idle
+ * window with nobody at the machine. A latch left set by a missed unlock errs
+ * the safe way instead: this client reports away, the daemon suppresses
+ * nothing, and the push reaches the phone.
+ */
+let screenLocked = false;
+
+/**
+ * Whether the machine is suspended, latched until it wakes.
+ *
+ * Tracked apart from {@link screenLocked} because the two edges clear on
+ * different signals. Electron only emits `unlock-screen` on macOS and Windows,
+ * so a single flag set by both `power.lock` and `power.suspend` and cleared by
+ * `power.unlock` alone would latch a Linux desktop away on its first system
+ * sleep and report `visible: false` for the life of the renderer, sending a
+ * redundant push to the phone for every reply after it. `power.resume` clears
+ * this one, and a machine that woke to a lock screen stays away on the other.
+ */
+let systemSuspended = false;
+
+/**
+ * Whether the user is away from the machine this renderer runs on, because the
+ * screen is locked, the machine is suspended, or both.
  *
  * Every presence read has to consult this, because none of the underlying
  * signals can see a lock screen: the window behind one still reports visible,
  * focused and unminimized, and the SSE heartbeat keeps proving the transport is
  * fine.
- *
- * Only `power.unlock` clears it. A machine that wakes from sleep wakes to its
- * lock screen, so clearing on `power.resume` would hand the reconciliation tick
- * back the "visible" answer this exists to override, and suppression would
- * resume for the rest of the idle window with nobody at the machine. A latch
- * left set by a missed unlock errs the safe way instead: this client reports
- * away, the daemon suppresses nothing, and the push reaches the phone.
  */
-let machineAway = false;
+function isMachineAway(): boolean {
+  return screenLocked || systemSuspended;
+}
 
 /**
- * Whether this client currently counts as presence: the machine unlocked, this
- * client on screen, and the user having touched it inside
+ * Whether this client currently counts as presence: the user at the machine,
+ * this client on screen, and the user having touched it inside
  * {@link IDLE_THRESHOLD_MS}.
  */
 function isPresent(lastInteractionAt: number): boolean {
-  return !machineAway && isVisibleToUser() && hasRecentInput(lastInteractionAt);
+  return (
+    !isMachineAway() && isVisibleToUser() && hasRecentInput(lastInteractionAt)
+  );
 }
 
 /**
@@ -217,7 +240,7 @@ let queued: {
  * Only the newest report survives the wait: a superseded body describes a
  * state that is already wrong by the time it could be sent.
  *
- * A latched {@link machineAway} overrides whatever the caller computed. Every
+ * A latched {@link isMachineAway} overrides whatever the caller computed. Every
  * report goes through here, so clamping once is what keeps the handlers that
  * answer from a window signal rather than from {@link isPresent}
  * (`app.attention`, `app.resume`, and the input listener) from reporting a
@@ -231,7 +254,7 @@ function reportWebPresence(
   queued = {
     assistantId,
     buildKey,
-    body: machineAway ? { ...body, visible: false } : body,
+    body: isMachineAway() ? { ...body, visible: false } : body,
   };
   if (flushing) {
     return;
@@ -254,7 +277,8 @@ function reportWebPresence(
 export function __resetWebPresenceQueueForTests(): void {
   flushing = false;
   queued = null;
-  machineAway = false;
+  screenLocked = false;
+  systemSuspended = false;
   routeMissingBuilds.clear();
 }
 
@@ -375,23 +399,29 @@ export function useWebPresenceReport(assistantId: string | null): void {
   });
 
   useBusSubscription("power.lock", () => {
-    machineAway = true;
+    screenLocked = true;
     reportAway();
   });
 
   useBusSubscription("power.suspend", () => {
-    machineAway = true;
+    systemSuspended = true;
     reportAway();
   });
 
   useBusSubscription("power.unlock", () => {
-    machineAway = false;
+    // An unlock is the user standing at the machine, so it clears both: a
+    // sleep whose wake was never reported cannot outlive the person typing
+    // their password.
+    screenLocked = false;
+    systemSuspended = false;
     reportPresence();
   });
 
   useBusSubscription("power.resume", () => {
-    // Leaves the latch alone on purpose: a machine wakes to its lock screen,
-    // so waking is not evidence the user is back. See {@link machineAway}.
+    // Clears the suspend it answers and leaves the lock alone: a machine
+    // wakes to its lock screen, so waking is not evidence the user is back.
+    // See {@link screenLocked}.
+    systemSuspended = false;
     reportPresence();
   });
 

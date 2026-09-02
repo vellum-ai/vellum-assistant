@@ -1178,6 +1178,76 @@ describe("useWebPresenceReport: Electron renderer", () => {
       });
     });
 
+    // Electron only emits `unlock-screen` on macOS and Windows, so a suspend
+    // that latched against the unlock edge would strand a Linux desktop away
+    // for the life of the renderer and push every reply to the phone.
+    test("a wake from suspend lets reconciliation report visible again", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      act(() => {
+        publish("power.resume", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // A machine that slept behind its lock screen wakes back to it, so the
+    // wake clears only the half it answers.
+    test("a wake from a suspend taken behind a lock stays away", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      act(() => {
+        publish("power.resume", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    // The user typing their password is the one signal that settles both.
+    test("an unlock after a suspend with no wake reports visible again", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("power.unlock", {});
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
     test("an unlock lets reconciliation report visible again", async () => {
       renderReportAt("assistant-1", routes.conversation("conv-1"));
       await flushPresence();

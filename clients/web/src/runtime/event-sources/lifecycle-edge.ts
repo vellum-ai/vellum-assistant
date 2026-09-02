@@ -9,6 +9,12 @@
  * twice. The bus therefore delivers at most one `app.resume` and one
  * `app.hidden` per physical edge for that pair.
  *
+ * `signal: "window_attention"`
+ * (`runtime/event-sources/electron-window-attention.ts`) has no second source
+ * to collapse against. It is the desktop renderer's only report of this edge,
+ * since the DOM source cannot fire under Electron, and it routes through here
+ * so the window it shares with the other two is honoured.
+ *
  * The first source to reach an edge wins it, and its `signal` label is the
  * one subscribers see. Which of the two arrives first is not fixed, so
  * consumers must treat `"visibility"` and `"app_state"` as interchangeable
@@ -32,7 +38,7 @@ const LIFECYCLE_EDGE_DEDUP_MS = 1_000;
 type LifecycleEdge = "resume" | "hidden";
 
 /** The signal sources that can describe a single lifecycle edge. */
-type LifecycleEdgeSignal = "visibility" | "app_state";
+type LifecycleEdgeSignal = "visibility" | "app_state" | "window_attention";
 
 let lastEdge: LifecycleEdge | null = null;
 let lastAt = 0;
