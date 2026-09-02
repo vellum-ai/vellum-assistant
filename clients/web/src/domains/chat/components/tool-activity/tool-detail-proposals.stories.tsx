@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
-import { Notice } from "@vellumai/design-library";
+import { Notice, Typography } from "@vellumai/design-library";
 
 import { SectionLabel } from "@/components/detail-primitives";
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
@@ -17,6 +17,7 @@ import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail"
 import { FileEditDetail } from "@/domains/chat/components/tool-activity/file-edit-detail";
 import { RiskChip } from "@/domains/chat/components/tool-activity/risk-chip";
 import { ToolMetaRow } from "@/domains/chat/components/tool-activity/tool-meta-row";
+import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
 import { ToolDetailPanel } from "@/domains/chat/components/tool-detail-panel";
 import {
   getRiskBadgeWeakStyle,
@@ -87,16 +88,87 @@ type Story = StoryObj;
 function Proposed({
   detail,
   Glyph,
+  variant = "row",
   children,
 }: {
   detail: ToolDetailPayload;
   Glyph: typeof FileText;
+  /**
+   * Where the tool name and its risk sit. `row` puts them under the header;
+   * `header` folds them into it, which drops the second copy of the glyph.
+   */
+  variant?: "row" | "header" | "subtitle";
   children: React.ReactNode;
 }) {
+  const title = detail.activity || detail.title;
+  if (variant === "subtitle") {
+    return (
+      <DetailShell
+        Glyph={Glyph}
+        titleNode={
+          <div className="min-w-0 py-0.5">
+            <Typography
+              variant="title-medium"
+              as="div"
+              className="truncate leading-snug text-[var(--content-default)]"
+            >
+              {title}
+            </Typography>
+            <div className="mt-0.5 flex min-w-0 items-center gap-2">
+              <Typography
+                variant="body-small-lighter"
+                as="span"
+                className="truncate text-[var(--content-tertiary)]"
+              >
+                {friendlyName(detail.toolName)}
+              </Typography>
+              <RiskChip level={detail.riskLevel} />
+            </div>
+          </div>
+        }
+        closeLabel="Close"
+        closeVariant="outlined"
+        onClose={() => {}}
+      >
+        {children}
+      </DetailShell>
+    );
+  }
+  if (variant === "header") {
+    return (
+      <DetailShell
+        Glyph={Glyph}
+        titleNode={
+          <div className="min-w-0 py-0.5">
+            <Typography
+              variant="title-medium"
+              as="div"
+              className="truncate leading-snug text-[var(--content-default)]"
+            >
+              {title}
+            </Typography>
+            <Typography
+              variant="body-small-lighter"
+              as="div"
+              className="truncate text-[var(--content-tertiary)]"
+            >
+              {friendlyName(detail.toolName)}
+            </Typography>
+          </div>
+        }
+        headerTrailing={<RiskChip level={detail.riskLevel} />}
+        closeLabel="Close"
+        closeVariant="outlined"
+        onClose={() => {}}
+      >
+        {children}
+      </DetailShell>
+    );
+  }
   return (
     <DetailShell
       Glyph={Glyph}
-      title={detail.activity || detail.title}
+      title={title}
       closeLabel="Close"
       closeVariant="outlined"
       onClose={() => {}}
@@ -248,6 +320,80 @@ export const RiskProposed: Story = {
           <RiskChip key={level} level={level} />
         ))}
       </div>
+    </Proposed>
+  ),
+};
+
+// ---------------------------------------------------------------------------
+// Where the tool name and risk sit
+// ---------------------------------------------------------------------------
+
+/**
+ * The glyph appears twice in the row variant: once in the header, once again
+ * directly beneath it in the meta row. Folding the tool name into the header as
+ * a subtitle and moving the pill to the header's trailing slot leaves one
+ * glyph, one place naming the call, and no row between the header and the
+ * substance.
+ */
+export const BashToolInHeader: Story = {
+  render: () => (
+    <Proposed detail={bashDetail} Glyph={SquareTerminal} variant="header">
+      <BashDetail
+        detail={bashDetail}
+        result={bashDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />
+    </Proposed>
+  ),
+};
+
+/** The same treatment on a file edit. */
+export const FileEditToolInHeader: Story = {
+  render: () => (
+    <Proposed detail={fileEditDetail} Glyph={FileText} variant="header">
+      <FileEditDetail
+        detail={fileEditDetail}
+        result={fileEditDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />
+    </Proposed>
+  ),
+};
+
+/**
+ * The pill on the tool-name line rather than the header's trailing slot, so the
+ * activity sentence keeps the panel's full width instead of truncating to make
+ * room for it.
+ */
+export const BashToolInSubtitle: Story = {
+  render: () => (
+    <Proposed detail={bashDetail} Glyph={SquareTerminal} variant="subtitle">
+      <BashDetail
+        detail={bashDetail}
+        result={bashDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />
+    </Proposed>
+  ),
+};
+
+/** The same treatment on a file edit. */
+export const FileEditToolInSubtitle: Story = {
+  render: () => (
+    <Proposed detail={fileEditDetail} Glyph={FileText} variant="subtitle">
+      <FileEditDetail
+        detail={fileEditDetail}
+        result={fileEditDetail.result}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError={false}
+      />
     </Proposed>
   ),
 };
