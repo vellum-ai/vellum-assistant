@@ -32,6 +32,12 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 const ipcThrowOn = new Map<string, Error>();
 
 /**
+ * What `contact_prompt_flags` reports the parked form was opened with: the
+ * verify flag and the contact the command targeted. Set per test.
+ */
+let parkedFlags: Record<string, unknown> = {};
+
+/**
  * The gateway claims a form before writing, so every submission in this suite
  * needs the claim granted unless the test is about losing it. Shared with the
  * per-test overrides below so none of them can drop it by omission.
@@ -39,6 +45,9 @@ const ipcThrowOn = new Map<string, Error>();
 function defaultIpcResponse(method: string): Record<string, unknown> {
   if (method === "contact_prompt_claim") {
     return { claimed: true, settleMs: 180_000 };
+  }
+  if (method === "contact_prompt_flags") {
+    return { ...parkedFlags };
   }
   return { resolved: true };
 }
@@ -143,6 +152,7 @@ beforeEach(() => {
     return defaultIpcResponse(method);
   });
   ipcThrowOn.clear();
+  parkedFlags = {};
 
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
@@ -216,12 +226,7 @@ describe("handleContactPromptSubmit", () => {
 
   test("guardian prompt — --verify attests the submitted channel", async () => {
     seedGuardian();
-    ipcMock.mockImplementation(async (method: string) => {
-      if (method === "contact_prompt_flags") {
-        return { resolved: true, verify: true };
-      }
-      return defaultIpcResponse(method);
-    });
+    parkedFlags = { verify: true };
 
     const res = await handleContactPromptSubmit(
       makeRequest({
@@ -314,15 +319,10 @@ describe("handleContactPromptSubmit", () => {
     expect(callsFor(ipcMock, "resolve_contact_prompt")).toHaveLength(0);
   });
 
-  test("submitted verify:true attests without reading the parked flag", async () => {
+  test("submitted verify:true attests over a parked flag that says no", async () => {
     seedGuardian();
     // The parked flag says no. The form says yes, and the form is the answer.
-    ipcMock.mockImplementation(async (method: string) => {
-      if (method === "contact_prompt_flags") {
-        return { resolved: true, verify: false };
-      }
-      return defaultIpcResponse(method);
-    });
+    parkedFlags = { verify: false };
 
     const res = await handleContactPromptSubmit(
       makeRequest({
@@ -341,7 +341,6 @@ describe("handleContactPromptSubmit", () => {
       .where(eq(gwContactChannels.address, "+12025550143"))
       .get();
     expect(channel!.verifiedVia).toBe("manual");
-    expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
   });
 
   test("the resolve reports what the channel actually is, not what was asked", async () => {
@@ -424,12 +423,7 @@ describe("handleContactPromptSubmit", () => {
   test("submitted verify:false leaves the channel unverified even when the command asked for --verify", async () => {
     seedGuardian();
     // The guardian unchecked the box the command pre-checked. Their answer wins.
-    ipcMock.mockImplementation(async (method: string) => {
-      if (method === "contact_prompt_flags") {
-        return { resolved: true, verify: true };
-      }
-      return defaultIpcResponse(method);
-    });
+    parkedFlags = { verify: true };
 
     const res = await handleContactPromptSubmit(
       makeRequest({
@@ -448,7 +442,6 @@ describe("handleContactPromptSubmit", () => {
       .where(eq(gwContactChannels.address, "+12025550144"))
       .get();
     expect(channel!.verifiedVia).toBeNull();
-    expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
   });
 
   test("guardian prompt — reuses channel already bound to guardian", async () => {
@@ -1151,5 +1144,228 @@ describe("handleContactPromptSubmit", () => {
 
     // Committed bind on an existing guardian — caches invalidated despite 500.
     expectEmittedContactsChanged(ipcMock);
+  });
+  // -------------------------------------------------------------------------
+  // Targeted binds: the parked form says which contact the address is for.
+  // -------------------------------------------------------------------------
+
+  function seedContact(id: string, name: string): void {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(gwContacts)
+      .values({
+        id,
+        displayName: name,
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  function seedChannel(id: string, contactId: string, address: string): void {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(gwContactChannels)
+      .values({
+        id,
+        contactId,
+        type: "email",
+        address,
+        isPrimary: true,
+        status: "unverified",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  test("targeted bind: attaches the channel to the contact the form named", async () => {
+    seedContact("c-alice", "Alice");
+    parkedFlags = { contactId: "c-alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target",
+        address: "alice.work@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+
+    // The address joins the named contact instead of minting a duplicate
+    // named after itself.
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    const channels = getGatewayDb().select().from(gwContactChannels).all();
+    expect(channels).toHaveLength(1);
+    expect(channels[0].contactId).toBe("c-alice");
+
+    const ipcCall = resolveCall(ipcMock);
+    expect(ipcCall.body.contactId).toBe("c-alice");
+    expect(ipcCall.body.channelId).toBe(channels[0].id);
+    expectEmittedContactsChanged(ipcMock);
+  });
+
+  test("targeted bind: reuses a channel the target already holds", async () => {
+    seedContact("c-alice", "Alice");
+    seedChannel("chan-alice", "c-alice", "alice@example.com");
+    parkedFlags = { contactId: "c-alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-reuse",
+        address: "alice@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const channels = getGatewayDb().select().from(gwContactChannels).all();
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe("chan-alice");
+    expect(resolveCall(ipcMock).body.channelId).toBe("chan-alice");
+  });
+
+  test("targeted bind: 409 naming the contact the address belongs to", async () => {
+    seedContact("c-alice", "Alice");
+    seedContact("c-bob", "Bob");
+    seedChannel("chan-bob", "c-bob", "bob@example.com");
+    parkedFlags = { contactId: "c-alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-conflict",
+        address: "bob@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toContain('"Bob"');
+    expect(body.error).toContain("c-bob");
+    expect(body.error).toContain("assistant contacts merge");
+
+    // Nothing moved: the channel still belongs to Bob and no channel was
+    // minted for the target.
+    const channels = getGatewayDb().select().from(gwContactChannels).all();
+    expect(channels).toHaveLength(1);
+    expect(channels[0].contactId).toBe("c-bob");
+    expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
+    expect(typeof resolveCall(ipcMock).body.error).toBe("string");
+    expectNoEmit(ipcMock);
+  });
+
+  test("targeted bind: 404 for an id no contact has, minting nothing", async () => {
+    parkedFlags = { contactId: "no-such-contact" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-missing",
+        address: "ghost@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toContain("no-such-contact");
+    expect(body.error).toContain("assistant contacts list");
+
+    // An unknown explicit id is an INSERT in ContactStore, so the guard is
+    // what keeps a typo from minting a contact named after the address.
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expectNoEmit(ipcMock);
+  });
+
+  test("targeted bind: an unreadable parked target falls back to the client's echo", async () => {
+    seedContact("c-alice", "Alice");
+    ipcThrowOn.set("contact_prompt_flags", new Error("daemon unreachable"));
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-echo",
+        address: "alice.echo@example.com",
+        channelType: "email",
+        contactId: "c-alice",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    const channels = getGatewayDb().select().from(gwContactChannels).all();
+    expect(channels).toHaveLength(1);
+    expect(channels[0].contactId).toBe("c-alice");
+  });
+
+  test("named create: the contact takes the proposed name and notes, not the address", async () => {
+    parkedFlags = { displayName: "Alice", notes: "Neighbour" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-named-create",
+        address: "alice@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const contacts = getGatewayDb().select().from(gwContacts).all();
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].displayName).toBe("Alice");
+
+    // Notes are assistant-owned, so they reach the DB over the mirror op.
+    const mirror = callsFor(ipcMock, "contacts_mirror_upsert_full");
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body.displayName).toBe("Alice");
+    expect(mirror[0].body.notes).toBe("Neighbour");
+  });
+
+  test("named create: the name the guardian left in the form wins over the parked one", async () => {
+    parkedFlags = { displayName: "Alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-named-edited",
+        address: "alice.edited@example.com",
+        channelType: "email",
+        displayName: "Alice Green",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const contacts = getGatewayDb().select().from(gwContacts).all();
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].displayName).toBe("Alice Green");
+  });
+
+  test("named create: 409 rather than renaming the contact that holds the address", async () => {
+    seedContact("c-bob", "Bob");
+    seedChannel("chan-bob", "c-bob", "bob@example.com");
+    parkedFlags = { displayName: "Alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-named-conflict",
+        address: "bob@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toContain('"Bob"');
+
+    // An upsert matching on the channel would have renamed Bob to Alice.
+    const contacts = getGatewayDb().select().from(gwContacts).all();
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].displayName).toBe("Bob");
+    expectNoEmit(ipcMock);
   });
 });

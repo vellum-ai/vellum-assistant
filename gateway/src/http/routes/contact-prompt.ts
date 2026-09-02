@@ -101,6 +101,11 @@ interface ContactPromptSubmitBody {
    * {@link promptWantsVerify}).
    */
   verify?: boolean;
+  /**
+   * The contact the broadcast named as the binding target, echoed back. The
+   * parked form is authoritative; this stands in when it cannot be read.
+   */
+  contactId?: string;
   /** The guardian dismissed the form. Unblocks the waiting call without writing. */
   cancelled?: boolean;
 }
@@ -128,6 +133,10 @@ export async function handleContactPromptSubmit(
   // value through to the NOT NULL display_name column (which would 500).
   const displayName =
     typeof body.displayName === "string" ? body.displayName : undefined;
+  // A non-string contactId reads as omitted, leaving the parked form to say
+  // what this submission binds to.
+  const echoedContactId =
+    typeof body.contactId === "string" ? body.contactId : undefined;
 
   if (!requestId || typeof requestId !== "string") {
     return Response.json(
@@ -172,9 +181,43 @@ export async function handleContactPromptSubmit(
         channelType,
         role,
         displayName,
+        contactId: echoedContactId,
         verify: body.verify,
       }),
   });
+}
+
+/**
+ * What the parked form says this submission is for.
+ *
+ * Read from the daemon rather than taken from the client, so a client that
+ * does not send the target fields still binds where the command said. Returns
+ * null when the daemon could not be reached; the caller then falls back to
+ * whatever the client echoed.
+ */
+async function readParkedPromptTarget(requestId: string): Promise<{
+  verify?: boolean;
+  contactId?: string;
+  displayName?: string;
+  notes?: string;
+} | null> {
+  try {
+    const result = await ipcCallAssistant("contact_prompt_flags", {
+      body: { requestId },
+    });
+    return result as {
+      verify?: boolean;
+      contactId?: string;
+      displayName?: string;
+      notes?: string;
+    };
+  } catch (err) {
+    log.warn(
+      { err, requestId },
+      "contact-prompt-submit: contact_prompt_flags IPC failed; falling back to what the client submitted",
+    );
+    return null;
+  }
 }
 
 /**
@@ -189,280 +232,456 @@ async function bindSubmittedChannel(input: {
   channelType: string;
   role?: "guardian" | "trusted-contact" | "unknown";
   displayName?: string;
+  contactId?: string;
   verify?: boolean;
 }): Promise<GuardianFormWriteOutcome> {
   const { requestId, address, channelType, role, displayName } = input;
 
   const normalizedAddress =
     canonicalizeInboundIdentity(channelType, address) ?? address.trim();
-  const effectiveDisplayName = displayName ?? normalizedAddress;
-  const isGuardian = role === "guardian";
-  const now = Date.now();
 
-  let contactId: string;
-  let channelId: string;
+  const parked = await readParkedPromptTarget(requestId);
+  const parkedVerify = parked?.verify;
+  // The command fixes the target and the form cannot edit it, so the parked
+  // value leads and the client's echo stands in for a read that failed. The
+  // name is the form's own field, so the submitted one leads and the parked
+  // value stands in for a client with nowhere to type it.
+  const targetContactId = parked?.contactId ?? input.contactId;
+  const proposedName = displayName ?? parked?.displayName;
+  const proposedNotes = parked?.notes;
+
+  if (parked === null && !input.contactId) {
+    log.error(
+      { requestId, channelType, address: normalizedAddress },
+      "contact-prompt-submit: the parked target is unreadable and the client echoed none; resolving the contact from the address",
+    );
+  }
 
   try {
-    // -----------------------------------------------------------------------
-    // Phase 1: Resolve contact
-    //
-    // Guardian prompts always bind to the existing guardian contact — there
-    // must only ever be one.  Non-guardian prompts reuse an existing contact
-    // (found via a matching channel address) or create a new one.
-    // -----------------------------------------------------------------------
-    let createdNewContact = false;
-
-    if (isGuardian) {
-      // Guardian lives in the gateway DB (source of truth). Resolve from the
-      // gateway DB, not the assistant mirror.
-      const guardianRow = getGatewayDb()
-        .select({ id: gwContacts.id })
-        .from(gwContacts)
-        .where(eq(gwContacts.role, "guardian"))
-        .orderBy(asc(gwContacts.createdAt))
-        .get();
-      if (guardianRow) {
-        contactId = guardianRow.id;
-      } else {
-        // Bootstrap hasn't run yet — create the guardian contact gateway-first.
-        // upsertContact can't be used here: its create path forces
-        // role="contact". Guardian role writes stay raw per the
-        // ContactStore.upsertContact SECURITY note, but hit the gateway DB
-        // (source of truth) first, then mirror to the assistant DB best-effort.
-        log.warn(
-          { channelType, address: normalizedAddress },
-          "contact-prompt-submit: no guardian contact found, creating one",
-        );
-        contactId = crypto.randomUUID();
-        createdNewContact = true;
-        getGatewayDb()
-          .insert(gwContacts)
-          .values({
-            id: contactId,
-            displayName: effectiveDisplayName,
-            role: "guardian",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoNothing()
-          .run();
-        try {
-          await ipcCallAssistant("contacts_mirror_upsert_contact", {
-            body: {
-              contactId,
-              displayName: effectiveDisplayName,
-              contactType: "human",
-            },
-          });
-        } catch (mirrorErr) {
-          log.warn(
-            { err: mirrorErr },
-            "contact-prompt-submit: assistant DB guardian contact mirror INSERT failed",
-          );
-        }
-      }
-    } else {
-      // Non-guardian: resolve/create the contact + channel gateway-first via
-      // ContactStore.upsertContact. The gateway DB is the source of truth; the
-      // assistant DB receives a best-effort mirror.
-      const store = getStore();
-      const { contact } = await store.upsertContact({
-        // omit-to-preserve: pass the caller's optional displayName, NOT
-        // effectiveDisplayName. An existing contact keeps its name; a brand-new
-        // contact falls back to the canonical channel address inside upsertContact.
-        displayName,
-        channels: [
-          { type: channelType, address: normalizedAddress, isPrimary: true },
-        ],
-      });
-      contactId = contact.id;
-
-      // Invalidate the daemon guardian-id/role caches after the committed
-      // gateway contact write — before the read-back guard, so a
-      // resolveChannelId miss still drops the stale caches.
-      void ipcCallAssistant("emit_event", {
-        body: { kind: "contacts_changed" },
-      } as unknown as Record<string, unknown>).catch(() => {});
-
-      channelId = resolveChannelId(contactId, channelType, normalizedAddress);
-
-      log.info(
-        { channelType, address: normalizedAddress, contactId, channelId },
-        "contact-prompt-submit: upserted contact + channel via ContactStore",
-      );
-
-      if (!channelId) {
-        log.error(
-          { channelType, address: normalizedAddress, contactId },
-          "contact-prompt-submit: channel resolution failed after upsert",
-        );
-        return CHANNEL_RESOLUTION_FAILED;
-      }
-
-      // Non-guardian is fully resolved by upsertContact; skip the guardian-only
-      // Phase 2 channel-creation block below and go straight to resolve.
-      return await channelResolution({
+    if (role === "guardian") {
+      return await bindGuardianChannel({
         requestId,
-        contactId,
-        channelId,
         channelType,
         address: normalizedAddress,
+        displayName,
         verify: input.verify,
+        parkedVerify,
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Phase 2: Resolve channel
-    //
-    // If a channel for (type, address) already points to our contact, reuse it.
-    // If it points to a different contact and we are binding as guardian, that
-    // is a conflict the caller must resolve — return 409.  Otherwise create a
-    // new channel bound to the resolved contact.
-    // -----------------------------------------------------------------------
-    const existingChannel = getGatewayDb()
-      .select({
-        id: gwContactChannels.id,
-        contactId: gwContactChannels.contactId,
-      })
-      .from(gwContactChannels)
-      .where(
-        and(
-          eq(gwContactChannels.type, channelType),
-          sql`${gwContactChannels.address} = ${normalizedAddress} COLLATE NOCASE`,
-        ),
-      )
-      .get();
+    // The target's row is checked first because upsertContact INSERTs an
+    // unknown explicit id, which would mint a stray contact for a typo'd one.
+    if (targetContactId) {
+      const target = getStore().getContact(targetContactId);
 
-    if (existingChannel && existingChannel.contactId === contactId) {
-      // Reuse is success-guaranteed: the gateway channel already belongs to
-      // this guardian. Best-effort heal the assistant-DB mirror (passing the
-      // guardian's id keeps the gateway DB authoritative for role="guardian").
-      // The gateway-side syncChannels UPDATE here is incidental — the real
-      // purpose is recovering a stale mirror — so a transient gateway error
-      // must never fail the request.
-      try {
-        await getStore().upsertContact({
-          id: contactId,
-          channels: [
-            { type: channelType, address: normalizedAddress, isPrimary: true },
-          ],
-        });
-      } catch (healErr) {
+      if (!target) {
         log.warn(
-          { err: healErr, contactId, channelType, address: normalizedAddress },
-          "contact-prompt-submit: guardian reuse mirror-heal failed (best-effort), continuing with existing channel",
+          { requestId, contactId: targetContactId, channelType },
+          "contact-prompt-submit: the form's target contact does not exist",
         );
-      }
-      channelId = existingChannel.id;
-      log.info(
-        { channelType, address: normalizedAddress, contactId, channelId },
-        "contact-prompt-submit: channel already exists",
-      );
-    } else if (existingChannel) {
-      // Channel exists but belongs to a different contact.  The caller must
-      // clean up the stale binding before a guardian channel can be created.
-      log.warn(
-        {
-          channelType,
-          address: normalizedAddress,
-          contactId,
-          existingContactId: existingChannel.contactId,
-        },
-        "contact-prompt-submit: channel already assigned to another contact",
-      );
-      return {
-        failure: {
-          error: "Channel already assigned to another contact",
-          status: 409,
-        },
-      };
-    } else {
-      // Compensating delete — only remove the contact if we created it here.
-      // "Stale over lost": delete gateway-first, then mirror the delete to
-      // the assistant DB best-effort. Used by both the bind-failure path and
-      // the empty-channelId guard below.
-      const rollbackCreatedContact = async (): Promise<void> => {
-        if (!createdNewContact) return;
-        getGatewayDb()
-          .delete(gwContacts)
-          .where(eq(gwContacts.id, contactId))
-          .run();
-        try {
-          await ipcCallAssistant("contacts_mirror_delete_contact", {
-            body: { contactId },
-          });
-        } catch (mirrorErr) {
-          log.warn(
-            { err: mirrorErr },
-            "contact-prompt-submit: assistant DB contact rollback mirror DELETE failed",
-          );
-        }
-      };
-
-      try {
-        // Bind gateway-first. Passing the guardian's id keys the update to the
-        // existing guardian; the gateway DB is authoritative for role="guardian"
-        // and the channel, and the assistant mirror carries identity/info only.
-        await getStore().upsertContact({
-          id: contactId,
-          channels: [
-            { type: channelType, address: normalizedAddress, isPrimary: true },
-          ],
-        });
-        channelId = resolveChannelId(contactId, channelType, normalizedAddress);
-      } catch (channelErr) {
-        log.error(
-          { channelErr, contactId, channelType },
-          "contact-prompt-submit: channel bind failed, rolling back contact",
-        );
-        await rollbackCreatedContact();
-
         return {
-          failure: { error: "Failed to create contact channel", status: 500 },
+          failure: {
+            error: `Contact "${targetContactId}" not found. Run 'assistant contacts list' to find contact ids.`,
+            status: 404,
+          },
         };
       }
 
-      if (!channelId) {
-        log.error(
-          { channelType, address: normalizedAddress, contactId },
-          "contact-prompt-submit: channel resolution failed after guardian bind, rolling back contact",
+      return await bindChannelToContact({
+        requestId,
+        contactId: target.id,
+        channelType,
+        address: normalizedAddress,
+        verify: input.verify,
+        parkedVerify,
+        conflictHint: MERGE_HINT,
+      });
+    }
+
+    // A proposed name creates the contact under it. An address another contact
+    // already holds is a conflict here, rather than the silent rename of that
+    // contact an upsert matching on the channel would do.
+    if (proposedName) {
+      const existingChannel = findChannelByAddress(
+        channelType,
+        normalizedAddress,
+      );
+      if (existingChannel) {
+        log.warn(
+          {
+            requestId,
+            channelType,
+            address: normalizedAddress,
+            existingContactId: existingChannel.contactId,
+          },
+          "contact-prompt-submit: the proposed contact's address belongs to another contact",
         );
-        await rollbackCreatedContact();
-        // A freshly-created guardian was just rolled back (net no change). An
-        // existing guardian's channel bind committed and is NOT rolled back, so
-        // invalidate the daemon caches even though the read-back missed.
-        if (!createdNewContact) {
-          void ipcCallAssistant("emit_event", {
-            body: { kind: "contacts_changed" },
-          } as unknown as Record<string, unknown>).catch(() => {});
-        }
-        return CHANNEL_RESOLUTION_FAILED;
+        return channelOwnedByAnotherContact(
+          existingChannel.contactId,
+          channelType,
+          MERGE_HINT,
+        );
       }
 
-      log.info(
-        { channelType, address: normalizedAddress, contactId, channelId },
-        "contact-prompt-submit: created new channel",
-      );
+      return await bindAddressToItsOwnContact({
+        requestId,
+        channelType,
+        address: normalizedAddress,
+        displayName: proposedName,
+        notes: proposedNotes,
+        verify: input.verify,
+        parkedVerify,
+      });
     }
+
+    return await bindAddressToItsOwnContact({
+      requestId,
+      channelType,
+      address: normalizedAddress,
+      displayName,
+      verify: input.verify,
+      parkedVerify,
+    });
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
     return { failure: { error: "Database error", status: 500 } };
   }
+}
+
+/**
+ * Bind the address to the guardian contact, minting that contact when
+ * bootstrap has not yet run. There must only ever be one.
+ */
+async function bindGuardianChannel(args: {
+  requestId: string;
+  channelType: string;
+  address: string;
+  displayName?: string;
+  verify: boolean | undefined;
+  parkedVerify: boolean | undefined;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, channelType, address, displayName } = args;
+
+  // The guardian lives in the gateway DB (source of truth), so resolve from
+  // there rather than from the assistant mirror.
+  const guardianRow = getGatewayDb()
+    .select({ id: gwContacts.id })
+    .from(gwContacts)
+    .where(eq(gwContacts.role, "guardian"))
+    .orderBy(asc(gwContacts.createdAt))
+    .get();
+
+  if (guardianRow) {
+    return await bindChannelToContact({
+      requestId,
+      contactId: guardianRow.id,
+      channelType,
+      address,
+      verify: args.verify,
+      parkedVerify: args.parkedVerify,
+      conflictHint: GUARDIAN_CONFLICT_HINT,
+    });
+  }
+
+  // Bootstrap has not run, so create the guardian contact gateway-first.
+  // upsertContact can't be used here: its create path forces role="contact".
+  // Guardian role writes stay raw per the ContactStore.upsertContact SECURITY
+  // note, but hit the gateway DB (source of truth) first, then mirror to the
+  // assistant DB best-effort.
+  log.warn(
+    { channelType, address },
+    "contact-prompt-submit: no guardian contact found, creating one",
+  );
+  const now = Date.now();
+  const contactId = crypto.randomUUID();
+  const effectiveDisplayName = displayName ?? address;
+  getGatewayDb()
+    .insert(gwContacts)
+    .values({
+      id: contactId,
+      displayName: effectiveDisplayName,
+      role: "guardian",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing()
+    .run();
+  try {
+    await ipcCallAssistant("contacts_mirror_upsert_contact", {
+      body: {
+        contactId,
+        displayName: effectiveDisplayName,
+        contactType: "human",
+      },
+    });
+  } catch (mirrorErr) {
+    log.warn(
+      { err: mirrorErr },
+      "contact-prompt-submit: assistant DB guardian contact mirror INSERT failed",
+    );
+  }
+
+  return await bindChannelToContact({
+    requestId,
+    contactId,
+    channelType,
+    address,
+    verify: args.verify,
+    parkedVerify: args.parkedVerify,
+    conflictHint: GUARDIAN_CONFLICT_HINT,
+    // Compensating delete for the contact this bind was created for.
+    // "Stale over lost": delete gateway-first, then mirror the delete to the
+    // assistant DB best-effort.
+    onRollback: async () => {
+      getGatewayDb()
+        .delete(gwContacts)
+        .where(eq(gwContacts.id, contactId))
+        .run();
+      try {
+        await ipcCallAssistant("contacts_mirror_delete_contact", {
+          body: { contactId },
+        });
+      } catch (mirrorErr) {
+        log.warn(
+          { err: mirrorErr },
+          "contact-prompt-submit: assistant DB contact rollback mirror DELETE failed",
+        );
+      }
+    },
+  });
+}
+
+/**
+ * Attach the address to a contact that already exists.
+ *
+ * A channel the contact already holds for the address is reused; one another
+ * contact holds is a conflict, since reassigning it would move an admitted
+ * address out from under whoever it belongs to.
+ *
+ * `onRollback` undoes a contact minted for this bind. Its absence is what
+ * makes a missed read-back still worth a cache invalidation: the contact
+ * predates the bind, so the committed channel write stands.
+ */
+async function bindChannelToContact(args: {
+  requestId: string;
+  contactId: string;
+  channelType: string;
+  address: string;
+  verify: boolean | undefined;
+  parkedVerify: boolean | undefined;
+  onRollback?: () => Promise<void>;
+  conflictHint: string;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, contactId, channelType, address, onRollback } = args;
+
+  const existingChannel = findChannelByAddress(channelType, address);
+  let channelId: string;
+
+  if (existingChannel && existingChannel.contactId === contactId) {
+    // Reuse is success-guaranteed: the gateway channel already belongs to this
+    // contact. Best-effort heal the assistant-DB mirror (passing the contact's
+    // id keys the update to it, keeping the gateway DB authoritative). The
+    // gateway-side syncChannels UPDATE here is incidental, the real purpose is
+    // recovering a stale mirror, so a transient gateway error must never fail
+    // the request.
+    try {
+      await getStore().upsertContact({
+        id: contactId,
+        channels: [{ type: channelType, address, isPrimary: true }],
+      });
+    } catch (healErr) {
+      log.warn(
+        { err: healErr, contactId, channelType, address },
+        "contact-prompt-submit: reuse mirror-heal failed (best-effort), continuing with existing channel",
+      );
+    }
+    channelId = existingChannel.id;
+    log.info(
+      { channelType, address, contactId, channelId },
+      "contact-prompt-submit: channel already exists",
+    );
+  } else if (existingChannel) {
+    log.warn(
+      {
+        channelType,
+        address,
+        contactId,
+        existingContactId: existingChannel.contactId,
+      },
+      "contact-prompt-submit: channel already assigned to another contact",
+    );
+    return channelOwnedByAnotherContact(
+      existingChannel.contactId,
+      channelType,
+      args.conflictHint,
+    );
+  } else {
+    try {
+      // Bind gateway-first. Passing the contact's id keys the update to the
+      // existing contact; the gateway DB is authoritative for the ACL fields
+      // and the channel, and the assistant mirror carries identity/info only.
+      await getStore().upsertContact({
+        id: contactId,
+        channels: [{ type: channelType, address, isPrimary: true }],
+      });
+      channelId = resolveChannelId(contactId, channelType, address);
+    } catch (channelErr) {
+      log.error(
+        { channelErr, contactId, channelType },
+        "contact-prompt-submit: channel bind failed",
+      );
+      await onRollback?.();
+
+      return {
+        failure: { error: "Failed to create contact channel", status: 500 },
+      };
+    }
+
+    if (!channelId) {
+      log.error(
+        { channelType, address, contactId },
+        "contact-prompt-submit: channel resolution failed after bind",
+      );
+      if (onRollback) {
+        // The contact this bind minted is gone with it, so the pair is a net
+        // no change and the daemon's caches never saw either.
+        await onRollback();
+      } else {
+        emitContactsChanged();
+      }
+      return CHANNEL_RESOLUTION_FAILED;
+    }
+
+    log.info(
+      { channelType, address, contactId, channelId },
+      "contact-prompt-submit: created new channel",
+    );
+  }
 
   // Invalidate the daemon guardian-id/role caches after a gateway-owned
-  // guardian bind/rebind/reuse.
-  void ipcCallAssistant("emit_event", {
-    body: { kind: "contacts_changed" },
-  } as unknown as Record<string, unknown>).catch(() => {});
+  // bind/rebind/reuse.
+  emitContactsChanged();
 
   return await channelResolution({
     requestId,
     contactId,
     channelId,
     channelType,
-    address: normalizedAddress,
-    verify: input.verify,
+    address,
+    verify: args.verify,
+    parkedVerify: args.parkedVerify,
   });
+}
+
+/**
+ * Resolve the address to the contact that owns it, creating one when nothing
+ * does. Gateway-first via ContactStore.upsertContact: the gateway DB is the
+ * source of truth; the assistant DB receives a best-effort mirror.
+ */
+async function bindAddressToItsOwnContact(args: {
+  requestId: string;
+  channelType: string;
+  address: string;
+  displayName?: string;
+  notes?: string;
+  verify: boolean | undefined;
+  parkedVerify: boolean | undefined;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, channelType, address, displayName, notes } = args;
+
+  const { contact } = await getStore().upsertContact({
+    // omit-to-preserve: an existing contact keeps its name, and a brand-new one
+    // with none falls back to the canonical channel address inside
+    // upsertContact.
+    displayName,
+    notes,
+    channels: [{ type: channelType, address, isPrimary: true }],
+  });
+  const contactId = contact.id;
+
+  // Invalidate the daemon guardian-id/role caches after the committed gateway
+  // contact write, before the read-back guard, so a resolveChannelId miss
+  // still drops the stale caches.
+  emitContactsChanged();
+
+  const channelId = resolveChannelId(contactId, channelType, address);
+
+  log.info(
+    { channelType, address, contactId, channelId },
+    "contact-prompt-submit: upserted contact + channel via ContactStore",
+  );
+
+  if (!channelId) {
+    log.error(
+      { channelType, address, contactId },
+      "contact-prompt-submit: channel resolution failed after upsert",
+    );
+    return CHANNEL_RESOLUTION_FAILED;
+  }
+
+  return await channelResolution({
+    requestId,
+    contactId,
+    channelId,
+    channelType,
+    address,
+    verify: args.verify,
+    parkedVerify: args.parkedVerify,
+  });
+}
+
+/** The channel bound to a (type, address) pair, if there is one. */
+function findChannelByAddress(
+  channelType: string,
+  address: string,
+): { id: string; contactId: string } | undefined {
+  return getGatewayDb()
+    .select({
+      id: gwContactChannels.id,
+      contactId: gwContactChannels.contactId,
+    })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, channelType),
+        sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .get();
+}
+
+/** What to do about an address bound to a contact other than the target. */
+const MERGE_HINT =
+  "Run 'assistant contacts merge <keepId> <donorId>' if they are the same person.";
+
+/** The guardian's channel cannot be minted while another contact holds it. */
+const GUARDIAN_CONFLICT_HINT =
+  "Clear that binding before binding the address to the guardian.";
+
+/**
+ * The address belongs to somebody else. Naming them is what makes the refusal
+ * actionable: the guardian can see whether it is the same person under two
+ * records or a genuinely different one.
+ */
+function channelOwnedByAnotherContact(
+  otherContactId: string,
+  channelType: string,
+  conflictHint: string,
+): GuardianFormWriteOutcome {
+  const other = getStore().getContact(otherContactId);
+  return {
+    failure: {
+      error: `That ${channelType} address is already bound to "${other?.displayName ?? "Unknown"}" (${otherContactId}). ${conflictHint}`,
+      status: 409,
+    },
+  };
+}
+
+/** Drop the daemon's contact caches after a committed gateway contact write. */
+function emitContactsChanged(): void {
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
 }
 
 /**
@@ -475,31 +694,19 @@ const CHANNEL_RESOLUTION_FAILED: GuardianFormWriteOutcome = {
 
 /**
  * Whether the guardian left the "mark verified" box checked.
+ *
+ * The checkbox is the answer: `--verify` only pre-checks it, so a guardian who
+ * unchecks the box must not get a verified channel. A client with no checkbox
+ * sends no answer, and the parked flag stands in for one.
  */
-async function promptWantsVerify(
-  requestId: string,
+function promptWantsVerify(
   submitted: boolean | undefined,
-): Promise<boolean> {
-  // The checkbox is the answer. `--verify` only pre-checks it, so a guardian
-  // who unchecks the box must not get a verified channel.
+  parkedVerify: boolean | undefined,
+): boolean {
   if (typeof submitted === "boolean") {
     return submitted;
   }
-  // A client with no checkbox sends no answer, so the parked flag stands in
-  // for one. Read out of band because such a client has no field to echo it
-  // back in.
-  try {
-    const result = await ipcCallAssistant("contact_prompt_flags", {
-      body: { requestId },
-    });
-    return (result as { verify?: boolean }).verify === true;
-  } catch (err) {
-    log.warn(
-      { err, requestId },
-      "contact-prompt-submit: contact_prompt_flags IPC failed; leaving channel unverified",
-    );
-    return false;
-  }
+  return parkedVerify === true;
 }
 
 /**
@@ -513,6 +720,7 @@ async function channelResolution(args: {
   channelType: string;
   address: string;
   verify: boolean | undefined;
+  parkedVerify: boolean | undefined;
 }): Promise<GuardianFormWriteOutcome> {
   const { requestId, contactId, channelId, channelType, address } = args;
   // What the channel ends up as, not what was asked for: the guardian's box
@@ -520,7 +728,7 @@ async function channelResolution(args: {
   // reuses an already verified channel stays verified whether or not this
   // submission asked for it.
   let verified = false;
-  if (await promptWantsVerify(requestId, args.verify)) {
+  if (promptWantsVerify(args.verify, args.parkedVerify)) {
     try {
       // A resolved row means the channel is attested, whether this call is what
       // wrote it or it already was.

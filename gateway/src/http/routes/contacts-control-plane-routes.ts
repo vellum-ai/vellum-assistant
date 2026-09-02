@@ -137,6 +137,12 @@ const ContactPromptSubmitRequestSchema = z.object({
     .describe("Required unless cancelled is true"),
   role: z.string().optional(),
   displayName: z.string().optional(),
+  contactId: z
+    .string()
+    .optional()
+    .describe(
+      "The contact the parked form targets, echoed back from the broadcast. The parked form is authoritative.",
+    ),
   verify: z
     .boolean()
     .optional()
