@@ -66,8 +66,11 @@ import {
 } from "../../../packages/avatar-catalog/src/index.js";
 import {
   androidResourceNameForTraits,
+  colorHexIndex,
   eyeArtworkBounds,
   eyeSpanFraction,
+  requireColorHex,
+  requireEyeStyle,
   traitCombinations,
   type AvatarIconTraits,
   type EyeStyle,
@@ -252,33 +255,6 @@ export function generateAndroidAvatarIcons(
 
 function uniqueEyeStyleIds(combinations: AvatarIconTraits[]): string[] {
   return [...new Set(combinations.map((traits) => traits.eyeStyle))];
-}
-
-function colorHexIndex(): Map<string, string> {
-  return new Map(
-    getCharacterComponents().colors.map((color) => [color.id, color.hex]),
-  );
-}
-
-function requireColorHex(index: Map<string, string>, colorId: string): string {
-  const hex = index.get(colorId);
-  if (!hex) {
-    throw new Error(`Unknown color id: "${colorId}"`);
-  }
-  return hex;
-}
-
-function requireEyeStyle(eyeStyleId: string): EyeStyle {
-  const components = getCharacterComponents();
-  const eyeStyle = components.eyeStyles.find((eye) => eye.id === eyeStyleId);
-  if (!eyeStyle) {
-    throw new Error(
-      `Unknown eye style: "${eyeStyleId}". Valid IDs: ${components.eyeStyles
-        .map((eye) => eye.id)
-        .join(", ")}`,
-    );
-  }
-  return eyeStyle;
 }
 
 /**

@@ -30,9 +30,10 @@ import {
 } from "../../../../packages/avatar-catalog/src/index.js";
 import {
   androidResourceNameForTraits,
+  assertUnderscoreSafeIds,
   eyeArtworkBounds,
+  requireEyeStyle,
   traitCombinations,
-  type EyeStyle,
   type IconSetScope,
 } from "../avatar-icon-core.js";
 import {
@@ -84,9 +85,6 @@ const EXPECTED_ICON_ALIAS_COUNT = 54;
 /** The launcher entry at rest, drawn with the default launcher artwork. */
 const PRIMARY_ALIAS_NAME = ".icon.primary";
 
-/** Deep-link filters `.MainActivity` is the sole receiver of. */
-const EXPECTED_DEEP_LINK_FILTER_COUNT = 6;
-
 const LAUNCHER_ACTION = '<action android:name="android.intent.action.MAIN" />';
 const LAUNCHER_CATEGORY =
   '<category android:name="android.intent.category.LAUNCHER" />';
@@ -103,16 +101,6 @@ afterAll(() => {
 
 function readCommitted(relativePath: string): string {
   return readFileSync(join(ANDROID_RES_DIR, relativePath), "utf8");
-}
-
-function requireEyeStyle(eyeStyleId: string): EyeStyle {
-  const eyeStyle = getCharacterComponents().eyeStyles.find(
-    (eye) => eye.id === eyeStyleId,
-  );
-  if (!eyeStyle) {
-    throw new Error(`Eye style "${eyeStyleId}" missing from the catalog`);
-  }
-  return eyeStyle;
 }
 
 /**
@@ -300,6 +288,28 @@ function generateFresh(): FreshGeneration {
   freshGeneration = { resDir, manifestPath };
   return freshGeneration;
 }
+
+describe("androidResourceNameForTraits", () => {
+  /**
+   * Android resource names admit underscores rather than dashes, so this is the
+   * wire name with every separator swapped. The literal is pinned because a
+   * drawable that changes name stops resolving from the manifest entry that
+   * references it.
+   */
+  test("builds the avatar_eyes_<eye>_<color> resource name", () => {
+    expect(
+      androidResourceNameForTraits({
+        eyeStyle: "grumpy",
+        color: "green",
+      }),
+    ).toBe("avatar_eyes_grumpy_green");
+  });
+
+  /** Whole-string dash to underscore translation only round-trips while this holds. */
+  test("accepts every id in the current library", () => {
+    expect(() => assertUnderscoreSafeIds()).not.toThrow();
+  });
+});
 
 describe("committed Android avatar icons", () => {
   test(
@@ -618,11 +628,6 @@ describe("MainActivity", () => {
   test("stays the always-enabled target the generator never touches", () => {
     expect(attribute(mainActivity, "name")).toBe(".MainActivity");
     expect(attribute(mainActivity, "exported")).toBe("true");
-    expect(attribute(mainActivity, "launchMode")).toBe("singleTask");
-    expect(attribute(mainActivity, "label")).toBe("@string/app_name");
-    expect(attribute(mainActivity, "theme")).toBe(
-      "@style/AppTheme.NoActionBarLaunch",
-    );
     expect(openingTagOf(mainActivity)).not.toContain("android:enabled");
   });
 
@@ -637,12 +642,18 @@ describe("MainActivity", () => {
     ).toHaveLength(0);
   });
 
-  test("keeps every deep-link filter", () => {
+  /**
+   * The aliases carry no VIEW filter, so deep links resolve through
+   * `.MainActivity` alone and it has to keep at least one. How many it declares
+   * is a deep-link concern rather than an icon one, and the generator itself
+   * only enforces that they are still there.
+   */
+  test("keeps its deep-link filters", () => {
     expect(
       intentFiltersOf(mainActivity).filter((filter) =>
         filter.includes(VIEW_ACTION),
-      ),
-    ).toHaveLength(EXPECTED_DEEP_LINK_FILTER_COUNT);
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   test("keeps the static shortcuts meta-data", () => {

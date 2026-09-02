@@ -37,19 +37,14 @@ import { deflateSync } from "node:zlib";
 
 import { getCharacterComponents } from "../../../packages/avatar-catalog/src/index.js";
 import {
+  colorHexIndex,
   eyeArtworkBounds,
   eyePathsSvg,
   eyeSpanFraction,
   iconNameForTraits,
   renderSvg,
-  traitCombinations,
-  type AvatarIconTraits,
-  type EyeStyle,
-  type IconSetScope,
-} from "./avatar-icon-core.js";
-
-export {
-  iconNameForTraits,
+  requireColorHex,
+  requireEyeStyle,
   traitCombinations,
   type AvatarIconTraits,
   type IconSetScope,
@@ -107,9 +102,6 @@ const CATALOG_INFO = { author: "xcode", version: 1 };
  */
 const CONTACT_SHEET_CELL_PX = 180;
 
-/** Every color in the palette is a 6-digit sRGB hex, and goes straight to SVG. */
-const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
-
 export interface GenerateAvatarIconsOptions {
   iconsDir: string;
   xcconfigPath: string;
@@ -145,38 +137,6 @@ export function generateAvatarIcons(
   writeFileSync(options.xcconfigPath, buildXcconfig());
 
   return names;
-}
-
-function colorHexIndex(): Map<string, string> {
-  return new Map(
-    getCharacterComponents().colors.map((color) => [color.id, color.hex]),
-  );
-}
-
-function requireColorHex(index: Map<string, string>, colorId: string): string {
-  const hex = index.get(colorId);
-  if (!hex) {
-    throw new Error(`Unknown color id: "${colorId}"`);
-  }
-  if (!HEX_COLOR_PATTERN.test(hex)) {
-    throw new Error(
-      `Expected a 6-digit hex color for "${colorId}", got "${hex}"`,
-    );
-  }
-  return hex;
-}
-
-function requireEyeStyle(eyeStyleId: string): EyeStyle {
-  const components = getCharacterComponents();
-  const eyeStyle = components.eyeStyles.find((eye) => eye.id === eyeStyleId);
-  if (!eyeStyle) {
-    throw new Error(
-      `Unknown eye style: "${eyeStyleId}". Valid IDs: ${components.eyeStyles
-        .map((eye) => eye.id)
-        .join(", ")}`,
-    );
-  }
-  return eyeStyle;
 }
 
 /** Catalog root marker, matching what Xcode writes for `Assets.xcassets`. */
