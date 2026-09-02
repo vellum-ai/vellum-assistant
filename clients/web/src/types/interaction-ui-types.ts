@@ -93,6 +93,13 @@ export interface PendingContactRecordRequestState {
   /** The target's channels, shown on a delete confirmation. */
   channels?: Array<{ type: string; address: string }>;
 
+  /** The contact being merged away. Present only on a merge. */
+  donorContactId?: string;
+  /** That contact's name, so the confirmation can say who is being absorbed. */
+  donorDisplayName?: string;
+  /** The channels moving to the survivor. */
+  donorChannels?: Array<{ type: string; address: string }>;
+
   displayName?: string;
   notes?: string;
   /** Whether the caller asked for these notes explicitly. */

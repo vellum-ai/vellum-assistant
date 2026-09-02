@@ -190,6 +190,8 @@ export async function submitContactRecord(
     | {
         operation: "create" | "update" | "delete" | "merge";
         contactId?: string;
+        /** The contact merged away. Required for a merge. */
+        donorContactId?: string;
         displayName?: string;
         notes?: string;
         expectedChannels?: Array<{ type: string; address: string }>;
