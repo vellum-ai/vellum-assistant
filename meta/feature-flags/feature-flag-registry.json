@@ -370,7 +370,7 @@
       "scope": "assistant",
       "key": "activity-presence-suppression",
       "label": "Activity Presence Suppression",
-      "description": "Gates whether background-activity, skill-update, and schedule notifications are suppressed while a client reports itself visible on that conversation. Off by default; turn it on to stop notifying about work the user is already watching.",
+      "description": "Gates whether a background-activity failure notification is suppressed while a client reports itself visible on that conversation. Off by default; turn it on to stop notifying about work the user is already watching.",
       "defaultEnabled": false
     },
     {
