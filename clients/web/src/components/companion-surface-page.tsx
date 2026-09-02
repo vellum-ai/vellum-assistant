@@ -84,6 +84,9 @@ export function CompanionSurfacePage() {
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
+  // Whether Talk has been pressed and nothing has answered it yet. Main's, like
+  // the call it waits for: the press left this window the moment it was made.
+  const [dialing, setDialing] = useState(false);
   const [dictating, setDictating] = useState<CompanionDictating | undefined>(
     undefined,
   );
@@ -151,6 +154,9 @@ export function CompanionSurfacePage() {
       );
       setCharacter(state.character);
       setCall(state.call);
+      // Off unless positively on, the way `watching` is read: a shell that
+      // predates the field is not dialing.
+      setDialing(state.dialing === true);
       setAssistantName(state.assistantName);
       setWorking(state.working);
       // Absence is not a session: every state that is not a positive answer
@@ -202,7 +208,7 @@ export function CompanionSurfacePage() {
   // Whether the introduction's card is actually on screen. The beat alone does
   // not settle it: a call withdraws the card while main is still holding the
   // run.
-  const introShown = intro !== null && call === null;
+  const introShown = intro !== null && call === null && !dialing;
 
   /**
    * Give the desktop back when the introduction's card goes away.
@@ -233,6 +239,11 @@ export function CompanionSurfacePage() {
   // microphone the user cannot see. So the call holds the pill open, and
   // hovering it changes nothing: the controls it wants are already there.
   //
+  // A dial is the call's own first beat and ranks with it. The press that
+  // made it leaves this window at once, and a pill that closed behind the
+  // hand while the session it asked for was still on its way would read as
+  // a press that did nothing.
+  //
   // A watch session holds the pill open for the same reason the call does, and
   // ranks below it: the call is something the user is in the middle of, where
   // this one runs beside whatever they are doing. Being outranked costs the
@@ -250,7 +261,7 @@ export function CompanionSurfacePage() {
   // user's own business and this is a caption.
   const introHeld = introPhase(intro);
   const phase: CompanionSurfacePhase =
-    call !== null
+    call !== null || dialing
       ? "call"
       : dictating !== undefined
         ? "dictating"
@@ -428,6 +439,9 @@ export function CompanionSurfacePage() {
         hovered={hovered}
         accentHex={accentHex}
         call={call ?? undefined}
+        // For the dial, which names who is being called. The call itself
+        // carries its own name once it arrives.
+        assistantName={assistantName}
         dictating={dictating}
         dictationText={dictationText}
         // Whether the assistant is busy, on whatever conversation the app has

@@ -152,6 +152,8 @@
   },
   "companionSurface": {
     "allow": "允許",
+    "calling": "正在呼叫…",
+    "callingNamed": "正在呼叫 {name}…",
     "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",

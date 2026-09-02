@@ -326,6 +326,47 @@ const finishIntro = (): void => {
 let call: VoiceActivityState | null = null;
 
 /**
+ * How long a dial is drawn with no session answering it.
+ *
+ * The window asked to start a session answers every press it decides on, with
+ * a `start` or with an `end`, so this only catches the presses it never gets
+ * to decide: a request parked behind a layout that does not mount, or a window
+ * that went away mid-preflight. Longer than any preflight and shorter than the
+ * minute a parked request lives, since a dial that outlives its request is a
+ * pill claiming a call that is no longer coming.
+ */
+export const COMPANION_DIAL_TIMEOUT_MS = 20_000;
+
+/**
+ * Whether Talk has been pressed and no session has answered it yet. See
+ * {@link CompanionSurfaceState.dialing}.
+ *
+ * Held here rather than in the surface's renderer for the reason the session
+ * is: the press leaves that renderer at once, and a reload across the wait
+ * would come back to a pill that had forgotten it was dialing.
+ */
+let dialing = false;
+let dialTimer: ReturnType<typeof setTimeout> | null = null;
+
+const disarmDial = (): void => {
+  if (dialTimer !== null) {
+    clearTimeout(dialTimer);
+    dialTimer = null;
+  }
+};
+
+/**
+ * Whether a Talk press starts a dial.
+ *
+ * Not while a session is already on the surface: the window that owns it
+ * spends the press on the call the user is in, so nothing is coming that a
+ * dial could wait for. A session the store holds but the mirror has not yet
+ * pushed dials anyway, and the `start` that follows within the beat ends it.
+ */
+export const dialOnTalk = (current: VoiceActivityState | null): boolean =>
+  current === null;
+
+/**
  * What the app's window last published about the assistant: its name, whether
  * a turn is running, and the sessions it holds.
  *
@@ -358,6 +399,7 @@ const currentState = (): CompanionSurfaceState => {
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    dialing,
     intro,
     assistantName: context.assistantName,
     working: context.working,
@@ -563,6 +605,28 @@ const pushState = (): void => {
   if (win) {
     win.webContents.send("vellum:companion:state", currentState());
   }
+};
+
+/**
+ * Start or end the dial, and push the surface if that changed anything.
+ *
+ * The bound is armed with the dial and disarmed with it, whichever way it
+ * ends, so a session that answers in a second does not leave a timer behind to
+ * end a later dial early.
+ */
+const setDialing = (next: boolean): void => {
+  disarmDial();
+  if (next) {
+    dialTimer = setTimeout(() => {
+      dialTimer = null;
+      setDialing(false);
+    }, COMPANION_DIAL_TIMEOUT_MS);
+  }
+  if (dialing === next) {
+    return;
+  }
+  dialing = next;
+  pushState();
 };
 
 /**
@@ -773,6 +837,12 @@ export const installCompanionWindow = (): void => {
    * some other app entirely, so "focused" would name the wrong target.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
+    // Drawn before the press is delivered, so the pill answers the hand in
+    // the same beat: the session it asks for opens after a network round trip
+    // in a window the user cannot see.
+    if (dialOnTalk(call)) {
+      setDialing(true);
+    }
     dispatchWithoutRaising({ kind: "startVoice" });
   });
 
@@ -921,6 +991,11 @@ export const installCompanionWindow = (): void => {
       // expected traffic; every field it carries is current, so there is
       // nothing on the running call worth preserving against it.
       call = start;
+      // The session is the answer the dial was waiting for. Cleared before the
+      // push rather than through `setDialing`, so the surface sees one state
+      // with the call on it and not a beat of neither.
+      disarmDial();
+      dialing = false;
       pushState();
     },
   );
@@ -939,7 +1014,12 @@ export const installCompanionWindow = (): void => {
   );
 
   on("vellum:voiceActivity:end", z.tuple([]), () => {
+    // With no session running this is the window asked for one saying no: a
+    // first-run card to answer, an assistant with no voice, a request spent
+    // some other way. Each has shown the user something else, so the dial ends
+    // and the pill closes.
     if (call === null) {
+      setDialing(false);
       return;
     }
     call = null;
@@ -959,6 +1039,13 @@ export const installCompanionWindow = (): void => {
     "vellum:voiceActivity:control",
     z.tuple([voiceActivityControlSchema]),
     ([control]) => {
+      // The end control on a dial is the user changing their mind. The pill
+      // closes here rather than waiting for the window asked to answer, since
+      // that window may hold nothing that can: the press still travels, and
+      // the drain it reaches spends the request rather than starting from it.
+      if (control.action === "endSession") {
+        setDialing(false);
+      }
       const surface = getFloatingWindow(COMPANION_KIND);
       for (const win of BrowserWindow.getAllWindows()) {
         if (
@@ -999,11 +1086,15 @@ export const installCompanionWindow = (): void => {
     if (currentMainWindow() !== null) {
       return;
     }
+    // A dial is a claim on that window too: the request it carries is gone
+    // with the renderer that parked it.
     const claiming =
-      context.watching === true || context.dictating !== undefined;
+      context.watching === true || context.dictating !== undefined || dialing;
     if (!claiming) {
       return;
     }
+    disarmDial();
+    dialing = false;
     context = {
       ...context,
       watching: false,

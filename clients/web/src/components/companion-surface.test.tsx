@@ -41,6 +41,13 @@ const LISTENING_CALL: VoiceActivityState = {
   assistantName: "Ziggy",
 };
 
+/** A control on the pill, found by the name a reader is given for it. */
+const buttonOf = (
+  container: HTMLElement,
+  label: string,
+): HTMLButtonElement | null =>
+  container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+
 /** Every state the surface draws, which several cases here sweep in turn. */
 const PHASES = ["resting", "hover", "watching", "summary", "call"] as const;
 
@@ -1082,6 +1089,142 @@ describe("the companion surface's stop control", () => {
 });
 
 /**
+ * Teach rides the call. A screen read while talking is a question the
+ * assistant can answer as it is asked, so the call row carries the same toggle
+ * the idle row does rather than only the way out of a session already running.
+ */
+describe("Teach on the call row", () => {
+  const teachOf = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
+
+  test("is offered beside the call's own controls", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
+    );
+    expect(teachOf(container)).not.toBeNull();
+    expect(teachOf(container)?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("reads as held down while the session runs under the call", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        watchEnabled
+        watching
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(teachOf(container)?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("reports the press as the toggle it is", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        watchEnabled
+        call={LISTENING_CALL}
+        onWatch={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    const teach = teachOf(container);
+    if (!teach) {
+      throw new Error("Expected Teach to render");
+    }
+    fireEvent.click(teach);
+    expect(presses).toBe(1);
+  });
+
+  test("sits beside what the session is doing, not beside the end", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
+    );
+    const labels = Array.from(container.querySelectorAll("button")).map(
+      (button) => button.getAttribute("aria-label"),
+    );
+    expect(labels).toEqual([
+      "Teach",
+      "Mute microphone",
+      "Mute assistant",
+      "End session",
+    ]);
+  });
+});
+
+/**
+ * The dial: Talk pressed, and the session it asked for not yet on the surface.
+ *
+ * The press leaves the surface at once and the session opens after a network
+ * round trip in a window the user cannot see, so the pill has to be the thing
+ * that says the press landed.
+ */
+describe("the companion surface's dial", () => {
+  test("says who is being called", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(container.textContent).toContain("Calling Ziggy…");
+  });
+
+  test("says it is calling with no name to say", () => {
+    const { container } = render(<CompanionSurface phase="call" />);
+    expect(container.textContent).toContain("Calling…");
+    expect(container.textContent).not.toContain("Calling …");
+  });
+
+  test("offers the end, which takes the request back", () => {
+    const actions: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        onControl={(action) => {
+          actions.push(action);
+        }}
+      />,
+    );
+    fireEvent.click(buttonOf(container, "End session")!);
+    expect(actions).toEqual(["endSession"]);
+  });
+
+  /**
+   * Nothing to mute yet. A press on either would be dropped by the window
+   * asked, so the controls are not drawn rather than drawn and inert.
+   */
+  test("draws no mutes with nothing to mute", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(buttonOf(container, "Mute microphone")).toBeNull();
+    expect(buttonOf(container, "Mute assistant")).toBeNull();
+  });
+
+  test("keeps the stop of a session already reading the screen", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" watching />,
+    );
+    expect(buttonOf(container, "Stop teaching")).not.toBeNull();
+  });
+
+  test("gives way to the session once it arrives", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    rerender(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(container.textContent).not.toContain("Calling");
+    expect(buttonOf(container, "Mute microphone")).not.toBeNull();
+  });
+});
+
+/**
  * The ceiling the Electron canvas is sized to.
  *
  * `companion-window.ts` sizes its window once, for the widest state this
@@ -1100,12 +1243,6 @@ describe("the companion surface's stop control", () => {
  * report would land in a thread nobody was ever shown.
  */
 describe("the summary a finished watch session leaves on the surface", () => {
-  const buttonOf = (
-    container: HTMLElement,
-    label: string,
-  ): HTMLButtonElement | null =>
-    container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
-
   test("says the summary is being written while the turn runs", () => {
     const { container } = render(
       <CompanionSurface phase="summary" watchRetro="pending" />,
@@ -1196,7 +1333,7 @@ describe("the companion surface's width ceiling", () => {
    * Written out rather than read from the contract, so the cases below assert a
    * number instead of restating the constant they are about.
    */
-  const CANVAS_CEILING = 316;
+  const CANVAS_CEILING = 400;
 
   test("is the width the shared contract publishes", () => {
     expect(COMPANION_BASE_MAX_PILL_WIDTH).toBe(CANVAS_CEILING);

@@ -941,8 +941,13 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
  * A ceiling rather than a width, since every other state is as wide as its
  * content. Main sizes the canvas to hold this much beyond the gap, so a state
  * that wanted more would be clipped by the window.
+ *
+ * Generous on purpose. The call row is a handlebar that grows with what it
+ * carries, and the canvas is click-through, so room the pill never uses costs
+ * the desktop nothing where a control clipped off the end costs the user the
+ * control.
  */
-export const COMPANION_BASE_MAX_PILL_WIDTH = 316;
+export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
  * The room between the avatar's edge and the options pill beside it, at the
@@ -1405,6 +1410,21 @@ export interface CompanionSurfaceState {
    * that only shows itself on hover is a live microphone the user cannot see.
    */
   call: VoiceActivityState | null;
+  /**
+   * Whether Talk has been pressed and no session has answered it yet.
+   *
+   * The press leaves the surface at once and the session it asks for opens in
+   * the app's window, behind whatever the user is working in, after a network
+   * round trip. Without this the pill draws nothing across that wait, and a
+   * press that changes nothing on screen reads as a press that did nothing.
+   * Main sets it on the press and clears it when the session's `start`
+   * arrives, when the window asked declines by sending `end` with no session
+   * running, when the user ends the dial from the pill, or after a bound.
+   *
+   * Optional, and absence means not dialing, the bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  dialing?: boolean;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

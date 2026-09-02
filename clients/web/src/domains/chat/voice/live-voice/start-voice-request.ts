@@ -32,6 +32,7 @@ import {
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { endVoiceActivity } from "@/runtime/desktop-voice-activity";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -158,6 +159,21 @@ export function startVoiceFromSurface(
 }
 
 /**
+ * Take back a start that has been asked for and not yet served.
+ *
+ * What an end pressed with no session running means: the companion's dial is
+ * the only surface that offers one, and the request behind it is either still
+ * parked or partway through its preflight. Spending it here is what stops that
+ * preflight from opening the room a second after the user closed the pill.
+ * The companion itself closes on the press; this is the half it cannot reach.
+ */
+export function cancelPendingVoiceStart(): void {
+  usePendingDeepLinkStore
+    .getState()
+    .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
+}
+
+/**
  * Say that a question asked out loud could not be taken.
  *
  * The question came from another application, and the answer was going to
@@ -273,10 +289,22 @@ export async function drainPendingVoiceStart(
   // been dropped, and the user who asked it from another application is
   // watching the companion for an answer, so the drop is said where they can
   // see it.
+  //
+  // Either way the companion is told. Its Talk draws a dial the moment it is
+  // pressed and holds it until a session answers, and a refusal is the answer
+  // "none is coming": with no session running, `end` is exactly that, and the
+  // pill closes on it rather than on a timeout. Only for a request actually
+  // spent here: the drain runs on every mount and every switch of assistant,
+  // and a refusal of nothing is not an answer to anything.
   const refuse = () => {
-    if (consume()?.ask != null) {
+    const consumed = consume();
+    if (consumed === null) {
+      return;
+    }
+    if (consumed.ask !== null) {
       announceAskRefused();
     }
+    endVoiceActivity();
   };
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the

@@ -40,6 +40,7 @@ import {
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { cancelPendingVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { handleConfirmationSubmit } from "@/domains/chat/confirmation-actions";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
@@ -106,7 +107,15 @@ export function applyLiveActivityControl(
   // outlives the session by the moment it takes ActivityKit to dismiss it, and
   // an end landing in that window must not tear down a session the user has
   // since started.
+  //
+  // With one exception: an end with no session is the companion's dial being
+  // closed, and the request behind that dial is still on its way to becoming
+  // a session. Taking it back here is what keeps the pill the user just shut
+  // from opening again a beat later with the call they cancelled on it.
   if (!isLiveVoiceSessionActive(session.state)) {
+    if (action === "endSession") {
+      cancelPendingVoiceStart();
+    }
     return;
   }
   switch (action) {

@@ -152,6 +152,8 @@
   },
   "companionSurface": {
     "allow": "Permitir",
+    "calling": "Llamando…",
+    "callingNamed": "Llamando a {name}…",
     "deny": "Denegar",
     "endSession": "Finalizar sesión",
     "muteAssistant": "Silenciar asistente",

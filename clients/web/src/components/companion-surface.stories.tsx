@@ -456,17 +456,29 @@ export const SummaryReady: Story = {
  * capture takes it: the creature already carries the turn in its own pose,
  * and a call is a thing the user started and can hear.
  *
- * The widest row the surface draws outside the card: the activity line and five
- * controls, with the stop beside what the session is doing rather than beside
- * End, since two stops in a row is a misclick that ends the wrong one.
+ * The widest row the surface draws outside the card: the activity line and the
+ * handlebar with Teach held down and so spelling its name out, beside what the
+ * session is doing rather than beside End, since two stops in a row is a
+ * misclick that ends the wrong one.
  */
 export const InCallWhileWatching: Story = {
   args: { phase: "call", watching: true, call: DEMO_CALL },
 };
 
-/** Expanded mid-call: the session's own controls, at pill scale. */
+/**
+ * The dial: Talk pressed, and the session it asked for not yet on the surface.
+ *
+ * Who is being called and the one control that means anything yet, the end.
+ * The session opens after a network round trip in a window the user cannot
+ * see, so this is what says the press landed.
+ */
+export const Dialing: Story = {
+  args: { phase: "call", assistantName: "Ziggy" },
+};
+
+/** Expanded mid-call: the handlebar, at pill scale. */
 export const InCall: Story = {
-  args: { phase: "call" },
+  args: { phase: "call", call: DEMO_CALL },
 };
 
 /**
@@ -477,9 +489,6 @@ export const InCall: Story = {
  * until this is answered, so it is the only thing here worth pressing. The
  * activity line says what is being asked; the pill is not the place to render a
  * tool call's arguments, and the app is a click away for that.
- *
- * This is the widest the surface ever gets, so it is what `MAX_PILL_WIDTH` in
- * `companion-window.ts` sizes the canvas to hold.
  */
 export const PendingApproval: Story = {
   args: {
@@ -530,7 +539,7 @@ export const InCallMuted: Story = {
  * stops being readable over a pale one.
  */
 export const OnALightDesktop: Story = {
-  args: { phase: "call", backdrop: "light" },
+  args: { phase: "call", call: DEMO_CALL, backdrop: "light" },
 };
 
 /**

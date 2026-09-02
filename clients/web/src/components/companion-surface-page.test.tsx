@@ -16,6 +16,7 @@ const toggleWatchMock = mock(() => undefined);
 const answerRetroMock = mock((_open: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
+const sendControlMock = mock((_control: { action: string }) => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -38,6 +39,7 @@ const resetState = () => {
   STATE.optionsBox = 44;
   STATE.working = false;
   STATE.call = null;
+  delete STATE.dialing;
   delete STATE.watching;
   delete STATE.captureCount;
   STATE.watchEnabled = true;
@@ -93,7 +95,7 @@ mock.module("@/runtime/companion-surface", () => ({
 }));
 
 mock.module("@/runtime/desktop-voice-activity", () => ({
-  sendVoiceActivityControl: () => undefined,
+  sendVoiceActivityControl: sendControlMock,
 }));
 
 const { CompanionSurfacePage } = await import("./companion-surface-page");
@@ -107,6 +109,7 @@ afterEach(() => {
   toggleWatchMock.mockClear();
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
+  sendControlMock.mockClear();
 });
 
 /** The canvas the page fills, which is where the pointer handlers live. */
@@ -1014,6 +1017,63 @@ describe("the companion's introduction", () => {
     pushState();
 
     expect(container.querySelector('[role="group"]')).not.toBeNull();
+  });
+});
+
+/**
+ * The dial, which is main's from the press until a session answers it.
+ *
+ * The press leaves this window the moment it is made, so the pill's answer to
+ * it has to arrive the way the call does: on the pushed state.
+ */
+describe("the dial on the companion surface", () => {
+  test("holds the pill open with the pointer nowhere near it", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(closed(container)).toBe(false);
+    expect(container.textContent).toContain("Calling Ziggy…");
+  });
+
+  test("closes the pill once main says the dial is over", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    STATE.dialing = false;
+    pushState();
+
+    expect(closed(container)).toBe(true);
+  });
+
+  test("hands the end back through main, the way the call's controls go", async () => {
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    const end = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="End session"]',
+    );
+    if (!end) {
+      throw new Error("Expected the end control to render");
+    }
+    fireEvent.click(end);
+
+    expect(sendControlMock).toHaveBeenCalledWith({ action: "endSession" });
+  });
+
+  test("reads a state that says nothing about it as not dialing", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(closed(container)).toBe(true);
+  });
+
+  test("withdraws the introduction's card, as a call does", async () => {
+    STATE.intro = "talk";
+    STATE.dialing = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    expect(container.querySelector('[role="group"]')).toBeNull();
   });
 });
 

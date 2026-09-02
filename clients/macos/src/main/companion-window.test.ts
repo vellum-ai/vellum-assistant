@@ -204,6 +204,8 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
+  COMPANION_DIAL_TIMEOUT_MS,
+  dialOnTalk,
   introOnAdvance,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
@@ -563,6 +565,25 @@ describe("avatarOffsetFor", () => {
   });
 });
 
+describe("the dial", () => {
+  test("starts on a press with no session on the surface", () => {
+    expect(dialOnTalk(null)).toBe(true);
+  });
+
+  /**
+   * The window that owns the session spends the press on the call the user is
+   * in, so nothing is coming that a dial could wait for.
+   */
+  test("does not start over a running session", () => {
+    expect(dialOnTalk({ ...START })).toBe(false);
+  });
+
+  test("is bounded, and by less than a parked request lives", () => {
+    expect(COMPANION_DIAL_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(COMPANION_DIAL_TIMEOUT_MS).toBeLessThan(60_000);
+  });
+});
+
 describe("the session main holds", () => {
   test("update merges content and leaves the fixed fields alone", () => {
     const running = { ...START };
@@ -674,11 +695,11 @@ describe("geometryFor", () => {
       CompanionSize,
       { maxReach: number; canvasWidth: number; canvasHeight: number }
     > = {
-      small: { maxReach: 261, canvasWidth: 570, canvasHeight: 267 },
-      medium: { maxReach: 361, canvasWidth: 794, canvasHeight: 374 },
-      large: { maxReach: 536, canvasWidth: 1168, canvasHeight: 547 },
-      huge: { maxReach: 711, canvasWidth: 1542, canvasHeight: 720 },
-      ridiculous: { maxReach: 930, canvasWidth: 2100, canvasHeight: 1035 },
+      small: { maxReach: 322, canvasWidth: 692, canvasHeight: 267 },
+      medium: { maxReach: 445, canvasWidth: 962, canvasHeight: 374 },
+      large: { maxReach: 662, canvasWidth: 1420, canvasHeight: 547 },
+      huge: { maxReach: 879, canvasWidth: 1878, canvasHeight: 720 },
+      ridiculous: { maxReach: 1140, canvasWidth: 2520, canvasHeight: 1035 },
     };
     for (const size of COMPANION_SIZES) {
       const { maxReach, canvasWidth, canvasHeight } = geometryFor(size, size);
@@ -826,7 +847,7 @@ describe("geometryFor with the two axes apart", () => {
    * The width is where the gap rule shows: the gap is breathing room, so the
    * smaller of the two boxes decides how much of it there is, and the creature
    * below takes its small pill's gap rather than the chasm its own scale would
-   * ask for, which would put its reach at 315. The two heights are the two
+   * ask for, which would put its reach at 376. The two heights are the two
    * sides of the avatar: the near edge clears the creature's box and the pill's
    * top alike, and the far edge clears the card growing either way.
    */
@@ -836,8 +857,8 @@ describe("geometryFor with the two axes apart", () => {
     expect(BIG_CREATURE).toEqual({
       avatarBox: 110,
       optionsBox: 32,
-      maxReach: 294,
-      canvasWidth: 708,
+      maxReach: 355,
+      canvasWidth: 830,
       riseAbove: 274,
       dropBelow: 115,
       canvasHeight: 389,
@@ -846,8 +867,8 @@ describe("geometryFor with the two axes apart", () => {
     expect(BIG_OPTIONS).toEqual({
       avatarBox: 44,
       optionsBox: 88,
-      maxReach: 666,
-      canvasWidth: 1428,
+      maxReach: 834,
+      canvasWidth: 1764,
       riseAbove: 614,
       dropBelow: 122,
       canvasHeight: 736,

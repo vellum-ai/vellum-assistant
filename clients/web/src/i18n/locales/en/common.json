@@ -152,6 +152,8 @@
   },
   "companionSurface": {
     "allow": "Allow",
+    "calling": "Calling…",
+    "callingNamed": "Calling {name}…",
     "deny": "Deny",
     "dictating": "Listening",
     "dictatingTranscribing": "Thinking",

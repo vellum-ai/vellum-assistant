@@ -141,6 +141,16 @@ export type CompanionSurfacePhase =
    * everything is: that is something they are already inside.
    */
   | "dictating"
+  /**
+   * Call: the pill held open by a live-voice session, or by the press that
+   * asked for one.
+   *
+   * With a session it is the handlebar of the call: what the session is
+   * doing, and the controls that act on it. Without one it is the dial, the
+   * beat between Talk and the session's first word, drawn so the press is
+   * seen to have done something while the session opens in a window the user
+   * cannot see.
+   */
   | "call";
 
 /**
@@ -331,13 +341,19 @@ export const FALLBACK_WIDTHS: Record<
   // has a stated width whatever is in it, so this is the state's actual width
   // rather than a guess at one.
   dictating: TRANSCRIPT_WIDTH + 32,
-  // The row with the stop control on it, which is the widest a call draws: a
-  // watch session adds a fifth control to the four the call already has.
-  call: 288,
+  // The line and the four controls of the handlebar, with Teach held down and
+  // so spelling its name out, which is the widest a call draws.
+  call: 332,
 };
 
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
+  /**
+   * Who the dial is calling. Read only while the phase is `call` and there is
+   * no {@link call} yet; a session names its own assistant. Empty is a dial
+   * with no name to say.
+   */
+  assistantName?: string;
   /** The assistant's avatar colour. Fills shapes; never carries text. */
   accentHex?: string;
   /**
@@ -651,6 +667,7 @@ function useObservedCaptures(captureCount: number, watching: boolean): number {
 
 export function CompanionSurface({
   phase,
+  assistantName = "",
   accentHex = DEFAULT_ACCENT,
   avatarSrc,
   character,
@@ -912,7 +929,9 @@ export function CompanionSurface({
             {phase === "call" ? (
               <CallBody
                 call={call}
+                assistantName={assistantName}
                 watching={watching}
+                watchEnabled={watchEnabled}
                 onControl={onControl}
                 onWatch={onWatch}
               />
@@ -1336,37 +1355,58 @@ function IdleBody({
           control is holding the pill open and which press ends it. `pressed`
           rather than `active`, because this one is a state and not a look: a
           reader is told a session is running, where everything else this
-          surface does about it is a colour they never receive.
-
-          It is also what keeps this control's word on the surface while the
-          rest of the row is icons: a running session is the one thing here the
-          user has to be able to find without hunting, and a name revealed only
-          under the pointer is one they would have to go looking for. `pressed`
-          pins it open, so the session names itself for as long as it runs.
-
-          Absent entirely when Watch is not offered, rather than disabled: a
-          user who cannot have the feature is not owed a control that explains
-          itself by refusing them. The pill measures its own contents, so the
-          row simply comes out narrower.
-
-          **The exit outlives the door.** A session running under a flag that
-          has since been turned off still reads the screen, so the row that
-          would have carried Watch carries the stop instead, the same control
-          the call row draws. Hiding the way in is the whole of what
-          the flag does; leaving a capture with nothing that ends it is not
-          something a flag is allowed to cause. */}
-      {watchEnabled ? (
-        <PillButton
-          icon={<Eye className="size-4" />}
-          label={t("companionSurface.teach")}
-          revealLabel
-          pressed={watching}
-          onClick={onWatch}
-        />
-      ) : (
-        watching && <StopWatchingButton onWatch={onWatch} />
-      )}
+          surface does about it is a colour they never receive. */}
+      <TeachButton
+        watching={watching}
+        watchEnabled={watchEnabled}
+        onWatch={onWatch}
+      />
     </>
+  );
+}
+
+/**
+ * The way into a watch session and the way out of it, on whichever row the
+ * user is looking at.
+ *
+ * One control for the two rows that draw it, because it is the same session
+ * either way: a screen being read beside an idle pill and one being read
+ * beside a call are the same capture, and the same press ends both. Its
+ * pressed state is what tells a reader that, and its pinned word is what lets
+ * a looking user find the press without hunting under icons.
+ *
+ * Absent entirely when Watch is not offered, rather than disabled: a user who
+ * cannot have the feature is not owed a control that explains itself by
+ * refusing them. The pill measures its own contents, so the row simply comes
+ * out narrower.
+ *
+ * **The exit outlives the door.** A session running under a flag that has
+ * since been turned off still reads the screen, so the row that would have
+ * carried Teach carries the stop instead. Hiding the way in is the whole of
+ * what the flag does; leaving a capture with nothing that ends it is not
+ * something a flag is allowed to cause.
+ */
+function TeachButton({
+  watching,
+  watchEnabled,
+  onWatch,
+}: {
+  watching: boolean;
+  watchEnabled: boolean;
+  onWatch?: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!watchEnabled) {
+    return watching ? <StopWatchingButton onWatch={onWatch} /> : null;
+  }
+  return (
+    <PillButton
+      icon={<Eye className="size-4" />}
+      label={t("companionSurface.teach")}
+      revealLabel
+      pressed={watching}
+      onClick={onWatch}
+    />
   );
 }
 
@@ -1453,27 +1493,50 @@ function SummaryBody({
  */
 function CallBody({
   call,
+  assistantName,
   watching,
+  watchEnabled,
   onControl,
   onWatch,
 }: {
   call?: VoiceActivityState;
+  assistantName: string;
   watching: boolean;
+  watchEnabled: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
 }) {
   const { t } = useTranslation();
+  // The dial: Talk has been pressed and no session has answered. The mutes
+  // have nothing to act on yet and a press on them would be dropped, so the
+  // row is who is being called and the one control that means something, the
+  // end, which is the user changing their mind. Teach stays where it is, so a
+  // session already reading the screen does not lose its stop for the beat.
+  if (call === undefined) {
+    return (
+      <>
+        <span className="ml-1 max-w-[160px] shrink-0 truncate text-[12px] text-white/85">
+          {assistantName === ""
+            ? t("companionSurface.calling")
+            : t("companionSurface.callingNamed", { name: assistantName })}
+        </span>
+        <TeachButton
+          watching={watching}
+          watchEnabled={watchEnabled}
+          onWatch={onWatch}
+        />
+        <EndCallButton onControl={onControl} />
+      </>
+    );
+  }
   // The confirmation takes the row rather than crowding into it. The turn is
   // stopped until it is answered, so it is the only thing here worth pressing,
   // and a pill that tried to carry five controls would make each of them a
   // smaller target than the decision deserves.
   //
-  // The watch session's stop control is among what it excludes. The row already
-  // measures within a couple of points of the canvas ceiling, and what a canvas
-  // too narrow does is clip its trailing control, so adding one here risks
-  // clipping Deny. A blocked turn is reading nothing while it waits, and
-  // answering it lands back on the row that carries the stop.
-  if (call !== undefined && call.approvalRequestId !== "") {
+  // Teach is among what it excludes. A blocked turn is reading nothing while
+  // it waits, and answering it lands back on the row that carries the toggle.
+  if (call.approvalRequestId !== "") {
     return (
       <ApprovalBody
         detail={call.detail}
@@ -1487,9 +1550,8 @@ function CallBody({
   // the more specific of the two ("Reading a file" against "Thinking…") and is
   // empty for most of a call, so this reads as the surface saying more exactly
   // when there is more to say. The mascot carries the state either way.
-  const line = call === undefined ? "Listening" : call.detail || call.label;
-  const muted = call?.muted ?? false;
-  const outputMuted = call?.outputMuted ?? false;
+  const line = call.detail || call.label;
+  const { muted, outputMuted } = call;
 
   return (
     <>
@@ -1503,8 +1565,14 @@ function CallBody({
       </span>
       {/* Beside what the session is doing rather than beside the end control:
           two stops next to each other is a misclick that ends the wrong thing,
-          and only one of the two is irreversible. */}
-      {watching && <StopWatchingButton onWatch={onWatch} />}
+          and only one of the two is irreversible. Teach rides the call rather
+          than being refused by it: a screen read while talking is a question
+          the assistant can answer as it is asked. */}
+      <TeachButton
+        watching={watching}
+        watchEnabled={watchEnabled}
+        onWatch={onWatch}
+      />
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1537,19 +1605,32 @@ function CallBody({
           );
         }}
       />
-      {/* The room's own end control, at pill scale: the same glyph at the same
-          weight in the same destructive tone. Ending a call is the one
-          irreversible thing on this surface, so it looks identical wherever the
-          user meets it. */}
-      <PillButton
-        icon={<X className="size-4" strokeWidth={2.5} />}
-        label={t("companionSurface.endSession")}
-        tone="negative"
-        onClick={() => {
-          onControl?.("endSession");
-        }}
-      />
+      <EndCallButton onControl={onControl} />
     </>
+  );
+}
+
+/**
+ * The room's own end control, at pill scale: the same glyph at the same weight
+ * in the same destructive tone. Ending a call is the one irreversible thing on
+ * this surface, so it looks identical wherever the user meets it, the dial
+ * included: there it is the press that takes the request back.
+ */
+function EndCallButton({
+  onControl,
+}: {
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <PillButton
+      icon={<X className="size-4" strokeWidth={2.5} />}
+      label={t("companionSurface.endSession")}
+      tone="negative"
+      onClick={() => {
+        onControl?.("endSession");
+      }}
+    />
   );
 }
 
