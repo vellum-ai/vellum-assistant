@@ -27,6 +27,30 @@ type Story = StoryObj<typeof Tag>;
 /** Arg-driven: edit the label and flip the tone from the Controls panel. */
 export const Default: Story = {};
 
+/**
+ * A label longer than the space the tag is given.
+ *
+ * Arg-driven like `Default`, with a decorator supplying the constraint: a tag
+ * only truncates when something bounds it, and a story rendering it at its
+ * natural width would show nothing. The label ellipsizes inside the box
+ * instead of pushing the tag past it and being clipped mid-word by whatever
+ * is doing the bounding.
+ */
+export const TruncatedLabel: Story = {
+  args: {
+    tone: "warning",
+    leftIcon: <Circle />,
+    children: "A label longer than the space this tag has to render it in",
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ display: "flex", width: 220, overflow: "hidden" }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
 /** Every tone at a glance. */
 export const Tones: Story = {
   render: () => (

@@ -102,7 +102,9 @@ import { useTranslation } from "@/i18n";
  */
 
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -143,6 +145,7 @@ import {
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
 import { CameraShutter } from "@/domains/chat/voice/camera-shutter";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
@@ -161,6 +164,7 @@ import {
   CAMERA_SCRIM_TOP,
   cameraModeStyle,
 } from "./camera-mode-paint";
+import { CameraShutterHint } from "./camera-shutter-hint";
 import {
   CameraStatusPill,
   useCameraStatusAnnouncement,
@@ -588,17 +592,63 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // as the status pill's word below.
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
-  // Sight rides the viewfinder the shutter already put on screen: while it is
-  // open the gate keeps the frames worth keeping and parks each one on the
-  // session as it lands, so whatever turn comes next carries the current view
-  // and the call can be asked about what the camera is pointed at without
-  // anyone pressing anything. Inert unless the flag and the session's assistant
-  // both allow it, and it acquires no camera of its own, so the native shells
-  // (where this `<video>` never mounts) simply sample nothing.
-  const { heldFrame } = useVoiceRoomSight(assistantId, viewfinderRef, {
-    cameraOpen,
-    facing: camera.facing,
-  });
+  // Sight rides the viewfinder the shutter already put on screen: while Live is
+  // running the gate keeps the frames worth keeping and sends each one as it
+  // lands, and the daemon persists it as its own message, so the call can be
+  // asked about what the camera is pointed at without anyone pressing
+  // anything further. Inert unless the flag and the session's assistant both
+  // allow it, and it acquires no camera of its own: the native shells put their
+  // preview behind the web view and mount no `<video>` for it to read, so it is
+  // handed which preview is up and withdraws Live there rather than sampling
+  // nothing.
+  const { heldFrame, liveAvailable, live, setLive, revokeCaptureConsent } =
+    useVoiceRoomSight(assistantId, viewfinderRef, {
+      cameraOpen,
+      facing: camera.facing,
+      nativePreview: camera.native,
+    });
+  // Closing the viewfinder is the other way a user ends Live, and it does not
+  // go through `setLive`. The mode comes down behind it, on the render the
+  // close schedules, which is too late for a frame whose upload lands in
+  // between: consent goes here, in the handler. Every close in this component
+  // goes through this rather than through `close`.
+  const closeCamera = useCallback(() => {
+    revokeCaptureConsent();
+    close();
+  }, [close, revokeCaptureConsent]);
+  // The room also goes without anyone dismissing it: the owning composer
+  // leaving the screen, the conversation being switched under the session, the
+  // session ending. This overlay stays mounted through its exit animation in
+  // every one of those, so the teardown that voids a frame in flight is an
+  // animation away, and none of them is one store write to sit inside. The
+  // commit that starts the exit is the earliest they can be answered.
+  const roomVisible = useIsVoiceRoomVisible();
+  useLayoutEffect(() => {
+    if (roomVisible) {
+      return;
+    }
+    setLive(false);
+  }, [roomVisible, setLive]);
+  // One value for what the camera is doing, read by the pill, the shutter, the
+  // hint and the announcement alike, so no two of them can disagree about it.
+  const cameraMode = live ? "live" : "photo";
+  // Whether the hold is on offer right now. Availability carries the preview
+  // the room is on, so the offer and the mode answer to one value: a shutter
+  // that takes the hold is a shutter whose Live has somewhere to read from.
+  const liveOffered = cameraOpen && liveAvailable;
+  // The shutter's two acts, which are two different sentences rather than one
+  // with the mode pushed into it.
+  const shutterLabel = live
+    ? t("voiceRoom.stopLive")
+    : t("voiceRoom.takePhoto");
+  // Which gesture is the way into Live and which is the way out, for the
+  // readers the caption below the shutter is hidden from. Absent where Live
+  // cannot run, so nothing describes a second act the shutter is not taking.
+  const shutterDescription = !liveOffered
+    ? undefined
+    : live
+      ? t("cameraShutterHint.liveDescription")
+      : t("cameraShutterHint.photoDescription");
   // What every control in the room is sitting on. One value passed down rather
   // than a boolean per control, so the row cannot end up half in camera mode.
   const controlSurface: VoiceRoomControlSurface = cameraOpen
@@ -624,6 +674,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const cameraAnnouncement = useCameraStatusAnnouncement(
     cameraOpen
       ? {
+          mode: cameraMode,
           voiceState: cameraVoiceState,
           statusLabel: stateLabel,
           assistantName,
@@ -919,6 +970,25 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </>
       ) : null}
 
+      {/* The frame gate's tuning readout for this viewfinder.
+
+          Above the scrims at `z-[3]` and below the connect card at `z-20`, so
+          it reads over the frame without covering the one surface that needs a
+          press. Parked on the left below the chrome band: the shutter column
+          and the thumbnail band own the floor, and the status pill owns the
+          top centre. Inside `inset-0` because the room clips.
+
+          Camera-only and web-only. The native preview sits behind a
+          transparent web view and is sampled in Swift, so there are no
+          decisions here to read. */}
+      {cameraOpen && !camera.native ? (
+        <FrameGateHud
+          surface="voice"
+          className="absolute top-[calc(var(--room-chrome-top)+2.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
+          style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
+        />
+      ) : null}
+
       {/* Optional live transcript, rendered into the room's two text zones —
           the user's speech above the eyes, the assistant's below. Pref-gated
           (the captions control above) and absolutely positioned in the margins
@@ -987,6 +1057,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           style={{ maxWidth: CAMERA_PILL_MAX_WIDTH }}
         >
           <CameraStatusPill
+            mode={cameraMode}
             voiceState={cameraVoiceState}
             statusLabel={stateLabel}
             assistantName={assistantName}
@@ -1198,18 +1269,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   ))}
                 </ul>
               ) : null}
-              {/* The view the call is holding right now.
+              {/* The newest view the call was given.
 
                   A photo in the strip is a receipt for something the user did;
-                  this is the opposite, a frame nobody asked for that the next
-                  turn can carry, so it has to be visible while that is still
-                  true rather than after the fact. It wears the strip's shape so
-                  the two read as one row, and the capture accent so they are
-                  not read as the same thing. Keyed on the id, which replays the
-                  ring whenever a newer frame takes the slot.
+                  this is the opposite, a frame nobody asked for, so it has to
+                  be visible at the moment it goes rather than only after the
+                  fact. It wears the strip's shape so the two read as one row,
+                  and the capture accent so they are not read as the same
+                  thing. Keyed on the id, which replays the ring on every keep.
 
-                  `aria-hidden` for the same reason as the strip: the frame
-                  reaches the transcript with the turn it rides, which is the
+                  `aria-hidden` for the same reason as the strip: every keep
+                  lands in the transcript as its own message, which is the
                   accessible record of it. */}
               {heldFrame ? (
                 <img
@@ -1224,6 +1294,15 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               ) : null}
             </div>
           ) : null}
+
+          {/* What the shutter offers, above the shutter.
+
+              The hold is the only gesture in the room nothing else can
+              announce, and a viewfinder is where a user will not go looking
+              for a second act on a button they already know. Shown only where
+              Live is actually on offer: a caption for a gesture that would do
+              nothing is worse than none. */}
+          {liveOffered ? <CameraShutterHint mode={cameraMode} /> : null}
 
           {/* The shutter is centred on the room, with flip parked off to the
               side rather than sharing a row with it: a two-item row would put
@@ -1258,17 +1337,28 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
               {/* The one control with no surface branch: the shutter exists
                   only while the viewfinder does, so it is never seen against
-                  anything but video. Photo is the only mode the capture path
-                  reaches. */}
-              <Tooltip content={t("voiceRoom.takePhoto")}>
+                  anything but video.
+
+                  A tap takes one photo; holding it enters Live, and the next
+                  tap leaves. The hold is offered only where Live can run, so
+                  the gesture never costs a press that does nothing. */}
+              <Tooltip content={shutterLabel}>
                 <CameraShutter
-                  onClick={() => void shutter()}
-                  ariaLabel={t("voiceRoom.takePhoto")}
+                  mode={cameraMode}
+                  onHold={
+                    liveOffered && !live ? () => setLive(true) : undefined
+                  }
+                  onClick={() => (live ? setLive(false) : void shutter())}
+                  ariaLabel={shutterLabel}
+                  description={shutterDescription}
                   capturing={sending}
-                  // Also held off while a flip swaps the capture: the
-                  // viewfinder stays up with nothing behind it, and a press
-                  // there would report a failure for a working flip.
-                  disabled={sending || camera.flipping}
+                  // Held off while a photo goes and while a flip swaps the
+                  // capture: the viewfinder stays up with nothing behind it,
+                  // and a press there would report a failure for a working
+                  // flip. Never while live, because the press that stops the
+                  // stream must always land: a flip started mid-stream would
+                  // otherwise strand the user in Live with a dead shutter.
+                  disabled={!live && (sending || camera.flipping)}
                   testId="voice-room-shutter"
                 />
               </Tooltip>
@@ -1359,7 +1449,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                 ? t("voiceRoom.closeCamera")
                 : t("voiceRoom.showCamera")
             }
-            onClick={() => (cameraOpen ? close() : void open())}
+            onClick={() => (cameraOpen ? closeCamera() : void open())}
             pressed={cameraOpen}
             surface={controlSurface}
             data-testid="voice-room-camera-toggle"

@@ -8,6 +8,7 @@ import {
 } from "@/utils/slack-token-validation";
 
 import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
+import { ChannelSetupCompleteNotice } from "@/components/channel-setup-complete-notice";
 export interface SlackSetupTokensStepProps {
   /** Assistant the setup panel was opened for. */
   assistantId: string;
@@ -30,6 +31,13 @@ export interface SlackSetupTokensStepProps {
  * cannot be set until the app exists: it is absent from the manifest schema,
  * and the create step leaves the user in a modal for an app Slack has not made
  * yet. By this step they are on the app's own screen.
+ *
+ * Saving is not the end of setup: until the guardian's Slack identity is
+ * linked, the default admission policy leaves the bot seeing their messages
+ * and declining to answer. The chat drawer closes on a successful save and
+ * hands off to the assistant, so this success state is only ever the Channels
+ * page's, where no conversation is listening and the copy has to tell the
+ * user what to say instead.
  */
 export function SlackSetupTokensStep({
   assistantId,
@@ -59,6 +67,20 @@ export function SlackSetupTokensStep({
     !botTokenError &&
     !appTokenError &&
     saveStatus !== "pending";
+
+  // A saved credential retires the form. The wizard empties both fields on
+  // success, so leaving them up would pair "Credentials saved" with blank
+  // boxes and a dead button, which reads as a save that did not take.
+  if (saveStatus === "success") {
+    return (
+      <ChannelSetupCompleteNotice
+        assistantId={assistantId}
+        channel="slack"
+        savedTitle={t("slackSetupTokensStep.credentialsSaved")}
+        savedBody={t("slackSetupTokensStep.savedBody")}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -116,23 +138,8 @@ export function SlackSetupTokensStep({
           : t("slackSetupTokensStep.connectSlack")}
       </Button>
 
-      {saveStatus === "success" && (
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="text-[color:var(--content-positive)]"
-        >
-          {t("slackSetupTokensStep.credentialsSaved")}
-        </Typography>
-      )}
       {saveStatus === "error" && saveError && (
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="text-[color:var(--system-negative-strong)]"
-        >
-          {saveError}
-        </Typography>
+        <Notice tone="error">{saveError}</Notice>
       )}
     </div>
   );

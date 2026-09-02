@@ -11,6 +11,8 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import { useHoldToDictate } from "@/domains/chat/voice/use-hold-to-dictate";
+import { useHoldToDictateEnabled } from "@/utils/hold-to-dictate";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -60,6 +62,13 @@ export function GlobalPushToTalkBridge({
     stream: voiceStream,
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
+  const holdToDictateEnabled = useHoldToDictateEnabled();
+  /**
+   * Whether the dictation in flight was started by the hold rather than by a
+   * press. A ref because the transcript arrives after the keys are back up, so
+   * a state read at that point would already describe the next silence.
+   */
+  const holdRef = useRef(false);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -73,7 +82,10 @@ export function GlobalPushToTalkBridge({
   // (RootLayout) while the chat composer only exists on chat routes; the
   // overlay must mirror dictation hosted by either VoiceInputButton
   // instance. Reads everything from the shared recording store.
-  useDictationOverlaySync();
+  // While the hold is bound, the companion surface carries the status instead:
+  // one surface saying a microphone is open rather than a panel and a pill
+  // saying it separately.
+  useDictationOverlaySync({ suppressed: holdToDictateEnabled });
 
   const resolveTarget = useCallback(
     () =>
@@ -96,14 +108,42 @@ export function GlobalPushToTalkBridge({
   // same way dictation is.
   useVoiceModeHotkey({ enabled: supportsKeyboardActivation() });
 
+  // Hold to dictate, from whatever app the user is in. The same target the
+  // overlay's stop button drives, so a hold and a press are the same dictation
+  // and land the same way: through `handleTranscript` below, which cleans the
+  // transcript up and drops it at the cursor.
+  useHoldToDictate({
+    enabled: holdToDictateEnabled,
+    onHoldStart: () => {
+      if (useVoiceRecordingStore.getState().phase === "recording") {
+        return;
+      }
+      holdRef.current = true;
+      resolveTarget()?.start();
+    },
+    onHoldEnd: () => {
+      if (useVoiceRecordingStore.getState().phase !== "recording") {
+        holdRef.current = false;
+        return;
+      }
+      resolveTarget()?.stop();
+    },
+  });
+
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
       let insertText = rawText;
-      const dictationResult = assistantId
-        ? await postDictation(rawText, assistantId, {
-            cursorInTextField: true,
-          })
-        : null;
+      // The cleanup pass is a daemon round-trip that runs a model, and it sits
+      // between letting go of the keys and seeing the words. A hold is aimed at
+      // a cursor in another app, where the wait is the whole experience and the
+      // intent needs no classifying, so those words go straight down and the
+      // pass is spent only where something is waiting on it anyway.
+      const dictationResult =
+        assistantId && !holdRef.current
+          ? await postDictation(rawText, assistantId, {
+              cursorInTextField: true,
+            })
+          : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
@@ -132,6 +172,8 @@ export function GlobalPushToTalkBridge({
             useConversationStore.getState().activeConversationId,
           );
       }
+
+      holdRef.current = false;
 
       const conversationKey = ensureConversationKey();
       const composer = useComposerStore.getState();

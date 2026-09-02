@@ -30,6 +30,11 @@
  * audio focus ({@link useNativeAudioSessionLifecycle}) and both halves of the
  * platform status surface — what it shows ({@link useLiveActivityMirror}) and
  * what its buttons do ({@link useLiveActivityControls}).
+ *
+ * And it is where duties that must outlive the room UI live, because this
+ * mount does: {@link useSightFrameReclaimer} gives back camera-frame uploads
+ * an assistant refused, which the room cannot be trusted to do while it is
+ * minimized and therefore unmounted.
  */
 
 import { useEffect, useLayoutEffect, useRef } from "react";
@@ -48,6 +53,7 @@ import {
 import { drainPendingVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useLiveActivityControls } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
+import { useSightFrameReclaimer } from "@/domains/chat/voice/live-voice/use-sight-frame-reclaimer";
 import {
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
@@ -247,4 +253,8 @@ export function useLiveVoiceSessionController(
   // The island's inbound half. Separate from the mirror because it reaches the
   // session and the mirror may not; see `use-live-activity-controls.ts`.
   useLiveActivityControls();
+  // Camera-frame cleanup. Here rather than in the room because a minimized
+  // room is not mounted, and an upload refused while it is minimized would
+  // otherwise be stranded when the call ends.
+  useSightFrameReclaimer();
 }

@@ -138,15 +138,18 @@ function CameraModeScreen({
         />
       </div>
 
-      {/* The shutter row, a row of its own above the session controls. Full
-          width here because the app's is: flash and flip ride the room's edges
-          rather than a fixed measure. */}
+      {/* The shutter row, a row of its own above the session controls, with
+          the hint over it. Full width here because the app's is: flash and
+          flip ride the room's edges rather than a fixed measure. The room
+          shows the hint only where Live can run; this screen always can, so
+          it always carries one. */}
       <div
         className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
         style={{ bottom: SHUTTER_ROW_BOTTOM }}
       >
         <CameraRowScene
           className="w-full"
+          hint={{ mode }}
           shutter={{ mode, ariaLabel: SHUTTER_LABELS[mode], onClick: noop }}
         />
       </div>
@@ -300,13 +303,13 @@ export const MicMutedControls: Story = {
 };
 
 /**
- * Streaming rather than sampling, on both pieces that carry the mode: the pill
- * fills with the capture accent and the shutter's core morphs to the crimson
- * record dot.
+ * Streaming rather than sampling, on all three pieces that carry the mode: the
+ * pill fills with the capture accent, the shutter's core morphs to the crimson
+ * record dot, and the hint above it changes from what a hold offers to how to
+ * stop.
  *
- * Not reachable from the app, where the capture path is photo-only. It is the
- * design's second treatment and it belongs to these components' contract, so
- * this is the one place the pair can be read together.
+ * What the app reaches by holding the shutter, and the one place the three can
+ * be read against each other in one frame.
  */
 export const LiveMode: Story = { args: { mode: "live" } };
 

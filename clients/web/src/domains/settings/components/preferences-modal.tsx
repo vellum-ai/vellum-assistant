@@ -4,7 +4,10 @@ import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcu
 import { useTranslation } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
-import { isMacOSBrowser } from "@/runtime/platform-detection";
+import {
+  isMacOSBrowser,
+  resolveDesktopHostOS,
+} from "@/runtime/platform-detection";
 import {
   cmdEnterToSend,
   showContextWindowIndicator,
@@ -86,7 +89,11 @@ function LaunchAtLoginSection() {
         {t("preferencesModal.launchAtLoginTitle")}
       </h3>
       <p className="text-body-medium-default text-[var(--content-tertiary)]">
-        {t("preferencesModal.launchAtLoginDescription")}
+        {t(
+          resolveDesktopHostOS() === "windows"
+            ? "preferencesModal.launchAtLoginDescriptionWindows"
+            : "preferencesModal.launchAtLoginDescription",
+        )}
       </p>
       <div className="mt-2">
         <Toggle

@@ -16,7 +16,7 @@ const BAND_CORE_RATIO = 0.44;
  * vars so `startSweep` can retune measured values without rebuilding the
  * gradient string. Derived from `gradient-shimmer`'s band gradient (MIT).
  */
-function buildBandGradient(stops: GradientStop[], angle: number): string {
+export function buildBandGradient(stops: GradientStop[], angle: number): string {
   const sorted = [...stops].sort((a, b) => a.position - b.position);
   const first = sorted[0]?.color ?? "white";
   const last = sorted[sorted.length - 1]?.color ?? "white";
@@ -58,7 +58,7 @@ export function shimmerStopsForAccent(accent: string): GradientStop[] {
  * loading, storybook) — the sweep stays a neutral brighten instead of an
  * arbitrary hue.
  */
-const AVATAR_ACCENT = "var(--avatar-accent, var(--content-emphasised))";
+export const AVATAR_ACCENT = "var(--avatar-accent, var(--content-emphasised))";
 
 /**
  * The sweep is only perceivable as the contrast between band and base — with
@@ -72,12 +72,12 @@ const BASE_COLOR = "color-mix(in srgb, currentColor 45%, transparent)";
 // Sweep timing/geometry. Shared constants (not props) on purpose: every
 // instance having identical duration + easing is what lets the shared-clock
 // phase lock below hold across instances.
-const SWEEP_DURATION_MS = 1500;
-const SWEEP_ANGLE = 106;
+export const SWEEP_DURATION_MS = 1500;
+export const SWEEP_ANGLE = 106;
 const SPREAD_PER_CHAR_PX = 6;
 const MAX_SPREAD_PX = 48;
 /** Where `--gs-spread-mid` (the band's soft inner edge) sits within the spread. */
-const SPREAD_MID_RATIO = 0.72;
+export const SPREAD_MID_RATIO = 0.72;
 const BASE_FONT_PX = 14;
 const FALLBACK_TEXT_WIDTH_PX = 96;
 

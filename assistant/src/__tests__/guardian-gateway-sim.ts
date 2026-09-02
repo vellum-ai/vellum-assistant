@@ -454,25 +454,6 @@ export function createGuardianGatewaySim() {
       .map((d) => ({ ...d }));
   }
 
-  async function getPendingRequestByDestinationMessage(
-    channel: string,
-    chatId: string,
-    messageId: string,
-  ): Promise<SimGuardianRequest | null> {
-    throwIfReadError();
-    const delivery = deliveries.find(
-      (d) =>
-        d.destinationChannel === channel &&
-        d.destinationChatId === chatId &&
-        d.destinationMessageId === messageId,
-    );
-    if (!delivery) {
-      return null;
-    }
-    const request = requests.get(delivery.requestId);
-    return request?.status === "pending" ? { ...request } : null;
-  }
-
   async function listPendingRequestsByDestination(params: {
     channel?: string;
     chatId?: string;
@@ -623,10 +604,6 @@ export function createGuardianGatewaySim() {
     listGuardianRequestDeliveriesOrEmpty: degrade(
       listGuardianRequestDeliveries,
       [],
-    ),
-    getPendingRequestByDestinationMessageOrNull: degrade(
-      getPendingRequestByDestinationMessage,
-      null,
     ),
     listPendingRequestsByDestinationOrEmpty: degrade(
       listPendingRequestsByDestination,

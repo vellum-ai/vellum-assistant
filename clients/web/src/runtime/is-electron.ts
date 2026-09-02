@@ -36,6 +36,8 @@ import type {
   DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -161,6 +163,9 @@ declare global {
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
           ): Promise<VoiceModeChordRegistrationResult>;
+          setModifierHold?(
+            hold: ModifierHold,
+          ): Promise<ModifierHoldRegistrationResult>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;
@@ -240,6 +245,10 @@ declare global {
         renameLockfileAssistant?(
           assistantId: string,
           name: string,
+        ): Promise<LockfileWriteResult>;
+        stampLockfileAssistantOnboarded?(
+          assistantId: string,
+          onboardedAt: string,
         ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,

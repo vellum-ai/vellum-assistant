@@ -182,11 +182,47 @@ export function renameLockfileAssistantIfPresent(
   assistantId: string,
   name: string,
 ): WriteResult {
-  if (typeof assistantId !== "string" || assistantId === "") {
-    return { ok: false, status: 400, error: "Missing assistantId" };
-  }
   if (typeof name !== "string" || name === "") {
     return { ok: false, status: 400, error: "Missing name" };
+  }
+  return patchLockfileAssistantIfPresent(lockfilePaths, assistantId, { name });
+}
+
+/**
+ * Record when an assistant finished first-run onboarding. Update-only, on the
+ * same terms as {@link renameLockfileAssistantIfPresent}. Keeps an existing
+ * stamp: the first completion is the real one, and a replayed funnel must not
+ * move it.
+ */
+export function stampLockfileAssistantOnboardedIfPresent(
+  lockfilePaths: string[],
+  assistantId: string,
+  onboardedAt: string,
+): WriteResult {
+  if (typeof onboardedAt !== "string" || onboardedAt === "") {
+    return { ok: false, status: 400, error: "Missing onboardedAt" };
+  }
+  return patchLockfileAssistantIfPresent(
+    lockfilePaths,
+    assistantId,
+    { onboardedAt },
+    (entry) => typeof entry.onboardedAt === "string" && entry.onboardedAt !== "",
+  );
+}
+
+/**
+ * The shared update-only write: read the on-disk registry under the lock,
+ * refuse a missing entry, and merge `patch` into it. `skip` short-circuits to
+ * a successful no-op for a field whose current value should win.
+ */
+function patchLockfileAssistantIfPresent(
+  lockfilePaths: string[],
+  assistantId: string,
+  patch: Record<string, unknown>,
+  skip?: (entry: Record<string, unknown>) => boolean,
+): WriteResult {
+  if (typeof assistantId !== "string" || assistantId === "") {
+    return { ok: false, status: 400, error: "Missing assistantId" };
   }
 
   const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
@@ -206,10 +242,14 @@ export function renameLockfileAssistantIfPresent(
         error: "No lockfile entry for this assistant",
       };
     }
-    if (assistants[idx]!.name === name) {
+    const entry = assistants[idx]!;
+    const converged =
+      skip?.(entry) ??
+      Object.entries(patch).every(([key, value]) => entry[key] === value);
+    if (converged) {
       return { ok: true, lockfile: toWireLockfile(lockfile) };
     }
-    assistants[idx] = { ...assistants[idx], name };
+    assistants[idx] = { ...entry, ...patch };
     lockfile.assistants = assistants;
     return writeRawLockfile(lockfilePaths, lockfile);
   });
@@ -354,7 +394,24 @@ export function replacePlatformAssistants(
       if (syncedIds.has(a.assistantId)) return false;
       return organizationId != null && a.organizationId !== organizationId;
     });
-    lockfile.assistants = [...preserved, ...platformAssistants];
+    // `onboardedAt` is recorded by the client and unknown to the platform, so
+    // the replacement rows never carry it. Without this it is erased by every
+    // routine session sync.
+    const priorOnboardedAt = new Map<string, unknown>();
+    for (const a of existing as Array<Record<string, unknown>>) {
+      if (typeof a?.assistantId === "string" && a.onboardedAt != null) {
+        priorOnboardedAt.set(a.assistantId, a.onboardedAt);
+      }
+    }
+    lockfile.assistants = [
+      ...preserved,
+      ...platformAssistants.map((a) => {
+        const prior = priorOnboardedAt.get(a.assistantId as string);
+        return a.onboardedAt == null && prior != null
+          ? { ...a, onboardedAt: prior }
+          : a;
+      }),
+    ];
 
     const active = lockfile.activeAssistant as string | null;
     if (active) {

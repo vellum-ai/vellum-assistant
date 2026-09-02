@@ -48,7 +48,7 @@ const {
 } = await import("../guardian-feed-projection.js");
 const { appendFeedItem, bulkSetFeedItemStatus, getHomeFeedPath, readHomeFeed } =
   await import("../../home/feed-writer.js");
-const { isPendingGuardianFeedItem } =
+const { GUARDIAN_TERMINAL_REASON_SUPERSEDED, isPendingGuardianFeedItem } =
   await import("../../api/responses/home.js");
 type FeedItem = import("../../api/responses/home.js").FeedItem;
 
@@ -115,7 +115,7 @@ describe("buildPendingGuardianProjection", () => {
       requesterLabel: "Alice",
       toolName: "linear_graphql",
       sourceChannel: "slack",
-      sourceContextLabel: "Slack #C0123456789",
+      sourceContextLabel: "#C0123456789",
     });
   });
 
@@ -130,14 +130,12 @@ describe("buildPendingGuardianProjection", () => {
     expect(projection?.status).toBe("pending");
   });
 
-  test("a sent Slack delivery yields the card deep link", () => {
-    const projection = buildPendingGuardianProjection(toolApprovalPayload, {
-      channel: "slack",
-      destination: "D0AAAAAAAAA",
-      status: "sent",
-      messageId: "1725100000.000100",
+  test("a captured channel name becomes the source context label", () => {
+    const projection = buildPendingGuardianProjection({
+      ...toolApprovalPayload,
+      sourceChatName: "user-feedback",
     });
-    expect(projection?.slackCardUrl).toContain("D0AAAAAAAAA");
+    expect(projection?.sourceContextLabel).toBe("#user-feedback");
   });
 
   test("a payload without a requestId projects nothing", () => {
@@ -154,7 +152,6 @@ describe("buildPendingGuardianProjection", () => {
         sourceChannel: "telegram",
         senderIdentifier: "Alice",
       },
-      undefined,
       "access_request",
     );
     expect(projection).toMatchObject({
@@ -250,19 +247,21 @@ describe("writeGuardianFeedReceipt", () => {
     expect(item && isPendingGuardianFeedItem(item)).toBe(false);
   });
 
-  test("a superseded auto-deny carries its reason and no decider", async () => {
+  test("a superseded auto-deny carries its reason", async () => {
     await appendFeedItem(pendingGuardianItem("req-4"));
     await writeGuardianFeedReceipt({
       requestId: "req-4",
       status: "denied",
       decidedAction: "reject",
-      terminalReason: "superseded",
+      terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
     });
     const item = readHomeFeed().items.find(
       (i) => i.id === guardianFeedItemId("req-4"),
     );
-    expect(item?.guardianRequest?.terminalReason).toBe("superseded");
-    expect(item?.guardianRequest?.decidedByLabel).toBeUndefined();
+    expect(item?.guardianRequest?.terminalReason).toBe(
+      GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+    );
+    expect(item?.guardianRequest?.status).toBe("denied");
   });
 
   test("a request with no item resolves true (nothing to retry)", async () => {

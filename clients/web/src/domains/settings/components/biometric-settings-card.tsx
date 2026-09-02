@@ -78,7 +78,7 @@ export function BiometricSettingsCard() {
               label: capability.label,
             })}
           </div>
-          <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
+          <p className="mt-1 text-body-small-lighter text-[var(--content-tertiary)]">
             {isNativeIOS
               ? t("biometricSettingsCard.descriptionWithPasscode", {
                   label: capability.label,

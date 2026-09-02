@@ -59,6 +59,7 @@ mock.module("@/lib/backwards-compat/channel-setup-close-notify", () => ({
 const {
   buildChannelSetupClosedMessage,
   buildChannelSetupHandedOffMessage,
+  buildChannelSetupVerifyRequestedMessage,
   notifyChannelSetupClosed,
   notifyChannelSetupHandedOff,
 } = await import("./channel-setup-close-notify");
@@ -190,5 +191,40 @@ describe("notifyChannelSetupHandedOff", () => {
     );
     expect(postCalls[0]?.body.hidden).toBe(true);
     expect(postCalls[0]?.body.scripted).toBe(true);
+  });
+});
+
+describe("notifyChannelSetupClosed: verify_requested outcome", () => {
+  const PAYLOAD = {
+    channel: "discord",
+    assistantId: "a1",
+    assistantName: "Vellum",
+    conversationId: "c1",
+  } as const;
+
+  test("reports the hand-off instead of a bare dismissal", async () => {
+    // One close is one message. The hand-off closes the drawer itself, so a
+    // separate send would reach the assistant as a second, weaker account of
+    // one action, and the setup skills answer a bare close by asking whether
+    // the bot was ever added: the question the hand-off exists to skip.
+    await notifyChannelSetupClosed({
+      ...PAYLOAD,
+      outcome: "verify_requested",
+    });
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body.content).toBe(
+      buildChannelSetupVerifyRequestedMessage("discord"),
+    );
+    expect(postCalls[0]?.body.hidden).toBe(true);
+    expect(postCalls[0]?.body.scripted).toBe(true);
+  });
+
+  test("a payload without an outcome still reports a dismissal", async () => {
+    await notifyChannelSetupClosed({ ...PAYLOAD });
+
+    expect(postCalls[0]?.body.content).toBe(
+      buildChannelSetupClosedMessage("discord"),
+    );
   });
 });

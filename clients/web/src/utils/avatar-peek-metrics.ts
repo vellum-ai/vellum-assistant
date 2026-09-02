@@ -37,15 +37,13 @@ export function avatarPeekMetrics(
   components: CharacterComponents,
   traits: CharacterTraits,
 ): AvatarPeekMetrics | null {
-  let resolved;
-  try {
-    resolved = resolveDefinitions(
-      components,
-      traits.bodyShape,
-      traits.eyeStyle,
-      traits.color,
-    );
-  } catch {
+  const resolved = resolveDefinitions(
+    components,
+    traits.bodyShape,
+    traits.eyeStyle,
+    traits.color,
+  );
+  if (!resolved) {
     return null;
   }
   const { bodyShape, eyeStyle } = resolved;

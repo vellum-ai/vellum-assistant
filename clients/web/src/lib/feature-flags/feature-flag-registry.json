@@ -190,6 +190,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "camera-gate-debug-hud",
+      "scope": "client",
+      "key": "camera-gate-debug-hud",
+      "label": "Camera Gate Debug HUD",
+      "description": "Unlock the camera frame gate's tuning readout: the Settings toggle that turns it on, and the live panel over the composer's sight tile and the voice room's viewfinder showing motion, novelty and detail against their thresholds, the check that decided each frame, and sliders that move those thresholds while the camera runs. Staff sessions get it without the flag; the flag is for local gateway sessions, which carry no platform identity and are where the gate is tuned.",
+      "defaultEnabled": false
+    },
+    {
       "id": "compaction-playground",
       "scope": "assistant",
       "key": "compaction-playground",

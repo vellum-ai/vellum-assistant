@@ -487,6 +487,10 @@ describe("normalizeDiscordMessageDelete", () => {
   });
 });
 describe("normalizeDiscordMessageReaction", () => {
+  // Stand-in for the id `gateway-socket.ts` mints per received dispatch. It
+  // is a parameter precisely so the normalizer stays deterministic here.
+  const INGEST_ID = "ingest-1";
+
   function parseReaction(payload: Record<string, unknown>) {
     const parsed = DiscordMessageReactionSchema.safeParse(payload);
     if (!parsed.success) {
@@ -495,17 +499,22 @@ describe("normalizeDiscordMessageReaction", () => {
     return parsed.data;
   }
 
+  const thumbsUp = (overrides: Record<string, unknown> = {}) =>
+    parseReaction({
+      user_id: "user-1",
+      channel_id: "channel-1",
+      message_id: "msg-1",
+      guild_id: "guild-1",
+      emoji: { id: null, name: "\u{1F44D}" },
+      ...overrides,
+    });
+
   test("a unicode reaction carries the structured payload", () => {
-    const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: null, name: "\u{1F44D}" },
-      }),
-      { op: "added", raw: {} },
-    );
+    const event = normalizeDiscordMessageReaction(thumbsUp(), {
+      op: "added",
+      ingestId: INGEST_ID,
+      raw: {},
+    });
 
     expect(event).not.toBeNull();
     expect(event!.message.eventKind).toBe("reaction");
@@ -516,7 +525,7 @@ describe("normalizeDiscordMessageReaction", () => {
       targetMessageId: "msg-1",
     });
     expect(event!.message.externalMessageId).toBe(
-      "msg-1:reaction:\u{1F44D}:user-1",
+      `msg-1:reaction:\u{1F44D}:user-1:${INGEST_ID}`,
     );
     expect(event!.source.messageId).toBe("msg-1");
     expect(event!.actor.actorExternalId).toBe("user-1");
@@ -524,33 +533,22 @@ describe("normalizeDiscordMessageReaction", () => {
   });
 
   test("a removal appends the op suffix so it never dedups against the add", () => {
-    const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: null, name: "\u{1F44D}" },
-      }),
-      { op: "removed", raw: {} },
-    );
+    const event = normalizeDiscordMessageReaction(thumbsUp(), {
+      op: "removed",
+      ingestId: INGEST_ID,
+      raw: {},
+    });
 
     expect(event!.message.reaction!.op).toBe("removed");
     expect(event!.message.externalMessageId).toBe(
-      "msg-1:reaction:\u{1F44D}:user-1:removed",
+      `msg-1:reaction:\u{1F44D}:user-1:removed:${INGEST_ID}`,
     );
   });
 
   test("a custom emoji forwards its mention form, never its bare name", () => {
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: "111222333", name: "party_blob" },
-      }),
-      { op: "added", raw: {} },
+      thumbsUp({ emoji: { id: "111222333", name: "party_blob" } }),
+      { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
     expect(event!.message.reaction!.emoji).toBe("<:party_blob:111222333>");
@@ -560,14 +558,8 @@ describe("normalizeDiscordMessageReaction", () => {
     // A guild can name a custom emoji anything, including a Slack decision
     // name. The mention form is what keeps it out of the approval map.
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: "999888777", name: "white_check_mark" },
-      }),
-      { op: "added", raw: {} },
+      thumbsUp({ emoji: { id: "999888777", name: "white_check_mark" } }),
+      { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
     expect(event!.message.reaction!.emoji).toBe(
@@ -577,14 +569,8 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("an emoji with no name cannot be expressed and drops", () => {
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "channel-1",
-        message_id: "msg-1",
-        guild_id: "guild-1",
-        emoji: { id: "111222333", name: null },
-      }),
-      { op: "removed", raw: {} },
+      thumbsUp({ emoji: { id: "111222333", name: null } }),
+      { op: "removed", ingestId: INGEST_ID, raw: {} },
     );
 
     expect(event).toBeNull();
@@ -598,7 +584,7 @@ describe("normalizeDiscordMessageReaction", () => {
         message_id: "msg-2",
         emoji: { id: null, name: "\u2705" },
       }),
-      { op: "added", raw: {} },
+      { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
     expect(event!.source.isDirectMessage).toBe(true);
@@ -607,18 +593,52 @@ describe("normalizeDiscordMessageReaction", () => {
 
   test("a thread reaction addresses the parent conversation and names the thread", () => {
     const event = normalizeDiscordMessageReaction(
-      parseReaction({
-        user_id: "user-1",
-        channel_id: "thread-1",
-        message_id: "msg-3",
-        guild_id: "guild-1",
-        emoji: { id: null, name: "\u{1F44D}" },
-      }),
-      { op: "added", parentChannelId: "channel-1", raw: {} },
+      thumbsUp({ channel_id: "thread-1", message_id: "msg-3" }),
+      {
+        op: "added",
+        ingestId: INGEST_ID,
+        parentChannelId: "channel-1",
+        raw: {},
+      },
     );
 
     expect(event!.message.conversationExternalId).toBe("channel-1");
     expect(event!.source.threadId).toBe("thread-1");
+  });
+
+  test("add, remove and re-add are three events, not two", () => {
+    // Three acts, three ids. The dispatch payload is byte-identical across
+    // all three, so `ingestId` is the only thing separating them.
+    const ids = (["added", "removed", "added"] as const).map(
+      (op, index) =>
+        normalizeDiscordMessageReaction(thumbsUp(), {
+          op,
+          ingestId: `dispatch-${index}`,
+          raw: {},
+        })!.message.externalMessageId,
+    );
+
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  test("one dispatch forwarded twice keeps its id, so redelivery still dedups", () => {
+    // The other half of the contract: the id is stamped once per received
+    // dispatch and rides in the forwarded payload, so a retried forward
+    // presents the same id.
+    const first = normalizeDiscordMessageReaction(thumbsUp(), {
+      op: "added",
+      ingestId: "dispatch-0",
+      raw: {},
+    });
+    const redelivered = normalizeDiscordMessageReaction(thumbsUp(), {
+      op: "added",
+      ingestId: "dispatch-0",
+      raw: {},
+    });
+
+    expect(redelivered!.message.externalMessageId).toBe(
+      first!.message.externalMessageId,
+    );
   });
 });
 describe("normalizeDiscordInteraction", () => {

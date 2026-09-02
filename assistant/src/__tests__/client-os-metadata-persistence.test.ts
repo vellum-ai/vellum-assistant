@@ -84,12 +84,28 @@ function createWebTurnContext(
     size: () => 0,
   } as unknown as MessageQueue;
   let processing = false;
+  let owner = 0;
   return {
     conversationId: "conv-client-os-test",
     messages: [],
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;
+    },
+    acquireProcessingFenced: async () => {
+      if (processing) {
+        return null;
+      }
+      processing = true;
+      owner += 1;
+      return owner;
+    },
+    releaseProcessing: (claim: number) => {
+      if (claim !== owner) {
+        return false;
+      }
+      processing = false;
+      return true;
     },
     abortController: null,
     queue: queueStub,

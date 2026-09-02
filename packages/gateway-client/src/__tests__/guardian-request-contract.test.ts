@@ -16,7 +16,6 @@ import {
   ExpireGuardianRequestIpcParamsSchema,
   ExpireInteractionBoundIpcResponseSchema,
   GetGuardianRequestByCallSessionIpcParamsSchema,
-  GetGuardianRequestByDestinationMessageIpcParamsSchema,
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GUARDIAN_REQUESTS_IPC_METHODS,
   GuardianRequestAclOutcomeSchema,
@@ -480,23 +479,6 @@ describe("delivery + destination IPC schemas", () => {
     expect(CreateGuardianRequestDeliveryIpcParamsSchema.parse(minimal)).toEqual(
       minimal,
     );
-  });
-
-  test("get_by_destination_message requires all three keys", () => {
-    const params = {
-      channel: "telegram",
-      chatId: "tg-chat-guardian",
-      messageId: "msg-42",
-    };
-    expect(
-      GetGuardianRequestByDestinationMessageIpcParamsSchema.parse(params),
-    ).toEqual(params);
-    expect(() =>
-      GetGuardianRequestByDestinationMessageIpcParamsSchema.parse({
-        channel: "telegram",
-        chatId: "tg-chat-guardian",
-      }),
-    ).toThrow();
   });
 
   test("list_pending_by_destination accepts either addressing form", () => {

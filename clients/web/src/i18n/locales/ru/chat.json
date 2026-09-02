@@ -165,6 +165,12 @@
     "unsupported": "Это устройство не может открыть камеру.",
     "uploadFailed": "Не удалось отправить это фото."
   },
+  "cameraShutterHint": {
+    "live": "Прямой эфир · Нажмите, чтобы остановить",
+    "liveDescription": "Нажмите, чтобы остановить прямой эфир.",
+    "photo": "Нажмите для фото · Удерживайте для прямого эфира",
+    "photoDescription": "Удерживайте, чтобы начать прямой эфир."
+  },
   "cameraStatusPill": {
     "announceLive": "Прямой эфир. {status}",
     "announceLiveMuted": "Прямой эфир. Без звука. {status}",
@@ -804,6 +810,7 @@
     "muteMicrophone": "Отключить микрофон",
     "mutedState": "Без звука. {state}",
     "showCamera": "Показать камеру",
+    "stopLive": "Остановить прямой эфир",
     "takePhoto": "Сделать фото",
     "unmuteAssistant": "Включить звук ассистента",
     "unmuteMicrophone": "Включить микрофон"

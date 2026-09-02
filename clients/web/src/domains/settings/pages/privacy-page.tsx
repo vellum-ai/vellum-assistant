@@ -163,7 +163,7 @@ export function PrivacyPage() {
                 options={retentionOptions}
               />
             </div>
-            <p className="mt-2 text-body-small-default text-[var(--content-tertiary)]">
+            <p className="mt-2 text-body-small-lighter text-[var(--content-tertiary)]">
               {t("privacyPage.llmLogRetentionDescription")}
             </p>
           </div>

@@ -5,8 +5,8 @@ reader, or a real OS setting, so it runs by hand.
 
 Surface under test: the voice room with the viewfinder up, under
 `src/domains/chat/voice/voice-room/` (the camera paths of `voice-room.tsx`,
-`camera-status-pill.tsx`, `camera-flash-control.tsx`, and
-`voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
+`camera-status-pill.tsx`, `camera-shutter-hint.tsx`, `camera-flash-control.tsx`,
+and `voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
 outside that directory and are in scope with it: the shutter at
 `src/domains/chat/voice/camera-shutter.tsx`, which the room shares with the
 deep-link capture overlay, and that overlay itself in
@@ -60,6 +60,50 @@ scrim.
       nothing flashes the whole screen.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
+- [ ] iOS does not take the press. Holding never raises the text-selection
+      callout, the magnifier, or a share sheet over the viewfinder.
+- [ ] The native preview offers no Live. In the installed app, with the plugin
+      drawing the preview, press and keep pressing the shutter. Nothing enters
+      Live: the pill stays "Photo", there is no hint under the shutter, and
+      letting go takes an ordinary photo, the same as a tap. VoiceOver reads no
+      keyboard shortcut on the shutter.
+
+### Live on iPhone, which is iOS Safari
+
+Live samples the room's own `<video>` element, and the installed app usually has
+none: the Capacitor plugin draws its preview behind the web view, so wherever
+that preview is up Live is not offered and the shutter is the plain photo button
+the checks above describe. Run this section in mobile Safari, where the
+viewfinder is always the web one.
+
+Two consequences worth knowing before filing a bug. Flash is native-only, so a
+session that can run these checks has no flash control in it: the flash checks
+above and these are never reachable in the same viewfinder. And in the installed
+app the web preview also appears as a fallback when a native start fails, which
+makes Live briefly available there; every later acquire retries the native
+start, so a flip that succeeds takes the preview back, and Live ends with it
+rather than the pill going on claiming a stream nothing is reading.
+
+- [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
+      second the haptic fires, the ring goes crimson, the pill says Live and the
+      hint changes to "Live · Tap to stop". Letting go takes no photo, so
+      nothing joins the strip and nothing new lands in the transcript.
+- [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
+      small wobble still enters Live. Slide the thumb off the shutter, or more
+      than a finger's width across it, and nothing happens: no photo either,
+      including when the thumb is still on the shutter as it lifts.
+- [ ] Flipping while live. Enter Live, flip the camera. The pill stays Live, the
+      thumbnail clears, and a new keep appears from the new camera within a few
+      seconds.
+- [ ] Stopping while flipping. Enter Live, flip, and tap the shutter while the
+      flip is still going. It stops: the shutter is never refused while live,
+      so a slow flip cannot strand the user in it.
+- [ ] Backgrounding while live. Background the app with Live running. The camera
+      indicator goes out. Foreground it: the viewfinder returns on photo, not
+      streaming, and nothing was sent while the app was away.
+- [ ] VoiceOver says the mode. With Live running, VoiceOver reads "Live.
+      Listening" on the next state change, and the shutter is named "Stop live".
+      Back on photo it reads "Photo. Listening" and "Take a photo".
 
 ## Android
 
@@ -91,6 +135,16 @@ scrim.
 - [ ] Keyboard walk. Tab from the top of the room: minimize, shutter, flip, mic,
       speaker, camera, end. Every focus ring is a white outline legible over the
       feed, including over a white frame.
+- [ ] A mouse can hold. Press and keep the button down on the shutter for half a
+      second: Live starts, and releasing takes no photo. Press and drag off the
+      button before the half second and nothing happens at all.
+- [ ] Space holds. Focus the shutter and hold Space: Live starts, and the
+      release takes no photo. Tap Space and one photo is taken, the same as a
+      click. The page never scrolls under either.
+- [ ] Leaving and re-entering Live quickly shows nothing for a few seconds. Stop
+      Live and start it again: the first keep can take up to five seconds. That
+      is the gate's rate floor, which survives the reset by design; it is not a
+      stall.
 - [ ] Escape minimizes the room from camera mode, and the camera releases.
 - [ ] Locale sweep. Switch the app to Spanish and then to Russian, open the
       camera, and deny the permission in the browser. The pill, every control

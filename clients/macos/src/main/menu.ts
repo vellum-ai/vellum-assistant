@@ -1,11 +1,16 @@
 import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 import { z } from "zod";
 
+import { companionVisibilityItem } from "@vellumai/electron-desktop/companion-menu";
 import {
   onSettingChange,
   readSetting,
 } from "@vellumai/electron-desktop/settings";
-import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
+import {
+  onCompanionHiddenChange,
+  readCompanionHidden,
+  readOnboardingActive,
+} from "@vellumai/electron-desktop/window-state";
 
 import { openAboutWindow } from "./about.client";
 import { checkForUpdates } from "./auto-update.client";
@@ -28,6 +33,7 @@ import {
   isCommandPaletteWindowFocused,
   openCommandPaletteWindow,
 } from "./command-palette.client";
+import { setCompanionSurfaceVisible } from "./companion-window";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";
@@ -248,6 +254,13 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         fileItem("Pop Out Conversation", { kind: "popOut" }),
         { type: "separator" },
+        // The show/hide checkbox the tray offers too, from the one builder both
+        // read: two doors onto a single switch, not two switches.
+        companionVisibilityItem(
+          readCompanionHidden(),
+          setCompanionSurfaceVisible,
+        ),
+        { type: "separator" },
         { role: "front" },
       ],
     },
@@ -344,6 +357,14 @@ export const installApplicationMenu = (): void => {
   // Rebuild the menu when feature flags change so the Developer submenu
   // appears or disappears without requiring an app restart.
   onSettingChange("featureFlags", () => {
+    applyMenu();
+  });
+
+  // Rebuild the menu when the companion surface is shown or hidden, so this
+  // menu's checkbox agrees with the tray's. The tray builds its menu at pop
+  // time and reads the flag fresh every time; this one is built once and kept,
+  // so it is the surface that has to be told.
+  onCompanionHiddenChange(() => {
     applyMenu();
   });
 

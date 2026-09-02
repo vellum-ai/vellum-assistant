@@ -753,11 +753,17 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
 });
 
 /**
- * Monotonic timestamp source for message ordering. Two messages saved within
- * the same millisecond (e.g., tool_results user message + assistant message in
- * message_complete) would get the same Date.now(), making their reload order
- * non-deterministic. This counter ensures every call returns a strictly
- * increasing value so insertion order is always preserved.
+ * Monotonic timestamp source for message ordering and conversation creation.
+ * Two messages saved within the same millisecond (e.g., tool_results user
+ * message + assistant message in message_complete) would get the same
+ * Date.now(), making their reload order non-deterministic. This counter
+ * ensures every call returns a strictly increasing value so insertion order is
+ * always preserved.
+ *
+ * Conversation rows draw from it for a second reason: `created_at` is what
+ * tells one incarnation of an id from another, so two creations in one
+ * millisecond must not be able to collide. Sharing the counter with messages
+ * costs nothing, both wanting the same "never twice the same value" guarantee.
  */
 let lastTimestamp = 0;
 function monotonicNow(): number {
@@ -780,6 +786,24 @@ interface InsertedMessage {
   deduplicated: boolean;
 }
 
+/**
+ * Thrown by an insert whose caller's `insertPrecondition` reads false.
+ *
+ * No row was written, so a caller holding resources for the message it asked
+ * for (an uploaded attachment, a pending client receipt) is free to give them
+ * up on this error. Carries no SQLite code, which is what keeps
+ * {@link withSqliteRetry} from mistaking it for contention and retrying an
+ * abort that will only abort again.
+ */
+export class MessageInsertPreconditionError extends Error {
+  constructor(conversationId: string) {
+    super(
+      `Message insert precondition failed for conversation ${conversationId}`,
+    );
+    this.name = "MessageInsertPreconditionError";
+  }
+}
+
 interface InsertMessageCoreParams {
   conversationId: string;
   role: MessageRole;
@@ -793,6 +817,9 @@ interface InsertMessageCoreParams {
    *  `requestId` for user turns) can pass it here so the persisted
    *  row ID matches the runtime request ID. */
   id?: string;
+  /** Answered synchronously at the top of every insert attempt. See
+   *  {@link AddMessageOptions.insertPrecondition}. */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -879,6 +906,7 @@ async function insertMessageCore(
     metadata,
     clientMessageId,
     id,
+    insertPrecondition,
   } = params;
   warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
@@ -905,8 +933,17 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage =>
-      timeSyncSection(
+    (): InsertedMessage => {
+      // Asked at the top of EVERY attempt, and synchronously, because that is
+      // the scope the answer holds for. Contention retries this function after
+      // an awaited backoff, so an answer given once for the call would be
+      // reporting on the world as it stood before a sleep the caller cannot
+      // see. From here to the statement below there is nothing async, so the
+      // answer and the row this attempt writes share one tick.
+      if (insertPrecondition && !insertPrecondition()) {
+        throw new MessageInsertPreconditionError(conversationId);
+      }
+      return timeSyncSection(
         "messages:insert",
         (): InsertedMessage => {
           const now = monotonicNow();
@@ -1016,7 +1053,8 @@ async function insertMessageCore(
           contentBytes:
             typeof content === "string" ? content.length : undefined,
         }),
-      ),
+      );
+    },
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
@@ -1073,7 +1111,12 @@ export function createConversation(
       },
 ) {
   const db = getDb();
-  const now = Date.now();
+  // Monotonic, because `created_at` is a conversation's incarnation identity:
+  // callers holding work for an id compare against the stamp they were
+  // accepted for, so a row deleted and written back under that id has to carry
+  // a later one even when both land in the same millisecond. Per process is
+  // the scope that matters, the holders being in-memory and gone on a restart.
+  const now = monotonicNow();
   const initialSeq = getCurrentSeq();
   const opts =
     typeof titleOrOpts === "string"
@@ -2361,6 +2404,17 @@ export interface AddMessageOptions {
    *  internally. Pass the same value as `requestId` for user turns so
    *  the persisted row ID matches the runtime correlation ID. */
   id?: string;
+  /**
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts with a
+   * {@link MessageInsertPreconditionError} and writes nothing.
+   *
+   * For a caller whose right to write can lapse while the insert is in
+   * flight. Per attempt rather than per call because contention retries the
+   * insert after an awaited backoff, and the world can move under a caller
+   * during that sleep.
+   */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -2374,7 +2428,8 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id, insertPrecondition } =
+    options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
@@ -2382,6 +2437,7 @@ export async function addMessage(
     metadata,
     clientMessageId,
     id,
+    ...(insertPrecondition ? { insertPrecondition } : {}),
   });
 
   if (inserted.deduplicated) {

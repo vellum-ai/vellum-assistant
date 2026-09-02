@@ -133,7 +133,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   // default-profile-catalog.ts): managed installs get the pinned latency model,
   // BYOK installs resolve their own provider's latency model through the intent
   // table rather than a model id they may hold no credential for. The profile
-  // is user-facing ("Speed"), so a user edit to it moves this call site too.
+  // is user-facing ("Fast"), so a user edit to it moves this call site too.
   voiceProgressNarration: {
     profile: "latency-optimized",
     effort: "low",

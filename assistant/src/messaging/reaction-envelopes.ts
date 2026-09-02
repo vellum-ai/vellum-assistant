@@ -11,6 +11,7 @@
 import type { ChannelId } from "../channels/types.js";
 import type { ProviderMessageMetadata } from "./provider-message-metadata.js";
 import type { SlackMessageMetadata } from "./providers/slack/message-metadata.js";
+import { writeSlackMetadata } from "./providers/slack/message-metadata.js";
 
 export interface ReactionEnvelopeFacts {
   channel: ChannelId;
@@ -46,6 +47,21 @@ export function buildNeutralReactionMeta(
         : {}),
     },
   };
+}
+
+/**
+ * The serialized metadata key a reaction row stores, chosen per channel:
+ * Slack rows write `slackMeta`, every other channel the neutral
+ * `providerMeta`. The one owner of that choice, so the three writers (the
+ * inbound intercept, the assistant's own reaction records, and the
+ * reaction-wake turn) cannot drift.
+ */
+export function buildReactionRowEnvelope(
+  facts: ReactionEnvelopeFacts,
+): { slackMeta: string } | { providerMeta: string } {
+  return facts.channel === "slack"
+    ? { slackMeta: writeSlackMetadata(buildSlackReactionMeta(facts)) }
+    : { providerMeta: JSON.stringify(buildNeutralReactionMeta(facts)) };
 }
 
 export function buildSlackReactionMeta(

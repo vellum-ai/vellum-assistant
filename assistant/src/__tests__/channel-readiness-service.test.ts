@@ -369,9 +369,11 @@ describe("ChannelReadinessService", () => {
     });
   });
 
-  test("email readiness ignores platform connectivity", async () => {
-    // Email passes `allowManagedCallbacks: false`, so the managed tiers are
-    // not offered to it and only a real ingress URL counts.
+  test("email readiness accepts a platform-connected assistant with no ingress", async () => {
+    // Inbound email arrives through the platform callback route the gateway
+    // registers (`registerEmailCallbackRoute`, the same pattern as Telegram),
+    // so a platform-connected assistant with no public ingress URL still
+    // receives email and must not report missing ingress.
     mockPlatformConnected = true;
 
     const readiness = createReadinessService();
@@ -379,8 +381,21 @@ describe("ChannelReadinessService", () => {
 
     expect(snapshot.localChecks).toContainEqual({
       name: "ingress",
+      passed: true,
+      message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("email readiness reports missing ingress when nothing can route inbound", async () => {
+    mockPlatformConnected = false;
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("email");
+
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
       passed: false,
-      message: "Public ingress URL is not configured or disabled",
+      message: "No public ingress URL or managed callback route is configured",
     });
   });
 

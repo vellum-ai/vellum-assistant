@@ -44,8 +44,8 @@ const SIGHT_FRAME_CONTENT = JSON.stringify([
 ]);
 
 /**
- * What `persistLiveVoiceSightFrame` writes: the gate sampled this, nobody
- * spoke it, so `scripted` rides along with the tag.
+ * What `persistAmbientSightFrame` writes on the voice surface: the gate
+ * sampled this, nobody spoke it, so `scripted` rides along with the tag.
  */
 function sightFrameMetadata(attachmentId: string): string {
   return JSON.stringify({

@@ -1709,7 +1709,7 @@ describe("TranscriptMessageBody", () => {
     expect(surface!.getAttribute("data-surface-id")).toBe("s-1");
   });
 
-  test("a task-progress surface renders inline after the merged activity card", () => {
+  test("a task-progress surface is suppressed: the progress rail owns the plan", () => {
     const message: DisplayMessage = {
       id: "m-activity-inline",
       role: "assistant",
@@ -1722,26 +1722,41 @@ describe("TranscriptMessageBody", () => {
       timestamp: 1_000,
     };
 
+    const { container, getByText } = render(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    // The plan card is drawn by the progress rail / sticky card, which follow
+    // the newest plan from a fixed position (see `useLatestTaskProgress`), so
+    // the transcript must not draw a second, scrolling copy of it.
+    expect(
+      container.querySelectorAll(
+        "[data-testid='surface'][data-surface-id='tps-1']",
+      ).length,
+    ).toBe(0);
+    // Suppressing it does not disturb the rest of the message: the activity
+    // card and the trailing prose still render.
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).not.toBeNull();
+    expect(getByText("all done")).toBeTruthy();
+  });
+
+  test("a NON task-progress surface still renders inline", () => {
+    const message: DisplayMessage = {
+      id: "m-other-surface",
+      role: "assistant",
+      contentBlocks: [surfaceBlock("s-keep")],
+      timestamp: 1_000,
+    };
+
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
 
-    // No legacy summary card.
     expect(
-      container.querySelector("[data-testid='turn-activity-header']"),
-    ).toBeNull();
-    // The task-progress surface renders exactly once, in its inline position
-    // AFTER the merged activity card.
-    const surfaces = container.querySelectorAll(
-      "[data-testid='surface'][data-surface-id='tps-1']",
-    );
-    expect(surfaces.length).toBe(1);
-    const card = container.querySelector("[data-testid='tool-progress-card']");
-    expect(card).not.toBeNull();
-    expect(
-      card!.compareDocumentPosition(surfaces[0]!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      container.querySelector("[data-testid='surface'][data-surface-id='s-keep']"),
+    ).not.toBeNull();
   });
 
   test("renders user text and an image attachment inside a single bubble", () => {

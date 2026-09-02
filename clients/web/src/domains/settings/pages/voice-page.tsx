@@ -23,6 +23,17 @@ import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
+import type { SystemPermissionStatus } from "@vellumai/ipc-contract";
+
+import { supportsModifierHold } from "@/runtime/hotkey";
+import {
+  setHoldToDictateEnabled,
+  useHoldToDictateEnabled,
+} from "@/utils/hold-to-dictate";
+import {
+  getSystemPermissionsState,
+  requestSystemPermission,
+} from "@/runtime/system-permissions";
 import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
@@ -118,6 +129,7 @@ export function VoiceSections() {
         <MicrophoneCard />
         <ListeningLanguageCard />
         <VoiceModeShortcutCard />
+        <HoldToDictateCard />
         <ConversationTuningCard />
       </VoiceSection>
 
@@ -125,6 +137,86 @@ export function VoiceSections() {
         <CaptionsCard />
       </VoiceSection>
     </div>
+  );
+}
+
+/**
+ * Hold to dictate, which is the one binding here that reaches outside the app.
+ *
+ * Off until switched on, because arming it costs an Input Monitoring grant: a
+ * feature nobody asked for should not be the reason macOS asks to watch the
+ * keyboard. So the toggle is also where the grant is asked for, which is the
+ * only moment that can ask. A press cannot: noticing the press is the thing
+ * being granted, so a binding with no grant is silent rather than refused, and
+ * a user waiting to be prompted would wait forever.
+ *
+ * Absent on hosts with no helper to watch the raw keyboard, since there is
+ * nothing there to switch on.
+ */
+function HoldToDictateCard() {
+  const { t } = useTranslation("settings");
+  const enabled = useHoldToDictateEnabled();
+  const [inputMonitoring, setInputMonitoring] =
+    useState<SystemPermissionStatus | null>(null);
+
+  const refreshPermission = useCallback(async () => {
+    const state = await getSystemPermissionsState();
+    setInputMonitoring(state?.inputMonitoring.status ?? null);
+  }, []);
+
+  useEffect(() => {
+    void refreshPermission();
+    // The grant is made in System Settings, which sends nothing back. Polling
+    // while the card is on screen is what lets the notice go away by itself
+    // once the user returns, rather than reading stale until the next reload.
+    const timer = setInterval(() => {
+      void refreshPermission();
+    }, 2000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [refreshPermission]);
+
+  if (!supportsModifierHold()) {
+    return null;
+  }
+
+  const granted = inputMonitoring === "granted";
+
+  return (
+    <DetailCard
+      title={t("voicePage.holdToDictateTitle")}
+      subtitle={t("voicePage.holdToDictateSubtitle")}
+    >
+      <div className="flex flex-col gap-4">
+        <Toggle
+          checked={enabled}
+          onChange={(next: boolean) => {
+            setHoldToDictateEnabled(next);
+            // Switching it on is the moment to ask, and the only one: a press
+            // cannot be, since noticing the press is the thing being granted.
+            if (next) {
+              void requestSystemPermission("inputMonitoring").then(
+                refreshPermission,
+              );
+            }
+          }}
+          label={t("voicePage.holdToDictateEnable")}
+        />
+
+        {enabled && !granted && (
+          <span className={labelClasses}>
+            {t("voicePage.holdToDictateNeedsInputMonitoring")}
+          </span>
+        )}
+
+        {enabled && (
+          <span className={labelClasses}>
+            {t("voicePage.holdToDictateVoiceOverNote")}
+          </span>
+        )}
+      </div>
+    </DetailCard>
   );
 }
 
@@ -147,7 +239,7 @@ function SpeechServicesBanner() {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
+    <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-lighter text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
       <span>{t("voicePage.speechServicesBannerPrompt")}</span>
       <Link
@@ -654,7 +746,7 @@ function VoiceModeShortcutCard() {
               recommended binding, so saying nothing would leave the user
               pressing a key that cannot fire. */}
           {isFnVoiceModeActivator(activator) && fnRefused && (
-            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
+            <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--system-negative-strong)]">
               <Info className="mt-0.5 h-3 w-3 shrink-0" />
               <span>{t("voicePage.fnRefusedNote")}</span>
             </div>
@@ -738,14 +830,14 @@ function VoiceModeShortcutCard() {
             </div>
 
             {showChordHint && (
-              <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
+              <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{t("voicePage.shortcutChordHint")}</span>
               </div>
             )}
 
             {shortcutEnabled && (
-              <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
+              <div className="flex items-start gap-1 pt-1 text-body-small-lighter text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{t("voicePage.focusedTabNote")}</span>
               </div>

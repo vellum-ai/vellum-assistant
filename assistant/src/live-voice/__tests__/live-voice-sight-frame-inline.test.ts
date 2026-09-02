@@ -208,8 +208,8 @@ import { initializeDb } from "../../persistence/db-init.js";
 import { attachments } from "../../persistence/schema.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import {
+  persistAmbientSightFrame,
   persistLiveVoicePhoto,
-  persistLiveVoiceSightFrame,
 } from "../live-voice-photo.js";
 
 await initializeDb();
@@ -291,9 +291,9 @@ describe("a camera frame that falls back to inline bytes", () => {
     try {
       const inlineFrame = await uploadUnstorableFrame("inline.png");
 
-      expect((await persistLiveVoiceSightFrame(live.id, inlineFrame)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, inlineFrame, "voice")).ok,
+      ).toBe(true);
 
       const [row] = getMessages(live.id);
       // The scenario really fired: bytes in the row, no reference to a row of
@@ -321,14 +321,14 @@ describe("a camera frame that falls back to inline bytes", () => {
     const live = liveConversation("Live voice inline fallback retention");
     try {
       const inlineFrame = await uploadUnstorableFrame("inline-aged.png");
-      expect((await persistLiveVoiceSightFrame(live.id, inlineFrame)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, inlineFrame, "voice")).ok,
+      ).toBe(true);
       for (const name of ["fresh-a.png", "fresh-b.png"]) {
         const fresh = await uploadFrame(name);
-        expect((await persistLiveVoiceSightFrame(live.id, fresh)).ok).toBe(
-          true,
-        );
+        expect(
+          (await persistAmbientSightFrame(live.id, fresh, "voice")).ok,
+        ).toBe(true);
       }
 
       const assembled: Message[] = getMessages(live.id).map((row) => ({
@@ -372,9 +372,9 @@ describe("a camera frame whose message link fails", () => {
       realStore.linkAttachmentToMessage(elsewhere.id, arrivedAs, 0);
 
       failNextLink = true;
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
       expect(failNextLink).toBe(false);
 
       const [row] = getMessages(live.id);
@@ -411,7 +411,7 @@ describe("a camera frame whose persist throws", () => {
       messagesChangedFor.length = 0;
       failNextLink = true;
       failNextContentUpdate = true;
-      const result = await persistLiveVoiceSightFrame(live.id, frame);
+      const result = await persistAmbientSightFrame(live.id, frame, "voice");
       expect(failNextLink).toBe(false);
       expect(failNextContentUpdate).toBe(false);
 
@@ -469,7 +469,7 @@ describe("a camera frame whose persist throws", () => {
       const frame = await uploadFrame("throws-early.png");
 
       failNextResolve = true;
-      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
         ok: false,
       });
       expect(failNextResolve).toBe(false);
@@ -492,7 +492,7 @@ describe("a camera frame whose persist throws", () => {
       failNextResolve = true;
       failNextMessageLookup = true;
       // No success claim either: doubt blocks the delete and the ok alike.
-      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+      expect(await persistAmbientSightFrame(live.id, frame, "voice")).toEqual({
         ok: false,
       });
       expect(failNextMessageLookup).toBe(false);
@@ -535,7 +535,9 @@ describe("attachments a failed persist attempt cloned for itself", () => {
       scopedAttachmentIds.length = 0;
 
       failNextAddMessage = true;
-      expect(await persistLiveVoiceSightFrame(live.id, arrivedAs)).toEqual({
+      expect(
+        await persistAmbientSightFrame(live.id, arrivedAs, "voice"),
+      ).toEqual({
         ok: false,
       });
       expect(failNextAddMessage).toBe(false);
@@ -571,9 +573,9 @@ describe("attachments a failed persist attempt cloned for itself", () => {
       failNextLink = true;
       failNextContentUpdate = true;
       // Committed despite the throw, which is what makes the clone the row's.
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
       expect(failNextLink).toBe(false);
       expect(failNextContentUpdate).toBe(false);
 
@@ -605,7 +607,9 @@ describe("attachments a failed persist attempt cloned for itself", () => {
       scopedAttachmentIds.length = 0;
 
       failNextContentRead = true;
-      expect(await persistLiveVoiceSightFrame(live.id, arrivedAs)).toEqual({
+      expect(
+        await persistAmbientSightFrame(live.id, arrivedAs, "voice"),
+      ).toEqual({
         ok: false,
       });
       expect(failNextContentRead).toBe(false);
@@ -692,9 +696,9 @@ describe("a clone whose materialization fails", () => {
       mkdirSync(dirname(attachDir), { recursive: true });
       writeFileSync(attachDir, "");
 
-      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
-        true,
-      );
+      expect(
+        (await persistAmbientSightFrame(live.id, arrivedAs, "voice")).ok,
+      ).toBe(true);
 
       // The recovery is unchanged: the frame still lands, inline.
       const [row] = getMessages(live.id);
@@ -756,7 +760,9 @@ describe("ambient frames stay out of the indexing pipeline", () => {
       const frame = await uploadFrame("not-indexed.png");
 
       lexicallyIndexed.length = 0;
-      expect((await persistLiveVoiceSightFrame(live.id, frame)).ok).toBe(true);
+      expect((await persistAmbientSightFrame(live.id, frame, "voice")).ok).toBe(
+        true,
+      );
 
       const [row] = getMessages(live.id);
       expect(row).toBeDefined();

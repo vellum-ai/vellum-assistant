@@ -54,7 +54,7 @@ const DEMO_CALL: VoiceActivityState = {
  * is a pure function of constants.
  */
 const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
-  composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128),
+  composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128) ?? "",
 )}`;
 
 /**
@@ -195,14 +195,20 @@ export default meta;
 
 type Story = StoryObj<StoryArgs>;
 
-/** The circle, as it sits when nobody is asking anything of it. */
+/**
+ * The capsule, as it sits when nobody is asking anything of it.
+ *
+ * The state this surface spends almost all of its life in, and the reason it
+ * is a capsule rather than the creature: it sits over whatever the user is
+ * working in all day. The creature is one pointer-move away.
+ */
 export const Resting: Story = {
   args: { phase: "resting" },
 };
 
 /**
- * The same circle in an assistant's own colour, which is what the desktop
- * actually shows: the glow is the character's palette hex, not the surface's
+ * The same capsule in an assistant's own colour, which is what the desktop
+ * actually shows: the dot is the character's palette hex, not the surface's
  * teal default. Here so the resting colour is reviewable without a live call.
  */
 export const RestingInItsOwnColour: Story = {
@@ -222,11 +228,50 @@ export const RestingCustomImage: Story = {
 };
 
 /**
+ * Every creature peeking out of its capsule.
+ *
+ * At rest the capsule shows the assistant's colour and nothing else, and once
+ * every few seconds the creature rises from behind it far enough to show its
+ * eyes, looks out, and ducks back. Ten capsules side by side, one per body
+ * shape in the catalog, so how far each one comes up is reviewable against
+ * the others. They fire on their own random clocks, which is the point: wait
+ * a moment and they take turns.
+ *
+ * The custom-image capsule in `RestingCustomImage` never does this. There is
+ * nobody in it to peek.
+ */
+export const RestingPeeks: Story = {
+  args: { phase: "resting" },
+  render: (args) => (
+    <div className="grid grid-cols-5 gap-x-16 gap-y-20 p-16">
+      {BUNDLED_COMPONENTS.bodyShapes.map((shape, index) => {
+        const color =
+          BUNDLED_COMPONENTS.colors[index % BUNDLED_COMPONENTS.colors.length];
+        return (
+          <div key={shape.id} className="relative size-11">
+            <CompanionSurface
+              {...args}
+              character={{
+                bodyShape: shape.id,
+                eyeStyle: "curious",
+                color: color?.id ?? "teal",
+              }}
+              accentHex={color?.hex}
+            />
+          </div>
+        );
+      })}
+    </div>
+  ),
+};
+
+/**
  * Resting, with a turn running somewhere the user is not looking.
  *
  * The state the working ring exists for: the assistant is doing something and
  * nothing is open to say so. The ring has to carry that on its own, at the size
- * the surface actually spends its day.
+ * the surface actually spends its day, which is why it is drawn on the shape
+ * rather than on the box: at rest it hugs the capsule.
  */
 export const RestingWhileWorking: Story = {
   args: { phase: "resting", working: true },

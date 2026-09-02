@@ -259,6 +259,12 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraShutterHint": {
+    "live": "En vivo · Toca para detener",
+    "liveDescription": "Toca para detener el video en vivo.",
+    "photo": "Toca para foto · Mantén para en vivo",
+    "photoDescription": "Mantén pulsado para iniciar el video en vivo."
+  },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",
     "announceLiveMuted": "En vivo. Silenciado. {status}",
@@ -566,11 +572,6 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
-  },
-  "conversationActivityPill": {
-    "activity": "Actividad",
-    "recent": "Recientes",
-    "running": "En ejecución"
   },
   "conversationAssetActions": {
     "delete": "Eliminar",
@@ -1236,6 +1237,14 @@
     "goToFile": "Ir al archivo",
     "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
+  "progressRail": {
+    "agentsLabel": "Agentes",
+    "agentsToggleAria": "Agentes: {running, plural, =0 {ninguno en curso} one {# en curso} other {# en curso}}, {completed, plural, =0 {ninguno terminado} one {# terminado} other {# terminados}}",
+    "railAria": "Progreso",
+    "stepCounter": "{current} de {total}",
+    "title": "Progreso",
+    "titleFinished": "Terminado"
+  },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
   },
@@ -1487,10 +1496,6 @@
   "storeCredentialDialog": {
     "successToast": "Guardado de forma segura. La clave nunca entró en el chat."
   },
-  "subagentAvatarRow": {
-    "details": "Detalles",
-    "showDetailsAria": "Mostrar detalles del subagente"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "Volver a la línea de tiempo",
     "backTooltip": "Atrás",
@@ -1512,8 +1517,6 @@
     "workedFor": "Trabajó durante {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Contraer",
-    "collapseDetailsAria": "Contraer detalles del subagente",
     "stopSubagentAria": "Detener subagente"
   },
   "suggestionCard": {
@@ -1677,6 +1680,7 @@
     "muteMicrophone": "Silenciar el micrófono",
     "mutedState": "Silenciado. {state}",
     "showCamera": "Mostrar la cámara",
+    "stopLive": "Detener en vivo",
     "takePhoto": "Tomar una foto",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
