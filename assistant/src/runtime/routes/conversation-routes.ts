@@ -1004,6 +1004,7 @@ export async function handleListMessages({
     let noResponse: boolean | undefined;
     let reaction: ConversationMessage["reaction"];
     let providerError: ConversationMessage["providerError"];
+    let deletedAt: number | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata) as Record<string, unknown>;
@@ -1018,20 +1019,31 @@ export async function handleListMessages({
         if (isNoResponseMetadata(meta)) {
           noResponse = true;
         }
-        // A reaction row, either direction, projects its structured fact so
-        // clients never render the stored "[reaction]" sentinel.
-        if (msg.metadata.includes("reaction")) {
-          const reactionMeta = readProviderMetadata(msg.metadata);
-          if (reactionMeta?.eventKind === "reaction" && reactionMeta.reaction) {
+        // Channel facts live in the row's provider envelope. A reaction row,
+        // either direction, projects its structured fact so clients never
+        // render the stored "[reaction]" sentinel; a row deleted on its
+        // channel projects the deletion so clients render a tombstone over
+        // the content the row keeps for audit. The substring guard keeps the
+        // envelope parse off rows that can carry neither fact: both
+        // envelopes spell these keys literally.
+        if (
+          msg.metadata.includes("reaction") ||
+          msg.metadata.includes("deletedAt")
+        ) {
+          const providerMeta = readProviderMetadata(msg.metadata);
+          if (providerMeta?.eventKind === "reaction" && providerMeta.reaction) {
             reaction = {
-              emoji: reactionMeta.reaction.emoji,
-              op: reactionMeta.reaction.op,
-              targetMessageId: reactionMeta.reaction.targetMessageId,
-              ...(reactionMeta.reaction.actorDisplayName
-                ? { actorDisplayName: reactionMeta.reaction.actorDisplayName }
+              emoji: providerMeta.reaction.emoji,
+              op: providerMeta.reaction.op,
+              targetMessageId: providerMeta.reaction.targetMessageId,
+              ...(providerMeta.reaction.actorDisplayName
+                ? { actorDisplayName: providerMeta.reaction.actorDisplayName }
                 : {}),
               ...(msg.role === "assistant" ? { selfAuthored: true } : {}),
             };
+          }
+          if (providerMeta?.deletedAt !== undefined) {
+            deletedAt = providerMeta.deletedAt;
           }
         }
         // Daemon-persisted provider-failure notices carry the classified
@@ -1090,6 +1102,7 @@ export async function handleListMessages({
       reaction,
       providerError,
       slackMessage,
+      deletedAt,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
   });
@@ -1300,6 +1313,7 @@ export async function handleListMessages({
         ...(m.reaction ? { reaction: m.reaction } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
+        ...(m.deletedAt !== undefined ? { deletedAt: m.deletedAt } : {}),
       };
     }),
   );

@@ -21151,6 +21151,8 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        deletedAt:
+                          type: number
                         queueStatus:
                           type: string
                           enum:
