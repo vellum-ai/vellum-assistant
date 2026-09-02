@@ -435,7 +435,7 @@
       "scope": "assistant",
       "key": "pod-desktop",
       "label": "Pod Desktop",
-      "description": "Serves an on-demand interactive desktop (Xtigervnc, openbox, Chromium) from a containerized assistant over the /v1/desktop/stream WebSocket as raw RFB bytes. Off: the runtime refuses the upgrade with 404 and never starts the X server. Only honored when IS_CONTAINERIZED is true; a macOS or self-hosted daemon ignores the flag.",
+      "description": "Streams an interactive desktop from a containerized assistant pod to the web client over /v1/desktop/stream. Off: no desktop affordance is rendered. On: the chat header offers a desktop panel that views and controls the pod's display.",
       "defaultEnabled": false
     }
   ]
