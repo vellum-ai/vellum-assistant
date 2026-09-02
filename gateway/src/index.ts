@@ -2220,9 +2220,7 @@ async function main() {
       return undefined as unknown as Response;
     }
 
-    // Same two shapes as the watch stream, and guardian-only for the same
-    // reason: the proxy replaces the caller's identity upstream, so whoever
-    // the gateway admits is who gets the pod's desktop.
+    // Guardian-only through the same gate as the watch stream.
     if (url.pathname === "/v1/desktop/stream") {
       const upgradeResult = await handleDesktopStreamWs(req, server);
       if (upgradeResult !== undefined) {

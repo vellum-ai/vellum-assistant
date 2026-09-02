@@ -3,14 +3,10 @@
  * gate that decides whether a client may open one, and the pump that carries
  * frames between that client and the runtime.
  *
- * The gateway has more than one of these. `/v1/stt/stream` carries dictation
- * audio, `/v1/watch/stream` carries a watch session's narration, and
- * `/v1/desktop/stream` carries a pod desktop's RFB bytes, and as proxies they
- * are the same object: authenticate the downstream actor, dial a fresh
- * upstream socket with a short-lived service token, and pass frames through
- * verbatim in both directions until either end goes away, each side's close
- * code carried to the other. What differs is the upstream path and which
- * query parameters travel with it, which is why those are the arguments here.
+ * Shared by `/v1/stt/stream`, `/v1/watch/stream` and `/v1/desktop/stream`:
+ * authenticate the downstream actor, dial upstream with a short-lived service
+ * token, and pass frames through verbatim both ways, each side's close code
+ * carried to the other. Only the upstream path and query parameters differ.
  *
  * **What the shared gate settles, and what it deliberately leaves open.** It
  * settles that the caller is *an* actor on this assistant: a valid edge JWT,
@@ -223,7 +219,14 @@ export function createRuntimeAudioStreamHandlers<
           typeof event.data === "string"
             ? event.data
             : new Uint8Array(event.data as ArrayBuffer);
-        ws.send(data);
+        // Bun returns 0 when the frame was dropped past its backpressure
+        // limit. A missing frame corrupts an ordered stream (RFB cannot
+        // resync), so both sides close rather than carry on silently.
+        if (ws.send(data) === 0) {
+          log.warn(context, `${label} dropped a downstream frame, closing`);
+          ws.close(1011, "Viewer too slow");
+          upstream.close(1011, "Viewer too slow");
+        }
       });
 
       upstream.addEventListener("close", (event) => {

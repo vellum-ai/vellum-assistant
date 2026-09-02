@@ -1163,7 +1163,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Pod desktop stream WebSocket",
           description:
-            "Accepts a WebSocket upgrade for a containerized assistant's on-demand desktop. Authenticates the client using an edge JWT (the bound guardian's actor principal) and proxies frames bidirectionally to the assistant runtime's /v1/desktop/stream endpoint using a gateway service token. Every frame in both directions is a binary frame of raw RFB (VNC) bytes; there are no control frames. Errors are signaled with close codes, propagated verbatim from the runtime: 1013 desktop busy (another viewer holds the slot), 1011 desktop failed to start, 1008 feature disabled or unsupported.",
+            "Accepts a WebSocket upgrade from the bound guardian for a containerized assistant's on-demand desktop and proxies raw RFB (VNC) bytes bidirectionally to the assistant runtime's /v1/desktop/stream, relaying the runtime's close codes verbatim.",
           operationId: "desktopStreamWebsocket",
           security: [{ BearerAuth: [] }],
           parameters: [
