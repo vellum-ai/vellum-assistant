@@ -4,8 +4,8 @@ import {
   adjustTailIndexForToolPairing,
   canonicalDateTimeKey,
   parseCompactionResult,
-  resolveTailStartIndex,
   type ParsedCompactionResult,
+  resolveTailStartIndex,
 } from "../context/compactor.js";
 import type { Message } from "../providers/types.js";
 
