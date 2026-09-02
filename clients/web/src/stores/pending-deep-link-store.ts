@@ -45,6 +45,14 @@ export interface PendingDeepLinkState {
    */
   pendingVoiceStartAt: number | null;
   /**
+   * The first turn the parked start-voice request takes on its session, or
+   * `null` for a plain start. A press from a surface that already knows what
+   * the user wants to say (a hold made over a selection) parks its question
+   * here, and the drain hands it to the starter. Travels with
+   * `pendingVoiceStartAt` and clears with it.
+   */
+  pendingVoiceStartAsk: string | null;
+  /**
    * A message that a *proven* App Intent asked to send into a specific
    * conversation (`deeplink.sendToThread` with `provenance: "intent"`), or
    * `null` if none. Unlike `pendingComposerMessage` this is a request to
@@ -76,12 +84,29 @@ export interface PendingDeepLinkState {
    * bound (see `consumePendingConversationList`).
    */
   pendingConversationListAt: number | null;
+  /**
+   * A share-inbox item the iOS Share Sheet asked to send (`deeplink.share`),
+   * or `null` if none. Inbox existence is the send-authorization: only this
+   * app's share extension can write the App Group, so the consumer may send
+   * on arrival the way a proven intent does. `parkedAt` lets the consumer
+   * bound how long a park that never drains stays a send.
+   */
+  pendingShareSend: PendingShareSend | null;
 }
 
 /** A proven send-into-thread request; see `pendingThreadSend`. */
 export interface PendingThreadSend {
   threadId: string;
   message: string;
+  parkedAt: number;
+}
+
+/** A share-inbox send request; see `pendingShareSend`. */
+export interface PendingShareSend {
+  threadId: string;
+  isNewDraft: boolean;
+  text: string;
+  files: File[];
   parkedAt: number;
 }
 
@@ -110,17 +135,21 @@ export interface PendingDeepLinkActions {
    * none was set. Used by `useDeepLinkConsumer` in the chat domain.
    */
   consumePendingComposerMessage: () => string | null;
-  /** Park a start-voice deep link until a session starter is registered. */
-  setPendingVoiceStart: () => void;
   /**
-   * Read and clear the parked start-voice request. Returns `false` when none
+   * Park a start-voice request until a session starter is registered, with
+   * the first turn it should take, if it has one. A newer park replaces the
+   * older one's ask.
+   */
+  setPendingVoiceStart: (ask?: string) => void;
+  /**
+   * Read and clear the parked start-voice request. Returns `null` when none
    * was parked, and when the parked one is older than `maxAgeMs` — a park that
    * was never drained (its navigation bounced off a route guard, say) must not
    * open a full-screen voice session minutes later. Either way the park is
    * cleared. Used by `drainPendingVoiceStart` in the live-voice domain,
    * which owns the age bound.
    */
-  consumePendingVoiceStart: (maxAgeMs: number) => boolean;
+  consumePendingVoiceStart: (maxAgeMs: number) => { ask: string | null } | null;
   /**
    * Park a proven send-into-thread request. A newer request replaces an
    * older one: the most recent intent wins, same as the composer message.
@@ -167,6 +196,17 @@ export interface PendingDeepLinkActions {
    * only the layout knows whether the landing it is on is still redirecting.
    */
   consumePendingConversationList: () => void;
+  /**
+   * Park a share-inbox send. A newer request replaces an older one: the
+   * most recent share wins, same as the composer message.
+   */
+  setPendingShareSend: (request: Omit<PendingShareSend, "parkedAt">) => void;
+  /**
+   * Read and clear the parked share send. Returns `null` when none is
+   * parked. Age is applied by `useShareInboxSend`, because an expired
+   * request is demoted to a composer pre-fill rather than dropped.
+   */
+  consumePendingShareSend: () => PendingShareSend | null;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -176,9 +216,11 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingVoiceStartAsk: null,
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,
+    pendingShareSend: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -188,14 +230,19 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       }
       return message;
     },
-    setPendingVoiceStart: () => set({ pendingVoiceStartAt: Date.now() }),
+    setPendingVoiceStart: (ask) =>
+      set({
+        pendingVoiceStartAt: Date.now(),
+        pendingVoiceStartAsk: ask ?? null,
+      }),
     consumePendingVoiceStart: (maxAgeMs) => {
-      const parkedAt = get().pendingVoiceStartAt;
+      const { pendingVoiceStartAt: parkedAt, pendingVoiceStartAsk: ask } =
+        get();
       if (parkedAt === null) {
-        return false;
+        return null;
       }
-      set({ pendingVoiceStartAt: null });
-      return Date.now() - parkedAt <= maxAgeMs;
+      set({ pendingVoiceStartAt: null, pendingVoiceStartAsk: null });
+      return Date.now() - parkedAt <= maxAgeMs ? { ask } : null;
     },
     setPendingThreadSend: (threadId, message) =>
       set({ pendingThreadSend: { threadId, message, parkedAt: Date.now() } }),
@@ -220,6 +267,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
         set({ pendingConversationListAt: null });
       }
     },
+    setPendingShareSend: (request) =>
+      set({ pendingShareSend: { ...request, parkedAt: Date.now() } }),
+    consumePendingShareSend: () => {
+      const parked = get().pendingShareSend;
+      if (parked !== null) {
+        set({ pendingShareSend: null });
+      }
+      return parked;
+    },
   }),
 );
 
@@ -234,8 +290,10 @@ export function __resetPendingDeepLinkForTesting(): void {
   usePendingDeepLinkStoreBase.setState({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingVoiceStartAsk: null,
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,
+    pendingShareSend: null,
   });
 }

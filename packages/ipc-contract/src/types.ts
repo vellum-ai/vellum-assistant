@@ -25,6 +25,19 @@
  * focused renderer window via `vellum:command` IPC; the renderer routes
  * them through the event bus.
  */
+/**
+ * How long a `startVoice` request stays live once asked for, in the renderer
+ * that parked it.
+ *
+ * The park exists for one race, a request that lands before the layout that
+ * owns sessions mounts, which resolves in seconds or not at all. A bound is
+ * what stops a request bounced by a route guard from opening a session out of
+ * nowhere on some later mount. Here in the contract because the shell reads
+ * it too: the companion draws a dial for the request and has to know how long
+ * one can still turn into a session.
+ */
+export const VOICE_START_REQUEST_TTL_MS = 60_000;
+
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
@@ -73,6 +86,17 @@ export type VellumCommand =
    */
   | { kind: "startVoice" }
   /**
+   * Take back a `startVoice` that has been asked for and not yet served, which
+   * is what ending the companion's dial means.
+   *
+   * A command rather than a session control, because there may be no session
+   * to control yet: the request is parked or partway through its preflight,
+   * and the layout that owns sessions may not even be mounted. The root
+   * layout consumes commands for the life of the window, so this one lands
+   * whatever route the app is on. See {@link VOICE_START_REQUEST_TTL_MS}.
+   */
+  | { kind: "cancelVoiceStart" }
+  /**
    * Turn a watch session on or off, the way the companion surface's Watch
    * option asks.
    *
@@ -113,26 +137,6 @@ export type VellumCommand =
    * that draws it also draws a way to stop.
    */
   | { kind: "toggleVoice" }
-  /**
-   * Send what the user typed on the companion surface, the way its Type option
-   * asks.
-   *
-   * **The surface has its own thread.** Opening the composer starts a
-   * conversation and every follow-up continues it, rather than sending into
-   * whatever the app happens to have selected: the user reached past the app to
-   * a floating avatar, so they are starting something, not resuming a thread
-   * they cannot see. `startsConversation` marks the first message of a
-   * composer's life; the rest land in the conversation that one created, which
-   * is the app's active one by then.
-   *
-   * Like `startVoice`, this does not raise the app. The user reached for a
-   * floating surface precisely because they are working somewhere else.
-   */
-  | {
-      kind: "companionSubmit";
-      message: string;
-      startsConversation: boolean;
-    }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -200,9 +204,38 @@ export type HotkeyEventKind =
   | "voiceModeChord"
   | "modifierHold";
 
+/**
+ * What the user had highlighted in the application in front when a hold
+ * began. Read by the helper over Accessibility at the `down` edge and carried
+ * on it, so a hold made with something selected can be about the selection.
+ * Bounded at the helper; `truncated` says the text is a prefix.
+ */
+export interface HotkeySelection {
+  text: string;
+  truncated: boolean;
+  /**
+   * Whether the control the selection sits in takes text. For a selection
+   * Accessibility handed over, the element reports its text as settable; for
+   * one that had to be copied out (see `FrontSelection.selectionFromCopy` in
+   * the helper), the focused control is a text control. A hold that is asked
+   * to change an editable selection can put the result back in its place;
+   * over anything else the words are a question.
+   */
+  editable: boolean;
+}
+
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;
+  /** Only on a `modifierHold` `down`, and only when something was selected. */
+  selection?: HotkeySelection;
+  /**
+   * How long the keys had already been down when this edge was sent, where
+   * the helper held it to read the selection. A consumer timing the hold from
+   * the edge takes this off its clock, so a slow application in front costs
+   * the read and not the hold.
+   */
+  heldMs?: number;
 }
 
 export type FnPushToTalkResult =
@@ -752,8 +785,8 @@ export const COMPANION_GROWTHS = ["right", "left"] as const;
 export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
 
 /**
- * Which way the typing card grows out of the composer row, which holds the line
- * the pill occupied.
+ * Which side of the avatar the canvas reserves the card's height on, which is
+ * where the introduction's card is drawn.
  *
  * The vertical half of {@link CompanionGrowth}, decided the same way and for a
  * sharper reason. macOS refuses to place a window frame above the top of the
@@ -859,7 +892,7 @@ export const DEFAULT_COMPANION_SIZE: CompanionSize = "medium";
  * there is one vocabulary and two answers rather than two scales to learn. Each
  * axis reads its own table, since the same name means a different box on each.
  * `avatar` sizes the creature, its glow and its bob; `options` sizes the pill,
- * the typing card, the call's body and the introduction's card.
+ * the call's body and the introduction's card.
  */
 export const COMPANION_SIZE_AXES = ["avatar", "options"] as const;
 
@@ -907,17 +940,17 @@ export const COMPANION_BASE_AVATAR_IMAGE = 28;
 export const COMPANION_BASE_CANVAS_PAD = 24;
 
 /**
- * The tallest the surface draws at the base size, which is the typing card.
+ * The height the canvas reserves on the card side of the avatar, at the base
+ * size.
  *
- * Every other state is a pill exactly {@link COMPANION_BASE_AVATAR_BOX} tall.
- * The card stacks the conversation above that row in a viewport that scrolls
- * once it is full, so it has a ceiling rather than growing with the exchange,
- * and this is that ceiling rounded up: the card's text is laid out in the
- * renderer, and a canvas a few points short clips the top of it off.
+ * Every pill is exactly {@link COMPANION_BASE_AVATAR_BOX} tall; the one thing
+ * taller is the introduction's card, which is drawn into this reservation. The
+ * number was sized for the typing card the surface no longer draws and is
+ * deliberately left where it was: the canvas is what main places and clamps,
+ * and shrinking it would move a surface every user has already parked.
  *
- * Matched to `CompanionSurface`'s card, and held here rather than beside the
- * placement rules because {@link companionCardSideFor} sizes the canvas from
- * it.
+ * Held here rather than beside the placement rules because
+ * {@link companionCardSideFor} sizes the canvas from it.
  */
 export const COMPANION_BASE_CARD_HEIGHT = 290;
 
@@ -927,14 +960,18 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
  *
  * An outer width, padding included: the renderer draws a pill as its measured
  * body plus its own clearance at either end, and that whole width is what has
- * to fit. The typing card is exactly this wide, being the one state that states
- * a width rather than measuring one.
+ * to fit.
  *
  * A ceiling rather than a width, since every other state is as wide as its
  * content. Main sizes the canvas to hold this much beyond the gap, so a state
  * that wanted more would be clipped by the window.
+ *
+ * Generous on purpose. The call row is a handlebar that grows with what it
+ * carries, and the canvas is click-through, so room the pill never uses costs
+ * the desktop nothing where a control clipped off the end costs the user the
+ * control.
  */
-export const COMPANION_BASE_MAX_PILL_WIDTH = 316;
+export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
  * The room between the avatar's edge and the options pill beside it, at the
@@ -1086,19 +1123,6 @@ export interface CompanionCharacter {
 }
 
 /**
- * One side of one exchange, condensed for the companion surface's card.
- *
- * Text and a side, and nothing else: no ids, no attachments, no tool calls, no
- * surfaces. The card is a glance at where the conversation got to, so anything
- * richer crossing this bridge would be an invitation to render a transcript on
- * a surface floating over someone else's work.
- */
-export interface CompanionTurn {
-  role: "user" | "assistant";
-  text: string;
-}
-
-/**
  * Where a finished watch session's summary has got to.
  *
  * A session ends the moment the user presses stop, and the account of it does
@@ -1121,10 +1145,10 @@ export type CompanionWatchRetro = "pending" | "ready";
  * What the app's own window knows that the surface cannot.
  *
  * The surface is a renderer with no assistant and no conversation in it, so
- * both facts are published by the window that has them. One payload rather than
- * two channels: they describe the same assistant at the same moment, and a
- * surface drawing one assistant's name over another's words is exactly the skew
- * two independently-pushed facts would produce.
+ * every fact here is published by the window that has them. One payload rather
+ * than a channel per fact: they describe the same assistant at the same
+ * moment, and a surface drawing a stale session beside a fresh name is exactly
+ * the skew independently-pushed facts would produce.
  */
 export interface CompanionContext {
   /**
@@ -1132,21 +1156,12 @@ export interface CompanionContext {
    * verbatim rather than deciding what an unnamed assistant is called.
    */
   assistantName: string;
-  /** The conversation's tail, most recent last. */
-  turns: CompanionTurn[];
   /**
-   * Whether a turn is in flight right now.
+   * Whether a turn is in flight right now, which is what the surface draws its
+   * working ring from.
    *
-   * The surface has the tail of the conversation but no idea whether it is
-   * still being written: the last turn on a finished exchange and the last turn
-   * on one the assistant is still working through are the same rows. This is
-   * the difference, and it is what the surface draws its working ring from.
-   *
-   * Published rather than inferred for the same reason the turns are. The turn
-   * lives in the window that owns the conversation, and a surface guessing from
-   * the shape of the tail would be wrong in both directions: a user message with
-   * no reply yet is not proof of a live turn, and an assistant message already
-   * on screen is no proof the turn behind it has ended.
+   * Published rather than inferred: the turn lives in the window that owns the
+   * conversation, and the surface has no view of that conversation at all.
    */
   working: boolean;
   /**
@@ -1197,7 +1212,29 @@ export interface CompanionContext {
    * reading of a publisher that never mentions it.
    */
   dictating?: CompanionDictating;
+  /**
+   * The words recognised so far in that dictation, or empty before any are.
+   *
+   * The tail of them rather than all of them: this crosses a process boundary
+   * on every recognition result, and the surface draws one line of it, so the
+   * end is the part worth sending. {@link COMPANION_DICTATION_TAIL} is where
+   * that is cut.
+   *
+   * Revised as it arrives, since a recogniser rewrites its own guesses, which
+   * is why it is shown and not what gets inserted anywhere.
+   */
+  dictationText?: string;
 }
+
+/**
+ * How much of a running dictation the surface is given, in characters.
+ *
+ * The pill draws one line and clips what will not fit, so this is a bound on
+ * what crosses rather than on what is seen: enough that the line is always
+ * full, little enough that a long dictation does not grow the payload with
+ * every word.
+ */
+export const COMPANION_DICTATION_TAIL = 120;
 
 /**
  * How far a keyboard dictation has got, in the two states the user can act on.
@@ -1250,7 +1287,7 @@ export const WATCH_FLAG = "teach";
  * to say where its own off switch is, and the right-click menu it points at is
  * the only part of this the user cannot find by looking at the pill.
  */
-export const COMPANION_INTRO_BEATS = ["meet", "talk", "type", "menu"] as const;
+export const COMPANION_INTRO_BEATS = ["meet", "talk", "menu"] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
 
@@ -1270,11 +1307,14 @@ export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 export interface CompanionSurfaceState {
   /** See {@link CompanionContext.dictating}. */
   dictating?: CompanionDictating;
+  /** See {@link CompanionContext.dictationText}. */
+  dictationText?: string;
   growth: CompanionGrowth;
   /**
-   * Which way the typing card unfurls, and with it where the avatar sits inside
-   * the canvas. See {@link CompanionCardGrowth}: main owns the window position,
-   * so main is the only side that can decide this.
+   * Which side of the avatar the canvas reserves the card's height on, and with
+   * it where the avatar sits inside the canvas. See {@link CompanionCardGrowth}:
+   * main owns the window position, so main is the only side that can decide
+   * this.
    */
   cardGrowth: CompanionCardGrowth;
   /**
@@ -1287,7 +1327,7 @@ export interface CompanionSurfaceState {
   avatarBox: number;
   /**
    * The pill's box in points, which is the scale of everything that is not the
-   * creature: the pill, the typing card, the call's body and the introduction.
+   * creature: the pill, the call's body and the introduction.
    *
    * The renderer draws the surface at this over the size its layout is authored
    * at and scales the creature inside that by the ratio between the two boxes,
@@ -1298,23 +1338,12 @@ export interface CompanionSurfaceState {
    */
   optionsBox?: number;
   /**
-   * The assistant's display name, for the composer's placeholder.
+   * The assistant's display name, for the introduction's first beat.
    *
    * Empty until the app's window publishes one, which the surface reads as
-   * "not known yet" and covers with its own fallback wording.
+   * "not known yet" and introduces the creature without a name.
    */
   assistantName: string;
-  /**
-   * The tail of the conversation the surface belongs to, most recent last, or
-   * empty when there is none to show.
-   *
-   * Published by the renderer that owns the conversation and held here for the
-   * same reason the session is: the surface's own renderer can reload, and a
-   * card that came back blank would read as the conversation having been lost.
-   * It is what lets an exchange started from Type be read without going back to
-   * the app at all.
-   */
-  turns: CompanionTurn[];
   /**
    * Whether a turn is in flight, as the window holding it last reported.
    *
@@ -1405,6 +1434,21 @@ export interface CompanionSurfaceState {
    * that only shows itself on hover is a live microphone the user cannot see.
    */
   call: VoiceActivityState | null;
+  /**
+   * Whether Talk has been pressed and no session has answered it yet.
+   *
+   * The press leaves the surface at once and the session it asks for opens in
+   * the app's window, behind whatever the user is working in, after a network
+   * round trip. Without this the pill draws nothing across that wait, and a
+   * press that changes nothing on screen reads as a press that did nothing.
+   * Main sets it on the press and clears it when the session's `start`
+   * arrives, when the window asked declines by sending `end` with no session
+   * running, when the user ends the dial from the pill, or after a bound.
+   *
+   * Optional, and absence means not dialing, the bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  dialing?: boolean;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

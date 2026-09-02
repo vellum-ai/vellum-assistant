@@ -206,13 +206,19 @@ export const GuardianApprovalPending: Story = {
   },
 };
 
-/** A pending guardian question routes to the source conversation to answer. */
+/**
+ * A pending guardian question routes to the source conversation to answer.
+ * The summary is the question with its options on their own lines, which is
+ * all the bell shows: the reply mechanics a chat channel needs are stripped
+ * before the copy reaches this surface.
+ */
 export const GuardianQuestionPending: Story = {
   args: {
     item: feedItem({
       id: "guardian:req-question",
       title: "Which venue should I book?",
-      summary: "Vex needs an answer before booking the offsite venue.",
+      summary:
+        "Which venue should I book for the offsite? The two on the shortlist differ on price and travel time.\n\n1. The lakeside lodge\n2. The downtown hotel\n3. Either, your call",
       category: "security",
       urgency: "high",
       detailPanel: { kind: "permissionChat" },

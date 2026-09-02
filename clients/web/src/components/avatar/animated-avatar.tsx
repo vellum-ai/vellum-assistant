@@ -383,6 +383,10 @@ function AnimatedAvatarResolved({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
+      // The morph is written straight to the DOM (see below), so this is the
+      // one place the busy state is legible from outside: a test, or a reader
+      // of the tree, cannot see a path wobble.
+      data-busy={isAssistantBusy ? "true" : undefined}
       style={{
         animation: breatheAnimation,
         transformOrigin: "center",

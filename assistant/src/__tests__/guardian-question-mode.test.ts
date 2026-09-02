@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyGuardianReplyMechanics,
   buildGuardianCodeOnlyClarification,
   buildGuardianDisambiguationExample,
   buildGuardianDisambiguationLabel,
   buildGuardianInvalidActionReply,
   buildGuardianReplyDirective,
   buildGuardianRequestCodeInstruction,
+  guardianCopyCarriesReplyMechanics,
   hasGuardianRequestCodeInstruction,
   parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
@@ -284,6 +286,112 @@ describe("guardian-question-mode", () => {
         toolName: "host_bash",
       }),
     ).not.toBeNull();
+  });
+
+  test("guardianCopyCarriesReplyMechanics: chat channels carry them, card surfaces do not", () => {
+    const approval = {
+      requestId: "req-1",
+      requestCode: "A1B2C3",
+      requestKind: "tool_grant_request",
+      questionText: "Allow bash?",
+      toolName: "bash",
+    };
+    const question = {
+      requestId: "req-2",
+      requestCode: "A1B2C3",
+      requestKind: "pending_question",
+      questionText: "Which one?",
+    };
+    // The bell, the banner, and the push act through the card whatever the mode.
+    expect(guardianCopyCarriesReplyMechanics("vellum", approval)).toBe(false);
+    expect(guardianCopyCarriesReplyMechanics("vellum", question)).toBe(false);
+    expect(guardianCopyCarriesReplyMechanics("platform", question)).toBe(false);
+    // Slack draws buttons for approvals only; a question is answered by text.
+    expect(guardianCopyCarriesReplyMechanics("slack", approval)).toBe(false);
+    expect(guardianCopyCarriesReplyMechanics("slack", question)).toBe(true);
+    expect(guardianCopyCarriesReplyMechanics("telegram", approval)).toBe(true);
+    expect(guardianCopyCarriesReplyMechanics("telegram", question)).toBe(true);
+  });
+
+  test("applyGuardianReplyMechanics enforces into chat copy, strips from card-surface copy, and is idempotent", () => {
+    const signal = {
+      sourceEventName: "guardian.question",
+      contextPayload: {
+        requestId: "req-2",
+        requestCode: "a1b2c3",
+        requestKind: "pending_question",
+        questionText: "Which one?",
+      },
+    } as const;
+    const copy = {
+      title: "Question",
+      body: "Which one?\n\n1. Left\n2. Right",
+      conversationSeedMessage: "Which one?\n\n1. Left\n2. Right",
+    };
+    const instruction = 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".';
+
+    const telegram = applyGuardianReplyMechanics(copy, "telegram", signal);
+    expect(telegram.body).toBe(`${copy.body}\n\n${instruction}`);
+    expect(telegram.conversationSeedMessage).toBe(
+      `${copy.body}\n\n${instruction}`,
+    );
+    expect(applyGuardianReplyMechanics(telegram, "telegram", signal)).toEqual(
+      telegram,
+    );
+
+    const vellum = applyGuardianReplyMechanics(telegram, "vellum", signal);
+    expect(vellum).toEqual(copy);
+    expect(applyGuardianReplyMechanics(copy, "vellum", signal)).toEqual(copy);
+
+    // Any other signal passes through untouched.
+    expect(
+      applyGuardianReplyMechanics(copy, "telegram", {
+        ...signal,
+        sourceEventName: "schedule.notify",
+      }),
+    ).toEqual(copy);
+  });
+
+  test("applyGuardianReplyMechanics replaces an instruction-only field with the question text on a card surface", () => {
+    const signal = {
+      sourceEventName: "guardian.question",
+      contextPayload: {
+        requestId: "req-3",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        questionText: "Allow bash to run ls /tmp?",
+        toolName: "bash",
+      },
+    } as const;
+    const instructionOnly = {
+      title: "Tool Grant Request. Approval code: A1B2C3",
+      body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+      deliveryText: "Approval code: A1B2C3",
+    };
+    const vellum = applyGuardianReplyMechanics(
+      instructionOnly,
+      "vellum",
+      signal,
+    );
+    expect(vellum.title).toBe("Tool Grant Request.");
+    expect(vellum.body).toBe("Allow bash to run ls /tmp?");
+    expect(vellum.deliveryText).toBe("Allow bash to run ls /tmp?");
+    // A title is a headline, so a code-only one keeps its text.
+    expect(
+      applyGuardianReplyMechanics(
+        { ...instructionOnly, title: "Approval code: A1B2C3" },
+        "vellum",
+        signal,
+      ).title,
+    ).toBe("Approval code: A1B2C3");
+
+    // With no question text to fall back on, the field keeps its text rather
+    // than becoming empty copy the broadcaster would skip.
+    const bare = applyGuardianReplyMechanics(instructionOnly, "vellum", {
+      ...signal,
+      contextPayload: { ...signal.contextPayload, questionText: "" },
+    });
+    expect(bare.body).toBe(instructionOnly.body);
   });
 
   test("parseInteractiveApprovalPayload rejects answer-mode and unparseable payloads", () => {

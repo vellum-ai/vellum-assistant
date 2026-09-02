@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { buildCliCommandHelpContent } from "../../plugins/defaults/memory/substrate/cli-command-content.js";
+import { channelsHelp } from "../commands/channels/index.help.js";
 import { pluginsHelp } from "../commands/plugins.help.js";
 import { skillsHelp } from "../commands/skills.help.js";
 
@@ -33,6 +34,8 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(indexed.toLowerCase()).toContain("before searching the web");
     expect(indexed).toContain("assistant plugins search");
     expect(indexed).toContain("assistant skills search");
+    expect(indexed.toLowerCase()).toContain("channels");
+    expect(pluginsHelp.description).toContain("channels");
     expect(indexed.toLowerCase()).not.toContain("empty query");
   });
 
@@ -46,5 +49,14 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(indexed.toLowerCase()).toContain("before searching the web");
     expect(indexed).toContain("assistant skills search");
     expect(indexed).toContain("try web search");
+  });
+
+  test("channels help points missing channels at plugin search", () => {
+    const indexed = buildCliCommandHelpContent(channelsHelp);
+    const list = channelsHelp.subcommands?.find((sub) => sub.name === "list");
+
+    expect(list?.helpText).toBeDefined();
+    expect(indexed).toContain("assistant plugins search <name>");
+    expect(indexed).toContain("not listed");
   });
 });

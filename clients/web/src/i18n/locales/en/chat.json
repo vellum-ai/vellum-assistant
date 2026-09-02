@@ -278,6 +278,14 @@
     "photo": "Photo",
     "yourAssistant": "Your assistant"
   },
+  "cameraViewOptions": {
+    "buttonAria": "Camera view options",
+    "gateHudDescription": "The tuning readout for what Live keeps.",
+    "gateHudTitle": "Frame gate readout",
+    "keptFrameDescription": "The last frame Live sent, beside your photos. Live keeps sending either way.",
+    "keptFrameTitle": "Kept frame",
+    "title": "Show"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
@@ -640,6 +648,9 @@
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
+  "deletedMessageRow": {
+    "label": "This message was deleted"
+  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
   },
@@ -863,6 +874,7 @@
     "startVoiceMode": "Start voice mode"
   },
   "liveVoiceStatus": {
+    "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
     "connecting": "Connecting…",
     "ending": "Ending…",
     "listening": "Listening…",
@@ -1696,6 +1708,7 @@
     "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
+    "askUnavailable": "Your assistant can’t take a spoken question right now.",
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
   "voiceFirstRunCard": {
@@ -1815,11 +1828,21 @@
     "reactionSomeone": "Someone"
   },
   "watchRetroSurface": {
-    "discard": "Discard",
+    "back": "Back",
+    "dontSave": "Don't save",
+    "looksRight": "Looks right",
     "next": "Next",
     "save": "Save skill",
     "skip": "Skip",
-    "thatsIt": "That's it",
+    "somethingOff": "Something's off",
+    "stepCount": "{count, plural, one {# step} other {# steps}}",
+    "stepQuestion": "Question {number}",
+    "stepRecap": "Recap",
+    "stepSummary": "Save",
+    "summarySay": "Say",
+    "summarySteps": "Steps",
+    "summaryTitle": "Ready to save",
+    "summaryUnanswered": "Not set",
     "untitledTask": "What I saw"
   },
   "restoreManagedCredentialButton": {

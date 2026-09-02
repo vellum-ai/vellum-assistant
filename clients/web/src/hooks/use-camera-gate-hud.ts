@@ -12,9 +12,9 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAuthStore } from "@/stores/auth-store";
 
 /**
- * Whether this session may turn the readout on at all. The settings toggle
- * gates its own visibility on this, so a session that can never see the panel
- * is not offered a switch for it.
+ * Whether this session may turn the readout on at all. The camera's view
+ * options gate the row's presence on this, so a session that can never see
+ * the readout is not offered a switch for it.
  */
 export function useCameraGateHudAvailable(): boolean {
   const user = useAuthStore.use.user();

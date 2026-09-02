@@ -119,6 +119,65 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     expect(rebuiltBlock.text).toBe(annotation.text);
   });
 
+  test("offloaded oversized text records its stored path for history reload", async () => {
+    const conv = createConversation();
+    const ctx = makeCtx(conv.id);
+    const original = "x".repeat(8_000_001);
+
+    await persistQueuedMessageBody(ctx, { content: original });
+
+    const row = rawGet<{ metadata: string; content: string }>(
+      "test:offloadMessage",
+      "SELECT metadata, content FROM messages ORDER BY created_at DESC LIMIT 1",
+    );
+    const meta = JSON.parse(row!.metadata) as {
+      attachmentStoredPaths?: Record<string, string>;
+    };
+    const storedPaths = Object.values(meta.attachmentStoredPaths ?? {});
+    expect(storedPaths).toHaveLength(1);
+    expect(storedPaths[0]!.endsWith("oversized-content.txt")).toBe(true);
+    expect(readFileSync(storedPaths[0]!).toString("utf8")).toBe(original);
+
+    const annotation = lastAnnotationBlock(ctx);
+    expect(annotation.text).toBe(
+      `[Attachment "oversized-content.txt" is stored at: ${storedPaths[0]}]`,
+    );
+
+    const persisted = JSON.parse(row!.content) as ContentBlock[];
+    const rebuilt = reinjectAttachmentPathAnnotations(
+      persisted,
+      "user",
+      row!.metadata,
+    );
+    const rebuiltBlock = rebuilt.at(-1) as { type: "text"; text: string };
+    expect(rebuiltBlock.text).toBe(annotation.text);
+  });
+
+  test("display-only offload is not named on the model-facing list", async () => {
+    const conv = createConversation();
+    const ctx = makeCtx(conv.id);
+    const display = "y".repeat(8_000_001);
+
+    await persistQueuedMessageBody(ctx, {
+      content: "fenced model copy",
+      displayContent: display,
+    });
+
+    const llmContent = ctx.messages[0].content as ContentBlock[];
+    expect(JSON.stringify(llmContent)).not.toContain("oversized-content.txt");
+    expect(JSON.stringify(llmContent)).toContain("fenced model copy");
+    expect(JSON.stringify(llmContent)).not.toContain(display);
+
+    const row = rawGet<{ metadata: string }>(
+      "test:displayOnlyOffloadMetadata",
+      "SELECT metadata FROM messages ORDER BY created_at DESC LIMIT 1",
+    );
+    const meta = JSON.parse(row!.metadata) as {
+      attachmentStoredPaths?: Record<string, string>;
+    };
+    expect(meta.attachmentStoredPaths).toBeUndefined();
+  });
+
   test("messages without attachments get no annotation block", async () => {
     const conv = createConversation();
     const ctx = makeCtx(conv.id);

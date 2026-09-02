@@ -122,6 +122,21 @@ describe("HomeGuardianRequestCard", () => {
     ).toBeTruthy();
   });
 
+  test("a question summary keeps its options on their own lines", () => {
+    render(
+      createElement(HomeGuardianRequestCard, {
+        item: guardianItem(
+          { intent: "question", kind: "pending_question" },
+          { summary: "Which venue?\n\n1. The lodge\n2. The hotel" },
+        ),
+      }),
+    );
+    expect(screen.getByText("Which venue?")).toBeTruthy();
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(["The lodge", "The hotel"]);
+  });
+
   const TERMINAL_RECEIPTS: [Partial<FeedItemGuardianRequest>, string][] = [
     [{ status: "approved", toolName: "linear_graphql" }, "Request approved"],
     [{ status: "denied" }, "Request rejected"],

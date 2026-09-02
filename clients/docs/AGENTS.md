@@ -26,6 +26,29 @@ The markdown mirror route lives at `src/app/docs/%5Fmd/[[...slug]]/route.ts` and
 - The sitemap, search index, markdown mirrors, and `llms.txt` all derive from the filesystem tree at build time; adding or moving a page needs no list updates. Redirect-only stub pages must be added to `REDIRECT_STUB_ROUTES` in `src/lib/discover-docs-routes.ts` so the sitemap skips them.
 - `scripts/platform-route-snapshot.json` is the Phase 1 route-parity baseline; `bun scripts/verify-parity.ts <base-url>` checks the tree and a running instance against it.
 
+### Embedding a how-to video
+
+A page whose topic has a walkthrough video offers it as an alternative to reading, via `<DocsVideo>` (`_components/docs-video.tsx`) placed immediately after the page's lede and before the first `<section>`.
+
+The card is a facade: it ships a self-hosted poster and swaps in the YouTube player only once someone presses play, so a page nobody watches costs no third-party script, no YouTube cookie, and no request to Google. Its markup is a real link to the watch URL that JavaScript upgrades in place, which is what carries the video into the Markdown mirrors, `llms.txt`, and the search index — an iframe leaves nothing behind in any of them.
+
+Adding one:
+
+1. Grab the poster. YouTube's frame is 1280x720; keep the declared dimensions in `src/lib/docs/videos.ts` in step if you ever source one elsewhere.
+
+   ```bash
+   curl -sfL "https://i.ytimg.com/vi/<VIDEO_ID>/maxresdefault.jpg" \
+     | cwebp -q 78 -resize 1280 0 -o public/docs/video-<slug>.webp -- -
+   ```
+
+2. Add the entry to `DOCS_VIDEOS` in `src/lib/docs/videos.ts`. Title, description, runtime, and upload date feed both the card and its `VideoObject` structured data, so take the title and `lengthSeconds`/`uploadDate` from the watch page rather than retyping them.
+
+3. Render `<DocsVideo video="<slug>" />` in the page's content component. Referencing the same slug from a second page is free and keeps one copy of the metadata.
+
+`src/lib/docs/videos.test.ts` fails if an entry has no committed poster, so a forgotten step 1 does not reach a deploy.
+
+Colors inside the card that sit on the poster (the play button) must avoid `bg-white` and `text-emerald-*`: `docs-theme.css` remaps both to theme surfaces inside `.docs-shell`, which is right for cards and wrong for chrome over a photograph that does not change with the theme.
+
 ## Generated artifacts
 
 | Command                           | Output                                                                    |
@@ -33,7 +56,7 @@ The markdown mirror route lives at `src/app/docs/%5Fmd/[[...slug]]/route.ts` and
 | `bun run docs:search:index`       | `public/docs/search-index.json`                                           |
 | `bun run generate:agent-markdown` | `generated/md/**`, `generated/md/docs-index.json`, `public/docs/llms.txt` |
 
-Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next standalone output omits `public/` and `generated/`, so the Dockerfile copies both into the runtime image explicitly.
+Both run automatically via `predev`/`prebuild`. Both drop decoration before converting: `<script>` (JSON-LD), `<iframe>`, anything `aria-hidden="true"`, and `alt=""` images, so structured-data payloads and arrow glyphs stay out of agent-facing prose. All outputs are gitignored. Next standalone output omits `public/` and `generated/`, so the Dockerfile copies both into the runtime image explicitly.
 
 ## Theme contract
 

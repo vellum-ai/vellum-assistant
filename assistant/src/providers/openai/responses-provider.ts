@@ -5,7 +5,8 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
-import { escapeXmlAttr } from "../../util/xml.js";
+import { clampProviderString } from "../content-block-size.js";
+import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
@@ -229,8 +230,7 @@ export class OpenAIResponsesProvider implements Provider {
     const effort = configObj?.effort as string | undefined;
     const verbosity = configObj?.verbosity as string | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const disableCache = configObj?.disableCache === true;
     const disableTurnStartCache = configObj?.disableTurnStartCache === true;
     const promptCacheKey =
@@ -1003,7 +1003,9 @@ export class OpenAIResponsesProvider implements Provider {
       return {
         type: "message",
         role: "user",
-        content: [{ type: "input_text", text: blocks[0].text }],
+        content: [
+          { type: "input_text", text: clampProviderString(blocks[0].text) },
+        ],
       };
     }
 
@@ -1011,7 +1013,10 @@ export class OpenAIResponsesProvider implements Provider {
     for (const block of blocks) {
       switch (block.type) {
         case "text":
-          parts.push({ type: "input_text", text: block.text });
+          parts.push({
+            type: "input_text",
+            text: clampProviderString(block.text),
+          });
           break;
         case "image":
           if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
@@ -1030,7 +1035,7 @@ export class OpenAIResponsesProvider implements Provider {
         case "file":
           parts.push({
             type: "input_text",
-            text: this.fileBlockToText(block),
+            text: fileBlockToProviderText(block),
           });
           break;
         case "server_tool_use":
@@ -1050,17 +1055,5 @@ export class OpenAIResponsesProvider implements Provider {
       role: "user",
       content: parts,
     };
-  }
-
-  private fileBlockToText(
-    block: Extract<ContentBlock, { type: "file" }>,
-  ): string {
-    const header = `<attached_file name="${escapeXmlAttr(
-      block.source.filename ?? "",
-    )}" type="${escapeXmlAttr(block.source.media_type)}" />`;
-    if (block.extracted_text && block.extracted_text.trim().length > 0) {
-      return `${header}\n${block.extracted_text}`;
-    }
-    return `${header}\nNo extracted text available.`;
   }
 }

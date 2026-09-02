@@ -183,7 +183,7 @@ import {
   handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -284,13 +284,14 @@ describe("outbound assistant Slack metadata persistence", () => {
     nextDeliveryTs = null;
   });
 
-  test("stamps slackMeta with threadTs from the turn's inbound thread id", async () => {
+  test("stamps the neutral envelope with the turn's inbound thread id", async () => {
     const conversationId = "conv-slack-threaded";
     const channelId = "C123CHANNEL";
 
-    // The turn arrived in a thread — its inbound thread ts is captured on the
+    // The turn arrived in a thread: its inbound thread ts is captured on the
     // trust context (`sourceThreadId`) at ingress, and the reply is stamped
-    // from that turn-local value.
+    // from that turn-local value. A Slack reply row writes the same neutral
+    // envelope every channel writes; Slack's own fields ride its passthrough.
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
@@ -300,27 +301,29 @@ describe("outbound assistant Slack metadata persistence", () => {
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hi"));
 
     const persisted = lastAssistantPersisted();
-    const slackMetaRaw = persisted.metadata?.slackMeta;
-    expect(typeof slackMetaRaw).toBe("string");
+    expect(persisted.metadata?.slackMeta).toBeUndefined();
+    const providerMetaRaw = persisted.metadata?.providerMeta;
+    expect(typeof providerMetaRaw).toBe("string");
 
-    const slackMeta = JSON.parse(slackMetaRaw as string) as Record<
+    const providerMeta = JSON.parse(providerMetaRaw as string) as Record<
       string,
       unknown
     >;
-    expect(slackMeta.source).toBe("slack");
-    expect(slackMeta.eventKind).toBe("message");
-    expect(slackMeta.channelId).toBe(channelId);
-    expect(slackMeta.threadTs).toBe("1234.5678");
+    expect(providerMeta.source).toBe("slack");
+    expect(providerMeta.eventKind).toBe("message");
+    expect(providerMeta.conversationExternalId).toBe(channelId);
+    expect(providerMeta.threadId).toBe("1234.5678");
 
     // Persistence runs BEFORE the Slack adapter posts the message, so the
-    // authoritative `ts` (-> `channelTs`) is not yet known at this layer.
-    // The post-send reconciliation in `deliverReplyViaCallback` fills the
-    // field once the gateway returns the Slack-assigned ts (covered by
-    // `channel-reply-delivery.test.ts`). Until that runs, the partial
-    // metadata is intentionally rejected by `readSlackMetadata` so callers
-    // that try to use it before reconciliation get a clear null.
-    expect(slackMeta.channelTs).toBeUndefined();
-    expect(readSlackMetadata(slackMetaRaw as string)).toBeNull();
+    // authoritative ts (the envelope's `messageId`) is not yet known at this
+    // layer. The post-send reconciliation in `deliverReplyViaCallback` fills
+    // it once the gateway returns the Slack-assigned ts (covered by
+    // `channel-reply-delivery.test.ts`). Until then the row has no Slack
+    // view, so a Slack reader gets a clear null rather than a half row.
+    expect(providerMeta.messageId).toBeUndefined();
+    expect(
+      readSlackMetadataFromMessageMetadata(JSON.stringify(persisted.metadata)),
+    ).toBeNull();
   });
 
   test("stamps assistant Slack rows with effective timestamp timezone and no speaker suffix", async () => {
@@ -343,16 +346,12 @@ describe("outbound assistant Slack metadata persistence", () => {
     );
 
     const persisted = lastAssistantPersisted();
-    const slackMetaRaw = persisted.metadata?.slackMeta;
-    expect(typeof slackMetaRaw).toBe("string");
-
-    const slackMeta = JSON.parse(slackMetaRaw as string) as Record<
-      string,
-      unknown
-    >;
-    expect(slackMeta.timestampTimezone).toBe("America/Denver");
-    expect(slackMeta.timestampTimezoneLabel).toBe("MT");
-    expect(slackMeta.speakerTimezoneLabel).toBeUndefined();
+    const providerMeta = JSON.parse(
+      persisted.metadata?.providerMeta as string,
+    ) as Record<string, unknown>;
+    expect(providerMeta.timestampTimezone).toBe("America/Denver");
+    expect(providerMeta.timestampTimezoneLabel).toBe("MT");
+    expect(providerMeta.speakerTimezoneLabel).toBeUndefined();
   });
 
   test("falls back to the turn client timezone when no configured user timezone is set", async () => {
@@ -372,14 +371,14 @@ describe("outbound assistant Slack metadata persistence", () => {
     );
 
     const persisted = lastAssistantPersisted();
-    const slackMeta = JSON.parse(
-      persisted.metadata?.slackMeta as string,
+    const providerMeta = JSON.parse(
+      persisted.metadata?.providerMeta as string,
     ) as Record<string, unknown>;
-    expect(slackMeta.timestampTimezone).toBe("America/Los_Angeles");
-    expect(slackMeta.timestampTimezoneLabel).toBe("PT");
+    expect(providerMeta.timestampTimezone).toBe("America/Los_Angeles");
+    expect(providerMeta.timestampTimezoneLabel).toBe("PT");
   });
 
-  test("post-send reconciliation preserves assistant Slack timezone metadata", async () => {
+  test("post-send reconciliation gives the row its Slack view, timezone fields intact", async () => {
     setConfig("ui", { userTimezone: "America/Denver" });
     const conversationId = "conv-slack-reconcile-timezone";
     const channelId = "C999RECONCILE";
@@ -397,9 +396,9 @@ describe("outbound assistant Slack metadata persistence", () => {
     );
 
     const persisted = lastAssistantPersisted();
-    const beforeRaw = persisted.metadata?.slackMeta;
-    expect(typeof beforeRaw).toBe("string");
-    expect(readSlackMetadata(beforeRaw as string)).toBeNull();
+    expect(
+      readSlackMetadataFromMessageMetadata(JSON.stringify(persisted.metadata)),
+    ).toBeNull();
 
     nextDeliveryTs = "1772678280.000200";
     await deliverReplyViaCallback(
@@ -414,19 +413,28 @@ describe("outbound assistant Slack metadata persistence", () => {
       (candidate) => candidate.id === persisted.id,
     );
     expect(typeof row?.metadata).toBe("string");
-    const envelope = JSON.parse(row!.metadata!) as Record<string, unknown>;
-    const reconciled = readSlackMetadata(envelope.slackMeta as string);
-    expect(reconciled).not.toBeNull();
-    expect(reconciled!.channelTs).toBe("1772678280.000200");
-    expect(reconciled!.timestampTimezone).toBe("America/Denver");
-    expect(reconciled!.timestampTimezoneLabel).toBe("MT");
-    expect(reconciled!.speakerTimezoneLabel).toBeUndefined();
+    // The Slack renderers read the reconciled row through its Slack view.
+    const view = readSlackMetadataFromMessageMetadata(row!.metadata!);
+    expect(view).not.toBeNull();
+    expect(view!.channelId).toBe(channelId);
+    expect(view!.channelTs).toBe("1772678280.000200");
+    expect(view!.timestampTimezone).toBe("America/Denver");
+    expect(view!.timestampTimezoneLabel).toBe("MT");
+    expect(view!.speakerTimezoneLabel).toBeUndefined();
+    // And the post is in the outbound index, exactly as any channel's is.
+    expect(recordedOutboundPosts).toContainEqual({
+      sourceChannel: "slack",
+      externalChatId: channelId,
+      providerMessageId: "1772678280.000200",
+      messageId: persisted.id,
+      conversationId,
+    });
   });
 
-  test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {
+  test("stamps no threadId for top-level Slack replies", async () => {
     const conversationId = "conv-slack-toplevel";
     const channelId = "C456NOTHREAD";
-    // The turn arrived at the channel root — no `sourceThreadId` on the trust
+    // The turn arrived at the channel root: no `sourceThreadId` on the trust
     // context, so the reply targets the channel root, not a thread.
 
     const deps = makeDeps(conversationId, {
@@ -437,20 +445,14 @@ describe("outbound assistant Slack metadata persistence", () => {
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hello"));
 
     const persisted = lastAssistantPersisted();
-    const slackMetaRaw = persisted.metadata?.slackMeta;
-    expect(typeof slackMetaRaw).toBe("string");
-
-    const slackMeta = JSON.parse(slackMetaRaw as string) as Record<
-      string,
-      unknown
-    >;
-    expect(slackMeta.source).toBe("slack");
-    expect(slackMeta.eventKind).toBe("message");
-    expect(slackMeta.channelId).toBe(channelId);
-    // threadTs is intentionally absent — top-level reply.
-    expect(slackMeta.threadTs).toBeUndefined();
-    // channelTs is still absent for the same persistence-vs-send reason.
-    expect(slackMeta.channelTs).toBeUndefined();
+    const providerMeta = JSON.parse(
+      persisted.metadata?.providerMeta as string,
+    ) as Record<string, unknown>;
+    expect(providerMeta.source).toBe("slack");
+    expect(providerMeta.eventKind).toBe("message");
+    expect(providerMeta.conversationExternalId).toBe(channelId);
+    expect(providerMeta.threadId).toBeUndefined();
+    expect(providerMeta.messageId).toBeUndefined();
   });
 
   test("envelope resolves from the turn's actor when the slot has moved", async () => {
@@ -479,17 +481,17 @@ describe("outbound assistant Slack metadata persistence", () => {
 
     const persisted = lastAssistantPersisted();
     expect(persisted.metadata?.provenanceTrustClass).toBe("trusted_contact");
-    const slackMeta = JSON.parse(
-      persisted.metadata?.slackMeta as string,
+    const providerMeta = JSON.parse(
+      persisted.metadata?.providerMeta as string,
     ) as Record<string, unknown>;
-    expect(slackMeta.channelId).toBe("C-CONTACT");
-    expect(slackMeta.threadTs).toBe("1723300000.000100");
+    expect(providerMeta.conversationExternalId).toBe("C-CONTACT");
+    expect(providerMeta.threadId).toBe("1723300000.000100");
   });
 
   test("ignores a non-ts sourceThreadId", async () => {
     const conversationId = "conv-slack-bad-thread";
     const channelId = "C789BAD";
-    // A malformed thread id must not be stamped as a threadTs (isSlackTs guard).
+    // A malformed thread id must not be stamped as a thread (isSlackTs guard).
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
@@ -503,13 +505,10 @@ describe("outbound assistant Slack metadata persistence", () => {
     );
 
     const persisted = lastAssistantPersisted();
-    const slackMetaRaw = persisted.metadata?.slackMeta;
-    expect(typeof slackMetaRaw).toBe("string");
-    const slackMeta = JSON.parse(slackMetaRaw as string) as Record<
-      string,
-      unknown
-    >;
-    expect(slackMeta.threadTs).toBeUndefined();
+    const providerMeta = JSON.parse(
+      persisted.metadata?.providerMeta as string,
+    ) as Record<string, unknown>;
+    expect(providerMeta.threadId).toBeUndefined();
   });
 
   test("does NOT stamp slackMeta on non-Slack outbound assistant messages", async () => {

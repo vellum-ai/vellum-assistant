@@ -924,6 +924,95 @@ describe("createSlackReplySession", () => {
     ]);
   });
 
+  test("opens the stream on a plan shown before any prose", async () => {
+    // What the Slack `ui_show` description actually instructs: show the card
+    // early on a multi-step turn. At that moment the model has written no
+    // prose, so a stream that waits for text holds the plan back until the
+    // final answer, when the steps it narrates are already finished.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(
+      taskProgressShow([
+        { label: "Search docs", status: "in_progress" },
+        { label: "Summarize", status: "pending" },
+      ]),
+    );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
+    await tick(15);
+
+    // The plan is on Slack before the turn has produced a single character.
+    expect(slackStreamOps()).toEqual([
+      {
+        action: "start",
+        anchorMessageId: THREAD_TS,
+        text: "",
+        appended: "",
+        plan: {
+          steps: [
+            { label: "Search docs", status: "in_progress" },
+            { label: "Summarize", status: "pending" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("advances plan steps live while the turn is still working", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(
+      taskProgressShow([
+        { label: "Search docs", status: "in_progress" },
+        { label: "Summarize", status: "pending" },
+      ]),
+    );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
+    await tick(15);
+    session.observeEvent(
+      taskProgressUpdate([
+        { label: "Search docs", status: "completed" },
+        { label: "Summarize", status: "in_progress" },
+      ]),
+    );
+    session.observeEvent(toolOk("tool-ui-update", "ui_update"));
+    await tick(15);
+
+    // The advance rides its own task-only append rather than waiting for the
+    // first text, which is the whole point of a live step tracker.
+    const advances = slackStreamOps().filter((op) => op.action === "append");
+    expect(advances).toHaveLength(1);
+    expect(advances[0].plan).toEqual({
+      steps: [
+        { label: "Search docs", status: "completed" },
+        { label: "Summarize", status: "in_progress" },
+      ],
+    });
+
+    session.observeEvent(textDelta("All done."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    // The reply still streams into the same message the plan opened.
+    expect(reconciliation).toEqual({
+      mode: "streamed",
+      messageTs: "stream-ts-1",
+      deliveredSegmentCount: 1,
+    });
+    expect(streamedMarkdown()).toBe("All done.");
+  });
+
   test("carries the plan title and step details onto stream ops", async () => {
     const session = createSlackReplySession({
       sourceChannel: "slack",

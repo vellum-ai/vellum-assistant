@@ -1,7 +1,7 @@
 /**
  * Camera mode as one screen: the feed, the two scrims, the status pill, the
- * shutter row and the session controls, at the offsets and in the stacking
- * order the room gives them.
+ * top-right corner cluster, the shutter row and the session controls, at the
+ * offsets and in the stacking order the room gives them.
  *
  * The per-component stories next door each answer one question about one
  * control over video. This file answers the ones only the assembled surface
@@ -17,7 +17,15 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CameraOff, Mic, MicOff, Volume2, X } from "lucide-react";
+import {
+  CameraOff,
+  ChevronDown,
+  Mic,
+  MicOff,
+  SlidersHorizontal,
+  Volume2,
+  X,
+} from "lucide-react";
 
 // The pill's blink and the shutter's morph and capture pulse are hand-written
 // keyframes in the app stylesheet, which Storybook's preview.css does not pull
@@ -34,6 +42,8 @@ import {
   type CameraMode,
 } from "./voice-room/camera-status-pill";
 import type { CameraVoiceState } from "./voice-room/use-camera-voice-state";
+import type { VoiceRoomPhoto } from "./voice-room/use-voice-room-camera";
+import { VoiceRoomCaptureRow } from "./voice-room/voice-room-capture-row";
 import { VoiceRoomControl } from "./voice-room/voice-room-control";
 
 /**
@@ -55,6 +65,14 @@ const STORY_INSET = "1.25rem";
  */
 const SHUTTER_ROW_BOTTOM = `calc(6.125rem + ${STORY_INSET})`;
 
+/**
+ * The right edge of the band the pill is centred in: the story inset plus the
+ * corner cluster (two 52px controls and the 4px between them) plus the 8px the
+ * pill never closes. `voice-room.tsx` keeps the real expression, which adds the
+ * safe-area inset the room's own controls ride.
+ */
+const PILL_BAND_RIGHT = `calc(${STORY_INSET} + 7.25rem)`;
+
 /** The shutter's accessible name per mode, mirroring the room's catalog copy. */
 const SHUTTER_LABELS: Record<CameraMode, string> = {
   photo: "Take photo",
@@ -62,6 +80,28 @@ const SHUTTER_LABELS: Record<CameraMode, string> = {
 };
 
 const noop = () => {};
+
+/**
+ * A flat swatch standing in for a captured frame, since the row draws whatever
+ * bytes the camera handed it and the question these stories ask is how wide the
+ * tiles are, not what is in them.
+ */
+const captureThumb = (hue: number) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="88" height="88"><rect width="88" height="88" fill="hsl(${hue} 42% 52%)"/></svg>`,
+  )}`;
+
+/** The strip at the cap the camera hook holds it to: three, oldest first. */
+const FULL_STRIP: readonly VoiceRoomPhoto[] = [
+  { id: 1, previewUrl: captureThumb(28), status: "sent" },
+  { id: 2, previewUrl: captureThumb(96), status: "sent" },
+  { id: 3, previewUrl: captureThumb(210), status: "sending" },
+];
+
+const KEPT_FRAME = {
+  attachmentId: "att-story",
+  previewUrl: captureThumb(340),
+};
 
 interface CameraModeScreenProps {
   /** What the camera is doing. Drives the pill's fill and the shutter's core. */
@@ -74,6 +114,10 @@ interface CameraModeScreenProps {
   assistantName?: string;
   /** Mic off: the control goes red and loses the row's only white fill. */
   micMuted?: boolean;
+  /** How many photo receipts sit on the floor's left edge. Capped at three. */
+  photos?: number;
+  /** Whether Live's newest kept frame sits beside them. */
+  keptFrame?: boolean;
 }
 
 /**
@@ -82,7 +126,9 @@ interface CameraModeScreenProps {
  *
  * Everything visible here is the real component: `CameraStatusPill`, the
  * shutter row's `CameraShutter` and `CameraFlashControl` through
- * `CameraRowScene`, and the four `VoiceRoomControl`s of the session row. What
+ * `CameraRowScene`, and the `VoiceRoomControl`s of the corner cluster and the
+ * session row. The corner's view-options control is its trigger only, since
+ * the panel it opens reads live stores this scene has none of. What
  * this scene supplies is only what the app supplies around them: the frame,
  * the two scrims, and where each piece sits. In the app that job belongs to
  * `voice-room.tsx`, which wires the same pieces to the live session and the
@@ -95,6 +141,8 @@ function CameraModeScreen({
   statusLabel,
   assistantName,
   micMuted = false,
+  photos = 0,
+  keptFrame = false,
 }: CameraModeScreenProps) {
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-black">
@@ -122,13 +170,13 @@ function CameraModeScreen({
         style={{ background: CAMERA_SCRIM_BOTTOM }}
       />
 
-      {/* Top-centre, on the corner chrome's line. The room also caps the
-          pill's width so a long name cannot run under the minimize control;
-          that ceiling is the room's to know, and the pill's own
-          `LongAssistantName` story is where it is exercised. */}
+      {/* The pill, centred in the band the corner cluster leaves rather than on
+          the screen: the cluster holds two controls, and a pill centred on the
+          screen would reach under them at phone width before its own floor
+          width was spent. */}
       <div
-        className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
-        style={{ top: STORY_INSET }}
+        className="pointer-events-none absolute z-10 flex justify-center"
+        style={{ top: STORY_INSET, left: STORY_INSET, right: PILL_BAND_RIGHT }}
       >
         <CameraStatusPill
           mode={mode}
@@ -138,15 +186,46 @@ function CameraModeScreen({
         />
       </div>
 
+      {/* The corner cluster: the camera's view options, then minimize on the
+          extreme corner. Both wear the glass corner treatment rather than the
+          session row's fills, so the corner reads as chrome over the feed
+          instead of joining the row of acts at the bottom. */}
+      <div
+        className="absolute z-10 flex items-center gap-1"
+        style={{ top: STORY_INSET, right: STORY_INSET }}
+      >
+        <VoiceRoomControl
+          bare
+          surface="camera"
+          label="Camera view options"
+          onClick={noop}
+        >
+          <SlidersHorizontal className="size-5" />
+        </VoiceRoomControl>
+        <VoiceRoomControl
+          bare
+          surface="camera"
+          label="Minimize voice room"
+          onClick={noop}
+        >
+          <ChevronDown className="size-5" />
+        </VoiceRoomControl>
+      </div>
+
       {/* The shutter row, a row of its own above the session controls, with
-          the hint over it. Full width here because the app's is: flash and
-          flip ride the room's edges rather than a fixed measure. The room
-          shows the hint only where Live can run; this screen always can, so
-          it always carries one. */}
+          the hint over it and the capture row above that. Full width here
+          because the app's is: flash and flip ride the room's edges rather
+          than a fixed measure, and the capture row rides the left one. The
+          room shows the hint only where Live can run; this screen always can,
+          so it always carries one. */}
       <div
         className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
         style={{ bottom: SHUTTER_ROW_BOTTOM }}
       >
+        <VoiceRoomCaptureRow
+          photos={FULL_STRIP.slice(0, photos)}
+          keptFrame={keptFrame ? KEPT_FRAME : null}
+        />
         <CameraRowScene
           className="w-full"
           hint={{ mode }}
@@ -216,6 +295,8 @@ const meta: Meta<typeof CameraModeScreen> = {
     statusLabel: "Listening…",
     assistantName: "Luna",
     micMuted: false,
+    photos: 0,
+    keptFrame: false,
   },
   argTypes: {
     mode: {
@@ -229,6 +310,12 @@ const meta: Meta<typeof CameraModeScreen> = {
       control: { type: "inline-radio" },
       description:
         "Whose voice is live. The room derives it; the pill paints it.",
+    },
+    photos: {
+      options: [0, 1, 2, 3],
+      control: { type: "inline-radio" },
+      description:
+        "How many photo receipts are on the floor. Three is the cap the camera hook holds the strip to.",
     },
     statusLabel: {
       options: [
@@ -312,6 +399,43 @@ export const MicMutedControls: Story = {
  * be read against each other in one frame.
  */
 export const LiveMode: Story = { args: { mode: "live" } };
+
+/**
+ * A configured name long enough to run out of room, at the width where it has
+ * the least: the case the corner cluster made harder by taking a second
+ * control.
+ *
+ * The read to check is the right edge. The name truncates to an ellipsis, the
+ * dot and the mode word stay whole, and nothing about the pill reaches the
+ * view-options button beside minimize.
+ */
+export const LongAssistantName: Story = {
+  args: {
+    voiceState: "assistant",
+    statusLabel: "Speaking…",
+    assistantName: "A considerably longer configured assistant name",
+  },
+};
+
+/**
+ * The floor at its fullest, at the narrowest width the app runs at: the photo
+ * strip at its three-tile cap, Live's kept frame beside it, and the shutter in
+ * Live below.
+ *
+ * The read to check is the capture row's right edge against the shutter's
+ * column. Four 44px tiles and the 8px between them is 200px of content behind a
+ * 24px offset, so at 320px the row ends well short of the right edge and holds
+ * a line of its own above the shutter, rather than wrapping, scrolling, or
+ * running under the flip control.
+ *
+ * This composition belongs to a phone and reaches one only through the native
+ * frame source, so this story is where its geometry is answerable: a desktop
+ * width has slack enough to hide whether the row fits.
+ */
+export const NarrowPhoneCaptureRow: Story = {
+  args: { mode: "live", photos: 3, keptFrame: true },
+  globals: { viewport: { value: "sbNarrowPhone" } },
+};
 
 /**
  * The same composition at a desktop width, which is the room's `content` and

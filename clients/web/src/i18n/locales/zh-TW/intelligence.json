@@ -138,7 +138,7 @@
     },
     "superpowers": {
       "description": "我能做的事情",
-      "label": "超能力"
+      "label": "技能"
     },
     "workspace": {
       "description": "我的檔案",
@@ -282,7 +282,7 @@
     "library": "程式庫",
     "memory": "記憶",
     "schedules": "排程",
-    "superpowers": "我的超能力",
+    "superpowers": "我的技能",
     "workspace": "工作區"
   },
   "skillDetail": {
@@ -304,7 +304,7 @@
   },
   "skillDetailPage": {
     "backToConversation": "返回對話",
-    "backToSuperpowers": "返回我的超能力",
+    "backToSuperpowers": "返回技能",
     "notFoundSubtitle": "此技能可能已被移除，或連結已過期。",
     "notFoundTitle": "找不到技能"
   },
@@ -336,7 +336,7 @@
   "superpowersFilters": {
     "categoriesLabel": "類別",
     "done": "完成",
-    "filterAriaLabel": "篩選超能力",
+    "filterAriaLabel": "篩選技能",
     "filterLabel": {
       "all": "全部",
       "assistantMemory": "助理記憶",
@@ -347,15 +347,15 @@
       "skills": "技能"
     },
     "filtersTitle": "篩選器",
-    "searchAriaLabel": "搜尋超能力",
-    "searchPlaceholder": "搜尋超能力",
+    "searchAriaLabel": "搜尋技能",
+    "searchPlaceholder": "搜尋技能",
     "sourceLabel": "來源",
     "statusLabel": "狀態",
     "typeLabel": "類型"
   },
   "superpowersTab": {
     "catalogBrowsingUnavailableNotice": "外掛程式目錄瀏覽暫時無法使用。已安裝的外掛程式仍列於下方。",
-    "categoriesAriaLabel": "超能力類別",
+    "categoriesAriaLabel": "技能類別",
     "dismissTipAriaLabel": "關閉提示",
     "emptyState": {
       "assistantMemorySubtitle": "您的助理從過去對話中建立的技能將會顯示在此處。",
@@ -369,9 +369,9 @@
       "customSubtitle": "透過在聊天中描述您的需求來建立自訂技能。",
       "customTitle": "無自訂技能",
       "defaultSubtitle": "請檢查您與 Vellum 目錄的連線。",
-      "defaultTitle": "無可用超能力",
+      "defaultTitle": "無可用技能",
       "installedSubtitle": "在聊天中要求您的助理搜尋並安裝新的技能和外掛程式。",
-      "installedTitle": "未安裝超能力",
+      "installedTitle": "未安裝技能",
       "pluginsSubtitle": "瀏覽目錄以安裝可擴充您助理的外掛程式。",
       "pluginsTitle": "未找到外掛程式",
       "skillsshSubtitle": "未找到 skills.sh 技能。請嘗試搜尋目錄。",
@@ -382,7 +382,7 @@
       "vellumTitle": "無 Vellum 技能"
     },
     "errorStateSubtitle": "發生錯誤。請嘗試重新整理頁面。",
-    "errorStateTitle": "載入超能力失敗",
+    "errorStateTitle": "載入技能失敗",
     "pluginsUnavailableNotice": "外掛程式暫時無法使用。技能仍列於下方。",
     "skillsUnavailableNotice": "技能暫時無法使用。外掛程式仍列於下方。",
     "tipBannerText": "透過在聊天中描述您的需求來建立新的自訂技能，或安裝外掛程式以擴充您的助理。"
@@ -431,5 +431,20 @@
       "v1": "將我的記憶從 v1 遷移至 v3。這很可能是兩個步驟，先是您的「記憶功能 v2 遷移」技能，然後是您的「記憶功能 v3 遷移」技能，但請弄清楚我的助理實際需要什麼，並嚴格遵循您使用的任何技能。\n\n請在背景執行，並在完成時或遇到阻礙時通知我。",
       "enable": "請重新開啟我的記憶功能。我希望您再次開始記憶我們對話中的內容。"
     }
+  },
+  "categories": {
+    "email": "電子郵件",
+    "calendar": "行事曆",
+    "messaging": "訊息",
+    "browsing": "瀏覽",
+    "productivity": "生產力",
+    "development": "開發",
+    "voice": "語音",
+    "commerce": "電商",
+    "content": "內容",
+    "health": "健康",
+    "system": "系統",
+    "integrations": "整合",
+    "other": "其他"
   }
 }

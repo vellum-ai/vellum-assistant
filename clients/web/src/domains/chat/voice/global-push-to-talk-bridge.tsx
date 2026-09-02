@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
+
+import type { DictationContext } from "@vellumai/assistant-api";
+import type { HotkeySelection } from "@vellumai/ipc-contract";
 
 import {
   VoiceInputButton,
@@ -8,6 +12,10 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
+import {
+  announceAskRefused,
+  askVoiceFromSurface,
+} from "@/domains/chat/voice/live-voice/start-voice-request";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
@@ -19,6 +27,8 @@ import {
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import type { DictationPostResponse } from "@/generated/daemon/types.gen";
+import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -35,6 +45,87 @@ interface GlobalPushToTalkBridgeProps {
  * cost is being measured. The log line below carries what each hold paid.
  */
 const CLEANUP_DEADLINE_MS = 5000;
+
+/**
+ * The turn a hold made over a selection becomes: the selection, quoted, and
+ * then the words. The selection comes first because it is what the words are
+ * about, and quoted so the model and the transcript both read it as something
+ * the user is pointing at rather than something they said. A selection the
+ * helper cut short says so, so the model does not reason about an ending it
+ * never saw.
+ */
+export function composeSelectionAsk(
+  selection: HotkeySelection,
+  words: string,
+): string {
+  const quoted = selection.text
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const tail = selection.truncated ? "\n> [selection continues]" : "";
+  return `${quoted}${tail}\n\n${words}`;
+}
+
+/**
+ * The cleanup pass raced against a deadline rather than awaited, so a daemon
+ * that is not answering costs the hold the deadline and no more. Past it the
+ * late answer is dropped.
+ */
+async function postDictationWithDeadline(
+  words: string,
+  assistantId: string,
+  context: DictationContext,
+): Promise<DictationPostResponse | null> {
+  const abort = new AbortController();
+  return Promise.race([
+    postDictation(words, assistantId, context, abort.signal),
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        abort.abort();
+        resolve(null);
+      }, CLEANUP_DEADLINE_MS);
+    }),
+  ]);
+}
+
+/**
+ * Whether what a hold's words ask for can go back where the selection is.
+ *
+ * Editable, so a paste replaces the selection rather than landing nowhere.
+ * Whole, because the helper cuts a long selection short, and a rewrite of the
+ * part it kept pasted over all of it would take the rest with it.
+ */
+function canRewriteInPlace(selection: HotkeySelection): boolean {
+  return selection.editable && !selection.truncated;
+}
+
+/**
+ * What the words asked to be put in the selection's place, or null when they
+ * asked about it instead.
+ *
+ * The daemon reads the words over the selection and answers with the edit,
+ * or says they were a question. No answer in time, and the selection handed
+ * back as it was, are nothing to put anywhere either, and the words go to the
+ * assistant as the question they may well be. Character counts and timings
+ * only in the log.
+ */
+async function requestSelectionRewrite(
+  words: string,
+  selection: HotkeySelection,
+  assistantId: string,
+): Promise<string | null> {
+  const startedAt = Date.now();
+  const result = await postDictationWithDeadline(words, assistantId, {
+    cursorInTextField: true,
+    selectedText: selection.text,
+  });
+  const edited = result?.mode === "command" ? result.text.trim() : "";
+  const rewrite = edited && edited !== selection.text.trim() ? edited : null;
+  console.info(
+    `dictation: rewrite ${result ? result.mode : "skipped"} selectionChars=${selection.text.length} words=${words.length} outChars=${rewrite?.length ?? 0} ms=${Date.now() - startedAt}`,
+  );
+  return rewrite;
+}
 
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
@@ -62,6 +153,53 @@ function showVoiceErrorToast(code: string): void {
   toast.error(formatVoiceError(code), { id: `voice-error:${code}` });
 }
 
+/**
+ * Put text at the cursor in the application in front, and where that cannot
+ * be done, in the composer, so nothing said is lost. A paste the system turned
+ * away says so once, with a stable id, and marks the recording so the overlay
+ * shows the failure rather than a check.
+ */
+async function landInFrontApp(
+  text: string,
+  assistantId: string | null,
+): Promise<void> {
+  const insertStartedAt = Date.now();
+  const frontAppInsertion = await insertTextIntoFrontApp(text);
+  console.info(
+    `dictation: inserted chars=${text.length} status=${frontAppInsertion.status} ms=${Date.now() - insertStartedAt}`,
+  );
+  if (frontAppInsertion.status === "inserted") {
+    return;
+  }
+
+  if (frontAppInsertion.status === "automation-denied") {
+    showVoiceErrorToast("dictation-automation-denied");
+    useVoiceRecordingStore
+      .getState()
+      .flagDictationInsertionError("dictation-automation-denied");
+  } else if (frontAppInsertion.status === "blocked") {
+    showVoiceErrorToast("dictation-paste-blocked");
+    useVoiceRecordingStore
+      .getState()
+      .flagDictationInsertionError("dictation-paste-blocked");
+  }
+
+  if (assistantId) {
+    useComposerStore
+      .getState()
+      .loadAssistantDrafts(
+        assistantId,
+        useConversationStore.getState().activeConversationId,
+      );
+  }
+
+  const conversationKey = ensureConversationKey();
+  const composer = useComposerStore.getState();
+  const nextInput = appendTranscript(composer.input, text);
+  composer.setInput(nextInput);
+  composer.saveDraft(conversationKey, nextInput);
+}
+
 export function GlobalPushToTalkBridge({
   assistantId,
 }: GlobalPushToTalkBridgeProps) {
@@ -74,6 +212,14 @@ export function GlobalPushToTalkBridge({
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   const holdToDictateEnabled = useHoldToDictateEnabled();
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
+  // What the hold in progress began over. Read when its transcript lands,
+  // which decides whether the words go to the cursor or to the assistant.
+  const holdSelectionRef = useRef<HotkeySelection | null>(null);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -134,17 +280,25 @@ export function GlobalPushToTalkBridge({
   // Hold to dictate, from whatever app the user is in. The same target the
   // overlay's stop button drives, so a hold and a press are the same dictation
   // and land the same way: through `handleTranscript` below, which cleans the
-  // transcript up and drops it at the cursor.
+  // transcript up and drops it at the cursor. A hold made over a selection is
+  // the one exception: its words are a question about the selection, and go
+  // to the assistant instead.
   useHoldToDictate({
     enabled: holdToDictateEnabled,
-    onHoldStart: () => {
+    onHoldStart: ({ selection }) => {
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
       }
       // Read by the recording session as it starts, which decides there
       // whether the local transcript is the authority.
       markHoldDictation(true);
-      holdTarget()?.start();
+      // The selection binds to the recording that began over it and to no
+      // other. A hold the recorder refuses (the previous transcript is still
+      // being finished) leaves the previous hold's selection where it was,
+      // so that transcript is still about what it was held over.
+      if (holdTarget()?.start() === true) {
+        holdSelectionRef.current = selection;
+      }
     },
     onHoldEnd: () => {
       markHoldDictation(false);
@@ -157,6 +311,44 @@ export function GlobalPushToTalkBridge({
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
+      const selection = holdSelectionRef.current;
+      holdSelectionRef.current = null;
+      if (selection !== null) {
+        // Words over an editable selection may be asking for it changed. The
+        // daemon reads them either way: an edit comes back to be put where
+        // the selection is, and a question falls through to the ask below.
+        if (
+          assistantId &&
+          canRewriteInPlace(selection) &&
+          supportsSelectionRewrite(assistantId)
+        ) {
+          const rewrite = await requestSelectionRewrite(
+            rawText,
+            selection,
+            assistantId,
+          );
+          if (rewrite !== null) {
+            await landInFrontApp(rewrite, assistantId);
+            return;
+          }
+        }
+        // A question about what was highlighted. Not pasted, and not cleaned
+        // up: the cleanup pass rewrites words meant for a document, and these
+        // are meant for the assistant, who hears them as said. The reply is
+        // spoken, on the call the companion shows while it plays.
+        const ask = composeSelectionAsk(selection, rawText);
+        const taken = askVoiceFromSurface(
+          (to, options) => navigateRef.current(to, options),
+          ask,
+        );
+        console.info(
+          `dictation: ask selectionChars=${selection.text.length} truncated=${selection.truncated} words=${rawText.length} taken=${taken}`,
+        );
+        if (!taken) {
+          announceAskRefused();
+        }
+        return;
+      }
       let insertText = rawText;
       // The cleanup pass: one model call that punctuates, drops the fillers,
       // adapts the tone to the application in front and applies the user's
@@ -164,29 +356,11 @@ export function GlobalPushToTalkBridge({
       // list, and the only leg of this that can. A hold takes it too, now that
       // nothing else on its path is worth waiting for; what it costs is
       // measured rather than assumed. Character counts and timings only.
-      //
-      // Raced against a deadline rather than awaited, so a daemon that is not
-      // answering costs the hold the deadline and no more. Past it the raw
-      // words go down and the late answer is dropped.
       const cleanupStartedAt = Date.now();
-      const cleanupAbort = new AbortController();
       const dictationResult = assistantId
-        ? await Promise.race([
-            postDictation(
-              rawText,
-              assistantId,
-              {
-                cursorInTextField: true,
-              },
-              cleanupAbort.signal,
-            ),
-            new Promise<null>((resolve) => {
-              setTimeout(() => {
-                cleanupAbort.abort();
-                resolve(null);
-              }, CLEANUP_DEADLINE_MS);
-            }),
-          ])
+        ? await postDictationWithDeadline(rawText, assistantId, {
+            cursorInTextField: true,
+          })
         : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
@@ -194,41 +368,7 @@ export function GlobalPushToTalkBridge({
       console.info(
         `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
       );
-      const insertStartedAt = Date.now();
-      const frontAppInsertion = await insertTextIntoFrontApp(insertText);
-      console.info(
-        `dictation: inserted chars=${insertText.length} status=${frontAppInsertion.status} ms=${Date.now() - insertStartedAt}`,
-      );
-      if (frontAppInsertion.status === "inserted") {
-        return;
-      }
-
-      if (frontAppInsertion.status === "automation-denied") {
-        showVoiceErrorToast("dictation-automation-denied");
-        useVoiceRecordingStore
-          .getState()
-          .flagDictationInsertionError("dictation-automation-denied");
-      } else if (frontAppInsertion.status === "blocked") {
-        showVoiceErrorToast("dictation-paste-blocked");
-        useVoiceRecordingStore
-          .getState()
-          .flagDictationInsertionError("dictation-paste-blocked");
-      }
-
-      if (assistantId) {
-        useComposerStore
-          .getState()
-          .loadAssistantDrafts(
-            assistantId,
-            useConversationStore.getState().activeConversationId,
-          );
-      }
-
-      const conversationKey = ensureConversationKey();
-      const composer = useComposerStore.getState();
-      const nextInput = appendTranscript(composer.input, insertText);
-      composer.setInput(nextInput);
-      composer.saveDraft(conversationKey, nextInput);
+      await landInFrontApp(insertText, assistantId);
     },
     [assistantId],
   );

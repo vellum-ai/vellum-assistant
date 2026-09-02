@@ -615,7 +615,7 @@
   "customPlanRow": {
     "configure": "配置",
     "currentPlanTag": "您的当前计划",
-    "genericDescriptor": "选择自定义CPU算力、内存和存储。或者直接添加一些令牌。",
+    "genericDescriptor": "选择自定义CPU算力、内存和存储。或者直接添加一些 Token。",
     "prompt": "需要更符合您需求的服务吗？",
     "title": "自定义计划"
   },
@@ -1059,7 +1059,7 @@
     "toastRemoved": "已移除 {serverId}",
     "toastUpdateFailed": "更新 {serverId} 失败",
     "toastUpdated": "已更新 {serverId}",
-    "totalTokens": "共计约 {count} 个令牌",
+    "totalTokens": "共计约 {count} 个 Token",
     "totalTools": "{count, plural, other {# 个工具}}"
   },
   "mcpServerCard": {
@@ -1067,7 +1067,7 @@
     "authenticating": "正在认证...",
     "configure": "配置",
     "configureTooltip": "配置",
-    "estimatedTokens": "~{count} 个令牌",
+    "estimatedTokens": "~{count} 个 Token",
     "oauthBadge": "OAuth",
     "reAuth": "重新认证",
     "reAuthTooltip": "重新认证 OAuth",
@@ -1084,7 +1084,7 @@
     "toggleDisableAriaLabel": "禁用 {serverId}",
     "toggleEnableAriaLabel": "启用 {serverId}",
     "toolCount": "{count, plural, other {# 个工具}}",
-    "toolTokensAbbrev": "~{count} 令牌"
+    "toolTokensAbbrev": "~{count} Token"
   },
   "mcpServerDetailModal": {
     "apiKey": "API 密钥",
@@ -1112,9 +1112,9 @@
     "save": "保存",
     "saving": "正在保存...",
     "tableDescription": "描述",
-    "tableTokens": "令牌",
+    "tableTokens": "Token",
     "tableTool": "工具",
-    "tokenOverhead": "总预估令牌开销：~{count} 个令牌",
+    "tokenOverhead": "总预估 Token 开销：~{count} 个 Token",
     "toolEstimatedTokens": "~{count}"
   },
   "mediaEmbedsCard": {
@@ -1436,14 +1436,14 @@
     "effortLabel": "努力程度",
     "effortSegmentDefault": "默认",
     "enableExtendedThinkingLabel": "启用扩展思考",
-    "maxOutputTokensLabel": "最大输出令牌数",
+    "maxOutputTokensLabel": "最大输出 Token 数",
     "reset": "重置",
     "speedLabel": "速度",
-    "streamThinkingTokensLabel": "流式思考令牌",
+    "streamThinkingTokensLabel": "流式思考 Token",
     "temperatureLabel": "温度",
     "thinkingLevelInheritHint": "(默认 = 继承)",
     "thinkingLevelLabel": "思考级别",
-    "tokensAriaLabel": "{label} (令牌)",
+    "tokensAriaLabel": "{label} (Token)",
     "topPLabel": "Top P",
     "verbosityLabel": "详细程度"
   },
@@ -1467,8 +1467,8 @@
     "saving": "正在保存…"
   },
   "profileEditor": {
-    "maxTokensNoInputRoom": "最大令牌数 ({maxTokens}) 将整个 {window} 令牌上下文窗口保留用于输出，导致您的消息没有空间。请减少此值（例如 8000）。",
-    "maxTokensOverCap": "最大令牌数 ({maxTokens}) 超过了模型的最大输出 {cap} 令牌。请将其减少到 {cap} 或更少。",
+    "maxTokensNoInputRoom": "最大 Token 数 ({maxTokens}) 将整个 {window} Token上下文窗口保留用于输出，导致您的消息没有空间。请减少此值（例如 8000）。",
+    "maxTokensOverCap": "最大 Token 数 ({maxTokens}) 超过了模型的最大输出 {cap} Token。请将其减少到 {cap} 或更少。",
     "nameRequired": "名称为必填项",
     "nameTaken": "此名称已被占用",
     "providerRequired": "请选择提供商",
@@ -1535,8 +1535,8 @@
     "managedByVellum": "由 Vellum 管理",
     "openProfileAriaLabel": "打开配置文件 {displayName}",
     "configIssueModelUnknown": "此配置文件的模型无法从其提供商处获取。",
-    "configIssueNoInputRoom": "此配置文件的最大输出令牌数在模型的上下文窗口中没有为输入留下空间。",
-    "configIssueOverOutputCap": "此配置文件的最大输出令牌数超出了其模型支持的范围。",
+    "configIssueNoInputRoom": "此配置文件的最大输出 Token 数在模型的上下文窗口中没有为输入留下空间。",
+    "configIssueOverOutputCap": "此配置文件的最大输出 Token 数超出了其模型支持的范围。",
     "providerUnavailableDefault": "此配置文件的提供商不可用。",
     "providerUnavailableFixable": "{message} 点击修复。",
     "view": "查看"
@@ -2073,7 +2073,7 @@
     "costLabel": "成本",
     "dailyTrend": "每日趋势",
     "dailyTrendBy": "按 {group} 的每日趋势",
-    "directInputTokensLabel": "直接输入令牌",
+    "directInputTokensLabel": "直接输入 Token",
     "failedToLoadUsage": "未能加载使用情况。",
     "groupByActor": "执行者",
     "groupByConversation": "对话",
@@ -2090,7 +2090,7 @@
     "noBreakdownDataSubtitle": "此分组没有记录使用情况",
     "noBreakdownDataTitle": "无明细数据",
     "optimizeSettingsButton": "优化设置",
-    "outputTokensLabel": "输出令牌",
+    "outputTokensLabel": "输出 Token",
     "percentOfTotalLabel": "占总计百分比",
     "range30d": "最近 30 天",
     "range7d": "最近 7 天",
@@ -2100,7 +2100,7 @@
     "rangeYesterday": "昨天",
     "retry": "重试",
     "title": "使用情况",
-    "tokensLabel": "令牌",
+    "tokensLabel": "Token",
     "totalsAriaLabel": "总计",
     "turnsLabel": "轮次",
     "unknownSchedule": "未知定时任务 ({scheduleId})"
@@ -2209,7 +2209,8 @@
     "turnTakingTitle": "轮流说话",
     "voiceShortcutSubtitle": "在应用中的任何位置按下快捷方式以开始或结束语音对话。",
     "voiceShortcutSubtitleDesktop": "用于开始/结束语音对话的全局快捷方式。",
-    "voiceShortcutTitle": "语音模式快捷方式"
+    "voiceShortcutTitle": "语音模式快捷方式",
+    "captionsRecommendation": "我们建议初次使用时保持关闭，体验更接近真实对话。"
   },
   "voicePickerCard": {
     "changeButton": "更改",
@@ -2282,5 +2283,32 @@
     "redirectHint": "将此 URL 添加到您的 OAuth 应用的重定向设置中。",
     "redirectUrl": "重定向 URL",
     "waitingAuthorization": "等待授权..."
+  },
+  "sidebar": {
+    "general": "常规",
+    "model": "模型与服务",
+    "integrations": "集成",
+    "credentials": "凭据",
+    "notifications": "通知",
+    "voice": "语音",
+    "sounds": "声音",
+    "privacy": "权限与隐私",
+    "bookmarks": "书签",
+    "usage": "用量",
+    "billingUsage": "账单与用量",
+    "community": "社区",
+    "debug": "调试",
+    "developer": "开发者",
+    "logout": "退出登录",
+    "login": "登录",
+    "title": "设置"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "常规",
+      "terminal": "终端",
+      "doctor": "诊断",
+      "conversations": "会话"
+    }
   }
 }

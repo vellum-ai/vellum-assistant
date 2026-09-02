@@ -31,7 +31,6 @@ export const ERROR_MESSAGES: Record<string, string> = {
 };
 
 const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
-  "conversation_list_invalidated",
   "conversation_title_updated",
   "notification_intent",
   // Client directive to open a settings tab — carries no `conversationId`
@@ -287,6 +286,9 @@ export function formatVoiceError(code: string): string {
     return t("chat:voiceErrors.nativeSttNoTranscript", {
       clientName: clientOsDisplayName(detectClientOs()),
     });
+  }
+  if (code === "voice-ask-unavailable") {
+    return t("chat:voiceErrors.askUnavailable");
   }
   return (
     VOICE_ERROR_MESSAGES[code] ??
