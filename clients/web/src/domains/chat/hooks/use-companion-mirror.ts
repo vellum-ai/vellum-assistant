@@ -43,10 +43,8 @@ import {
 } from "@/domains/chat/watch/watch-controller";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
-import { readHoldToDictateEnabled } from "@/utils/hold-to-dictate";
-import {
-  COMPANION_DICTATION_TAIL,
-} from "@vellumai/ipc-contract";
+import { isHoldDictation } from "@/utils/hold-to-dictate";
+import { COMPANION_DICTATION_TAIL } from "@vellumai/ipc-contract";
 import type {
   CompanionContext,
   CompanionDictating,
@@ -171,6 +169,16 @@ function currentContext(): CompanionContext {
 }
 
 /**
+ * Whether the recording in the store is one a held key started.
+ *
+ * The store does not say who opened the microphone, and the hold flag says so
+ * only while the keys are down, which ends before the recording does. So the
+ * answer is taken as the recording starts, while the flag still stands, and
+ * kept until the recording is over.
+ */
+let holdRecording = false;
+
+/**
  * The dictation the surface should be drawing, or nothing.
  *
  * Only a dictation the keyboard started: one begun from a control in the app is
@@ -179,15 +187,16 @@ function currentContext(): CompanionContext {
  * up, which is the stretch with nothing else on screen to explain it.
  */
 function dictatingPhase(): CompanionDictating | undefined {
-  if (!readHoldToDictateEnabled()) {
-    return undefined;
-  }
   switch (useVoiceRecordingStore.getState().phase) {
     case "recording":
-      return "listening";
+      if (isHoldDictation()) {
+        holdRecording = true;
+      }
+      return holdRecording ? "listening" : undefined;
     case "processing":
-      return "transcribing";
+      return holdRecording ? "transcribing" : undefined;
     default:
+      holdRecording = false;
       return undefined;
   }
 }
