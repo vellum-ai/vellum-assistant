@@ -114,6 +114,17 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
+/**
+ * The keep's own feedback, replaced because the real one lazy-imports a
+ * Capacitor plugin that has no bridge here. What the cases check is which
+ * frames it fires for, which is the wiring; whether a light impact is the right
+ * effect is the haptics util's business.
+ */
+const hapticLight = mock(async () => {});
+mock.module("@/utils/haptics", () => ({
+  haptic: { light: hapticLight },
+}));
+
 const { useVoiceRoomSight } = await import("./use-voice-room-sight");
 const { publish } = await import("@/lib/event-bus");
 const { minimizeVoiceRoom, restoreVoiceRoom, useLiveVoiceStore } =
@@ -256,6 +267,7 @@ beforeEach(() => {
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
   deleteChatAttachment.mockClear();
+  hapticLight.mockClear();
   pendingUploads = [];
   autoUploadId = 0;
   uploadsResolveImmediately = true;
@@ -527,6 +539,28 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     // The daemon owns a frame it was told about and reclaims it if the
     // persist fails, so nothing here may delete the row.
     expect(deleteChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test("a keep the call was given is felt once", async () => {
+    // The pulse is on a screen nobody is watching: Live is held at arm's
+    // length, aimed at whatever is being talked about.
+    const { view } = renderSight();
+
+    await keepFrame();
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+  });
+
+  test("a keep the session refused is felt not at all", async () => {
+    // Same reason the thumbnail stays down for one: nothing was shared, so
+    // there is nothing to report.
+    controls.sightFrame.mockImplementation(() => false);
+    renderSight();
+
+    await keepFrame();
+
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   test("sends each keep exactly once", async () => {

@@ -393,10 +393,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "Ask the Doctor",
-    "copyCliFix": "Copy CLI fix",
     "goToDoctor": "Go to Doctor",
     "openPage": "Open page",
-    "suggestionFallback": "Suggestion"
+    "suggestionFallback": "Suggestion",
+    "copyCliFix": "Copy CLI fix"
   },
   "chatRuleEditorModal": {
     "applyTo": "Apply to",
@@ -752,8 +752,10 @@
     "selectPlaceholder": "Select..."
   },
   "frameGateHud": {
+    "collapse": "Hide the frame gate readout",
     "decisionOrder": "Decision order",
     "detailLabel": "Detail (luma SD)",
+    "expand": "Show the frame gate readout",
     "keep": "Keep",
     "keptFrameAlt": "Kept frame",
     "maxIntervalLabel": "Heartbeat interval",
@@ -1844,5 +1846,15 @@
     "summaryTitle": "Ready to save",
     "summaryUnanswered": "Not set",
     "untitledTask": "What I saw"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "Restore access",
+    "restoring": "Restoring...",
+    "restored": "Restored. Vellum-managed models are working again.",
+    "failedNoAssistant": "Select an assistant, then try again.",
+    "failedCannotActHere": "This app cannot restore the credential for this assistant. Open the assistant on the computer that runs it.",
+    "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
+    "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
+    "failedGeneric": "Could not restore access. Try again in a moment."
   }
 }

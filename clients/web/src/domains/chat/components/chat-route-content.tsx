@@ -67,7 +67,6 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
@@ -171,16 +170,13 @@ import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-select
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
-import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
-/**
- * Self-hosted recovery for a rejected assistant API key. Mirrors the hint the
- * daemon returns from its own auth route (`runtime/routes/auth-routes.ts`) —
- * keep the two in step.
- */
-const REPROVISION_ASSISTANT_KEY_COMMAND =
-  "assistant keys set credential/vellum/assistant_api_key <key>";
+import { canRecoverLocalAssistantPlatformCredential } from "@/lib/local-platform-identity";
+
+import { RestoreManagedCredentialButton } from "./restore-managed-credential-button";
+import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -212,7 +208,6 @@ export interface ChatMainPanelProps {
 
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
-
 
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
@@ -287,6 +282,9 @@ function useActiveProcessSlots(isPopout: boolean) {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+const REPROVISION_ASSISTANT_KEY_COMMAND =
+  "assistant keys set credential/vellum/assistant_api_key <key>";
 
 export function ChatMainPanel({
   sendMessage,
@@ -834,36 +832,49 @@ export function ChatMainPanel({
   //   platform-hosted → the Doctor, which can re-issue the key. The request is
   //     parked in the same one-shot store `/doctor <message>` uses, so the
   //     panel auto-starts a session already on topic, not on a blank prompt.
-  //   self-hosted → the Doctor tab doesn't exist (it is platform-hosted only),
-  //     but `assistant keys set` does. Copying the command is the whole fix, so
-  //     the banner hands it over rather than leaving the user with no action.
-  const reprovisionAssistantKeyAction = showDoctorAction ? (
-    <Button asChild variant="outlined" size="compact">
-      <Link
-        to={`${routes.settings.debug}?tab=doctor`}
+  //   self-hosted -> the client owns the reprovision flow (the platform's own
+  //     recovery excludes these registrations). Where this client can write
+  //     to the assistant's gateway (a plain local assistant or a local Docker
+  //     instance), the banner performs it, and the button itself asks for a
+  //     platform sign-in first when there is none. Where it cannot (a
+  //     remotely served client, a platform-disabled one), the banner hands
+  //     over the CLI command instead, so no hosting mode is left without a
+  //     way back.
+  //
+  // Built per banner rather than once, so a successful repair retires exactly
+  // the error or notice that offered it. Clearing the slot unconditionally
+  // would also wipe a newer failure that arrived while the repair ran.
+  const buildReprovisionAssistantKeyAction = (onRestored: () => void) =>
+    showDoctorAction ? (
+      <Button asChild variant="outlined" size="compact">
+        <Link
+          to={`${routes.settings.debug}?tab=doctor`}
+          onClick={() =>
+            useDoctorHandoffStore
+              .getState()
+              .setPendingPrompt("Help me re-provision my assistant's API key")
+          }
+        >
+          {t("chatRouteContent.askTheDoctor")}
+        </Link>
+      </Button>
+    ) : assistantState.kind === "active" &&
+      canRecoverLocalAssistantPlatformCredential() ? (
+      <RestoreManagedCredentialButton onRestored={onRestored} />
+    ) : assistantState.kind === "active" ? (
+      <Button
+        variant="outlined"
+        size="compact"
         onClick={() =>
-          useDoctorHandoffStore
-            .getState()
-            .setPendingPrompt("Help me re-provision my assistant's API key")
+          copyToClipboard(REPROVISION_ASSISTANT_KEY_COMMAND, {
+            successMessage: "Command copied. Run it where the assistant runs.",
+            errorMessage: "Couldn't copy the command.",
+          })
         }
       >
-        {t("chatRouteContent.askTheDoctor")}
-      </Link>
-    </Button>
-  ) : assistantState.kind === "active" ? (
-    <Button
-      variant="outlined"
-      size="compact"
-      onClick={() =>
-        copyToClipboard(REPROVISION_ASSISTANT_KEY_COMMAND, {
-          successMessage: "Command copied. Run it where the assistant runs.",
-          errorMessage: "Couldn't copy the command.",
-        })
-      }
-    >
-      {t("chatRouteContent.copyCliFix")}
-    </Button>
-  ) : undefined;
+        {t("chatRouteContent.copyCliFix")}
+      </Button>
+    ) : undefined;
 
   // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
   // `actionUrl`; the button click is a real user gesture, so the re-open
@@ -896,7 +907,12 @@ export function ChatMainPanel({
               useChatSessionStore.getState().setError(null),
             ) ??
             (isManagedCredentialChatError(error)
-              ? reprovisionAssistantKeyAction
+              ? buildReprovisionAssistantKeyAction(() => {
+                  const session = useChatSessionStore.getState();
+                  if (session.error === error) {
+                    session.setError(null);
+                  }
+                })
               : doctorAction),
         }
       : null;
@@ -911,7 +927,12 @@ export function ChatMainPanel({
               useChatSessionStore.getState().setNotice(null),
             ) ??
             (isManagedCredentialChatError(notice)
-              ? reprovisionAssistantKeyAction
+              ? buildReprovisionAssistantKeyAction(() => {
+                  const session = useChatSessionStore.getState();
+                  if (session.notice === notice) {
+                    session.setNotice(null);
+                  }
+                })
               : undefined),
         }
       : null;

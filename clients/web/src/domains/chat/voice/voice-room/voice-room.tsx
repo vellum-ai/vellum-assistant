@@ -108,11 +108,13 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import {
   AnimatePresence,
   motion,
+  useDragControls,
   useReducedMotion,
   type MotionProps,
 } from "motion/react";
@@ -162,7 +164,6 @@ import {
   CAMERA_MEDIA_GLASS_CLASS,
   CAMERA_SCRIM_BOTTOM,
   CAMERA_SCRIM_TOP,
-  cameraModeStyle,
 } from "./camera-mode-paint";
 import { CameraShutterHint } from "./camera-shutter-hint";
 import { CameraViewSettings } from "./camera-view-settings";
@@ -170,6 +171,7 @@ import {
   CameraStatusPill,
   useCameraStatusAnnouncement,
 } from "./camera-status-pill";
+import { VoiceRoomCaptureRow } from "./voice-room-capture-row";
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
@@ -321,6 +323,47 @@ const ROOM_DIALOG_ATTR = "data-voice-room";
 const MotionBottomSheetContent = motion.create(BottomSheet.Content);
 
 /**
+ * The paint a drag surface needs, which Motion applies for itself only while it
+ * owns the press: `useHTMLProps` sets all of this under
+ * `drag && dragListener !== false`, and the sheet takes the listener off.
+ *
+ * `pan-x` is what Motion writes for `drag="y"`, and it is the browser's half of
+ * the same claim: the vertical gesture belongs to the sheet, so the page behind
+ * it must not pan under a downward pull. The selection rules keep a press that
+ * turns into a drag from selecting the room's text on the way, and on iOS from
+ * raising the callout, which `docs/CAMERA_MODE_QA.md` checks for.
+ */
+const SHEET_DRAG_SURFACE_STYLE: CSSProperties = {
+  touchAction: "pan-x",
+  userSelect: "none",
+  WebkitUserSelect: "none",
+  WebkitTouchCallout: "none",
+};
+
+/**
+ * Whether a press landed on something with a drag of its own to do.
+ *
+ * Motion's own listener skips these (`isElementTextInput` in `motion-dom`: an
+ * `input`, `select` or `textarea`, or anything `contenteditable`), on the
+ * grounds that a control the user drags to set a value or to select text must
+ * not have that drag taken by the surface under it. Buttons and links are
+ * deliberately not on the list, since a press on one has nothing to move. The
+ * sheet starts the drag itself now, so it makes the same exception; the module
+ * is not on Motion's public entry point to import.
+ */
+function isTextControl(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return (
+    target.tagName === "INPUT" ||
+    target.tagName === "SELECT" ||
+    target.tagName === "TEXTAREA" ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
+/**
  * The element the mobile sheet portals into.
  *
  * `root-layout.tsx` wraps the whole app shell in `isolation: isolate`, so a
@@ -427,6 +470,32 @@ export function VoiceRoom({
  * against the header, and letting it travel up would open a gap under it. The
  * gesture is a *minimize*, never an end: pulling a live call off the screen
  * must not hang it up.
+ *
+ * **The press that starts that drag is React's rather than Motion's.** Left to
+ * itself, Motion arms the drag with a native `pointerdown` listener on this
+ * element (`VisualElementDragControls.addListeners`), and a native listener
+ * here cannot be talked out of a gesture by anything inside the room: React
+ * delegates its own events at the app root, which is an ANCESTOR of this
+ * element, so a panel inside the room that wanted to keep a press would have to
+ * stop the native event before it reached this element, and stopping it there
+ * kills every React handler under it as well, Radix's sliders included. There
+ * is no point in the DOM that is below this element and above the root.
+ *
+ * So `dragListener={false}` takes Motion's listener off, and the drag is
+ * started from a React `onPointerDown` on this same element instead. That puts
+ * the starter inside React's own propagation, where the tree order is the one
+ * the room wants: a surface inside the room is handed the press first and may
+ * decline to pass it on, while everything it does not cover reaches this
+ * handler exactly as before. `dragControls.start` only decides who opens the
+ * session; the constraints, the direction lock, the elasticity and the release
+ * are all still this element's.
+ *
+ * Two things come off with Motion's listener, since `useHTMLProps` gates them
+ * on `drag && dragListener !== false`, and both are restored on this element:
+ * the paint that keeps a drag surface from behaving like a document
+ * ({@link SHEET_DRAG_SURFACE_STYLE}, and `draggable={false}` against the native
+ * ghost image), and the carve-out that leaves a press on a text control alone
+ * ({@link isTextControl}).
  */
 function VoiceRoomSheet({
   headerBottom,
@@ -448,6 +517,7 @@ function VoiceRoomSheet({
 }) {
   const { t } = useTranslation("chat");
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const dragControls = useDragControls();
   useInertBehindSheet(flushToTop, contentRef);
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
@@ -455,6 +525,17 @@ function VoiceRoomSheet({
         ref={contentRef}
         {...motionProps}
         drag="y"
+        // See the module docstring: the press that opens the drag is React's,
+        // so a surface inside the room can keep one.
+        dragListener={false}
+        dragControls={dragControls}
+        onPointerDown={(event: ReactPointerEvent<HTMLElement>) => {
+          if (isTextControl(event.target)) {
+            return;
+          }
+          dragControls.start(event);
+        }}
+        draggable={false}
         // A voice room is a tall surface with controls near its bottom edge;
         // without the lock, the small vertical component of a horizontal
         // reach across the row starts the sheet moving under the finger.
@@ -506,6 +587,7 @@ function VoiceRoomSheet({
         }}
         style={
           {
+            ...SHEET_DRAG_SURFACE_STYLE,
             "--voice-sheet-top": flushToTop ? "0px" : `${headerBottom}px`,
           } as CSSProperties
         }
@@ -1036,10 +1118,18 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           have decisions to read, and this is the instrument the thresholds are
           tuned with on the hardware that runs them. It draws inside the room's
           own chrome, which the native shells keep visible in front of the
-          preview layer behind the web view. */}
+          preview layer behind the web view.
+
+          Collapsible, because the surroundings here are a full-bleed
+          viewfinder: on a window with no room for the card the readout stands
+          down to a strip in this slot and puts the rest behind a tap. Which
+          window that is belongs to the readout, which reads the shared
+          narrow-window signal; the room says only that this slot is one the
+          readout may stand down in. */}
       {cameraOpen ? (
         <FrameGateHud
           surface="voice"
+          collapsible
           className="absolute top-[calc(var(--room-chrome-top)+2.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"
           style={{ left: `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})` }}
         />
@@ -1283,85 +1373,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               {errorMessage}
             </p>
           ) : null}
-          {/* What the shutter did.
-
-              A photo taken on a call goes somewhere the user cannot see: the
-              viewfinder does not change, the assistant may say nothing for
-              seconds, and the transcript is behind the room. Without this the
-              press is indistinguishable from a dead button, which is what
-              sends people pressing it again.
+          {/* What the shutter did, and what Live sent on its own.
 
               A strip of recent frames rather than a confirmation step, because
               the question is "did that go?", which can only be answered after
               the fact. A dialog before the send would interrupt the one action
               this surface is built to repeat, and still would not answer it.
-              The shutter press is the consent.
-
-              Dimmed while in flight, struck through when it failed, plain when
-              the assistant has it. Aligned left so it never sits under the
-              shutter, and `aria-hidden` because the live region already
-              announces failures in words. */}
-          {photos.length > 0 || keptFrame ? (
-            <div
-              data-testid="voice-room-capture-row"
-              className="flex items-center gap-2 self-start pl-6"
-            >
-              {photos.length > 0 ? (
-                <ul
-                  aria-hidden
-                  data-testid="voice-room-photo-strip"
-                  className="flex items-center gap-2"
-                >
-                  {photos.map((photo) => (
-                    <li key={photo.id} className="relative">
-                      <img
-                        src={photo.previewUrl}
-                        alt=""
-                        data-testid="voice-room-photo"
-                        data-status={photo.status}
-                        className={cn(
-                          "size-11 rounded-lg border object-cover transition",
-                          "border-[var(--room-border)]",
-                          photo.status === "sending" && "opacity-50",
-                          photo.status === "failed" && "opacity-40 grayscale",
-                        )}
-                      />
-                      {photo.status === "failed" ? (
-                        <span className="absolute inset-0 flex items-center justify-center">
-                          <X className="size-5 text-red-300" strokeWidth={3} />
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {/* The newest view the call was given.
-
-                  A photo in the strip is a receipt for something the user did;
-                  this is the opposite, a frame nobody asked for, so it has to
-                  be visible at the moment it goes rather than only after the
-                  fact. It wears the strip's shape so the two read as one row,
-                  and the capture accent so they are not read as the same
-                  thing. Keyed on the id, which replays the ring on every keep.
-
-                  `aria-hidden` for the same reason as the strip: every keep
-                  lands in the transcript as its own message, which is the
-                  accessible record of it. That record is also why the camera's
-                  view options can stand this down: what it draws is a
-                  convenience, and the transcript is the account. */}
-              {keptFrame ? (
-                <img
-                  key={keptFrame.attachmentId}
-                  src={keptFrame.previewUrl}
-                  alt=""
-                  aria-hidden
-                  data-testid="voice-room-sight-frame"
-                  style={cameraModeStyle()}
-                  className="sight-frame-kept size-11 rounded-lg object-cover ring-2 ring-[var(--camera-accent)]"
-                />
-              ) : null}
-            </div>
-          ) : null}
+              The shutter press is the consent. The camera's view options can
+              stand the kept frame down: what it draws is a convenience, and
+              the transcript is the account. */}
+          <VoiceRoomCaptureRow photos={photos} keptFrame={keptFrame} />
 
           {/* What the shutter offers, above the shutter.
 

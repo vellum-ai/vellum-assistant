@@ -29,6 +29,15 @@ mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
 }));
 
+/**
+ * The companion's dial, which a refusal has to close: with no session running,
+ * `end` is the surface being told that none is coming.
+ */
+const endVoiceActivityMock = mock(() => undefined);
+mock.module("@/runtime/desktop-voice-activity", () => ({
+  endVoiceActivity: endVoiceActivityMock,
+}));
+
 mock.module("@/lib/backwards-compat/utils", () => ({
   ...utils,
   whenAssistantVersionKnownFor,
@@ -57,6 +66,7 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const {
   PENDING_VOICE_START_TTL_MS,
   askVoiceFromSurface,
+  cancelPendingVoiceStart,
   drainPendingVoiceStart,
   requestVoiceStart,
   startVoiceFromSurface,
@@ -186,6 +196,7 @@ beforeEach(() => {
   whenAssistantVersionKnownFor.mockClear();
   preflightLiveVoice.mockClear();
   ensureMainWindowVisibleMock.mockClear();
+  endVoiceActivityMock.mockClear();
   versionResolution = Promise.resolve();
   preflightVerdict = { status: "ready" };
   // These tests are about delivery, not about the first-ever entry: a user who
@@ -461,6 +472,51 @@ describe("a request that will never be served is discarded", () => {
 // Exactly-once
 // ---------------------------------------------------------------------------
 
+/**
+ * The companion's dial, ended: the request behind it is taken back wherever it
+ * has got to, so the preflight it may be in the middle of opens nothing.
+ */
+describe("cancelling a pending start", () => {
+  test("spends a parked request", () => {
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+
+    cancelPendingVoiceStart();
+
+    expect(isParked()).toBe(false);
+  });
+
+  test("stops a drain that is mid-preflight from starting", async () => {
+    identityHydrated();
+    registerStarter();
+    const preflight: { settle: (() => void) | null } = { settle: null };
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          preflight.settle = () => {
+            resolve(preflightVerdict);
+          };
+        }),
+    );
+
+    requestVoiceStart(navigate);
+    await Promise.resolve();
+    cancelPendingVoiceStart();
+    preflight.settle?.();
+    await drainPendingVoiceStart(navigate);
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalledWith(
+      expect.stringContaining("/conversation"),
+      expect.anything(),
+    );
+  });
+
+  test("is a no-op with nothing parked", () => {
+    cancelPendingVoiceStart();
+    expect(isParked()).toBe(false);
+  });
+});
+
 describe("one-shot delivery", () => {
   test("repeat drains after a start are free", async () => {
     identityHydrated();
@@ -697,6 +753,59 @@ describe("entry guards", () => {
     expect(useLiveVoiceStore.getState().configNotice).toBe("Set up a voice.");
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
+  });
+
+  /**
+   * The companion draws a dial from the press until a session answers, and a
+   * refusal is the answer "none is coming". Every refusal says so, so the pill
+   * closes on the decision rather than on a timeout.
+   */
+  test("a refusal tells the companion its dial is over", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
+
+    requestVoiceStart(navigate);
+    await drainPendingVoiceStart(navigate);
+
+    expect(endVoiceActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the first-run card tells the companion its dial is over too", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    requestVoiceStart(navigate);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(endVoiceActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an assistant too old for live voice tells the companion its dial is over", async () => {
+    identityHydrated("0.10.11");
+    registerStarter();
+
+    requestVoiceStart(navigate);
+    await drainPendingVoiceStart(navigate);
+
+    expect(endVoiceActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A start that goes through answers the dial with the session itself, which
+   * the mirror publishes. An `end` here would close the pill under the call.
+   */
+  test("a start that goes through says nothing of the kind", async () => {
+    identityHydrated();
+    registerStarter();
+
+    requestVoiceStart(navigate);
+    await drainPendingVoiceStart(navigate);
+
+    expectStartedOnFreshDraft();
+    expect(endVoiceActivityMock).not.toHaveBeenCalled();
   });
 
   test("a failed preflight starts anyway rather than blocking voice", async () => {

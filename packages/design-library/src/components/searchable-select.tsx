@@ -51,9 +51,18 @@ export interface SearchableSelectOption {
    *
    * It is drawn as a secondary action rather than as a row of the list: a
    * chevron, quieter text, and `aria-expanded`, so nobody reads it as one
-   * more thing they could choose.
+   * more thing they could choose. In a section it sits on the heading, at the
+   * far end from the name, and the arrows reach it there before the section's
+   * rows.
    */
   readonly listAction?: boolean;
+  /**
+   * Whether the section a `listAction` governs is already open, which decides
+   * what it says of itself (`aria-expanded`) and which way its chevron points.
+   * A row that stays after the section opens is a toggle; one the caller drops
+   * is the one-way disclosure it was before.
+   */
+  readonly expanded?: boolean;
   /**
    * A row a `listAction` has just revealed. The first one in a section is
    * drawn under a hairline, so the revealed block reads as an addition to
@@ -242,25 +251,41 @@ export function SearchableSelect({
       byGroup.set(option.group, [option]);
     }
     return {
-      sections: [...byGroup.entries()].map(([group, rows]) => ({
-        group,
-        rows,
-      })),
-      visibleOptions: matches,
+      sections: [...byGroup.entries()].map(([group, rows]) => {
+        // The section's disclosure belongs on its heading. Ungrouped rows have
+        // no heading to carry it, so there it stays a row of the list.
+        const action =
+          group === undefined
+            ? undefined
+            : rows.find((row) => row.listAction);
+        return {
+          group,
+          action,
+          rows: action ? rows.filter((row) => row !== action) : rows,
+        };
+      }),
+      // A row that acts on the list is not one of the list's answers, so it
+      // is left out of the count the same way the pinned rows are: what is
+      // announced is what was found.
+      visibleOptions: matches.filter((option) => !option.listAction),
       stickyOptions: sticky,
     };
   }, [options, trimmedQuery, searching]);
 
-  // What the arrow keys walk, in the order the rows render: sections first,
-  // then the pinned rows. The pinned rows are walkable but they are not
-  // matches, so the announced count is the matches alone: otherwise every
-  // count is one too high, and a query that matched nothing announces the
-  // escape hatch as a result.
+  // What the arrow keys walk, in the order the rows render: each section's
+  // heading action ahead of its own rows, then the pinned rows. The pinned
+  // rows are walkable but they are not matches, so the announced count is the
+  // matches alone: otherwise every count is one too high, and a query that
+  // matched nothing announces the escape hatch as a result.
   const walkableValues = useMemo(
     () =>
-      [...sections.flatMap((section) => section.rows), ...stickyOptions].map(
-        (option) => option.value,
-      ),
+      [
+        ...sections.flatMap((section) => [
+          ...(section.action ? [section.action] : []),
+          ...section.rows,
+        ]),
+        ...stickyOptions,
+      ].map((option) => option.value),
     [sections, stickyOptions],
   );
 
@@ -340,26 +365,81 @@ export function SearchableSelect({
     </p>
   );
 
-  const renderRow = (option: SearchableSelectOption, startsBlock = false) => {
+  // The pinned block sits over the foot of the scrolling rows, so the arrows
+  // leave it the room it takes. Without this the row they scroll to the end
+  // of the list is the one behind it, and the highlight lands out of sight.
+  const clearOfPinned = stickyOptions.length > 0 ? "scroll-mb-11" : undefined;
+
+  /** A `listAction` in the one place it has no heading to sit on. */
+  const renderActionRow = (option: SearchableSelectOption) => (
+    <Combobox.Option
+      key={option.value}
+      value={option.value}
+      aria-expanded={option.expanded ?? false}
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded-md px-3 py-1.5",
+        "text-body-small-default text-[var(--content-tertiary)] transition-colors",
+        "hover:text-[var(--content-secondary)]",
+        "data-[active]:bg-[var(--surface-active)] data-[active]:text-[var(--content-secondary)]",
+        !option.sticky && clearOfPinned,
+      )}
+    >
+      <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="min-w-0 truncate">{option.label}</span>
+    </Combobox.Option>
+  );
+
+  /**
+   * The section's disclosure, on its heading. It says which way it goes
+   * (`aria-expanded`, and a chevron that turns with it) and it is drawn as
+   * part of the heading rather than as a thing on top of one, so the section
+   * is read before the control that acts on it.
+   */
+  const renderSectionAction = (option: SearchableSelectOption) => (
+    <Combobox.Option
+      key={option.value}
+      value={option.value}
+      aria-expanded={option.expanded ?? false}
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5",
+        // The heading's own size, weight and colour, so the control is never
+        // louder than the name it sits beside and stays well under a row.
+        // Letter-spacing comes down from the heading, which sets it once.
+        "text-label-small-default text-[var(--content-tertiary)] transition-colors",
+        // Its padding is taken back out of the line, which does two things:
+        // the heading keeps the height the pinned rows scroll under, and the
+        // control's own text sits on the name's baseline instead of being
+        // centred against it as the taller of two boxes.
+        "-my-0.5",
+        // The far end of the heading is the rows' far end, not the panel's:
+        // the padding that gives the control its hit area is pulled back so
+        // the chevron lands on the edge every row below it ends at.
+        "-mr-1.5",
+        // Quiet at rest and unmistakable under the hand or the roving focus,
+        // which is what keeps it findable at a heading's weight.
+        "hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]",
+        "data-[active]:bg-[var(--surface-active)] data-[active]:text-[var(--content-secondary)]",
+      )}
+    >
+      <span className="min-w-0 truncate">{option.label}</span>
+      <ChevronDown
+        className={cn(
+          // Sized to the heading's type rather than to a row's.
+          "h-2.5 w-2.5 shrink-0 transition-transform",
+          option.expanded && "rotate-180",
+        )}
+        aria-hidden
+      />
+    </Combobox.Option>
+  );
+
+  const renderRow = (
+    option: SearchableSelectOption,
+    startsBlock = false,
+    underHeading = false,
+  ) => {
     if (option.listAction) {
-      return (
-        <Combobox.Option
-          key={option.value}
-          value={option.value}
-          // It expands the section it sits in, and says so: the rows it
-          // reveals are not on screen yet.
-          aria-expanded={false}
-          className={cn(
-            "flex w-full items-center gap-1.5 rounded-md px-3 py-1.5",
-            "text-body-small-default text-[var(--content-tertiary)] transition-colors",
-            "hover:text-[var(--content-secondary)]",
-            "data-[active]:bg-[var(--surface-active)] data-[active]:text-[var(--content-secondary)]",
-          )}
-        >
-          <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
-          <span className="min-w-0 truncate">{option.label}</span>
-        </Combobox.Option>
-      );
+      return renderActionRow(option);
     }
     return (
       <Combobox.Option
@@ -374,7 +454,12 @@ export function SearchableSelect({
           // the same tint for different reasons.
           "data-[active]:bg-[var(--surface-active)]",
           "aria-selected:text-[var(--content-emphasised)]",
+          // A section's heading is pinned over its rows, so the arrows leave
+          // it the room it takes: without this the row scrolled to the top of
+          // the list is the one hidden behind the heading.
+          underHeading && "scroll-mt-7",
           startsBlock && "mt-1 border-t border-[var(--border-subtle)] pt-2",
+          !option.sticky && clearOfPinned,
         )}
       >
         <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -399,11 +484,16 @@ export function SearchableSelect({
    * revealed. Only the first revealed row carries it, and only while the list
    * is being browsed.
    */
-  const renderSectionRows = (rows: readonly SearchableSelectOption[]) => {
+  const renderSectionRows = (
+    rows: readonly SearchableSelectOption[],
+    underHeading = false,
+  ) => {
     const firstDisclosed = searching
       ? -1
       : rows.findIndex((row) => row.disclosed);
-    return rows.map((row, index) => renderRow(row, index === firstDisclosed));
+    return rows.map((row, index) =>
+      renderRow(row, index === firstDisclosed, underHeading),
+    );
   };
 
   return (
@@ -538,9 +628,14 @@ export function SearchableSelect({
                         // wrong. Size, colour and letter-spacing separate a
                         // heading from a row without touching its letters.
                         labelClassName="tracking-wide"
+                        action={
+                          section.action
+                            ? renderSectionAction(section.action)
+                            : undefined
+                        }
                         stickyLabel
                       >
-                        {renderSectionRows(section.rows)}
+                        {renderSectionRows(section.rows, true)}
                       </Combobox.Group>
                     ),
                   )}
