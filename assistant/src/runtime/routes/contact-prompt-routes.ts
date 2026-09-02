@@ -450,6 +450,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       channelType: z.string().optional(),
       address: z.string().optional(),
       verified: z.boolean().optional(),
+      notesSaved: z.boolean().optional(),
       cancelled: z.boolean().optional(),
     }),
   },

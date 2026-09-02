@@ -27,6 +27,7 @@ import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 import {
   ContactRecordNativeError,
   deleteContactCore,
+  notesReachedMirror,
   upsertContactRecordCore,
 } from "./contacts-control-plane-proxy.js";
 import {
@@ -673,7 +674,7 @@ async function bindAddressToItsOwnContact(args: {
     return CHANNEL_RESOLUTION_FAILED;
   }
 
-  return await channelResolution({
+  const outcome = await channelResolution({
     requestId,
     contactId,
     channelId,
@@ -682,6 +683,20 @@ async function bindAddressToItsOwnContact(args: {
     verify: args.verify,
     parkedVerify: args.parkedVerify,
   });
+
+  // The contact and the channel are committed in the gateway DB, but notes
+  // live only in the assistant mirror and upsertContact swallows a failed
+  // mirror write. Reporting success without saying so would claim notes that
+  // are nowhere, so read them back and let the caller say which it got.
+  if (notes === undefined || !("resolution" in outcome)) {
+    return outcome;
+  }
+  return {
+    resolution: {
+      ...outcome.resolution,
+      notesSaved: await notesReachedMirror(contactId, notes),
+    },
+  };
 }
 
 /** The channel bound to a (type, address) pair, if there is one. */

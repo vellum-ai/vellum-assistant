@@ -317,6 +317,49 @@ describe("contacts create --channel", () => {
     expect(addressPromptBody().verify).toBe(true);
   });
 
+  test("notes the mirror never took are reported, and the bind still stands", async () => {
+    promptResult = { ...boundChannel, notesSaved: false };
+
+    const { stdout, stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+      "--address",
+      "alice@example.com",
+    );
+
+    expect(stdout).toContain("Registered email channel: alice@example.com");
+    expect(stderr).toContain(
+      "The contact and channel were saved, but its notes were not",
+    );
+    // The contact and the channel are written, so this is a partial outcome
+    // rather than a failed command.
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  test("saved notes are reported by saying nothing about them", async () => {
+    promptResult = { ...boundChannel, notesSaved: true };
+
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--notes",
+      "Dentist",
+      "--channel",
+      "email",
+    );
+
+    expect(stderr).toBe("");
+    expect(process.exitCode).toBeFalsy();
+  });
+
   test("without --channel the record form is still what opens", async () => {
     await runAssistantCommandFull("contacts", "create", "--name", "Alice");
 

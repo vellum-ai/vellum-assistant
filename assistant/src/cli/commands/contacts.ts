@@ -60,6 +60,11 @@ interface ContactPromptResult {
   contactId?: string;
   /** Whether the channel is attested, as the guardian's checkbox left it. */
   verified?: boolean;
+  /**
+   * Whether submitted notes reached storage. Absent when none were submitted.
+   * False means the contact and its channel were written without them.
+   */
+  notesSaved?: boolean;
   /** The guardian dismissed the form. Nothing was written. */
   cancelled?: boolean;
 }
@@ -352,14 +357,25 @@ async function runAddressPrompt(
   const result = r.result;
   if (shouldOutputJson(cmd)) {
     writeOutput(cmd, result);
-  } else {
-    process.stdout.write(
-      `Registered ${result.channelType} channel: ${result.address}\n` +
-        `  Channel ID: ${result.channelId}\n` +
-        `  Contact ID: ${result.contactId}\n` +
-        // The guardian's checkbox decides this, so report what the
-        // channel is rather than what the flag asked for.
-        `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
+    return;
+  }
+
+  process.stdout.write(
+    `Registered ${result.channelType} channel: ${result.address}\n` +
+      `  Channel ID: ${result.channelId}\n` +
+      `  Contact ID: ${result.contactId}\n` +
+      // The guardian's checkbox decides this, so report what the
+      // channel is rather than what the flag asked for.
+      `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
+  );
+
+  // Notes are stored apart from the contact and the channel, so they can be
+  // the one part that does not land. The bind stands either way, so this is a
+  // partial outcome to report rather than a failed command.
+  if (result.notesSaved === false) {
+    writeError(
+      cmd,
+      "The contact and channel were saved, but its notes were not",
     );
   }
 }

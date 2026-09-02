@@ -159,8 +159,9 @@ to address an invite to. Use 'contacts prompt' to bind an address later, or
 With --channel the record and the channel are one form and one confirmation:
 the guardian confirms the name and the address together, and the contact is
 created with that channel attached. --name is required in that mode, since the
-contact is created under it. Every other flag behaves as it does without
---channel.
+contact is created under it. That form shows --notes but does not let the
+guardian edit them, so they are written as passed; use 'contacts update' to
+change them afterwards.
 
 ${FORM_NOTE}
 
