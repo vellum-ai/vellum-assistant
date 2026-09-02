@@ -555,7 +555,7 @@ describe("AppIconRow", () => {
       // Production is the one flavor the row names no field for, which is only
       // honest while the flavor itself declares the catalog's own green.
       expect(flavorLauncherBackground("production")).toBe(hexFor("green"));
-      expect(APP_ICON_GROUNDS.production).toBe(hexFor("green"));
+      expect(hexFor("green")).toBe(APP_ICON_GROUNDS.production);
       expect(previewFill()).toBe(hexFor("green"));
     });
   });
