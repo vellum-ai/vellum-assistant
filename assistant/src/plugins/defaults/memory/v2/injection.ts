@@ -33,6 +33,7 @@ import {
 import { getEdgeIndex } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { SKILLS_INJECTION_CATALOG_HINT } from "../substrate/skill-content.js";
 import {
   getSkillCapability,
   isSkillSlug,
@@ -875,6 +876,7 @@ export const INJECTION_HEADER =
  *   <body-2>
  *
  *   ### Skills You Can Use
+ *   Injected skills are a retrieved subset, not the full catalog. ...
  *   - <skill-1 content>
  *   - <skill-2 content>
  *
@@ -950,7 +952,9 @@ async function renderInjectionBlock(
     skillLines.push(`- ${entry.content} → use skill_load to activate`);
   }
   if (skillLines.length > 0) {
-    sections.push(`### Skills You Can Use\n${skillLines.join("\n")}`);
+    sections.push(
+      `### Skills You Can Use\n${SKILLS_INJECTION_CATALOG_HINT}\n${skillLines.join("\n")}`,
+    );
   }
 
   const cliCommandLines: string[] = [];

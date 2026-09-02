@@ -190,6 +190,18 @@ describe("parseCardSections / filterPrunedCardSections", () => {
     expect(parsed.sections[1]!.text).toBe(card("page-b"));
   });
 
+  test("skill catalog hint is a non-card piece and leaves the read-affordance preamble intact", () => {
+    const mixed = renderCardsBlockInner([
+      "# Skill: telegram-setup\nSet up Telegram.",
+      card("page-a"),
+    ]);
+    const parsed = parseCardSections(mixed);
+    expect(parsed.preamble).toBe(V3_CARDS_INJECTION_HEADER);
+    expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a"]);
+    expect(parsed.pieces.some((piece) => piece.kind === "other")).toBe(true);
+    expect(mixed).toContain("assistant plugins search <name>");
+  });
+
   test("no pruned slug present → returns the SAME reference (no-op)", () => {
     expect(filterPrunedCardSections(inner, new Set(["page-z"]))).toBe(inner);
     expect(filterPrunedCardSections(inner, new Set())).toBe(inner);

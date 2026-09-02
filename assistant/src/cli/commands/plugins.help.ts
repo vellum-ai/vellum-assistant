@@ -11,7 +11,7 @@ import {
 export const pluginsHelp: CliCommandHelp = {
   name: "plugins",
   description:
-    "Manage external plugins, which bundle apps, channels, MCPs, skills and more from other Vellum users",
+    "Manage external plugins, which bundle apps, channels, MCPs, skills and more from other Vellum users. Search with `assistant plugins search <name>` when asked to set up a product or channel.",
   helpText: `
 Plugins are superpowers: installable extensions that add apps, channels, MCPs,
 skills, tools, integrations, and so much more from other Vellum users. When the

@@ -988,11 +988,13 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
     const headerIdx = result.block!.indexOf("### Skills You Can Use");
+    const hintIdx = result.block!.indexOf("assistant plugins search <name>");
     const skillIdx = result.block!.indexOf(
       '- The "Retrieved Skill" skill (retrieved-skill) is available. Helps with retrieved skills. → use skill_load to activate',
     );
     expect(headerIdx).toBeGreaterThan(-1);
-    expect(skillIdx).toBeGreaterThan(headerIdx);
+    expect(hintIdx).toBeGreaterThan(headerIdx);
+    expect(skillIdx).toBeGreaterThan(hintIdx);
   });
 
   // ---------------------------------------------------------------------------
