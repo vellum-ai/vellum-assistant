@@ -873,27 +873,33 @@ describe("AutoTopUpPaymentMethodModal redirect return", () => {
 });
 
 describe("AutoTopUpPaymentMethodModal modes", () => {
-  test("defaults to add mode and hides the card on file", async () => {
+  test("defaults to add mode and names no card on file", async () => {
     const { getByText, queryByTestId } = await renderModalWithForm();
 
     expect(getByText("Add a card")).not.toBeNull();
+    expect(
+      getByText("Kept on file for auto-reload and your Pro plan."),
+    ).not.toBeNull();
     expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
-  test("replace mode shows the card being replaced", async () => {
-    const { getByText, getByTestId } = await renderModalWithForm({
+  test("replace mode names the card being replaced in the subtitle", async () => {
+    const { getByText, queryByTestId } = await renderModalWithForm({
       mode: "replace",
       cardOnFile: { brand: "visa", last4: "4242", expMonth: 4, expYear: 2042 },
     });
 
     expect(getByText("Replace your card")).not.toBeNull();
     expect(
-      getByTestId("payment-method-modal-card-on-file").textContent,
-    ).toContain("Visa •••• 4242");
+      getByText(
+        "Replacing Visa •••• 4242 · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
   test("ignores a card on file in add mode", async () => {
-    const { queryByTestId } = await renderModalWithForm({
+    const { getByText, queryByTestId } = await renderModalWithForm({
       cardOnFile: {
         brand: "visa",
         last4: "4242",
@@ -902,6 +908,9 @@ describe("AutoTopUpPaymentMethodModal modes", () => {
       },
     });
 
+    expect(
+      getByText("Kept on file for auto-reload and your Pro plan."),
+    ).not.toBeNull();
     expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 /**
- * Presentational chrome for the payment-method modal: header, the card-on-file
- * row, a slot for the payment fields, the state slot (bank confirmation,
- * success panel, or terms), and the footer actions.
+ * Presentational chrome for the payment-method modal: header, a slot for the
+ * payment fields, the state slot (bank confirmation, success panel, or terms),
+ * and the footer actions.
  *
  * It holds no Stripe dependency and no state of its own, so every combination
  * renders from props alone in tests and stories. The owner mounts the Stripe
@@ -41,7 +41,7 @@ export interface PaymentMethodModalShellProps {
   open: boolean;
   mode: PaymentMethodModalMode;
   state: PaymentMethodModalState;
-  /** The card being replaced; rendered only in `replace` mode. */
+  /** The card being replaced; named in the subtitle only in `replace` mode. */
   cardOnFile?: CardOnFile | null;
   /** The card just saved; titles the success panel in the `saved` state. */
   savedCard?: SavedCard | null;
@@ -89,6 +89,11 @@ export function PaymentMethodModalShell({
   // that element renders, so the dialog drops the attribute outright when the
   // header is down to a screen-reader title.
   const describedBy = srOnlyHeader ? { "aria-describedby": undefined } : {};
+  // Once saved, the replaced card is history, so the subtitle drops the card it
+  // was naming rather than reading as though the swap is still pending.
+  const subtitle = isReplace
+    ? replaceSubtitle(t, isSaved ? null : cardOnFile)
+    : t("autoTopUpPaymentMethodModal.addSubtitle");
 
   return (
     <Modal.Root
@@ -122,9 +127,7 @@ export function PaymentMethodModalShell({
                     : t("autoTopUpPaymentMethodModal.addTitle")}
                 </Modal.Title>
                 <Modal.Description className="mt-[5px] text-[13px] leading-normal text-[var(--content-tertiary)]">
-                  {isReplace
-                    ? t("autoTopUpPaymentMethodModal.replaceSubtitle")
-                    : t("autoTopUpPaymentMethodModal.addSubtitle")}
+                  {subtitle}
                 </Modal.Description>
               </>
             )}
@@ -158,10 +161,6 @@ export function PaymentMethodModalShell({
               isSaved ? "pb-[22px]" : "pb-0",
             )}
           >
-            {isReplace && cardOnFile && !isSaved ? (
-              <CardOnFileRow card={cardOnFile} />
-            ) : null}
-
             {isSaved ? null : (
               <div
                 data-testid="payment-method-modal-fields"
@@ -258,42 +257,29 @@ export function PaymentMethodModalShell({
   );
 }
 
-function CardOnFileRow({ card }: { card: CardOnFile }) {
-  const { t } = useTranslation("settings");
-  // An unknown brand leaves the chip blank rather than abbreviating the
-  // generic fallback label into something that reads as a brand.
-  const chip = card.brand ? brandLabel(card.brand).slice(0, 4) : null;
-  const expiry = cardExpiryLabel(t, card.expMonth, card.expYear);
-  const brandText = brandDisplayLabel(t, card.brand);
+/**
+ * Names the card being replaced inside the replace subtitle, falling back to
+ * the card-less copy when Stripe gave us neither a brand nor a last4.
+ */
+function replaceSubtitle(
+  t: TFunction<"settings">,
+  card: CardOnFile | null,
+): string {
+  if (!card || (!card.brand && !card.last4)) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitle");
+  }
+  const brand = brandDisplayLabel(t, card.brand);
   const label = card.last4
     ? t("autoTopUpPaymentMethodModal.cardOnFile", {
-        brand: brandText,
+        brand,
         last4: card.last4,
       })
-    : brandText;
+    : brand;
+  const expiry = cardExpiryLabel(t, card.expMonth, card.expYear);
 
-  return (
-    <div
-      data-testid="payment-method-modal-card-on-file"
-      className="flex items-center gap-[11px] rounded-lg border border-[var(--border-subtle)] px-[13px] py-[11px]"
-    >
-      <span
-        aria-hidden
-        className="flex h-[22px] w-8 shrink-0 items-center justify-center rounded-[5px] border border-[var(--border-disabled)] bg-[var(--surface-active)] text-[8px] font-bold uppercase text-[var(--content-secondary)]"
-      >
-        {chip}
-      </span>
-      <p className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--content-emphasised)]">
-        {label}
-        {expiry ? (
-          <span className="ml-1 text-[var(--content-quiet)]">{expiry}</span>
-        ) : null}
-      </p>
-      <span className="shrink-0 text-[11.5px] text-[var(--content-quiet)]">
-        {t("autoTopUpPaymentMethodModal.cardOnFileNote")}
-      </span>
-    </div>
-  );
+  return t("autoTopUpPaymentMethodModal.replaceSubtitleCard", {
+    card: expiry ? `${label} ${expiry}` : label,
+  });
 }
 
 /** Titles the success panel, and the screen-reader title above it. */

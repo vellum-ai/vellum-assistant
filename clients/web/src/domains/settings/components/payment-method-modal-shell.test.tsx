@@ -43,8 +43,8 @@ describe("PaymentMethodModalShell", () => {
     expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
-  test("replace mode titles the modal and shows the card on file", () => {
-    const { getByText, getByTestId } = renderShell({
+  test("replace mode folds the card being replaced into the subtitle", () => {
+    const { getByText, getByTestId, queryByTestId } = renderShell({
       mode: "replace",
       cardOnFile: VISA_ON_FILE,
     });
@@ -52,54 +52,58 @@ describe("PaymentMethodModalShell", () => {
     expect(getByTestId("auto-top-up-pm-save-button").textContent).toBe(
       "Replace card",
     );
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Visa •••• 4242");
-    expect(row.textContent).toContain("· 04 / 42");
-    expect(row.textContent).toContain("Replaced on save");
-  });
-
-  test("the card on file scrolls with the fields inside the modal body", () => {
-    const { getByTestId } = renderShell({
-      mode: "replace",
-      cardOnFile: VISA_ON_FILE,
-    });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.closest('[data-slot="modal-body"]')).not.toBeNull();
+    expect(
+      getByText(
+        "Replacing Visa •••• 4242 · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
   test("a card on file with no last4 drops the empty dots", () => {
-    const { getByTestId } = renderShell({
+    const { getByText } = renderShell({
       mode: "replace",
       cardOnFile: { ...VISA_ON_FILE, last4: null },
     });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Visa");
-    expect(row.textContent).not.toContain("••••");
+    expect(
+      getByText(
+        "Replacing Visa · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
   });
 
-  test("a card on file with no brand or last4 falls back to the generic label", () => {
-    const { getByTestId } = renderShell({
+  test("a card on file with no brand or last4 falls back to the plain subtitle", () => {
+    const { getByText } = renderShell({
       mode: "replace",
       cardOnFile: { ...VISA_ON_FILE, brand: null, last4: null },
     });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Saved card");
-    expect(row.textContent).not.toContain("••••");
+    expect(getByText("The new card takes over immediately.")).not.toBeNull();
   });
 
   test("omits the expiry when either half is missing", () => {
-    const { getByTestId } = renderShell({
+    const { getByText } = renderShell({
       mode: "replace",
       cardOnFile: { ...VISA_ON_FILE, expMonth: null, expYear: null },
     });
-    const row = getByTestId("payment-method-modal-card-on-file");
-    expect(row.textContent).toContain("Visa •••• 4242");
-    expect(row.textContent).not.toContain("·");
-    expect(row.textContent).not.toContain("null");
+    expect(
+      getByText(
+        "Replacing Visa •••• 4242. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
   });
 
-  test("renders the card on file only in replace mode", () => {
-    const { queryByTestId } = renderShell({ cardOnFile: VISA_ON_FILE });
+  test("a null card on file falls back to the plain subtitle", () => {
+    const { getByText } = renderShell({ mode: "replace", cardOnFile: null });
+    expect(getByText("The new card takes over immediately.")).not.toBeNull();
+  });
+
+  test("add mode ignores a card on file in the subtitle", () => {
+    const { getByText, queryByTestId } = renderShell({
+      cardOnFile: VISA_ON_FILE,
+    });
+    expect(
+      getByText("Kept on file for auto-reload and your Pro plan."),
+    ).not.toBeNull();
     expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
@@ -184,13 +188,13 @@ describe("PaymentMethodModalShell", () => {
   });
 
   test("saved after a replace drops the card it just replaced", () => {
-    const { getByTestId, queryByTestId } = renderShell({
+    const { getByText, getByTestId } = renderShell({
       mode: "replace",
       cardOnFile: VISA_ON_FILE,
       state: "saved",
       savedCard: { brand: "visa", last4: "1881" },
     });
-    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
+    expect(getByText("The new card takes over immediately.")).not.toBeNull();
     expect(getByTestId("payment-method-modal-saved").textContent).toContain(
       "Visa •••• 1881 saved",
     );
