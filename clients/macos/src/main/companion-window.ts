@@ -2,6 +2,7 @@ import {
   BrowserWindow,
   Menu,
   screen,
+  type Display,
   type MenuItemConstructorOptions,
 } from "electron";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import {
   voiceActivityControlSchema,
   voiceActivityStartSchema,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
   companionBoxFor,
@@ -326,6 +328,87 @@ const finishIntro = (): void => {
 let call: VoiceActivityState | null = null;
 
 /**
+ * How long a dial is drawn with no session answering it.
+ *
+ * The window asked to start a session answers every press it decides on, with
+ * a `start` or with an `end`, so this only catches the presses it never gets
+ * to decide: a request parked behind a layout that does not mount, or a window
+ * that went away mid-preflight. Longer than the request itself can live, by a
+ * margin for a preflight that began at the end of that life, so the dial is
+ * never gone while a session can still arrive from it: a pill that closed on a
+ * call still coming would reopen on the call a moment later, which is the one
+ * thing worse than a long dial.
+ */
+export const COMPANION_DIAL_TIMEOUT_MS = VOICE_START_REQUEST_TTL_MS + 5_000;
+
+/**
+ * Whether Talk has been pressed and no session has answered it yet. See
+ * {@link CompanionSurfaceState.dialing}.
+ *
+ * Held here rather than in the surface's renderer for the reason the session
+ * is: the press leaves that renderer at once, and a reload across the wait
+ * would come back to a pill that had forgotten it was dialing.
+ */
+let dialing = false;
+let dialTimer: ReturnType<typeof setTimeout> | null = null;
+
+const disarmDial = (): void => {
+  if (dialTimer !== null) {
+    clearTimeout(dialTimer);
+    dialTimer = null;
+  }
+};
+
+/**
+ * Whether a Talk press starts a dial.
+ *
+ * Not while a session is already on the surface: the window that owns it
+ * spends the press on the call the user is in, so nothing is coming that a
+ * dial could wait for. A session the store holds but the mirror has not yet
+ * pushed dials anyway, and the `start` that follows within the beat ends it.
+ */
+export const dialOnTalk = (current: VoiceActivityState | null): boolean =>
+  current === null;
+
+/**
+ * Whether the surface is the call's rather than the pill.
+ *
+ * From the Talk press, not from the session's first phase: the dial is the
+ * call's own first beat, and a surface that moved and lit only once the
+ * session answered would move a second after the user reached for it.
+ */
+export const callSurfaceFor = (
+  current: VoiceActivityState | null,
+  dial: boolean,
+): boolean => current !== null || dial;
+
+/**
+ * The edge glow drawn around the display while a watch session reads it.
+ *
+ * The session's, not the call's: a call is a microphone, and the creature's
+ * ring already says one is running, where a screen being read is a fact about
+ * the whole screen and is framed like one. Its own window rather than a
+ * bigger canvas: the canvas is sized once for the pill's reach and the glow
+ * wants the whole display, and a click-through sheet the size of a display
+ * with the pill's hit-testing inside it would put the forwarded mouse-move on
+ * every pixel of the screen.
+ */
+const WATCH_GLOW_KIND = "companion-watch-glow";
+const WATCH_GLOW_ROUTE = "/floating/companion-watch-glow";
+
+/**
+ * Where the avatar sat before the call took the surface to the bottom of the
+ * display, or `null` outside a call.
+ *
+ * The call's handlebar defaults to the bottom centre of the screen, the way a
+ * meeting's does, and the user is free to drag it from there; when the call
+ * ends the pill goes back to where it lived. Held in memory only: the
+ * surface's position is never persisted, so there is nothing on disk for a
+ * call to corrupt.
+ */
+let callHome: { x: number; y: number } | null = null;
+
+/**
  * What the app's window last published about the assistant: its name, whether
  * a turn is running, and the sessions it holds.
  *
@@ -358,6 +441,7 @@ const currentState = (): CompanionSurfaceState => {
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    dialing,
     intro,
     assistantName: context.assistantName,
     working: context.working,
@@ -559,10 +643,39 @@ const defaultCanvasOrigin = (): { x: number; y: number } => {
 };
 
 const pushState = (): void => {
-  const win = getFloatingWindow(COMPANION_KIND);
-  if (win) {
-    win.webContents.send("vellum:companion:state", currentState());
+  const state = currentState();
+  // The glow reads the same state the surface does, for the same reason the
+  // surface holds none of it: one push, two windows, no second idea of which
+  // call is running or what colour it is.
+  for (const kind of [COMPANION_KIND, WATCH_GLOW_KIND]) {
+    const win = getFloatingWindow(kind);
+    if (win) {
+      win.webContents.send("vellum:companion:state", state);
+    }
   }
+};
+
+/**
+ * Start or end the dial, and push the surface if that changed anything.
+ *
+ * The bound is armed with the dial and disarmed with it, whichever way it
+ * ends, so a session that answers in a second does not leave a timer behind to
+ * end a later dial early.
+ */
+const setDialing = (next: boolean): void => {
+  disarmDial();
+  if (next) {
+    dialTimer = setTimeout(() => {
+      dialTimer = null;
+      setDialing(false);
+    }, COMPANION_DIAL_TIMEOUT_MS);
+  }
+  if (dialing === next) {
+    return;
+  }
+  dialing = next;
+  syncCallSurface();
+  pushState();
 };
 
 /**
@@ -595,10 +708,16 @@ const refreshGrowth = (): void => {
     return;
   }
   const centre = avatarCentre(win);
-  const { workArea } = screen.getDisplayNearestPoint({
+  const display = screen.getDisplayNearestPoint({
     x: Math.round(centre.x),
     y: Math.round(centre.y),
   });
+  const { workArea } = display;
+  // The light follows the surface from display to display. Before the early
+  // return below, since a drag across displays need not change either growth.
+  if (getFloatingWindow(WATCH_GLOW_KIND) !== null) {
+    placeWatchGlow(display);
+  }
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
@@ -613,6 +732,144 @@ const refreshGrowth = (): void => {
     win.setPosition(placed.origin.x, placed.origin.y);
   }
   pushState();
+};
+
+/**
+ * Put the avatar on a point, clamped into the work area it is measured against.
+ *
+ * The drag, the call's move to the bottom of the display and the move back
+ * all go through here. The card direction is settled before the move, not
+ * after: `setPosition` fires `move`, which runs `refreshGrowth`, which reads
+ * the avatar's position back out of the window using that variable, so it has
+ * to already say which offset the new origin was computed against, or the
+ * refresh measures the avatar somewhere it is not and moves the window a
+ * second time. The renderer cannot see the intervening frame: the push is a
+ * message and the move is immediate.
+ */
+const moveAvatarTo = (
+  win: BrowserWindow,
+  centre: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): void => {
+  const placed = placeCanvas(centre, workArea, geometry);
+  if (placed.cardGrowth !== cardGrowth) {
+    cardGrowth = placed.cardGrowth;
+    pushState();
+  }
+  win.setPosition(placed.origin.x, placed.origin.y);
+};
+
+const displayUnder = (point: { x: number; y: number }): Display =>
+  screen.getDisplayNearestPoint({
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+  });
+
+/**
+ * Light the edge of a display, or move the light to it.
+ *
+ * The whole display rather than its work area, the way a shared screen is
+ * framed: the menu bar draws over the top edge, and a frame that stopped
+ * short of it would read as a window's border rather than the screen's.
+ *
+ * One step below the surface at the same level, so the pill is always drawn
+ * over the light and never under it. Click-through with nothing forwarded:
+ * there is nothing on it to point at.
+ */
+const placeWatchGlow = (display: Display): void => {
+  const { bounds } = display;
+  const existing = getFloatingWindow(WATCH_GLOW_KIND);
+  if (existing !== null) {
+    const current = existing.getBounds();
+    if (
+      current.x !== bounds.x ||
+      current.y !== bounds.y ||
+      current.width !== bounds.width ||
+      current.height !== bounds.height
+    ) {
+      existing.setBounds(bounds);
+    }
+    return;
+  }
+  const win = createFloatingWindow({
+    kind: WATCH_GLOW_KIND,
+    route: WATCH_GLOW_ROUTE,
+    width: bounds.width,
+    height: bounds.height,
+    ignoreMouseEvents: true,
+    position: { x: bounds.x, y: bounds.y },
+    browserWindow: {
+      hasShadow: false,
+      focusable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      backgroundColor: "#00000000",
+    },
+  });
+  win.setAlwaysOnTop(true, "floating", -1);
+};
+
+const closeWatchGlow = (): void => {
+  getFloatingWindow(WATCH_GLOW_KIND)?.close();
+};
+
+/**
+ * Light the display being read, or put the light out, to match what the
+ * app's window last said about the session.
+ *
+ * Idempotent, and run after every change to the context. The display is the
+ * one under the avatar, which is where the user's eye already is for this
+ * surface's state, or under the cursor when the surface is hidden: the light
+ * is the session's rather than the surface's, since a hidden pill is not a
+ * screen that has stopped being read.
+ */
+const syncWatchGlow = (): void => {
+  if (context.watching !== true) {
+    closeWatchGlow();
+    return;
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  placeWatchGlow(
+    displayUnder(
+      win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
+    ),
+  );
+};
+
+/**
+ * Make the surface the call's, or give it back to the pill, to match what
+ * main is holding.
+ *
+ * Idempotent, and run after every change to the session or the dial. Into a
+ * call: remember where the avatar was and take it to the bottom centre of its
+ * display. Out of one: take the avatar home. A surface not on screen has
+ * nothing to move.
+ */
+const syncCallSurface = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (callSurfaceFor(call, dialing)) {
+    if (win === null || callHome !== null) {
+      return;
+    }
+    callHome = avatarCentre(win);
+    const display = displayUnder(callHome);
+    moveAvatarTo(
+      win,
+      defaultAvatarCentre(display.workArea, geometry),
+      display.workArea,
+    );
+    return;
+  }
+  if (callHome === null) {
+    return;
+  }
+  const home = callHome;
+  callHome = null;
+  if (win === null) {
+    return;
+  }
+  moveAvatarTo(win, home, displayUnder(home).workArea);
 };
 
 /**
@@ -661,6 +918,22 @@ export const dispatchWithoutRaising = (command: VellumCommand): void => {
   });
 };
 
+/**
+ * Come forward on the conversation the user was last in.
+ *
+ * `currentConversation` is the command the app already has for exactly this,
+ * so the surface asks for it rather than growing a path of its own, and the
+ * two degrade the same way. The renderer navigates when it has a conversation
+ * to navigate to and does nothing when it does not, which leaves the window
+ * simply coming forward. Shared by the avatar's press on a call and the
+ * surface's menu.
+ */
+const openVellum = (): void => {
+  void ensureMainWindowVisible().then(() => {
+    dispatchToMain({ kind: "currentConversation" });
+  });
+};
+
 let installed = false;
 
 /**
@@ -684,10 +957,21 @@ let installed = false;
 export const companionContextMenuTemplate = (
   current: Record<CompanionSizeAxis, CompanionSize>,
   actions: {
+    open: () => void;
     setSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
     hide: () => void;
   },
 ): MenuItemConstructorOptions[] => [
+  {
+    // The way back to Vellum from an idle surface. A press on the creature
+    // starts a call, so going back to the app is here, first, since it is the
+    // one item a user reaches for that is not about the surface itself.
+    label: "Open Vellum",
+    click: () => {
+      actions.open();
+    },
+  },
+  { type: "separator" as const },
   // The size pickers the tray offers too, from the one builder both read. They
   // leave the top level short enough to read at a glance: two headings, and the
   // one item that is not a size.
@@ -742,23 +1026,7 @@ export const installCompanionWindow = (): void => {
       // one it started on, so a surface dragged onto a second display is
       // clamped to that display's edges instead of being held back at the
       // first one's.
-      const { workArea } = screen.getDisplayNearestPoint({
-        x: Math.round(wanted.x),
-        y: Math.round(wanted.y),
-      });
-      const placed = placeCanvas(wanted, workArea, geometry);
-      // Before the move, not after. `setPosition` fires `move`, which runs
-      // `refreshGrowth`, which reads the avatar's position back out of the
-      // window using this exact variable, so it has to already say which
-      // offset the new origin was computed against, or the refresh measures the
-      // avatar somewhere it is not and moves the window a second time. The
-      // renderer cannot see the intervening frame: the push is a message and
-      // the move is immediate.
-      if (placed.cardGrowth !== cardGrowth) {
-        cardGrowth = placed.cardGrowth;
-        pushState();
-      }
-      win.setPosition(placed.origin.x, placed.origin.y);
+      moveAvatarTo(win, wanted, displayUnder(wanted).workArea);
     },
   );
 
@@ -773,6 +1041,12 @@ export const installCompanionWindow = (): void => {
    * some other app entirely, so "focused" would name the wrong target.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
+    // Drawn before the press is delivered, so the pill answers the hand in
+    // the same beat: the session it asks for opens after a network round trip
+    // in a window the user cannot see.
+    if (dialOnTalk(call)) {
+      setDialing(true);
+    }
     dispatchWithoutRaising({ kind: "startVoice" });
   });
 
@@ -834,6 +1108,7 @@ export const installCompanionWindow = (): void => {
     z.tuple([companionContextSchema]),
     ([next]) => {
       context = next;
+      syncWatchGlow();
       pushState();
     },
   );
@@ -886,6 +1161,7 @@ export const installCompanionWindow = (): void => {
           options: readCompanionSize("options"),
         },
         {
+          open: openVellum,
           setSize: setCompanionSurfaceSize,
           hide: () => {
             setCompanionSurfaceVisible(false);
@@ -896,11 +1172,7 @@ export const installCompanionWindow = (): void => {
     menu.popup({ window: win });
   });
 
-  on("vellum:companion:activate", z.tuple([]), () => {
-    void ensureMainWindowVisible().then(() => {
-      dispatchToMain({ kind: "currentConversation" });
-    });
-  });
+  on("vellum:companion:activate", z.tuple([]), openVellum);
 
   // -------------------------------------------------------------------------
   // The running session
@@ -921,6 +1193,12 @@ export const installCompanionWindow = (): void => {
       // expected traffic; every field it carries is current, so there is
       // nothing on the running call worth preserving against it.
       call = start;
+      // The session is the answer the dial was waiting for. Cleared before the
+      // push rather than through `setDialing`, so the surface sees one state
+      // with the call on it and not a beat of neither.
+      disarmDial();
+      dialing = false;
+      syncCallSurface();
       pushState();
     },
   );
@@ -939,10 +1217,16 @@ export const installCompanionWindow = (): void => {
   );
 
   on("vellum:voiceActivity:end", z.tuple([]), () => {
+    // With no session running this is the window asked for one saying no: a
+    // first-run card to answer, an assistant with no voice, a request spent
+    // some other way. Each has shown the user something else, so the dial ends
+    // and the pill closes.
     if (call === null) {
+      setDialing(false);
       return;
     }
     call = null;
+    syncCallSurface();
     pushState();
   });
 
@@ -959,6 +1243,18 @@ export const installCompanionWindow = (): void => {
     "vellum:voiceActivity:control",
     z.tuple([voiceActivityControlSchema]),
     ([control]) => {
+      // The end control on a dial is the user changing their mind. The pill
+      // closes here rather than waiting for the window asked to answer, and
+      // the request is taken back by a command rather than by this control:
+      // the control is heard only where a session is owned, and a dial can be
+      // ended from a route where nothing owns one yet. The command lands in
+      // the root layout, which is mounted wherever the request was parked.
+      if (control.action === "endSession" && dialing) {
+        setDialing(false);
+        if (currentMainWindow() !== null) {
+          dispatchToMain({ kind: "cancelVoiceStart" });
+        }
+      }
       const surface = getFloatingWindow(COMPANION_KIND);
       for (const win of BrowserWindow.getAllWindows()) {
         if (
@@ -999,17 +1295,23 @@ export const installCompanionWindow = (): void => {
     if (currentMainWindow() !== null) {
       return;
     }
+    // A dial is a claim on that window too: the request it carries is gone
+    // with the renderer that parked it.
     const claiming =
-      context.watching === true || context.dictating !== undefined;
+      context.watching === true || context.dictating !== undefined || dialing;
     if (!claiming) {
       return;
     }
+    disarmDial();
+    dialing = false;
+    syncCallSurface();
     context = {
       ...context,
       watching: false,
       dictating: undefined,
       dictationText: undefined,
     };
+    syncWatchGlow();
     pushState();
   });
 
@@ -1103,6 +1405,15 @@ export const openCompanionWindow = (): void => {
 
   refreshGrowth();
   win.on("move", refreshGrowth);
+  // A home remembered for a window that no longer exists is one the next
+  // window must not be sent to: it opens where every window opens.
+  win.on("closed", () => {
+    callHome = null;
+  });
+  // A surface shown mid-call is the call's from its first frame, and one
+  // shown mid-session has the light beside it rather than under the cursor.
+  syncCallSurface();
+  syncWatchGlow();
 };
 
 const closeCompanionWindow = (): void => {

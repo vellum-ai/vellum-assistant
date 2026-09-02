@@ -25,6 +25,19 @@
  * focused renderer window via `vellum:command` IPC; the renderer routes
  * them through the event bus.
  */
+/**
+ * How long a `startVoice` request stays live once asked for, in the renderer
+ * that parked it.
+ *
+ * The park exists for one race, a request that lands before the layout that
+ * owns sessions mounts, which resolves in seconds or not at all. A bound is
+ * what stops a request bounced by a route guard from opening a session out of
+ * nowhere on some later mount. Here in the contract because the shell reads
+ * it too: the companion draws a dial for the request and has to know how long
+ * one can still turn into a session.
+ */
+export const VOICE_START_REQUEST_TTL_MS = 60_000;
+
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
@@ -72,6 +85,17 @@ export type VellumCommand =
    * running is a no-op, because the running session is the one the user is in.
    */
   | { kind: "startVoice" }
+  /**
+   * Take back a `startVoice` that has been asked for and not yet served, which
+   * is what ending the companion's dial means.
+   *
+   * A command rather than a session control, because there may be no session
+   * to control yet: the request is parked or partway through its preflight,
+   * and the layout that owns sessions may not even be mounted. The root
+   * layout consumes commands for the life of the window, so this one lands
+   * whatever route the app is on. See {@link VOICE_START_REQUEST_TTL_MS}.
+   */
+  | { kind: "cancelVoiceStart" }
   /**
    * Turn a watch session on or off, the way the companion surface's Watch
    * option asks.
@@ -941,8 +965,13 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
  * A ceiling rather than a width, since every other state is as wide as its
  * content. Main sizes the canvas to hold this much beyond the gap, so a state
  * that wanted more would be clipped by the window.
+ *
+ * Generous on purpose. The call row is a handlebar that grows with what it
+ * carries, and the canvas is click-through, so room the pill never uses costs
+ * the desktop nothing where a control clipped off the end costs the user the
+ * control.
  */
-export const COMPANION_BASE_MAX_PILL_WIDTH = 316;
+export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
  * The room between the avatar's edge and the options pill beside it, at the
@@ -1405,6 +1434,21 @@ export interface CompanionSurfaceState {
    * that only shows itself on hover is a live microphone the user cannot see.
    */
   call: VoiceActivityState | null;
+  /**
+   * Whether Talk has been pressed and no session has answered it yet.
+   *
+   * The press leaves the surface at once and the session it asks for opens in
+   * the app's window, behind whatever the user is working in, after a network
+   * round trip. Without this the pill draws nothing across that wait, and a
+   * press that changes nothing on screen reads as a press that did nothing.
+   * Main sets it on the press and clears it when the session's `start`
+   * arrives, when the window asked declines by sending `end` with no session
+   * running, when the user ends the dial from the pill, or after a bound.
+   *
+   * Optional, and absence means not dialing, the bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  dialing?: boolean;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

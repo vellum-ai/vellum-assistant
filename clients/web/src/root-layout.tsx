@@ -19,7 +19,10 @@ import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
+import {
+  cancelPendingVoiceStart,
+  startVoiceFromSurface,
+} from "@/domains/chat/voice/live-voice/start-voice-request";
 import {
   clearWatchRetro,
   useWatchRetroStore,
@@ -334,6 +337,13 @@ export function RootLayout() {
       // See `startVoiceFromSurface` for the three steps and why the window
       // stays where it is.
       startVoiceFromSurface(navigate);
+    },
+    cancelVoiceStart: () => {
+      // The companion's dial, ended. Handled here rather than beside the
+      // session's controls because there may be no session yet and no layout
+      // that owns one: the request is parked, and this layout is the one
+      // mounted on every route it can be parked from.
+      cancelPendingVoiceStart();
     },
     toggleVoice: () => {
       // The global Talk shortcut. Starting is Talk's own behaviour; ending is

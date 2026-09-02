@@ -11,7 +11,7 @@
  *
  * Coverage:
  *  - flag off leaves the provider-first flow exactly as it was,
- *  - one model row per model, annotated with who serves it,
+ *  - one model row per model, and only the model's name on it,
  *  - a single connected route is stated rather than offered,
  *  - several routes become cards, connected ones first and pre-selected,
  *  - an unconnected route blocks Save and expands its own connect form,
@@ -204,20 +204,25 @@ function modelOptionLabels(): string[] {
   ).map(optionLabel);
 }
 
+/** A section's own name, which its heading carries beside its disclosure. */
+function headingName(group: Element): string {
+  return (
+    group.querySelector('[data-slot="combobox-group-name"]')?.textContent ?? ""
+  ).trim();
+}
+
 /** Section headings on the open list, in order. */
 function groupHeadings(): string[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
-  ).map((group) => (group.firstElementChild?.textContent ?? "").trim());
+  ).map(headingName);
 }
 
 /** Row labels inside one section, which is where a label is unambiguous. */
 function sectionRowLabels(heading: string): string[] {
   const section = Array.from(
     document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
-  ).find(
-    (group) => (group.firstElementChild?.textContent ?? "").trim() === heading,
-  );
+  ).find((group) => headingName(group) === heading);
   if (!section) {
     throw new Error(
       `expected a "${heading}" section - saw ${groupHeadings().join(", ")}`,
@@ -226,6 +231,20 @@ function sectionRowLabels(heading: string): string[] {
   return Array.from(
     section.querySelectorAll<HTMLElement>('[role="option"]'),
   ).map(optionLabel);
+}
+
+/** One section's disclosure, which its heading carries. */
+function sectionAction(heading: string): HTMLElement {
+  const section = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
+  ).find((group) => headingName(group) === heading);
+  const action = section
+    ?.querySelector('[data-slot="combobox-group-label"]')
+    ?.querySelector<HTMLElement>('[role="option"]');
+  if (!action) {
+    throw new Error(`expected a disclosure on the "${heading}" heading`);
+  }
+  return action;
 }
 
 /** Type into the model field, which is the list's own search box. */
@@ -275,6 +294,18 @@ function candidateCard(value: string): HTMLElement {
     );
   }
   return card;
+}
+
+/**
+ * The card's own row, which is the label the whole card's dead space belongs
+ * to. Clicking it is what a click beside the name or the tag amounts to.
+ */
+function candidateRow(value: string): HTMLLabelElement {
+  const row = candidateCard(value).firstElementChild;
+  if (!(row instanceof HTMLLabelElement)) {
+    throw new Error(`expected the "${value}" card's row to be a label`);
+  }
+  return row;
 }
 
 function selectedCandidateValue(): string | null {
@@ -417,16 +448,16 @@ describe("the flag", () => {
 });
 
 describe("the model list", () => {
-  test("offers each model once, annotated with who serves it", () => {
+  test("offers each model once, and says nothing else on the row", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
     const rows = modelRows();
     const opus = rows.filter((row) => row.label === "Claude Opus 5");
     expect(opus).toHaveLength(1);
-    expect(opus[0].meta).toBe("3 providers");
+    expect(opus[0].meta).toBe("");
 
     const gemini = rows.find((row) => row.label === "Gemini 3.6 Flash");
-    expect(gemini?.meta).toBe("Google Gemini");
+    expect(gemini?.meta).toBe("");
   });
 
   test("keeps the custom model id escape hatch at the bottom", () => {
@@ -466,23 +497,38 @@ describe("the model list", () => {
     renderCreate([makeConnection("anthropic-personal")]);
     openModelList();
 
-    // Three rows and the unfold row, whatever the section holds behind it.
+    // The disclosure sits on the heading, ahead of the three rows the section
+    // offers, whatever it holds behind it.
     expect(sectionRowLabels("Anthropic")).toEqual([
+      "See more",
       "Claude Fable 5.1",
       "Claude Opus 5",
       "Claude Sonnet 5",
-      "See more",
     ]);
+    expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
 
     clickModelOption("See more");
 
     // The list stays open on the row that was just acted on, and the rest of
-    // the section takes the place of the row that stood in for it.
+    // the section follows the three it already offered.
     expect(sectionRowLabels("Anthropic")).toContain("Claude Haiku 4.5");
     expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 4.8");
-    expect(sectionRowLabels("Anthropic")).not.toContain("See more");
     // Unfolding is not an answer: no model is chosen by it.
     expect(getSaveBtn().disabled).toBe(true);
+
+    // The same control folds the section back up.
+    expect(sectionAction("Anthropic").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    clickModelOption("See less");
+    expect(sectionRowLabels("Anthropic")).toEqual([
+      "See more",
+      "Claude Fable 5.1",
+      "Claude Opus 5",
+      "Claude Sonnet 5",
+    ]);
   });
 
   test("a query reaches a folded model and drops the unfold row", () => {
@@ -524,6 +570,43 @@ describe("the room the dialog keeps for the open list", () => {
     ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_REACH);
   });
 
+  test("opens with the field that fills it focused, against a late focus restore", async () => {
+    // The surface that opens the dialog takes the focus back: a menu closing
+    // over it restores focus to its own trigger on a timer queued before the
+    // dialog mounts, so the restore lands after the dialog's opening focus.
+    // The elsewhere it lands is inside the dialog, which is where the
+    // dialog's own focus trap would send it anyway.
+    const elsewhere = document.createElement("button");
+    const focusTheRestoreTook: Element[] = [];
+    const restore = setTimeout(() => {
+      const held = document.activeElement;
+      if (held) {
+        focusTheRestoreTook.push(held);
+      }
+      fieldStack().closest("div[role='dialog']")?.append(elsewhere);
+      elsewhere.focus();
+    }, 0);
+
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    // The restore does take the field the dialog itself focused, which is the
+    // race the claim below has to win.
+    await waitFor(() => {
+      expect(focusTheRestoreTook).toHaveLength(1);
+    });
+    expect(focusTheRestoreTook[0]).toBe(modelField());
+
+    // The list opens on the field's own focus, so a focused field is what
+    // puts the list in the room above rather than leaving it blank.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(modelField());
+    });
+    expect(modelField().getAttribute("aria-expanded")).toBe("true");
+
+    clearTimeout(restore);
+    elsewhere.remove();
+  });
+
   test("still stands once a model answers the question", () => {
     renderCreate([makeConnection("gemini-key", "gemini")]);
 
@@ -561,6 +644,8 @@ describe("the provider step", () => {
       "Only Google Gemini serves this model.",
     );
     expect(document.querySelectorAll('[role="radio"]')).toHaveLength(0);
+    // A statement, so nothing in it is a hit area either.
+    expect(candidateCard("gemini").querySelector("label")).toBeNull();
 
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
@@ -591,6 +676,20 @@ describe("the provider step", () => {
     expect(candidateCard("vercel-ai-gateway").textContent).toContain(
       "Add API key",
     );
+  });
+
+  test("takes a click anywhere in the card, not only on the name", () => {
+    renderCreate([
+      makeConnection("anthropic-personal"),
+      makeConnection("openrouter-key", "openrouter"),
+    ]);
+
+    selectModel("Claude Opus 5");
+    expect(selectedCandidateValue()).toBe("anthropic");
+
+    fireEvent.click(candidateRow("openrouter"));
+
+    expect(selectedCandidateValue()).toBe("openrouter");
   });
 
   test("switching routes rewrites the model id for the new one", async () => {
@@ -844,5 +943,48 @@ describe("the custom model id path", () => {
 
     expect(modelField()).not.toBeNull();
     expect(getSaveBtn().disabled).toBe(true);
+  });
+});
+
+/** The provider-first flow's dropdown trigger, which the flag hides. */
+function providerFirstTrigger(): HTMLButtonElement {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
+  );
+  if (!trigger) {
+    throw new Error("expected the provider-first Provider dropdown");
+  }
+  return trigger;
+}
+
+describe("the managed route's annotation", () => {
+  test("reads Recommended here, and stays Managed in the provider-first picker", () => {
+    renderCreate([
+      makeConnection("vellum-managed", "vellum"),
+      makeConnection("anthropic-personal"),
+    ]);
+
+    // A custom id is served by every route, which is where the managed route
+    // stands beside another and the annotation is drawn at all.
+    selectModel("Enter a custom model ID…");
+    fireEvent.change(getInputByPlaceholder("provider/model-id"), {
+      target: { value: "someone/new-model" },
+    });
+
+    const vellum = candidateCard("vellum");
+    expect(vellum.textContent).toContain("Recommended");
+    expect(vellum.textContent).not.toContain("Managed");
+
+    // The shared encoding keeps its own word wherever the provider is the
+    // question, so the two flows cannot be quietly unified.
+    cleanup();
+    setModelFirstFlag(false);
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    fireEvent.click(providerFirstTrigger());
+
+    const managed = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => optionLabel(option) === "Vellum");
+    expect(managed?.textContent).toContain("Managed");
   });
 });

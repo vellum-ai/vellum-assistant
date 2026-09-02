@@ -392,10 +392,10 @@
   },
   "chatRouteContent": {
     "askTheDoctor": "詢問 Doctor",
-    "copyCliFix": "複製 CLI 修正",
     "goToDoctor": "前往 Doctor",
     "openPage": "開啟頁面",
-    "suggestionFallback": "建議"
+    "suggestionFallback": "建議",
+    "copyCliFix": "複製 CLI 修正"
   },
   "chatRuleEditorModal": {
     "applyTo": "套用至",
@@ -1756,5 +1756,15 @@
     "reactionAdded": "{name} 用 {emoji} 回應",
     "reactionRemoved": "{name} 移除了 {emoji} 回應",
     "reactionSomeone": "有人"
+  },
+  "restoreManagedCredentialButton": {
+    "restore": "復原存取",
+    "restoring": "正在復原...",
+    "restored": "已復原。由 Vellum 託管的模型重新可用。",
+    "failedNoAssistant": "請選擇一個助理，然後再試一次。",
+    "failedCannotActHere": "此應用程式無法為該助理復原憑證。請在執行該助理的電腦上開啟它。",
+    "failedReplacementRejected": "Vellum 拒絕了新的憑證。請登入 Vellum 平台後再試一次。",
+    "failedUnconfirmed": "新憑證已儲存，但無法向 Vellum 確認。它可能很快就會生效。",
+    "failedGeneric": "無法復原存取。請稍後再試。"
   }
 }

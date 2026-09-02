@@ -47,6 +47,22 @@ interface GlobalPushToTalkBridgeProps {
 const CLEANUP_DEADLINE_MS = 5000;
 
 /**
+ * How long a hold gives the daemon to rewrite a selection before the words go
+ * to the assistant as a question instead.
+ *
+ * Its own bound rather than the cleanup's. A cleanup tidies a sentence and
+ * answers in a second or two whatever was said; a rewrite writes back as much
+ * as it was handed, and a paragraph takes the model as long as a paragraph
+ * takes. Under the cleanup's bound a long selection's edit was dropped at
+ * the deadline and the hold fell through to the ask, which read an answer
+ * aloud when the user had asked for the text in front of them changed. The
+ * user is watching their selection while it runs, so the wait is a wait and
+ * not a hang; what has to hold is that a rewrite asked for is a rewrite
+ * delivered.
+ */
+const REWRITE_DEADLINE_MS = 20_000;
+
+/**
  * The turn a hold made over a selection becomes: the selection, quoted, and
  * then the words. The selection comes first because it is what the words are
  * about, and quoted so the model and the transcript both read it as something
@@ -75,6 +91,7 @@ async function postDictationWithDeadline(
   words: string,
   assistantId: string,
   context: DictationContext,
+  deadlineMs: number = CLEANUP_DEADLINE_MS,
 ): Promise<DictationPostResponse | null> {
   const abort = new AbortController();
   return Promise.race([
@@ -83,7 +100,7 @@ async function postDictationWithDeadline(
       setTimeout(() => {
         abort.abort();
         resolve(null);
-      }, CLEANUP_DEADLINE_MS);
+      }, deadlineMs);
     }),
   ]);
 }
@@ -115,10 +132,15 @@ async function requestSelectionRewrite(
   assistantId: string,
 ): Promise<string | null> {
   const startedAt = Date.now();
-  const result = await postDictationWithDeadline(words, assistantId, {
-    cursorInTextField: true,
-    selectedText: selection.text,
-  });
+  const result = await postDictationWithDeadline(
+    words,
+    assistantId,
+    {
+      cursorInTextField: true,
+      selectedText: selection.text,
+    },
+    REWRITE_DEADLINE_MS,
+  );
   const edited = result?.mode === "command" ? result.text.trim() : "";
   const rewrite = edited && edited !== selection.text.trim() ? edited : null;
   console.info(

@@ -10,6 +10,11 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
+import {
+  clampProviderString,
+  keepFileAsWorkspaceRef,
+} from "../content-block-size.js";
+import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
@@ -429,8 +434,7 @@ export class GeminiProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const activeModel = modelOverride ?? this.model;
     const thinkingConfig = geminiModelSupportsThinking(activeModel)
       ? buildThinkingConfig(
@@ -762,7 +766,7 @@ export class GeminiProvider implements Provider {
     for (const block of blocks) {
       switch (block.type) {
         case "text":
-          parts.push({ text: block.text });
+          parts.push({ text: clampProviderString(block.text) });
           break;
         case "image": {
           const imageSrc = base64Source(block.source);
@@ -775,6 +779,10 @@ export class GeminiProvider implements Provider {
           break;
         }
         case "file": {
+          if (keepFileAsWorkspaceRef(block.source)) {
+            parts.push({ text: fileBlockToProviderText(block) });
+            break;
+          }
           const fileSrc = base64Source(block.source);
           if (this.supportsGeminiInlineFile(fileSrc.media_type)) {
             // Normalize audio MIME onto Gemini's spelling (e.g. audio/mpeg →
@@ -797,10 +805,7 @@ export class GeminiProvider implements Provider {
               });
             }
           } else {
-            const fallback = block.extracted_text?.trim()
-              ? `[Attached file: ${fileSrc.filename} (${fileSrc.media_type})]\n${block.extracted_text}`
-              : `[Attached file: ${fileSrc.filename} (${fileSrc.media_type})]\nNo extracted text available.`;
-            parts.push({ text: fallback });
+            parts.push({ text: fileBlockToProviderText(block) });
           }
           break;
         }

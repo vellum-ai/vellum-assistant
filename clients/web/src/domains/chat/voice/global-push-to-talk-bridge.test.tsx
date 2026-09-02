@@ -1,5 +1,5 @@
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { forwardRef, useImperativeHandle } from "react";
 import { MemoryRouter } from "react-router";
 
@@ -23,6 +23,8 @@ let latestVoiceInputProps: VoiceInputButtonProps | null = null;
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
 let nextDictationResult: { mode: string; text: string } | null = null;
+/** How long the daemon takes to answer, for the cases about the deadline. */
+let nextDictationDelayMs = 0;
 type DictationCall = {
   transcription: string;
   assistantId: string;
@@ -118,6 +120,11 @@ mock.module("@/domains/chat/voice/dictation-api", () => ({
     context: Record<string, unknown>,
   ) => {
     dictationCalls.push({ transcription, assistantId, context });
+    if (nextDictationDelayMs > 0) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, nextDictationDelayMs);
+      });
+    }
     return nextDictationResult;
   },
 }));
@@ -173,6 +180,7 @@ afterEach(() => {
   voiceStartMock.mockReturnValue(true);
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
+  nextDictationDelayMs = 0;
   dictationCalls.length = 0;
   insertedTexts.length = 0;
   askedTexts.length = 0;
@@ -490,6 +498,61 @@ describe("a hold over an editable selection", () => {
     expect(insertedTexts).toEqual(["Could you send the files over?"]);
     expect(askedTexts).toEqual([]);
     expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A rewrite writes back as much as it was handed, so a paragraph's edit
+   * takes longer than the cleanup's bound, and under that bound it was dropped
+   * at the deadline and read aloud as an answer instead. The rewrite waits on
+   * a bound of its own.
+   */
+  test("waits past the cleanup's bound for a paragraph's edit", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = {
+      mode: "command",
+      text: "Could you send the files over?",
+    };
+    nextDictationDelayMs = 8000;
+    const voiceInput = renderBridge("a1");
+    holdOver(passage);
+
+    jest.useFakeTimers();
+    try {
+      const run = voiceInput.onTranscript("make this friendlier");
+      jest.advanceTimersByTime(8000);
+      await act(async () => {
+        await run;
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(insertedTexts).toEqual(["Could you send the files over?"]);
+    expect(askedTexts).toEqual([]);
+  });
+
+  test("gives up on an edit the daemon never finishes and asks instead", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "command", text: "never seen" };
+    nextDictationDelayMs = 60_000;
+    const voiceInput = renderBridge("a1");
+    holdOver(passage);
+
+    jest.useFakeTimers();
+    try {
+      const run = voiceInput.onTranscript("make this friendlier");
+      jest.advanceTimersByTime(20_000);
+      await act(async () => {
+        await run;
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toHaveLength(1);
   });
 
   test("takes a question to the assistant instead", async () => {

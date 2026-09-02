@@ -106,6 +106,7 @@ import {
 } from "@/lib/camera/native-frame-source";
 import { captureError } from "@/lib/sentry/capture-error";
 import { captureNativeVoiceCameraSample } from "@/runtime/native-voice-camera";
+import { haptic } from "@/utils/haptics";
 
 import {
   captureVideoFrame,
@@ -644,6 +645,13 @@ export function useVoiceRoomSight(
               abandonUpload();
               return;
             }
+            // The one beat on this path the user cannot watch for: Live is
+            // held at arm's length, aimed at the scene rather than at the
+            // thumbnail. It fires here, after the send is accepted, because
+            // this is where a frame becomes one the call was given; every
+            // frame a guard refuses reaches `abandonUpload` above and stays
+            // silent.
+            void haptic.light();
             hold({
               attachmentId: uploaded.id,
               previewUrl: URL.createObjectURL(frame),

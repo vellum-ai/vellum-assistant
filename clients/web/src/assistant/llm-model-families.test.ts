@@ -33,7 +33,7 @@ const NEWEST_IN_FAMILY: Record<string, string> = {
   grok: "Grok 4.6",
   "kimi-k": "Kimi K3",
   "minimax-m": "MiniMax M3",
-  glm: "GLM-5.3",
+  glm: "GLM 5.3",
 };
 
 describe("model families", () => {

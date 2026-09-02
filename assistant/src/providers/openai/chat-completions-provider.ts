@@ -7,7 +7,8 @@ import { getLogger } from "../../util/logger.js";
 import { isChatTemplateFailureError } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
-import { escapeXmlAttr } from "../../util/xml.js";
+import { clampProviderString } from "../content-block-size.js";
+import { fileBlockToProviderText } from "../file-block-text.js";
 import {
   base64Source,
   mediaSourceByteLength,
@@ -691,9 +692,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
   private assistantReasoningField:
-    | "reasoning"
-    | "reasoning_content"
-    | undefined;
+    "reasoning" | "reasoning_content" | undefined;
   private coerceObjectArgsToJsonString: boolean;
   private omitToolChoiceWhenReasoning: boolean;
 
@@ -741,15 +740,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
     const logitBias = configObj?.logit_bias as
-      | Record<string, number>
-      | undefined;
+      Record<string, number> | undefined;
     const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const perRequestHeaders = configObj?.requestHeaders as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
 
     // Per-tool keys whose object schemas were rewritten to JSON strings for the
     // wire, to be decoded back on the response. Empty unless
@@ -1580,14 +1576,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
   ): OpenAI.Chat.Completions.ChatCompletionUserMessageParam {
     // If only a single text block, use plain string (simpler, fewer tokens)
     if (blocks.length === 1 && blocks[0].type === "text") {
-      return { role: "user", content: blocks[0].text };
+      return { role: "user", content: clampProviderString(blocks[0].text) };
     }
 
     const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
     for (const block of blocks) {
       switch (block.type) {
         case "text":
-          parts.push({ type: "text", text: block.text });
+          parts.push({ type: "text", text: clampProviderString(block.text) });
           break;
         case "image":
           if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
@@ -1622,7 +1618,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           } else {
             parts.push({
               type: "text",
-              text: this.fileBlockToText(block),
+              text: fileBlockToProviderText(block),
             });
           }
           break;
@@ -1640,17 +1636,5 @@ export class OpenAIChatCompletionsProvider implements Provider {
     }
 
     return { role: "user", content: parts };
-  }
-
-  private fileBlockToText(
-    block: Extract<ContentBlock, { type: "file" }>,
-  ): string {
-    const header = `<attached_file name="${escapeXmlAttr(
-      block.source.filename ?? "",
-    )}" type="${escapeXmlAttr(block.source.media_type)}" />`;
-    if (block.extracted_text && block.extracted_text.trim().length > 0) {
-      return `${header}\n${block.extracted_text}`;
-    }
-    return `${header}\nNo extracted text available.`;
   }
 }

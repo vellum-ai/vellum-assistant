@@ -44,6 +44,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommand["kind"], string> = {
   removePairedAssistant: "",
   quickInputSubmit: "",
   startVoice: "",
+  cancelVoiceStart: "",
   toggleVoice: "",
   toggleWatch: "",
   answerWatchRetro: "",
