@@ -40,11 +40,18 @@ import type { CommandUrlProvenance } from "@/runtime/native-deep-link";
  * `"online"`: `window.online` fired after `navigator.onLine` flipped
  * back to true; surfaced as a resume so consumers that just want
  * "we're probably stale, refresh" can subscribe to a single channel.
- * `"window_attention"`: the Electron main process reported the main
- * window back on screen. It is the desktop renderer's only source for
- * this edge, because Vellum windows disable background throttling and
- * that disables the Page Visibility API with it, so `"visibility"`
- * never fires there.
+ * `"window_attention"`: the Electron main process reported the window this
+ * renderer runs in leaving or returning to the screen. It is the desktop
+ * renderer's only source for this edge, because Vellum windows disable
+ * background throttling and that disables the Page Visibility API with it,
+ * so `"visibility"` never fires there.
+ *
+ * The label is load-bearing on the hidden edge. A desktop window off screen
+ * is not the same fact as a mobile app frozen by the OS or a browser tab
+ * backgrounded: the desktop has no push fallback, so `assistant/sse-service.ts`
+ * keeps the stream through a `"window_attention"` hide and tears down on the
+ * other signals. Every other consumer treats the labels alike, which is what
+ * gives the camera back and drops capture consent on a minimize.
  */
 export type AppResumeSignal =
   | "visibility"
@@ -131,10 +138,14 @@ export interface BusEventMap {
    * attention: on screen, unminimized, and holding keyboard focus. Separate
    * from `app.resume` / `app.hidden`, which report only whether the window is
    * on screen. A window sitting visible behind another app is still showing
-   * the transcript, so the consumers that release the camera hardware and
-   * tear down the SSE stream must not act on a focus change; this edge exists
-   * for the ones that ask whether the user is watching, today the web
-   * presence reporter that suppresses a redundant push.
+   * the transcript, so the consumers that release the camera hardware must not
+   * act on a focus change; this edge exists for the ones that ask whether the
+   * user is watching, today the web presence reporter that suppresses a
+   * redundant push.
+   *
+   * The first payload publishes as well, so a consumer that read attention
+   * before the host reported any is corrected rather than left waiting for
+   * the next real edge.
    *
    * Off Electron this never fires. `document.hasFocus()` is window-level and
    * false for a visible tab in an unfocused browser window, so visibility

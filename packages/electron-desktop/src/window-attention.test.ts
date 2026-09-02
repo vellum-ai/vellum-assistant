@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { WINDOW_ATTENTION } from "@vellumai/ipc-contract";
+
 // `app.on` subscriptions are captured by event name so the test can fire
 // them at will, and `BrowserWindow.getAllWindows` returns a controllable
 // stub list standing in for the live windows, each of which owns both the
@@ -87,7 +89,7 @@ mock.module("electron", () => ({
 
 const { installWindowAttention } = await import("./window-attention");
 
-const CHANNEL = "vellum:window:attention";
+const CHANNEL = WINDOW_ATTENTION;
 
 const ATTENDED = { visible: true, focused: true, minimized: false };
 const UNFOCUSED = { visible: true, focused: false, minimized: false };

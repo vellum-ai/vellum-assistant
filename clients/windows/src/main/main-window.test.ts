@@ -224,7 +224,6 @@ const {
   dispatchToMain,
   ensureVisible,
   installMainWindow,
-  isVisibleAndFocused,
   toggleVisibility,
 } = await import("./main-window");
 
@@ -507,33 +506,41 @@ describe("Windows main window", () => {
     expect(writeTitleBarOverlayThemeMock).not.toHaveBeenCalled();
   });
 
-  test("reports attention only when a live window is visible and focused", () => {
-    // GIVEN no window yet
-    expect(isVisibleAndFocused()).toBe(false);
-
-    void ensureVisible();
-    const win = constructed[0];
-    if (!win) {
+  /**
+   * The visible-and-focused read is module-private, so it is exercised
+   * through the one caller: a toggle hides a window that has the user's
+   * attention and shows one that does not.
+   */
+  test("toggling only hides a live window that is visible and focused", () => {
+    // GIVEN no window yet, a toggle creates one rather than hiding
+    toggleVisibility();
+    const first = constructed[0];
+    if (!first) {
       throw new Error("expected a window");
     }
-    win.emit("ready-to-show");
+    expect(first.hide).not.toHaveBeenCalled();
+    first.emit("ready-to-show");
 
-    // THEN a shown and focused window counts as attended
-    expect(isVisibleAndFocused()).toBe(true);
+    // WHEN the window is on screen but unfocused
+    first.state.focused = false;
+    toggleVisibility();
 
-    win.state.focused = false;
-    expect(isVisibleAndFocused()).toBe(false);
+    // THEN it is brought forward rather than hidden
+    expect(first.hide).not.toHaveBeenCalled();
 
-    win.state.focused = true;
-    win.state.visible = false;
-    expect(isVisibleAndFocused()).toBe(false);
+    // WHEN it is focused but off screen
+    first.state.focused = true;
+    first.state.visible = false;
+    toggleVisibility();
 
-    win.state.visible = true;
-    win.state.destroyed = true;
-    expect(isVisibleAndFocused()).toBe(false);
+    expect(first.hide).not.toHaveBeenCalled();
+    expect(first.state.visible).toBe(true);
 
-    win.emit("closed");
-    expect(isVisibleAndFocused()).toBe(false);
+    // WHEN the window has been destroyed
+    first.state.destroyed = true;
+    toggleVisibility();
+
+    expect(first.hide).not.toHaveBeenCalled();
   });
 
   test("toggles a visible focused window to hidden and back", () => {

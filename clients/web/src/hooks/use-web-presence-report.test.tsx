@@ -9,8 +9,10 @@
  * the idle threshold.
  *
  * The Electron renderer reports through the same hook but reads window state
- * from the main process instead of the DOM, so `isWindowAttended` is stubbed
- * for those cases.
+ * from the main process instead of the DOM, so the shared `isVisibleToUser`
+ * predicate is stubbed with the same branch it makes. The predicate itself is
+ * covered against a real bridge and a real DOM in
+ * `runtime/window-attention.test.ts`.
  *
  * `window.setInterval`/`clearInterval` are stubbed with an armed-timer
  * capture (bun's test runner has no fake timers), matching the pattern in
@@ -113,8 +115,9 @@ mock.module("@/runtime/is-electron", () => ({
 }));
 
 let windowAttended = true;
-mock.module("@/runtime/event-sources/electron-window-attention", () => ({
-  isWindowAttended: () => windowAttended,
+mock.module("@/runtime/window-attention", () => ({
+  isVisibleToUser: () =>
+    electron ? windowAttended : document.visibilityState === "visible",
 }));
 
 const postCalls: Array<{
@@ -850,9 +853,9 @@ describe("useWebPresenceReport: Electron renderer", () => {
     });
   });
 
-  // The edge fires when the window comes on screen, which a window restored
-  // behind another app also satisfies. Reporting visible there would suppress
-  // a push nobody is looking at.
+  // The desktop publishes no lifecycle edge of its own, so one arriving here
+  // came from the DOM source, which cannot see where a Vellum window is.
+  // Trusting it would report a window nobody is looking at as visible.
   test("a foreground edge on an unfocused window reports invisible", async () => {
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     await flushPresence();
@@ -860,7 +863,7 @@ describe("useWebPresenceReport: Electron renderer", () => {
     windowAttended = false;
 
     act(() => {
-      publish("app.resume", { signal: "window_attention" });
+      publish("app.resume", { signal: "visibility" });
     });
 
     await flushPresence();
@@ -878,7 +881,7 @@ describe("useWebPresenceReport: Electron renderer", () => {
     windowAttended = true;
 
     act(() => {
-      publish("app.resume", { signal: "window_attention" });
+      publish("app.resume", { signal: "visibility" });
     });
 
     await flushPresence();
@@ -895,7 +898,7 @@ describe("useWebPresenceReport: Electron renderer", () => {
     windowAttended = false;
 
     act(() => {
-      publish("app.hidden", { signal: "window_attention" });
+      publish("app.hidden", { signal: "visibility" });
     });
 
     await flushPresence();
@@ -972,5 +975,300 @@ describe("useWebPresenceReport: Electron renderer", () => {
 
     await flushPresence();
     expect(postCalls).toHaveLength(0);
+  });
+
+  // A locked screen leaves the window visible, focused and unminimized, and
+  // the idle clock does not expire for ten minutes, so nothing else says the
+  // user walked away from the machine.
+  test("a screen lock reports invisible at once", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+
+    act(() => {
+      publish("power.lock", {});
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("a system suspend reports invisible at once", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+
+    act(() => {
+      publish("power.suspend", {});
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("an unlock reports the window's own state again", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+
+    act(() => {
+      publish("power.lock", {});
+    });
+    await flushPresence();
+    postCalls.length = 0;
+
+    act(() => {
+      publish("power.unlock", {});
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("a power resume onto an unattended window stays invisible", async () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
+    postCalls.length = 0;
+    windowAttended = false;
+
+    act(() => {
+      publish("power.resume", {});
+    });
+
+    await flushPresence();
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  // The window keeps reporting visible, focused and unminimized from behind
+  // the lock screen, so every writer has to consult the latch instead. Without
+  // it the lock buys one report and the next tick hands suppression back.
+  describe("locked screen", () => {
+    test("a tick after a lock reports nothing", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    test("a tick after a suspend reports nothing", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    // Waking is not unlocking: the machine wakes to its lock screen.
+    test("a power resume behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("power.resume", {});
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // `app.attention` answers from the edge payload rather than from the
+    // presence read, so the latch has to reach it too.
+    test("an attention edge behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("app.attention", { attended: true });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // So does `app.resume`, which answers from the window signal.
+    test("a foreground edge behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("app.resume", { signal: "visibility" });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // A fresh SSE open proves the transport, never where the user is.
+    test("an SSE reopen behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("sse.opened", { assistantId: "assistant-1", cause: "error" });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // Electron only emits `unlock-screen` on macOS and Windows, so a suspend
+    // that latched against the unlock edge would strand a Linux desktop away
+    // for the life of the renderer and push every reply to the phone.
+    test("a wake from suspend lets reconciliation report visible again", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      act(() => {
+        publish("power.resume", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // A machine that slept behind its lock screen wakes back to it, so the
+    // wake clears only the half it answers.
+    test("a wake from a suspend taken behind a lock stays away", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      act(() => {
+        publish("power.resume", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    // The user typing their password is the one signal that settles both.
+    test("an unlock after a suspend with no wake reports visible again", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("power.unlock", {});
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    test("an unlock lets reconciliation report visible again", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      act(() => {
+        publish("power.unlock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
   });
 });

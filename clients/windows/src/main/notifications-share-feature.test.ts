@@ -50,7 +50,6 @@ mock.module("./logger", () => ({
   default: { info: () => undefined, warn: () => undefined },
 }));
 mock.module("./main-window", () => ({
-  current: () => null,
   ensureVisible: () => Promise.resolve(),
 }));
 // The shared module imports `electron.Notification`, which does not exist
@@ -101,8 +100,9 @@ mock.module("@vellumai/native-sidecar/supervisor", () => ({
   NativeSidecarClient: FakeSidecarClient,
 }));
 
-const { createHelperToastFactory, default: notificationsFeature } =
-  await import("./features/notifications");
+const { createHelperToastFactory } = await import("./features/notifications");
+const { default: windowAttentionFeature } =
+  await import("./features/window-attention");
 const { default: shareFeature, sanitizeFilename } =
   await import("./features/share");
 const { DesktopCapabilityRegistry } =
@@ -118,9 +118,9 @@ beforeEach(() => {
   teardownWindowAttention.mockClear();
 });
 
-describe("notifications feature", () => {
+describe("window attention feature", () => {
   test("installs the window-attention publisher and tears it down on quit", () => {
-    notificationsFeature.install(new DesktopCapabilityRegistry());
+    windowAttentionFeature.install(new DesktopCapabilityRegistry());
 
     expect(windowAttentionInstalls.count).toBe(1);
     expect(teardownWindowAttention).not.toHaveBeenCalled();
