@@ -1,13 +1,7 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
-import { EventEmitter } from "node:events";
 
 import type { CliInvocation } from "../util";
-
-class FakeChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
-  kill = mock(() => true);
-}
+import { FakeChild, mockChildProcessSpawn } from "./helpers/child-process-mock";
 
 let lastChild: FakeChild;
 const spawnArgs: Array<
@@ -25,14 +19,7 @@ const spawnMock = mock(
   },
 );
 
-const realChildProcess = await import("node:child_process");
-
-// Spreading the real module keeps its other exports resolvable: a factory
-// returning only `spawn` strips them for the rest of the test process.
-mock.module("node:child_process", () => ({
-  ...realChildProcess,
-  spawn: spawnMock,
-}));
+await mockChildProcessSpawn(spawnMock);
 
 let runUpgrade: typeof import("../upgrade").runUpgrade;
 let isValidReleaseVersion: typeof import("../upgrade").isValidReleaseVersion;
