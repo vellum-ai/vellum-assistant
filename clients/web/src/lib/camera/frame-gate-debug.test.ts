@@ -274,6 +274,31 @@ describe("frame gate live options", () => {
     expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(0);
   });
 
+  test("a crossed interval pair reaches the gate ordered", () => {
+    // The gate reads the floor before the heartbeat, so a floor above the
+    // ceiling would leave the ceiling unreachable whatever the readout draws.
+    syncFrameGateDebugOptions(
+      true,
+      overridesWith({ minIntervalMs: 20_000, maxIntervalMs: 4_000 }),
+    );
+
+    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBeLessThanOrEqual(
+      FRAME_GATE_LIVE_OPTIONS.maxIntervalMs,
+    );
+    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(20_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(20_000);
+  });
+
+  test("an ordered interval pair reaches the gate untouched", () => {
+    syncFrameGateDebugOptions(
+      true,
+      overridesWith({ minIntervalMs: 2_000, maxIntervalMs: 45_000 }),
+    );
+
+    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(2_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(45_000);
+  });
+
   test("turning the readout off gives every held thumbnail back", () => {
     syncFrameGateDebugOptions(true, defaultFrameGateOverrides());
     recordFrameGateKeep("composer", jpeg());

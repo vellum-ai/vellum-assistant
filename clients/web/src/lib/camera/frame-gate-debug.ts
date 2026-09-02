@@ -466,11 +466,10 @@ export function isFrameGateDebugEnabled(): boolean {
  * A threshold both the gate and the readout can hold: inside its slider's
  * range, and the shipped default for anything unparseable.
  *
- * Exported so a restored payload and a moved slider land on the same number
- * the gate applies. A readout drawing a value the gate is not using describes
- * a session that does not exist.
+ * The per-key half of {@link normalizeFrameGateOverrides}, which is the seam
+ * every value passes through on its way in.
  */
-export function clampFrameGateOverride(
+function clampFrameGateOverride(
   key: FrameGateOverrideKey,
   value: number,
 ): number {
@@ -479,6 +478,56 @@ export function clampFrameGateOverride(
     return DEFAULT_FRAME_GATE_OPTIONS[key];
   }
   return Math.min(bound.max, Math.max(bound.min, value));
+}
+
+/**
+ * A complete set every threshold of which the gate can honor: each value
+ * inside its own slider's range, and the interval pair the right way round.
+ *
+ * The one seam a value passes through on its way into the store or the gate,
+ * so a restored payload and a moved slider land on the same numbers the gate
+ * applies. A readout drawing a value the gate is not using describes a session
+ * that does not exist.
+ *
+ * The two intervals are one setting in two halves, not two settings. `offer`
+ * reads the floor before the heartbeat, so a floor above the ceiling makes the
+ * ceiling unreachable: the readout would draw a maximum no frame can ever be
+ * judged against, which is the kind of session that teaches the reader
+ * something untrue about the gate.
+ *
+ * `moved` names the threshold a writer just set, and the other half yields to
+ * it, which is how a pair of coupled sliders behaves: pushing the floor up
+ * carries the ceiling with it, pulling the ceiling down carries the floor.
+ * Where nothing was moved, as when a stored payload is restored, the ceiling
+ * rises to meet the floor.
+ *
+ * Ordering survives the clamp that follows it because the ceiling's range
+ * covers the floor's: any floor value is reachable by the ceiling, and any
+ * ceiling value at or above the floor's own minimum is reachable by the floor.
+ */
+export function normalizeFrameGateOverrides(
+  overrides: FrameGateOverrides,
+  moved?: FrameGateOverrideKey,
+): FrameGateOverrides {
+  const next = {} as FrameGateOverrides;
+  for (const key of FRAME_GATE_OVERRIDE_KEYS) {
+    next[key] = clampFrameGateOverride(key, overrides[key]);
+  }
+  if (next.minIntervalMs <= next.maxIntervalMs) {
+    return next;
+  }
+  if (moved === "maxIntervalMs") {
+    next.minIntervalMs = clampFrameGateOverride(
+      "minIntervalMs",
+      next.maxIntervalMs,
+    );
+    return next;
+  }
+  next.maxIntervalMs = clampFrameGateOverride(
+    "maxIntervalMs",
+    next.minIntervalMs,
+  );
+  return next;
 }
 
 function discardCollected(): void {
@@ -513,9 +562,11 @@ function discardCollected(): void {
  * not reach the readout hands `false` here however that switch was left. See
  * `frame-gate-debug-access.ts`, which computes it.
  *
- * Values outside their slider's range, and values a stale persisted payload
- * left as junk, fall back to the shipped default rather than reaching the
- * gate.
+ * Values outside their slider's range, values a stale persisted payload left
+ * as junk, and an interval pair the wrong way round are all put right by
+ * {@link normalizeFrameGateOverrides} rather than reaching the gate. The store
+ * holds an already-normalized set, so this pass is the identity on anything it
+ * sends and the two cannot describe different thresholds.
  */
 export function syncFrameGateDebugOptions(
   next: boolean,
@@ -525,8 +576,9 @@ export function syncFrameGateDebugOptions(
   enabled = next;
   Object.assign(liveOptions, DEFAULT_FRAME_GATE_OPTIONS);
   if (next) {
+    const applied = normalizeFrameGateOverrides(overrides);
     for (const key of FRAME_GATE_OVERRIDE_KEYS) {
-      liveOptions[key] = clampFrameGateOverride(key, overrides[key]);
+      liveOptions[key] = applied[key];
     }
   }
   if (wasEnabled && !next) {

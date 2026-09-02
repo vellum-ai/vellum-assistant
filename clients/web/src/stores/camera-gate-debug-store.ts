@@ -13,9 +13,9 @@
  *   the key captured into a support export, so a report filed from a session
  *   with a moved threshold says so (see `lib/feature-flags/debug-flag-snapshot.ts`).
  * - A persisted payload is never trusted. Every restored value is clamped to
- *   its slider's range on the way in, and anything missing or unparseable
- *   falls back to the shipped default, so what the sliders draw is what the
- *   gate is judging against.
+ *   its slider's range on the way in, the interval pair is put back the right
+ *   way round, and anything missing or unparseable falls back to the shipped
+ *   default, so what the sliders draw is what the gate is judging against.
  *
  * **What every write does.** A write moves this slice and nothing else. The
  * gate's live options record is owned by `lib/camera/frame-gate-debug.ts` and
@@ -34,8 +34,8 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import {
-  clampFrameGateOverride,
   defaultFrameGateOverrides,
+  normalizeFrameGateOverrides,
   syncFrameGateDebugOptions,
   type FrameGateOverrideKey,
   type FrameGateOverrides,
@@ -59,7 +59,13 @@ export interface CameraGateDebugState {
 
 export interface CameraGateDebugActions {
   setHudEnabled: (next: boolean) => void;
-  /** Move one threshold. Takes effect on the next frame the gate judges. */
+  /**
+   * Move one threshold. Takes effect on the next frame the gate judges.
+   *
+   * The two intervals are coupled: moving one past the other carries the other
+   * with it, so both sliders visibly move and the pair stays one the gate can
+   * honor.
+   */
   setOverride: (key: FrameGateOverrideKey, value: number) => void;
   /** Put every threshold back to the value the gate ships with. */
   resetOverrides: () => void;
@@ -81,9 +87,11 @@ const INITIAL_STATE: CameraGateDebugState = {
  * A complete override set built from whatever was stored, so a payload written
  * before a threshold existed still produces a slider with a value on it.
  *
- * Restored values go through the same clamp the gate's writer applies, which
- * is what keeps a slider, its meter's tick, and the number the gate judges
- * against in agreement after bounds tighten or localStorage is hand-edited.
+ * Restored values go through the same normalization the gate's writer applies,
+ * which is what keeps a slider, its meter's tick, and the number the gate
+ * judges against in agreement after bounds tighten or localStorage is
+ * hand-edited. A stored interval pair the wrong way round comes back with the
+ * ceiling raised to the floor.
  */
 function completeOverrides(saved: unknown): FrameGateOverrides {
   const base = defaultFrameGateOverrides();
@@ -94,10 +102,10 @@ function completeOverrides(saved: unknown): FrameGateOverrides {
   for (const key of Object.keys(base) as FrameGateOverrideKey[]) {
     const value = partial[key];
     if (typeof value === "number") {
-      base[key] = clampFrameGateOverride(key, value);
+      base[key] = value;
     }
   }
-  return base;
+  return normalizeFrameGateOverrides(base);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,10 +125,10 @@ const useCameraGateDebugStoreBase = create<CameraGateDebugStore>()(
 
       setOverride: (key: FrameGateOverrideKey, value: number) => {
         set({
-          overrides: {
-            ...get().overrides,
-            [key]: clampFrameGateOverride(key, value),
-          },
+          overrides: normalizeFrameGateOverrides(
+            { ...get().overrides, [key]: value },
+            key,
+          ),
         });
       },
 

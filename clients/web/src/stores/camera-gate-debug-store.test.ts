@@ -205,6 +205,84 @@ describe("camera gate debug store", () => {
     );
   });
 
+  test("raising the floor past the ceiling carries the ceiling up with it", () => {
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("maxIntervalMs", 10_000);
+
+    store.setOverride("minIntervalMs", 20_000);
+
+    const { overrides } = useCameraGateDebugStore.getState();
+    expect(overrides.minIntervalMs).toBe(20_000);
+    expect(overrides.maxIntervalMs).toBe(20_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(20_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(20_000);
+  });
+
+  test("dropping the ceiling below the floor carries the floor down with it", () => {
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("minIntervalMs", 12_000);
+
+    store.setOverride("maxIntervalMs", 3_000);
+
+    const { overrides } = useCameraGateDebugStore.getState();
+    expect(overrides.minIntervalMs).toBe(3_000);
+    expect(overrides.maxIntervalMs).toBe(3_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(3_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(3_000);
+  });
+
+  test("an interval write that keeps the pair ordered moves only what was set", () => {
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+
+    store.setOverride("minIntervalMs", 1_000);
+
+    const { overrides } = useCameraGateDebugStore.getState();
+    expect(overrides.minIntervalMs).toBe(1_000);
+    expect(overrides.maxIntervalMs).toBe(
+      DEFAULT_FRAME_GATE_OPTIONS.maxIntervalMs,
+    );
+  });
+
+  test("a restored pair the wrong way round raises the ceiling to the floor", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          hudEnabled: true,
+          overrides: {
+            ...defaultFrameGateOverrides(),
+            minIntervalMs: 25_000,
+            maxIntervalMs: 2_000,
+          },
+        },
+        version: 0,
+      }),
+    );
+
+    await useCameraGateDebugStore.persist.rehydrate();
+
+    const { overrides } = useCameraGateDebugStore.getState();
+    expect(overrides.minIntervalMs).toBe(25_000);
+    expect(overrides.maxIntervalMs).toBe(25_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(25_000);
+  });
+
+  test("the shipped defaults are already ordered, so nothing moves them", () => {
+    expect(DEFAULT_FRAME_GATE_OPTIONS.minIntervalMs).toBeLessThanOrEqual(
+      DEFAULT_FRAME_GATE_OPTIONS.maxIntervalMs,
+    );
+    expect(defaultFrameGateOverrides()).toEqual({
+      noveltyThreshold: DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
+      settleThreshold: DEFAULT_FRAME_GATE_OPTIONS.settleThreshold,
+      minDetail: DEFAULT_FRAME_GATE_OPTIONS.minDetail,
+      minIntervalMs: DEFAULT_FRAME_GATE_OPTIONS.minIntervalMs,
+      maxIntervalMs: DEFAULT_FRAME_GATE_OPTIONS.maxIntervalMs,
+    });
+  });
+
   test("reset puts every slider and the gate back to the defaults", () => {
     const store = useCameraGateDebugStore.getState();
     store.setHudEnabled(true);
