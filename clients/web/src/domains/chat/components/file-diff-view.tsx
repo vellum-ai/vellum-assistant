@@ -24,12 +24,12 @@ function isDiffRow(row: DiffRow): row is DiffRow & SharedDiffRow {
 }
 
 /**
- * Unified file-diff renderer for ACP run tool calls. Pure: it derives its rows
+ * Unified file-diff renderer for a before/after pair. Pure: it derives its rows
  * from `computeLineDiff` and delegates row presentation to the shared
  * {@link DiffRows}.
  *
- * Body-only: navigation (Back + breadcrumb) lives in the chat view's shared
- * header.
+ * Body-only: it renders no header, so a caller frames it however its surface
+ * does.
  */
 export function FileDiffView({ path, oldText, newText }: FileDiffViewProps) {
   const { t } = useTranslation("chat");
@@ -39,7 +39,7 @@ export function FileDiffView({ path, oldText, newText }: FileDiffViewProps) {
   return (
     <div
       aria-label={t("fileDiffView.diffForAria", { path })}
-      data-testid="acp-chat-file-diff"
+      data-testid="file-diff"
       className="flex flex-col overflow-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]"
     >
       {tooLarge ? (

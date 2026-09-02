@@ -1579,6 +1579,7 @@
     "emptyOutput": "该工具没有返回任何输出。",
     "input": "输入",
     "output": "输出",
+    "requestedChanges": "请求的更改",
     "running": "正在运行…"
   },
   "toolStepPill": {

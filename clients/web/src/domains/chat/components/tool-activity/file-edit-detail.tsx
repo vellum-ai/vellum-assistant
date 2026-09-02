@@ -3,16 +3,16 @@
  * renders as one rather than as two JSON string literals with their newlines
  * escaped.
  *
- * The diff itself is `FileDiffView`, which ACP runs already use and which
- * soft-wraps rather than scrolling, the thing that makes a diff legible in a
- * 400px drawer. It lives under `acp-run-chat-view/` and now has a second
- * consumer, so it wants lifting to a shared home.
+ * The diff describes what the call asked for. Only a call that succeeded had
+ * that applied, so a failed, denied or still-running one labels the section as
+ * the requested change instead: a denied edit under a plain "Changes" heading
+ * reads as an edit that happened.
  */
 
 import { Typography } from "@vellumai/design-library";
 
 import { SectionLabel } from "@/components/detail-primitives";
-import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
+import { FileDiffView } from "@/domains/chat/components/file-diff-view";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
@@ -20,14 +20,24 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-export function FileEditDetail({ detail }: ToolActivityRendererProps) {
+export function FileEditDetail({
+  detail,
+  isRunning,
+  isError,
+  isDenied,
+}: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
   const path = str(detail.input.path);
+  const applied = !isRunning && !isError && !isDenied;
 
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <SectionLabel>{t("toolDetailPanel.changes")}</SectionLabel>
+        <SectionLabel>
+          {applied
+            ? t("toolDetailPanel.changes")
+            : t("toolDetailPanel.requestedChanges")}
+        </SectionLabel>
         {path && (
           <Typography
             variant="body-small-lighter"

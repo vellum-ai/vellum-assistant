@@ -1652,6 +1652,7 @@
     "emptyOutput": "The tool returned no output.",
     "input": "Input",
     "output": "Output",
+    "requestedChanges": "Requested changes",
     "running": "Running…"
   },
   "toolStepPill": {

@@ -350,6 +350,56 @@ describe("ToolDetailPanel", () => {
     expect(getByText("Running…")).toBeDefined();
   });
 
+  test("labels a denied edit as requested, not applied", () => {
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_edit",
+          input: { path: "a.ts", old_string: "one", new_string: "two" },
+          result: undefined,
+          status: "denied",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // The diff describes what was asked for; only a call that succeeded had it
+    // applied, so a denied one must not read as a change that happened.
+    expect(getByText("Requested changes")).toBeDefined();
+    expect(queryByText("Changes")).toBeNull();
+  });
+
+  test("labels a successful edit as applied", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_edit",
+          input: { path: "a.ts", old_string: "one", new_string: "two" },
+          result: "Applied 1 edit",
+          status: "completed",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Changes")).toBeDefined();
+  });
+
+  test("reads a bash command stored under the legacy cmd key", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "bash",
+          input: { cmd: "git status --short" },
+          result: "clean",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("git status --short")).toBeDefined();
+  });
+
   test("clicking close fires onClose", () => {
     const onClose = mock(() => {});
     const { getByLabelText } = render(

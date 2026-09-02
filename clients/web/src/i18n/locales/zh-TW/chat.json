@@ -1579,6 +1579,7 @@
     "emptyOutput": "該工具沒有回傳任何輸出。",
     "input": "輸入",
     "output": "輸出",
+    "requestedChanges": "要求的變更",
     "running": "正在執行…"
   },
   "toolStepPill": {

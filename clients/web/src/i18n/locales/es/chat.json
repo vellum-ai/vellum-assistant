@@ -1601,6 +1601,7 @@
     "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "input": "Entrada",
     "output": "Salida",
+    "requestedChanges": "Cambios solicitados",
     "running": "Ejecutando…"
   },
   "toolStepPill": {

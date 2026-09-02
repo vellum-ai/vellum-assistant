@@ -22,8 +22,15 @@ export function BashDetail({
   isDenied,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
+  // `cmd` is the legacy spelling, and both `extractInputSummary` and
+  // `deriveStepLabelFromName` still fall back to it, so a persisted call using
+  // it stays readable here rather than showing a blank command.
   const command =
-    typeof detail.input.command === "string" ? detail.input.command : "";
+    typeof detail.input.command === "string"
+      ? detail.input.command
+      : typeof detail.input.cmd === "string"
+        ? detail.input.cmd
+        : "";
   const body =
     typeof result === "string" && result !== ""
       ? result

@@ -1,5 +1,5 @@
 /**
- * Dependency-free line-level diff for the ACP file-diff view.
+ * Dependency-free line-level diff behind {@link FileDiffView}.
  *
  * Splits both sides on `\n` and runs an LCS to classify each line as added,
  * removed, or unchanged context. Pure — no third-party deps, no I/O.
