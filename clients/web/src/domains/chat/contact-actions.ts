@@ -238,7 +238,7 @@ export async function handleContactRecordSubmit(values: {
     return;
   }
 
-  const { operation, contactId } = pendingContactRecordRequest;
+  const { operation, contactId, donorContactId } = pendingContactRecordRequest;
 
   try {
     const result = await submitContactRecord(
@@ -252,12 +252,22 @@ export async function handleContactRecordSubmit(values: {
             // one since is refused rather than cascaded away unseen.
             expectedChannels: pendingContactRecordRequest.channels,
           }
-        : {
-            operation,
-            contactId,
-            displayName: values.displayName,
-            notes: values.notes,
-          },
+        : operation === "merge"
+          ? {
+              // No `expectedChannels`: a merge reparents the donor's channels
+              // onto the survivor rather than destroying them. Notes are
+              // combined by the store, so only the surviving name is sent.
+              operation,
+              contactId,
+              donorContactId,
+              displayName: values.displayName,
+            }
+          : {
+              operation,
+              contactId,
+              displayName: values.displayName,
+              notes: values.notes,
+            },
     );
     if (!result.ok) {
       captureSubmissionRejection("submit_contact_record", result);

@@ -259,11 +259,11 @@ async function handleContactPrompt({
     timeoutMs,
   } = ContactPromptParams.parse(body);
 
-  if (contactId && displayName) {
+  if (contactId && (displayName !== undefined || notes !== undefined)) {
     return {
       ok: false,
       error:
-        "Pass either contactId (bind to an existing contact) or displayName (create a new one), not both.",
+        "Pass either contactId (bind to an existing contact) or displayName and notes (create a new one), not both. A contact that already exists is edited with 'assistant contacts update'.",
     };
   }
 
@@ -398,20 +398,29 @@ const PARKED_TARGET_KEYS = ["contactId", "displayName", "notes"] as const;
  * Read-only state for a pending prompt. The gateway asks this before it writes,
  * so the flag and the binding target come from the parked form rather than from
  * whatever the submitting client knew to echo.
+ *
+ * `known` says whether a form is still parked under the id. A restart between
+ * the gateway's claim and this read leaves a form this process never saw, and
+ * without the flag it answers exactly like one that parked no target, which
+ * would leave the gateway resolving the address by itself.
  */
 function readContactPromptFlags({
   body = {},
-}: RouteHandlerArgs): ParkedPromptTarget & { verify: boolean } {
+}: RouteHandlerArgs): ParkedPromptTarget & { verify: boolean; known: boolean } {
   const { requestId } = ContactPromptFlagsParams.parse(body);
-  const meta = getGuardianFormMeta(requestId) ?? {};
+  const meta = getGuardianFormMeta(requestId);
   const target: ParkedPromptTarget = {};
   for (const key of PARKED_TARGET_KEYS) {
-    const value = meta[key];
+    const value = meta?.[key];
     if (typeof value === "string") {
       target[key] = value;
     }
   }
-  return { verify: meta.verify === true, ...target };
+  return {
+    known: meta !== undefined,
+    verify: meta?.verify === true,
+    ...target,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -517,10 +526,15 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     handler: readContactPromptFlags,
     summary: "Read a pending contact prompt's flags and binding target",
     description:
-      "Returns whether the pending prompt asked the gateway to mark the submitted channel verified, plus the contact the parked form targets, or the name and notes it proposes for a contact to create.",
+      "Returns whether a form is still parked under this id, whether the pending prompt asked the gateway to mark the submitted channel verified, and the contact the parked form targets, or the name and notes it proposes for a contact to create. known=false means no such form is pending, so nothing it may have targeted can be read.",
     tags: ["contacts"],
     requestBody: ContactPromptFlagsParams,
     responseBody: z.object({
+      known: z
+        .boolean()
+        .describe(
+          "Whether a form is still parked under this requestId. False leaves the target unreadable rather than absent.",
+        ),
       verify: z.boolean(),
       contactId: z.string().optional(),
       displayName: z.string().optional(),
