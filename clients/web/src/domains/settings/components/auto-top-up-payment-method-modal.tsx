@@ -562,12 +562,17 @@ function SetupCardForm({
         }
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
-          wallets: { link: "never", applePay: "never", googlePay: "never" },
-          // The Address Element below owns the billing address (so the saved
-          // PM carries billing_details.address for tax) and unconditionally
-          // collects a name; suppress the Payment Element's own name and
-          // address inputs to avoid duplicate fields. Email stays here, and
-          // only when the account does not already know it.
+          // Link rides in the card form as a wallet; the SetupIntent stays
+          // card-only, so saved PaymentMethods keep a `card` type with a real
+          // brand and last4.
+          wallets: { link: "auto", applePay: "never", googlePay: "never" },
+          // The Address Element below owns the billing address (the saved PM
+          // needs it for tax) and always collects a name, so both are
+          // suppressed here. Email is asked for only when the account does
+          // not already know it, since Link's banner carries its own email
+          // entry; `defaultValues` is deliberately not passed, because a
+          // member email there would mount an OTP takeover ahead of the card
+          // fields (revisit separately).
           fields: {
             billingDetails: {
               name: "never",

@@ -305,11 +305,11 @@ describe("AutoTopUpPaymentMethodModal Stripe element options", () => {
     });
   });
 
-  test("suppresses every wallet and asks for no email when the account has one", async () => {
+  test("offers Link, suppresses the other wallets, and asks for no email when the account has one", async () => {
     await renderModalWithForm();
 
     expect(paymentElementProps?.options?.wallets).toEqual({
-      link: "never",
+      link: "auto",
       applePay: "never",
       googlePay: "never",
     });
