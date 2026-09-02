@@ -22,6 +22,7 @@
 import type { ReactNode } from "react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
+import { AssistantEyesMark } from "@/domains/chat/components/assistant-eyes-mark";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
@@ -102,6 +103,17 @@ export function SidebarSectionItem({
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
+      /* The assistant's own eyes stand where the topic glyph would, because
+         this section is a person rather than a category. `AssistantEyesMark`
+         renders `null` without a character avatar (custom image, or still
+         loading), and the slot collapses to the Lucide fallback in that
+         case — so a custom-image avatar gets a plain header rather than a
+         gap where a mark should be. */
+      iconNode={
+        isAssistantSection ? (
+          <AssistantEyesMark assistantId={assistantId} width={16} />
+        ) : undefined
+      }
       label={label}
       /* The one section painted in the assistant's own color, so it reads as
          coming from someone rather than as another bucket. `--avatar-accent`
@@ -110,11 +122,12 @@ export function SidebarSectionItem({
          surface itself: mixing a percentage of `--surface-lift` into
          `--surface-lift` is exactly `--surface-lift`, which is what every
          other card paints. A `transparent` fallback would instead punch a
-         hole in the card. Kept low (7%) because this sits behind
-         conversation rows that still have to read as ordinary rows. */
+         hole in the card. 18% is the balance point: strong enough that the
+         card reads as a different surface at a glance, short of reading as
+         selected — the rows on top still have to read as ordinary rows. */
       cardClassName={
         isAssistantSection
-          ? "bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_7%,var(--surface-lift))]"
+          ? "bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_18%,var(--surface-lift))]"
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from

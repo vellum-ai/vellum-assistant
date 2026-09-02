@@ -197,6 +197,8 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   value: string;
   label: string;
   icon?: LucideIcon;
+  /** Leading glyph for a section whose mark is not a Lucide icon. */
+  iconNode?: ReactNode;
   trailing?: ReactNode;
   /**
    * Bulk/group actions for this section's header. Rendered as a right-click
@@ -223,6 +225,7 @@ export function ConversationNavSection({
   value,
   label,
   icon,
+  iconNode,
   trailing,
   groupMenu,
   collapsedIndicator,
@@ -240,6 +243,7 @@ export function ConversationNavSection({
       value={value}
       card={overlayCards}
       icon={icon}
+      iconNode={iconNode}
       label={label}
       trailing={trailing}
       contextMenuContent={
