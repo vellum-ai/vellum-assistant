@@ -450,4 +450,53 @@ describe("startDictationStream", () => {
     ws.serverMessage({ type: "closed" });
     expect(await stopped).toBe("brief.");
   });
+
+  /**
+   * Shorter still: the hold ends while the token is still being minted, so
+   * there is no socket to send anything on. The dial goes ahead anyway, and
+   * the stop follows the held audio out once the runtime is ready.
+   */
+  test("a stop before the socket is dialled still reaches the runtime", async () => {
+    let resolveUrl: (url: string) => void = () => undefined;
+    const captureFake = createCaptureFake();
+    let ws: FakeWebSocket | null = null;
+    const handle = startDictationStream(
+      { assistantId: "a1", onPartial: () => undefined },
+      {
+        resolveWsUrl: () =>
+          new Promise<string>((resolve) => {
+            resolveUrl = resolve;
+          }),
+        webSocketFactory: (url) => {
+          ws = new FakeWebSocket(url);
+          return ws as unknown as WebSocket;
+        },
+        captureFactory: captureFake.factory,
+      },
+    );
+    await flushMicrotasks();
+    const early = new ArrayBuffer(4);
+    captureFake.pushChunk(early);
+
+    const stopped = handle!.stop();
+    expect(ws).toBeNull();
+    expect(captureFake.calls.shutdown).toBe(0);
+
+    resolveUrl("ws://gateway.test/v1/stt/stream");
+    await flushMicrotasks();
+    await flushMicrotasks();
+    const socket = ws as FakeWebSocket | null;
+    if (!socket) {
+      throw new Error("expected the socket to be dialled after the stop");
+    }
+    socket.serverOpen();
+    expect(socket.sent).toHaveLength(0);
+    socket.serverMessage({ type: "ready" });
+    expect(socket.sent[0]).toBe(early);
+    expect(socket.sent[1]).toContain('"stop"');
+
+    socket.serverMessage({ type: "final", text: "hi.", seq: 0 });
+    socket.serverMessage({ type: "closed" });
+    expect(await stopped).toBe("hi.");
+  });
 });

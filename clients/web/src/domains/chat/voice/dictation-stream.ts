@@ -399,29 +399,28 @@ export function startDictationStream(
       if (closed || stopRequestedAt !== null) {
         return stopped;
       }
-      if (ws !== null && ws.readyState === WebSocket.OPEN) {
-        // The last <50ms may still sit in the capture's batch accumulator;
-        // drain it (synchronously, via onChunk) before asking the provider
-        // to flush finals.
-        capture.flush?.();
-        stopRequestedAt = Date.now();
-        // A hold short enough to end before `ready` has its audio still held
-        // and a runtime still initialising, which ignores a stop. The stop
-        // goes out from the `ready` handler in that case, right behind the
-        // audio it is asking the runtime to finish.
-        if (live) {
-          sendStop(ws);
-        } else {
-          stopPending = true;
-        }
-        // The provider flushes what it has left and the session closes
-        // behind it, which is what settles `stopped` through `teardown`.
-        // A provider that has gone quiet is given this long and no more.
-        setTimeout(teardown, STOP_FLUSH_TIMEOUT_MS);
-        return stopped;
+      // The last <50ms may still sit in the capture's batch accumulator;
+      // drain it (synchronously, via onChunk) before asking the provider
+      // to flush finals.
+      capture.flush?.();
+      stopRequestedAt = Date.now();
+      // A hold short enough to end before `ready` has its audio still held,
+      // and possibly no socket yet: the token mint is a round trip and the
+      // socket a handshake behind it. The runtime ignores a stop it is not
+      // ready for, so the stop waits for `ready` and goes out from that
+      // handler, right behind the audio it is asking the runtime to finish.
+      // A session that never gets there closes some other way, and each of
+      // those settles the stop through `teardown`.
+      if (live && ws !== null && ws.readyState === WebSocket.OPEN) {
+        sendStop(ws);
+      } else {
+        stopPending = true;
       }
-      // No open socket: nothing to flush, and nothing was ever heard.
-      teardown();
+      // The provider flushes what it has left and the session closes
+      // behind it, which is what settles `stopped` through `teardown`.
+      // A provider that has gone quiet, or a dial that never completes, is
+      // given this long and no more.
+      setTimeout(teardown, STOP_FLUSH_TIMEOUT_MS);
       return stopped;
     },
   };

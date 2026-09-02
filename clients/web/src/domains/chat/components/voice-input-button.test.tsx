@@ -722,7 +722,7 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
  * promised, or it finds no handle, takes that for no transcript, and the
  * flush goes to nobody.
  */
-describe("VoiceInputButton — a hold takes the stream's final", () => {
+describe("VoiceInputButton: a hold takes the stream's final", () => {
   beforeEach(() => {
     postSttTranscribeSpy.mockClear();
     useVoiceRecordingStore.getState().reset();
