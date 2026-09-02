@@ -21,12 +21,14 @@ import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
  * that edge nothing corrects `visible` until an unrelated transition.
  *
  * Delivery is tracked per `webContents`, not once globally, because the
- * channel is push only and has no request or replay path. Pop-out windows are
+ * channel is push only and main answers no requests on it. Pop-out windows are
  * separate page loads, so renderers routinely appear between attention
  * transitions; a global "same as last time" cache would leave those
  * uninitialized. Each renderer is instead sent the current payload when its
  * page finishes loading (a reload counts as a fresh page), and identical
- * repeats are dropped per recipient so the dedup benefit survives.
+ * repeats are dropped per recipient so the dedup benefit survives. The preload
+ * caches that payload and replays it to callbacks that register later, so the
+ * per-page send reaches renderer subscribers whenever they appear.
  */
 
 const UNATTENDED: WindowAttentionPayload = {

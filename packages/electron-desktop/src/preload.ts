@@ -29,6 +29,48 @@ const subscribe =
     };
   };
 
+/**
+ * Like {@link subscribe}, but the IPC listener is installed once when the
+ * factory runs and the latest payload is replayed to each callback as it
+ * registers.
+ *
+ * Push-only channels whose first payload arrives on page load need this: the
+ * preload evaluates ahead of every page script, so the listener below is in
+ * place for that payload, while the renderer callbacks are React effects and
+ * lazy routes that register afterwards. Without the replay such a callback
+ * holds its default until the next transition on the channel.
+ */
+const subscribeWithReplay = <Payload>(
+  ipc: RendererIpc,
+  channel: string,
+): ((callback: (payload: Payload) => void) => () => void) => {
+  const callbacks = new Set<(payload: Payload) => void>();
+  let latest: { payload: Payload } | null = null;
+  ipc.on(channel, (_event: IpcRendererEvent, payload: Payload): void => {
+    latest = { payload };
+    // Snapshot so a callback that subscribes mid-dispatch is served by its own
+    // replay instead of twice, and re-check membership so one that
+    // unsubscribes mid-dispatch is not called after the fact.
+    for (const callback of [...callbacks]) {
+      if (!callbacks.has(callback)) {
+        continue;
+      }
+      callback(payload);
+    }
+  });
+  return (callback) => {
+    callbacks.add(callback);
+    if (latest) {
+      // Synchronous, so the replay always lands before the caller holds the
+      // unsubscribe function and can never outlive it.
+      callback(latest.payload);
+    }
+    return () => {
+      callbacks.delete(callback);
+    };
+  };
+};
+
 export const createDeepLinksBridge = (
   ipc: RendererIpc,
 ): VellumBridge["deepLinks"] => ({
@@ -99,4 +141,4 @@ export const createUpdateBridge = (
 export const createWindowAttentionSubscriber = (
   ipc: RendererIpc,
 ): VellumBridge["notifications"]["onWindowAttention"] =>
-  subscribe<WindowAttentionPayload>(ipc, WINDOW_ATTENTION);
+  subscribeWithReplay<WindowAttentionPayload>(ipc, WINDOW_ATTENTION);
