@@ -109,8 +109,8 @@ describe("WatchRetroSurface", () => {
     );
 
     // Past the recap, then skip all three questions, which lands on the
-    // summary. Nothing is submitted until saving is asked for there: the card
-    // no longer commits at the end of a run of Skips.
+    // summary. Skipping every page reaches review without submitting: saving
+    // is its own act, asked for on the summary and nowhere else.
     fireEvent.click(screen.getByText("Looks right"));
     fireEvent.click(screen.getByText("Skip"));
     fireEvent.click(screen.getByText("Skip"));

@@ -585,14 +585,14 @@ function QuestionPage({
         >
           {/* Rows in the shape `choice-surface` gives its options, which is the
               app's single-select: separate raised rows, no dividers, a mark
-              that says which one is standing. `ListRow` was the wrong
-              primitive here twice over. Its `[&+&]` hairline is meant for a
-              flush settings list, so a divider under a filled row read as a
-              section break rather than as a gap between two options. And a
-              radio group cannot commit on tap: Radix moves the selection on
-              arrow keys, so advancing on change would carry a keyboard user
-              off the page before they reached the third option. A button per
-              option keeps the tap-to-commit gesture and leaves Tab and Enter
+              that says which one is standing. Two primitives sit closer to
+              this than they belong. `ListRow` draws a `[&+&]` hairline for a
+              flush settings list, which under a filled row reads as a section
+              break rather than as the gap between two options. And a
+              `RadioGroup` cannot commit on tap: Radix moves the selection on
+              arrow keys, so advancing on change carries a keyboard user off
+              the page before they reach the third option. A button per option
+              keeps the tap-to-commit gesture and leaves Tab and Enter
               working. */}
           {(question.options ?? []).map((option, index) => {
             const selected = selectedOptionId === option.id;
@@ -613,8 +613,8 @@ function QuestionPage({
                 )}
               >
                 {/* The mark, not the fill, is what says which option is
-                    standing. A background alone left a middle selection
-                    looking like a section of its own. */}
+                    standing: a background on its own reads as a section of
+                    its own when the middle option carries it. */}
                 <span
                   aria-hidden
                   className={cn(
