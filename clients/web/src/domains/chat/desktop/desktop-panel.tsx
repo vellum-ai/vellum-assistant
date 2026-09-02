@@ -10,6 +10,14 @@ import {
   type DesktopSessionState,
 } from "./desktop-session";
 
+// Spelled out rather than templated so the catalog-usage guard sees each key.
+const END_REASON_KEY = {
+  busy: "podDesktop.busy",
+  unavailable: "podDesktop.unavailable",
+  failed: "podDesktop.failed",
+  lost: "podDesktop.lost",
+} as const satisfies Record<DesktopEndReason, string>;
+
 /** Endings a fresh session might get past. */
 const RETRYABLE_END_REASONS: ReadonlySet<DesktopEndReason> = new Set([
   "failed",
@@ -76,7 +84,7 @@ export function DesktopPanel({ assistantId }: DesktopPanelProps) {
           ) : (
             <>
               <span className="text-body-medium-lighter">
-                {t(`podDesktop.${state.reason}`)}
+                {t(END_REASON_KEY[state.reason])}
               </span>
               {RETRYABLE_END_REASONS.has(state.reason) ? (
                 <Button variant="outlined" onClick={reconnect}>
