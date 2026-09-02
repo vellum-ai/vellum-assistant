@@ -511,11 +511,11 @@ describe("AppIconRow", () => {
     });
   });
 
-  // Android draws its launcher field from per-flavor resources that share
-  // nothing with the iOS bundles, so the thumbnail standing in for the primary
-  // icon reads the shell's platform as well as its build.
+  // Android draws its launcher field from per-flavor resources that name the
+  // same colors as the iOS bundles in plain sRGB, so the thumbnail standing in
+  // for the primary icon reads the shell's platform as well as its build.
   describe("the default thumbnail follows the Android flavor", () => {
-    test("draws the dev flavor's blue field", async () => {
+    test("draws the dev flavor's pink field", async () => {
       runOnAndroidShell("ai.vellum.assistant.dev");
 
       await renderRow();
@@ -523,10 +523,14 @@ describe("AppIconRow", () => {
       await waitFor(() => {
         expect(previewFill()).toBe(flavorLauncherBackground("dev"));
       });
+      // Naming one ground for both platforms is only honest while the flavor
+      // declares that shared color, so the row cannot drift back to a literal
+      // of its own without failing here.
+      expect(flavorLauncherBackground("dev")).toBe(APP_ICON_GROUNDS.dev);
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
 
-    test("draws the staging flavor's orange field", async () => {
+    test("draws the staging flavor's yellow field", async () => {
       runOnAndroidShell("ai.vellum.assistant.staging");
 
       await renderRow();
@@ -534,6 +538,9 @@ describe("AppIconRow", () => {
       await waitFor(() => {
         expect(previewFill()).toBe(flavorLauncherBackground("staging"));
       });
+      expect(flavorLauncherBackground("staging")).toBe(
+        APP_ICON_GROUNDS.staging,
+      );
       expect(previewEyePaths()).toEqual(catalogPaths("quirky"));
     });
 

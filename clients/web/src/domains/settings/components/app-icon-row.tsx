@@ -38,23 +38,28 @@ const ROW_PREVIEW_SIZE = 32;
 interface IconGround {
   /** The fill the shell's Icon Composer bundle declares. */
   displayP3: string;
-  /** sRGB stand-in, for a renderer that cannot parse `color()`. */
+  /**
+   * The same color in sRGB: what the Android flavor's `launcher_background`
+   * declares, and what a renderer that cannot parse `color()` falls back to.
+   */
   srgb: string;
 }
 
 /**
- * Vellum Dev draws its icon on pink, `clients/ios/App/App/AppIcon-Dev.icon`.
+ * Vellum Dev draws its icon on pink on both platforms.
  *
- * That bundle declares its fill as the Display P3 conversion of the sRGB hex
- * {@link APP_ICON_GROUNDS} carries. Naming the same coordinates draws the
- * thumbnail in the gamut the installed icon is drawn in.
+ * `clients/ios/App/App/AppIcon-Dev.icon` declares its fill as the Display P3
+ * conversion of the sRGB hex {@link APP_ICON_GROUNDS} carries, and
+ * `clients/android/app/src/dev/res/values/colors.xml` declares that hex itself.
+ * Naming the same coordinates draws the thumbnail in the gamut the installed
+ * icon is drawn in.
  */
 const DEV_GROUND: IconGround = {
   displayP3: "color(display-p3 0.9387 0.55755 0.7777)",
   srgb: APP_ICON_GROUNDS.dev,
 };
 
-/** Vellum Staging's yellow, read the same way off `AppIcon-Staging.icon`. */
+/** Vellum Staging's yellow, read the same way off the same pair of shells. */
 const STAGING_GROUND: IconGround = {
   displayP3: "color(display-p3 0.89313 0.79283 0.2841)",
   srgb: APP_ICON_GROUNDS.staging,
@@ -70,28 +75,12 @@ const STAGING_GROUND: IconGround = {
  * belongs to the installed build while that variable names the web deploy: a
  * Staging shell loading a dev server would otherwise draw pink under a yellow
  * icon. Production is absent: the catalog green
- * {@link DEFAULT_APP_ICON_TRAITS} names is already that shell's ground, and its
- * bundle carries a true conversion of it.
+ * {@link DEFAULT_APP_ICON_TRAITS} names is already that shell's ground on both
+ * platforms, and its iOS bundle carries a true conversion of it.
  */
 const PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, IconGround>> = {
   dev: DEV_GROUND,
   staging: STAGING_GROUND,
-};
-
-/**
- * Ground the Android shells draw their launcher icon on, keyed by the shell's
- * own environment.
- *
- * These are the per-flavor `launcher_background` resources in
- * `clients/android/app/src/<flavor>/res/values/colors.xml`, which the platform
- * declares in plain sRGB and ships no wide-gamut variant of, so they are named
- * once rather than paired the way the iOS bundles above are. Production is
- * absent for the same reason it is absent there: its `launcher_background` is
- * already the catalog green {@link DEFAULT_APP_ICON_TRAITS} names.
- */
-const ANDROID_PRIMARY_ICON_GROUND: Partial<Record<ShellEnvironment, string>> = {
-  dev: "#2457C5",
-  staging: "#C84C09",
 };
 
 /**
@@ -144,8 +133,9 @@ function primaryIconEnvironment(
 /**
  * Ground the running shell's primary icon carries, undefined on production and
  * while the shell has yet to answer, which draws the production green for the
- * frame or two that takes. The two platforms ship unrelated fields for the same
- * environment, so the shell's OS picks the map and the shell's build keys it.
+ * frame or two that takes. Both platforms ground the same environment in the
+ * same color and only the gamut parts them: an Android `launcher_background` is
+ * plain sRGB and the flavors ship no wide-gamut variant of it.
  */
 function primaryIconGround(
   shell: ShellEnvironment | null | undefined,
@@ -155,9 +145,8 @@ function primaryIconGround(
   if (!environment) {
     return undefined;
   }
-  return android
-    ? ANDROID_PRIMARY_ICON_GROUND[environment]
-    : groundFill(PRIMARY_ICON_GROUND[environment]);
+  const ground = PRIMARY_ICON_GROUND[environment];
+  return android ? ground?.srgb : groundFill(ground);
 }
 
 export function AppIconRow() {
