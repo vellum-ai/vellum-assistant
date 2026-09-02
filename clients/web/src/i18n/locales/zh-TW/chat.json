@@ -386,7 +386,8 @@
     "askTheDoctor": "詢問 Doctor",
     "goToDoctor": "前往 Doctor",
     "openPage": "開啟頁面",
-    "suggestionFallback": "建議"
+    "suggestionFallback": "建議",
+    "copyCliFix": "複製 CLI 修正"
   },
   "chatRuleEditorModal": {
     "applyTo": "套用至",

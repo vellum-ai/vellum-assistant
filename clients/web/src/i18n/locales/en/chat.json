@@ -387,7 +387,8 @@
     "askTheDoctor": "Ask the Doctor",
     "goToDoctor": "Go to Doctor",
     "openPage": "Open page",
-    "suggestionFallback": "Suggestion"
+    "suggestionFallback": "Suggestion",
+    "copyCliFix": "Copy CLI fix"
   },
   "chatRuleEditorModal": {
     "applyTo": "Apply to",

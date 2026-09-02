@@ -206,6 +206,13 @@ export class LocalPlatformCredentialRecoveryError extends Error {
  * resolve successfully having done nothing. A platform-hosted assistant is
  * not a gap: the platform re-provisions its own key, so the repair belongs
  * to nobody here.
+ *
+ * Scoped to `isLocalAssistant` (`cloud === "local"`), the set the web
+ * lifecycle provisions for, not the wider `isLocalGatewayAssistant` set this
+ * client can merely connect to. A local Docker instance is reachable over the
+ * gateway but is never provisioned here, so it reads as null and its surface
+ * falls back to handing over the CLI command instead of a button that would
+ * refuse.
  */
 function recoverableLocalAssistant(
   assistantId?: string,

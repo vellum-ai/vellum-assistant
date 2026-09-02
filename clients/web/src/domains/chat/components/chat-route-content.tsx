@@ -170,6 +170,7 @@ import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-select
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 
 import { canRecoverLocalAssistantPlatformCredential } from "@/lib/local-platform-identity";
@@ -281,6 +282,9 @@ function useActiveProcessSlots(isPopout: boolean) {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+const REPROVISION_ASSISTANT_KEY_COMMAND =
+  "assistant keys set credential/vellum/assistant_api_key <key>";
 
 export function ChatMainPanel({
   sendMessage,
@@ -829,10 +833,12 @@ export function ChatMainPanel({
   //     parked in the same one-shot store `/doctor <message>` uses, so the
   //     panel auto-starts a session already on topic, not on a blank prompt.
   //   self-hosted -> the client owns the reprovision flow (the platform's own
-  //     recovery excludes these registrations), so the banner performs it.
-  //     Offered only where the repair can act: a remotely served client or a
-  //     platform-disabled one would refuse it, and a button that always fails
-  //     is worse than none.
+  //     recovery excludes these registrations). Where this client can perform
+  //     it, the banner does. Where it cannot (a remotely served client, a
+  //     platform-disabled one, or a runtime the web lifecycle does not manage
+  //     such as a local Docker instance), the banner hands over the CLI
+  //     command instead, so no supported hosting mode is left without a way
+  //     back.
   //
   // Built per banner rather than once, so a successful repair retires exactly
   // the error or notice that offered it. Clearing the slot unconditionally
@@ -854,6 +860,19 @@ export function ChatMainPanel({
     ) : assistantState.kind === "active" &&
       canRecoverLocalAssistantPlatformCredential() ? (
       <RestoreManagedCredentialButton onRestored={onRestored} />
+    ) : assistantState.kind === "active" ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        onClick={() =>
+          copyToClipboard(REPROVISION_ASSISTANT_KEY_COMMAND, {
+            successMessage: "Command copied. Run it where the assistant runs.",
+            errorMessage: "Couldn't copy the command.",
+          })
+        }
+      >
+        {t("chatRouteContent.copyCliFix")}
+      </Button>
     ) : undefined;
 
   // Blocked automatic opens (see `handleOpenUrl`) carry the URL in

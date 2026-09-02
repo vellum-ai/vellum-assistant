@@ -387,7 +387,8 @@
     "askTheDoctor": "Preguntar al Doctor",
     "goToDoctor": "Ir al Doctor",
     "openPage": "Abrir página",
-    "suggestionFallback": "Sugerencia"
+    "suggestionFallback": "Sugerencia",
+    "copyCliFix": "Copiar corrección de CLI"
   },
   "chatRuleEditorModal": {
     "applyTo": "Aplicar a",

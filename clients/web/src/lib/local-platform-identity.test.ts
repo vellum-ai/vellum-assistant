@@ -394,6 +394,22 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     ).toBe(false);
   });
 
+  // A local Docker instance is reachable over the gateway but is never
+  // provisioned by the web lifecycle, so the predicate reads false and the
+  // surface hands over the CLI command instead of a button that would refuse.
+  test("a local Docker assistant is not repairable here", async () => {
+    activeAssistant = { ...activeAssistant, cloud: "docker" };
+
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(false);
+    const failure = await recoverLocalAssistantPlatformCredential(
+      RUNTIME_ASSISTANT_ID,
+    ).catch((err: unknown) => err);
+    expect(failure).toMatchObject({ reason: "cannot_act_here" });
+    expect(requestNames()).not.toContain("reprovision-api-key");
+  });
+
   // The switch window: a version still held for the assistant the user just
   // left must not vouch for the one being repaired. The gate reads as
   // unsupported, so verification is skipped rather than 404ing after a
