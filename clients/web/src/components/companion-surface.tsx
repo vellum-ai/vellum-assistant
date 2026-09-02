@@ -35,6 +35,7 @@ import type {
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
+import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -192,16 +193,6 @@ const DEFAULT_ACCENT = "#5eead4";
  * idle creature than as one straining.
  */
 const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
-
-/**
- * The colour a watch session lights the ring in.
- *
- * Fixed rather than the assistant's own accent, because the ring in the accent
- * already means "a turn is running" and a screen being read is a different fact
- * about the machine. Amber is the tone the host burns for a live capture, so
- * the surface agrees with the menu bar above it.
- */
-const WATCHING_RING_ACCENT = "#ff9f45";
 
 /**
  * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
@@ -885,7 +876,7 @@ export function CompanionSurface({
           className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full"
           style={{
             ["--companion-ring-accent" as string]: watching
-              ? WATCHING_RING_ACCENT
+              ? COMPANION_CAPTURE_ACCENT
               : accentHex,
           }}
           aria-hidden
@@ -913,7 +904,7 @@ export function CompanionSurface({
           key={observedCaptures}
           className="companion-capture-pulse pointer-events-none absolute -inset-0.5 rounded-full"
           style={{
-            ["--companion-ring-accent" as string]: WATCHING_RING_ACCENT,
+            ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
           }}
           aria-hidden
         />

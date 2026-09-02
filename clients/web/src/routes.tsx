@@ -360,17 +360,17 @@ export const routeTree = [
     },
   },
 
-  // The display's edge, lit while the companion is on a call. Its own
+  // The display's edge, lit while a watch session reads the screen. Its own
   // click-through window the size of the display, opened and closed by the
-  // shell with the call; standalone for the reason the surface is.
+  // shell with the session; standalone for the reason the surface is.
   {
-    path: "/assistant/floating/companion-call-glow",
+    path: "/assistant/floating/companion-watch-glow",
     ErrorBoundary: RouteErrorBoundary,
     HydrateFallback: RootHydrateFallback,
     lazy: {
       Component: () =>
-        import("@/components/companion-call-glow-page").then(
-          (m) => m.CompanionCallGlowPage,
+        import("@/components/companion-watch-glow-page").then(
+          (m) => m.CompanionWatchGlowPage,
         ),
     },
   },

@@ -399,11 +399,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: companion-capture-pulse 700ms ease-out 1;
 }
 
-/* The call surface: the handlebar's own edge and the display's, both lit in
- * the assistant's colour, so a live call is something the whole screen says
- * the way a shared screen is framed. `--companion-ring-accent` is set per
- * instance from the accent the companion's windows share. */
-@keyframes companion-call-glow-in {
+/* The call bar's own edge, lit in the assistant's colour, and the display's
+ * edge, lit in the capture colour while a watch session reads the screen the
+ * way a shared screen is framed. `--companion-ring-accent` is set per
+ * instance by the companion's windows. */
+@keyframes companion-watch-glow-in {
   from { opacity: 0; }
 }
 
@@ -421,19 +421,19 @@ html[data-page-transition="pop"]::view-transition-new(root) {
     0 8px 24px rgb(0 0 0 / 0.4);
 }
 
-.companion-call-glow {
+.companion-watch-glow {
   box-shadow:
     inset 0 0 0 2px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
     inset 0 0 40px 4px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 45%, transparent),
     inset 0 0 120px 20px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 18%, transparent);
   animation:
-    companion-call-glow-in 600ms ease-out 1,
+    companion-watch-glow-in 600ms ease-out 1,
     companion-call-breathe 3s ease-in-out infinite;
 }
 
-/* Held lit rather than dropped: the light is what says the call is running. */
+/* Held lit rather than dropped: the frame is what says the screen is read. */
 @media (prefers-reduced-motion: reduce) {
-  .companion-call-glow {
+  .companion-watch-glow {
     animation: none;
   }
 }

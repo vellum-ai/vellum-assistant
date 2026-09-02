@@ -383,15 +383,18 @@ export const callSurfaceFor = (
 ): boolean => current !== null || dial;
 
 /**
- * The edge glow drawn around the display while a call runs.
+ * The edge glow drawn around the display while a watch session reads it.
  *
- * Its own window rather than a bigger canvas: the canvas is sized once for
- * the pill's reach and the glow wants the whole display, and a click-through
- * sheet the size of a display with the pill's hit-testing inside it would
- * put the forwarded mouse-move on every pixel of the screen.
+ * The session's, not the call's: a call is a microphone, and the creature's
+ * ring already says one is running, where a screen being read is a fact about
+ * the whole screen and is framed like one. Its own window rather than a
+ * bigger canvas: the canvas is sized once for the pill's reach and the glow
+ * wants the whole display, and a click-through sheet the size of a display
+ * with the pill's hit-testing inside it would put the forwarded mouse-move on
+ * every pixel of the screen.
  */
-const CALL_GLOW_KIND = "companion-call-glow";
-const CALL_GLOW_ROUTE = "/floating/companion-call-glow";
+const WATCH_GLOW_KIND = "companion-watch-glow";
+const WATCH_GLOW_ROUTE = "/floating/companion-watch-glow";
 
 /**
  * Where the avatar sat before the call took the surface to the bottom of the
@@ -644,7 +647,7 @@ const pushState = (): void => {
   // The glow reads the same state the surface does, for the same reason the
   // surface holds none of it: one push, two windows, no second idea of which
   // call is running or what colour it is.
-  for (const kind of [COMPANION_KIND, CALL_GLOW_KIND]) {
+  for (const kind of [COMPANION_KIND, WATCH_GLOW_KIND]) {
     const win = getFloatingWindow(kind);
     if (win) {
       win.webContents.send("vellum:companion:state", state);
@@ -710,10 +713,10 @@ const refreshGrowth = (): void => {
     y: Math.round(centre.y),
   });
   const { workArea } = display;
-  // The light follows the handlebar from display to display. Before the early
+  // The light follows the surface from display to display. Before the early
   // return below, since a drag across displays need not change either growth.
-  if (callHome !== null) {
-    placeCallGlow(display);
+  if (getFloatingWindow(WATCH_GLOW_KIND) !== null) {
+    placeWatchGlow(display);
   }
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
@@ -769,13 +772,13 @@ const displayUnder = (point: { x: number; y: number }): Display =>
  * framed: the menu bar draws over the top edge, and a frame that stopped
  * short of it would read as a window's border rather than the screen's.
  *
- * One step below the surface at the same level, so the handlebar is always
- * drawn over the light and never under it. Click-through with nothing
- * forwarded: there is nothing on it to point at.
+ * One step below the surface at the same level, so the pill is always drawn
+ * over the light and never under it. Click-through with nothing forwarded:
+ * there is nothing on it to point at.
  */
-const placeCallGlow = (display: Display): void => {
+const placeWatchGlow = (display: Display): void => {
   const { bounds } = display;
-  const existing = getFloatingWindow(CALL_GLOW_KIND);
+  const existing = getFloatingWindow(WATCH_GLOW_KIND);
   if (existing !== null) {
     const current = existing.getBounds();
     if (
@@ -789,8 +792,8 @@ const placeCallGlow = (display: Display): void => {
     return;
   }
   const win = createFloatingWindow({
-    kind: CALL_GLOW_KIND,
-    route: CALL_GLOW_ROUTE,
+    kind: WATCH_GLOW_KIND,
+    route: WATCH_GLOW_ROUTE,
     width: bounds.width,
     height: bounds.height,
     ignoreMouseEvents: true,
@@ -807,8 +810,31 @@ const placeCallGlow = (display: Display): void => {
   win.setAlwaysOnTop(true, "floating", -1);
 };
 
-const closeCallGlow = (): void => {
-  getFloatingWindow(CALL_GLOW_KIND)?.close();
+const closeWatchGlow = (): void => {
+  getFloatingWindow(WATCH_GLOW_KIND)?.close();
+};
+
+/**
+ * Light the display being read, or put the light out, to match what the
+ * app's window last said about the session.
+ *
+ * Idempotent, and run after every change to the context. The display is the
+ * one under the avatar, which is where the user's eye already is for this
+ * surface's state, or under the cursor when the surface is hidden: the light
+ * is the session's rather than the surface's, since a hidden pill is not a
+ * screen that has stopped being read.
+ */
+const syncWatchGlow = (): void => {
+  if (context.watching !== true) {
+    closeWatchGlow();
+    return;
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  placeWatchGlow(
+    displayUnder(
+      win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
+    ),
+  );
 };
 
 /**
@@ -816,10 +842,9 @@ const closeCallGlow = (): void => {
  * main is holding.
  *
  * Idempotent, and run after every change to the session or the dial. Into a
- * call: remember where the avatar was, take it to the bottom centre of its
- * display and light that display's edge. Out of one: put the light out and
- * take the avatar home. A surface not on screen has nothing to move, and no
- * light either, since the glow is the surface's and not the session's.
+ * call: remember where the avatar was and take it to the bottom centre of its
+ * display. Out of one: take the avatar home. A surface not on screen has
+ * nothing to move.
  */
 const syncCallSurface = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
@@ -834,10 +859,8 @@ const syncCallSurface = (): void => {
       defaultAvatarCentre(display.workArea, geometry),
       display.workArea,
     );
-    placeCallGlow(display);
     return;
   }
-  closeCallGlow();
   if (callHome === null) {
     return;
   }
@@ -1058,6 +1081,7 @@ export const installCompanionWindow = (): void => {
     z.tuple([companionContextSchema]),
     ([next]) => {
       context = next;
+      syncWatchGlow();
       pushState();
     },
   );
@@ -1263,6 +1287,7 @@ export const installCompanionWindow = (): void => {
       dictating: undefined,
       dictationText: undefined,
     };
+    syncWatchGlow();
     pushState();
   });
 
@@ -1356,15 +1381,15 @@ export const openCompanionWindow = (): void => {
 
   refreshGrowth();
   win.on("move", refreshGrowth);
-  // The glow is the surface's, so it goes with it, and a home remembered for
-  // a window that no longer exists is one the next window must not be sent
-  // to: it opens where every window opens.
+  // A home remembered for a window that no longer exists is one the next
+  // window must not be sent to: it opens where every window opens.
   win.on("closed", () => {
     callHome = null;
-    closeCallGlow();
   });
-  // A surface shown mid-call is the call's from its first frame.
+  // A surface shown mid-call is the call's from its first frame, and one
+  // shown mid-session has the light beside it rather than under the cursor.
   syncCallSurface();
+  syncWatchGlow();
 };
 
 const closeCompanionWindow = (): void => {

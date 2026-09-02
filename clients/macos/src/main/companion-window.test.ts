@@ -140,9 +140,9 @@ mock.module("./main-window", () => ({
 }));
 
 /**
- * The display's edge glow, which main opens for a call and closes after it.
- * Kept apart from the surface so a push to both is two sends on two windows,
- * and so a case can see the light come on and go out.
+ * The display's edge glow, which main opens for a watch session and closes
+ * after it. Kept apart from the surface so a push to both is two sends on two
+ * windows, and so a case can see the light come on and go out.
  */
 type GlowWindow = {
   bounds: { x: number; y: number; width: number; height: number };
@@ -709,8 +709,7 @@ describe("the call surface", () => {
 
 /**
  * The surface the call takes: the handlebar goes to the bottom centre of the
- * display and the display's edge lights, from the dial until the call ends,
- * and then the pill goes home.
+ * display from the dial until the call ends, and then the pill goes home.
  */
 describe("the surface a call takes", () => {
   /** The screen the electron mock answers for, whatever point it is asked. */
@@ -738,22 +737,15 @@ describe("the surface a call takes", () => {
     expect(centre()).toEqual(bottomCentre);
   });
 
-  test("lights the display's edge on the dial", () => {
+  /**
+   * A call is a microphone, not a screen: the frame around the display is
+   * the watch session's, and a call alone leaves it dark.
+   */
+  test("does not light the display's edge", () => {
     send("vellum:companion:startVoice");
-    expect(glow).not.toBeNull();
-    expect(glow?.bounds).toEqual(SCREEN);
-  });
-
-  test("keeps the light under the handlebar", () => {
-    send("vellum:companion:startVoice");
-    expect(glow?.level).toEqual(["floating", -1]);
-  });
-
-  test("tells the light what the surface is told", () => {
-    send("vellum:companion:startVoice");
-    glowPushes.length = 0;
     send("vellum:voiceActivity:start", START);
-    expect(glowPushes.at(-1)?.call?.assistantName).toBe(START.assistantName);
+    expect(glow).toBeNull();
+    send("vellum:voiceActivity:end");
   });
 
   test("goes home once the call is over", () => {
@@ -762,7 +754,6 @@ describe("the surface a call takes", () => {
     send("vellum:voiceActivity:start", START);
     send("vellum:voiceActivity:end");
     expect(centre()).toEqual(home);
-    expect(glow).toBeNull();
   });
 
   test("goes home when the dial is declined", () => {
@@ -770,7 +761,6 @@ describe("the surface a call takes", () => {
     send("vellum:companion:startVoice");
     send("vellum:voiceActivity:end");
     expect(centre()).toEqual(home);
-    expect(glow).toBeNull();
   });
 
   test("goes home when the user ends the dial", () => {
@@ -778,7 +768,6 @@ describe("the surface a call takes", () => {
     send("vellum:companion:startVoice");
     send("vellum:voiceActivity:control", { action: "endSession" });
     expect(centre()).toEqual(home);
-    expect(glow).toBeNull();
   });
 
   /**
@@ -806,8 +795,73 @@ describe("the surface a call takes", () => {
     park();
     send("vellum:voiceActivity:start", START);
     expect(centre()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+  });
+});
+
+/**
+ * The display's edge, lit while a watch session reads it: the whole screen
+ * says it is being read, the way a shared screen is framed.
+ */
+describe("the light a watch session puts on the display", () => {
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context({ watching: false }));
+  });
+
+  test("comes on with the session", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(glow).not.toBeNull();
+    expect(glow?.bounds).toEqual(SCREEN);
+  });
+
+  test("sits under the surface", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(glow?.level).toEqual(["floating", -1]);
+  });
+
+  test("is told what the surface is told", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    glowPushes.length = 0;
+    send(
+      "vellum:companion:setContext",
+      context({ watching: true, captureCount: 2 }),
+    );
+    expect(glowPushes.at(-1)?.captureCount).toBe(2);
+  });
+
+  test("goes out with the session", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    send("vellum:companion:setContext", context({ watching: false }));
+    expect(glow).toBeNull();
+  });
+
+  test("stays dark for a context that says nothing about a session", () => {
+    send("vellum:companion:setContext", context({}));
+    expect(glow).toBeNull();
+  });
+
+  /**
+   * The window that owns the session is gone, so nothing is reading the
+   * screen, whatever the last push said.
+   */
+  test("goes out when the window holding the session is destroyed", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    mainWindowOpen = false;
+    fireVisibilityChange();
+    expect(glow).toBeNull();
+  });
+
+  test("stays lit through a call", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:start", START);
     expect(glow).not.toBeNull();
     send("vellum:voiceActivity:end");
+    expect(glow).not.toBeNull();
+    send("vellum:companion:setContext", context({ watching: false }));
   });
 });
 
