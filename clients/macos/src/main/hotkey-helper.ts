@@ -72,6 +72,9 @@ const HOTKEY_EVENT_SCHEMA = z.object({
     .object({
       text: z.string(),
       truncated: z.boolean(),
+      // A helper built before the flag existed says nothing about it, and a
+      // selection of unknown editability is one the words are asked about.
+      editable: z.boolean().default(false),
     })
     .optional(),
   heldMs: z.number().optional(),

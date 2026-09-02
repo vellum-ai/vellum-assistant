@@ -33,14 +33,16 @@ import {
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
 import {
+  buildGuardianRequestCodeInstruction,
   buildQuestionAnswerActions,
   buildToolApprovalSourceView,
   parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
   resolveGuardianInstructionModeFromPayload,
+  resolveGuardianQuestionInstructionMode,
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
-import { nonEmpty } from "./notification-utils.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
@@ -103,19 +105,19 @@ function resolveApprovalContext(
   }
 
   if (signal.sourceEventName === "guardian.question") {
-    // Answer-mode question with structured options (an ask_question prompt):
-    // render the options as card actions so every channel adapter shows
-    // tappable choices. Built here — once per broadcast — so adapters stay
-    // rendering-only; the reply router recognizes the action ids as answer
-    // selections (see parseQuestionAnswerActionId).
-    const questionContext = resolveQuestionOptionsContext(payload);
+    // Answer-mode question: options render as card actions so every channel
+    // adapter shows tappable choices, and an option-less question carries
+    // its typed-reply instruction. Built here, once per broadcast, so
+    // adapters stay rendering-only; the reply router recognizes the action
+    // ids as answer selections (see parseQuestionAnswerActionId).
+    const questionContext = resolveQuestionContext(payload);
     if (questionContext) {
       return questionContext;
     }
 
     const parsed = parseInteractiveApprovalPayload(payload);
     if (!parsed) {
-      return undefined;
+      return resolveCodedTextContext(payload);
     }
     const requestId = parsed.requestId;
 
@@ -139,7 +141,10 @@ function resolveApprovalContext(
       approval: {
         requestId,
         actions: APPROVAL_ACTIONS,
-        plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
+        plainTextFallback: buildGuardianRequestCodeInstruction(
+          parsed.requestCode?.toUpperCase() ?? requestId,
+          "approval",
+        ),
         permissionDetails: toolName
           ? {
               toolName,
@@ -157,14 +162,43 @@ function resolveApprovalContext(
 }
 
 /**
- * Card actions for an answer-mode `pending_question` payload carrying
- * structured options: one action per option plus Skip, ids in the
- * answer-selection scheme. Returns `undefined` for approval-mode payloads,
- * option-less questions (voice questions answer by free text), and anything
- * that fails strict parsing — those fall through to the approval/plain-text
- * paths.
+ * A `guardian.question` payload that fails strict parsing draws no buttons
+ * anywhere, so its only way to be answered is the typed reply. When it
+ * still names a request id and code, it gets a context with no actions and
+ * the instruction for its mode, which the transports render as text plus
+ * the instruction. Without those it is undefined, as before.
  */
-function resolveQuestionOptionsContext(
+function resolveCodedTextContext(
+  payload: Record<string, unknown>,
+): ResolvedApprovalContext | undefined {
+  const requestId = nonEmpty(readPayloadString(payload, "requestId"));
+  const requestCode = nonEmpty(readPayloadString(payload, "requestCode"));
+  if (!requestId || !requestCode) {
+    return undefined;
+  }
+  return {
+    approval: {
+      requestId,
+      actions: [],
+      plainTextFallback: buildGuardianRequestCodeInstruction(
+        requestCode.toUpperCase(),
+        resolveGuardianQuestionInstructionMode(payload).mode,
+      ),
+    },
+  };
+}
+
+/**
+ * The card context for an answer-mode `pending_question`: one action per
+ * option plus Skip, ids in the answer-selection scheme, and the typed-reply
+ * instruction as the text fallback. An option-less question (a voice
+ * question, answered by free text) carries no actions, only the fallback:
+ * the transports read an empty action set as "send text, append the
+ * instruction", which is the one way that question stays answerable.
+ * Returns `undefined` for approval-mode payloads and anything that fails
+ * strict parsing; those fall through to the approval path.
+ */
+function resolveQuestionContext(
   payload: Record<string, unknown>,
 ): ResolvedApprovalContext | undefined {
   const parsed = parseGuardianQuestionPayload(payload);
@@ -174,21 +208,19 @@ function resolveQuestionOptionsContext(
   if (resolveGuardianInstructionModeFromPayload(parsed).mode !== "answer") {
     return undefined;
   }
-  const options = parsed.options;
-  if (!options || options.length === 0) {
-    return undefined;
-  }
   const requestId = nonEmpty(parsed.requestId);
   if (!requestId) {
     return undefined;
   }
 
-  const code = parsed.requestCode?.toUpperCase() ?? requestId;
   return {
     approval: {
       requestId,
-      actions: buildQuestionAnswerActions(options),
-      plainTextFallback: `Reply "${code} <your answer>".`,
+      actions: buildQuestionAnswerActions(parsed.options ?? []),
+      plainTextFallback: buildGuardianRequestCodeInstruction(
+        parsed.requestCode?.toUpperCase() ?? requestId,
+        "answer",
+      ),
       intent: "question",
     },
   };

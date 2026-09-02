@@ -3,17 +3,27 @@
  * facts so the inbound intercept and the assistant's own reaction records
  * cannot drift apart.
  *
- * Slack keeps its own envelope because its transcript context builds
- * provider history from rows and reads only `slackMeta`; every other channel
- * writes the neutral shape `readProviderMetadata` serves to channel-agnostic
- * readers.
+ * The assistant's own reaction rows write the neutral shape on every channel,
+ * as every row the daemon authors does. Inbound Slack reaction rows still
+ * write Slack's own envelope, which `readProviderMetadata` maps on read; the
+ * Slack transcript reads the neutral envelope through its Slack view.
  */
+import {
+  pickReactionEmojiFields,
+  type ReactionEmojiFields,
+} from "@vellumai/service-contracts/reactions";
+
 import type { ChannelId } from "../channels/types.js";
 import type { ProviderMessageMetadata } from "./provider-message-metadata.js";
 import type { SlackMessageMetadata } from "./providers/slack/message-metadata.js";
 import { writeSlackMetadata } from "./providers/slack/message-metadata.js";
 
-export interface ReactionEnvelopeFacts {
+/**
+ * The emoji's typed identity is optional on the facts because the assistant's
+ * own reaction carries only the spelling it chose: it names an emoji rather
+ * than reporting one a channel described.
+ */
+export interface ReactionEnvelopeFacts extends ReactionEmojiFields {
   channel: ChannelId;
   /** Provider id of the chat the reaction belongs to. */
   chatId: string;
@@ -41,6 +51,7 @@ export function buildNeutralReactionMeta(
     reaction: {
       targetMessageId: facts.targetMessageId,
       emoji: facts.emoji,
+      ...pickReactionEmojiFields(facts),
       op: facts.op,
       ...(facts.actorDisplayName
         ? { actorDisplayName: facts.actorDisplayName }
@@ -50,11 +61,11 @@ export function buildNeutralReactionMeta(
 }
 
 /**
- * The serialized metadata key a reaction row stores, chosen per channel:
- * Slack rows write `slackMeta`, every other channel the neutral
- * `providerMeta`. The one owner of that choice, so the three writers (the
- * inbound intercept, the assistant's own reaction records, and the
- * reaction-wake turn) cannot drift.
+ * The serialized metadata key an inbound reaction row stores, chosen per
+ * channel: Slack rows write `slackMeta`, every other channel the neutral
+ * `providerMeta`. The one owner of that choice, so the two inbound writers
+ * (the intercept and the reaction-wake turn) cannot drift. The assistant's
+ * own reaction records write `buildNeutralReactionMeta` directly.
  */
 export function buildReactionRowEnvelope(
   facts: ReactionEnvelopeFacts,
@@ -85,6 +96,7 @@ export function buildSlackReactionMeta(
     ...(facts.actorDisplayName ? { displayName: facts.actorDisplayName } : {}),
     reaction: {
       emoji: facts.emoji,
+      ...pickReactionEmojiFields(facts),
       targetChannelTs: facts.targetMessageId,
       op: facts.op,
       ...(facts.actorDisplayName

@@ -16,7 +16,7 @@
  * included.
  */
 import type { ChannelId } from "../channels/types.js";
-import { buildReactionRowEnvelope } from "../messaging/reaction-envelopes.js";
+import { buildNeutralReactionMeta } from "../messaging/reaction-envelopes.js";
 import {
   addMessage,
   REACTION_MESSAGE_KIND,
@@ -54,7 +54,11 @@ export async function persistReactionRecords(
         emoji: record.emoji,
         op: record.op,
       };
-      const envelope = buildReactionRowEnvelope(facts);
+      // The assistant's own rows carry the neutral envelope on every channel;
+      // the Slack renderers read it through the envelope's Slack view.
+      const envelope = {
+        providerMeta: JSON.stringify(buildNeutralReactionMeta(facts)),
+      };
       await addMessage(conversationId, "assistant", "[reaction]", {
         metadata: {
           messageKind: REACTION_MESSAGE_KIND,
