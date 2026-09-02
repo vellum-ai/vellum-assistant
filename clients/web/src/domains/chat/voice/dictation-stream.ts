@@ -223,7 +223,10 @@ export function startDictationStream(
       new LiveVoiceAudioCapture(captureOptions))
   )({
     onChunk: (buf) => {
-      if (closed) {
+      // Nothing after the stop is part of the dictation. The mic is on its
+      // way down by then, and a quantum that beats the disconnect would
+      // otherwise go out ahead of a stop still waiting on `ready`.
+      if (closed || stopRequestedAt !== null) {
         return;
       }
       // Until `ready`, not until the socket opens. The runtime discards audio
@@ -404,6 +407,9 @@ export function startDictationStream(
       // to flush finals.
       capture.flush?.();
       stopRequestedAt = Date.now();
+      // The key is up, so the mic goes now. The session stays up for the
+      // runtime to finish what it was already sent.
+      capture.shutdown();
       // A hold short enough to end before `ready` has its audio still held,
       // and possibly no socket yet: the token mint is a round trip and the
       // socket a handshake behind it. The runtime ignores a stop it is not

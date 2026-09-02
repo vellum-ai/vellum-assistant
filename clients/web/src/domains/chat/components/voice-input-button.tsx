@@ -841,12 +841,16 @@ export const VoiceInputButton = forwardRef<
       chunksRef.current = [];
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
+      // A hold is never empty yet: its stream final is still on its way,
+      // and a recording short enough to leave the recorder without a chunk
+      // is exactly the one whose only transcript is that final.
       if (
         chunks.length === 0 &&
         !fallbackText &&
         !nativePartialText &&
         !streamText &&
-        !pendingNativeFinal
+        !pendingNativeFinal &&
+        !holdSession
       ) {
         addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();

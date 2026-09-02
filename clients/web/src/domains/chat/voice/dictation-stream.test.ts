@@ -480,7 +480,10 @@ describe("startDictationStream", () => {
 
     const stopped = handle!.stop();
     expect(ws).toBeNull();
-    expect(captureFake.calls.shutdown).toBe(0);
+    // The mic is released at the stop, and audio arriving after it stays out
+    // of the transcript, however long the dial takes to catch up.
+    expect(captureFake.calls.shutdown).toBe(1);
+    captureFake.pushChunk(new ArrayBuffer(4));
 
     resolveUrl("ws://gateway.test/v1/stt/stream");
     await flushMicrotasks();
@@ -492,6 +495,7 @@ describe("startDictationStream", () => {
     socket.serverOpen();
     expect(socket.sent).toHaveLength(0);
     socket.serverMessage({ type: "ready" });
+    expect(socket.sent).toHaveLength(2);
     expect(socket.sent[0]).toBe(early);
     expect(socket.sent[1]).toContain('"stop"');
 
