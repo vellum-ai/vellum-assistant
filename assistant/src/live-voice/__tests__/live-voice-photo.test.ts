@@ -207,12 +207,25 @@ function watchProcessing(conversation: Conversation): {
   maxDepth: number;
 } {
   const seen = { calls: [] as boolean[], depth: 0, maxDepth: 0 };
-  const original = conversation.setProcessing.bind(conversation);
-  conversation.setProcessing = (value: boolean): void => {
+  const record = (value: boolean): void => {
     seen.calls.push(value);
     seen.depth += value ? 1 : -1;
     seen.maxDepth = Math.max(seen.maxDepth, seen.depth);
-    original(value);
+  };
+  const originalSet = conversation.setProcessing.bind(conversation);
+  conversation.setProcessing = (value: boolean): void => {
+    record(value);
+    originalSet(value);
+  };
+  // Standalone images take the flag through the owned acquire, and release it
+  // through `releaseProcessing`, which clears via `setProcessing` above.
+  const originalAcquire = conversation.acquireProcessing.bind(conversation);
+  conversation.acquireProcessing = (): number | null => {
+    const owner = originalAcquire();
+    if (owner !== null) {
+      record(true);
+    }
+    return owner;
   };
   return seen;
 }
@@ -265,30 +278,27 @@ function liveImageIds(conversation: Conversation): Array<string | undefined> {
 }
 
 /**
- * Let a turn try to start in the instant right after the persist reads the
- * flag free. The turn models a correct acquirer: it claims only what it finds
- * free, so it succeeds exactly when the persist left a gap between its read
- * and its take.
+ * Let a turn try to start in the instant right after the persist takes the
+ * flag. The turn models a correct acquirer: it claims only what it finds free,
+ * so it succeeds exactly when the persist left the flag takeable.
  */
 function armTurnStartInTheGap(conversation: Conversation): {
   claimed: () => boolean;
 } {
   let armed = true;
   let claimed = false;
-  const readFlag = conversation.isProcessing.bind(conversation);
-  const writeFlag = conversation.setProcessing.bind(conversation);
-  conversation.isProcessing = (): boolean => {
-    const busy = readFlag();
-    if (armed && !busy) {
+  const acquire = conversation.acquireProcessing.bind(conversation);
+  conversation.acquireProcessing = (): number | null => {
+    const owner = acquire();
+    if (armed && owner !== null) {
       armed = false;
       queueMicrotask(() => {
-        if (!readFlag()) {
-          writeFlag(true);
+        if (acquire() !== null) {
           claimed = true;
         }
       });
     }
-    return busy;
+    return owner;
   };
   return { claimed: () => claimed };
 }
@@ -763,6 +773,60 @@ describe("standalone image persists are serialized per conversation", () => {
       expect(live.activeConversation.isProcessing()).toBe(false);
       expect(getMessages(live.id)).toHaveLength(1);
     } finally {
+      live.dispose();
+    }
+  });
+
+  test("a frame does not release a turn that claimed the flag mid-write", async () => {
+    // The flag is a boolean and cannot say who holds it. A turn claims it
+    // unconditionally, which is how every turn starts, so a frame that clears
+    // it on the way out frees a turn that is still running and lets the next
+    // one interleave into the rows it is still writing.
+    const live = liveConversation("Live voice keep flag claimed away");
+    try {
+      const frame = await uploadFrame("claimed-away.png");
+
+      duringPersistBeforeInsert = () => {
+        live.activeConversation.setProcessing(true);
+      };
+
+      expect(
+        await persistAmbientSightFrame(live.id, frame, "voice"),
+      ).toMatchObject({ ok: true });
+
+      // The turn still holds it: the frame released only its own claim.
+      expect(live.activeConversation.isProcessing()).toBe(true);
+    } finally {
+      duringPersistBeforeInsert = null;
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+    }
+  });
+
+  test("an acquire keeps the flag when its advisory write cannot land", async () => {
+    // The window a strict set opened: reverting the flag because an advisory
+    // write lost a race to contention publishes an idle conversation for as
+    // long as the caller's retry sleeps, and anything polling for idle takes
+    // it while that caller believes its own turn is starting.
+    const live = liveConversation("Live voice acquire mirror failure");
+    try {
+      storeUnreadable = true;
+      const owner = live.activeConversation.acquireProcessing();
+      storeUnreadable = false;
+
+      expect(owner).not.toBeNull();
+      expect(live.activeConversation.isProcessing()).toBe(true);
+      // Held, so nothing else can take it.
+      expect(live.activeConversation.acquireProcessing()).toBeNull();
+
+      // A claim that is not the live one releases nothing.
+      expect(live.activeConversation.releaseProcessing(owner! - 1)).toBe(false);
+      expect(live.activeConversation.isProcessing()).toBe(true);
+
+      expect(live.activeConversation.releaseProcessing(owner!)).toBe(true);
+      expect(live.activeConversation.isProcessing()).toBe(false);
+    } finally {
+      storeUnreadable = false;
       live.dispose();
     }
   });

@@ -72,7 +72,6 @@ import {
 } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
@@ -221,6 +220,8 @@ export interface MessagingConversationContext {
   messages: Message[];
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
+  acquireProcessing(): number | null;
+  releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
@@ -1050,38 +1051,40 @@ export async function persistUserMessage(
   ctx.currentRequestId = reqId;
   ctx.abortController = new AbortController();
 
+  let owner: number | null = null;
   try {
-    // `setProcessing(true)` persists the flag and can throw (e.g.
-    // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
-    // the request-id/abort bookkeeping below rather than stranding it.
-    //
-    // This is the first DB write on the message-send path — it precedes the
-    // (already retried) message insert — so under transient WAL contention it
-    // must retry too, or the turn dies here before the insert is ever reached.
-    // `setProcessing` reverts its in-memory flag when its persist throws, so
-    // each attempt is safe to re-run.
-    await withSqliteRetry(() => ctx.setProcessing(true), {
-      op: "conversation:setProcessing",
-      context: { conversationId: ctx.conversationId },
-    });
+    // Taking the flag rather than setting it: the read and the take are one
+    // step, so nothing can claim it in between, and the hold is released only
+    // by the claim that took it. Its advisory mirror write is detached, which
+    // is what closes the window a retry around a strict set used to open. That
+    // retry re-ran the set after an awaited backoff, and the set reverted the
+    // in-memory flag before rethrowing, so the conversation read idle for the
+    // length of the sleep and anything waiting for idle could take the flag
+    // while this turn was still starting.
+    owner = ctx.acquireProcessing();
+    if (owner === null) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
       requestId: reqId,
     });
     if (result.deduplicated) {
-      ctx.setProcessing(false);
+      ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
     }
     return result;
   } catch (err) {
-    // Clear the flag, but never let a clear failure mask the original error
-    // or skip the bookkeeping reset. `setProcessing(false)` releases in memory
-    // regardless of its advisory mirror write, so the guard here is purely
-    // defensive against future changes.
+    // Release this turn's own hold, but never let a failure there mask the
+    // original error or skip the bookkeeping reset. A hold another caller
+    // claimed since is left alone, and one this call never took is nothing to
+    // release.
     try {
-      ctx.setProcessing(false);
+      if (owner !== null) {
+        ctx.releaseProcessing(owner);
+      }
     } catch (clearErr) {
       log.error(
         { err: clearErr, conversationId: ctx.conversationId },

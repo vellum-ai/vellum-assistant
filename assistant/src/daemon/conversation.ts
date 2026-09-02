@@ -313,6 +313,16 @@ export class Conversation {
   /** @internal */ agentLoop: AgentLoop;
   private _processing = false;
   /**
+   * Which claim on the processing flag is the live one, as a value that changes
+   * every time the flag is taken. Zero while it is free.
+   *
+   * The flag itself is a boolean and cannot say who holds it, so a release has
+   * no way to tell its own hold from one taken since. This is what lets
+   * {@link releaseProcessing} refuse to release someone else's.
+   */
+  private processingOwner = 0;
+  private nextProcessingOwner = 0;
+  /**
    * Pending {@link waitForIdle} resolvers, notified from the committed
    * `processing → false` transition inside {@link setProcessing}. Every
    * `setProcessing(false)` call site funnels through that single method
@@ -1850,7 +1860,12 @@ export class Conversation {
    */
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
+    const wasOwner = this.processingOwner;
     this._processing = value;
+    // Every set is a claim, including one over a flag another holder already
+    // has: a caller setting it unconditionally is asserting the hold is now
+    // theirs, and the previous holder's release must not undo that.
+    this.processingOwner = value ? ++this.nextProcessingOwner : 0;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
     // by reading the conversations row directly.
@@ -1859,6 +1874,7 @@ export class Conversation {
         setConversationProcessingStartedAt(this.conversationId, Date.now());
       } catch (err) {
         this._processing = wasProcessing;
+        this.processingOwner = wasOwner;
         throw err;
       }
     } else {
@@ -1879,6 +1895,85 @@ export class Conversation {
         conversationMetadataSyncTag(this.conversationId),
       ]);
     }
+  }
+
+  /**
+   * Take the processing flag if it is free, reporting the claim a later release
+   * has to name. Null means someone already holds it.
+   *
+   * The read and the take are one synchronous step, so no second acquirer can
+   * land between them.
+   *
+   * The mirror write is detached and never fails the acquire, which is the
+   * difference from {@link setProcessing}. Reverting the flag because an
+   * advisory write lost a race publishes an idle conversation for as long as
+   * the caller's retry sleeps, and anything polling for an idle conversation
+   * takes the flag in that window while the caller still believes its own turn
+   * is starting. The column is advisory state the boot-time stale-processing
+   * sweep already recovers, so it is not worth a hole in the lock.
+   */
+  acquireProcessing(): number | null {
+    if (this._processing) {
+      return null;
+    }
+    this._processing = true;
+    const owner = ++this.nextProcessingOwner;
+    this.processingOwner = owner;
+    this.mirrorProcessingStarted(owner, Date.now());
+    return owner;
+  }
+
+  /**
+   * Release a hold taken by {@link acquireProcessing}, and only that hold.
+   * Reports whether it released.
+   *
+   * A hold can be claimed away by any unconditional `setProcessing(true)`,
+   * which is how a turn starts. The earlier holder's release then has to do
+   * nothing: clearing there would release a turn that is still running and let
+   * the next one interleave into the rows it is still writing.
+   */
+  releaseProcessing(owner: number): boolean {
+    if (this.processingOwner !== owner) {
+      log.debug(
+        {
+          conversationId: this.conversationId,
+          owner,
+          holder: this.processingOwner,
+        },
+        "Not releasing the processing flag: another holder claimed it",
+      );
+      return false;
+    }
+    this.setProcessing(false);
+    return true;
+  }
+
+  /**
+   * Mirror a taken processing lock into the advisory `processing_started_at`
+   * column, without ever reporting failure back to the acquire.
+   *
+   * The retry re-checks ownership rather than the flag: a hold claimed since
+   * has written its own timestamp, and a late write from this one would
+   * describe the wrong turn.
+   */
+  private mirrorProcessingStarted(owner: number, startedAt: number): void {
+    void withSqliteRetry(
+      () => {
+        if (this.processingOwner !== owner) {
+          return;
+        }
+        setConversationProcessingStartedAt(this.conversationId, startedAt);
+      },
+      {
+        op: "conversation:acquireProcessing",
+        context: { conversationId: this.conversationId },
+      },
+    ).catch((err: unknown) => {
+      log.error(
+        { err, conversationId: this.conversationId },
+        "Failed to persist the processing marker; the conversation is held in memory and the column stays advisory",
+      );
+    });
   }
 
   /**

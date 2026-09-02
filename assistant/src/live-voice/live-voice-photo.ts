@@ -507,17 +507,16 @@ export function _drainFrameReclaimRechecksForTests(): void {
  * means nothing was taken and nothing needs releasing.
  */
 async function acquireProcessingFlag(conversation: {
-  isProcessing: () => boolean;
-  setProcessing: (value: boolean) => void;
-}): Promise<boolean> {
+  acquireProcessing: () => number | null;
+}): Promise<number | null> {
   const deadline = Date.now() + processingWaitMs;
   for (;;) {
-    if (!conversation.isProcessing()) {
-      conversation.setProcessing(true);
-      return true;
+    const owner = conversation.acquireProcessing();
+    if (owner !== null) {
+      return owner;
     }
     if (Date.now() >= deadline) {
-      return false;
+      return null;
     }
     await new Promise((resolve) => setTimeout(resolve, PROCESSING_POLL_MS));
   }
@@ -695,7 +694,8 @@ async function writeStandaloneImage(
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
-    if (!(await acquireProcessingFlag(conversation))) {
+    const owner = await acquireProcessingFlag(conversation);
+    if (owner === null) {
       log.warn(
         { conversationId, attachmentId, kind },
         "Standalone image timed out waiting for the conversation to go idle",
@@ -743,11 +743,15 @@ async function writeStandaloneImage(
 
       return { ok: true, messageId: persisted.id };
     } finally {
-      conversation.setProcessing(false);
-      // Anything queued behind the lock we just held still has to run. Without
-      // this a message queued during the image's write sits until the next
-      // turn ends.
-      void conversation.kickDrainQueue("loop_complete", `standalone_${kind}`);
+      // Only this job's own hold is released. A turn that claimed the flag
+      // away mid-write owns it now, and clearing there would free a turn that
+      // is still running.
+      if (conversation.releaseProcessing(owner)) {
+        // Anything queued behind the lock we just held still has to run.
+        // Without this a message queued during the image's write sits until
+        // the next turn ends.
+        void conversation.kickDrainQueue("loop_complete", `standalone_${kind}`);
+      }
     }
   } catch (err) {
     if (err instanceof MessageInsertPreconditionError) {
