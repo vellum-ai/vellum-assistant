@@ -13,6 +13,8 @@ import {
   buildAccessRequestContextText,
   buildAccessRequestIdentityLine,
   buildAccessRequestReplyMechanics,
+  ensureAccessRequestInviteDirectiveInCopy,
+  hasInviteFlowDirective,
   stripAccessRequestReplyMechanics,
   stripAccessRequestReplyMechanicsFromCopy,
 } from "../notifications/access-request-copy.js";
@@ -880,6 +882,42 @@ describe("notification decision strategy", () => {
       expect(stripped.deliveryText).toBe(context);
       expect(stripped.conversationSeedMessage).toBe("Alice wants access.");
       expect(stripped.title).toBe("Request code: A1B2C3");
+    });
+
+    test("hasInviteFlowDirective accepts only a positive reply directive", () => {
+      expect(hasInviteFlowDirective('Reply "open invite flow" to start.')).toBe(
+        true,
+      );
+      expect(
+        hasInviteFlowDirective(
+          "You can  reply \u201copen invite flow\u201d later.",
+        ),
+      ).toBe(false);
+      for (const negated of [
+        'Do not reply "open invite flow".',
+        'Don\u2019t reply "open invite flow" yet.',
+        'Never reply "open invite flow".',
+        "The open invite flow is disabled.",
+      ]) {
+        expect(hasInviteFlowDirective(negated)).toBe(false);
+      }
+    });
+
+    test("a negated or mentioned invite phrase still gets the canonical directive appended", () => {
+      const stripped = stripAccessRequestReplyMechanicsFromCopy(
+        {
+          title: "Access Request",
+          body: 'Alice wants access. Do not reply "open invite flow" yet.',
+        },
+        payload,
+      );
+      const ensured = ensureAccessRequestInviteDirectiveInCopy(stripped);
+      expect(ensured.body).toBe(
+        'Alice wants access. Do not reply "open invite flow" yet.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+      );
+      expect(ensureAccessRequestInviteDirectiveInCopy(ensured)).toEqual(
+        ensured,
+      );
     });
 
     test("leaves the invite directive alone: it is context", () => {
