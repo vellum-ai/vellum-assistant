@@ -9,10 +9,7 @@
 import type { Root, RootContent } from "mdast";
 
 import { parseMarkdown } from "../messaging/content/parse.js";
-import {
-  stripAnsiAndControlChars,
-  stripAnsiSequences,
-} from "../util/ansi.js";
+import { stripAnsiAndControlChars, stripAnsiSequences } from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
@@ -307,4 +304,15 @@ export const NOTIFICATION_TITLE_MAX_LENGTH = 60;
  */
 export function sanitizeNotificationTitle(value: string): string {
   return sanitize(value, NOTIFICATION_TITLE_MAX_LENGTH);
+}
+
+/**
+ * Tidy copy after a sentence was cut out of it: trailing spaces before a
+ * line break go, runs of blank lines collapse to one, and the ends trim.
+ */
+export function normalizeStrippedText(value: string): string {
+  return value
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

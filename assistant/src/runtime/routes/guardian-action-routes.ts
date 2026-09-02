@@ -196,28 +196,19 @@ function mapRequestToPrompt(
   };
 }
 
+/**
+ * The prompt's text is the ask alone. Its `actions` carry the decision, so
+ * typed-reply directives here would duplicate them on every client.
+ */
 function buildKindAwareQuestionText(req: GuardianRequestWire): string {
-  const baseText =
+  return (
     req.questionText ??
     (req.toolName
       ? req.activityText
         ? `Approve tool: ${req.toolName} — ${req.activityText}`
         : `Approve tool: ${req.toolName}`
-      : `Guardian request: ${req.kind}`);
-
-  if (req.kind === "access_request") {
-    const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
-    const lines = [baseText];
-    lines.push(
-      `\nReply "${code} approve" to grant access or "${code} reject" to deny.`,
-    );
-    lines.push(
-      'Reply "open invite flow" to start Trusted Contacts invite flow.',
-    );
-    return lines.join("\n");
-  }
-
-  return baseText;
+      : `Guardian request: ${req.kind}`)
+  );
 }
 
 // ---------------------------------------------------------------------------

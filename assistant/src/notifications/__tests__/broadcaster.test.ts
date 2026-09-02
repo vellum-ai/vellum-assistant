@@ -718,7 +718,7 @@ describe("NotificationBroadcaster question option actions", () => {
     expect(approval?.plainTextFallback).toContain("your answer");
   });
 
-  test("an option-less pending_question (voice) carries no card actions", async () => {
+  test("an option-less pending_question (voice) carries the typed-reply instruction and no actions", async () => {
     const { adapter, sends } = makeCapturingAdapter("platform");
     const broadcaster = new NotificationBroadcaster([adapter]);
 
@@ -735,9 +735,15 @@ describe("NotificationBroadcaster question option actions", () => {
     );
 
     expect(sends.length).toBe(1);
-    // Answer-mode without options renders as plain text with request-code
-    // instructions — no approve/reject pair is ever attached to a question.
-    expect(sends[0]?.payload.approvalContext).toBeUndefined();
+    // No buttons to draw, so the transports send text and append the
+    // instruction; an approve/reject pair is never attached to a question.
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.requestId).toBe("req-v1");
+    expect(approval?.actions).toEqual([]);
+    expect(approval?.intent).toBe("question");
+    expect(approval?.plainTextFallback).toBe(
+      'Reference code: DEF456. Reply "DEF456 <your answer>".',
+    );
   });
 
   test("tool_approval payloads keep the approve/reject action pair", async () => {

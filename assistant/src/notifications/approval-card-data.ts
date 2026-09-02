@@ -17,7 +17,7 @@ import {
   accessRequestCardSubtitle,
   accessRequestCardTitle,
   buildAccessRequestCardView,
-  buildAccessRequestContractText,
+  buildAccessRequestContextText,
   buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
@@ -28,7 +28,6 @@ import {
   buildApprovalCardBlocks,
 } from "./approval-card-builder.js";
 import {
-  buildGuardianRequestCodeInstruction,
   buildQuestionDeliveryText,
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -238,7 +237,7 @@ function resolveAccessRequestCard(
     metadata,
     requestId: view.requestId,
     actions,
-    fallbackText: buildAccessRequestContractText(payload),
+    fallbackText: buildAccessRequestContextText(payload),
   };
 }
 
@@ -322,24 +321,12 @@ function extractToolApprovalCard(
       ? bodyParts.join("\n\n")
       : "No additional context available.";
 
-  // Fallback text with request-code instructions for older clients.
-  const baseFallback =
+  // The text sibling of the card, read by the model and text-only surfaces.
+  // No reply mechanics: the card's buttons act, and channel text gets its
+  // typed-reply instructions from the delivery layer.
+  const fallbackText =
     p.questionText ??
     `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
-  let fallbackText = baseFallback;
-  const requestCode = nonEmpty(p.requestCode);
-  if (requestCode) {
-    const modeResolution = resolveGuardianInstructionModeFromFields(
-      p.requestKind,
-      "toolName" in p ? (p.toolName ?? undefined) : undefined,
-    );
-    const mode = modeResolution?.mode ?? "approval";
-    const instruction = buildGuardianRequestCodeInstruction(
-      requestCode.trim().toUpperCase(),
-      mode,
-    );
-    fallbackText = `${baseFallback}\n\n${instruction}`;
-  }
 
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,

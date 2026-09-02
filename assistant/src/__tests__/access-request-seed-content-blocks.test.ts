@@ -136,10 +136,11 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     );
   });
 
-  test("text fallback block contains contract text", () => {
+  test("text fallback block carries the requester context and no reply mechanics", () => {
     const textBlock = textOf(buildAccessRequestSeedContentBlocks(basePayload));
     expect(textBlock.text).toContain("requesting access to the assistant");
-    expect(textBlock.text).toContain("ABC123");
+    expect(textBlock.text).not.toContain("ABC123");
+    expect(textBlock.text).not.toContain("open invite flow");
   });
 
   test("body shows fallback when no preview/warnings/permalink", () => {
