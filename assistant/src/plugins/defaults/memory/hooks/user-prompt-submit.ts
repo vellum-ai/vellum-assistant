@@ -340,6 +340,13 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // fallback — a v3 empty/failed selection yields no NEW injected memory that
   // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
+  // Retrospective forks already carry copied injection metadata on historical
+  // messages. Re-running retrieval and runtime assembly here is an LLM call
+  // over the full parent history and routinely exceeds the plugin hook
+  // timeout on long threads.
+  if (conversation?.currentCallSite === "memoryRetrospective") {
+    return;
+  }
   const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
   if (isVoiceFrontDoor && conversation) {
     conversation.graphMemory.recordPkbQueryVectors(undefined, undefined);

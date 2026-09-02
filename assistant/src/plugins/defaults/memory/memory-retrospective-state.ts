@@ -3,15 +3,18 @@
 // ---------------------------------------------------------------------------
 //
 // Two pointers move independently:
-//   - `lastProcessedMessageId` advances ONLY when a retrospective run
-//     completes successfully (correctness invariant — failures must
-//     re-process the same messages on the next attempt).
+//   - `lastProcessedMessageId` advances when a retrospective run completes
+//     successfully, or when consecutive unusable attempts hit
+//     `SKIP_AFTER_CONSECUTIVE_FAILURES` (the window is marked consumed so
+//     the sweep cannot re-enqueue the same unresolvable history forever).
 //   - `lastRunAt` advances at the end of every job that actually attempted a
 //     run (success or failure). Drives the per-conversation cooldown gate in
 //     the trigger-check helper so failing jobs can't loop in tight retries
 //     across trigger types. The job's mid-turn skip intentionally leaves it
 //     untouched so the turn-end trigger check can requeue immediately — see
 //     `memory-retrospective-job.ts`.
+//   - `consecutiveFailures` increments on each unusable attempt and resets
+//     to 0 on success or after the skip-after-failures cursor advance.
 //
 // A third column rides along with the success-path pointer write:
 //   - `rememberedLog` (JSON array of strings) — the cumulative `remember`
@@ -36,6 +39,9 @@ import { memoryDbOrNull } from "./memory-db.js";
 
 const log = getLogger("memory-retrospective-state");
 
+/** After this many unusable attempts, the job advances the cursor and stops retrying the window. */
+export const SKIP_AFTER_CONSECUTIVE_FAILURES = 3;
+
 export interface MemoryRetrospectiveState {
   conversationId: string;
   lastProcessedMessageId: string;
@@ -47,6 +53,7 @@ export interface MemoryRetrospectiveState {
    * conversation in that case.
    */
   rememberedLog: string[];
+  consecutiveFailures: number;
 }
 
 /**
@@ -115,6 +122,7 @@ export function listRetrospectiveStates(
       lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
       lastRunAt: memoryRetrospectiveState.lastRunAt,
       rememberedLog: memoryRetrospectiveState.rememberedLog,
+      consecutiveFailures: memoryRetrospectiveState.consecutiveFailures,
     })
     .from(memoryRetrospectiveState)
     .orderBy(desc(memoryRetrospectiveState.lastRunAt))
@@ -125,6 +133,7 @@ export function listRetrospectiveStates(
     lastProcessedMessageId: row.lastProcessedMessageId,
     lastRunAt: row.lastRunAt,
     rememberedLog: parseRememberedLog(row.rememberedLog),
+    consecutiveFailures: row.consecutiveFailures ?? 0,
   }));
 }
 
@@ -144,6 +153,7 @@ export function getRetrospectiveState(
       lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
       lastRunAt: memoryRetrospectiveState.lastRunAt,
       rememberedLog: memoryRetrospectiveState.rememberedLog,
+      consecutiveFailures: memoryRetrospectiveState.consecutiveFailures,
     })
     .from(memoryRetrospectiveState)
     .where(eq(memoryRetrospectiveState.conversationId, conversationId))
@@ -156,6 +166,7 @@ export function getRetrospectiveState(
     lastProcessedMessageId: row.lastProcessedMessageId,
     lastRunAt: row.lastRunAt,
     rememberedLog: parseRememberedLog(row.rememberedLog),
+    consecutiveFailures: row.consecutiveFailures ?? 0,
   };
 }
 
@@ -168,8 +179,9 @@ export function getRetrospectiveState(
  * first insert).
  */
 export async function upsertRetrospectiveState(
-  args: Omit<MemoryRetrospectiveState, "rememberedLog"> & {
+  args: Omit<MemoryRetrospectiveState, "rememberedLog" | "consecutiveFailures"> & {
     rememberedLog?: string[];
+    consecutiveFailures?: number;
   },
 ): Promise<void> {
   const mdb = memoryDbOrNull("upsertRetrospectiveState");
@@ -180,19 +192,23 @@ export async function upsertRetrospectiveState(
     args.rememberedLog === undefined
       ? undefined
       : serializeRememberedLog(args.rememberedLog);
-  // Only overwrite the stored log when the caller supplied one, so an
-  // omitted `rememberedLog` leaves the existing value untouched (seeded NULL
-  // on first insert).
+  // Only overwrite the stored log / failure count when the caller supplied
+  // them, so an omitted field leaves the existing value untouched (seeded
+  // NULL / 0 on first insert).
   const set: {
     lastProcessedMessageId: string;
     lastRunAt: number;
     rememberedLog?: string | null;
+    consecutiveFailures?: number;
   } = {
     lastProcessedMessageId: args.lastProcessedMessageId,
     lastRunAt: args.lastRunAt,
   };
   if (serializedLog !== undefined) {
     set.rememberedLog = serializedLog;
+  }
+  if (args.consecutiveFailures !== undefined) {
+    set.consecutiveFailures = args.consecutiveFailures;
   }
   await withSqliteRetry(
     () =>
@@ -203,6 +219,7 @@ export async function upsertRetrospectiveState(
           lastProcessedMessageId: args.lastProcessedMessageId,
           lastRunAt: args.lastRunAt,
           rememberedLog: serializedLog ?? null,
+          consecutiveFailures: args.consecutiveFailures ?? 0,
         })
         .onConflictDoUpdate({
           target: memoryRetrospectiveState.conversationId,
@@ -236,7 +253,7 @@ export async function upsertRetrospectiveState(
  *
  * `lastRunAt` is copied verbatim — the cooldown gate inherits from source.
  * `rememberedLog` is copied verbatim — the parent's saves remain the child's
- * dedup baseline.
+ * dedup baseline. `consecutiveFailures` is reset to 0 on the child.
  *
  * The row lives on the memory connection, so this reads/writes there rather
  * than on the main fork transaction's handle — the `database` arg is unused
@@ -295,6 +312,7 @@ export function forkRetrospectiveState(args: {
         lastProcessedMessageId: forkedPointer,
         lastRunAt: sourceRow.lastRunAt,
         rememberedLog: sourceRow.rememberedLog,
+        consecutiveFailures: 0,
       })
       .onConflictDoUpdate({
         target: memoryRetrospectiveState.conversationId,
@@ -302,6 +320,7 @@ export function forkRetrospectiveState(args: {
           lastProcessedMessageId: forkedPointer,
           lastRunAt: sourceRow.lastRunAt,
           rememberedLog: sourceRow.rememberedLog,
+          consecutiveFailures: 0,
         },
       })
       .run();
@@ -322,10 +341,18 @@ export function forkRetrospectiveState(args: {
 export async function bumpRetrospectiveLastRunAt(
   conversationId: string,
   lastRunAt: number,
+  options?: { consecutiveFailures?: number },
 ): Promise<void> {
   const mdb = memoryDbOrNull("bumpRetrospectiveLastRunAt");
   if (!mdb) {
     return;
+  }
+  const consecutiveFailures = options?.consecutiveFailures;
+  const set: { lastRunAt: number; consecutiveFailures?: number } = {
+    lastRunAt,
+  };
+  if (consecutiveFailures !== undefined) {
+    set.consecutiveFailures = consecutiveFailures;
   }
   await withSqliteRetry(
     () =>
@@ -335,10 +362,11 @@ export async function bumpRetrospectiveLastRunAt(
           conversationId,
           lastProcessedMessageId: "",
           lastRunAt,
+          consecutiveFailures: consecutiveFailures ?? 0,
         })
         .onConflictDoUpdate({
           target: memoryRetrospectiveState.conversationId,
-          set: { lastRunAt },
+          set,
         })
         .run(),
     { op: "bumpRetrospectiveLastRunAt", context: { conversationId } },

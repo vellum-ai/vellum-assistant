@@ -348,6 +348,8 @@ const SOURCE_PROCESSING_EXHAUSTED_MESSAGE =
  * - a failed or unusable wake dead-letters the row with an honest
  *   `last_error`. Retry stays event-driven (cooldown + re-enqueue), so the
  *   queue's attempt budget is deliberately not double-driving it.
+ * - a skip-after-failures backstop completes: the cursor has already
+ *   advanced past the unresolvable window.
  */
 function resolveRetrospectiveOutcome(
   outcome: MemoryRetrospectiveOutcome,

@@ -132,6 +132,96 @@ describe("memory-retrospective-state remembered log persistence", () => {
     expect(getRetrospectiveState("conv-corrupt")?.rememberedLog).toEqual([]);
   });
 
+  test("upsert persists consecutiveFailures and getRetrospectiveState reads it back", () => {
+    upsertRetrospectiveState({
+      conversationId: "conv-failures",
+      lastProcessedMessageId: "m1",
+      lastRunAt: 1000,
+      consecutiveFailures: 2,
+    });
+
+    expect(getRetrospectiveState("conv-failures")?.consecutiveFailures).toBe(2);
+  });
+
+  test("upsert without consecutiveFailures leaves the stored count untouched", () => {
+    upsertRetrospectiveState({
+      conversationId: "conv-keep-failures",
+      lastProcessedMessageId: "m1",
+      lastRunAt: 1000,
+      consecutiveFailures: 2,
+    });
+    upsertRetrospectiveState({
+      conversationId: "conv-keep-failures",
+      lastProcessedMessageId: "m2",
+      lastRunAt: 2000,
+    });
+
+    const state = getRetrospectiveState("conv-keep-failures");
+    expect(state?.lastProcessedMessageId).toBe("m2");
+    expect(state?.consecutiveFailures).toBe(2);
+  });
+
+  test("bumpRetrospectiveLastRunAt can record an incremented failure count", () => {
+    upsertRetrospectiveState({
+      conversationId: "conv-bump-failures",
+      lastProcessedMessageId: "m1",
+      lastRunAt: 1000,
+      consecutiveFailures: 1,
+    });
+    bumpRetrospectiveLastRunAt("conv-bump-failures", 2000, {
+      consecutiveFailures: 2,
+    });
+
+    const state = getRetrospectiveState("conv-bump-failures");
+    expect(state?.lastProcessedMessageId).toBe("m1");
+    expect(state?.lastRunAt).toBe(2000);
+    expect(state?.consecutiveFailures).toBe(2);
+  });
+
+  test("success upsert resets consecutiveFailures to 0", () => {
+    upsertRetrospectiveState({
+      conversationId: "conv-reset-failures",
+      lastProcessedMessageId: "m1",
+      lastRunAt: 1000,
+      consecutiveFailures: 2,
+    });
+    upsertRetrospectiveState({
+      conversationId: "conv-reset-failures",
+      lastProcessedMessageId: "m2",
+      lastRunAt: 2000,
+      consecutiveFailures: 0,
+    });
+
+    expect(
+      getRetrospectiveState("conv-reset-failures")?.consecutiveFailures,
+    ).toBe(0);
+  });
+
+  test("forkRetrospectiveState resets consecutiveFailures on the child", () => {
+    upsertRetrospectiveState({
+      conversationId: "conv-fork-fail-source",
+      lastProcessedMessageId: "",
+      lastRunAt: 1000,
+      rememberedLog: ["parent baseline"],
+      consecutiveFailures: 2,
+    });
+
+    forkRetrospectiveState({
+      database: getDb(),
+      sourceConversationId: "conv-fork-fail-source",
+      forkedConversationId: "conv-fork-fail-child",
+      forkedMessageIds: new Map(),
+      lastCopiedSourceMessageId: null,
+    });
+
+    expect(getRetrospectiveState("conv-fork-fail-child")?.rememberedLog).toEqual(
+      ["parent baseline"],
+    );
+    expect(
+      getRetrospectiveState("conv-fork-fail-child")?.consecutiveFailures,
+    ).toBe(0);
+  });
+
   test("bumpRetrospectiveLastRunAt seeds the empty-string sentinel with an empty log and preserves an existing log", () => {
     // Failure-only row: "" sentinel, empty log.
     bumpRetrospectiveLastRunAt("conv-failure-only", 1000);

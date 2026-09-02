@@ -27,13 +27,13 @@ export const MEMORY_RETROSPECTIVE_STATE_RELOCATION: RelocationSpec = {
 
 /**
  * Create the `memory_retrospective_state` table on the memory connection with
- * the schema from migration 245 plus the `remembered_log` column added by
- * migration 281, but WITHOUT the `REFERENCES conversations(id) ON DELETE
- * CASCADE` clause — SQLite foreign keys cannot span database files, and the
- * memory DB has no `conversations` table. The lost cascade is replaced by the
- * explicit delete in the `conversation-deleted` hook. Idempotent
- * (`IF NOT EXISTS`); exported so tests can stand up the memory-side schema
- * without running the full drain.
+ * the schema from migration 245 plus `remembered_log` (migration 281) and
+ * `consecutive_failures` (migration 376), but WITHOUT the
+ * `REFERENCES conversations(id) ON DELETE CASCADE` clause — SQLite foreign
+ * keys cannot span database files, and the memory DB has no `conversations`
+ * table. The lost cascade is replaced by the explicit delete in the
+ * `conversation-deleted` hook. Idempotent (`IF NOT EXISTS`); exported so
+ * tests can stand up the memory-side schema without running the full drain.
  */
 export function ensureMemoryRetrospectiveStateSchema(
   memoryRaw: Database,
@@ -43,7 +43,8 @@ export function ensureMemoryRetrospectiveStateSchema(
       conversation_id TEXT PRIMARY KEY,
       last_processed_message_id TEXT NOT NULL,
       last_run_at INTEGER NOT NULL,
-      remembered_log TEXT
+      remembered_log TEXT,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0
     )
   `);
 }

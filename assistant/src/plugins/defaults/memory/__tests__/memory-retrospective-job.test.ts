@@ -14,6 +14,7 @@ type StateRow = {
   lastProcessedMessageId: string;
   lastRunAt: number;
   rememberedLog?: string[];
+  consecutiveFailures?: number;
 } | null;
 
 let mockState: StateRow = null;
@@ -22,8 +23,13 @@ let stateUpserts: Array<{
   lastProcessedMessageId: string;
   lastRunAt: number;
   rememberedLog?: string[];
+  consecutiveFailures?: number;
 }> = [];
-let lastRunAtBumps: Array<{ conversationId: string; lastRunAt: number }> = [];
+let lastRunAtBumps: Array<{
+  conversationId: string;
+  lastRunAt: number;
+  consecutiveFailures?: number;
+}> = [];
 
 let newMessages: Array<{
   id: string;
@@ -145,17 +151,27 @@ mock.module("../../../../daemon/conversation-registry.js", () => ({
 }));
 
 mock.module("../memory-retrospective-state.js", () => ({
+  SKIP_AFTER_CONSECUTIVE_FAILURES: 3,
   getRetrospectiveState: (_id: string) => mockState,
   upsertRetrospectiveState: (args: {
     conversationId: string;
     lastProcessedMessageId: string;
     lastRunAt: number;
     rememberedLog?: string[];
+    consecutiveFailures?: number;
   }) => {
     stateUpserts.push(args);
   },
-  bumpRetrospectiveLastRunAt: (conversationId: string, lastRunAt: number) => {
-    lastRunAtBumps.push({ conversationId, lastRunAt });
+  bumpRetrospectiveLastRunAt: (
+    conversationId: string,
+    lastRunAt: number,
+    options?: { consecutiveFailures?: number },
+  ) => {
+    lastRunAtBumps.push({
+      conversationId,
+      lastRunAt,
+      consecutiveFailures: options?.consecutiveFailures,
+    });
   },
   // Cap behavior is unit-tested in memory-retrospective-state.test.ts; the
   // job tests only assert what the handler appends, so a plain concat keeps
@@ -794,7 +810,68 @@ describe("memoryRetrospectiveJob", () => {
     expect(outcome.kind).toBe("invoked");
     expect(stateUpserts).toHaveLength(1);
     expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(stateUpserts[0]!.consecutiveFailures).toBe(0);
     expect(lastRunAtBumps).toHaveLength(0);
+  });
+
+  test("first wake failure increments consecutiveFailures and leaves the cursor", async () => {
+    mockWakeResult = { invoked: false, reason: "timeout" };
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("wake_failed");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(lastRunAtBumps[0]!.consecutiveFailures).toBe(1);
+  });
+
+  test("second wake failure still leaves the cursor", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      consecutiveFailures: 1,
+    };
+    mockWakeResult = { invoked: false, reason: "timeout" };
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("wake_failed");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(lastRunAtBumps[0]!.consecutiveFailures).toBe(2);
+    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+  });
+
+  test("third consecutive failure advances the cursor and returns skipped_after_failures", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      consecutiveFailures: 2,
+    };
+    mockWakeResult = { invoked: false, reason: "timeout" };
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("skipped_after_failures");
+    if (outcome.kind === "skipped_after_failures") {
+      expect(outcome.cutoffMessageId).toBe("m3");
+    }
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(stateUpserts[0]!.consecutiveFailures).toBe(0);
+    expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: {
+          outcome: "skipped_after_failures",
+          reason: "skipped after 3 consecutive failures",
+        },
+      },
+    ]);
   });
 
   test("wake failed (invoked: false): pointer unchanged, lastRunAt bumped, orphan fork deleted", async () => {
