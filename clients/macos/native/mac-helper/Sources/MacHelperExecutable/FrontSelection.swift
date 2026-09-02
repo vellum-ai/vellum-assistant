@@ -45,13 +45,12 @@ enum FrontSelection {
     /// The most pasteboard text that is saved and put back around a copy.
     static let maxRestoredBytes = 256 * 1024
 
-    /// The pasteboard types a saved string gives back whole. Anything else
-    /// on the pasteboard, an image, a file, rich text beside its plain text,
-    /// is something the restore could only hand back as text, so no copy is
-    /// attempted over it. An empty pasteboard qualifies.
-    private static let restorableTypes: Set<NSPasteboard.PasteboardType> = [
-        .string, NSPasteboard.PasteboardType("NSStringPboardType"),
-    ]
+    /// The pasteboard types a saved string gives back whole: the one type
+    /// the snapshot below reads. Anything else on the pasteboard, an image,
+    /// a file, rich text beside its plain text, a legacy string type, is
+    /// something the restore could not put back, so no copy is attempted
+    /// over it. An empty pasteboard qualifies.
+    private static let restorableTypes: Set<NSPasteboard.PasteboardType> = [.string]
 
     /// Everything a read learned, the text aside: what the log carries. No
     /// user content in here; the bundle id and role name the application and
