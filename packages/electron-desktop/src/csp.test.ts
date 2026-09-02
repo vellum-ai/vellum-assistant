@@ -117,6 +117,10 @@ describe("CSP_POLICY", () => {
     expect(frameSrc).toContain("https://js.stripe.com");
     expect(frameSrc).toContain("https://*.js.stripe.com");
     expect(frameSrc).toContain("https://hooks.stripe.com");
+    // Link wallet frames. clients/web/index.html lists them too, but CSP
+    // intersects, so dropping them here blocks Link in the packaged app only.
+    expect(frameSrc).toContain("https://link.com");
+    expect(frameSrc).toContain("https://*.link.com");
 
     const connectSrc = directiveValue("connect-src")!;
     expect(connectSrc).toContain("https://api.stripe.com");
