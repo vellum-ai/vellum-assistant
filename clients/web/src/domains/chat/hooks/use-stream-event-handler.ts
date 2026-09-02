@@ -380,20 +380,6 @@ export function useStreamEventHandler(
         // subagent surfaces via the `subagent_event` envelope.
         case "usage_progress":
           break;
-        case "conversation_list_invalidated":
-          // Legacy macOS-only broadcast. Web receives the paired
-          // `sync_changed` (`conversationsList` umbrella for shape
-          // changes, `conversation:<id>:metadata` for content) directly
-          // and patches the cached list there. The hub scopes this
-          // event to `targetInterfaceId: "macos"`, so it should not
-          // reach web in practice — handling no-op'd as defense in
-          // depth in case a deployment runs an older assistant.
-          //
-          // TODO(electron-cutover): drop the case once macOS migrates
-          // to the Electron client and `conversation_list_invalidated`
-          // is retired from the event types entirely.
-          break;
-
         case "compaction_circuit_open":
           handleCompactionCircuitOpen(event, ctx);
           break;

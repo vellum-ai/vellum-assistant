@@ -128,6 +128,18 @@ export type ProviderMessageMetadata = z.infer<
 >;
 
 /**
+ * Whether every post a row names is among its deleted ones, which is exactly
+ * when the row-level `deletedAt` is warranted. A row naming no post is a
+ * single post by construction, so an empty list reads as fully deleted.
+ */
+export function everyPostDeleted(
+  postIds: readonly string[],
+  deletedIds: readonly string[] | undefined,
+): boolean {
+  return postIds.every((id) => deletedIds?.includes(id) === true);
+}
+
+/**
  * Parse and validate a serialized `ProviderMessageMetadata`, the counterpart of
  * `readSlackMetadata` for the neutral shape. Anything that does not parse or
  * does not validate reads as null.

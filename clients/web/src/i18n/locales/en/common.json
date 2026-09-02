@@ -804,7 +804,11 @@
     "body": "Speech providers, transcription, and API keys live in <modelsLink>Models & Services</modelsLink>."
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "Recommended off"
+    "recommendedOff": "Recommended off",
+    "userTranscriptLabel": "Show the words you say",
+    "userTranscriptDescription": "Live transcription while you speak.",
+    "assistantTranscriptLabel": "Show the words the assistant says",
+    "assistantTranscriptDescription": "Text alongside the spoken response."
   },
   "windowsMenuBar": {
     "developer": "Developer",
@@ -838,6 +842,24 @@
       "slack": "Download your assistant's avatar to upload as the app icon.",
       "discord": "Download your assistant's avatar to upload as the bot icon.",
       "telegram": "Download your assistant's avatar, then send it to BotFather with /setuserpic."
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "Strict",
+      "description": "Always ask before acting. No actions are auto-approved."
+    },
+    "conservative": {
+      "label": "Conservative",
+      "description": "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace."
+    },
+    "relaxed": {
+      "label": "Relaxed",
+      "description": "Auto-approve low and medium-risk actions, like changing files outside its own workspace."
+    },
+    "fullAccess": {
+      "label": "Full access",
+      "description": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
     }
   }
 }

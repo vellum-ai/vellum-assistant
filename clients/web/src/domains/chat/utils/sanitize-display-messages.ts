@@ -15,6 +15,7 @@ import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
+import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
@@ -69,6 +70,11 @@ function isInvalidMessage(message: DisplayMessage): boolean {
     return false;
   }
   if (message.queueStatus === "queued") {
+    return false;
+  }
+  // A row deleted on its channel renders as a tombstone whatever its content
+  // holds, so it is never a blank bubble.
+  if (isChannelDeleted(message)) {
     return false;
   }
 
@@ -129,6 +135,12 @@ function removeDuplicateTrailingAssistant(
   const prev = messages[messages.length - 2]!;
 
   if (last.role !== "assistant" || prev.role !== "assistant") {
+    return messages;
+  }
+  // A row deleted on its channel is a standalone boundary the daemon and the
+  // cross-page fold both keep; dropping either side here would hide the
+  // tombstone or the reply the channel still shows.
+  if (isChannelDeleted(last) || isChannelDeleted(prev)) {
     return messages;
   }
   if (!hasSubstantiveContent(last)) {

@@ -2,7 +2,7 @@
 
 All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
 
-Guardian-request cards (approvals, questions) ride this pipeline end to end -- the full lifecycle map is [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). Card actions (`actions[]`) are built **once, centrally** in the broadcaster's context resolvers (`resolveApprovalContext` / `resolveQuestionOptionsContext`); channel adapters render only. Adding buttons for a new request kind = a broadcaster context branch, never adapter parsing.
+Guardian-request cards (approvals, questions) ride this pipeline end to end -- the full lifecycle map is [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). Card actions (`actions[]`) are built **once, centrally** in the broadcaster's context resolvers (`resolveApprovalContext` / `resolveQuestionContext`); channel adapters render only. Adding buttons for a new request kind = a broadcaster context branch, never adapter parsing.
 
 When a notification flow creates a server-side conversation (e.g. guardian question conversations, task run conversations), the conversation and initial message **MUST** be persisted before the conversation-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
 

@@ -4,7 +4,11 @@ import {
 } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
-import type { ProviderMessageMetadata } from "../../provider-message-metadata.js";
+import { safeParseRecord } from "../../../util/json.js";
+import {
+  type ProviderMessageMetadata,
+  readProviderMessageMetadata,
+} from "../../provider-message-metadata.js";
 
 /**
  * Typed Slack message metadata stored flat in the `messages.metadata` column
@@ -263,6 +267,13 @@ export function readSlackMetadata(
   return result.success ? result.data : null;
 }
 
+/**
+ * Read a row's Slack view from its stored metadata, whichever envelope the
+ * row carries: the neutral `providerMeta` (every row the daemon authors, and
+ * the end state for every Slack row) or the nested `slackMeta` that inbound
+ * Slack rows still write. `allowFlatLegacy` also accepts the pre-envelope
+ * flat form.
+ */
 export function readSlackMetadataFromMessageMetadata(
   metadata: string | null | undefined,
   opts?: { allowFlatLegacy?: boolean },
@@ -284,6 +295,18 @@ export function readSlackMetadataFromMessageMetadata(
     return null;
   }
 
+  // A row the daemon authors (an assistant reply, its own reaction, a
+  // bot-authored backfill row) describes itself in the neutral envelope;
+  // its Slack view is derived from that, so every Slack reader serves both
+  // envelopes without a branch of its own.
+  const neutral = readProviderMessageMetadata(parent.providerMeta);
+  if (neutral !== null) {
+    const view = slackViewOfProviderMetadata(neutral);
+    if (view !== null) {
+      return view;
+    }
+  }
+
   const nested = parent.slackMeta;
   if (typeof nested === "string") {
     const parsedNested = readSlackMetadata(nested);
@@ -293,6 +316,80 @@ export function readSlackMetadataFromMessageMetadata(
   }
 
   return opts?.allowFlatLegacy ? readSlackMetadata(metadata) : null;
+}
+
+/**
+ * Slack's own fields, carried on the neutral envelope's passthrough by rows
+ * that write it. They have no neutral counterpart: the Slack transcript
+ * renderer is a provider renderer by design and reads them through the
+ * Slack view.
+ */
+const SLACK_ONLY_FIELDS = [
+  "channelName",
+  "timestampTimezone",
+  "timestampTimezoneLabel",
+  "speakerTimezoneLabel",
+  "actorTimezone",
+  "actorTimezoneLabel",
+  "actorTimezoneOffsetSeconds",
+  "slackFiles",
+] as const;
+
+/**
+ * The Slack view of a neutral envelope: the inverse of
+ * `slackMetadataAsProviderMetadata`, for the Slack renderers and the backfill
+ * readers. A reaction row's `channelTs` is the reacted message's ts, as the
+ * Slack envelope stores it. Null for a non-Slack envelope, and for one that
+ * names no post yet (a reply before its post-send reconciliation), which is
+ * also what the strict reader says of a pre-send Slack envelope.
+ */
+export function slackViewOfProviderMetadata(
+  meta: ProviderMessageMetadata,
+): SlackMessageMetadata | null {
+  if (meta.source !== "slack") {
+    return null;
+  }
+  const channelTs =
+    meta.eventKind === "reaction"
+      ? meta.reaction?.targetMessageId
+      : meta.messageId;
+  if (channelTs === undefined) {
+    return null;
+  }
+  const candidate: Record<string, unknown> = {
+    source: "slack",
+    channelId: meta.conversationExternalId,
+    channelTs,
+    ...(meta.threadId !== undefined ? { threadTs: meta.threadId } : {}),
+    ...(meta.displayName !== undefined
+      ? { displayName: meta.displayName }
+      : {}),
+    ...(meta.actorExternalId !== undefined
+      ? { actorExternalUserId: meta.actorExternalId }
+      : {}),
+    eventKind: meta.eventKind,
+    ...(meta.reaction
+      ? {
+          reaction: {
+            emoji: meta.reaction.emoji,
+            op: meta.reaction.op,
+            targetChannelTs: meta.reaction.targetMessageId,
+            ...(meta.reaction.actorDisplayName
+              ? { actorDisplayName: meta.reaction.actorDisplayName }
+              : {}),
+          },
+        }
+      : {}),
+    ...(meta.editedAt !== undefined ? { editedAt: meta.editedAt } : {}),
+    ...(meta.deletedAt !== undefined ? { deletedAt: meta.deletedAt } : {}),
+  };
+  for (const field of SLACK_ONLY_FIELDS) {
+    if (meta[field] !== undefined) {
+      candidate[field] = meta[field];
+    }
+  }
+  const result = slackMessageMetadataSchema.safeParse(candidate);
+  return result.success ? result.data : null;
 }
 
 /**
@@ -336,6 +433,43 @@ export function slackMetadataAsProviderMetadata(
       : {}),
     ...(meta.editedAt !== undefined ? { editedAt: meta.editedAt } : {}),
     ...(meta.deletedAt !== undefined ? { deletedAt: meta.deletedAt } : {}),
+  };
+}
+
+/**
+ * The neutral envelope of a reply row reserved with Slack's own pre-send
+ * envelope: a `slackMeta` naming the channel and thread but no `channelTs`,
+ * the id the post-send reconciliation fills in.
+ *
+ * Transitional: a reply the daemon reserves carries the neutral envelope from
+ * the start, so this serves only a reply still pending for the retry sweep
+ * that a daemon reserving Slack replies under `slackMeta` left there; the
+ * reconciliation stamps it and converges the row onto the neutral envelope,
+ * Slack's own fields riding the schema's passthrough. Delete once no such
+ * row can be pending. A `slackMeta` that already names its post is a
+ * reconciled row and reads as null here; `readSlackMetadata` serves it.
+ */
+export function providerMetadataOfPreSendSlackEnvelope(
+  envelope: Record<string, unknown>,
+): ProviderMessageMetadata | null {
+  if (typeof envelope.slackMeta !== "string") {
+    return null;
+  }
+  const { source, channelId, channelTs, threadTs, ...slackFields } =
+    safeParseRecord(envelope.slackMeta);
+  if (
+    source !== "slack" ||
+    typeof channelId !== "string" ||
+    channelTs !== undefined
+  ) {
+    return null;
+  }
+  return {
+    ...slackFields,
+    source: "slack",
+    conversationExternalId: channelId,
+    eventKind: "message",
+    ...(typeof threadTs === "string" ? { threadId: threadTs } : {}),
   };
 }
 

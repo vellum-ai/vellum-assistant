@@ -81,27 +81,47 @@ scrim.
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection
       callout, the magnifier, or a share sheet over the viewfinder.
-- [ ] The native preview offers no Live. In the installed app, with the plugin
-      drawing the preview, press and keep pressing the shutter. Nothing enters
-      Live: the pill stays "Photo", there is no hint under the shutter, and
-      letting go takes an ordinary photo, the same as a tap. VoiceOver reads no
-      keyboard shortcut on the shutter.
+- [ ] The native preview offers Live. In the installed app, with the plugin
+      drawing the preview, press and keep pressing the shutter. At half a second
+      the pill says Live and the hint changes to "Live · Tap to stop", the same
+      as in the browser, and letting go takes no photo. Tap to stop and the
+      shutter takes ordinary photos again.
+- [ ] Keeps pulse behind the native preview. With Live running, hold the phone
+      steady on a subject. Within a few seconds the crimson held-frame thumbnail
+      appears beside the photo strip and a frame lands in the transcript; move
+      to a new subject and another follows. Nothing ever pulsing is the
+      slow-bridge case in the section below, not a hang.
 
-### Live on iPhone, which is iOS Safari
+### Live on iPhone
 
-Live samples the room's own `<video>` element, and the installed app usually has
-none: the Capacitor plugin draws its preview behind the web view, so wherever
-that preview is up Live is not offered and the shutter is the plain photo button
-the checks above describe. Run this section in mobile Safari, where the
-viewfinder is always the web one.
+Live runs behind either viewfinder. In mobile Safari it samples the room's own
+`<video>`; in the installed app, where the Capacitor plugin draws its preview
+behind the web view and there is no element to read, it polls the plugin for a
+sample instead. Run this section in both: they are two different samplers
+feeding one gate, and only the installed app exercises the bridge.
 
-Two consequences worth knowing before filing a bug. Flash is native-only, so a
-session that can run these checks has no flash control in it: the flash checks
-above and these are never reachable in the same viewfinder. And in the installed
-app the web preview also appears as a fallback when a native start fails, which
-makes Live briefly available there; every later acquire retries the native
-start, so a flip that succeeds takes the preview back, and Live ends with it
-rather than the pill going on claiming a stream nothing is reading.
+The native path takes a PAIR of samples about 60ms apart on every poll. The
+first is only a motion baseline and is never kept; the second is the one judged
+and, on a keep, the exact frame uploaded. That is what lets the gate tell a
+steady camera from a moving one, which on a handheld phone is also the blur
+check. It costs two bridge round trips a second for as long as the hold lasts,
+which is the thing to watch for battery and heat below.
+
+- [ ] **Slow-bridge signature, if Live keeps nothing.** A pair whose two
+      captures land further apart than the gate's motion window is discarded
+      rather than offered, because a frame with no motion reading is keepable
+      while the camera is still moving. On a device that never manages the
+      window this looks like a Live session that runs and never pulses: pill on,
+      no held-frame thumbnail, nothing new in the transcript, and a tuning
+      readout whose decision count sits still while the camera is plainly open.
+      That is the expected refusal, not a hang. Each discarded pair logs
+      `[native-frame-source] pair outside the motion window, skipped:` with the
+      gap it measured and the limit; capture that number in the report, since it
+      is what decides whether the pairing needs retuning or the poll needs a
+      native sampler.
+- [ ] **Battery and thermals over a ten-minute call.** Hold Live for a sustained
+      stretch and note case temperature and battery drain against the same call
+      without Live. Two captures a second is the cost being measured.
 
 - [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
       second the haptic fires, the ring goes crimson, the pill says Live and the
@@ -139,6 +159,10 @@ rather than the pill going on claiming a stream nothing is reading.
 - [ ] The scrims reach the native preview. Point at a white wall: the top and
       bottom bands darken enough to read the pill and the row, and the middle of
       the frame stays untinted.
+- [ ] Live behind the native preview. Android runs the same poll as iOS, so run
+      the "Live on iPhone" section here too: the hold enters Live, keeps pulse
+      and land in the transcript, and a device that keeps nothing shows the
+      slow-bridge signature rather than hanging.
 - [ ] TalkBack says it once. Same check as VoiceOver above.
 
 ## Desktop web and macOS

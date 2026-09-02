@@ -2235,7 +2235,8 @@
     "turnTakingTitle": "Turn taking",
     "voiceShortcutSubtitle": "Press the shortcut to start or end a voice conversation, from anywhere in the app.",
     "voiceShortcutSubtitleDesktop": "Global shortcut for starting/ending a voice conversation.",
-    "voiceShortcutTitle": "Voice Mode Shortcut"
+    "voiceShortcutTitle": "Voice Mode Shortcut",
+    "captionsRecommendation": "We recommend keeping both off to start. It feels more like a real conversation."
   },
   "voicePickerCard": {
     "changeButton": "Change",
@@ -2308,5 +2309,32 @@
     "redirectHint": "Add this URL to your OAuth app's redirect settings.",
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Waiting for authorization..."
+  },
+  "sidebar": {
+    "general": "General",
+    "model": "Models & Services",
+    "integrations": "Integrations",
+    "credentials": "Credentials",
+    "notifications": "Notifications",
+    "voice": "Voice",
+    "sounds": "Sounds",
+    "privacy": "Permissions & Privacy",
+    "bookmarks": "Bookmarks",
+    "usage": "Usage",
+    "billingUsage": "Billing & Usage",
+    "community": "Community",
+    "debug": "Debug",
+    "developer": "Developer",
+    "logout": "Log Out",
+    "login": "Log In",
+    "title": "Settings"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "General",
+      "terminal": "Terminal",
+      "doctor": "Doctor",
+      "conversations": "Conversations"
+    }
   }
 }

@@ -36,6 +36,8 @@ import {
   screen,
 } from "@testing-library/react";
 
+import { Capacitor } from "@capacitor/core";
+
 import type { MainView } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
@@ -57,7 +59,14 @@ import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards
 import { publish } from "@/lib/event-bus";
 import { MIN_VERSION as SIGHT_MIN_VERSION } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
+import {
+  defaultFrameGateOverrides,
+  recordFrameGateDecision,
+  syncFrameGateDebugOptions,
+} from "@/lib/camera/frame-gate-debug";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useAuthStore, type AuthUser } from "@/stores/auth-store";
+import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
@@ -246,6 +255,26 @@ const realMessagesModule = await import("@/domains/chat/api/messages");
 mock.module("@/domains/chat/api/messages", () => ({
   ...realMessagesModule,
   uploadChatAttachment: uploadChatAttachmentSpy,
+}));
+
+// The native camera preview, off unless a case turns it on. `useVoiceCamera`
+// branches on `isNativeMobile()`, and the plugin behind it is reached only
+// there, so the default leaves every other case on the browser path.
+let nativeShell = false;
+spyOn(Capacitor, "isNativePlatform").mockImplementation(() => nativeShell);
+spyOn(Capacitor, "getPlatform").mockImplementation(() =>
+  nativeShell ? "ios" : "web",
+);
+mock.module("@capacitor-community/camera-preview", () => ({
+  CameraPreview: {
+    start: async () => {},
+    stop: async () => {},
+    capture: async () => ({ value: "" }),
+    captureSample: async () => ({ value: "" }),
+    flip: async () => {},
+    getSupportedFlashModes: async () => ({ result: [] }),
+    setFlashMode: async () => {},
+  },
 }));
 
 // Sight is left real except for the frame it holds. A kept frame is the end of
@@ -1221,10 +1250,9 @@ describe("VoiceRoom: top-right corner", () => {
   });
 
   test("offers no view options where Live cannot run", async () => {
-    // A native preview, or an assistant that predates `sight_frame`. Neither
-    // keeps a frame and neither gives the gate a decision to draw, so both
-    // switches would name something that cannot happen. The camera-capable
-    // seed is exactly that assistant.
+    // An assistant that predates `sight_frame` keeps no frame and gives the
+    // gate no decision to draw, so both switches would name something that
+    // cannot happen. The camera-capable seed is exactly that assistant.
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
     startOwnedSession("listening");
@@ -2761,5 +2789,128 @@ describe("VoiceRoom: camera", () => {
         "End voice session",
       ]);
     });
+  });
+});
+
+/**
+ * The gate's tuning readout is mounted for whichever viewfinder is open.
+ *
+ * It is the instrument the thresholds are set with, and the thresholds that
+ * matter most are the ones a handset runs, so the mount cannot be the thing
+ * that keeps it off a handset. The panel's own contents are covered by
+ * `frame-gate-hud.test.tsx`; what is under test here is only which viewfinders
+ * put it on screen.
+ */
+describe("VoiceRoom: the frame gate's tuning readout", () => {
+  const STAFF_USER: AuthUser = {
+    kind: "platform",
+    id: "user-1",
+    username: "staffer",
+    email: "staffer@example.com",
+    isStaff: true,
+    firstName: "Staff",
+    lastName: "Member",
+  };
+
+  const hud = () => screen.queryByTestId("frame-gate-hud");
+  const initialAuth = useAuthStore.getState();
+  const realRequestAnimationFrame = globalThis.requestAnimationFrame;
+  let pendingFrames: Array<() => void> = [];
+
+  beforeEach(() => {
+    pendingFrames = [];
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      pendingFrames.push(() => callback(0));
+      return pendingFrames.length;
+    }) as typeof globalThis.requestAnimationFrame;
+    useAuthStore.setState({ user: STAFF_USER });
+  });
+
+  afterEach(() => {
+    globalThis.requestAnimationFrame = realRequestAnimationFrame;
+    nativeShell = false;
+    restoreMediaDevices();
+    useCameraGateDebugStore.getState().setHudEnabled(false);
+    syncFrameGateDebugOptions(false, defaultFrameGateOverrides());
+    useAuthStore.setState(initialAuth, true);
+  });
+
+  /**
+   * Open the room's camera with the readout in a given state.
+   *
+   * The switch drives the record too, the way the app drives it: one bit
+   * reaches both, so a session with the panel off is also a session collecting
+   * nothing. Splitting them here would test a state the app cannot be in.
+   */
+  async function openCamera({
+    readout,
+    native,
+  }: {
+    readout: boolean;
+    native: boolean;
+  }): Promise<void> {
+    nativeShell = native;
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    useCameraGateDebugStore.getState().setHudEnabled(readout);
+    syncFrameGateDebugOptions(readout, defaultFrameGateOverrides());
+    render(<VoiceRoom />);
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+  }
+
+  /** Put one decision on the record, which is what the panel draws. */
+  function judgeOneFrame(): void {
+    act(() => {
+      recordFrameGateDecision(
+        "voice",
+        {
+          keep: true,
+          reason: "novel",
+          motion: 0.02,
+          novelty: 0.9,
+          detail: 22,
+        },
+        performance.now(),
+      );
+      const queued = pendingFrames;
+      pendingFrames = [];
+      for (const frame of queued) {
+        frame();
+      }
+    });
+  }
+
+  test("mounts over the native preview, which is where the thresholds are tuned", async () => {
+    await openCamera({ readout: true, native: true });
+
+    // Open, and open on the native layer: the shutter is up and the room has
+    // rendered no element of its own, which is what a native preview looks
+    // like from here. So this panel is the one sight surface a handset has to
+    // inspect the sampling with.
+    expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
+    expect(screen.queryByTestId("voice-room-viewfinder")).toBeNull();
+    judgeOneFrame();
+    expect(hud()).not.toBeNull();
+  });
+
+  test("mounts over the room's own viewfinder", async () => {
+    await openCamera({ readout: true, native: false });
+
+    expect(screen.queryByTestId("voice-room-viewfinder")).not.toBeNull();
+    judgeOneFrame();
+    expect(hud()).not.toBeNull();
+  });
+
+  test("stays absent over a native preview with the readout off", async () => {
+    await openCamera({ readout: false, native: true });
+
+    // The readout is a staff instrument, and an ordinary call must not carry a
+    // panel over the frame. Mounting for either viewfinder widened where the
+    // panel can appear, so this is the term left holding it back.
+    judgeOneFrame();
+    expect(hud()).toBeNull();
   });
 });

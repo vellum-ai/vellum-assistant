@@ -5,7 +5,7 @@ import { useTranslation } from "@/i18n";
 
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
-import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
+import { decodeBase64Payload } from "@/utils/base64";
 import { captureError } from "@/lib/sentry/capture-error";
 
 /**
@@ -40,7 +40,7 @@ async function loadText(
   }
 
   if (url.startsWith("data:")) {
-    const bytes = dataUriToUint8Array(url);
+    const bytes = decodeBase64Payload(url);
     if (!bytes) {
       throw new Error("Malformed data URI");
     }

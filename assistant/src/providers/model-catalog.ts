@@ -1006,17 +1006,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.06,
         },
       },
-      {
-        id: "accounts/fireworks/models/minimax-m2p7",
-        displayName: "MiniMax M2.7",
-        contextWindowTokens: 196608,
-        maxOutputTokens: 25000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
-      },
+      // MiniMax M2.7 (accounts/fireworks/models/minimax-m2p7) is
+      // intentionally absent: Fireworks has no serverless deployment for
+      // it (the model page claims serverless support, but the serving API
+      // returns 404).
       {
         id: "accounts/fireworks/models/deepseek-v4-pro-0813",
         displayName: "DeepSeek V4 Pro",

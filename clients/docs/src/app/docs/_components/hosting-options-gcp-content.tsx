@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
+import { DocsVideo } from "@/app/docs/_components/docs-video";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
@@ -42,6 +43,9 @@ export function HostingOptionsGcpContent() {
           VM, install Vellum on it, and reach it through a tunnel.
         </p>
         <div className="mb-8" />
+
+        <DocsVideo video="gcp-vm-setup" />
+
         <section id="what-you-need">
           <SectionHeading id="what-you-need" level={2}>
             What you need

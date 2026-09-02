@@ -44,16 +44,25 @@ interface RecordedOffer {
   readonly nowMs: number;
 }
 
-function createRecordingGate(): { gate: FrameGate; offers: RecordedOffer[] } {
+function createRecordingGate(): {
+  gate: FrameGate;
+  offers: RecordedOffer[];
+  /** Frames primed as a motion baseline. The video path primes none. */
+  observed: RecordedOffer[];
+} {
   const offers: RecordedOffer[] = [];
+  const observed: RecordedOffer[] = [];
   const gate: FrameGate = {
     offer(grid, nowMs) {
       offers.push({ grid, cells: Array.from(grid), nowMs });
       return STUB_DECISION;
     },
+    observe(grid, nowMs) {
+      observed.push({ grid, cells: Array.from(grid), nowMs });
+    },
     reset() {},
   };
-  return { gate, offers };
+  return { gate, offers, observed };
 }
 
 interface FakeVideoState {
@@ -358,6 +367,23 @@ describe("frame sampler extraction", () => {
     // The gate reads no clock of its own, so the sampler owes it one.
     expect(decisions[0]!.nowMs).toBe(offers[0]!.nowMs);
     expect(decisions[0]!.nowMs).toBeGreaterThan(0);
+  });
+
+  test("primes no motion baseline, because every frame it takes is a decision", () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const video = createFakeVideo();
+    const sampler = createFrameSampler({ gate, onDecision: () => {} });
+
+    sampler.start(video.element);
+    video.fireFrame();
+    video.fireFrame();
+    sampler.stop();
+
+    // This loop runs at the camera's own rate, so consecutive offers already
+    // sit inside the gate's motion window. The primer exists for the sampler
+    // that polls a bridge once a second, and nothing here should reach it.
+    expect(offers).toHaveLength(2);
+    expect(observed).toHaveLength(0);
   });
 
   test("hands the gate one reused grid rather than a buffer per frame", () => {

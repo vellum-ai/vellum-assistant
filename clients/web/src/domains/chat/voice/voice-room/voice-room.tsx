@@ -1032,10 +1032,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           and the thumbnail band own the floor, and the status pill owns the
           top centre. Inside `inset-0` because the room clips.
 
-          Camera-only and web-only. The native preview sits behind a
-          transparent web view and is sampled in Swift, so there are no
-          decisions here to read. */}
-      {cameraOpen && !camera.native ? (
+          Camera-only, and either viewfinder. Both feed the same gate, so both
+          have decisions to read, and this is the instrument the thresholds are
+          tuned with on the hardware that runs them. It draws inside the room's
+          own chrome, which the native shells keep visible in front of the
+          preview layer behind the web view. */}
+      {cameraOpen ? (
         <FrameGateHud
           surface="voice"
           className="absolute top-[calc(var(--room-chrome-top)+2.75rem)] z-10 max-h-[calc(100%-var(--room-chrome-top)-14rem)]"

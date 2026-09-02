@@ -6031,6 +6031,63 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(replyText).not.toContain("→ M");
   });
 
+  test("post-reconciliation: an assistant row on the neutral envelope renders chronologically too", () => {
+    // A Slack reply row is written with the neutral envelope every channel
+    // writes; the chronological assembler reads it through the envelope's
+    // Slack view, so it takes the same path as a legacy `slackMeta` row.
+    const SLACK_CHANNEL_ID_2 = "C0THREAD";
+    const ASSISTANT_TS = "1700001000.000111";
+    const REPLY_TS = "1700001020.000222";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const userReplyMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_2,
+      channelTs: REPLY_TS,
+      threadTs: ASSISTANT_TS,
+      displayName: "@alice",
+      eventKind: "message",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "assistant",
+        "Earlier reply",
+        1700001000_000,
+        JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: SLACK_CHANNEL_ID_2,
+            messageId: ASSISTANT_TS,
+            eventKind: "message",
+          }),
+        }),
+      ),
+      row(
+        "user",
+        "Following up",
+        1700001020_000,
+        metadataEnvelope(userReplyMeta),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(2);
+    const assistantText = (result![0].content[0] as { text: string }).text;
+    expect(assistantText).toContain("Earlier reply");
+    const replyText = (result![1].content[0] as { text: string }).text;
+    expect(replyText).toBe(
+      `[11/14/23 22:30 @alice]: ${slackExternal("Following up", "@alice")}`,
+    );
+  });
+
   test("post-reconciliation: assistant row appears in active-thread focus block", () => {
     // The active-thread focus block at
     // `conversation-runtime-assembly.ts:1387` filters out rows with null

@@ -3,10 +3,10 @@
  * facts so the inbound intercept and the assistant's own reaction records
  * cannot drift apart.
  *
- * Slack keeps its own envelope because its transcript context builds
- * provider history from rows and reads only `slackMeta`; every other channel
- * writes the neutral shape `readProviderMetadata` serves to channel-agnostic
- * readers.
+ * The assistant's own reaction rows write the neutral shape on every channel,
+ * as every row the daemon authors does. Inbound Slack reaction rows still
+ * write Slack's own envelope, which `readProviderMetadata` maps on read; the
+ * Slack transcript reads the neutral envelope through its Slack view.
  */
 import {
   pickReactionEmojiFields,
@@ -61,11 +61,11 @@ export function buildNeutralReactionMeta(
 }
 
 /**
- * The serialized metadata key a reaction row stores, chosen per channel:
- * Slack rows write `slackMeta`, every other channel the neutral
- * `providerMeta`. The one owner of that choice, so the three writers (the
- * inbound intercept, the assistant's own reaction records, and the
- * reaction-wake turn) cannot drift.
+ * The serialized metadata key an inbound reaction row stores, chosen per
+ * channel: Slack rows write `slackMeta`, every other channel the neutral
+ * `providerMeta`. The one owner of that choice, so the two inbound writers
+ * (the intercept and the reaction-wake turn) cannot drift. The assistant's
+ * own reaction records write `buildNeutralReactionMeta` directly.
  */
 export function buildReactionRowEnvelope(
   facts: ReactionEnvelopeFacts,

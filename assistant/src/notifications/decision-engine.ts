@@ -28,12 +28,8 @@ import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
-  buildAccessRequestContractText,
-  buildAccessRequestInviteDirective,
-  hasAccessRequestInstructions,
-  hasInviteFlowDirective,
-  isHandshakeOfferedForPayload,
-  parseAccessRequestPayload,
+  ensureAccessRequestInviteDirectiveInCopy,
+  stripAccessRequestReplyMechanicsFromCopy,
 } from "./access-request-copy.js";
 import {
   buildAccessRequestSeedContentBlocks,
@@ -733,131 +729,38 @@ function enforceToolApprovalSeedBlocks(
 }
 
 /**
- * Access-request notifications require deterministic instruction elements:
- * - Request-code approve/reject directive (when requestCode is present)
- * - Exact "open invite flow" phrase (always required)
- *
- * When requestCode IS present: use the full hasAccessRequestInstructions
- * check (approve+reject+invite) and append the complete contract text if
- * any element is missing.
- *
- * When requestCode is NOT present: still check for the invite-flow
- * directive and append it if missing. Per the documented contract, the
- * invite directive should always be present in access-request copy.
+ * Access-request copy never carries the request-code directive: that is the
+ * card's `plainTextFallback`, appended by a transport only when it sends
+ * text without buttons. A model's echo of it comes out on every channel.
+ * The invite-flow directive is the opposite case, context rather than
+ * mechanics (no surface has an invite button, so the sentence is the only
+ * way to start the flow), and model-composed copy that leaves it out gets
+ * it appended. The Surface card is ensured on every decision path, the
+ * same way tool approvals are.
  */
-function enforceAccessRequestInstructions(
+function enforceAccessRequestCopy(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
   if (signal.sourceEventName !== "ingress.access_request") {
     return decision;
   }
-
-  const rawCode = signal.contextPayload.requestCode;
-  const hasRequestCode =
-    typeof rawCode === "string" && rawCode.trim().length > 0;
-
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
-
-  if (hasRequestCode) {
-    const requestCode = rawCode.trim().toUpperCase();
-    const contractText = buildAccessRequestContractText(signal.contextPayload);
-    const handshakeOffered = isHandshakeOfferedForPayload(
-      parseAccessRequestPayload(signal.contextPayload),
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) {
+      continue;
+    }
+    nextCopy[channel] = ensureAccessRequestInviteDirectiveInCopy(
+      stripAccessRequestReplyMechanicsFromCopy(copy, signal.contextPayload),
     );
-
-    for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
-      const copy = nextCopy[channel];
-      if (!copy) {
-        continue;
-      }
-      nextCopy[channel] = ensureAccessRequestInstructionsInCopy(
-        copy,
-        requestCode,
-        contractText,
-        handshakeOffered,
-      );
-    }
-  } else {
-    // No requestCode — still enforce the invite-flow directive.
-    const inviteDirective = buildAccessRequestInviteDirective();
-
-    for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
-      const copy = nextCopy[channel];
-      if (!copy) {
-        continue;
-      }
-      nextCopy[channel] = ensureInviteFlowDirectiveInCopy(
-        copy,
-        inviteDirective,
-      );
-    }
   }
-
-  let result: NotificationDecision = {
-    ...decision,
-    renderedCopy: nextCopy,
-  };
-
-  // Ensure seedContentBlocks on all paths (LLM, assistant_tool, fallback).
-  result = ensureSeedContentBlocks(
-    result,
+  return ensureSeedContentBlocks(
+    { ...decision, renderedCopy: nextCopy },
     buildAccessRequestSeedContentBlocks(signal.contextPayload),
   );
-
-  return result;
-}
-
-function ensureAccessRequestInstructionsInCopy(
-  copy: RenderedChannelCopy,
-  requestCode: string,
-  contractText: string,
-  handshakeOffered: boolean,
-): RenderedChannelCopy {
-  const ensureText = (text: string | undefined): string => {
-    const base = typeof text === "string" ? text.trim() : "";
-    if (hasAccessRequestInstructions(base, requestCode, { handshakeOffered })) {
-      return base;
-    }
-    return base.length > 0 ? `${base}\n\n${contractText}` : contractText;
-  };
-
-  return {
-    ...copy,
-    body: ensureText(copy.body),
-    deliveryText: copy.deliveryText
-      ? ensureText(copy.deliveryText)
-      : copy.deliveryText,
-    conversationSeedMessage: copy.conversationSeedMessage
-      ? ensureText(copy.conversationSeedMessage)
-      : copy.conversationSeedMessage,
-  };
-}
-
-function ensureInviteFlowDirectiveInCopy(
-  copy: RenderedChannelCopy,
-  inviteDirective: string,
-): RenderedChannelCopy {
-  const ensureText = (text: string | undefined): string => {
-    const base = typeof text === "string" ? text.trim() : "";
-    if (hasInviteFlowDirective(base)) {
-      return base;
-    }
-    return base.length > 0 ? `${base}\n\n${inviteDirective}` : inviteDirective;
-  };
-
-  return {
-    ...copy,
-    body: ensureText(copy.body),
-    deliveryText: copy.deliveryText
-      ? ensureText(copy.deliveryText)
-      : copy.deliveryText,
-    conversationSeedMessage: copy.conversationSeedMessage
-      ? ensureText(copy.conversationSeedMessage)
-      : copy.conversationSeedMessage,
-  };
 }
 
 // ── Producer pass-through decisions ────────────────────────────────────
@@ -931,7 +834,7 @@ function applyDecisionGuards(
   decision = pinQuestionDeliveryCopy(decision, signal);
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceToolApprovalSeedBlocks(decision, signal);
-  decision = enforceAccessRequestInstructions(decision, signal);
+  decision = enforceAccessRequestCopy(decision, signal);
   decision = enforceGuardianRequestConversationAffinity(decision, signal);
   return enforceConversationAffinity(decision, signal.conversationAffinityHint);
 }

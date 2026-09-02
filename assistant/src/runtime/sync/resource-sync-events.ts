@@ -1,4 +1,3 @@
-import type { ConversationListInvalidatedReason } from "../../api/events/conversation-list-invalidated.js";
 import type { IdentityFields } from "../../daemon/handlers/identity.js";
 import {
   conversationMessagesSyncTag,
@@ -160,42 +159,23 @@ export function publishPluginsChanged(originClientId?: string): void {
  * delivered exclusively via the per-conversation `sync_changed` tag, which
  * web consumes by GET-and-patching the single row.
  */
-const SHAPE_CHANGING_REASONS: ReadonlySet<ConversationListInvalidatedReason> =
-  new Set(["created", "deleted", "reordered"]);
+type ConversationListReason =
+  | "created"
+  | "renamed"
+  | "deleted"
+  | "reordered"
+  | "seen_changed";
 
-/**
- * Publish the legacy `conversation_list_invalidated` broadcast to macOS
- * subscribers only.
- *
- * Web consumes `sync_changed` (`conversationsList` for shape changes,
- * `conversation:<id>:metadata` for content changes) directly and patches
- * the cached list in place — see `useConversationSync` for the consumer
- * side. macOS (`ConversationRestorer.swift`) still listens for the typed
- * broadcast.
- *
- * TODO(electron-cutover): remove this helper and all callers once macOS
- * migrates to the Electron client and consumes `sync_changed` directly.
- * At that point the `conversation_list_invalidated` message type can be
- * retired entirely.
- */
-function broadcastConversationListInvalidatedToMacos(
-  reason: ConversationListInvalidatedReason,
-): void {
-  broadcastMessage(
-    {
-      type: "conversation_list_invalidated",
-      reason,
-    },
-    undefined,
-    { targetInterfaceId: "macos" },
-  );
-}
+const SHAPE_CHANGING_REASONS: ReadonlySet<ConversationListReason> = new Set([
+  "created",
+  "deleted",
+  "reordered",
+]);
 
 export function publishConversationListChanged(
-  reason: ConversationListInvalidatedReason,
+  reason: ConversationListReason,
   originClientId?: string,
 ): void {
-  broadcastConversationListInvalidatedToMacos(reason);
   void publishSyncInvalidation([SYNC_TAGS.conversationsList], originClientId);
 }
 
@@ -220,14 +200,13 @@ export function publishConversationMessagesChanged(
 }
 
 export function publishConversationListAndMetadataChanged(
-  reason: ConversationListInvalidatedReason,
+  reason: ConversationListReason,
   conversationIds: string | string[],
   originClientId?: string,
 ): void {
   const ids = Array.isArray(conversationIds)
     ? conversationIds
     : [conversationIds];
-  broadcastConversationListInvalidatedToMacos(reason);
 
   // Shape-changing reasons (`created`, `deleted`, `reordered`) add or
   // remove rows or change the order of the paginated window — web must
@@ -260,9 +239,7 @@ export function publishConversationTitleChanged(
     conversationId,
   );
   // Renames are content-only — the paired typed `conversation_title_updated`
-  // event already carries the new title and patches the row in place on
-  // web; macOS receives the per-interface `conversation_list_invalidated`
-  // emitted from `broadcastMessage` (see `assistant-event-hub.ts`). The
+  // event already carries the new title and patches the row in place; the
   // `sync_changed` metadata tag is included as a belt-and-suspenders signal
   // for any sibling-tab consumer that missed the typed event.
   void publishSyncInvalidation(

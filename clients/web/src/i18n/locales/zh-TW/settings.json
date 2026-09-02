@@ -2209,7 +2209,8 @@
     "turnTakingTitle": "輪流說話",
     "voiceShortcutSubtitle": "在應用程式中的任何位置按下捷徑，以開始或結束語音對話。",
     "voiceShortcutSubtitleDesktop": "用於開始/結束語音對話的全域捷徑。",
-    "voiceShortcutTitle": "語音模式捷徑"
+    "voiceShortcutTitle": "語音模式捷徑",
+    "captionsRecommendation": "我們建議初次使用時保持關閉，體驗更接近真實對話。"
   },
   "voicePickerCard": {
     "changeButton": "變更",
@@ -2282,5 +2283,32 @@
     "redirectHint": "將此網址新增至您的 OAuth 應用程式的重新導向設定中。",
     "redirectUrl": "重新導向網址",
     "waitingAuthorization": "等待授權中..."
+  },
+  "sidebar": {
+    "general": "一般",
+    "model": "模型與服務",
+    "integrations": "整合",
+    "credentials": "憑證",
+    "notifications": "通知",
+    "voice": "語音",
+    "sounds": "聲音",
+    "privacy": "權限與隱私",
+    "bookmarks": "書籤",
+    "usage": "用量",
+    "billingUsage": "帳單與用量",
+    "community": "社群",
+    "debug": "偵錯",
+    "developer": "開發者",
+    "logout": "登出",
+    "login": "登入",
+    "title": "設定"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "一般",
+      "terminal": "終端機",
+      "doctor": "診斷",
+      "conversations": "對話"
+    }
   }
 }

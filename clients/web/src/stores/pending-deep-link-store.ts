@@ -84,12 +84,29 @@ export interface PendingDeepLinkState {
    * bound (see `consumePendingConversationList`).
    */
   pendingConversationListAt: number | null;
+  /**
+   * A share-inbox item the iOS Share Sheet asked to send (`deeplink.share`),
+   * or `null` if none. Inbox existence is the send-authorization: only this
+   * app's share extension can write the App Group, so the consumer may send
+   * on arrival the way a proven intent does. `parkedAt` lets the consumer
+   * bound how long a park that never drains stays a send.
+   */
+  pendingShareSend: PendingShareSend | null;
 }
 
 /** A proven send-into-thread request; see `pendingThreadSend`. */
 export interface PendingThreadSend {
   threadId: string;
   message: string;
+  parkedAt: number;
+}
+
+/** A share-inbox send request; see `pendingShareSend`. */
+export interface PendingShareSend {
+  threadId: string;
+  isNewDraft: boolean;
+  text: string;
+  files: File[];
   parkedAt: number;
 }
 
@@ -179,6 +196,17 @@ export interface PendingDeepLinkActions {
    * only the layout knows whether the landing it is on is still redirecting.
    */
   consumePendingConversationList: () => void;
+  /**
+   * Park a share-inbox send. A newer request replaces an older one: the
+   * most recent share wins, same as the composer message.
+   */
+  setPendingShareSend: (request: Omit<PendingShareSend, "parkedAt">) => void;
+  /**
+   * Read and clear the parked share send. Returns `null` when none is
+   * parked. Age is applied by `useShareInboxSend`, because an expired
+   * request is demoted to a composer pre-fill rather than dropped.
+   */
+  consumePendingShareSend: () => PendingShareSend | null;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -192,6 +220,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,
+    pendingShareSend: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -238,6 +267,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
         set({ pendingConversationListAt: null });
       }
     },
+    setPendingShareSend: (request) =>
+      set({ pendingShareSend: { ...request, parkedAt: Date.now() } }),
+    consumePendingShareSend: () => {
+      const parked = get().pendingShareSend;
+      if (parked !== null) {
+        set({ pendingShareSend: null });
+      }
+      return parked;
+    },
   }),
 );
 
@@ -256,5 +294,6 @@ export function __resetPendingDeepLinkForTesting(): void {
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,
+    pendingShareSend: null,
   });
 }

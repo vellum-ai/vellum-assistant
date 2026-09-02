@@ -61,7 +61,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
@@ -72,6 +71,7 @@ import {
   stopNativeVoiceCamera,
 } from "@/runtime/native-voice-camera";
 import { useVoicePrefsStore, type FlashMode } from "@/stores/voice-prefs-store";
+import { decodeBase64Payload } from "@/utils/base64";
 
 /** Which way the camera points. `environment` is the rear/world-facing one. */
 export type VoiceCameraFacing = "environment" | "user";
@@ -93,6 +93,14 @@ export type VoiceCameraError =
  * model-readable image without depending on the camera's negotiated size.
  */
 const CAPTURE_JPEG_QUALITY = 0.85;
+
+/**
+ * The same quality as a percentage, which is the unit the native bridge takes.
+ *
+ * Shared so a photo and a Live keep off the same camera are encoded alike: the
+ * two land side by side in the transcript and are read by the same model.
+ */
+export const NATIVE_CAPTURE_QUALITY = Math.round(CAPTURE_JPEG_QUALITY * 100);
 
 // Ideals keep lower-resolution cameras usable while asking capable devices for
 // enough detail to fill a phone-sized viewfinder without visible upscaling.
@@ -736,14 +744,11 @@ export function useVoiceCamera(
 
     if (sourceRef.current === "native") {
       const encoded = await captureNativeVoiceCameraFrame(
-        Math.round(CAPTURE_JPEG_QUALITY * 100),
+        NATIVE_CAPTURE_QUALITY,
       );
       if (encoded) {
         try {
-          const dataUri = encoded.startsWith("data:")
-            ? encoded
-            : `data:image/jpeg;base64,${encoded}`;
-          const bytes = dataUriToUint8Array(dataUri);
+          const bytes = decodeBase64Payload(encoded);
           if (bytes) {
             file = new File([bytes], filename, {
               type: "image/jpeg",
