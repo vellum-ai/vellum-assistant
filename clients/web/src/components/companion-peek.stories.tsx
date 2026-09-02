@@ -182,15 +182,6 @@ export const HeldBelow: Story = {
   args: { held: true, edge: "bottom" },
 };
 
-/** Sideways off the ends. */
-export const HeldLeft: Story = {
-  args: { held: true, edge: "left" },
-};
-
-export const HeldRight: Story = {
-  args: { held: true, edge: "right" },
-};
-
 /** The surface's real clock, at life size, on the busiest backdrop. */
 export const LifeSize: Story = {
   args: {

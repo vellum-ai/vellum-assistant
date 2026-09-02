@@ -13,7 +13,6 @@ import {
   bodySpanAt,
   collapsedCollar,
   collarPath,
-  crossSectionOf,
   peekDelayMs,
   peekGeometry,
   pickEdge,
@@ -112,18 +111,18 @@ describe("the gap between peeks", () => {
 });
 
 describe("which edge the creature comes out of", () => {
-  test("is one of the four, a quarter each", () => {
+  test("is a coin toss between the top and the bottom", () => {
     expect(pickEdge(() => 0)).toBe("top");
-    expect(pickEdge(() => 0.26)).toBe("right");
-    expect(pickEdge(() => 0.51)).toBe("bottom");
-    expect(pickEdge(() => 0.76)).toBe("left");
-    expect(pickEdge(() => 0.999)).toBe("left");
+    expect(pickEdge(() => 0.49)).toBe("top");
+    expect(pickEdge(() => 0.5)).toBe("bottom");
+    expect(pickEdge(() => 0.999)).toBe("bottom");
   });
 
-  test("is always among the four when drawn at random", () => {
-    for (let i = 0; i < 100; i++) {
-      expect(PEEK_EDGES).toContain(pickEdge());
-    }
+  /** Each draw is its own, so the same edge can come up twice running. */
+  test("is never made to alternate", () => {
+    const draws = Array.from({ length: 200 }, () => pickEdge());
+    expect(draws.some((edge, i) => i > 0 && edge === draws[i - 1])).toBe(true);
+    expect(new Set(draws)).toEqual(new Set(PEEK_EDGES));
   });
 
   /** Each edge turns the frame, so the eyes clear whichever rim they cross. */
@@ -148,8 +147,6 @@ describe("which edge the creature comes out of", () => {
     }
     expect(turns.top).toBe("rotate(0deg)");
     expect(turns.bottom).toBe("rotate(180deg)");
-    expect(turns.left).toBe("rotate(-90deg)");
-    expect(turns.right).toBe("rotate(90deg)");
   });
 });
 
@@ -196,13 +193,6 @@ describe("the collar between the capsule and the creature", () => {
     }
   });
 
-  test("is the capsule's width on the top and bottom, its height on the ends", () => {
-    expect(crossSectionOf("top", CAPSULE)).toBe(28);
-    expect(crossSectionOf("bottom", CAPSULE)).toBe(28);
-    expect(crossSectionOf("left", CAPSULE)).toBe(10);
-    expect(crossSectionOf("right", CAPSULE)).toBe(10);
-  });
-
   /** In the capsule's colour, so it is more of the same shape. */
   test("is drawn in the accent", () => {
     const { container } = render(
@@ -212,7 +202,7 @@ describe("the collar between the capsule and the creature", () => {
         capsule={CAPSULE}
         enabled
         held
-        edge="left"
+        edge="bottom"
       />,
     );
     const collar = peekOf(container)?.querySelector(

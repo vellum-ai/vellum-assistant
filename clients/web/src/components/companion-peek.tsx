@@ -27,13 +27,15 @@ import {
  * eyes ride the edge on every creature rather than a fixed slice of body) and
  * the same choreography: a springy rise, a hold, and a quick duck.
  *
- * **From any edge.** Each peek picks one of the capsule's four edges at
- * random and the creature comes out of that one, turned so its crown faces
- * out: upright over the top, hanging upside down under the bottom, sideways
- * off either end. That is what the chat page does when its hello hangs off
- * the composer's bottom rim, and it is what keeps the eyes riding the rim
- * whichever edge they clear: the geometry is measured once, for the top, and
- * the whole frame is turned.
+ * **Over the top or under the bottom.** Each peek draws one of the two at
+ * random, independently of the last, so it can come up the same way twice
+ * running and the next one is never a foregone conclusion. Under the bottom
+ * the creature hangs upside down, which is what the chat page does when its
+ * hello hangs off the composer's bottom rim. The geometry is measured once,
+ * for the top, and the whole frame is turned over for the bottom, which is
+ * what keeps the eyes riding the rim either way. The capsule's ends are not
+ * edges it comes out of: a creature cut sideways is far taller than the
+ * capsule's end, and it read as a separate thing beside the pill.
  *
  * **The capsule stretches into the creature.** A creature rising out of a pill
  * that holds still reads as two things, one behind the other; a second pill
@@ -74,15 +76,15 @@ export interface PeekInterval {
 }
 
 /** The edges the creature can come out of. */
-export const PEEK_EDGES = ["top", "right", "bottom", "left"] as const;
+export const PEEK_EDGES = ["top", "bottom"] as const;
 export type PeekEdge = (typeof PEEK_EDGES)[number];
 
 /**
- * One draw of an edge. `random` is a parameter so the four quarters can be
- * stated as a test.
+ * One draw of an edge, a coin toss. `random` is a parameter so the two halves
+ * can be stated as a test.
  */
 export const pickEdge = (random: () => number = Math.random): PeekEdge =>
-  PEEK_EDGES[Math.min(3, Math.floor(random() * 4))]!;
+  random() < 0.5 ? "top" : "bottom";
 
 /** How long the creature stays up, in milliseconds, before ducking. */
 export const PEEK_HOLD_MS = 1600;
@@ -380,9 +382,8 @@ export const bodySpanAt = (
  * past it.
  *
  * The base is the capsule's cross-section, centred, on the box's bottom
- * edge: that line is the capsule's own centre line, where it is its full
- * cross-section on every edge, so the base is under the capsule whatever the
- * edge. The far end is the creature's span at the cut, `reach` past the
+ * edge: that line is the capsule's own centre line, so the base is under the
+ * capsule. The far end is the creature's span at the cut, `reach` past the
  * capsule's edge. Each side is one S-curve between them, vertical at both
  * ends, which is what makes the join read as the pill pulled rather than the
  * pill plus a wedge.
@@ -390,10 +391,9 @@ export const bodySpanAt = (
  * Collapsed, the far end sits on the base line at the base's own width (see
  * {@link collapsedCollar}), so the collar has no area and is inside the
  * capsule. The same points either way, so the browser can tween between the
- * two, and the far end widens as it travels: a far end that started at the
- * creature's width would show as a sliver the creature's width across the
- * capsule's end for the first frames of a rise, since across the ends the
- * creature is wider than the capsule.
+ * two, and the far end widens as it travels rather than starting at the
+ * creature's width: that is what keeps the first frames of a rise from
+ * showing a sliver of collar wider than the capsule.
  */
 export const collarPath = (
   width: number,
@@ -438,50 +438,30 @@ export const collapsedCollar = (
  * for each edge, and how it is turned so its rim side faces the capsule.
  *
  * `offset` is how far the box's rim side sits past the capsule's edge:
- * negative reaches inside. The box is placed against the edge and turned,
- * which carries any clip with it: overflow is cut in the box's own frame, so
- * a turned box still hides everything past its rim side. The slot the box
- * turns inside is the box's own size with the axes swapped for the ends, so
- * the turned box fills it exactly.
+ * negative reaches inside. For the bottom the box is placed under the
+ * capsule and turned over, which carries any clip with it: overflow is cut in
+ * the box's own frame, so a turned box still hides everything past its rim
+ * side.
  */
 export const frameFor = (
   edge: PeekEdge,
   box: { width: number; height: number },
   offset: number,
 ): { slot: CSSProperties; turn: number } => {
-  const across = { width: box.width, height: box.height };
-  const along = { width: box.height, height: box.width };
-  const centreX = { left: "50%", marginLeft: -box.width / 2 };
-  const centreY = { top: "50%", marginTop: -box.width / 2 };
+  const slot = {
+    width: box.width,
+    height: box.height,
+    left: "50%",
+    marginLeft: -box.width / 2,
+  };
   const past = `calc(100% + ${offset}px)`;
-  switch (edge) {
-    case "top":
-      return { slot: { ...across, ...centreX, bottom: past }, turn: 0 };
-    case "bottom":
-      return { slot: { ...across, ...centreX, top: past }, turn: 180 };
-    case "left":
-      return { slot: { ...along, ...centreY, right: past }, turn: -90 };
-    case "right":
-      return { slot: { ...along, ...centreY, left: past }, turn: 90 };
-  }
+  return edge === "top"
+    ? { slot: { ...slot, bottom: past }, turn: 0 }
+    : { slot: { ...slot, top: past }, turn: 180 };
 };
 
-/**
- * The capsule's cross-section on an edge: its width across the top and
- * bottom, its height across the ends.
- */
-export const crossSectionOf = (edge: PeekEdge, capsule: PeekCapsule): number =>
-  edge === "top" || edge === "bottom" ? capsule.width : capsule.height;
-
-/** The axis a window moves along to go out of an edge, and which way. */
-const outward = (edge: PeekEdge): { axis: "x" | "y"; sign: number } =>
-  edge === "top"
-    ? { axis: "y", sign: -1 }
-    : edge === "bottom"
-      ? { axis: "y", sign: 1 }
-      : edge === "left"
-        ? { axis: "x", sign: -1 }
-        : { axis: "x", sign: 1 };
+/** Which way is out of an edge, along the capsule's height. */
+const outwardSign = (edge: PeekEdge): number => (edge === "top" ? -1 : 1);
 
 /**
  * A box measured for the top, placed and turned for `edge`: the slot, and
@@ -619,7 +599,6 @@ export function CompanionPeek({
     left: HEADROOM + span.left,
     right: HEADROOM + span.right,
   };
-  const move = outward(edge);
 
   return (
     // Sized as the capsule's own box and placed where the caller puts the
@@ -642,7 +621,7 @@ export function CompanionPeek({
       <motion.div
         className="absolute inset-0"
         initial={false}
-        animate={{ [move.axis]: up ? PEEK_STRETCH * move.sign : 0 }}
+        animate={{ y: up ? PEEK_STRETCH * outwardSign(edge) : 0 }}
         transition={transition}
       >
         <Turned
@@ -688,16 +667,12 @@ export function CompanionPeek({
               d: up
                 ? collarPath(
                     collar.width,
-                    crossSectionOf(edge, capsule),
+                    capsule.width,
                     spanInCollar,
                     inset,
                     PEEK_STRETCH + COLLAR_LAP,
                   )
-                : collapsedCollar(
-                    collar.width,
-                    crossSectionOf(edge, capsule),
-                    inset,
-                  ),
+                : collapsedCollar(collar.width, capsule.width, inset),
             }}
             transition={transition}
           />
