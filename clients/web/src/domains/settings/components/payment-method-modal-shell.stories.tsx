@@ -63,30 +63,8 @@ export const ReplaceIdle: Story = {
   },
 };
 
-/**
- * A card the platform has digits but no brand for: the subtitle names the
- * ending instead of the network.
- */
-export const ReplaceCardWithoutBrand: Story = {
-  args: {
-    mode: "replace",
-    cardOnFile: { brand: null, last4: "4242", expMonth: 4, expYear: 2042 },
-  },
-};
-
-/**
- * The mirror case, a brand with no digits: the subtitle names the network on
- * its own rather than trailing four empty dots.
- */
-export const ReplaceCardWithoutLast4: Story = {
-  args: {
-    mode: "replace",
-    cardOnFile: { brand: "visa", last4: null, expMonth: 4, expYear: 2042 },
-  },
-};
-
-/** Replacing a card we know nothing about: the subtitle names none of it. */
-export const ReplaceUnknownCard: Story = {
+/** Replacing a card we hold no details for: the subtitle names none of it. */
+export const ReplaceNoCardDetails: Story = {
   args: {
     mode: "replace",
     cardOnFile: null,
