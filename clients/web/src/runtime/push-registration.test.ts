@@ -400,6 +400,16 @@ describe("pushNotificationActionPerformed tap routing", () => {
     expect(published).toEqual([{ threadId: "conv-456" }]);
   });
 
+  test("routes a Go to Conversation action the same as a tap", async () => {
+    await registerForRemotePush("assistant-1");
+    actionPerformedHandler?.({
+      actionId: "view",
+      notification: { data: { deep_link: { conversationId: "conv-view" } } },
+    });
+
+    expect(published).toEqual([{ threadId: "conv-view" }]);
+  });
+
   test("publishes nothing for absent or malformed data", async () => {
     await registerForRemotePush("assistant-1");
     tap(undefined);
