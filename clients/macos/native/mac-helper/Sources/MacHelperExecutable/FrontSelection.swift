@@ -45,12 +45,12 @@ enum FrontSelection {
     /// The most pasteboard text that is saved and put back around a copy.
     static let maxRestoredBytes = 256 * 1024
 
-    /// Pasteboard types that mean the user has something copied which a
-    /// string cannot stand in for: an image, a file, a document. A copy
-    /// would replace it with text and the restore could only give the text
-    /// back, so no copy is attempted over these.
-    private static let irreplaceableTypes: [NSPasteboard.PasteboardType] = [
-        .tiff, .png, .pdf, .fileURL, .fileContents,
+    /// The pasteboard types a saved string gives back whole. Anything else
+    /// on the pasteboard, an image, a file, rich text beside its plain text,
+    /// is something the restore could only hand back as text, so no copy is
+    /// attempted over it. An empty pasteboard qualifies.
+    private static let restorableTypes: Set<NSPasteboard.PasteboardType> = [
+        .string, NSPasteboard.PasteboardType("NSStringPboardType"),
     ]
 
     /// Everything a read learned, the text aside: what the log carries. No
@@ -201,7 +201,7 @@ enum FrontSelection {
         }
         let pasteboard = NSPasteboard.general
         let types = pasteboard.types ?? []
-        if types.contains(where: { irreplaceableTypes.contains($0) }) {
+        if types.contains(where: { !restorableTypes.contains($0) }) {
             return .skipped
         }
         let savedData = types.contains(.string) ? pasteboard.data(forType: .string) : nil
