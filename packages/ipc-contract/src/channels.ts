@@ -144,6 +144,9 @@ export const CONNECTIVITY_RETRY = "vellum:connectivity:retry";
 export const NOTIFICATIONS_SHOW = "vellum:notifications:show";
 export const NOTIFICATIONS_ACTION = "vellum:notifications:action";
 
+// Window attention
+export const WINDOW_ATTENTION = "vellum:window:attention";
+
 // Bundle confirm
 export const BUNDLE_CONFIRM_GET_DATA = "vellum:bundleConfirm:getData";
 export const BUNDLE_CONFIRM_RESPOND = "vellum:bundleConfirm:respond";
