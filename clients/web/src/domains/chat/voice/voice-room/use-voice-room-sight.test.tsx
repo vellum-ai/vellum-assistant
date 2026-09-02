@@ -1028,7 +1028,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     await flush();
 
     // Availability going is the third way consent ends, and it ends it for the
-    // same reason: there is no longer anywhere honest for the frame to land.
+    // same reason: an unavailable Live has nowhere honest to land a frame.
     act(() => {
       useLiveVoiceStore.getState().noteSightFrameRefused(true);
     });
@@ -1782,7 +1782,7 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
     expect(nativeStop).not.toHaveBeenCalled();
   });
 
-  test("says nothing to a poll that is no longer running", () => {
+  test("says nothing to a stopped poll", () => {
     const { view } = renderSight({ nativePreview: true, live: true });
 
     act(() => {

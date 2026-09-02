@@ -69,6 +69,16 @@
  *   taken after.
  * - It does not upload. It hands the offered JPEG back with the decision and
  *   the owner decides what a keep is worth.
+ * - It does not issue bridge calls concurrently, and neither does any other
+ *   instance of it: the plugin holds one capture callback, so every sample
+ *   queues behind the last (see `captureSlot`). A bridge that answers slowly
+ *   therefore slows the poll rather than corrupting it, and the pair's own
+ *   bound turns the added delay into a discard rather than a false accept. A
+ *   bridge that never answers at all stops the poll for good, which a stop and
+ *   a restart do not clear: there is no cure for it here, because releasing the
+ *   queue would issue exactly the concurrent call the queue exists to prevent,
+ *   and a camera that has stopped answering has nothing more to give. It looks
+ *   like the slow-bridge case, a Live session that keeps nothing.
  * - It does not watch the app's lifecycle. Backgrounding is the owner's to
  *   answer, through the deduped `app.hidden` bus edge that also covers the
  *   Capacitor shells (see `docs/EVENT_BUS.md`), and the owner answers it by
@@ -231,6 +241,27 @@ async function decodeWithImageBitmap(blob: Blob): Promise<DecodedFrame | null> {
 }
 
 /**
+ * The one bridge call allowed to be outstanding, process-wide.
+ *
+ * `@capacitor-community/camera-preview` is not reentrant on either platform:
+ * Android keeps a single snapshot callback id and iOS a single sample-buffer
+ * completion block, so a second `captureSample` issued beside a first
+ * overwrites the slot the first is waiting on. The older request then never
+ * answers, or answers with the newer request's picture, and a frame of one
+ * moment is judged as another.
+ *
+ * Nothing about a run boundary makes that safe: an invalidate leaves the call
+ * it abandoned still running on the bridge, and a source swapped out by the
+ * room leaves one behind too. So the queue is module scope rather than per
+ * source or per generation, which is the only scope the plugin's own single
+ * slot actually has.
+ *
+ * Generations still decide what a RESULT is worth. This only decides when a
+ * call may be issued.
+ */
+let captureSlot: Promise<void> = Promise.resolve();
+
+/**
  * Create a native frame source.
  *
  * Nothing is polled until {@link NativeFrameSource.start}, so a source can be
@@ -274,13 +305,40 @@ export function createNativeFrameSource(
    */
   let samplingGeneration: number | null = null;
 
+  /**
+   * Issue one bridge call once the slot is free, and report when it was
+   * actually issued.
+   *
+   * The request time is read inside the queued work, not at the moment this is
+   * called. A call waiting behind an earlier one has not been made yet, and
+   * stamping it on arrival would date its picture to before the camera was
+   * asked for it, which would inflate the pair's gap and discard a pair that
+   * was really taken back to back.
+   */
+  function issueCapture(): Promise<{
+    encoded: string | null;
+    requestedAtMs: number;
+  }> {
+    const issued = captureSlot.then(async () => {
+      const requestedAtMs = now();
+      const encoded = await captureSample();
+      return { encoded, requestedAtMs };
+    });
+    // The queue survives whatever this call does, so one refusal cannot wedge
+    // every later sample behind it.
+    captureSlot = issued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return issued;
+  }
+
   /** Ask the bridge for one sample and bound when its picture was taken. */
   async function captureStamped(
     run: number,
     bound: CaptureBound,
   ): Promise<CapturedSample | null> {
-    const requestedAtMs = now();
-    const encoded = await captureSample();
+    const { encoded, requestedAtMs } = await issueCapture();
     const capturedAtMs = bound === "earliest" ? requestedAtMs : now();
     // A stop, a flip, or a camera mid-teardown answers with nothing. That is
     // the ordinary shape of this call and not a reason to end the poll.

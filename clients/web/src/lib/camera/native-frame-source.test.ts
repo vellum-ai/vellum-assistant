@@ -39,6 +39,7 @@ import {
 import type { FrameSource } from "./frame-sampler";
 import {
   createNativeFrameSource,
+  type NativeFrameSourceOptions,
   NATIVE_FRAME_SAMPLE_INTERVAL_MS,
   NATIVE_PAIR_MAX_GAP_MS,
   NATIVE_PAIR_SPACING_MS,
@@ -135,7 +136,7 @@ function grayReadback(valueFor: (cell: number) => number): Uint8ClampedArray {
  * several promise turns behind the timer that started it.
  */
 async function settle(): Promise<void> {
-  for (let turn = 0; turn < 10; turn++) {
+  for (let turn = 0; turn < 20; turn++) {
     await Promise.resolve();
   }
 }
@@ -215,10 +216,26 @@ interface CaptureStub {
   setLatency(ms: number): void;
   /** The same, for the next capture only. */
   latencyNext(ms: number): void;
+  /** Captures outstanding right now. */
+  inFlight(): number;
+  /** The most that were ever outstanding at once. */
+  maxConcurrent(): number;
 }
+
+/**
+ * Every stub built by a case, so the shared bridge queue can be drained.
+ *
+ * The queue is module scope in the source, which is the point of it: the
+ * plugin has one callback and every instance shares it. A case that leaves a
+ * capture in flight would leave the queue blocked for every case after it, so
+ * the teardown releases what the case held.
+ */
+let captureStubs: CaptureStub[] = [];
 
 function createCaptureStub(): CaptureStub {
   let calls = 0;
+  let inFlight = 0;
+  let maxConcurrent = 0;
   let sample = btoa("jpeg-bytes");
   let held: ((value: string | null) => void) | null = null;
   let holdNext = false;
@@ -227,31 +244,51 @@ function createCaptureStub(): CaptureStub {
   let latency = 0;
   let latencyOnce: number | null = null;
 
-  return {
+  /** Count this call as outstanding until its promise settles. */
+  function tracked(promise: Promise<string | null>): Promise<string | null> {
+    inFlight += 1;
+    maxConcurrent = Math.max(maxConcurrent, inFlight);
+    return promise.then(
+      (value) => {
+        inFlight -= 1;
+        return value;
+      },
+      (err: unknown) => {
+        inFlight -= 1;
+        throw err;
+      },
+    );
+  }
+
+  const stub: CaptureStub = {
     captureSample: () => {
       calls += 1;
       if (rejectNext) {
         rejectNext = false;
-        return Promise.reject(new Error("camera stopping"));
+        return tracked(Promise.reject(new Error("camera stopping")));
       }
       if (emptyNext) {
         emptyNext = false;
-        return Promise.resolve(null);
+        return tracked(Promise.resolve(null));
       }
       if (holdNext) {
         holdNext = false;
-        return new Promise<string | null>((resolve) => {
-          held = resolve;
-        });
+        return tracked(
+          new Promise<string | null>((resolve) => {
+            held = resolve;
+          }),
+        );
       }
       const takes = latencyOnce ?? latency;
       latencyOnce = null;
       if (takes > 0) {
-        return new Promise<string | null>((resolve) => {
-          setTimeout(() => resolve(sample), takes);
-        });
+        return tracked(
+          new Promise<string | null>((resolve) => {
+            setTimeout(() => resolve(sample), takes);
+          }),
+        );
       }
-      return Promise.resolve(sample);
+      return tracked(Promise.resolve(sample));
     },
     setLatency(ms) {
       latency = ms;
@@ -276,7 +313,11 @@ function createCaptureStub(): CaptureStub {
     emptyNext() {
       emptyNext = true;
     },
+    inFlight: () => inFlight,
+    maxConcurrent: () => maxConcurrent,
   };
+  captureStubs.push(stub);
+  return stub;
 }
 
 interface DecodeStub {
@@ -350,7 +391,14 @@ beforeEach(() => {
   canvasContexts = stubCanvasContexts(() => readback);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Free the shared bridge queue before the next case, whatever this one left
+  // on it. Nothing in the source clears it, deliberately: see `captureSlot`.
+  for (const stub of captureStubs) {
+    stub.releaseHeld();
+  }
+  await settle();
+  captureStubs = [];
   jest.useRealTimers();
   HTMLCanvasElement.prototype.getContext = realGetContext;
 });
@@ -796,8 +844,8 @@ describe("native frame source run generation", () => {
     source.stop();
   });
 
-  test("samples on the first tick of a run started over a stranded sample", async () => {
-    const { gate, offers } = createRecordingGate();
+  test("queues a new run's sample behind a stranded one rather than beside it", async () => {
+    const { gate } = createRecordingGate();
     const capture = createCaptureStub();
     const decode = createDecodeStub();
     const source = createNativeFrameSource({
@@ -818,9 +866,17 @@ describe("native frame source run generation", () => {
     await pollTimes(1);
 
     // The stranded sample holds its own run's claim, not the source's, so the
-    // new run is not blind until a capture nobody is waiting for settles.
-    expect(capture.callCount()).toBe(3);
-    expect(offers).toHaveLength(1);
+    // new run's tick is not dropped on arrival. What it cannot do is reach the
+    // bridge: the plugin has one capture callback and the stranded call still
+    // owns it, so issuing beside it would overwrite what it is waiting on.
+    expect(capture.callCount()).toBe(1);
+    expect(capture.maxConcurrent()).toBe(1);
+
+    // The moment the stranded call settles, the queued one is issued.
+    capture.releaseHeld();
+    await settle();
+    expect(capture.callCount()).toBe(2);
+    expect(capture.maxConcurrent()).toBe(1);
     source.stop();
   });
 });
@@ -1268,5 +1324,135 @@ describe("native frame source pair timing", () => {
     expect(offers).toHaveLength(1);
     debug.mockRestore();
     source.stop();
+  });
+});
+
+/**
+ * One bridge call at a time, whatever is asking.
+ *
+ * The plugin keeps a single capture callback on both platforms, so a second
+ * request issued beside a first overwrites the slot the first is waiting on:
+ * the older one never answers, or answers with the newer one's picture. Runs
+ * and instances are both too narrow a scope for that, because an invalidate
+ * and a source swap each leave a call running on the bridge.
+ */
+describe("native frame source bridge serialization", () => {
+  function makeSource(
+    capture: CaptureStub,
+    decode: DecodeStub,
+    onDecision: NativeFrameSourceOptions["onDecision"],
+    intervalMs?: number,
+  ) {
+    return createNativeFrameSource({
+      gate: createRecordingGate().gate,
+      captureSample: capture.captureSample,
+      onDecision,
+      decode: decode.decode,
+      now: () => clock,
+      ...(intervalMs === undefined ? {} : { intervalMs }),
+    });
+  }
+
+  test("never lets two calls overlap, across a source the room replaced", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const older = makeSource(capture, decode, () => {});
+    const newer = makeSource(capture, decode, () => {});
+
+    older.start();
+    capture.holdNext();
+    await startPair();
+    expect(capture.inFlight()).toBe(1);
+
+    // What the room does on a preview swap: stop the old source with a call
+    // still on the bridge and start a fresh one against the same plugin.
+    older.stop();
+    newer.start();
+    await pollTimes(3);
+
+    expect(capture.maxConcurrent()).toBe(1);
+    expect(capture.callCount()).toBe(1);
+
+    capture.releaseHeld();
+    await settle();
+    await pollTimes(1);
+
+    // The new source samples once the bridge is free, and never beside the
+    // call it was waiting on.
+    expect(capture.maxConcurrent()).toBe(1);
+    expect(capture.callCount()).toBeGreaterThan(1);
+    newer.stop();
+  });
+
+  test("stamps a queued sample when it is issued, not when it was asked for", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const offers: FrameGateDecision[] = [];
+    const stale = makeSource(capture, decode, () => {});
+    const live = makeSource(capture, decode, (decision) => {
+      offers.push(decision);
+    });
+
+    stale.start();
+    capture.holdNext();
+    await startPair();
+    stale.stop();
+
+    // The replacement's whole pair waits on a call that is going nowhere.
+    live.start();
+    await pollTimes(1);
+    await advanceInSteps(500);
+    expect(capture.callCount()).toBe(1);
+
+    capture.releaseHeld();
+    await settle();
+    await pollTimes(1);
+
+    // Dated from the moment it was enqueued, this pair's primer would carry a
+    // gap of half a second and be thrown away. It is dated from the moment the
+    // camera was actually asked, so the pair reads as what it is: two pictures
+    // taken a spacing apart.
+    expect(offers).toHaveLength(1);
+    live.stop();
+  });
+
+  test("discards a pair whose second sample waited behind a stranded call", async () => {
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const offers: FrameGateDecision[] = [];
+    const sampling = makeSource(capture, decode, (decision) => {
+      offers.push(decision);
+    });
+    const intruder = makeSource(capture, decode, () => {}, 20);
+
+    // The pair's primer lands, and its second sample is a spacing away.
+    sampling.start();
+    await startPair();
+    expect(capture.callCount()).toBe(1);
+
+    // Another source takes the bridge inside that gap and holds it.
+    intruder.start();
+    capture.holdNext();
+    await advanceInSteps(20);
+    expect(capture.inFlight()).toBe(1);
+
+    // The second sample comes due, queues, and waits half a second.
+    await advanceInSteps(500);
+    expect(capture.maxConcurrent()).toBe(1);
+    capture.releaseHeld();
+    await settle();
+
+    // Its picture is now far from the primer's, and the bound says so: the
+    // delay grows the measured gap, which discards, rather than shrinking it,
+    // which would keep a moving frame as settled.
+    expect(offers).toHaveLength(0);
+    expect(debug).toHaveBeenCalledWith(
+      "[native-frame-source] pair outside the motion window, skipped:",
+      expect.objectContaining({ limitMs: NATIVE_PAIR_MAX_GAP_MS }),
+    );
+    debug.mockRestore();
+    sampling.stop();
+    intruder.stop();
   });
 });
