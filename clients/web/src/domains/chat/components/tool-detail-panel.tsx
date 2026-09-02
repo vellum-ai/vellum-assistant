@@ -71,12 +71,6 @@ const ICON_MAP: Record<IconName, LucideIcon> = {
   brain: Brain,
 };
 
-// Re-exported for the panels that already imported these from here
-// (`background-task-detail-panel`, `acp-run-detail-panel`, …). They now live in
-// `@/components/detail-primitives` so tool-specific renderers can use them
-// without importing this module and forming a cycle.
-export { CodeBlock, SectionLabel };
-
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
  * markdown live: it re-derives the text from the chat-session store via the
@@ -178,7 +172,7 @@ export function ToolDetailBody({
 
   // Tools with purpose-built activity UI replace the generic name/activity/JSON
   // block; those that also own their output suppress the shared Output section.
-  const renderer = getToolActivityRenderer(detail.toolName);
+  const renderer = getToolActivityRenderer(detail);
 
   return (
     <>

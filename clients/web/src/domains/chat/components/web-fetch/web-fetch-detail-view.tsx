@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { CodeBlock } from "@/domains/chat/components/tool-detail-panel";
+import { CodeBlock } from "@/components/detail-primitives";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
