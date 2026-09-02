@@ -10,7 +10,11 @@
 import { useState } from "react";
 
 import { useTranslation } from "@/i18n";
-import { recoverLocalAssistantPlatformCredential } from "@/lib/local-platform-identity";
+import {
+  LocalPlatformCredentialRecoveryError,
+  type LocalPlatformCredentialRecoveryReason,
+  recoverLocalAssistantPlatformCredential,
+} from "@/lib/local-platform-identity";
 import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -24,6 +28,25 @@ export interface RestoreManagedCredentialButtonProps {
   onRestored?: () => void;
 }
 
+/**
+ * Catalog key for each typed repair failure. The reader gets a sentence in
+ * their language that says what to do next; the thrown message stays in
+ * error reporting.
+ */
+const FAILURE_KEYS: Record<
+  LocalPlatformCredentialRecoveryReason,
+  | "restoreManagedCredentialButton.failedNoAssistant"
+  | "restoreManagedCredentialButton.failedCannotActHere"
+  | "restoreManagedCredentialButton.failedReplacementRejected"
+  | "restoreManagedCredentialButton.failedUnconfirmed"
+> = {
+  no_assistant: "restoreManagedCredentialButton.failedNoAssistant",
+  cannot_act_here: "restoreManagedCredentialButton.failedCannotActHere",
+  replacement_rejected:
+    "restoreManagedCredentialButton.failedReplacementRejected",
+  unconfirmed: "restoreManagedCredentialButton.failedUnconfirmed",
+};
+
 export function RestoreManagedCredentialButton({
   onRestored,
 }: RestoreManagedCredentialButtonProps) {
@@ -34,14 +57,20 @@ export function RestoreManagedCredentialButton({
     setIsRestoring(true);
     try {
       await recoverLocalAssistantPlatformCredential();
-      toast.success(t("chatRouteContent.restoreCredentialSuccess"));
+      toast.success(t("restoreManagedCredentialButton.restored"));
       onRestored?.();
     } catch (err) {
-      // The reason is the useful half: "sign in to Vellum" and "this client
-      // cannot repair this assistant" need different things from the reader,
-      // so the thrown message is shown rather than a generic failure.
       captureError(err, { context: "restoreManagedCredential" });
-      toast.error(err instanceof Error ? err.message : String(err));
+      // Only a typed reason reaches the reader. Anything else (a platform or
+      // transport failure with its own text) is reported generically, so raw
+      // exception text never stands in for translated copy.
+      toast.error(
+        t(
+          err instanceof LocalPlatformCredentialRecoveryError
+            ? FAILURE_KEYS[err.reason]
+            : "restoreManagedCredentialButton.failedGeneric",
+        ),
+      );
     } finally {
       setIsRestoring(false);
     }
@@ -55,8 +84,8 @@ export function RestoreManagedCredentialButton({
       onClick={() => void restore()}
     >
       {isRestoring
-        ? t("chatRouteContent.restoringCredential")
-        : t("chatRouteContent.restoreCredential")}
+        ? t("restoreManagedCredentialButton.restoring")
+        : t("restoreManagedCredentialButton.restore")}
     </Button>
   );
 }

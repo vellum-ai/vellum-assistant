@@ -120,6 +120,8 @@ const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const {
   bootstrapLocalAssistantPlatformIdentity,
+  canRecoverLocalAssistantPlatformCredential,
+  LocalPlatformCredentialRecoveryError,
   resetLocalPlatformIdentityCacheForTesting,
   setBootstrapRetryDelaysForTesting,
   recoverLocalAssistantPlatformCredential,
@@ -194,7 +196,7 @@ beforeEach(() => {
   resetLocalPlatformIdentityCacheForTesting();
   useAssistantIdentityStore
     .getState()
-    .setIdentity("test-asst", VERIFY_ROUTE_MIN_VERSION);
+    .setIdentity("test-asst", VERIFY_ROUTE_MIN_VERSION, RUNTIME_ASSISTANT_ID);
   // Single attempt by default — retry tests opt into a schedule.
   setBootstrapRetryDelaysForTesting([]);
 
@@ -331,7 +333,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
     await expect(
       recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
-    ).rejects.toThrow(/rejected the replacement credential/i);
+    ).rejects.toMatchObject({ reason: "replacement_rejected" });
   });
 
   // A daemon that predates the verification route cannot confirm anything.
@@ -339,7 +341,9 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   // invite another, so on those daemons the stored replacement is the repair.
   test("an older assistant skips verification and reports the stored replacement as the repair", async () => {
     seedRejectedCredential();
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.11.8");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.11.8", RUNTIME_ASSISTANT_ID);
     verifyCredentialStatus = "rejected";
 
     await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
@@ -354,7 +358,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
     await expect(
       recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
-    ).rejects.toThrow(/could not confirm/i);
+    ).rejects.toMatchObject({ reason: "unconfirmed" });
   });
 
   // Resolving returns the id untouched for anything it does not provision for,
@@ -363,10 +367,50 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   test("a repair this client cannot perform reports why", async () => {
     isLocalClientValue = false;
 
-    await expect(
-      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
-    ).rejects.toThrow(/cannot restore the credential/i);
+    const failure = await recoverLocalAssistantPlatformCredential(
+      RUNTIME_ASSISTANT_ID,
+    ).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(LocalPlatformCredentialRecoveryError);
+    expect(failure).toMatchObject({ reason: "cannot_act_here" });
     expect(requestNames()).not.toContain("reprovision-api-key");
+  });
+
+  // The surface that offers the repair reads the same predicate the repair
+  // refuses on, so a button is never rendered for a repair that would fail.
+  test("the capability predicate agrees with the repair", () => {
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(true);
+    isRemoteGatewayModeValue = true;
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(false);
+    isRemoteGatewayModeValue = false;
+    isPlatformDisabledValue = true;
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(false);
+  });
+
+  // The switch window: a version still held for the assistant the user just
+  // left must not vouch for the one being repaired. The gate reads as
+  // unsupported, so verification is skipped rather than 404ing after a
+  // successful rotation.
+  test("a version held for a different assistant does not enable verification", async () => {
+    seedRejectedCredential();
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity(
+        "test-asst",
+        VERIFY_ROUTE_MIN_VERSION,
+        "some-other-assistant",
+      );
+    verifyCredentialStatus = "rejected";
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    expect(requestNames()).not.toContain("verify-credential");
   });
 
   // Rotation replaces a credential, so it happens because someone asked and at

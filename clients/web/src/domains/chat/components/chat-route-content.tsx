@@ -172,6 +172,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 
+import { canRecoverLocalAssistantPlatformCredential } from "@/lib/local-platform-identity";
+
 import { RestoreManagedCredentialButton } from "./restore-managed-credential-button";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -828,6 +830,9 @@ export function ChatMainPanel({
   //     panel auto-starts a session already on topic, not on a blank prompt.
   //   self-hosted -> the client owns the reprovision flow (the platform's own
   //     recovery excludes these registrations), so the banner performs it.
+  //     Offered only where the repair can act: a remotely served client or a
+  //     platform-disabled one would refuse it, and a button that always fails
+  //     is worse than none.
   //
   // Built per banner rather than once, so a successful repair retires exactly
   // the error or notice that offered it. Clearing the slot unconditionally
@@ -846,7 +851,8 @@ export function ChatMainPanel({
           {t("chatRouteContent.askTheDoctor")}
         </Link>
       </Button>
-    ) : assistantState.kind === "active" ? (
+    ) : assistantState.kind === "active" &&
+      canRecoverLocalAssistantPlatformCredential() ? (
       <RestoreManagedCredentialButton onRestored={onRestored} />
     ) : undefined;
 

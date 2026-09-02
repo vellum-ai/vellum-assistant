@@ -21,30 +21,36 @@
  * BACKWARDS_COMPAT.md: nothing is predicted, every later release satisfies it,
  * and dev builds cut from `main` after that commit light up.
  */
-import { assistantSupports, whenAssistantVersionKnown } from "./utils";
+import { assistantScopedSupports, whenAssistantVersionKnownFor } from "./utils";
 
 export const MIN_VERSION = "0.11.8-dev.202609011855.a4d8c71";
 
 /**
- * Snapshot variant, for non-hook contexts. `false` while the version is
- * unhydrated, so a caller deciding whether to *skip* a check must use
- * {@link resolveSupportsCredentialVerification} instead: the conservative
- * default here would skip verification on a daemon that has it.
+ * Snapshot variant, for non-hook contexts. Scoped to the assistant being
+ * repaired: during a switch the identity store can still hold the outgoing
+ * assistant's version, and an unscoped read would let that version vouch for
+ * the incoming target. `false` while the version is unhydrated or held for a
+ * different assistant, so a caller deciding whether to *skip* a check must use
+ * {@link resolveSupportsCredentialVerification} instead.
  */
-export function supportsCredentialVerification(): boolean {
-  return assistantSupports(MIN_VERSION);
+export function supportsCredentialVerification(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  return assistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }
 
 /**
- * Write-path variant: waits (bounded) for the assistant version to hydrate,
- * then reads the gate against a resolved version.
+ * Write-path variant: waits (bounded) for the identity store to hold a version
+ * for `ownerAssistantId`, then reads the scoped gate against it.
  *
  * The repair runs this after it has stored the replacement, so the decision
  * it makes is whether to confirm that write. Deciding on the pre-hydration
- * `false` would silently drop the confirmation exactly when a fresh page load
- * is the thing that led the user to the repair.
+ * `false`, or on a version still held for the assistant the user just left,
+ * would silently drop the confirmation exactly when it matters.
  */
-export async function resolveSupportsCredentialVerification(): Promise<boolean> {
-  await whenAssistantVersionKnown();
-  return supportsCredentialVerification();
+export async function resolveSupportsCredentialVerification(
+  ownerAssistantId: string | null | undefined,
+): Promise<boolean> {
+  await whenAssistantVersionKnownFor(ownerAssistantId);
+  return supportsCredentialVerification(ownerAssistantId);
 }

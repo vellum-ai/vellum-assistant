@@ -163,30 +163,89 @@ export async function resolveLocalAssistantPlatformIdentity(
  * gateway, rotation refused) so a caller can show it rather than reporting a
  * failure it cannot explain.
  */
+export type LocalPlatformCredentialRecoveryReason =
+  /** Nothing is selected to repair. */
+  | "no_assistant"
+  /**
+   * This client cannot perform the repair for this assistant: it is not the
+   * local client, it is served through a remote gateway, platform features
+   * are off, or the assistant is platform-hosted and re-provisions its own
+   * key.
+   */
+  | "cannot_act_here"
+  /** The platform rejected the replacement too. */
+  | "replacement_rejected"
+  /** The replacement was stored but the platform could not confirm it. */
+  | "unconfirmed";
+
+/**
+ * A repair that could not complete, with a typed reason.
+ *
+ * The reason is the contract; `message` is for logs and error reporting.
+ * Surfaces render the reason through their own catalogs, so no English here
+ * ever reaches a reader, and platform or transport detail never leaks into
+ * user-facing copy.
+ */
+export class LocalPlatformCredentialRecoveryError extends Error {
+  readonly reason: LocalPlatformCredentialRecoveryReason;
+
+  constructor(reason: LocalPlatformCredentialRecoveryReason, message: string) {
+    super(message);
+    this.name = "LocalPlatformCredentialRecoveryError";
+    this.reason = reason;
+  }
+}
+
+/**
+ * The assistant a repair would act on, or null when this client cannot act
+ * on it. One predicate for the surface that offers the repair and the repair
+ * itself, so a button is never rendered for a repair that would refuse.
+ *
+ * `resolveLocalAssistantPlatformIdentity` returns an id untouched for
+ * anything it does not provision for, so a repair not guarded by this would
+ * resolve successfully having done nothing. A platform-hosted assistant is
+ * not a gap: the platform re-provisions its own key, so the repair belongs
+ * to nobody here.
+ */
+function recoverableLocalAssistant(
+  assistantId?: string,
+): LockfileAssistant | null {
+  const target = assistantId ?? getSelectedAssistant()?.assistantId;
+  if (
+    !target ||
+    !isLocalClient() ||
+    isRemoteGatewayMode() ||
+    isPlatformDisabled() ||
+    isUuid(target)
+  ) {
+    return null;
+  }
+  return resolveLocalAssistant(target);
+}
+
+/** Whether {@link recoverLocalAssistantPlatformCredential} can act here. */
+export function canRecoverLocalAssistantPlatformCredential(
+  assistantId?: string,
+): boolean {
+  return recoverableLocalAssistant(assistantId) !== null;
+}
+
 export async function recoverLocalAssistantPlatformCredential(
   assistantId?: string,
 ): Promise<void> {
   const target = assistantId ?? getSelectedAssistant()?.assistantId;
   if (!target) {
-    throw new Error("No assistant is selected.");
+    throw new LocalPlatformCredentialRecoveryError(
+      "no_assistant",
+      "No assistant is selected.",
+    );
   }
 
-  // `resolveLocalAssistantPlatformIdentity` returns the id untouched for
-  // anything it does not provision for, so without this the repair would
-  // resolve successfully having done nothing, and the notification would
-  // report itself fixed. Say why instead. A platform-hosted assistant is not
-  // a gap: the platform re-provisions its own key, so the repair belongs to
-  // nobody here.
-  const assistant = resolveLocalAssistant(target);
-  if (
-    !isLocalClient() ||
-    isRemoteGatewayMode() ||
-    isPlatformDisabled() ||
-    isUuid(target) ||
-    !assistant
-  ) {
-    throw new Error(
-      "This client cannot restore the credential for this assistant. Open the assistant on the machine that runs it.",
+  const assistant = recoverableLocalAssistant(target);
+  if (!assistant) {
+    throw new LocalPlatformCredentialRecoveryError(
+      "cannot_act_here",
+      "This client cannot restore the credential for this assistant.",
     );
   }
 
@@ -205,20 +264,24 @@ export async function recoverLocalAssistantPlatformCredential(
   // A daemon that predates the verification route cannot confirm anything,
   // and its 404 would read as a failed repair after a successful rotation,
   // inviting another. On those daemons the stored replacement is the repair,
-  // as it always was there. Resolved against a hydrated version: the sync
-  // snapshot's false-on-unknown would skip this check on a daemon that has it.
-  if (!(await resolveSupportsCredentialVerification())) {
+  // as it always was there. Resolved against a version held for this
+  // assistant: the sync snapshot's false-on-unknown would skip the check on a
+  // daemon that has it, and an unscoped read could let the assistant the user
+  // just switched away from vouch for this one.
+  if (!(await resolveSupportsCredentialVerification(assistant.assistantId))) {
     return;
   }
   const verified = await verifyPlatformCredential(assistant);
   if (verified === "rejected") {
-    throw new Error(
-      "Vellum rejected the replacement credential. Try signing in to Vellum again.",
+    throw new LocalPlatformCredentialRecoveryError(
+      "replacement_rejected",
+      "The platform rejected the replacement credential.",
     );
   }
   if (verified !== "valid") {
-    throw new Error(
-      "Could not confirm the new credential with Vellum. It may start working shortly; check again in a moment.",
+    throw new LocalPlatformCredentialRecoveryError(
+      "unconfirmed",
+      "The replacement credential was stored but could not be confirmed.",
     );
   }
 }
