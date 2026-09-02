@@ -287,68 +287,6 @@ describe("camera gate debug store", () => {
     });
   });
 
-  test("another tab's write reaches this one, and the gate with it", async () => {
-    // The switch is offered in two places (Settings, and the camera's view
-    // options), and a session can have both open in different windows. The
-    // persist middleware writes but does not listen, so the `storage` event is
-    // the only thing that carries one window's choice to the next.
-    const store = useCameraGateDebugStore.getState();
-    store.setHudEnabled(false);
-    expect(FRAME_GATE_LIVE_OPTIONS.noveltyThreshold).toBe(
-      DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
-    );
-
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        state: {
-          hudEnabled: true,
-          overrides: { ...defaultFrameGateOverrides(), noveltyThreshold: 1.1 },
-          ownerUserId: null,
-        },
-        version: 0,
-      }),
-    );
-    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
-    await Promise.resolve();
-
-    expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
-    // Restored through the same `merge` a reload goes through, and pushed to
-    // the gate by the same subscription a local write uses.
-    expect(useCameraGateDebugStore.getState().overrides.noveltyThreshold).toBe(
-      1.1,
-    );
-    expect(FRAME_GATE_LIVE_OPTIONS.noveltyThreshold).toBe(1.1);
-  });
-
-  test("a write to another key is not this store's to answer", async () => {
-    const store = useCameraGateDebugStore.getState();
-    store.setHudEnabled(true);
-
-    // A payload nobody announced. Reading it would mean this store restores
-    // itself on any key's event, which is a switch flipping under a session
-    // that changed nothing.
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        state: {
-          hudEnabled: false,
-          overrides: defaultFrameGateOverrides(),
-          ownerUserId: null,
-        },
-        version: 0,
-      }),
-    );
-    localStorage.setItem("vellum:debug:somethingElse", "{}");
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: "vellum:debug:somethingElse" }),
-    );
-    await Promise.resolve();
-
-    expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
-    localStorage.removeItem("vellum:debug:somethingElse");
-  });
-
   test("reset puts every slider and the gate back to the defaults", () => {
     const store = useCameraGateDebugStore.getState();
     store.setHudEnabled(true);

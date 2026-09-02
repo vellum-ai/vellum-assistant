@@ -21,12 +21,15 @@
  *   for anyone else, so a shared browser never hands one person's thresholds
  *   to the next, whether the previous session was signed out of or expired.
  * - Cross-tab updates: the persist middleware doesn't sync across tabs on its
- *   own. We listen for `storage` events on the key and call
- *   `persist.rehydrate()` to pull in the other tab's write, so the two places
- *   the switch is offered (Settings, and the camera's view options) agree
- *   across every window the account has open. The restored payload goes
- *   through the same `merge` a reload does, so a hand-edited or stale value
- *   from another tab is clamped and claimed exactly as one from disk.
+ *   own. {@link watchCameraGateDebugStorage} listens for `storage` events on
+ *   the key and re-reads the slice, so the two places the switch is offered
+ *   (Settings, and the camera's view options) agree across every window the
+ *   account has open. The restored payload goes through the same `merge` a
+ *   reload does, so a stale or hand-edited value is clamped exactly as one
+ *   from disk. Whose account the restored payload belongs to is settled by
+ *   the caller, which is the half this module cannot answer: another tab can
+ *   sign the browser into a different account, and the payload it leaves
+ *   behind names an owner this tab has to be told about.
  *
  * **What every write does.** A write moves this slice and nothing else. The
  * gate's live options record is owned by `lib/camera/frame-gate-debug.ts` and
@@ -206,12 +209,35 @@ export const useCameraGateDebugStore = createSelectors(
 // Cross-tab sync
 // ---------------------------------------------------------------------------
 
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (event.key === CAMERA_GATE_DEBUG_STORE_KEY) {
-      void useCameraGateDebugStoreBase.persist.rehydrate();
+/**
+ * Re-read this slice whenever another tab writes it, and hand back an
+ * unsubscribe.
+ *
+ * `onRestored` runs once the payload is in. It is where the caller settles
+ * whose preference was just restored: another tab can sign the browser into a
+ * different account between two writes, and the payload names an owner that
+ * only a module holding this tab's identity can check. Restoring first and
+ * settling after is what keeps the storage key's shape here and the account
+ * rules there.
+ */
+export function watchCameraGateDebugStorage(
+  onRestored: () => void,
+): () => void {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const onStorage = (event: StorageEvent): void => {
+    if (event.key !== CAMERA_GATE_DEBUG_STORE_KEY) {
+      return;
     }
-  });
+    void Promise.resolve(useCameraGateDebugStoreBase.persist.rehydrate()).then(
+      onRestored,
+    );
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 /**

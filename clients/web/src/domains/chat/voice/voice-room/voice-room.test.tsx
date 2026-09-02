@@ -1193,9 +1193,9 @@ describe("VoiceRoom: top-right corner", () => {
     expect(screen.queryByTestId("camera-view-settings")).toBeNull();
   });
 
-  test("gains the camera's view options while the viewfinder is up", async () => {
+  test("gains the camera's view options where Live is on offer", async () => {
     stubMediaDevices(async () => fakeStream());
-    seedCameraCapableAssistant();
+    seedLiveCapableAssistant();
     startOwnedSession("listening");
     render(<VoiceRoom />);
 
@@ -1207,6 +1207,8 @@ describe("VoiceRoom: top-right corner", () => {
     // the one muscle memory reaches for without looking.
     expect(screen.getByTestId("camera-view-settings")).not.toBeNull();
     expect(minimizeButton()).not.toBeNull();
+    // The pill's band gives up the two-control cluster on that side.
+    expect(roomDialog()?.getAttribute("style")).toContain(")) + 7.25rem)");
 
     await act(async () => {
       fireEvent.click(cameraToggle()!);
@@ -1215,6 +1217,29 @@ describe("VoiceRoom: top-right corner", () => {
     // Closing the viewfinder takes the options with it: they name nothing the
     // room draws once the feed is gone.
     expect(screen.queryByTestId("camera-view-settings")).toBeNull();
+    expect(screen.queryByTestId("camera-view-settings-host")).toBeNull();
+  });
+
+  test("offers no view options where Live cannot run", async () => {
+    // A native preview, or an assistant that predates `sight_frame`. Neither
+    // keeps a frame and neither gives the gate a decision to draw, so both
+    // switches would name something that cannot happen. The camera-capable
+    // seed is exactly that assistant.
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("voice-room-viewfinder")).not.toBeNull();
+    expect(screen.queryByTestId("camera-view-settings")).toBeNull();
+    expect(screen.queryByTestId("camera-view-settings-host")).toBeNull();
+    // Minimize stands alone up there, so the pill's band gives up one control
+    // rather than holding a gap for a button that is not drawn.
+    expect(roomDialog()?.getAttribute("style")).toContain(")) + 3.75rem)");
   });
 
   /**
@@ -1230,7 +1255,7 @@ describe("VoiceRoom: top-right corner", () => {
     /** Open the camera and then the panel. */
     async function openViewOptions(): Promise<void> {
       stubMediaDevices(async () => fakeStream());
-      seedCameraCapableAssistant();
+      seedLiveCapableAssistant();
       startOwnedSession("listening");
       render(<VoiceRoom />);
       await act(async () => {
@@ -1283,6 +1308,32 @@ describe("VoiceRoom: top-right corner", () => {
           .getByTestId("camera-view-settings")
           .parentElement?.contains(panel),
       ).toBe(false);
+    });
+
+    test("hands the room back once a tap outside dismisses the panel", async () => {
+      await openViewOptions();
+
+      // The backdrop rides the same host, so it covers the room's controls
+      // for exactly as long as the panel is up.
+      const backdrop = screen.getByTestId("camera-view-settings-backdrop");
+      expect(
+        screen.getByTestId("camera-view-settings-host").contains(backdrop),
+      ).toBe(true);
+
+      await act(async () => {
+        fireEvent.click(backdrop);
+      });
+
+      expect(screen.queryByTestId("camera-view-settings-panel")).toBeNull();
+      expect(screen.queryByTestId("camera-view-settings-backdrop")).toBeNull();
+      // Nothing full-bleed is left over the shutter, so the next press is the
+      // camera's.
+      expect(screen.getByTestId("voice-room-shutter")).not.toBeNull();
+      expect(
+        screen
+          .getByTestId("camera-view-settings-host")
+          .querySelector(".fixed.inset-0"),
+      ).toBeNull();
     });
   });
 });
@@ -1927,14 +1978,15 @@ describe("VoiceRoom: camera", () => {
     );
     // On the corner chrome's own line and centred in the band that chrome
     // leaves, so a long assistant name truncates inside a ceiling instead of
-    // running under the cluster. The right reserve is the two-control one.
+    // running under the cluster. This assistant cannot run Live, so the corner
+    // holds minimize alone and the band gives up one control's worth.
     expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
       "left-[var(--camera-pill-left)] right-[var(--camera-pill-right)]",
     );
     expect(roomDialog()?.getAttribute("style")).toContain(
       "--camera-pill-right: calc(max(1.25rem, var(--safe-area-inset-right",
     );
-    expect(roomDialog()?.getAttribute("style")).toContain(")) + 7.25rem)");
+    expect(roomDialog()?.getAttribute("style")).toContain(")) + 3.75rem)");
     // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
     // bottom scrim lies over the shutter and the whole control row.
     const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");
@@ -2171,7 +2223,6 @@ describe("VoiceRoom: camera", () => {
     ).map((button) => button.getAttribute("aria-label"));
 
     expect(order).toEqual([
-      "Camera view options",
       "Minimize voice room",
       "Take a photo",
       "Flip camera",

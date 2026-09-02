@@ -20,9 +20,19 @@
  * theme surface, for the reason `camera-mode-paint.ts` gives: what is behind
  * it is arbitrary video, so a token is as likely to vanish into the frame as
  * to read on it.
+ *
+ * A tap anywhere else closes it, through a backdrop of the panel's own rather
+ * than the popover's outside-press handling. That handling waits for a
+ * document-level `click`, which WebKit never synthesizes for a tap on a
+ * noninteractive target, and the target here is a bare viewfinder. The
+ * backdrop carries its own `onClick`, which is what `docs/CAPACITOR.md` asks
+ * of any overlay that has to answer a tap, and what the design library's own
+ * sheet overlay does. Closing on the click rather than the press is also what
+ * keeps a dismissing tap from reaching the shutter underneath it.
  */
 
 import { useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { SlidersHorizontal } from "lucide-react";
 
 import {
@@ -97,6 +107,17 @@ export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
 
   return (
     <PortalContainerProvider container={panelHost}>
+      {open && panelHost
+        ? createPortal(
+            <div
+              aria-hidden
+              data-testid="camera-view-settings-backdrop"
+              className="fixed inset-0"
+              onClick={() => setOpen(false)}
+            />,
+            panelHost,
+          )
+        : null}
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
           <VoiceRoomControl

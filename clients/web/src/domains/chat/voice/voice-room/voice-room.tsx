@@ -228,14 +228,20 @@ const CORNER_GAP = "1.25rem";
  * without a bound the pill runs under that chrome and off a phone-width room.
  *
  * Each side gives up only what stands on it: the room's corner offset on the
- * left, and on the right that offset plus the cluster (two 3.25rem controls
- * and the 0.25rem between them) plus a 0.5rem gap the two never close. Reserving
- * the right's share on both sides instead would leave a phone-width room less
- * than the pill's own floor, and the pill would overhang the cluster rather
- * than truncate inside its ceiling.
+ * left, and on the right that offset plus the cluster plus a 0.5rem gap the
+ * two never close. Reserving the right's share on both sides instead would
+ * leave a phone-width room less than the pill's own floor, and the pill would
+ * overhang the cluster rather than truncate inside its ceiling.
+ *
+ * Two right-hand reserves because the cluster is two sizes. Minimize stands
+ * there alone at 3.25rem; where the view options join it the cluster is both
+ * controls and the 0.25rem between them. Reserving for two against a corner
+ * holding one would shift the pill off the band's centre for a control that
+ * is not there.
  */
 const CAMERA_PILL_LEFT = `max(${CORNER_GAP}, ${SAFE_AREA_LEFT})`;
-const CAMERA_PILL_RIGHT = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 7.25rem)`;
+const CAMERA_PILL_RIGHT_ONE_CONTROL = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
+const CAMERA_PILL_RIGHT_TWO_CONTROLS = `calc(max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 7.25rem)`;
 
 /**
  * The tier the camera's view-options panel renders on, above every layer the
@@ -671,6 +677,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // the room is on, so the offer and the mode answer to one value: a shutter
   // that takes the hold is a shutter whose Live has somewhere to read from.
   const liveOffered = cameraOpen && liveAvailable;
+  // The view options are on offer wherever Live is. Both switches name
+  // something only a Live run produces: the thumbnail of the last frame it
+  // sent, and the readout of the gate deciding which frames those are. Where
+  // Live cannot run there is nothing for either to show, so the corner carries
+  // no button rather than a panel of switches that do nothing.
+  const viewOptionsOffered = liveOffered;
   // The shutter's two acts, which are two different sentences rather than one
   // with the mode pushed into it.
   const shutterLabel = live
@@ -814,8 +826,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // inset, the latter adds the gap to it so the grabber fits between. The panel
   // and the header-resting sheet start below the app's own chrome, where the
   // inset is not their edge to clear. The band's two edges ride along, since
-  // the pill's slot is told where they are the same way: see
-  // {@link CAMERA_PILL_RIGHT}.
+  // the pill's slot is told where they are the same way, and the right one
+  // follows how many controls the corner is holding: see
+  // {@link CAMERA_PILL_RIGHT_TWO_CONTROLS}.
   const topBandVars = {
     "--room-chrome-top": fullscreen
       ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
@@ -826,7 +839,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       ? `calc(0.5rem + ${SAFE_AREA_TOP})`
       : "0.5rem",
     "--camera-pill-left": CAMERA_PILL_LEFT,
-    "--camera-pill-right": CAMERA_PILL_RIGHT,
+    "--camera-pill-right": viewOptionsOffered
+      ? CAMERA_PILL_RIGHT_TWO_CONTROLS
+      : CAMERA_PILL_RIGHT_ONE_CONTROL,
   } as CSSProperties;
 
   const body = (
@@ -1085,7 +1100,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           own; that offset already clears the sheet's grabber. Centred in the
           band the chrome leaves rather than on the room, which is what keeps a
           long name inside a ceiling at phone width: see
-          {@link CAMERA_PILL_RIGHT}.
+          {@link CAMERA_PILL_RIGHT_TWO_CONTROLS}.
 
           Camera-only. With the viewfinder closed the room says all of this
           through the look itself (the avatar's visual, the state caption, the
@@ -1117,11 +1132,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
           Minimize is never gated behind avatar readiness, so the room can
           always be dismissed even mid-load / on failure, and it keeps the
-          extreme corner. View options is camera-only and sits inboard of it:
-          the room with no viewfinder up carries nothing but minimize here,
-          since a cluster of small chrome against the look competes with the
-          room's own cast for attention. Voice and listening language are
-          Settings' either way. */}
+          extreme corner. View options sits inboard of it and only where Live
+          is on offer, which is the only place its switches name anything the
+          room draws; every other room carries nothing but minimize here, since
+          a cluster of small chrome against the look competes with the room's
+          own cast for attention. Voice and listening language are Settings'
+          either way. */}
       <div
         // An equal gap from both edges, so the control reads as sitting in the
         // corner rather than floating near it. The top comes off the room's own
@@ -1129,7 +1145,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})` }}
         className="absolute top-[var(--room-chrome-top)] z-10 flex items-center gap-1"
       >
-        {cameraOpen ? <CameraViewSettings panelHost={viewOptionsHost} /> : null}
+        {viewOptionsOffered ? (
+          <CameraViewSettings panelHost={viewOptionsHost} />
+        ) : null}
         <VoiceRoomControl
           label={t("voiceRoom.minimizeAria")}
           tooltip={t("voiceRoom.minimizeTooltip")}
@@ -1528,7 +1546,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           host's own children) and visible under the native preview, which
           hides everything outside this subtree. See
           {@link VIEW_OPTIONS_HOST_LAYER}. */}
-      {cameraOpen ? (
+      {viewOptionsOffered ? (
         <div
           ref={setViewOptionsHost}
           data-testid="camera-view-settings-host"

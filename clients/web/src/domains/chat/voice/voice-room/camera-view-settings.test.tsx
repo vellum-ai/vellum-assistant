@@ -105,6 +105,59 @@ describe("CameraViewSettings", () => {
     expect(trigger().parentElement?.contains(panel())).toBe(false);
   });
 
+  /**
+   * Dismissal by tap, which the popover's own outside-press handling does not
+   * deliver here: it waits for a document-level `click`, and WebKit does not
+   * synthesize one for a tap on the bare viewfinder this panel opens over.
+   */
+  describe("the backdrop", () => {
+    const backdrop = () =>
+      screen.queryByTestId("camera-view-settings-backdrop");
+
+    test("is absent until the panel is open, so it swallows nothing", () => {
+      renderSettings();
+
+      expect(backdrop()).toBeNull();
+    });
+
+    test("closes the panel on a tap, and goes with it", async () => {
+      await openPanel();
+      expect(backdrop()).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.click(backdrop()!);
+      });
+
+      expect(panel()).toBeNull();
+      // Gone as well as closed: the room underneath answers presses again,
+      // and the shutter is the press this must not go on intercepting.
+      expect(backdrop()).toBeNull();
+    });
+
+    test("carries its own click handler rather than leaving it to the document", async () => {
+      await openPanel();
+
+      // The whole point on iOS: a document-level listener never hears a tap on
+      // a noninteractive element, so the dismissal has to ride a handler the
+      // element carries itself.
+      expect(backdrop()?.onclick).toBeTruthy();
+    });
+
+    test("sits under the panel, so a press inside the panel is the panel's", async () => {
+      await openPanel();
+      const inside = row("Kept frame")!;
+
+      await act(async () => {
+        fireEvent.click(inside);
+      });
+
+      // The switch answered, and the panel is still up: the backdrop covers
+      // the room, not the surface it belongs to.
+      expect(panel()).not.toBeNull();
+      expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+    });
+  });
+
   test("a session without the readout gets the thumbnail row alone", async () => {
     await openPanel();
 

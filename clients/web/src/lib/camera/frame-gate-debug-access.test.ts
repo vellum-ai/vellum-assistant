@@ -249,6 +249,107 @@ describe("camera gate readout access", () => {
     expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
   });
 
+  /**
+   * What another window's write does to this one.
+   *
+   * The restore is the store's and the account check is this module's, which
+   * is the whole reason the listener is wired here: a second window can sign
+   * the browser into a different account, so the payload it leaves behind is
+   * not automatically this tab's to adopt.
+   */
+  describe("another tab's write", () => {
+    /** Leave a payload behind and tell this tab about it, as a tab swap does. */
+    async function arriveFromAnotherTab(
+      ownerUserId: string,
+      minDetail: number,
+    ): Promise<void> {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          state: {
+            hudEnabled: true,
+            ownerUserId,
+            overrides: { ...defaultFrameGateOverrides(), minDetail },
+          },
+          version: 0,
+        }),
+      );
+      window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    test("from the same account reaches this tab, and the gate with it", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(false);
+
+      await arriveFromAnotherTab(STAFF_USER.id ?? "", 42);
+
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(true);
+      expect(state.overrides.minDetail).toBe(42);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
+    });
+
+    test("from another account is dropped, and takes nothing to the gate", async () => {
+      // The window that wrote it signed the browser into a different account.
+      // Restoring it here would hand this session a switch and a set of
+      // thresholds it never asked for, with no panel on screen to say so.
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(false);
+
+      await arriveFromAnotherTab(OTHER_STAFF_USER.id ?? "", 42);
+
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(false);
+      expect(state.overrides).toEqual(defaultFrameGateOverrides());
+      expect(state.ownerUserId).toBe(STAFF_USER.id);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(
+        DEFAULT_FRAME_GATE_OPTIONS.minDetail,
+      );
+    });
+
+    test("under another key is not this store's to answer", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(true);
+
+      // A payload nobody announced. Reading it would mean any key's event
+      // restores this slice, which is a switch moving under a session that
+      // changed nothing.
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          state: {
+            hudEnabled: false,
+            ownerUserId: STAFF_USER.id,
+            overrides: defaultFrameGateOverrides(),
+          },
+          version: 0,
+        }),
+      );
+      localStorage.setItem("vellum:debug:somethingElse", "{}");
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "vellum:debug:somethingElse" }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
+      localStorage.removeItem("vellum:debug:somethingElse");
+    });
+
+    test("stops arriving once the access sync is torn down", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(false);
+      stopAccessSync?.();
+      stopAccessSync = null;
+
+      await arriveFromAnotherTab(STAFF_USER.id ?? "", 42);
+
+      expect(useCameraGateDebugStore.getState().hudEnabled).toBe(false);
+    });
+  });
+
   test("a switch left on by a session with no access never reaches the gate", () => {
     const store = useCameraGateDebugStore.getState();
     store.setHudEnabled(true);

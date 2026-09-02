@@ -29,7 +29,10 @@
 import { isVellumStaff } from "@/lib/auth/staff";
 import { syncFrameGateDebugOptions } from "@/lib/camera/frame-gate-debug";
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
-import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
+import {
+  useCameraGateDebugStore,
+  watchCameraGateDebugStorage,
+} from "@/stores/camera-gate-debug-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
@@ -103,6 +106,13 @@ function onAuthChange(): void {
  * The subscriptions carry no selector: the answer is a function of slices in
  * three stores, and a selectorless subscriber runs on every write to any of
  * them, including the persist middleware restoring a switch left on.
+ *
+ * Another tab's write is restored here too, and settled through the same
+ * {@link onAuthChange} an account change runs. A second window can sign the
+ * browser into a different account, so a payload arriving from one names an
+ * owner that has to be checked against whoever this tab holds before its
+ * thresholds are allowed anywhere near the gate. The store restores; the claim
+ * decides whether what it restored is this account's to keep.
  */
 export function setupCameraGateHudAccessSync(): () => void {
   onAuthChange();
@@ -113,9 +123,11 @@ export function setupCameraGateHudAccessSync(): () => void {
   const unsubscribeDebug = useCameraGateDebugStore.subscribe(
     applyEffectiveOptions,
   );
+  const unwatchStorage = watchCameraGateDebugStorage(onAuthChange);
   return () => {
     unsubscribeAuth();
     unsubscribeFlags();
     unsubscribeDebug();
+    unwatchStorage();
   };
 }
