@@ -179,9 +179,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
 // The reconciler writes the outbound-posts index through delivery-crud;
 // stub it so this suite stays DB-free while capturing the writes.
 const recordedOutboundPosts: Array<Record<string, string>> = [];
+/** Runs after each index write: a seam to interleave a deletion before the envelope stamp. */
+let onRecordOutboundPost: ((post: Record<string, string>) => void) | null =
+  null;
 mock.module("../persistence/delivery-crud.js", () => ({
   recordOutboundPost: (post: Record<string, string>) => {
     recordedOutboundPosts.push(post);
+    onRecordOutboundPost?.(post);
   },
 }));
 
@@ -213,6 +217,7 @@ describe("channel-reply-delivery", () => {
     nextDeliveryTs = null;
     deliveryTsQueue.length = 0;
     recordedOutboundPosts.length = 0;
+    onRecordOutboundPost = null;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContent = {
       text: "",
@@ -1284,6 +1289,135 @@ describe("channel-reply-delivery", () => {
         sourceChannel: "slack",
         externalChatId: "C999",
         messageId: "msg-multi",
+      });
+    });
+
+    it("keeps a deletion that lands between the index write and the envelope stamp", async () => {
+      // Once the index names the post, a delete resolves to the row and
+      // stamps the envelope that still lacks channelTs. The stamp that
+      // follows must read that state, not the one it saw before the index
+      // write, and keep the row fully deleted: its only post is gone.
+      pushPartialAssistantRow("conv-window", "msg-window", "C666");
+      nextDeliveryTs = "1700001100.000777";
+      onRecordOutboundPost = () => {
+        const row = conversationMessages.find((m) => m.id === "msg-window")!;
+        const envelope = JSON.parse(row.metadata!) as Record<string, string>;
+        row.metadata = JSON.stringify({
+          ...envelope,
+          slackMeta: JSON.stringify({
+            ...(JSON.parse(envelope.slackMeta) as Record<string, unknown>),
+            deletedChannelTs: ["1700001100.000777"],
+            deletedAt: 1700001101000,
+          }),
+        });
+      };
+
+      await deliverReplyViaCallback(
+        "conv-window",
+        "C666",
+        "http://gateway/deliver/slack",
+        "assistant-window",
+      );
+
+      const row = conversationMessages.find((m) => m.id === "msg-window")!;
+      const envelope = JSON.parse(row.metadata!) as Record<string, string>;
+      const parsed = JSON.parse(envelope.slackMeta) as Record<string, unknown>;
+      expect(parsed.channelTs).toBe("1700001100.000777");
+      expect(parsed.deletedChannelTs).toEqual(["1700001100.000777"]);
+      expect(parsed.deletedAt).toBe(1700001101000);
+    });
+
+    it("clears the row-level marker when a later post arrives after every known post was deleted", async () => {
+      // The first post was deleted before the second segment reconciled, so
+      // the row read as fully deleted. The second post is on the channel,
+      // so the row is not; the per-post record of the first deletion stays.
+      conversationMessages.push({
+        id: "msg-revive",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          assistantMessageChannel: "slack",
+          slackMeta: JSON.stringify({
+            source: "slack",
+            eventKind: "message",
+            channelId: "C777",
+            channelTs: "1700001200.000100",
+            deletedChannelTs: ["1700001200.000100"],
+            deletedAt: 1700001201000,
+          }),
+        }),
+      });
+      renderedHistoryContent = {
+        text: "second",
+        textSegments: ["second"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700001200.000200";
+
+      await deliverReplyViaCallback(
+        "conv-revive",
+        "C777",
+        "http://gateway/deliver/slack",
+        "assistant-revive",
+      );
+
+      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
+      const parsed = JSON.parse(merged) as Record<string, unknown>;
+      expect(parsed.additionalChannelTs).toEqual(["1700001200.000200"]);
+      expect(parsed.deletedChannelTs).toEqual(["1700001200.000100"]);
+      expect(parsed.deletedAt).toBeUndefined();
+    });
+
+    it("clears the neutral envelope's row-level marker the same way", async () => {
+      conversationMessages.push({
+        id: "msg-revive-neutral",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          assistantMessageChannel: "discord",
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "999000111",
+            messageId: "111222333",
+            deletedMessageIds: ["111222333"],
+            deletedAt: 1700001301000,
+            eventKind: "message",
+          }),
+        }),
+      });
+      renderedHistoryContent = {
+        text: "second",
+        textSegments: ["second"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "444555666";
+
+      await deliverReplyViaCallback(
+        "conv-revive-neutral",
+        "999000111",
+        "http://gateway/deliver/discord",
+        "assistant-revive-neutral",
+      );
+
+      const merged = updateMessageMetadataCalls[0].updates
+        .providerMeta as string;
+      const parsed = JSON.parse(merged) as Record<string, unknown>;
+      expect(parsed.messageId).toBe("111222333");
+      expect(parsed.additionalMessageIds).toEqual(["444555666"]);
+      expect(parsed.deletedMessageIds).toEqual(["111222333"]);
+      expect(parsed.deletedAt).toBeUndefined();
+      expect(recordedOutboundPosts[0]).toMatchObject({
+        sourceChannel: "discord",
+        externalChatId: "999000111",
+        providerMessageId: "444555666",
       });
     });
 

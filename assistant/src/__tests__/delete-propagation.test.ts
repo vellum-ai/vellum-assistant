@@ -709,6 +709,80 @@ describe("Slack delete propagation", () => {
     expect(readRow().content).toBe("part one and part two");
   });
 
+  test("two deletions of a split Slack reply landing together are both recorded", async () => {
+    // The delete stage reads and writes the envelope in one synchronous
+    // step, so two deletions racing through the pipeline cannot overwrite
+    // each other's per-post record.
+    const chatId = "C0123CHANNEL";
+    const primaryTs = "1725100000.000911";
+    const additionalTs = "1725100000.000912";
+    const minted = recordInbound("slack", chatId, "evt-race-seed");
+    getDb()
+      .insert(messages)
+      .values({
+        id: "assistant-slack-race-reply",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "part one and part two",
+        metadata: JSON.stringify({
+          assistantMessageChannel: "slack",
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: chatId,
+            channelTs: primaryTs,
+            additionalChannelTs: [additionalTs],
+            eventKind: "message",
+          }),
+        }),
+        createdAt: Date.now(),
+      })
+      .run();
+    const deleteReq = (postTs: string) =>
+      new Request("http://localhost:8080/channels/inbound", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Gateway-Origin": TEST_BEARER_TOKEN,
+        },
+        body: JSON.stringify({
+          sourceChannel: "slack",
+          interface: "slack",
+          conversationExternalId: chatId,
+          externalMessageId: `evt-race-del-${postTs}`,
+          eventKind: "delete",
+          content: "",
+          actorExternalId: "slack-system",
+          sourceMetadata: { messageId: postTs, actorUnattributed: true },
+        }),
+      });
+
+    const responses = await Promise.all([
+      handleChannelInbound(deleteReq(primaryTs), undefined, TEST_BEARER_TOKEN),
+      handleChannelInbound(
+        deleteReq(additionalTs),
+        undefined,
+        TEST_BEARER_TOKEN,
+      ),
+    ]);
+    for (const resp of responses) {
+      expect(((await resp.json()) as Record<string, unknown>).deleted).toBe(
+        true,
+      );
+    }
+    const row = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.id, "assistant-slack-race-reply"))
+      .get()!;
+    const slackMeta = readSlackMetadata(
+      (JSON.parse(row.metadata!) as Record<string, string>).slackMeta,
+    );
+    expect(new Set(slackMeta!.deletedChannelTs)).toEqual(
+      new Set([primaryTs, additionalTs]),
+    );
+    expect(slackMeta!.deletedAt).toBeDefined();
+  });
+
   test("deleting a Slack post resolves through the outbound index", async () => {
     // The row's envelope names nothing: resolution comes from the index the
     // post-send reconciliation writes, which is exact at any age, so the

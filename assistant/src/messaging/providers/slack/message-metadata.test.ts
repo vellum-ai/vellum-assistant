@@ -397,6 +397,32 @@ describe("mergeSlackMetadata", () => {
   });
 });
 
+describe("mergeSlackMetadata unset", () => {
+  test("removes the named fields while keeping the rest", () => {
+    const existing = JSON.stringify({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+      deletedChannelTs: ["1700000000.000100"],
+      deletedAt: 1700000001000,
+      userMessageChannel: "slack",
+    });
+    const merged = JSON.parse(
+      mergeSlackMetadata(
+        existing,
+        { additionalChannelTs: ["1700000000.000200"] },
+        { unset: ["deletedAt"] },
+      ),
+    ) as Record<string, unknown>;
+    expect(merged.deletedAt).toBeUndefined();
+    expect(merged.deletedChannelTs).toEqual(["1700000000.000100"]);
+    expect(merged.additionalChannelTs).toEqual(["1700000000.000200"]);
+    expect(merged.userMessageChannel).toBe("slack");
+    expect(merged.source).toBe("slack");
+  });
+});
+
 describe("slackMetadataAsProviderMetadata", () => {
   test("serves a split reply's posts and deletions under the neutral names", () => {
     const neutral = slackMetadataAsProviderMetadata({

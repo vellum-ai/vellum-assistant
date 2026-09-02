@@ -418,15 +418,17 @@ function parseRawObject(
  * etc.), overlays patch fields, and forces `source: "slack"` so subsequent
  * `readSlackMetadata` calls accept the result.
  *
- * `undefined` patch fields are ignored (use a sentinel like `0` to explicitly
- * reset a numeric field). If `existing` is `null`/`undefined` or does not
- * parse as a JSON object, the base is empty and the patch must supply the
- * required Slack fields (`channelId`, `channelTs`, `eventKind`) for the
- * output to round-trip through `readSlackMetadata`.
+ * `undefined` patch fields are ignored; `options.unset` names the fields to
+ * remove, since a patch cannot express absence. If `existing` is
+ * `null`/`undefined` or does not parse as a JSON object, the base is empty
+ * and the patch must supply the required Slack fields (`channelId`,
+ * `channelTs`, `eventKind`) for the output to round-trip through
+ * `readSlackMetadata`.
  */
 export function mergeSlackMetadata(
   existing: string | null | undefined,
   patch: Partial<SlackMessageMetadata>,
+  options?: { unset?: ReadonlyArray<keyof SlackMessageMetadata> },
 ): string {
   const base = parseRawObject(existing);
   const cleanedPatch: Record<string, unknown> = {};
@@ -435,5 +437,9 @@ export function mergeSlackMetadata(
       cleanedPatch[key] = value;
     }
   }
-  return JSON.stringify({ ...base, ...cleanedPatch, source: "slack" });
+  const merged: Record<string, unknown> = { ...base, ...cleanedPatch };
+  for (const key of options?.unset ?? []) {
+    delete merged[key];
+  }
+  return JSON.stringify({ ...merged, source: "slack" });
 }

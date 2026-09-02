@@ -531,36 +531,32 @@ function makeSentMessageIdReconciler(
       return;
     }
     try {
-      // Re-read the row's current metadata so a concurrent edit-propagation
-      // write (e.g. `editedAt`) is not clobbered, and so each segment of a
-      // split reply sees the ids the previous segment stamped.
       const row = getMessageById(messageId);
       if (row === null || row.metadata === null) {
         return;
       }
-      let envelope: Record<string, unknown>;
-      try {
-        envelope = JSON.parse(row.metadata) as Record<string, unknown>;
-      } catch {
+      const post = outboundPostFor(row.metadata, ts);
+      if (post === null) {
         return;
       }
-      const slackMetaRaw =
-        typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
-      if (slackMetaRaw === null) {
-        await reconcileProviderMessageId(
-          messageId,
-          row.conversationId,
-          envelope,
-          ts,
-        );
-        return;
-      }
-      await reconcileSlackChannelTs(
-        messageId,
-        row.conversationId,
-        slackMetaRaw,
-        ts,
+      await withSqliteRetry(
+        () =>
+          recordOutboundPost({
+            ...post,
+            providerMessageId: ts,
+            messageId,
+            conversationId: row.conversationId,
+          }),
+        { op: "record_outbound_post", context: { messageId } },
       );
+      // The envelope is read and written in one synchronous step, re-read on
+      // every attempt, and the delete stage stamps its rows the same way, so
+      // neither overwrites the other's patch: bun:sqlite is synchronous and
+      // nothing yields between the read and the write.
+      await withSqliteRetry(() => stampSentMessageId(messageId, ts), {
+        op: "reconcile_sent_message_id",
+        context: { messageId },
+      });
     } catch (err) {
       log.warn(
         { err, messageId },
@@ -571,103 +567,123 @@ function makeSentMessageIdReconciler(
 }
 
 /**
- * The Slack arm of the reconciliation. The pre-send envelope lacks
- * `channelTs`, which is exactly the state being reconciled and the one the
- * strict reader rejects, so the chat id is read leniently and the patch is
- * merged over the raw envelope (`mergeSlackMetadata`) so every field written
- * at reserve time (`threadTs`, timezone labels) survives.
+ * The index entry a reported id earns, read from the row's envelope: null
+ * when the row carries neither envelope or already names the id (a
+ * redelivery). The pre-send Slack envelope lacks `channelTs`, which is the
+ * state being reconciled and the one the strict reader rejects, so its chat
+ * id is read leniently.
  */
-async function reconcileSlackChannelTs(
-  messageId: string,
-  conversationId: string,
-  slackMetaRaw: string,
+function outboundPostFor(
+  metadata: string,
   ts: string,
-): Promise<void> {
-  const channelId = safeParseRecord(slackMetaRaw).channelId;
-  if (typeof channelId !== "string" || !channelId) {
-    return;
+): { sourceChannel: string; externalChatId: string } | null {
+  const envelope = safeParseRecord(metadata);
+  const slackMetaRaw =
+    typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
+  if (slackMetaRaw !== null) {
+    const channelId = safeParseRecord(slackMetaRaw).channelId;
+    if (typeof channelId !== "string" || !channelId) {
+      return null;
+    }
+    const reconciled = readSlackMetadata(slackMetaRaw);
+    if (reconciled !== null && slackRowNames(reconciled, ts)) {
+      return null;
+    }
+    return { sourceChannel: "slack", externalChatId: channelId };
   }
-  const reconciled = readSlackMetadata(slackMetaRaw);
-  if (
-    reconciled !== null &&
-    (reconciled.channelTs === ts ||
-      reconciled.additionalChannelTs?.includes(ts))
-  ) {
-    return;
+  const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
+  if (providerMeta === null || providerIdPatchFor(providerMeta, ts) === null) {
+    return null;
   }
-  await withSqliteRetry(
-    () =>
-      recordOutboundPost({
-        sourceChannel: "slack",
-        externalChatId: channelId,
-        providerMessageId: ts,
-        messageId,
-        conversationId,
-      }),
-    { op: "record_outbound_post", context: { messageId } },
-  );
-  const patch: Partial<SlackMessageMetadata> =
-    reconciled === null
-      ? { channelTs: ts }
-      : {
-          additionalChannelTs: [...(reconciled.additionalChannelTs ?? []), ts],
-        };
-  await withSqliteRetry(
-    () =>
-      updateMessageMetadata(messageId, {
-        slackMeta: mergeSlackMetadata(slackMetaRaw, patch),
-      }),
-    { op: "reconcile_slack_channel_ts", context: { messageId } },
+  return {
+    sourceChannel: providerMeta.source,
+    externalChatId: providerMeta.conversationExternalId,
+  };
+}
+
+function slackRowNames(meta: SlackMessageMetadata, ts: string): boolean {
+  return (
+    meta.channelTs === ts || meta.additionalChannelTs?.includes(ts) === true
   );
 }
 
 /**
- * The neutral-envelope arm of the reconciliation: record the transport's
- * sent-message id on the row's `providerMeta`. The first reported id
- * becomes `messageId`; further ids (a reply split at tool boundaries posts
- * several provider messages) accumulate under `additionalMessageIds`. An id
- * the envelope already names is a redelivery and is skipped, and a row
- * carrying no valid neutral envelope is left untouched.
+ * Record a reported id on the row's envelope: the first as the row's own id,
+ * the rest as further posts of the same reply. A post just reported is on
+ * the channel, so the row-level deletion marker is recomputed: it stays only
+ * when every post the row now names, this one included, is already recorded
+ * as deleted (a deletion can land between the index write and this stamp,
+ * and it can name this very post); a marker left by an earlier state in
+ * which every known post was gone is cleared. The Slack patch is merged over
+ * the raw envelope (`mergeSlackMetadata`) so every field written at reserve
+ * time (`threadTs`, timezone labels) survives. Synchronous by design; see
+ * the caller.
  */
-async function reconcileProviderMessageId(
-  messageId: string,
-  conversationId: string,
-  envelope: Record<string, unknown>,
-  ts: string,
-): Promise<void> {
+function stampSentMessageId(messageId: string, ts: string): void {
+  const row = getMessageById(messageId);
+  if (row === null || row.metadata === null) {
+    return;
+  }
+  const envelope = safeParseRecord(row.metadata);
+  const slackMetaRaw =
+    typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
+  if (slackMetaRaw !== null) {
+    const reconciled = readSlackMetadata(slackMetaRaw);
+    if (reconciled !== null && slackRowNames(reconciled, ts)) {
+      return;
+    }
+    // The deleted list is read leniently too: a deletion naming this post
+    // may have been stamped while the envelope still lacked `channelTs`.
+    const rawDeleted = safeParseRecord(slackMetaRaw).deletedChannelTs;
+    const deleted = Array.isArray(rawDeleted)
+      ? rawDeleted.filter((id): id is string => typeof id === "string")
+      : [];
+    const posts =
+      reconciled === null
+        ? [ts]
+        : [reconciled.channelTs, ...(reconciled.additionalChannelTs ?? []), ts];
+    const patch: Partial<SlackMessageMetadata> =
+      reconciled === null
+        ? { channelTs: ts }
+        : {
+            additionalChannelTs: [
+              ...(reconciled.additionalChannelTs ?? []),
+              ts,
+            ],
+          };
+    const allDeleted = posts.every((id) => deleted.includes(id));
+    updateMessageMetadata(messageId, {
+      slackMeta: mergeSlackMetadata(
+        slackMetaRaw,
+        patch,
+        allDeleted ? undefined : { unset: ["deletedAt"] },
+      ),
+    });
+    return;
+  }
   const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
   if (providerMeta === null) {
     return;
   }
-  // Every reported id lands in the `channel_outbound_posts` index (the
-  // resolution contract) as well as on the envelope (the row's
-  // self-description). One writer for both, so they cannot drift; the
-  // insert is conflict-ignoring, so a redelivered id is a no-op there too.
-  // It retries contention on the same grounds as the envelope writes below:
-  // the index is the only record a later reaction or delete resolves
-  // through, and nothing revisits this id once delivery settles.
-  await withSqliteRetry(
-    () =>
-      recordOutboundPost({
-        sourceChannel: providerMeta.source,
-        externalChatId: providerMeta.conversationExternalId,
-        providerMessageId: ts,
-        messageId,
-        conversationId,
-      }),
-    { op: "record_outbound_post", context: { messageId } },
-  );
   const patch = providerIdPatchFor(providerMeta, ts);
   if (patch === null) {
     return;
   }
-  await withSqliteRetry(
-    () =>
-      updateMessageMetadata(messageId, {
-        providerMeta: JSON.stringify({ ...providerMeta, ...patch }),
-      }),
-    { op: "reconcile_provider_message_id", context: { messageId } },
-  );
+  const posts = [
+    ...(providerMeta.messageId !== undefined ? [providerMeta.messageId] : []),
+    ...(providerMeta.additionalMessageIds ?? []),
+    ts,
+  ];
+  const deleted = providerMeta.deletedMessageIds ?? [];
+  const { deletedAt, ...rest } = providerMeta;
+  const allDeleted = posts.every((id) => deleted.includes(id));
+  updateMessageMetadata(messageId, {
+    providerMeta: JSON.stringify({
+      ...rest,
+      ...patch,
+      ...(allDeleted && deletedAt !== undefined ? { deletedAt } : {}),
+    }),
+  });
 }
 
 /**
