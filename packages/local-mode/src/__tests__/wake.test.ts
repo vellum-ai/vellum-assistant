@@ -17,7 +17,14 @@ const spawnMock = mock((command: string, args: string[]) => {
   return lastChild;
 });
 
-mock.module("node:child_process", () => ({ spawn: spawnMock }));
+const realChildProcess = await import("node:child_process");
+
+// Spreading the real module keeps its other exports resolvable: a factory
+// returning only `spawn` strips them for the rest of the test process.
+mock.module("node:child_process", () => ({
+  ...realChildProcess,
+  spawn: spawnMock,
+}));
 
 let runWake: typeof import("../wake").runWake;
 
