@@ -9,6 +9,8 @@
  * this guard decodes every image inside each one and reads its ground back
  * rather than trusting that whoever changed the palette also re-rendered the
  * icons. A hand render can mix sizes, so one entry is not evidence for the rest.
+ * Linux derives its ground at build time instead, so the guard runs that
+ * script's own conversion rather than a copy that could drift away from it.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -195,8 +197,9 @@ function quantize(component: number): number {
 }
 
 /**
- * The same rotation `clients/linux/scripts/generate-icon.sh` renders through:
- * both spaces share the sRGB transfer pair, so only the primaries move.
+ * A second implementation of the rotation `generate-icon.sh` renders through:
+ * both spaces share the sRGB transfer pair, so only the primaries move. Two
+ * implementations agreeing is the point, so this one stays written out here.
  */
 function p3ToSrgb(fill: string): number[] {
   const [r = 0, g = 0, b = 0] = fill
@@ -215,6 +218,23 @@ function p3ToSrgb(fill: string): number[] {
   ].map(quantize);
 }
 
+const GENERATE_ICON = join(CLIENTS_DIR, "linux/scripts/generate-icon.sh");
+
+/** The conversion Linux actually ships, run through the script that ships it. */
+function renderedSrgb(fill: string): number[] {
+  const { exitCode, stdout, stderr } = Bun.spawnSync({
+    cmd: ["bash", GENERATE_ICON, "--print-srgb", fill],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (exitCode !== 0) {
+    throw new Error(`generate-icon --print-srgb failed: ${stderr.toString()}`);
+  }
+  const printed = stdout.toString().trim();
+  expect(printed).toMatch(/^rgb\(\d+,\d+,\d+\)$/);
+  return printed.slice(4, -1).split(",").map(Number);
+}
+
 describe("desktop icon ground", () => {
   for (const environment of ENVIRONMENTS) {
     test(`${environment} reads the same on macOS and Linux`, () => {
@@ -231,8 +251,12 @@ describe("desktop icon ground", () => {
   }
 
   for (const { environment, icon } of STANDARDIZED) {
-    test(`every ${environment} Windows ICO image renders ${icon}'s ground`, () => {
-      const ground = p3ToSrgb(readIosFill(icon));
+    test(`Linux and every ${environment} Windows ICO image render ${icon}'s ground`, () => {
+      const fill = readIosFill(icon);
+      // The shipped awk and this file's rotation are independent conversions;
+      // demanding both catches a drift in either one.
+      const ground = renderedSrgb(fill);
+      expect(ground).toEqual(p3ToSrgb(fill));
       const entries = readIcoEntries(environment);
       expect(entries.length).toBeGreaterThan(0);
       // Keying by size names the offending image when one entry drifts alone.

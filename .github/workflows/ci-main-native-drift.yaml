@@ -26,6 +26,9 @@ on:
       - 'clients/ios/App/App/Config/**'
       - 'clients/macos/build-resources/icons/**'
       - 'clients/linux/build-resources/icons/**'
+      # Linux converts its ground at build time, and the drift guard runs that
+      # renderer's own conversion, so a change to it has to re-run the guard.
+      - 'clients/linux/scripts/generate-icon.sh'
       # Windows ships rendered ICOs instead of a manifest, and the drift guard
       # decodes their grounds.
       - 'clients/windows/build-resources/icons/**'
