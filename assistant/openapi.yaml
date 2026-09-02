@@ -5672,8 +5672,9 @@ paths:
       operationId: contact_prompt_flags_post
       summary: Read a pending contact prompt's flags and binding target
       description:
-        Returns whether the pending prompt asked the gateway to mark the submitted channel verified, plus the
-        contact the parked form targets, or the name and notes it proposes for a contact to create.
+        Returns whether a form is still parked under this id, whether the pending prompt asked the gateway to mark
+        the submitted channel verified, and the contact the parked form targets, or the name and notes it proposes for a
+        contact to create. known=false means no such form is pending, so nothing it may have targeted can be read.
       tags:
         - contacts
       requestBody:
@@ -5696,6 +5697,9 @@ paths:
               schema:
                 type: object
                 properties:
+                  known:
+                    type: boolean
+                    description: Whether a form is still parked under this requestId. False leaves the target unreadable rather than absent.
                   verify:
                     type: boolean
                   contactId:
@@ -5705,6 +5709,7 @@ paths:
                   notes:
                     type: string
                 required:
+                  - known
                   - verify
                 additionalProperties: false
   /v1/contact-channels/{contactChannelId}:

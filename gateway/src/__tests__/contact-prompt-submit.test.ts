@@ -47,7 +47,9 @@ function defaultIpcResponse(method: string): Record<string, unknown> {
     return { claimed: true, settleMs: 180_000 };
   }
   if (method === "contact_prompt_flags") {
-    return { ...parkedFlags };
+    // A daemon still holding the form reports known:true alongside whatever it
+    // parked. A test overrides it to stand in for one that has forgotten it.
+    return { known: true, ...parkedFlags };
   }
   return { resolved: true };
 }
@@ -1453,5 +1455,92 @@ describe("handleContactPromptSubmit", () => {
     expect(contacts).toHaveLength(1);
     expect(contacts[0].displayName).toBe("Bob");
     expectNoEmit(ipcMock);
+  });
+
+  test("503 when the daemon no longer holds the form and no echo says who to bind", async () => {
+    seedContact("c-alice", "Alice");
+    // A restart between the claim and this read leaves a daemon that answers
+    // the flags call successfully about a form it knows nothing about.
+    parkedFlags = { known: false };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-forgotten",
+        address: "mystery@example.com",
+        channelType: "email",
+      }),
+    );
+
+    // Read as "no target parked", the address would resolve itself and could
+    // land on a contact the guardian's card never named.
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(false);
+    expect(body.error).toContain("Nothing was written");
+
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
+    expectNoEmit(ipcMock);
+    expect(resolveCall(ipcMock).body.error).toContain("Nothing was written");
+  });
+
+  test("parked notes with no proposed name: 409 rather than rewriting the notes of the contact that holds the address", async () => {
+    seedContact("c-bob", "Bob");
+    seedChannel("chan-bob", "c-bob", "bob@example.com");
+    parkedFlags = { notes: "Neighbour" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-notes-conflict",
+        address: "bob@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toContain('"Bob"');
+    expect(body.error).toContain("assistant contacts merge");
+
+    // Notes are assistant-owned, so an upsert resolving the address to Bob
+    // would have overwritten his over the mirror op.
+    expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
+    expect(callsFor(ipcMock, "contacts_mirror_upsert_contact")).toHaveLength(0);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      1,
+    );
+    expectNoEmit(ipcMock);
+  });
+
+  test("guardian bootstrap takes the parked name and notes, not the address", async () => {
+    parkedFlags = { displayName: "Vargas", notes: "Lives upstairs" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-guardian-parked",
+        address: "vargas@example.com",
+        channelType: "email",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+
+    // A client with nowhere to type a name still bootstraps the guardian under
+    // the one the form proposed, rather than under the address.
+    const contacts = getGatewayDb().select().from(gwContacts).all();
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].role).toBe("guardian");
+    expect(contacts[0].displayName).toBe("Vargas");
+
+    // Notes are assistant-owned, so they reach the DB over the mirror op.
+    const mirror = callsFor(ipcMock, "contacts_mirror_upsert_contact");
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body.displayName).toBe("Vargas");
+    expect(mirror[0].body.notes).toBe("Lives upstairs");
   });
 });

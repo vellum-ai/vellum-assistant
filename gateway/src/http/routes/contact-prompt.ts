@@ -187,6 +187,19 @@ export async function handleContactPromptSubmit(
   });
 }
 
+/** What the daemon reports a parked address form was opened with. */
+interface ParkedPromptTarget {
+  /**
+   * Whether a form is still parked under the id. A daemon that predates the
+   * field sends none, so only an explicit false says the form is gone.
+   */
+  known?: boolean;
+  verify?: boolean;
+  contactId?: string;
+  displayName?: string;
+  notes?: string;
+}
+
 /**
  * What the parked form says this submission is for.
  *
@@ -195,22 +208,14 @@ export async function handleContactPromptSubmit(
  * null when the daemon could not be reached, which leaves the client's echo as
  * the only thing the caller has to bind by.
  */
-async function readParkedPromptTarget(requestId: string): Promise<{
-  verify?: boolean;
-  contactId?: string;
-  displayName?: string;
-  notes?: string;
-} | null> {
+async function readParkedPromptTarget(
+  requestId: string,
+): Promise<ParkedPromptTarget | null> {
   try {
     const result = await ipcCallAssistant("contact_prompt_flags", {
       body: { requestId },
     });
-    return result as {
-      verify?: boolean;
-      contactId?: string;
-      displayName?: string;
-      notes?: string;
-    };
+    return result as ParkedPromptTarget;
   } catch (err) {
     log.warn(
       { err, requestId },
@@ -247,10 +252,12 @@ async function bindSubmittedChannel(input: {
   // address to a contact other than the one the guardian's card named. The
   // claim this write holds was granted moments ago, which makes an unreadable
   // target an anomaly worth refusing: nothing is written and the guardian can
-  // submit again.
-  if (parked === null && !input.contactId) {
+  // submit again. A daemon holding no such form answers known:false, which is
+  // what a restart between the claim and this read leaves behind.
+  const parkedTargetUnreadable = parked === null || parked.known === false;
+  if (parkedTargetUnreadable && !input.contactId) {
     log.error(
-      { requestId, channelType, address: normalizedAddress },
+      { requestId, channelType, address: normalizedAddress, parked },
       "contact-prompt-submit: the parked target is unreadable and the client echoed none",
     );
     return {
@@ -309,16 +316,19 @@ async function bindSubmittedChannel(input: {
         requestId,
         channelType,
         address: normalizedAddress,
-        displayName,
+        displayName: proposedName,
+        notes: proposedNotes,
         verify: input.verify,
         parkedVerify,
       });
     }
 
-    // A proposed name creates the contact under it. An address another contact
-    // already holds is a conflict here, rather than the silent rename of that
-    // contact an upsert matching on the channel would do.
-    if (proposedName) {
+    // Any proposal is intent to create the contact, so the address turning out
+    // to belong to somebody else is a conflict here rather than the silent
+    // rewrite of that contact an upsert matching on the channel would do.
+    // Notes count as a proposal: they land on whichever contact the upsert
+    // resolves to, which for a matched address is a bystander's record.
+    if (proposedName !== undefined || proposedNotes !== undefined) {
       const existingChannel = findChannelByAddress(
         channelType,
         normalizedAddress,
@@ -351,12 +361,12 @@ async function bindSubmittedChannel(input: {
       });
     }
 
+    // Nothing was proposed, so the address speaks for itself: the contact that
+    // holds it, or a new one named after it.
     return await bindAddressToItsOwnContact({
       requestId,
       channelType,
       address: normalizedAddress,
-      displayName,
-      notes: proposedNotes,
       verify: input.verify,
       parkedVerify,
     });
@@ -369,16 +379,21 @@ async function bindSubmittedChannel(input: {
 /**
  * Bind the address to the guardian contact, minting that contact when
  * bootstrap has not yet run. There must only ever be one.
+ *
+ * The proposed name and notes seed a guardian this bind mints. A guardian that
+ * already exists keeps both: the form is about the address, and rewriting the
+ * record behind it is what `contacts update` confirms separately.
  */
 async function bindGuardianChannel(args: {
   requestId: string;
   channelType: string;
   address: string;
   displayName?: string;
+  notes?: string;
   verify: boolean | undefined;
   parkedVerify: boolean | undefined;
 }): Promise<GuardianFormWriteOutcome> {
-  const { requestId, channelType, address, displayName } = args;
+  const { requestId, channelType, address, displayName, notes } = args;
 
   // The guardian lives in the gateway DB (source of truth), so resolve from
   // there rather than from the assistant mirror.
@@ -430,6 +445,9 @@ async function bindGuardianChannel(args: {
         contactId,
         displayName: effectiveDisplayName,
         contactType: "human",
+        // Notes are assistant-owned, so the mirror is the only side that has
+        // a column for them.
+        notes,
       },
     });
   } catch (mirrorErr) {
