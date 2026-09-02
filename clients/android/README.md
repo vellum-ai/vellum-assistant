@@ -190,6 +190,13 @@ Launcher behavior is physical-device territory; an emulator does not cover it.
 - Open an auth callback deep link and an HTTPS App Link while an alternate is
   active. Both resolve through `.MainActivity`, so neither should behave
   differently.
+- Apply an icon and immediately hand off to a browser, so the handoff is what
+  first backgrounds the app: a sign-in, which `NativeAuthPlugin` sends to the
+  system browser, and a purchase CTA, which opens a Custom Tab through the
+  Capacitor Browser plugin. Either one stops the activity, so the pending toggle
+  applies mid-flow. On each launcher, confirm the sign-in's custom-scheme
+  callback still completes and that coming back from the purchase page lands on
+  a live task rather than one the launcher dropped.
 - Turn on themed icons on Android 13 or newer and confirm every alternate draws
   its sclera silhouette rather than a blank tile or a filled square.
 - Set an icon, force-stop the app before it reaches the background
