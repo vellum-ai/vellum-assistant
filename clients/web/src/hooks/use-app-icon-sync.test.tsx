@@ -106,20 +106,14 @@ beforeEach(() => {
   swapSucceeds = true;
   iconState = { supported: true, current: null, available: [ICON] };
   useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
-  useClientFeatureFlagStore.setState({
-    iosAvatarAppIcon: true,
-    androidAvatarAppIcon: false,
-  });
+  useClientFeatureFlagStore.setState({ androidAvatarAppIcon: false });
 });
 
 afterEach(() => {
   cleanup();
   getAppIconState.mockClear();
   setAppIcon.mockClear();
-  useClientFeatureFlagStore.setState({
-    iosAvatarAppIcon: false,
-    androidAvatarAppIcon: false,
-  });
+  useClientFeatureFlagStore.setState({ androidAvatarAppIcon: false });
 });
 
 describe("useAppIconSync", () => {
@@ -144,24 +138,8 @@ describe("useAppIconSync", () => {
     expect(getAppIconState).not.toHaveBeenCalled();
   });
 
-  test("stays off with the flag off", async () => {
-    useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
-
-    const { result } = renderHook(() => useAppIconSync("asst-1"));
-
-    expect(result.current.enabled).toBe(false);
-    expect(result.current.canSyncAvatar).toBe(false);
-    expect(getAppIconState).not.toHaveBeenCalled();
-  });
-
-  test("runs on the Android shell behind its own flag", async () => {
-    nativeIOS = false;
-    nativeAndroid = true;
-    useClientFeatureFlagStore.setState({
-      iosAvatarAppIcon: false,
-      androidAvatarAppIcon: true,
-    });
-
+  test("runs on the iOS shell with no flags set", async () => {
+    // The iOS picker is unconditional: a capable shell is the whole gate.
     const { result } = await renderSync();
 
     await waitFor(() => {
@@ -171,17 +149,18 @@ describe("useAppIconSync", () => {
     expect(result.current.canSyncAvatar).toBe(true);
   });
 
-  test("stays off on Android with only the iOS flag on", async () => {
-    // Each shell carries its own flag, so rolling the picker out on iOS must
-    // not open it on an Android handset.
+  test("runs on the Android shell behind its own flag", async () => {
     nativeIOS = false;
     nativeAndroid = true;
+    useClientFeatureFlagStore.setState({ androidAvatarAppIcon: true });
 
-    const { result } = renderHook(() => useAppIconSync("asst-1"));
+    const { result } = await renderSync();
 
-    expect(result.current.enabled).toBe(false);
-    expect(result.current.canSyncAvatar).toBe(false);
-    expect(getAppIconState).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(result.current.enabled).toBe(true);
+    });
+    expect(result.current.targetIcon).toBe(ICON);
+    expect(result.current.canSyncAvatar).toBe(true);
   });
 
   test("stays off on a shell that ships no alternate icons", async () => {
@@ -447,7 +426,7 @@ describe("useAppIconSync", () => {
   });
 
   test("refuses to apply while the surface is disabled", async () => {
-    useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
+    nativeIOS = false;
     const { result } = renderHook(() => useAppIconSync("asst-1"));
 
     let applied: boolean | undefined;
