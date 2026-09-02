@@ -216,6 +216,13 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
   /** Only on a `modifierHold` `down`, and only when something was selected. */
   selection?: HotkeySelection;
+  /**
+   * How long the keys had already been down when this edge was sent, where
+   * the helper held it to read the selection. A consumer timing the hold from
+   * the edge takes this off its clock, so a slow application in front costs
+   * the read and not the hold.
+   */
+  heldMs?: number;
 }
 
 export type FnPushToTalkResult =

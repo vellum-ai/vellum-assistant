@@ -493,7 +493,14 @@ export function useLiveVoice(
   // reconnect path and greets a second time on a socket blip. The ref outlives
   // every attempt, so a connect that fails before `ready` still owes the
   // greeting to whichever attempt finally lands.
-  const pendingSeedTextRef = useRef<string | null>(null);
+  //
+  // The seed's own options ride with it, since the connect attempts that
+  // follow the first carry no start options of their own.
+  const pendingSeedRef = useRef<{
+    text: string;
+    visible: boolean;
+    endAfterReply: boolean;
+  } | null>(null);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -962,19 +969,19 @@ export function useLiveVoice(
             if (!live() || !session.captureRunning) {
               return;
             }
-            const seedText = pendingSeedTextRef.current;
-            pendingSeedTextRef.current = null;
-            if (seedText !== null) {
+            const seed = pendingSeedRef.current;
+            pendingSeedRef.current = null;
+            if (seed !== null) {
               // `hidden`: a seed that is an instruction rather than something
               // the user typed drives the turn and stays in the model's
               // context while never rendering in the transcript. An assistant
               // too old to know the field persists it visibly instead, which
               // is why the copy still reads as a sentence a person could have
               // sent. A seed that is the user's own words renders as theirs.
-              const sent = sendTextTurn(session, seedText, {
-                hidden: startOptions.seedVisible !== true,
+              const sent = sendTextTurn(session, seed.text, {
+                hidden: !seed.visible,
               });
-              if (sent && startOptions.endAfterSeedReply === true) {
+              if (sent && seed.endAfterReply) {
                 session.endAfterReply = true;
               }
               // A session that exists for its seed has nothing to do when
@@ -982,7 +989,7 @@ export function useLiveVoice(
               // turns declines it at `sendText`'s gate). Left up, it would
               // be an open microphone with the question silently gone, so
               // it fails instead and says why.
-              if (!sent && startOptions.endAfterSeedReply === true) {
+              if (!sent && seed.endAfterReply) {
                 finishWithError(
                   session,
                   teardown,
@@ -1007,6 +1014,10 @@ export function useLiveVoice(
           }
           session.utteranceOpen = true;
           s.setUtteranceOpen(true);
+          // The user carrying on is the conversation continuing: a session
+          // that was to end after its seed's reply stays up for as long as
+          // they want it.
+          session.endAfterReply = false;
           // Server VAD fires on room noise as well as on speech, so hold the
           // flushed audio instead of destroying it: `utterance_discarded`
           // retracts a wrong barge-in and puts the reply back. A second onset
@@ -1214,15 +1225,14 @@ export function useLiveVoice(
             }
             // The reply has been heard. Wait out the quiet before ending, and
             // end only if nothing has started since: a `thinking` frame for a
-            // tool run bumps the epoch, and the user speaking opens an
-            // utterance. Either means the turn is not over.
+            // tool run bumps the epoch, and the user speaking disarms the end
+            // outright. Either means the turn is not over.
             const epoch = session.responseEpoch;
             setTimeout(() => {
               if (
                 !live() ||
                 !session.endAfterReply ||
                 session.responseEpoch !== epoch ||
-                session.utteranceOpen ||
                 useLiveVoiceStore.getState().state !== "listening"
               ) {
                 return;
@@ -1554,7 +1564,15 @@ export function useLiveVoice(
       // Armed here rather than inside `connectSession`, which the reconnect
       // path also enters carrying the same `startOptions`: a session that
       // already greeted must not greet again when its socket comes back.
-      pendingSeedTextRef.current = startOptions?.seedText?.trim() || null;
+      const seedText = startOptions?.seedText?.trim() || null;
+      pendingSeedRef.current =
+        seedText === null
+          ? null
+          : {
+              text: seedText,
+              visible: startOptions?.seedVisible === true,
+              endAfterReply: startOptions?.endAfterSeedReply === true,
+            };
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],

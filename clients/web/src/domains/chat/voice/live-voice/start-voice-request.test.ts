@@ -47,6 +47,13 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice,
 }));
 
+const toastError = mock((_message: string, _options?: { id?: string }) => {});
+mock.module("@vellumai/design-library/components/toast", () => ({
+  toast: { error: toastError },
+  Toaster: () => null,
+  ToastContent: () => null,
+}));
+
 const {
   PENDING_VOICE_START_TTL_MS,
   askVoiceFromSurface,
@@ -158,6 +165,7 @@ function expectStartedOnFreshDraft(): void {
 
 beforeEach(() => {
   sendText.mockClear();
+  toastError.mockClear();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
   __resetPendingDeepLinkForTesting();
@@ -565,6 +573,48 @@ describe("askVoiceFromSurface", () => {
     expect(sendText).toHaveBeenCalledWith("what is this");
     expect(navigate).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
+  });
+
+  test("says so when the assistant cannot serve the question", async () => {
+    // A plain start on an assistant too old for live voice stops quietly,
+    // as the composer renders no voice button. A question was asked out
+    // loud from another application, so its drop is said.
+    identityHydrated("0.10.11");
+    registerStarter();
+
+    askVoiceFromSurface(navigate, "what is this");
+    await flushDrain();
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  test("says so when the assistant is not ready to talk", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
+
+    askVoiceFromSurface(navigate, "what is this");
+    await flushDrain();
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  test("a session that started mid-preflight takes the question as a turn", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightLiveVoice.mockImplementationOnce(async () => {
+      useLiveVoiceStore.getState().setState("listening");
+      return preflightVerdict;
+    });
+
+    askVoiceFromSurface(navigate, "what is this");
+    await flushDrain();
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(sendText).toHaveBeenCalledWith("what is this");
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   test("reports a running session that cannot take the turn", () => {

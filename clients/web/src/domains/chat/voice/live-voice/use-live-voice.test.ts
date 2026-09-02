@@ -3633,7 +3633,7 @@ describe("speak first (seed turn)", () => {
       expect(h.view.result.current.state).toBe("idle");
     });
 
-    test("stays up when the user starts talking", async () => {
+    test("stays up for good once the user starts talking", async () => {
       const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
       await startAsk(h);
       speak(h, 2);
@@ -3644,9 +3644,65 @@ describe("speak first (seed turn)", () => {
       await act(async () => {
         await sleep(QUIET_MS * 2);
       });
-
       expect(h.view.result.current.state).toBe("listening");
       expect(h.client.ended).toBe(false);
+
+      // The follow-up is answered, and the conversation is theirs now: the
+      // reply to it does not end the session either.
+      act(() => {
+        h.client.emit("utteranceEnd", {
+          type: "utterance_end",
+          seq: 6,
+          reason: "silence",
+        });
+        h.client.emit("sttFinal", { type: "stt_final", seq: 7, text: "and" });
+      });
+      speak(h, 8);
+      await finishSpeaking(h, 10);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("listening");
+      expect(h.client.ended).toBe(false);
+    });
+
+    test("keeps the ask's shape across a pre-ready connect retry", async () => {
+      const h = renderController({
+        endAfterSeedReplyQuietMs: QUIET_MS,
+        reconnectBackoffMs: FAST_BACKOFF,
+      });
+      h.client.textInputSupported = true;
+      await act(async () => {
+        await h.view.result.current.start("assistant-1", "conv-1", {
+          handsFree: true,
+          seedText: "what is this",
+          seedVisible: true,
+          endAfterSeedReply: true,
+        });
+      });
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        const err: LiveVoiceClientError = {
+          reason: "connection-failed",
+          message: "Live-voice WebSocket error",
+        };
+        h.client.emit("error", err);
+      });
+      await act(async () => {
+        await sleep(30);
+      });
+      await emitReady(h, "s2");
+
+      expect(h.client.sentText).toEqual(["what is this"]);
+      expect(h.client.sentTextOptions).toEqual([{ hidden: false }]);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.view.result.current.state).toBe("idle");
     });
 
     test("a plain seed leaves the session up", async () => {

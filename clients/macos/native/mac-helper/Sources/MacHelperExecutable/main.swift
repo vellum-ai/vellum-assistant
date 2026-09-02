@@ -252,14 +252,20 @@ final class MacHelper: @unchecked Sendable {
             guard !isModifierHoldDown else { return }
             isModifierHoldDown = true
             // What the user had highlighted when the keys went down travels
-            // with the edge, so the hold can be about it. Character counts
-            // only in the log; the text itself is the user's.
-            if let selection = FrontSelection.read() {
+            // with the edge, so the hold can be about it. The read holds the
+            // edge for as long as it takes, and the edge says how long that
+            // was. Character counts only in the log; the text itself is the
+            // user's.
+            let readStarted = Date()
+            let selection = FrontSelection.read()
+            let heldMs = Int(Date().timeIntervalSince(readStarted) * 1000)
+            params["heldMs"] = heldMs
+            if let selection {
                 params["selection"] = [
                     "text": selection.text,
                     "truncated": selection.truncated,
                 ]
-                log("modifier hold down with selection chars=\(selection.text.count) truncated=\(selection.truncated)")
+                log("modifier hold down with selection chars=\(selection.text.count) truncated=\(selection.truncated) readMs=\(heldMs)")
             }
         } else if state == "up" {
             guard isModifierHoldDown else { return }

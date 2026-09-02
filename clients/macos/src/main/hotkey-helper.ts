@@ -74,6 +74,7 @@ const HOTKEY_EVENT_SCHEMA = z.object({
       truncated: z.boolean(),
     })
     .optional(),
+  heldMs: z.number().optional(),
 });
 
 const HOTKEY_RESULT_SCHEMA = z.object({

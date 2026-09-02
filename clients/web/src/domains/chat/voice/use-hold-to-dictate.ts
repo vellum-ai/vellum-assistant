@@ -116,11 +116,15 @@ export function useHoldToDictate({
       if (event.state === "down") {
         cancelArming();
         const selection = event.selection ?? null;
+        // The helper may have held the edge to read the selection. That time
+        // was part of the hold, so it comes off the arming delay rather than
+        // being added to it.
+        const armingMs = Math.max(0, HOLD_ARMING_MS - (event.heldMs ?? 0));
         armingTimer = setTimeout(() => {
           armingTimer = null;
           open = true;
           handlers.current.onHoldStart({ selection });
-        }, HOLD_ARMING_MS);
+        }, armingMs);
         return;
       }
       endIfOpen();

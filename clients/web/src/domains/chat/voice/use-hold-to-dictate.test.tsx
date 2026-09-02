@@ -24,12 +24,16 @@ mock.module("@/runtime/hotkey", () => ({
 const { HOLD_ARMING_MS, useHoldToDictate } =
   await import("@/domains/chat/voice/use-hold-to-dictate");
 
-const press = (selection?: HotkeyEvent["selection"]) => {
+const press = (
+  selection?: HotkeyEvent["selection"],
+  heldMs?: HotkeyEvent["heldMs"],
+) => {
   act(() => {
     emitHotkeyEvent?.({
       kind: "modifierHold",
       state: "down",
       ...(selection ? { selection } : {}),
+      ...(heldMs !== undefined ? { heldMs } : {}),
     });
   });
 };
@@ -86,6 +90,14 @@ describe("hold to dictate", () => {
     expect(onHoldStart).toHaveBeenCalledWith({
       selection: { text: "the powerhouse of the cell", truncated: false },
     });
+    release();
+  });
+
+  test("takes the time the helper held the edge off the arming delay", async () => {
+    const { onHoldStart } = renderHold();
+    press({ text: "selected", truncated: false }, HOLD_ARMING_MS - 20);
+    await settle(40);
+    expect(onHoldStart).toHaveBeenCalledTimes(1);
     release();
   });
 

@@ -9,9 +9,19 @@ import ApplicationServices
 /// still down, and the hold detector would read the key as a chord and drop the
 /// hold. Applications that expose no selection over Accessibility (a terminal,
 /// a canvas) read as having none.
+///
+/// The read happens on the keyboard event's own thread, ahead of the edge it
+/// travels on, so it is held to a few short waits: an application that does
+/// not answer costs the edge at most `maxReadSeconds`, and the edge carries
+/// how long it was held so the far side can take that off its own clock.
 enum FrontSelection {
     /// How much of a selection travels. The rest is dropped and flagged.
     static let maxChars = 4000
+
+    /// The longest one Accessibility request is given to answer.
+    static let requestTimeoutSeconds: Float = 0.05
+    /// The most a read can take, every request having timed out.
+    static let maxReadSeconds: Float = requestTimeoutSeconds * 4
 
     struct Selection {
         let text: String
@@ -23,7 +33,7 @@ enum FrontSelection {
         guard AXIsProcessTrusted() else { return nil }
 
         let systemWide = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(systemWide, 0.25)
+        AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
@@ -34,7 +44,7 @@ enum FrontSelection {
             return nil
         }
         let focused = focusedValue as! AXUIElement
-        AXUIElementSetMessagingTimeout(focused, 0.25)
+        AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
 
         var text = stringAttribute(focused, kAXSelectedTextAttribute as CFString) ?? ""
         if text.isEmpty {

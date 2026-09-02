@@ -30,6 +30,7 @@ import {
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
+import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
@@ -37,6 +38,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+import { toast } from "@vellumai/design-library/components/toast";
 
 /**
  * How long a parked start-voice request stays live.
@@ -251,11 +253,22 @@ export async function drainPendingVoiceStart(
     usePendingDeepLinkStore
       .getState()
       .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
+  // A plain start that stops here has handed the user something to look at
+  // instead (no button, the card, the notice). A question that stops here has
+  // been dropped, and the user who asked it from another application is
+  // watching the companion for an answer, so the drop is said out loud.
+  const refuse = () => {
+    if (consume()?.ask != null) {
+      toast.error(formatVoiceError("voice-ask-unavailable"), {
+        id: "voice-error:voice-ask-unavailable",
+      });
+    }
+  };
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the
   // composer renders no voice button.
   if (!supportsLiveVoice(assistantId)) {
-    consume();
+    refuse();
     return;
   }
   // The same two guards the composer's voice button runs. Without them a
@@ -271,7 +284,7 @@ export async function drainPendingVoiceStart(
     // beat: there is something to answer. Fire and forget, since nothing below
     // depends on the window being up.
     void ensureMainWindowVisible();
-    consume();
+    refuse();
     return;
   }
   const readiness = await voiceReadiness(assistantId);
@@ -288,7 +301,16 @@ export async function drainPendingVoiceStart(
   // it finds already running: the starter would refuse a second anyway, and
   // navigating would only leave the composer that owns it.
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
-    consume();
+    // That session is the one the user is in, so a question goes to it.
+    const ask = consume()?.ask ?? null;
+    if (
+      ask !== null &&
+      useLiveVoiceStore.getState().starter?.sendText(ask) !== true
+    ) {
+      toast.error(formatVoiceError("voice-ask-unavailable"), {
+        id: "voice-error:voice-ask-unavailable",
+      });
+    }
     return;
   }
   // A switch to another assistant mid-preflight, on the other hand, is a race
@@ -303,7 +325,7 @@ export async function drainPendingVoiceStart(
   }
   publishConfigNotice(readiness.notice);
   if (!readiness.allowed) {
-    consume();
+    refuse();
     return;
   }
   // Re-read across the readiness await, as above: a controller that unmounted
