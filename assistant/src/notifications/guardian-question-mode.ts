@@ -14,7 +14,12 @@ import { z } from "zod";
 
 import { externalSourceLinkSchema } from "../messaging/channel-binding-schema.js";
 import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
-import { nonEmpty, normalizeStrippedText } from "./notification-utils.js";
+import {
+  escapeRegExp,
+  nonEmpty,
+  normalizeStrippedText,
+  stripReplyMechanicsFromCopy,
+} from "./notification-utils.js";
 import type { RenderedChannelCopy } from "./types.js";
 
 // ── Schema primitives ──────────────────────────────────────────────────
@@ -591,10 +596,6 @@ export function buildGuardianDisambiguationExample(
   return `For ${category}: ${replyDirective.replace(/^Reply/, "reply")}`;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function buildApprovalInstructionPattern(escapedCode: string): RegExp {
   return new RegExp(
     `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
@@ -659,39 +660,19 @@ export function parseInteractiveApprovalPayload(
  * `guardian.question` signal. Composed copy never carries them: the
  * broadcaster's `plainTextFallback` does, and a transport appends it only
  * when it sends text without buttons. What this removes is the model's own
- * echo of the mechanics, in either mode, plus bare code mentions.
- *
- * A field that was nothing but the instruction becomes the request's own
- * question text, the producer's human-readable ask. Without one it keeps its
- * text rather than becoming empty: downstream treats an empty body as
- * missing copy. A title is a headline, never the ask, so a code-only title
- * keeps its text.
+ * echo of the mechanics, in either mode, plus bare code mentions; a field
+ * left empty becomes the request's question text.
  */
 export function stripGuardianReplyMechanicsFromCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
   questionText: string | undefined,
 ): RenderedChannelCopy {
-  const strip = (text: string): string => {
-    const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
-    return stripped.length > 0 ? stripped : (questionText ?? text);
-  };
-  const strippedTitle = stripGuardianRequestCodeInstructions(
-    copy.title,
-    requestCode,
+  return stripReplyMechanicsFromCopy(
+    copy,
+    (text) => stripGuardianRequestCodeInstructions(text, requestCode),
+    questionText,
   );
-
-  return {
-    ...copy,
-    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
-    body: strip(copy.body),
-    deliveryText: copy.deliveryText
-      ? strip(copy.deliveryText)
-      : copy.deliveryText,
-    conversationSeedMessage: copy.conversationSeedMessage
-      ? strip(copy.conversationSeedMessage)
-      : copy.conversationSeedMessage,
-  };
 }
 
 /**

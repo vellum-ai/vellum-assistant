@@ -11,6 +11,7 @@ import type { Root, RootContent } from "mdast";
 import { parseMarkdown } from "../messaging/content/parse.js";
 import { stripAnsiAndControlChars, stripAnsiSequences } from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
+import type { RenderedChannelCopy } from "./types.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
 
@@ -315,4 +316,41 @@ export function normalizeStrippedText(value: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** Escape a literal for use inside a `RegExp` source string. */
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Run a reply-mechanics strip over every text field of a channel's copy.
+ * A body, deliveryText, or conversationSeedMessage left empty by the strip
+ * becomes `ask`, the request's own deterministic text, so a card surface
+ * never shows the mechanics it exists to avoid; without one it keeps its
+ * text rather than becoming empty, which downstream reads as missing copy.
+ * A title is a headline, never the ask, so a mechanics-only title keeps
+ * its text.
+ */
+export function stripReplyMechanicsFromCopy(
+  copy: RenderedChannelCopy,
+  strip: (text: string) => string,
+  ask: string | undefined,
+): RenderedChannelCopy {
+  const stripField = (text: string): string => {
+    const stripped = strip(text);
+    return stripped.length > 0 ? stripped : (ask ?? text);
+  };
+  const strippedTitle = strip(copy.title);
+  return {
+    ...copy,
+    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
+    body: stripField(copy.body),
+    deliveryText: copy.deliveryText
+      ? stripField(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? stripField(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
 }

@@ -17,10 +17,12 @@ import {
   isHandshakeOffered,
 } from "../runtime/introduction-policy.js";
 import {
+  escapeRegExp,
   nonEmpty,
   normalizeStrippedText,
   sanitizeIdentityField,
   sanitizeMessagePreview,
+  stripReplyMechanicsFromCopy,
 } from "./notification-utils.js";
 import type { RenderedChannelCopy } from "./types.js";
 
@@ -335,7 +337,13 @@ export function stripAccessRequestReplyMechanics(
   text: string,
   payload: Record<string, unknown>,
 ): string {
-  const p = parseAccessRequestPayload(payload);
+  return stripMechanicsFromText(text, parseAccessRequestPayload(payload));
+}
+
+function stripMechanicsFromText(
+  text: string,
+  p: ParsedAccessRequestPayload,
+): string {
   const requestCode = nonEmpty(p.requestCode);
   // Each pattern also eats the line break after the sentence, so a directive
   // that sat on its own line leaves no blank line behind.
@@ -344,7 +352,7 @@ export function stripAccessRequestReplyMechanics(
     "",
   );
   if (requestCode) {
-    const escaped = requestCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRegExp(requestCode);
     next = next
       .replace(
         new RegExp(
@@ -366,33 +374,18 @@ export function stripAccessRequestReplyMechanics(
 
 /**
  * {@link stripAccessRequestReplyMechanics} over every text field of a
- * channel's copy. A field that was nothing but mechanics becomes the
- * requester context, the deterministic ask, so a card surface never shows
- * the mechanics it exists to avoid. A title is a headline, never the ask,
- * so a mechanics-only title keeps its text rather than becoming empty.
+ * channel's copy; a field left empty becomes the requester context.
  */
 export function stripAccessRequestReplyMechanicsFromCopy(
   copy: RenderedChannelCopy,
   payload: Record<string, unknown>,
 ): RenderedChannelCopy {
-  const strip = (text: string): string => {
-    const stripped = stripAccessRequestReplyMechanics(text, payload);
-    return stripped.length > 0
-      ? stripped
-      : buildAccessRequestContextText(payload);
-  };
-  const strippedTitle = stripAccessRequestReplyMechanics(copy.title, payload);
-  return {
-    ...copy,
-    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
-    body: strip(copy.body),
-    deliveryText: copy.deliveryText
-      ? strip(copy.deliveryText)
-      : copy.deliveryText,
-    conversationSeedMessage: copy.conversationSeedMessage
-      ? strip(copy.conversationSeedMessage)
-      : copy.conversationSeedMessage,
-  };
+  const p = parseAccessRequestPayload(payload);
+  return stripReplyMechanicsFromCopy(
+    copy,
+    (text) => stripMechanicsFromText(text, p),
+    buildAccessRequestContextText(payload),
+  );
 }
 
 // ── Card view model ─────────────────────────────────────────────────────────
