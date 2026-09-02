@@ -160,6 +160,33 @@ targetTemplates:
     # targets, so the three app schemes are the only ones worth having.
     preBuildScripts: *projectSpecFreshnessGuard
 
+  # Share Sheet extension. One per environment for the same prefix rule as
+  # VoiceActivity. Compiles only the Shared files it needs: App Intents and
+  # ActivityKit in that folder belong to VoiceActivity, and compiling them
+  # here would register the same intents twice.
+  ShareExtensionEnvironment:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+        excludes:
+          - "Info.plist"
+      - path: App/Shared
+        includes:
+          - AppGroupID.swift
+          - BundleURLScheme.swift
+          - RecentChatsStore.swift
+          - ShareDeepLink.swift
+          - ShareInbox.swift
+    settings:
+      configs:
+        Debug:
+          OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG SHARE_EXTENSION
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: SHARE_EXTENSION
+    preBuildScripts: *projectSpecFreshnessGuard
+
 targets:
   App:
     templates: [AppEnvironment]
@@ -170,6 +197,8 @@ targets:
       Release: App/Config/App.xcconfig
     dependencies:
       - target: VoiceActivity
+        embed: true
+      - target: Share
         embed: true
 
   "App Staging":
@@ -182,6 +211,8 @@ targets:
     dependencies:
       - target: "VoiceActivity Staging"
         embed: true
+      - target: "Share Staging"
+        embed: true
 
   "App Dev":
     templates: [AppEnvironment]
@@ -192,6 +223,8 @@ targets:
       Release: App/Config/App-Dev.xcconfig
     dependencies:
       - target: "VoiceActivity Dev"
+        embed: true
+      - target: "Share Dev"
         embed: true
 
   VoiceActivity:
@@ -212,6 +245,24 @@ targets:
       Debug: App/Config/Extension-Dev.xcconfig
       Release: App/Config/Extension-Dev.xcconfig
 
+  Share:
+    templates: [ShareExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Share.xcconfig
+      Release: App/Config/Share.xcconfig
+
+  "Share Staging":
+    templates: [ShareExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Share-Staging.xcconfig
+      Release: App/Config/Share-Staging.xcconfig
+
+  "Share Dev":
+    templates: [ShareExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Share-Dev.xcconfig
+      Release: App/Config/Share-Dev.xcconfig
+
   # Logic-only unit tests for the framework-free helpers under `App/`.
   # Sources are listed file by file rather than as the whole `App`
   # directory, which is full of Capacitor plugins this host-less bundle
@@ -223,6 +274,13 @@ targets:
       - path: AppTests
       - path: App/Attribution.swift
       - path: App/NotificationCategories.swift
+      - path: App/Shared
+        includes:
+          - AppGroupID.swift
+          - BundleURLScheme.swift
+          - RecentChatsStore.swift
+          - ShareDeepLink.swift
+          - ShareInbox.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"

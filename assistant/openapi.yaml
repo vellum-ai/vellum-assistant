@@ -4263,6 +4263,18 @@ paths:
                         - removed
                     emoji:
                       type: string
+                    emojiKind:
+                      type: string
+                      enum:
+                        - unicode
+                        - shortcode
+                        - custom
+                    emojiName:
+                      type: string
+                    emojiId:
+                      type: string
+                    emojiAnimated:
+                      type: boolean
                     targetMessageId:
                       type: string
                   required:
@@ -11067,7 +11079,9 @@ paths:
                     description: Processed text output
                   mode:
                     type: string
-                    description: "Detected mode: dictation, command, or action"
+                    description:
+                      "Detected mode: dictation, command, action, or question (selected text the words asked about rather than
+                      changed; text is the transcription)"
                   actionPlan:
                     description: Action plan (only when mode is action)
                     type: string
@@ -21064,6 +21078,18 @@ paths:
                           properties:
                             emoji:
                               type: string
+                            emojiKind:
+                              type: string
+                              enum:
+                                - unicode
+                                - shortcode
+                                - custom
+                            emojiName:
+                              type: string
+                            emojiId:
+                              type: string
+                            emojiAnimated:
+                              type: boolean
                             op:
                               type: string
                               enum:
@@ -21133,6 +21159,18 @@ paths:
                               properties:
                                 emoji:
                                   type: string
+                                emojiKind:
+                                  type: string
+                                  enum:
+                                    - unicode
+                                    - shortcode
+                                    - custom
+                                emojiName:
+                                  type: string
+                                emojiId:
+                                  type: string
+                                emojiAnimated:
+                                  type: boolean
                                 op:
                                   type: string
                                   enum:
@@ -21151,6 +21189,8 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        deletedAt:
+                          type: number
                         queueStatus:
                           type: string
                           enum:
@@ -24370,7 +24410,9 @@ paths:
     post:
       operationId: platform_connect_post
       summary: Connect to the Vellum Platform
-      description: Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.
+      description:
+        Checks whether the stored platform credentials still connect. Reports a stored key the platform rejects as
+        credentialRejected, so the caller can direct the user to sign in again and replace it.
       tags:
         - platform
       responses:
@@ -24386,6 +24428,8 @@ paths:
                   baseUrl:
                     type: string
                   showPlatformLogin:
+                    type: boolean
+                  credentialRejected:
                     type: boolean
                 additionalProperties: false
   /v1/platform/credits:
@@ -24754,6 +24798,32 @@ paths:
                   - selectedCreditTier
                   - package
                   - entitlements
+                additionalProperties: false
+  /v1/platform/verify-credential:
+    post:
+      operationId: platform_verifycredential_post
+      summary: Verify the Vellum-managed credential against the platform
+      description:
+        Asks the platform whether the stored assistant API key authenticates. POST because it performs a check; the
+        result is returned, not stored.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - valid
+                      - rejected
+                      - unknown
+                required:
+                  - status
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:

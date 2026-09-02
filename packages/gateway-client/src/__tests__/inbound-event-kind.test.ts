@@ -11,6 +11,7 @@ import {
   resolveInboundEventKind,
   resolveInboundReactionPayload,
 } from "../inbound-event-kind.js";
+import { RuntimeInboundPayloadSchema } from "../inbound-contract.js";
 
 describe("resolveInboundEventKind", () => {
   test("a stamped kind wins over every legacy field", () => {
@@ -83,14 +84,58 @@ describe("inboundEventRefersToAnotherMessage", () => {
 });
 
 describe("resolveInboundReactionPayload", () => {
-  test("a structured payload wins outright", () => {
+  test("a structured payload wins outright, typed fields included", () => {
     expect(
       resolveInboundReactionPayload({
         eventKind: "reaction",
-        reaction: { op: "removed", emoji: "+1", targetMessageId: "11.22" },
+        reaction: {
+          op: "removed",
+          emoji: "+1",
+          emojiKind: "shortcode",
+          emojiName: "+1",
+          targetMessageId: "11.22",
+        },
         callbackData: "reaction:eyes",
       }),
-    ).toEqual({ op: "removed", emoji: "+1", targetMessageId: "11.22" });
+    ).toEqual({
+      op: "removed",
+      emoji: "+1",
+      emojiKind: "shortcode",
+      emojiName: "+1",
+      targetMessageId: "11.22",
+    });
+  });
+
+  test("a stored payload without typed fields recovers its kind", () => {
+    // Rows predating the typed fields carry the spelling only. This is the
+    // one place the kind is inferred, and each spelling has one answer.
+    const at = (emoji: string) =>
+      resolveInboundReactionPayload({
+        eventKind: "reaction",
+        reaction: { op: "added", emoji, targetMessageId: "11.22" },
+      });
+    expect(at("<:blob_wave:987>")).toMatchObject({
+      emojiKind: "custom",
+      emojiName: "blob_wave",
+      emojiId: "987",
+    });
+    // The plain form records nothing about animation, so the field is
+    // absent rather than a fabricated false; a resolver must not read
+    // "not animated" off a row that never knew.
+    expect(at("<:blob_wave:987>")).not.toHaveProperty("emojiAnimated");
+    expect(at("<a:party:5>")).toMatchObject({
+      emojiKind: "custom",
+      emojiName: "party",
+      emojiId: "5",
+      emojiAnimated: true,
+    });
+    expect(at("thumbsup")).toMatchObject({
+      emojiKind: "shortcode",
+      emojiName: "thumbsup",
+    });
+    expect(at("🎉")).toMatchObject({ emojiKind: "unicode", emojiName: "🎉" });
+    // The spelling itself is never rewritten: the write path parses it back.
+    expect(at("<:blob_wave:987>")?.emoji).toBe("<:blob_wave:987>");
   });
 
   test("a replayed payload parses its sentinel and wire target", () => {
@@ -99,13 +144,25 @@ describe("resolveInboundReactionPayload", () => {
         callbackData: "reaction:thumbsup",
         sourceMetadata: { messageId: "33.44" },
       }),
-    ).toEqual({ op: "added", emoji: "thumbsup", targetMessageId: "33.44" });
+    ).toEqual({
+      op: "added",
+      emoji: "thumbsup",
+      emojiKind: "shortcode",
+      emojiName: "thumbsup",
+      targetMessageId: "33.44",
+    });
     expect(
       resolveInboundReactionPayload({
         callbackData: "reaction_removed:thumbsup",
         sourceMetadata: { messageId: "33.44" },
       }),
-    ).toEqual({ op: "removed", emoji: "thumbsup", targetMessageId: "33.44" });
+    ).toEqual({
+      op: "removed",
+      emoji: "thumbsup",
+      emojiKind: "shortcode",
+      emojiName: "thumbsup",
+      targetMessageId: "33.44",
+    });
   });
 
   test("no emoji or no target is not a reaction payload", () => {
@@ -124,5 +181,53 @@ describe("resolveInboundReactionPayload", () => {
         sourceMetadata: { messageId: "33.44" },
       }),
     ).toBeNull();
+  });
+});
+
+describe("RuntimeInboundPayloadSchema carries a reaction's typed emoji", () => {
+  const base = {
+    sourceChannel: "discord",
+    interface: "discord",
+    conversationExternalId: "chan-1",
+    externalMessageId: "msg-1:reaction:<:party_blob:111>:user-1:ingest-1",
+    content: "",
+    eventKind: "reaction",
+    actorExternalId: "user-1",
+  };
+
+  test("a custom emoji keeps all four typed fields through the wire schema", () => {
+    const parsed = RuntimeInboundPayloadSchema.parse({
+      ...base,
+      reaction: {
+        op: "added",
+        emoji: "<:party_blob:111>",
+        emojiKind: "custom",
+        emojiName: "party_blob",
+        emojiId: "111",
+        emojiAnimated: true,
+        targetMessageId: "msg-1",
+      },
+    });
+    expect(parsed.reaction).toEqual({
+      op: "added",
+      emoji: "<:party_blob:111>",
+      emojiKind: "custom",
+      emojiName: "party_blob",
+      emojiId: "111",
+      emojiAnimated: true,
+      targetMessageId: "msg-1",
+    });
+  });
+
+  test("a reaction carrying only the spelling still parses", () => {
+    const parsed = RuntimeInboundPayloadSchema.parse({
+      ...base,
+      reaction: { op: "removed", emoji: "+1", targetMessageId: "msg-1" },
+    });
+    expect(parsed.reaction).toEqual({
+      op: "removed",
+      emoji: "+1",
+      targetMessageId: "msg-1",
+    });
   });
 });

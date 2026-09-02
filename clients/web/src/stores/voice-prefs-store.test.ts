@@ -19,6 +19,7 @@ beforeEach(() => {
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
     flashMode: "off",
+    showKeptFrame: true,
   });
 });
 
@@ -86,6 +87,29 @@ describe("useVoicePrefsStore — voice-mode preferences", () => {
     expect(persisted.pauseBeforeReplyMs).toBe(1500);
     expect(persisted.interruptSensitivity).toBe("low");
     expect(persisted.flashMode).toBe("auto");
+    expect(persisted.showKeptFrame).toBe(true);
+  });
+});
+
+describe("useVoicePrefsStore: the kept-frame thumbnail", () => {
+  test("ships on, so a call keeps Live's one visible signal until it is turned off", () => {
+    // The shipped value rather than the reset above, which is a test fixture.
+    expect(useVoicePrefsStore.getInitialState().showKeptFrame).toBe(true);
+  });
+
+  test("setShowKeptFrame flips only that field, and survives a reload", () => {
+    useVoicePrefsStore.getState().setShowKeptFrame(false);
+
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(false);
+    expect(useVoicePrefsStore.getState().flashMode).toBe("off");
+
+    const persisted = JSON.parse(
+      localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
+    ).state;
+    expect(persisted.showKeptFrame).toBe(false);
+
+    useVoicePrefsStore.getState().setShowKeptFrame(true);
+    expect(useVoicePrefsStore.getState().showKeptFrame).toBe(true);
   });
 });
 

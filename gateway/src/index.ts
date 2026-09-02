@@ -2510,7 +2510,13 @@ async function main() {
           // Covers both DMs (externalChatId = DM channel) and workspace messages.
           // Bot/app senders are classified as 'assistant' contacts with a
           // provenance note instead of the default 'human'.
-          if (normalized.event.actor.actorExternalId) {
+          // An unattributed event (a delete Slack names no human author for)
+          // carries the channel's synthetic system id, not a person; seeding
+          // a contact from it would mint a record for nobody.
+          if (
+            normalized.event.actor.actorExternalId &&
+            !normalized.event.source.actorUnattributed
+          ) {
             void upsertContactChannel({
               sourceChannel: "slack",
               externalUserId: normalized.event.actor.actorExternalId,

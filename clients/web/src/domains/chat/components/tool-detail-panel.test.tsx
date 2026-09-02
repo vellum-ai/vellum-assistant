@@ -316,6 +316,41 @@ describe("ToolDetailPanel", () => {
     expect(getByText("Running…")).toBeDefined();
   });
 
+  test("collapses whitespace in the header title", () => {
+    // The activity sentence is model-written; a newline in it would render as
+    // a gap in a single-line header.
+    const { container } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          activity: "  Reading the risk helpers\n  and the badge styles  ",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // Asserted on the raw node rather than through `getByText`, whose default
+    // normalizer collapses whitespace itself and so cannot tell a sanitized
+    // title from an unsanitized one.
+    const heading = container.querySelector("[title]");
+    expect(heading?.getAttribute("title")).toBe(
+      "Reading the risk helpers and the badge styles",
+    );
+    expect(heading?.textContent).toBe(
+      "Reading the risk helpers and the badge styles",
+    );
+  });
+
+  test("falls back to the phase title when there is no activity", () => {
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ activity: "", title: "Spawning subagent" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Spawning subagent")).toBeDefined();
+  });
+
   test("clicking close fires onClose", () => {
     const onClose = mock(() => {});
     const { getByLabelText } = render(

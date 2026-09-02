@@ -236,6 +236,8 @@ function buildParams(overrides: {
     reaction: {
       op: overrides.op ?? ("added" as const),
       emoji: "white_check_mark",
+      emojiKind: "shortcode" as const,
+      emojiName: "white_check_mark",
       targetMessageId: "1700000000.1",
     },
     sourceChannel,

@@ -490,6 +490,8 @@ describe("reaction dispatch", () => {
     expect(event.message.reaction).toEqual({
       op: "added",
       emoji: "\u{1F44D}",
+      emojiKind: "unicode",
+      emojiName: "\u{1F44D}",
       targetMessageId: "msg-1",
     });
     expect(event.actor.actorExternalId).toBe("user-1");

@@ -21,8 +21,13 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP } =
-  await import("./companion-surface");
+const {
+  CompanionSurface,
+  FALLBACK_WIDTHS,
+  INNER_GAP,
+  CALL_SLOT_GAP,
+  NAME_DWELL_MS,
+} = await import("./companion-surface");
 
 afterEach(() => {
   cleanup();
@@ -41,338 +46,98 @@ const LISTENING_CALL: VoiceActivityState = {
   assistantName: "Ziggy",
 };
 
-/** Every state the surface draws, which several cases here sweep in turn. */
-const PHASES = [
-  "resting",
-  "hover",
-  "watching",
-  "summary",
-  "call",
-  "typing",
-] as const;
+/** A control on the pill, found by the name a reader is given for it. */
+const buttonOf = (
+  container: HTMLElement,
+  label: string,
+): HTMLButtonElement | null =>
+  container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 
-/**
- * The working ring: the surface's answer to "is it doing anything", drawn so it
- * can be read without reading. The class is the contract with `index.css`,
- * which is where the travel and the reduced-motion fallback live.
- */
-const ringOf = (container: HTMLElement): HTMLElement | null =>
-  container.querySelector<HTMLElement>(".companion-working-ring");
+/** Every state the surface draws, which several cases here sweep in turn. */
+const PHASES = ["resting", "hover", "watching", "summary", "call"] as const;
 
 /** The wrapper the idle bob runs on, which sits inside the avatar's box. */
 const bobOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>(".companion-avatar-bob");
 
-/** The creature's own light, which rides inside the bob. */
-const glowOf = (container: HTMLElement): HTMLElement | null =>
-  container.querySelector<HTMLElement>(".companion-glow");
+/** A composed creature, for the cases about the pose it holds. */
+const CREATURE = {
+  bodyShape: "burst",
+  eyeStyle: "curious",
+  color: "orange",
+} as const;
 
-describe("the companion surface's working ring", () => {
-  test("is absent while nothing is running", () => {
-    const { container } = render(<CompanionSurface phase="resting" />);
-    expect(ringOf(container)).toBeNull();
-  });
+/** Whether the creature is holding the working pose the chat avatar holds. */
+const busyOf = (container: HTMLElement): boolean =>
+  container.querySelector('[data-busy="true"]') !== null;
 
-  test("is drawn at rest, which is the state it exists for", () => {
-    const { container } = render(<CompanionSurface phase="resting" working />);
-    expect(ringOf(container)).not.toBeNull();
-  });
+/**
+ * The creature carries the state: the surface's answer to "is it doing
+ * anything", drawn so it can be read without reading, and drawn the way the
+ * chat draws it. A working creature holds the focused, morphing pose the chat
+ * avatar holds while a reply streams. There is no ring: the creature is the
+ * whole signal, for a turn and for a session reading the screen alike.
+ */
+describe("the creature carrying the state", () => {
+  const character = CREATURE;
 
-  test("is drawn with the pill open too", () => {
-    const { container } = render(<CompanionSurface phase="hover" working />);
-    expect(ringOf(container)).not.toBeNull();
-  });
-
-  /**
-   * **The ring belongs to the creature.** The avatar is drawn in every phase
-   * and holds one spot in the canvas, so the light stays where the eye already
-   * looks for this surface's state. Handing it to the pill while expanded would
-   * move it to a different parent every time the pointer crossed, which
-   * remounts everything hanging off it.
-   */
-  test("hangs off the avatar in every phase", () => {
-    for (const phase of PHASES) {
-      const { container } = render(<CompanionSurface phase={phase} working />);
-      expect(ringOf(container)?.closest(".size-11")).not.toBeNull();
-      cleanup();
-    }
-  });
-
-  /** Around the creature's own box, so it is a circle whatever the pill is. */
-  test("stays round while the card is open", () => {
-    const { container } = render(<CompanionSurface phase="typing" working />);
-    expect(ringOf(container)?.className).toContain("rounded-full");
-  });
-
-  test("takes the assistant's own colour", () => {
+  test("is still while nothing is running", () => {
     const { container } = render(
-      <CompanionSurface phase="resting" working accentHex="#ff8800" />,
+      <CompanionSurface phase="hover" character={character} />,
     );
-    expect(
-      ringOf(container)?.style.getPropertyValue("--companion-ring-accent"),
-    ).toBe("#ff8800");
+    expect(busyOf(container)).toBe(false);
   });
 
-  /**
-   * The surface is a click-through canvas that goes interactive only where the
-   * pill is. A ring inset past the pill's own box must not be part of what the
-   * pointer can hit, or it would widen the surface's hit area by its own margin.
-   */
-  test("is inert to the pointer", () => {
-    const { container } = render(<CompanionSurface phase="resting" working />);
-    expect(ringOf(container)?.className).toContain("pointer-events-none");
+  test("holds the working pose for a typed turn", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" character={character} working />,
+    );
+    expect(busyOf(container)).toBe(true);
   });
 
-  test("is hidden from assistive technology", () => {
-    const { container } = render(<CompanionSurface phase="resting" working />);
-    expect(ringOf(container)?.getAttribute("aria-hidden")).toBe("true");
-  });
-
-  /**
-   * A spoken turn and a typed one are the same fact about the assistant, so the
-   * call's own phase lights the same ring rather than a second treatment.
-   */
-  test("lights for a call's assistant turn without a published flag", () => {
+  test("holds it for a call's assistant turn without a published flag", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
-        call={{
-          phase: "thinking",
-          label: "Thinking",
-          accentHex: "#5eead4",
-          muted: false,
-          outputMuted: false,
-          detail: "",
-          approvalRequestId: "",
-          assistantName: "Ziggy",
-        }}
+        character={character}
+        call={{ ...LISTENING_CALL, phase: "speaking" }}
       />,
     );
-    expect(ringOf(container)).not.toBeNull();
+    expect(busyOf(container)).toBe(true);
   });
 
-  /**
-   * A session reading the screen lights the same ring, in a colour of its own.
-   * The ring is the whole of what says a capture is running while the pointer
-   * is elsewhere, so it is worth a test that it is lit and one that it is not
-   * wearing the assistant's colour, which already means something else.
-   */
-  test("lights for a watch session", () => {
+  test("holds it for a session reading the screen", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching />,
+      <CompanionSurface phase="watching" character={character} watching />,
     );
-    expect(ringOf(container)).not.toBeNull();
+    expect(busyOf(container)).toBe(true);
   });
 
-  test("burns a watch session in the capture colour, not the assistant's", () => {
-    const { container } = render(
-      <CompanionSurface phase="watching" watching accentHex="#ff8800" />,
-    );
-    expect(
-      ringOf(container)?.style.getPropertyValue("--companion-ring-accent"),
-    ).toBe("#ff9f45");
-  });
-
-  /**
-   * The capture keeps the colour when a turn is running under it. The creature
-   * carries the turn in its own pose, and a capture drawn in a colour that also
-   * means "a reply is streaming" is one the user has no reason to read as a
-   * capture.
-   */
-  test("keeps the capture colour while a turn runs under the session", () => {
+  test("holds it while a summary is being written", () => {
     const { container } = render(
       <CompanionSurface
-        phase="watching"
-        watching
-        working
-        accentHex="#ff8800"
+        phase="summary"
+        character={character}
+        watchRetro="pending"
       />,
     );
-    expect(
-      ringOf(container)?.style.getPropertyValue("--companion-ring-accent"),
-    ).toBe("#ff9f45");
+    expect(busyOf(container)).toBe(true);
   });
 
-  /**
-   * The phase is what the pill is showing and the flag is what is running, so
-   * the phase on its own is not a capture. This is the guard on that: an
-   * indicator that read the phase would be lit here, and would be dark in the
-   * two phases below that outrank it.
-   */
-  test("stays dark for the phase alone, which is not a running session", () => {
-    const { container } = render(<CompanionSurface phase="watching" />);
-    expect(ringOf(container)).toBeNull();
-  });
-
-  test("stays dark while a call is waiting on the user", () => {
-    const { container } = render(
-      <CompanionSurface phase="call" call={LISTENING_CALL} />,
-    );
-    expect(ringOf(container)).toBeNull();
-  });
-});
-
-/**
- * The capture pulse: one flare of the ring for each screen read a watch
- * session actually took.
- *
- * The ring says a session is open, which holds for minutes; this says the
- * screen was read just now, which is the thing the user wants confirmed. What
- * the cases here pin is that it is drawn for exactly the reads that happened:
- * it needs a running session and a count that stepped while the surface was
- * watching, and each step gets its own flare rather than one element that
- * lingers.
- */
-describe("the companion surface's capture pulse", () => {
-  const pulseOf = (container: HTMLElement): HTMLElement | null =>
-    container.querySelector<HTMLElement>(".companion-capture-pulse");
-
-  test("is drawn for a capture that landed while the surface was open", () => {
-    const { container, rerender } = render(
-      <CompanionSurface phase="watching" watching captureCount={0} />,
-    );
-
-    rerender(<CompanionSurface phase="watching" watching captureCount={1} />);
-
-    expect(pulseOf(container)).not.toBeNull();
-  });
-
-  test("is absent for a session that has captured nothing yet", () => {
-    const { container } = render(
-      <CompanionSurface phase="watching" watching captureCount={0} />,
-    );
-    expect(pulseOf(container)).toBeNull();
-  });
-
-  /**
-   * The macOS renderer is recreated on a reload and the main process replays
-   * its retained state into the new one, so a first render lands mid-session
-   * with whatever the count had reached. Flaring on it would present a read
-   * from a minute ago as one happening now, which is the same lie the whole
-   * indicator was built to avoid: the first value is a baseline, not a step.
-   */
-  test("is absent on a mount that inherits a running session's count", () => {
-    const { container } = render(
-      <CompanionSurface phase="watching" watching captureCount={12} />,
-    );
-    expect(pulseOf(container)).toBeNull();
-  });
-
-  /**
-   * The same reload, arriving the way it does through the window that owns the
-   * state: this surface is drawn before the push lands, so the session and its
-   * accumulated count turn up together one render later. The count came with
-   * the session rather than moving under it, so there is no capture in it.
-   */
-  test("is absent when a session arrives already having captured", () => {
-    const { container, rerender } = render(
-      <CompanionSurface phase="hover" captureCount={0} />,
-    );
-
-    rerender(<CompanionSurface phase="watching" watching captureCount={12} />);
-
-    expect(pulseOf(container)).toBeNull();
-  });
-
-  /**
-   * A count with no session behind it is the leftover total of a session that
-   * has ended, and a flare drawn from it would claim a capture on a machine
-   * nothing is reading.
-   */
-  test("is absent when no session is running", () => {
-    const { container } = render(
-      <CompanionSurface phase="hover" captureCount={4} />,
-    );
-    expect(pulseOf(container)).toBeNull();
-  });
-
-  /**
-   * Each capture is its own event, so each gets its own element: the animation
-   * is one-shot, and a node that survived the count changing would play once
-   * for the first read of a session and never again.
-   */
-  test("replays for each capture rather than lingering from the first", () => {
-    const { container, rerender } = render(
-      <CompanionSurface phase="watching" watching captureCount={0} />,
-    );
-    rerender(<CompanionSurface phase="watching" watching captureCount={1} />);
-    const first = pulseOf(container);
-
-    rerender(<CompanionSurface phase="watching" watching captureCount={2} />);
-
-    expect(pulseOf(container)).not.toBeNull();
-    expect(pulseOf(container)).not.toBe(first);
-  });
-
-  /**
-   * The next session starts from a baseline of its own. Carrying the last
-   * flare across the gap would replay it the moment the ring comes back on,
-   * marking a capture the new session has not taken.
-   */
-  test("does not replay the previous session's last capture on the next one", () => {
-    const { container, rerender } = render(
-      <CompanionSurface phase="watching" watching captureCount={0} />,
-    );
-    rerender(<CompanionSurface phase="watching" watching captureCount={1} />);
-    rerender(<CompanionSurface phase="hover" captureCount={1} />);
-
-    rerender(<CompanionSurface phase="watching" watching captureCount={0} />);
-
-    expect(pulseOf(container)).toBeNull();
-  });
-
-  test("takes the capture colour, which is the session's and not the assistant's", () => {
-    const { container, rerender } = render(
-      <CompanionSurface
-        phase="watching"
-        watching
-        captureCount={0}
-        accentHex="#ff8800"
-      />,
-    );
-
-    rerender(
-      <CompanionSurface
-        phase="watching"
-        watching
-        captureCount={1}
-        accentHex="#ff8800"
-      />,
-    );
-
-    expect(
-      pulseOf(container)?.style.getPropertyValue("--companion-ring-accent"),
-    ).toBe("#ff9f45");
-  });
-
-  test("stays round while the card is open", () => {
-    const { container, rerender } = render(
-      <CompanionSurface phase="typing" watching captureCount={0} />,
-    );
-
-    rerender(<CompanionSurface phase="typing" watching captureCount={1} />);
-
-    expect(pulseOf(container)?.className).toContain("rounded-full");
-  });
-
-  /**
-   * The flare is one-shot, so a node unmounted and put back plays it again. The
-   * pointer crosses this surface constantly while a session runs, and none of
-   * those crossings is a screen being read: a flare drawn for one would be the
-   * indicator claiming a capture that did not happen.
-   */
-  test("does not replay when the phase changes under a running session", () => {
-    const { container, rerender } = render(
-      <CompanionSurface phase="resting" watching captureCount={0} />,
-    );
-    rerender(<CompanionSurface phase="resting" watching captureCount={1} />);
-    const flare = pulseOf(container);
-    expect(flare).not.toBeNull();
-
-    rerender(<CompanionSurface phase="hover" watching captureCount={1} />);
-    rerender(<CompanionSurface phase="resting" watching captureCount={1} />);
-
-    expect(pulseOf(container)).toBe(flare);
+  test("draws no ring on the creature for any of them", () => {
+    for (const props of [
+      { working: true },
+      { watching: true },
+      { watchRetro: "pending" as const },
+    ]) {
+      const { container } = render(
+        <CompanionSurface phase="hover" character={character} {...props} />,
+      );
+      expect(
+        container.querySelector(".size-11 .companion-working-ring"),
+      ).toBeNull();
+      cleanup();
+    }
   });
 });
 
@@ -458,29 +223,19 @@ const avatarOf = (container: HTMLElement): HTMLElement => {
 };
 
 /**
- * The shape drawn inside that box: the creature's whole box while the surface
- * is expanded, a thin capsule at rest. The box's first child, and the node the
- * working ring is drawn around, so the ring hugs whichever of the two it is.
- */
-const shapeOf = (container: HTMLElement): HTMLElement => {
-  const found = avatarOf(container).firstElementChild as HTMLElement | null;
-  if (found === null) {
-    throw new Error("Expected the avatar's shape to render");
-  }
-  return found;
-};
-
-/**
- * The capsule drawn at rest, which is a sibling of that box rather than a child
- * of it: it holds its own size while the ring's box grows to the creature's.
+ * The capsule drawn inside that box, which is the shape at rest: the box's
+ * first child, sized on itself and faded once the surface is expanded.
  */
 const capsuleOf = (container: HTMLElement): HTMLElement => {
-  const found = avatarOf(container).children[1] as HTMLElement | undefined;
-  if (found === undefined) {
+  const found = avatarOf(container).firstElementChild as HTMLElement | null;
+  if (found === null) {
     throw new Error("Expected the resting capsule to render");
   }
   return found;
 };
+
+/** The same node under the name the collapse's cases read it by. */
+const shapeOf = capsuleOf;
 
 describe("the companion surface's anchor in the canvas", () => {
   test("grows up by default, which is where the surface normally lives", () => {
@@ -494,7 +249,7 @@ describe("the companion surface's anchor in the canvas", () => {
   /**
    * The creature's visible bottom is the fixed point. The pill's bottom sits on
    * it rather than on the avatar's box, which runs a further 8 points down to
-   * hold the glow, and the mascot never moves whichever way the pill or the
+   * hold the bob's slack, and the mascot never moves whichever way the pill or the
    * card grows.
    */
   test("sits the pill's bottom on the creature's visible bottom", () => {
@@ -506,23 +261,18 @@ describe("the companion surface's anchor in the canvas", () => {
   });
 
   /**
-   * The composer row is the card's last child growing up and its first growing
-   * down, so the row's bottom is the avatar's bottom either way and the card
-   * hangs off it in whichever direction the host picked.
+   * The pill's bottom is the avatar's bottom, and it hangs upward off that
+   * line in the ordinary direction.
    */
-  test("hangs the card off the creature's line when it grows up", () => {
-    const { container } = render(<CompanionSurface phase="typing" />);
+  test("hangs the pill off the creature's line when the canvas grows up", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
     expect(surfaceOf(container).style.top).toBe("calc(100% - 40px)");
     expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
   });
 
   /**
-   * The whole column against the other edge: the avatar sits on the canvas's
-   * top line, the pill keeps its bottom on the creature's, and the card falls
-   * away from the row instead of hanging off it. The column reverses for the
-   * reason the row does when the pill grows left: the row holding the avatar's
-   * line has to end up against the avatar, and the conversation stacks away
-   * from it.
+   * Everything against the other edge: the avatar sits on the canvas's top
+   * line, and the pill keeps its bottom on the creature's.
    */
   test("anchors everything against the canvas's top edge when the card grows down", () => {
     const { container: resting } = render(
@@ -535,21 +285,6 @@ describe("the companion surface's anchor in the canvas", () => {
     );
     expect(surfaceOf(hover).style.top).toBe("68px");
     expect(surfaceOf(hover).style.transform).toBe("translateY(-100%)");
-
-    const { container: typing } = render(
-      <CompanionSurface phase="typing" cardGrowth="down" />,
-    );
-    // The row starts on the avatar's top line and the card falls away from it.
-    expect(surfaceOf(typing).style.top).toBe("24px");
-    expect(surfaceOf(typing).style.transform).toBe("none");
-    expect(surfaceOf(typing).className).toContain("flex-col-reverse");
-  });
-
-  test("stacks the card upward in the ordinary direction", () => {
-    const { container } = render(<CompanionSurface phase="typing" />);
-    const className = surfaceOf(container).className;
-    expect(className).toContain("flex-col");
-    expect(className).not.toContain("flex-col-reverse");
   });
 
   /**
@@ -570,8 +305,11 @@ describe("the companion surface's anchor in the canvas", () => {
    * window by the creature, so the creature has to sit on the same point in
    * every state the surface can be in.
    */
-  test("keeps the avatar's own point in every phase", () => {
-    for (const phase of PHASES) {
+  test("keeps the avatar's own point in every phase but the call", () => {
+    // The call bar is the one exception, and a deliberate one: the creature
+    // moves into the bar's slot, and the bar is what stays on the point. See
+    // "the companion surface's call bar".
+    for (const phase of PHASES.filter((candidate) => candidate !== "call")) {
       const { container } = render(<CompanionSurface phase={phase} />);
       expect(avatarOf(container).style.left).toBe("50%");
       expect(avatarOf(container).style.top).toBe("calc(100% - 54px)");
@@ -710,23 +448,6 @@ describe("the companion surface at two sizes", () => {
   });
 
   /**
-   * The card growing downward starts on its composer row's top line, which is
-   * one options box above the creature's baseline whatever the creature's size.
-   */
-  test("drops the card from the composer row's own line", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="typing"
-        cardGrowth="down"
-        avatarBox={44}
-        optionsBox={110}
-      />,
-    );
-    expect(surfaceOf(container).style.top).toBe("24px");
-    expect(surfaceOf(container).style.transform).toBe("none");
-  });
-
-  /**
    * The creature's own node carries the difference and nothing else does. It
    * has to be that node rather than either wrapper below it: the collapse owns
    * a `transform` and so does the bob, and two on one node leave one out.
@@ -784,13 +505,11 @@ describe("the companion surface's revealed labels", () => {
 
   test("rests as icons, with no verb spelled out", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
-    for (const name of ["Talk", "Type", "Teach"]) {
-      const label = labelOf(container, name);
-      expect(label?.getAttribute("data-label")).toBe("hover");
-      expect(label?.className).toContain("hidden");
-    }
+    const label = labelOf(container, "Teach");
+    expect(label?.getAttribute("data-label")).toBe("hover");
+    expect(label?.className).toContain("hidden");
   });
 
   /**
@@ -799,32 +518,31 @@ describe("the companion surface's revealed labels", () => {
    * exactly the failure no rendered assertion in this file would catch.
    */
   test("reveals the verb under the pointer, from the button's own group", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
-    const talk = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Talk"]',
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
-    expect(talk?.className).toContain("group");
-    expect(labelOf(container, "Talk")?.className).toContain(
+    const teach = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    expect(teach?.className).toContain("group");
+    expect(labelOf(container, "Teach")?.className).toContain(
       "group-hover:inline",
     );
   });
 
   /**
    * The reel has no pointer in the room, and the whole point of a spotlit frame
-   * is which control it is pointing at.
+   * is what it is pointing at: the creature, named for the press.
    */
-  test("spells out the control the reel is pointing at", () => {
+  test("spells out the creature's name for the reel", () => {
     const { container } = render(
       <CompanionSurface phase="hover" spotlight="talk" />,
     );
-    expect(labelOf(container, "Talk")?.getAttribute("data-label")).toBe(
-      "pinned",
-    );
-    expect(labelOf(container, "Talk")?.className).not.toContain("hidden");
-    // And only that one: a frame pointing at both is pointing at neither.
-    expect(labelOf(container, "Type")?.getAttribute("data-label")).toBe(
-      "hover",
-    );
+    expect(
+      container
+        .querySelector("[data-companion-name]")
+        ?.getAttribute("data-companion-name"),
+    ).toBe("shown");
   });
 
   /**
@@ -834,7 +552,12 @@ describe("the companion surface's revealed labels", () => {
    */
   test("keeps the running session's name drawn", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching watchEnabled />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watching
+        watchEnabled
+      />,
     );
     expect(labelOf(container, "Teach")?.getAttribute("data-label")).toBe(
       "pinned",
@@ -860,11 +583,13 @@ describe("the companion surface's revealed labels", () => {
 });
 
 /**
- * Watch, the third way in, and the session it toggles.
+ * Teach, and the session it toggles.
  *
- * One control for both edges: the surface draws a single button and the side
- * holding the session decides which edge a press is, so what a test can hold is
- * that the press is reported and that a running session is drawn as one.
+ * A thing done from inside the call, so it rides the call row and not the idle
+ * pill, where Talk is the one way in. One control for both edges: the surface
+ * draws a single button and the side holding the session decides which edge a
+ * press is, so what a test can hold is that the press is reported and that a
+ * running session is drawn as one.
  */
 describe("the companion surface's Watch action", () => {
   const watchOf = (container: HTMLElement): HTMLButtonElement => {
@@ -877,24 +602,32 @@ describe("the companion surface's Watch action", () => {
     return found;
   };
 
-  test("sits on the idle pill beside Talk and Type", () => {
+  test("is not on the idle surface, where the creature is the way in", () => {
     const { container } = render(
       <CompanionSurface phase="hover" watchEnabled />,
     );
-    // Third of the three, since this is the row's own ordering and the one a
-    // hand travelling out from the mascot crosses last.
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  test("sits on the call row beside what the session is doing", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watchEnabled call={LISTENING_CALL} />,
+    );
+    // Ahead of the mutes and well away from End: two stops next to each
+    // other is a misclick that ends the wrong thing.
     expect(
       [...container.querySelectorAll("button")].map((button) =>
         button.getAttribute("aria-label"),
       ),
-    ).toEqual(["Talk", "Type", "Teach"]);
+    ).toEqual(["Teach", "Mute microphone", "Mute assistant", "End session"]);
   });
 
   test("reports the press", () => {
     let presses = 0;
     const { container } = render(
       <CompanionSurface
-        phase="hover"
+        phase="call"
+        call={LISTENING_CALL}
         watchEnabled
         onWatch={() => {
           presses += 1;
@@ -906,21 +639,26 @@ describe("the companion surface's Watch action", () => {
   });
 
   /**
-   * A reader gets none of what this PR spends on the state: not the amber ring,
-   * not the held-down background. The pressed state is the whole of what
+   * A reader gets none of what this surface spends on the state: not the amber
+   * ring, not the held-down background. The pressed state is the whole of what
    * reaches them, so it is what says a session is running and that the press
    * they are on will end it.
    */
   test("reports its pressed state while the session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watching watchEnabled />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watching
+        watchEnabled
+      />,
     );
     expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
   });
 
   test("reports the state it is actually in while nothing runs", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
     expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
   });
@@ -932,28 +670,36 @@ describe("the companion surface's Watch action", () => {
    */
   test("reads as held down while the session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching watchEnabled />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watching
+        watchEnabled
+      />,
     );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
   });
 
   test("reads as idle while no session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} watchEnabled />,
     );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(false);
   });
 
   /**
-   * The flag, not the phase, the same input the ring reads. The two are drawn
-   * in different places and must never be able to disagree about whether a
-   * session is running.
+   * A session running with no call to carry the toggle still has its stop:
+   * the idle row draws it for as long as the screen is being read.
    */
-  test("reads as held down on the idle pill while the session runs", () => {
+  test("leaves the stop on the idle pill for a session already running", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watching watchEnabled />,
+      <CompanionSurface phase="watching" watching watchEnabled />,
     );
-    expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
+    expect(
+      [...container.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Stop teaching"]);
   });
 });
 
@@ -973,47 +719,55 @@ describe("the companion surface's Watch flag", () => {
     container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
   test("draws no way in when the answer has not arrived", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
     expect(watchButton(container)).toBeNull();
   });
 
   test("draws no way in when the answer is no", () => {
     const { container } = render(
-      <CompanionSurface phase="hover" watchEnabled={false} />,
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        watchEnabled={false}
+      />,
     );
     expect(watchButton(container)).toBeNull();
   });
 
-  test("leaves Talk and Type where they were", () => {
+  test("leaves the creature's press where it was", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
-    expect(container.querySelector('button[aria-label="Talk"]')).not.toBeNull();
-    expect(container.querySelector('button[aria-label="Type"]')).not.toBeNull();
+    expect(
+      container.querySelector('[role="button"][aria-label="Talk"]'),
+    ).not.toBeNull();
   });
 
   /**
    * The flag hides the door, never the exit. A session that outlives the
    * answer is one the user has to be able to see and to end.
    */
-  test("still draws the running session's ring", () => {
+  test("still holds the working pose for the running session", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching />,
+      <CompanionSurface phase="watching" character={CREATURE} watching />,
     );
-    expect(container.querySelector(".companion-working-ring")).not.toBeNull();
+    expect(busyOf(container)).toBe(true);
   });
 
-  test("still draws the stop control on the card", () => {
-    const { container } = render(<CompanionSurface phase="typing" watching />);
+  test("still draws the stop control on the call row", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+    );
     expect(
       container.querySelector('button[aria-label="Stop teaching"]'),
     ).not.toBeNull();
   });
 
   /**
-   * The idle row is where Watch itself is the stop, so hiding Watch there would
-   * leave a running session with nothing that ends it. The stop takes its
-   * place instead.
+   * The idle row carries the stop whatever the flag says: a running session
+   * with nothing that ends it is the failure this surface exists to prevent.
    */
-  test("puts the stop where the way in would have been", () => {
+  test("keeps the stop on the idle row", () => {
     const { container } = render(
       <CompanionSurface phase="watching" watching />,
     );
@@ -1076,12 +830,12 @@ describe("the pill a watch session holds open", () => {
 /**
  * The way out of a session, which has to reach as far as the indicator does.
  *
- * `watching` ranks below `typing` and `call`, so the idle row that carries
- * Watch is not drawn in either of them while the ring still is. An indicator
- * the user can see and cannot act on is a worse bargain than no indicator at
- * all: it names something happening to them and withholds the means to end it.
- * So both of those phases carry a stop control of their own, on the same
- * `onWatch` the idle row presses.
+ * `watching` ranks below `call`, so the idle row that carries Watch is not
+ * drawn during a call while the ring still is. An indicator the user can see
+ * and cannot act on is a worse bargain than no indicator at all: it names
+ * something happening to them and withholds the means to end it. So the call
+ * row carries a stop control of its own, on the same `onWatch` the idle row
+ * presses.
  */
 describe("the companion surface's stop control", () => {
   const stopOf = (container: HTMLElement): HTMLButtonElement | null =>
@@ -1097,27 +851,7 @@ describe("the companion surface's stop control", () => {
     return found;
   };
 
-  test("rides the composer while the user types", () => {
-    const { container } = render(<CompanionSurface phase="typing" watching />);
-    expect(stopOf(container)).not.toBeNull();
-  });
-
-  test("ends the session from the composer", () => {
-    let presses = 0;
-    const { container } = render(
-      <CompanionSurface
-        phase="typing"
-        watching
-        onWatch={() => {
-          presses += 1;
-        }}
-      />,
-    );
-    fireEvent.click(required(container));
-    expect(presses).toBe(1);
-  });
-
-  test("rides the call row too", () => {
+  test("rides the call row", () => {
     const { container } = render(
       <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
     );
@@ -1140,16 +874,274 @@ describe("the companion surface's stop control", () => {
     expect(presses).toBe(1);
   });
 
-  test("is absent from the composer with no session to stop", () => {
-    const { container } = render(<CompanionSurface phase="typing" />);
-    expect(stopOf(container)).toBeNull();
-  });
-
   test("is absent from the call row with no session to stop", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     expect(stopOf(container)).toBeNull();
+  });
+});
+
+/**
+ * The call bar: the pill closed around the creature for a call, rather than
+ * hanging off its side. Centred on the creature's own point so the host can
+ * centre it on the display, and lit at its edge in the assistant's colour.
+ */
+describe("the companion surface's call bar", () => {
+  const pillOf = (container: HTMLElement): HTMLElement => {
+    const pill = container.querySelector<HTMLElement>(
+      ".transition-\\[width\\]",
+    );
+    if (!pill) {
+      throw new Error("Expected the pill to render");
+    }
+    return pill;
+  };
+  const creatureOf = (container: HTMLElement): HTMLElement => {
+    const creature = container.querySelector<HTMLElement>(".size-11");
+    if (!creature) {
+      throw new Error("Expected the creature to render");
+    }
+    return creature;
+  };
+
+  test("is centred on the creature's point rather than hung off its side", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    const pill = pillOf(container);
+    expect(pill.style.left).toBe("50%");
+    expect(pill.style.transform).toBe("translate(-50%, -50%)");
+  });
+
+  test("hangs off the creature's side in every other open phase", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    const pill = pillOf(container);
+    expect(pill.style.left).not.toBe("50%");
+    expect(pill.style.transform).toBe("translateY(-100%)");
+  });
+
+  test("takes the creature into its leading slot", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(creatureOf(container).style.left).toMatch(/^calc\(50% - /);
+  });
+
+  test("leaves the creature on its own point outside a call", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(creatureOf(container).style.left).toBe("50%");
+  });
+
+  test("keeps the creature's slot clear ahead of the body", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    const row = pillOf(container).querySelector<HTMLElement>(".h-11.shrink-0");
+    expect(row?.style.paddingInlineStart).toBe(
+      `${INNER_GAP + 44 + CALL_SLOT_GAP}px`,
+    );
+    expect(row?.style.paddingInlineEnd).toBe(`${INNER_GAP}px`);
+  });
+
+  /**
+   * The pill's own ring, as against the creature's: the creature burns its
+   * ring for a turn, and this one is the bar's for the call.
+   */
+  const ringOf = (container: HTMLElement): HTMLElement | null =>
+    pillOf(container).querySelector<HTMLElement>(".companion-working-ring");
+
+  test("carries a pulse on its edge in the call's own colour", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        accentHex="#ff9f45"
+      />,
+    );
+    const ring = ringOf(container);
+    expect(ring).not.toBeNull();
+    expect(ring?.style.getPropertyValue("--companion-ring-accent")).toBe(
+      "#ff9f45",
+    );
+    expect(ring?.className).toContain("pointer-events-none");
+  });
+
+  test("keeps the light on the edge and out of the bar", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    const body = pillOf(container).querySelector<HTMLElement>(
+      ".bg-\\[\\#17181b\\]\\/95",
+    );
+    expect(body).not.toBeNull();
+    expect(body?.className).not.toContain("companion-working-ring");
+  });
+
+  test("is the plain pill again outside a call", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
+    );
+    expect(ringOf(container)).toBeNull();
+  });
+
+  test("pulses for the dial too, which is the call's first beat", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(ringOf(container)).not.toBeNull();
+    expect(pillOf(container).style.left).toBe("50%");
+  });
+});
+
+/**
+ * The creature is the call button.
+ *
+ * A press on it starts a call when idle and goes back to Vellum on a call;
+ * the caller decides which by the session it holds, and this side names the
+ * press for a reader by the phase. Hover unfurls nothing: the creature comes
+ * out, and after a dwell says what a press does, as a name and not a control.
+ */
+describe("the creature as the call button", () => {
+  const creatureOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>('[role="button"]');
+  const nameOf = (container: HTMLElement): string | null =>
+    container
+      .querySelector("[data-companion-name]")
+      ?.getAttribute("data-companion-name") ?? null;
+
+  test("is named for the call while idle", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(creatureOf(container)?.getAttribute("aria-label")).toBe("Talk");
+  });
+
+  test("is named for the way back to Vellum on a call", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(creatureOf(container)?.getAttribute("aria-label")).toBe(
+      "Open Vellum",
+    );
+  });
+
+  test("reports the press", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="hover"
+        onAvatarClick={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    fireEvent.click(creatureOf(container)!);
+    expect(presses).toBe(1);
+  });
+
+  test("unfurls no pill on hover", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(container.querySelector("[inert]")).not.toBeNull();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  test("holds its name back until the hand has dwelt", async () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(nameOf(container)).toBe("hidden");
+    await new Promise((resolve) => {
+      setTimeout(resolve, NAME_DWELL_MS + 50);
+    });
+    expect(nameOf(container)).toBe("shown");
+  });
+
+  test("keeps its name to itself at rest", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+    expect(nameOf(container)).toBe("hidden");
+  });
+
+  /**
+   * The name is the creature's, so a reader gets it once, from the creature,
+   * and never as a second thing beside it.
+   */
+  test("hides the name from a reader, who has it from the creature", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" spotlight="talk" />,
+    );
+    expect(
+      container
+        .querySelector("[data-companion-name]")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+  });
+});
+
+/**
+ * The dial: Talk pressed, and the session it asked for not yet on the surface.
+ *
+ * The press leaves the surface at once and the session opens after a network
+ * round trip in a window the user cannot see, so the pill has to be the thing
+ * that says the press landed.
+ */
+describe("the companion surface's dial", () => {
+  test("says who is being called", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(container.textContent).toContain("Calling Ziggy…");
+  });
+
+  test("says it is calling with no name to say", () => {
+    const { container } = render(<CompanionSurface phase="call" />);
+    expect(container.textContent).toContain("Calling…");
+    expect(container.textContent).not.toContain("Calling …");
+  });
+
+  test("offers the end, which takes the request back", () => {
+    const actions: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        onControl={(action) => {
+          actions.push(action);
+        }}
+      />,
+    );
+    fireEvent.click(buttonOf(container, "End session")!);
+    expect(actions).toEqual(["endSession"]);
+  });
+
+  /**
+   * Nothing to mute yet. A press on either would be dropped by the window
+   * asked, so the controls are not drawn rather than drawn and inert.
+   */
+  test("draws no mutes with nothing to mute", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    expect(buttonOf(container, "Mute microphone")).toBeNull();
+    expect(buttonOf(container, "Mute assistant")).toBeNull();
+  });
+
+  test("keeps the stop of a session already reading the screen", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" watching />,
+    );
+    expect(buttonOf(container, "Stop teaching")).not.toBeNull();
+  });
+
+  test("gives way to the session once it arrives", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="call" assistantName="Ziggy" />,
+    );
+    rerender(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(container.textContent).not.toContain("Calling");
+    expect(buttonOf(container, "Mute microphone")).not.toBeNull();
   });
 });
 
@@ -1172,12 +1164,6 @@ describe("the companion surface's stop control", () => {
  * report would land in a thread nobody was ever shown.
  */
 describe("the summary a finished watch session leaves on the surface", () => {
-  const buttonOf = (
-    container: HTMLElement,
-    label: string,
-  ): HTMLButtonElement | null =>
-    container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
-
   test("says the summary is being written while the turn runs", () => {
     const { container } = render(
       <CompanionSurface phase="summary" watchRetro="pending" />,
@@ -1187,20 +1173,29 @@ describe("the summary a finished watch session leaves on the surface", () => {
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  test("burns the session's own ring while it waits", () => {
+  test("holds the working pose while it waits", () => {
     const { container } = render(
-      <CompanionSurface phase="summary" watchRetro="pending" />,
+      <CompanionSurface
+        phase="summary"
+        character={CREATURE}
+        watchRetro="pending"
+      />,
     );
-    expect(ringOf(container)).not.toBeNull();
+    expect(busyOf(container)).toBe(true);
   });
 
-  // The ring outlives the phase, the same way the capture indicator does: a
-  // call or an open composer outranks the phase and the turn runs regardless.
-  test("keeps that ring under a phase that outranks it", () => {
+  // The pose outlives the phase, the same way the capture indicator does: a
+  // call outranks the phase and the turn runs regardless.
+  test("keeps that pose under a phase that outranks it", () => {
     const { container } = render(
-      <CompanionSurface phase="typing" watchRetro="pending" />,
+      <CompanionSurface
+        phase="call"
+        character={CREATURE}
+        call={LISTENING_CALL}
+        watchRetro="pending"
+      />,
     );
-    expect(ringOf(container)).not.toBeNull();
+    expect(busyOf(container)).toBe(true);
   });
 
   test("asks once there is something to read", () => {
@@ -1248,13 +1243,10 @@ describe("the summary a finished watch session leaves on the surface", () => {
 
   // The phase without the state behind it is the ordinary row, not an empty
   // one: nothing on this surface should draw a question with no answer in it.
-  test("draws the ordinary controls when there is no summary", () => {
-    // `watchEnabled` because this asserts the ordinary controls, and the flag
-    // is what decides whether Teach is among them.
-    const { container } = render(
-      <CompanionSurface phase="summary" watchEnabled />,
-    );
-    expect(buttonOf(container, "Teach")).not.toBeNull();
+  test("draws no question when there is no summary", () => {
+    const { container } = render(<CompanionSurface phase="summary" />);
+    expect(buttonOf(container, "Show summary")).toBeNull();
+    expect(buttonOf(container, "Not now")).toBeNull();
   });
 });
 
@@ -1264,7 +1256,7 @@ describe("the companion surface's width ceiling", () => {
    * Written out rather than read from the contract, so the cases below assert a
    * number instead of restating the constant they are about.
    */
-  const CANVAS_CEILING = 316;
+  const CANVAS_CEILING = 400;
 
   test("is the width the shared contract publishes", () => {
     expect(COMPANION_BASE_MAX_PILL_WIDTH).toBe(CANVAS_CEILING);
@@ -1275,8 +1267,12 @@ describe("the companion surface's width ceiling", () => {
    * with the clearance at either end left off is not one that fits.
    */
   test("holds for every measured body once the pill's own clearance is on it", () => {
+    // The call bar's clearance includes the creature's slot at its leading
+    // end, since the creature is inside that bar rather than beside it.
+    const clearance = (phase: string): number =>
+      phase === "call" ? 2 * INNER_GAP + 44 + CALL_SLOT_GAP : 2 * INNER_GAP;
     const over = Object.entries(FALLBACK_WIDTHS).filter(
-      ([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING,
+      ([phase, width]) => width + clearance(phase) > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
   });
@@ -1284,61 +1280,48 @@ describe("the companion surface's width ceiling", () => {
   /**
    * The call row is the one the stop control grew, so the bound above is only
    * worth anything if the entry it checks is the width of the row *with* the
-   * control on it. Five controls is what that row draws, and the card cannot
-   * grow the same way: it is a fixed width, and the composer's field gives up
-   * the space out of its own.
+   * control on it. Five controls is what that row draws.
    */
   test("sizes the call entry for the row that carries the stop control", () => {
     const { container } = render(
       <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
     );
     expect(container.querySelectorAll("button")).toHaveLength(4);
-    expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.hover);
-  });
-
-  /**
-   * The card is the widest state the surface has and it states its width rather
-   * than measuring one, so it is drawn at the ceiling itself: the canvas is
-   * sized for exactly this and a card any wider would be a clipped one.
-   */
-  test("draws the card at the ceiling", () => {
-    const { container } = render(<CompanionSurface phase="typing" />);
-    expect(surfaceOf(container).style.width).toBe(`${CANVAS_CEILING}px`);
+    expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.watching);
   });
 });
 
 /**
  * The indicator outlives the phase.
  *
- * `watching` ranks below `typing` and `call`, so a session that is still
- * reading the screen is drawn under a phase that is not its own for as long as
- * the user is mid-sentence or on a call. Those are the phases where an
- * indicator derived from the phase would go dark, and going dark over a live
- * capture is the failure this surface exists to prevent.
+ * `watching` ranks below `call`, so a session that is still reading the
+ * screen is drawn under a phase that is not its own for as long as the user is
+ * on a call. That is the phase where an indicator derived from the phase would
+ * go dark, and going dark over a live capture is the failure this surface
+ * exists to prevent.
  */
 describe("the companion surface's capture indicator across phases", () => {
-  test("survives the composer, which outranks the watching phase", () => {
-    const { container } = render(<CompanionSurface phase="typing" watching />);
-    expect(ringOf(container)).not.toBeNull();
-  });
-
-  test("survives a call, which outranks it too", () => {
+  test("survives a call, which outranks the watching phase", () => {
     const { container } = render(
-      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+      <CompanionSurface
+        phase="call"
+        character={CREATURE}
+        watching
+        call={LISTENING_CALL}
+      />,
     );
-    expect(ringOf(container)).not.toBeNull();
+    expect(busyOf(container)).toBe(true);
   });
 
-  test("is absent in the composer with no session running", () => {
-    const { container } = render(<CompanionSurface phase="typing" />);
-    expect(ringOf(container)).toBeNull();
-  });
-
-  test("is absent in a call with no session running", () => {
+  test("is absent on a call with no session running", () => {
     const { container } = render(
-      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+      <CompanionSurface
+        phase="call"
+        character={CREATURE}
+        call={LISTENING_CALL}
+      />,
     );
-    expect(ringOf(container)).toBeNull();
+    expect(busyOf(container)).toBe(false);
   });
 });
 
@@ -1391,18 +1374,6 @@ describe("the companion surface growing leftward", () => {
     expect(surfaceOf(rightward).className).not.toContain("justify-end");
   });
 
-  /**
-   * The card is anchored by the same edge as the pill and is seven times the
-   * avatar's width, so it is the state where a flip that moved the mascot would
-   * move it furthest.
-   */
-  test("mirrors the card the same way", () => {
-    const { container } = render(
-      <CompanionSurface phase="typing" growth="left" />,
-    );
-    expect(surfaceOf(container).style.right).toBe("calc(50% + 34px)");
-  });
-
   test("leaves the avatar on its own point either way", () => {
     for (const growth of ["left", "right"] as const) {
       const { container } = render(
@@ -1437,29 +1408,15 @@ describe("the companion surface's pressed states", () => {
     return found;
   };
 
-  test("leaves the spotlit control unpressed, since a highlight is not a state", () => {
-    for (const spotlight of ["talk", "type"] as const) {
-      const { container } = render(
-        <CompanionSurface phase="hover" spotlight={spotlight} />,
-      );
-      expect(named(container, "Talk").getAttribute("aria-pressed")).toBeNull();
-      expect(named(container, "Type").getAttribute("aria-pressed")).toBeNull();
-      cleanup();
-    }
-  });
-
-  /**
-   * The look and the announced state come from one input on Watch, so a
-   * spotlight that drew a control held down without saying so is exactly the
-   * split this separation exists to keep.
-   */
-  test("still draws the spotlit control held down", () => {
+  test("leaves the spotlit creature unpressed, since a highlight is not a state", () => {
     const { container } = render(
       <CompanionSurface phase="hover" spotlight="talk" />,
     );
-    expect(named(container, "Talk").classList.contains("bg-white/15")).toBe(
-      true,
-    );
+    expect(
+      container
+        .querySelector('[role="button"][aria-label="Talk"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBeNull();
   });
 
   test("claims no pressed state anywhere on the call row", () => {
@@ -1477,7 +1434,9 @@ describe("the companion surface's pressed states", () => {
    * being watched and that this is the way out of it.
    */
   test("leaves the stop control an action rather than a toggle", () => {
-    const { container } = render(<CompanionSurface phase="typing" watching />);
+    const { container } = render(
+      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+    );
     const stop = named(container, "Stop teaching");
     expect(stop.getAttribute("aria-pressed")).toBeNull();
   });
@@ -1486,37 +1445,14 @@ describe("the companion surface's pressed states", () => {
 /**
  * The whole surface is a drag handle that happens to have words on it, so a
  * press and a sweep across it is a drag and never a text selection. Without
- * this, a drag that crosses the direction flip highlights "Talk" and "Type" on
- * the way past, and the selection it leaves behind arms the browser's own
+ * this, a drag that crosses the direction flip highlights "Talk" and "Teach"
+ * on the way past, and the selection it leaves behind arms the browser's own
  * text-drag against the next press (JARVIS-1582).
  */
 describe("the companion surface's text selection", () => {
   test("is off across the surface", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
     expect(surfaceOf(container).className).toContain("select-none");
-  });
-
-  test("is back on for a reply, which is prose to copy", () => {
-    const { container } = render(
-      <CompanionSurface
-        phase="typing"
-        turns={[
-          { role: "assistant", text: "The 14:00 one moved to Thursday." },
-        ]}
-      />,
-    );
-    const turn = container.querySelector("p");
-    expect(turn?.textContent).toBe("The 14:00 one moved to Thursday.");
-    expect(turn?.closest(".select-text")).not.toBeNull();
-  });
-
-  test("is back on in the field, which needs a caret", () => {
-    const { container } = render(
-      <CompanionSurface phase="typing" growth="left" />,
-    );
-    expect(container.querySelector("input")?.className).toContain(
-      "select-text",
-    );
   });
 });
 
@@ -1529,17 +1465,26 @@ describe("the companion surface's text selection", () => {
  * a screenshot.
  */
 describe("the resting avatar's idle motion", () => {
-  test("bobs on a wrapper of its own, with the glow riding inside it", () => {
-    const { container } = render(
-      <CompanionSurface phase="resting" accentHex="#ff8800" />,
-    );
+  test("bobs on a wrapper of its own", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
 
-    const bob = bobOf(container);
-    expect(bob).not.toBeNull();
+    expect(bobOf(container)).not.toBeNull();
+  });
 
-    const glow = glowOf(container);
-    expect(glow?.parentElement).toBe(bob);
-    expect(glow?.style.background.toLowerCase()).toContain("#ff8800");
+  /**
+   * The creature carries no light of its own: a blurred disc of the accent
+   * behind it made it read as a lit control rather than as something standing
+   * on the desktop, so nothing is painted behind the artwork in any phase.
+   */
+  test("draws nothing behind the creature", () => {
+    for (const phase of PHASES) {
+      const { container } = render(
+        <CompanionSurface phase={phase} accentHex="#ff8800" />,
+      );
+      expect(container.querySelector(".companion-glow")).toBeNull();
+      expect(bobOf(container)?.querySelector(".blur-lg")).toBeNull();
+      cleanup();
+    }
   });
 
   /**
@@ -1584,43 +1529,27 @@ describe("the resting avatar's idle motion", () => {
   });
 
   /**
-   * The glow is the creature's own light and the creature is on screen in every
-   * phase, so it is lit in every phase. Nothing stacks under it: the pill is a
-   * separate shape a gap away rather than a body the halo would read as a
-   * second ring around.
-   */
-  test("glows in every phase, not only at rest", () => {
-    for (const phase of PHASES) {
-      const { container } = render(<CompanionSurface phase={phase} />);
-      expect(glowOf(container)).not.toBeNull();
-      cleanup();
-    }
-  });
-
-  /**
    * A reader who has asked for stillness gets it from two places: the
    * `prefers-reduced-motion` block beside the keyframes, and the inline
    * `animation: none` here. The doubling is deliberate, since a stylesheet that
    * failed to load is a surface that moves anyway, and this is the half a
    * reader of the component can see.
    *
-   * Held still rather than dropped: the glow is the creature's own light and
-   * the bob's baseline is where the creature belongs, so both stay drawn.
+   * Held still rather than dropped: the bob's baseline is where the creature
+   * belongs, so it stays drawn.
    */
-  test("holds the bob and the glow still under reduced motion", () => {
+  test("holds the bob still under reduced motion", () => {
     reducedMotion = true;
 
     const { container } = render(<CompanionSurface phase="resting" />);
 
     expect(bobOf(container)?.style.animation).toBe("none");
-    expect(glowOf(container)?.style.animation).toBe("none");
   });
 
-  test("leaves both running for a reader who asked for nothing", () => {
+  test("leaves it running for a reader who asked for nothing", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
     expect(bobOf(container)?.style.animation).toBe("");
-    expect(glowOf(container)?.style.animation).toBe("");
   });
 
   /**
@@ -1636,7 +1565,6 @@ describe("the resting avatar's idle motion", () => {
 
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    expect(shapeOf(container).style.transitionDuration).toBe("0s");
     expect(bobOf(container)?.parentElement?.style.transitionProperty).toBe(
       "opacity",
     );
@@ -1645,7 +1573,6 @@ describe("the resting avatar's idle motion", () => {
   test("lets the collapse travel for a reader who asked for nothing", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
 
-    expect(shapeOf(container).style.transitionDuration).toBe("");
     expect(bobOf(container)?.parentElement?.style.transitionProperty).toBe("");
   });
 });
@@ -1696,26 +1623,6 @@ describe("the avatar's resting collapse", () => {
   });
 
   /** Expanded it is the creature's own box, which the setting does reach. */
-  test("still grows the expanded shape with the creature", () => {
-    const { container } = render(
-      <CompanionSurface phase="hover" avatarBox={220} />,
-    );
-
-    const shape = shapeOf(container);
-    expect(shape.style.width).toBe("44px");
-    expect(shape.style.transform).toBe("translate(-50%, -50%) scale(1)");
-  });
-
-  test("draws the whole box once anything opens the pill", () => {
-    for (const phase of PHASES.filter((it) => it !== "resting")) {
-      const { container } = render(<CompanionSurface phase={phase} />);
-
-      const shape = shapeOf(container);
-      expect(shape.style.width).toBe("44px");
-      expect(shape.style.height).toBe("44px");
-    }
-  });
-
   /**
    * The box the host measures is the same box in every phase. This is the one
    * assertion here that is about the window rather than the drawing: shrink it
@@ -1734,12 +1641,6 @@ describe("the avatar's resting collapse", () => {
    * running while the surface is at rest lights the capsule rather than
    * circling the empty box the capsule sits in.
    */
-  test("rides the ring on the shape, not on the box", () => {
-    const { container } = render(<CompanionSurface phase="resting" working />);
-
-    expect(ringOf(container)?.parentElement).toBe(shapeOf(container));
-  });
-
   /**
    * The capsule is the assistant's colour and nothing else. A dark rim made a
    * creature peeking out from behind it read as coming out of a slot in a
@@ -1754,13 +1655,11 @@ describe("the avatar's resting collapse", () => {
   });
 
   /**
-   * The capsule holds its size and fades where it stands.
-   *
-   * Sized on itself rather than filling the ring's box, which grows to the
-   * creature's. An accent inflating to that box and dissolving reads as a
-   * bubble popping rather than as the creature coming out of the pill.
+   * The capsule holds its size and fades where it stands. An accent inflating
+   * to the creature's box and dissolving would read as a bubble popping rather
+   * than as the creature coming out of the pill.
    */
-  test("never grows the capsule with the box the ring rides", () => {
+  test("never grows the capsule with the creature", () => {
     for (const phase of PHASES) {
       const { container } = render(<CompanionSurface phase={phase} />);
 
@@ -1780,8 +1679,6 @@ describe("the avatar's resting collapse", () => {
       <CompanionSurface phase="resting" intro={<div>meet</div>} />,
     );
 
-    const shape = shapeOf(container);
-    expect(shape.style.height).toBe("44px");
     expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
   });
 

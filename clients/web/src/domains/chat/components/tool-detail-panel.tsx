@@ -266,7 +266,10 @@ export function ToolDetailBody({
  * activity underneath the tool name.
  */
 export function toolDetailHeaderTitle(detail: ToolDetailPayload): string {
-  return detail.activity || detail.title;
+  // The activity sentence is written by the model, so it can carry newlines or
+  // runs of spaces that a single-line header would render as gaps. Collapse
+  // them here rather than at each of the three panels that show it.
+  return (detail.activity || detail.title).replace(/\s+/g, " ").trim();
 }
 
 export function ToolDetailPanel({

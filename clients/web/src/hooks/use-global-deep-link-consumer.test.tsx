@@ -30,6 +30,7 @@ import {
 } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
@@ -91,6 +92,16 @@ mock.module("@sentry/react", () => ({
 // so these tests stay about link handling. See `voice-entry-guards`.
 mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice: async () => ({ status: "ready" }),
+}));
+
+const consumeShareInboxMock = mock(
+  async (_id?: string | null): Promise<ShareInboxItem | null> => null,
+);
+const readShareInboxFilesMock = mock(async () => [] as File[]);
+mock.module("@/runtime/share-inbox", () => ({
+  consumeShareInbox: consumeShareInboxMock,
+  readShareInboxFiles: readShareInboxFilesMock,
+  publishShareInboxSource: () => () => undefined,
 }));
 
 const { useGlobalDeepLinkConsumer } =
@@ -156,6 +167,10 @@ beforeEach(() => {
   ensureMainWindowVisibleMock.mockClear();
   sentryBreadcrumbMock.mockClear();
   toastSuccessMock.mockClear();
+  consumeShareInboxMock.mockClear();
+  consumeShareInboxMock.mockImplementation(async () => null);
+  readShareInboxFilesMock.mockClear();
+  readShareInboxFilesMock.mockImplementation(async () => []);
   // Module-level one-shot flag; drain so a prior test's focus request can't
   // satisfy this test's assertion.
   consumePendingComposerFocus();
@@ -1066,6 +1081,70 @@ describe("deeplink.startVoice", () => {
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       "and this?",
     );
+  });
+});
+
+describe("deeplink.share", () => {
+  test("parks a new-draft send and lands on a registered draft", async () => {
+    consumeShareInboxMock.mockImplementation(async () => ({
+      id: "inbox-1",
+      destination: { type: "new" as const },
+      text: "look at this",
+      files: [],
+    }));
+    renderConsumer();
+
+    await act(async () => {
+      publish("deeplink.share", { inboxId: "inbox-1" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(consumeShareInboxMock).toHaveBeenCalledWith("inbox-1");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    const parked = usePendingDeepLinkStore.getState().pendingShareSend;
+    expect(parked?.isNewDraft).toBe(true);
+    expect(parked?.text).toBe("look at this");
+    expect(parked?.threadId).toBe(
+      useConversationStore.getState().activeConversationId ?? undefined,
+    );
+  });
+
+  test("parks a thread send and navigates to that conversation", async () => {
+    consumeShareInboxMock.mockImplementation(async () => ({
+      id: "inbox-2",
+      destination: { type: "thread" as const, threadId: "conv-xyz" },
+      text: "from safari",
+      files: [],
+    }));
+    renderConsumer();
+
+    await act(async () => {
+      publish("deeplink.share", { inboxId: "inbox-2" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      routes.conversation("conv-xyz"),
+    );
+    const parked = usePendingDeepLinkStore.getState().pendingShareSend;
+    expect(parked?.isNewDraft).toBe(false);
+    expect(parked?.threadId).toBe("conv-xyz");
+    expect(parked?.text).toBe("from safari");
+  });
+
+  test("a missing inbox item is a no-op", async () => {
+    renderConsumer();
+
+    await act(async () => {
+      publish("deeplink.share", { inboxId: "gone" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(usePendingDeepLinkStore.getState().pendingShareSend).toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 

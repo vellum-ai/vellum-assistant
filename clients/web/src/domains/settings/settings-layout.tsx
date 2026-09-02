@@ -1,7 +1,8 @@
 import { LogIn, LogOut } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
@@ -36,6 +37,7 @@ export function SettingsLayout() {
     setWindowsMenuBarSuppressed(true);
     return () => setWindowsMenuBarSuppressed(false);
   }, [setWindowsMenuBarSuppressed]);
+  const { t } = useTranslation("settings");
   const isNativeAndroid = useIsNativeAndroid();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   // The Bookmarks and Credentials tabs need routes that only newer assistants
@@ -54,12 +56,49 @@ export function SettingsLayout() {
   // (`usePlatformGate() === "full"`), matching billing-page.tsx's
   // `showBillingTab`. Signed-out / self-hosted users see just "Usage".
   const billingGate = usePlatformGate();
-  const billingLabel = billingGate === "full" ? "Billing & Usage" : "Usage";
   const { pathname } = useLocation();
   const navigate = useNavigate();
   // Show Log Out when a platform session exists, Log In otherwise.
   const hasPlatformSession = useHasPlatformSession();
   const { login } = useOnboardingLogin();
+
+  const getSidebarLabel = useCallback(
+    (id: string, defaultLabel: string) => {
+      switch (id) {
+        case "assistant-status":
+          return t("sidebar.general", "General");
+        case "model":
+          return t("sidebar.model", "Models & Services");
+        case "integrations":
+          return t("sidebar.integrations", "Integrations");
+        case "credentials":
+          return t("sidebar.credentials", "Credentials");
+        case "notifications":
+          return t("sidebar.notifications", "Notifications");
+        case "voice":
+          return t("sidebar.voice", "Voice");
+        case "sounds":
+          return t("sidebar.sounds", "Sounds");
+        case "privacy":
+          return t("sidebar.privacy", "Permissions & Privacy");
+        case "bookmarks":
+          return t("sidebar.bookmarks", "Bookmarks");
+        case "billing":
+          return billingGate === "full"
+            ? t("sidebar.billingUsage", "Billing & Usage")
+            : t("sidebar.usage", "Usage");
+        case "community":
+          return t("sidebar.community", "Community");
+        case "debug":
+          return t("sidebar.debug", "Debug");
+        case "developer":
+          return t("sidebar.developer", "Developer");
+        default:
+          return defaultLabel;
+      }
+    },
+    [t, billingGate],
+  );
 
   const filteredItems = useMemo(
     () =>
@@ -80,54 +119,69 @@ export function SettingsLayout() {
           return false;
         }
         return true;
-      }).map((item) =>
-        item.id === "billing" ? { ...item, label: billingLabel } : item,
-      ),
+      }).map((item) => ({
+        ...item,
+        label: getSidebarLabel(item.id, item.label),
+      })),
     [
       isNativeAndroid,
       supportsBookmarks,
       canUseInternalActions,
       supportsCredentials,
-      billingLabel,
+      getSidebarLabel,
     ],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {
     const items: SidebarItem[] = [];
     if (settingsDeveloperNav) {
-      items.push(...SETTINGS_SIDEBAR.filter((item) => item.id === "developer"));
+      items.push(
+        ...SETTINGS_SIDEBAR.filter((item) => item.id === "developer").map(
+          (item) => ({
+            ...item,
+            label: getSidebarLabel(item.id, item.label),
+          }),
+        ),
+      );
     }
     // The auth action is pinned to the very bottom of the nav.
     items.push(
       hasPlatformSession
         ? {
             id: "logout",
-            label: "Log Out",
+            label: t("sidebar.logout", "Log Out"),
             icon: LogOut,
             onSelect: () => void handleLogout(navigate),
           }
         : {
             id: "login",
-            label: "Log In",
+            label: t("sidebar.login", "Log In"),
             icon: LogIn,
             onSelect: () => void login(),
           },
     );
     return items;
-  }, [settingsDeveloperNav, hasPlatformSession, navigate, login]);
+  }, [
+    settingsDeveloperNav,
+    hasPlatformSession,
+    navigate,
+    login,
+    t,
+    getSidebarLabel,
+  ]);
 
   const pageTitle = useMemo(() => {
     if (pathname === routes.settings.root) {
-      return "Settings";
+      return t("sidebar.title", "Settings");
     }
     const match = SETTINGS_SIDEBAR.find(
       (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
     );
     if (match) {
-      return match.id === "billing" ? billingLabel : match.label;
+      return getSidebarLabel(match.id, match.label);
     }
-    return "Settings";
-  }, [pathname, billingLabel]);
+    return t("sidebar.title", "Settings");
+  }, [pathname, t, getSidebarLabel]);
 
   return (
     <SidebarShell

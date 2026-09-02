@@ -562,24 +562,8 @@ export interface VellumBridge {
      */
     activate(): void;
     /**
-     * Whether the surface's composer is open, and with it whether the window
-     * may take key status.
-     *
-     * The counterpart to `setInteractive`: mouse events are granted only while
-     * the pointer is on the pill, and keystrokes only while there is a field to
-     * put them in. A floating panel that held the keyboard after its field
-     * closed would swallow what the user typed next into the app they are
-     * actually working in.
-     */
-    setComposing(composing: boolean): void;
-    /**
-     * Send what the user typed. See the `companionSubmit` command: the first
-     * message of a composer's life starts a conversation, the rest continue it,
-     * and none of them raise the app.
-     */
-    submit(message: string, startsConversation: boolean): void;
-    /**
-     * Publish the assistant's name and the tail of the open conversation.
+     * Publish the assistant's name and what the app's window knows about the
+     * turn and the sessions it is running.
      *
      * The one call here the surface's own route does *not* make: it comes from
      * the window holding the conversation, the way `voiceActivity.update` comes
@@ -604,15 +588,6 @@ export interface VellumBridge {
      * describe the surface differently.
      */
     showContextMenu(): void;
-    /**
-     * Open a link from the card in the user's browser.
-     *
-     * The surface's window denies every navigation and every `window.open`, so
-     * an anchor cannot follow itself: the URL is handed to main, which is the
-     * side allowed to open anything. Main validates the scheme, since a URL
-     * arriving over IPC is untrusted whatever drew the anchor.
-     */
-    openLink(url: string): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

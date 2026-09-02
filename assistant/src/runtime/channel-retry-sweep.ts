@@ -111,6 +111,13 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         : undefined,
     requesterChatId:
       typeof raw.requesterChatId === "string" ? raw.requesterChatId : undefined,
+    // The triggering message's own id and thread, stamped at ingress. A
+    // replayed turn keeps them so what reads them (the turn's chat and thread
+    // lines, approval-card source links) sees the same turn the live path ran.
+    sourceMessageId:
+      typeof raw.sourceMessageId === "string" ? raw.sourceMessageId : undefined,
+    sourceThreadId:
+      typeof raw.sourceThreadId === "string" ? raw.sourceThreadId : undefined,
     requesterContactId:
       typeof raw.requesterContactId === "string"
         ? raw.requesterContactId

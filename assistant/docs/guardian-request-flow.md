@@ -21,7 +21,7 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
   notification pipeline                          (notifications/emit-signal.ts →
   decision engine → destination resolver →        decision-engine.ts → destination-resolver.ts →
   broadcaster builds the card context ONCE        broadcaster.ts: resolveApprovalContext /
-  (generic actions[] + plainTextFallback)         resolveQuestionOptionsContext)
+  (generic actions[] + plainTextFallback)         resolveQuestionContext)
         │
         ▼ per-channel rendering ONLY
   channel adapters                               (notifications/adapters/{telegram,slack,macos,platform},

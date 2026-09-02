@@ -338,9 +338,7 @@ export class AssistantEventHub {
    *   it receive the event; untargeted events go to all
    * - if `targetInterfaceId` is set, only client subscribers whose
    *   `interfaceId` matches receive the event; process subscribers and
-   *   non-matching clients are skipped. Used to narrow legacy
-   *   broadcasts (e.g. `conversation_list_invalidated`) to a specific
-   *   client surface during a migration window.
+   *   non-matching clients are skipped.
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers.
@@ -744,13 +742,7 @@ export function broadcastMessage(
   const targetClientId = options?.targetClientId;
   const targetInterfaceId = options?.targetInterfaceId;
 
-  // `conversation_list_invalidated` is a list-level system event — publish
-  // it unscoped so every subscriber refreshes its sidebar.
-  const scopedConversationId =
-    msg.type === "conversation_list_invalidated"
-      ? undefined
-      : resolvedConversationId;
-  const event = buildAssistantEvent(msg, scopedConversationId);
+  const event = buildAssistantEvent(msg, resolvedConversationId);
   const targetCapability = capabilityForMessageType(msg.type);
   // Self-echo suppression: a `sync_changed` carrying an `originClientId`
   // means a specific client just mutated the resource. The hub must not
@@ -780,35 +772,6 @@ export function broadcastMessage(
   stampAndBuffer(event, { targeting: publishOptions });
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event, publishOptions))
-    .then(() => {
-      // When a conversation title changes, also publish a
-      // `conversation_list_invalidated` so the macOS sidebar refreshes
-      // its row ordering for the renamed conversation. Web consumes the
-      // paired `sync_changed` with `conversation:<id>:metadata` tag
-      // emitted by `publishConversationTitleChanged` and patches the
-      // single row in place, so the broadcast is scoped to macOS only.
-      //
-      // TODO(electron-cutover): remove this emission once macOS migrates
-      // to the Electron client and consumes `sync_changed` directly. At
-      // that point `conversation_list_invalidated` has no remaining
-      // consumers and the message type can be retired.
-      if (msg.type === "conversation_title_updated") {
-        return assistantEventHub
-          .publish(
-            buildAssistantEvent({
-              type: "conversation_list_invalidated",
-              reason: "renamed",
-            }),
-            { targetInterfaceId: "macos" },
-          )
-          .catch((err: unknown) => {
-            log.warn(
-              { err },
-              "Failed to publish conversation_list_invalidated after title update",
-            );
-          });
-      }
-    })
     .catch((err: unknown) => {
       log.warn({ err }, "assistant-events hub subscriber threw during publish");
     });

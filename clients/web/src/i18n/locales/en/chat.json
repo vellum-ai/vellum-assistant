@@ -278,6 +278,14 @@
     "photo": "Photo",
     "yourAssistant": "Your assistant"
   },
+  "cameraViewOptions": {
+    "buttonAria": "Camera view options",
+    "gateHudDescription": "The tuning readout for what Live keeps.",
+    "gateHudTitle": "Frame gate readout",
+    "keptFrameDescription": "The last frame Live sent, beside your photos. Live keeps sending either way.",
+    "keptFrameTitle": "Kept frame",
+    "title": "Show"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
@@ -639,6 +647,9 @@
     "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
     "title": "Delete conversation",
     "untitled": "Untitled"
+  },
+  "deletedMessageRow": {
+    "label": "This message was deleted"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
@@ -1817,11 +1828,21 @@
     "reactionSomeone": "Someone"
   },
   "watchRetroSurface": {
-    "discard": "Discard",
+    "back": "Back",
+    "dontSave": "Don't save",
+    "looksRight": "Looks right",
     "next": "Next",
     "save": "Save skill",
     "skip": "Skip",
-    "thatsIt": "That's it",
+    "somethingOff": "Something's off",
+    "stepCount": "{count, plural, one {# step} other {# steps}}",
+    "stepQuestion": "Question {number}",
+    "stepRecap": "Recap",
+    "stepSummary": "Save",
+    "summarySay": "Say",
+    "summarySteps": "Steps",
+    "summaryTitle": "Ready to save",
+    "summaryUnanswered": "Not set",
     "untitledTask": "What I saw"
   }
 }
