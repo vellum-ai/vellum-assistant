@@ -1007,6 +1007,36 @@ describe("contact record submit", () => {
     expect(callsFor("resolve_contact_prompt")).toHaveLength(0);
   });
 
+  test("a merge carrying notes is rejected before the form is claimed", async () => {
+    seedContact("c-keep", "Alice");
+    seedContact("c-donor", "Alice C");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-merge-notes"),
+        operation: "merge",
+        contactId: "c-keep",
+        donorContactId: "c-donor",
+        notes: "Same person",
+      }),
+    );
+
+    // The merge combines both sets of notes, so accepting a submitted set
+    // would either drop it or overwrite the combination.
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(false);
+    expect(String(body.error)).toContain("combines both contacts' notes");
+    expect(callsFor("contact_prompt_claim")).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-donor"))
+        .get(),
+    ).toBeDefined();
+  });
+
   test("a merge of a contact with itself is rejected", async () => {
     seedContact("c-self", "Alice");
 

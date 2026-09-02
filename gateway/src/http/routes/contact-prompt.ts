@@ -656,6 +656,18 @@ export async function handleContactRecordSubmit(
         { status: 400 },
       );
     }
+    // The merge combines both contacts' notes itself, so a submitted set would
+    // either be dropped or overwrite that. Refusing says so.
+    if (body.notes !== undefined && body.notes !== null) {
+      return Response.json(
+        {
+          accepted: false,
+          error:
+            "A merge combines both contacts' notes, so notes cannot be submitted with it. Edit them afterwards with 'assistant contacts update'.",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   // A non-string displayName (an explicit null included) reads as omitted, so
