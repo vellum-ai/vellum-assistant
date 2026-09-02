@@ -65,7 +65,7 @@ const SHUTTING_DOWN_LOSS: DesktopLoss = {
   code: DESKTOP_CLOSE.goingAway,
   reason: "The assistant is shutting down",
 };
-const START_FAILED_LOSS: DesktopLoss = {
+export const START_FAILED_LOSS: DesktopLoss = {
   code: DESKTOP_CLOSE.failed,
   reason: "Desktop failed to start",
 };
@@ -364,7 +364,7 @@ export class DesktopSessionManager {
     const stale = this.children.get(role);
     if (stale) {
       log.warn({ role, pid: stale.pid }, "Desktop process already running");
-      void this.killAll([stale]);
+      void this.killAll(new Map([[role, stale]]));
     }
     const child = this.spawn(role, { cmd, env });
     this.children.set(role, child);
@@ -429,7 +429,7 @@ export class DesktopSessionManager {
     this.generation += 1;
     this.running = false;
     this.browserExitsAt = [];
-    const children = [...this.children.values()];
+    const children = new Map(this.children);
     this.children.clear();
     const viewer = this.viewer;
     this.viewer = null;
@@ -451,27 +451,49 @@ export class DesktopSessionManager {
     return done;
   }
 
-  /** SIGTERM so X and Chromium exit cleanly, then SIGKILL whatever is left. */
-  private async killAll(children: readonly DesktopChild[]): Promise<void> {
-    if (children.length === 0) {
+  /**
+   * SIGTERM so X and Chromium exit cleanly, then SIGKILL whatever is left and
+   * wait for it too: a killed X server holds the display and port until it is
+   * reaped. Both waits are bounded by the grace so shutdown cannot hang.
+   */
+  private async killAll(
+    children: ReadonlyMap<DesktopChildRole, DesktopChild>,
+  ): Promise<void> {
+    if (children.size === 0) {
       return;
     }
-    const alive = new Set(children);
-    const exits = children.map((child) => {
-      this.killProcessGroup(child, "SIGTERM");
-      return child.exited.catch(() => 0).then(() => alive.delete(child));
-    });
+    const alive = new Map(children);
+    const exits = Promise.all(
+      [...children].map(([role, child]) => {
+        this.killProcessGroup(child, "SIGTERM");
+        return child.exited.catch(() => 0).then(() => alive.delete(role));
+      }),
+    );
+    await this.waitForExits(exits);
+    if (alive.size === 0) {
+      return;
+    }
+    for (const child of alive.values()) {
+      this.killProcessGroup(child, "SIGKILL");
+    }
+    await this.waitForExits(exits);
+    if (alive.size > 0) {
+      const survivors = [...alive].map(([role, child]) => ({
+        role,
+        pid: child.pid,
+      }));
+      log.warn({ survivors }, "Desktop processes still alive after SIGKILL");
+    }
+  }
+
+  private waitForExits(exits: Promise<unknown>): Promise<void> {
     let grace: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      Promise.all(exits),
+    return Promise.race([
+      exits.then(() => undefined),
       new Promise<void>((resolve) => {
         grace = setTimeout(resolve, this.killGraceMs);
       }),
-    ]);
-    clearTimeout(grace);
-    for (const child of alive) {
-      this.killProcessGroup(child, "SIGKILL");
-    }
+    ]).finally(() => clearTimeout(grace));
   }
 
   private armLinger(): void {

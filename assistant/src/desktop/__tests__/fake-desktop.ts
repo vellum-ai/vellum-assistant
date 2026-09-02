@@ -41,6 +41,8 @@ export interface FakeDesktopOptions {
   missingBinaries?: string[];
   /** Whether a SIGTERM makes the fake child exit on its own. */
   exitOnTerm?: boolean;
+  /** Whether a SIGKILL does; without either the child survives both. */
+  exitOnKill?: boolean;
   sourceEnv?: NodeJS.ProcessEnv;
 }
 
@@ -64,7 +66,9 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     resolveChromiumPath: () => chromiumPath(),
     killProcessGroup: (child, signal) => {
       killed.push({ child: child as FakeChild, signal });
-      if (options.exitOnTerm) {
+      const exits =
+        signal === "SIGTERM" ? options.exitOnTerm : options.exitOnKill;
+      if (exits) {
         (child as FakeChild).exit(0);
       }
     },

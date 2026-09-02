@@ -15,6 +15,7 @@ import {
   type DesktopTcpSocket,
   type DesktopViewer,
   getDesktopSessionManager,
+  START_FAILED_LOSS,
 } from "./desktop-session-manager.js";
 
 /** Frames a client may send before the VNC socket is up; RFB handshakes are tiny. */
@@ -71,9 +72,9 @@ export class DesktopStreamBridge {
     } catch (err) {
       // Usually already closed through onDesktopLost; the error covers a
       // start this viewer joined late and never got the callback for.
-      if (err instanceof DesktopStartError) {
-        this.lose(err.loss);
-      }
+      this.lose(
+        err instanceof DesktopStartError ? err.loss : START_FAILED_LOSS,
+      );
       return;
     }
     if (this.closed) {

@@ -134,6 +134,18 @@ describe("DesktopStreamBridge", () => {
     expect(slotIsFree(h.manager)).toBe(true);
   });
 
+  test("closes 4011 and frees the slot when the start rejects with a plain error", async () => {
+    const h = newFakeDesktop({ profileDir });
+    h.manager.ensureDesktopRunning = () =>
+      Promise.reject(new Error("unexpected"));
+    const b = newBridge(h.manager);
+    await b.bridge.start();
+
+    expect(b.ws.closeCode).toBe(4011);
+    expect(b.ws.closeReason).toBe("Desktop failed to start");
+    expect(slotIsFree(h.manager)).toBe(true);
+  });
+
   test("closes 4011 when the desktop dies under the viewer", async () => {
     const h = newFakeDesktop({ profileDir });
     const b = newBridge(h.manager);

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 
+import { waitFor } from "../__tests__/helpers/wait-for.js";
 import { sleep } from "../util/retry.js";
 import {
   type FakeDesktopOptions,
@@ -144,11 +145,26 @@ describe("DesktopSessionManager process tree", () => {
     await sleep(KILL_GRACE_MS / 2);
     expect(h.count("x-server")).toBe(1);
 
+    // The SIGKILL alone does not free the display and port; the exit does.
+    await waitFor(() => h.killed.length === 2, { intervalMs: 1 });
+    expect(h.killed[1]).toEqual({ child: first, signal: "SIGKILL" });
+    expect(h.count("x-server")).toBe(1);
+
+    first.exit(0);
     await retry;
-    expect(h.killed).toEqual([
-      { child: first, signal: "SIGTERM" },
-      { child: first, signal: "SIGKILL" },
-    ]);
+    expect(h.count("x-server")).toBe(2);
+  });
+
+  test("a retry stops waiting on an X server that survives SIGKILL", async () => {
+    const h = newManager();
+    h.setVncReady(false);
+    await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(/not ready/);
+
+    h.setVncReady(true);
+    const started = Date.now();
+    await h.manager.ensureDesktopRunning();
+    expect(Date.now() - started).toBeGreaterThanOrEqual(KILL_GRACE_MS * 2 - 4);
+    expect(h.killed.map((k) => k.signal)).toEqual(["SIGTERM", "SIGKILL"]);
     expect(h.count("x-server")).toBe(2);
   });
 
@@ -269,7 +285,7 @@ describe("DesktopSessionManager process tree", () => {
   });
 
   test("destroy terminates, hard-kills stragglers after the grace, and refuses what comes after", async () => {
-    const h = newManager();
+    const h = newManager({ exitOnKill: true });
     const { viewer, lost } = newViewer();
     h.manager.acquireViewerSlot(viewer);
     await h.manager.ensureDesktopRunning();
