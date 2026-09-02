@@ -40,7 +40,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
-import { contrastForeground } from "@/utils/avatar-tone";
+import { toneForBg } from "@/utils/avatar-tone";
 
 /**
  * The assistant section shows at most five realizations before scrolling
@@ -131,12 +131,14 @@ export function SidebarSectionItem({
          as this section's own; only the occupant changed. NOT the eyes: the
          eyes are the assistant herself and stay exclusive to the cluster at
          the top of the rail, or this header reads as a second switcher. The
-         glyph's ink is contrast-picked from the accent (white on the dark
-         and saturated palette entries, near-black on yellow) rather than a
-         fixed white; with no accent — custom-image or still-loading avatar,
-         exactly when `accentHex` is null — the disc falls back to the plain
-         lifted surface and the glyph to the tertiary ink every other
-         section's glyph wears. */
+         glyph's ink comes from `toneForBg`'s perceived-brightness rule -
+         white on every palette entry except yellow, where white vanishes -
+         not from the stricter WCAG `contrastForeground`, whose text-grade
+         threshold turns mid-tone colors like the pink dark; a 16px glyph is
+         iconography, not body text. With no accent — custom-image or
+         still-loading avatar, exactly when `accentHex` is null — the disc
+         falls back to the plain lifted surface and the glyph to the
+         tertiary ink every other section's glyph wears. */
       iconNode={
         isAssistantSection ? (
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent,var(--surface-lift))]">
@@ -146,14 +148,20 @@ export function SidebarSectionItem({
               className={
                 accentHex ? undefined : "text-[var(--content-tertiary)]"
               }
-              style={
-                accentHex ? { color: contrastForeground(accentHex) } : undefined
-              }
+              style={accentHex ? { color: toneForBg(accentHex).fg } : undefined}
             />
           </span>
         ) : undefined
       }
       label={label}
+      /* The name in the emphasised ink rather than the shared header
+         classes' tertiary gray: this header sits on its own tinted surface,
+         where the section-family gray reads as disabled instead of quiet.
+         Set on the label span, so it overrides by inheritance rather than
+         specificity. */
+      labelClassName={
+        isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
+      }
       /* The whole header on its own surface: a deeper cut of the accent than
          the card's 18%, spanning disc, label, unread dot, and chevron edge
          to edge — one pill, not a pill with the controls stranded outside
