@@ -6,7 +6,7 @@ import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
 import type { CdpClientKind } from "./cdp-client/types.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
-import { importPlaywright } from "./runtime-check.js";
+import { ensureChromium, importPlaywright } from "./runtime-check.js";
 
 const log = getLogger("browser-manager");
 
@@ -248,55 +248,6 @@ class BrowserManager {
     this.contextCreating = (async () => {
       await authSessionCache.load();
 
-      // Ensure Playwright's bundled Chrome for Testing is installed.
-      // Accepts the playwright module so it can be called from different scopes.
-      const ensureChromeForTesting = async (
-        pw: Awaited<ReturnType<typeof importPlaywright>>,
-      ) => {
-        let chromiumInstalled = false;
-        try {
-          const execPath = pw.chromium.executablePath();
-          chromiumInstalled = existsSync(execPath);
-        } catch {
-          // executablePath() may throw if registry is missing
-        }
-
-        if (!chromiumInstalled) {
-          log.info("Chromium not installed, installing via playwright...");
-          const proc = Bun.spawn(
-            ["bunx", "playwright", "install", "--with-deps", "chromium"],
-            {
-              stdout: "pipe",
-              stderr: "pipe",
-              windowsHide: true,
-            },
-          );
-          const timeoutMs = 300_000;
-          let timer: ReturnType<typeof setTimeout>;
-          const exitCode = await Promise.race([
-            proc.exited.finally(() => clearTimeout(timer)),
-            new Promise<never>(
-              (_, reject) =>
-                (timer = setTimeout(() => {
-                  proc.kill();
-                  reject(
-                    new Error(
-                      `Chromium install timed out after ${timeoutMs / 1000}s`,
-                    ),
-                  );
-                }, timeoutMs)),
-            ),
-          ]);
-          if (exitCode === 0) {
-            log.info("Chromium installed successfully");
-          } else {
-            const stderr = await new Response(proc.stderr).text();
-            const msg = stderr.trim() || `exited with code ${exitCode}`;
-            throw new Error(`Failed to install Chromium: ${msg}`);
-          }
-        }
-      };
-
       // Resolve launch function: use injected test launcher or resolve
       // playwright (may install at runtime in compiled binaries).
       let launch: LaunchFn;
@@ -318,7 +269,7 @@ class BrowserManager {
               executablePath: systemChrome,
             });
         } else {
-          await ensureChromeForTesting(pw);
+          await ensureChromium(pw);
           launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
         }
       }
@@ -338,7 +289,7 @@ class BrowserManager {
             "System Chrome launch failed, falling back to Chrome for Testing",
           );
           const pw = await importPlaywright();
-          await ensureChromeForTesting(pw);
+          await ensureChromium(pw);
           ctx = await pw.chromium.launchPersistentContext(profileDir, {
             headless,
           });

@@ -126,8 +126,63 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
   return mod as unknown as typeof import("playwright");
 }
 
-/** In-flight headless shell install promise to deduplicate concurrent callers. */
+function chromiumExecutableExists(pw: typeof import("playwright")): boolean {
+  try {
+    return existsSync(pw.chromium.executablePath());
+  } catch {
+    // executablePath() may throw if the browser registry is missing
+    return false;
+  }
+}
+
+/** Run `playwright install` with the given browser args, bounded by a timeout. */
+async function runPlaywrightInstall(
+  args: readonly string[],
+  label: string,
+  timeoutMs: number,
+): Promise<void> {
+  log.info(`${label} not found, installing...`);
+  const bunPath = await ensureBun();
+
+  // Run the CLI from the same directory where importPlaywright() installed
+  // the package so the resolved playwright version matches the pw module.
+  const externalDir = getExternalDir();
+  const externalPwExists = existsSync(
+    join(externalDir, "node_modules", "playwright", "package.json"),
+  );
+
+  const proc = Bun.spawn([bunPath, "x", "playwright", "install", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    cwd: externalPwExists ? externalDir : undefined,
+    windowsHide: true,
+  });
+  let timer: ReturnType<typeof setTimeout>;
+  const exitCode = await Promise.race([
+    proc.exited.finally(() => clearTimeout(timer)),
+    new Promise<never>(
+      (_, reject) =>
+        (timer = setTimeout(() => {
+          proc.kill();
+          reject(
+            new Error(`${label} install timed out after ${timeoutMs / 1000}s`),
+          );
+        }, timeoutMs)),
+    ),
+  ]);
+  if (exitCode === 0) {
+    log.info(`${label} installed successfully`);
+  } else {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(
+      `Failed to install ${label}: ${stderr.trim() || `exit code ${exitCode}`}`,
+    );
+  }
+}
+
+/** In-flight install promises so concurrent callers share one download. */
 let headlessShellInstalling: Promise<void> | undefined;
+let chromiumInstalling: Promise<void> | undefined;
 
 /**
  * Ensure the Chromium headless shell binary is available on disk.
@@ -138,69 +193,37 @@ let headlessShellInstalling: Promise<void> | undefined;
 export async function ensureChromiumHeadlessShell(
   pw: typeof import("playwright"),
 ): Promise<void> {
-  try {
-    const execPath = pw.chromium.executablePath();
-    if (existsSync(execPath)) {
-      return;
-    }
-  } catch {
-    // executablePath() may throw if the browser registry is missing
-  }
-
-  if (headlessShellInstalling) {
-    await headlessShellInstalling;
+  if (chromiumExecutableExists(pw)) {
     return;
   }
-
-  headlessShellInstalling = (async () => {
-    log.info("Chromium headless shell not found, installing...");
-    const bunPath = await ensureBun();
-
-    // Run the CLI from the same directory where importPlaywright() installed
-    // the package so the resolved playwright version matches the pw module.
-    const externalDir = getExternalDir();
-    const externalPwExists = existsSync(
-      join(externalDir, "node_modules", "playwright", "package.json"),
-    );
-
-    const proc = Bun.spawn(
-      [bunPath, "x", "playwright", "install", "--only-shell", "chromium"],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-        cwd: externalPwExists ? externalDir : undefined,
-        windowsHide: true,
-      },
-    );
-    const timeoutMs = 120_000;
-    let timer: ReturnType<typeof setTimeout>;
-    const exitCode = await Promise.race([
-      proc.exited.finally(() => clearTimeout(timer)),
-      new Promise<never>(
-        (_, reject) =>
-          (timer = setTimeout(() => {
-            proc.kill();
-            reject(
-              new Error(
-                `Chromium headless shell install timed out after ${timeoutMs / 1000}s`,
-              ),
-            );
-          }, timeoutMs)),
-      ),
-    ]);
-    if (exitCode === 0) {
-      log.info("Chromium headless shell installed successfully");
-    } else {
-      const stderr = await new Response(proc.stderr).text();
-      throw new Error(
-        `Failed to install Chromium headless shell: ${stderr.trim() || `exit code ${exitCode}`}`,
-      );
-    }
-  })().finally(() => {
+  headlessShellInstalling ??= runPlaywrightInstall(
+    ["--only-shell", "chromium"],
+    "Chromium headless shell",
+    120_000,
+  ).finally(() => {
     headlessShellInstalling = undefined;
   });
-
   await headlessShellInstalling;
+}
+
+/**
+ * Ensure Playwright's full Chromium (Chrome for Testing) is on disk,
+ * installing it with its system dependencies when missing.
+ */
+export async function ensureChromium(
+  pw: typeof import("playwright"),
+): Promise<void> {
+  if (chromiumExecutableExists(pw)) {
+    return;
+  }
+  chromiumInstalling ??= runPlaywrightInstall(
+    ["--with-deps", "chromium"],
+    "Chromium",
+    300_000,
+  ).finally(() => {
+    chromiumInstalling = undefined;
+  });
+  await chromiumInstalling;
 }
 
 export async function checkBrowserRuntime(): Promise<BrowserRuntimeStatus> {
