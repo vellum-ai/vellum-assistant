@@ -103,7 +103,6 @@ import {
   recordInbound,
 } from "../../persistence/delivery-crud.js";
 import { markProcessed } from "../../persistence/delivery-status.js";
-import { publishConversationMessagesChanged } from "../sync/resource-sync-events.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -118,6 +117,7 @@ import {
 } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
+import { publishConversationMessagesChanged } from "../sync/resource-sync-events.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
