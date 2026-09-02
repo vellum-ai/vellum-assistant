@@ -110,7 +110,14 @@ function Proposed({
             <Typography
               variant="title-medium"
               as="div"
-              className="truncate leading-snug text-[var(--content-default)]"
+              title={title}
+              // 41% of activity sentences are longer than the one line this
+              // header fits, so a single truncated line would hide the most
+              // useful text on the panel from most calls. Two lines cover the
+              // 90th percentile outright, and the native tooltip carries the
+              // tail for the rest, matching what `DetailShell` does for its
+              // own default title.
+              className="line-clamp-2 leading-snug text-[var(--content-default)]"
             >
               {title}
             </Typography>
