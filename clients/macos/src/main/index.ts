@@ -63,6 +63,7 @@ import {
   installConnectivityIpc,
   installStatusIpc,
 } from "@vellumai/electron-desktop/status";
+import { installWindowAttention } from "@vellumai/electron-desktop/window-attention";
 import "./auxiliary-windows.client";
 import { installDock } from "./dock";
 import { installShare } from "./share";
@@ -94,6 +95,7 @@ import {
 import { installHostProxyBridge } from "./host-proxy-adapter";
 import log from "./logger";
 import {
+  current as currentMainWindow,
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
@@ -462,6 +464,10 @@ app
       logger: log,
     });
     installNotifications();
+    const teardownWindowAttention = installWindowAttention({
+      currentMainWindow,
+    });
+    app.on("before-quit", teardownWindowAttention);
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.

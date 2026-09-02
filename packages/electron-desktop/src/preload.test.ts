@@ -1,9 +1,17 @@
 import { expect, mock, test } from "bun:test";
 import type { IpcRenderer } from "electron";
 
-import type { DownloadDoneEvent } from "@vellumai/ipc-contract";
+import type {
+  DownloadDoneEvent,
+  WindowAttentionPayload,
+} from "@vellumai/ipc-contract";
+import { WINDOW_ATTENTION } from "@vellumai/ipc-contract";
 
-import { createBundleConfirmBridge, createDownloadsBridge } from "./preload";
+import {
+  createBundleConfirmBridge,
+  createDownloadsBridge,
+  createWindowAttentionSubscriber,
+} from "./preload";
 
 test("creates the bundle confirmation IPC bridge", async () => {
   const invoke = mock(() => Promise.resolve(null));
@@ -55,4 +63,35 @@ test("creates the downloads IPC bridge", async () => {
 
   unsubscribe();
   expect(off).toHaveBeenCalledWith("vellum:downloads:done", handler);
+});
+
+test("creates the window-attention subscriber", () => {
+  type AttentionHandler = (
+    event: unknown,
+    payload: WindowAttentionPayload,
+  ) => void;
+  let handler: AttentionHandler | null = null;
+  const on = mock((_channel: string, h: AttentionHandler) => {
+    handler = h;
+  });
+  const off = mock(() => undefined);
+  const ipc = {
+    invoke: mock(() => Promise.resolve()),
+    send: mock(() => undefined),
+    on,
+    off,
+  } as unknown as Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
+  const onWindowAttention = createWindowAttentionSubscriber(ipc);
+
+  const received: WindowAttentionPayload[] = [];
+  const unsubscribe = onWindowAttention((payload) => received.push(payload));
+
+  expect(on).toHaveBeenCalledWith(WINDOW_ATTENTION, expect.any(Function));
+  handler!({}, { visible: true, focused: false, minimized: false });
+  expect(received).toEqual([
+    { visible: true, focused: false, minimized: false },
+  ]);
+
+  unsubscribe();
+  expect(off).toHaveBeenCalledWith(WINDOW_ATTENTION, handler);
 });

@@ -7,8 +7,13 @@ import type {
   ResolvedHotkey,
   UpdateState,
   VellumBridge,
+  WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
-import { DOWNLOADS_DONE_EVENT, DOWNLOADS_REVEAL } from "@vellumai/ipc-contract";
+import {
+  DOWNLOADS_DONE_EVENT,
+  DOWNLOADS_REVEAL,
+  WINDOW_ATTENTION,
+} from "@vellumai/ipc-contract";
 
 type RendererIpc = Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
 
@@ -89,3 +94,9 @@ export const createUpdateBridge = (
   install: () => ipc.invoke("vellum:update:install") as Promise<void>,
   onState: subscribe<UpdateState>(ipc, "vellum:update:state"),
 });
+
+/** Renderer side of `installWindowAttention`. */
+export const createWindowAttentionSubscriber = (
+  ipc: RendererIpc,
+): VellumBridge["notifications"]["onWindowAttention"] =>
+  subscribe<WindowAttentionPayload>(ipc, WINDOW_ATTENTION);
