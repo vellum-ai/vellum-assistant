@@ -27,12 +27,16 @@ afterEach(() => {
 // MIN_VERSION through the exported gate, plus that a version fetched for
 // another assistant does not light the lane up for this one.
 describe("supportsSelectionRewrite", () => {
-  test("reads false below 0.11.9, whose command mode rewrites a question too", () => {
+  test("reads false for 0.11.8 stable and builds before the commit", () => {
     expect(readGate("0.11.8")).toBe(false);
+    expect(readGate("0.11.8-dev.202609021400.abc1234")).toBe(false);
+    expect(readGate("0.11.8-local.20260902140000.abc1234")).toBe(false);
     expect(readGate(null)).toBe(false);
   });
 
-  test("reads true from 0.11.9", () => {
+  test("reads true from the commit's build on, and from 0.11.9", () => {
+    expect(readGate("0.11.8-dev.202609021456.e7361b7")).toBe(true);
+    expect(readGate("0.11.8-local.20260902160000.abc1234")).toBe(true);
     expect(readGate("0.11.9")).toBe(true);
     expect(readGate("0.12.0")).toBe(true);
   });

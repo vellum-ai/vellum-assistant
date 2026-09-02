@@ -16,8 +16,10 @@
  * - New behavior (>= MIN_VERSION): an editable selection is sent, an edit is
  *   pasted over it, a question goes to the assistant.
  *
- * MIN_VERSION is 0.11.9: 0.11.8 was cut before the daemon told edits from
- * questions, so 0.11.9 is the first release guaranteed to.
+ * MIN_VERSION is the dev build stamped at the commit that taught the daemon
+ * to tell edits from questions: 0.11.8 stable was cut before it, so 0.11.8
+ * stays on the old behavior, and any dev or local build from that commit on,
+ * and 0.11.9 and up, take the new one.
  *
  * Delete this gate, and take the rewrite lane in
  * `global-push-to-talk-bridge.tsx` unconditional, once the minimum supported
@@ -25,7 +27,7 @@
  */
 import { assistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.9";
+export const MIN_VERSION = "0.11.8-dev.202609021456.e7361b7";
 
 /**
  * Whether the assistant the hold's words go to tells an edit from a question
