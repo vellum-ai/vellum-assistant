@@ -1021,7 +1021,7 @@ describe("CameraShutter: holding it", () => {
       });
     });
 
-    test("gives the press up when another activation arrives mid-hold", () => {
+    test("is inert while a press it is not part of has the shutter", () => {
       withFakeTimers((advanceBy) => {
         let taps = 0;
         let holds = 0;
@@ -1038,27 +1038,133 @@ describe("CameraShutter: holding it", () => {
           />,
         );
 
-        // Enter is an activation of its own, and the user striking it has
-        // moved on from the hold they were part way through. One gesture at a
-        // time: the threshold goes with the press it belonged to, and Enter is
-        // the plain tap it always is. The click stands in for the one the
-        // browser fires from Enter, which happy-dom does not perform.
+        // One gesture at a time, and the hold started first. Enter over the
+        // top of it does nothing: its own activation is taken, so no photo,
+        // and the press it landed on carries on to the threshold it was
+        // counting to.
         fireEvent.keyDown(shutter(), { key: " " });
         advanceBy(HOLD_MS - 1);
-        fireEvent.keyDown(shutter(), { key: "Enter" });
-        fireEvent.click(shutter());
+        expect(fireEvent.keyDown(shutter(), { key: "Enter" })).toBe(false);
 
-        // Nothing of the abandoned press lands afterwards.
-        advanceBy(HOLD_MS);
-        expect(holds).toBe(0);
+        advanceBy(1);
+        expect(holds).toBe(1);
+        expect(taps).toBe(0);
+        expect(pulse()).toBeNull();
+
+        // And the release of that hold is still its own, taking no photo.
+        fireEvent.keyUp(shutter(), { key: " " });
+        expect(taps).toBe(0);
+      });
+    });
+
+    test("is the plain tap it always is with nothing underway", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // No press has the shutter, so Enter keeps the activation it fires on
+        // the way down. The click stands in for the one the browser makes from
+        // it, which happy-dom does not perform.
+        expect(fireEvent.keyDown(shutter(), { key: "Enter" })).toBe(true);
+        fireEvent.click(shutter());
         expect(taps).toBe(1);
         expect(pulse()).not.toBeNull();
+      });
+    });
 
-        // And the shutter is not left half pressed: an ordinary tap after it
-        // behaves like any other.
+    test("takes no photo from the keyboard press that entered Live", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        const onClick = () => {
+          taps += 1;
+        };
+        const { rerender } = render(
+          <CameraShutter
+            onClick={onClick}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        fireEvent.keyDown(shutter(), { key: " " });
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            ariaLabel="Stop live"
+            testId="s"
+            mode="live"
+          />,
+        );
+
+        // The key is still down, so the press still has the shutter and Enter
+        // is inert. Its activation is taken rather than stopping the Live this
+        // press has just entered.
+        expect(fireEvent.keyDown(shutter(), { key: "Enter" })).toBe(false);
+        expect(pressSpaceAgain()).toBe(false);
+        fireEvent.keyUp(shutter(), { key: " " });
+        expect(taps).toBe(0);
+
+        // The press after it is the user asking for something, and it lands.
+        expect(fireEvent.keyDown(shutter(), { key: "Enter" })).toBe(true);
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("takes no photo from the pointer press that entered Live", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        const onClick = () => {
+          taps += 1;
+        };
+        const { rerender } = render(
+          <CameraShutter
+            onClick={onClick}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
         press();
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+        rerender(
+          <CameraShutter
+            onClick={onClick}
+            ariaLabel="Stop live"
+            testId="s"
+            mode="live"
+          />,
+        );
+
+        // The finger is still down, so this press still has the shutter and
+        // keeps the suppression its release is answered by.
+        expect(fireEvent.keyDown(shutter(), { key: "Enter" })).toBe(false);
         release();
-        expect(taps).toBe(2);
+        expect(taps).toBe(0);
+        expect(pulse()).toBeNull();
+
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
       });
     });
 

@@ -203,7 +203,9 @@ export function CameraShutter({
 
   /**
    * Which pointer the press underway belongs to, so an end of press can be
-   * told from any other finger's. A keyboard press owns none.
+   * told from any other finger's. A keyboard press owns none, and a press that
+   * has ended owns none either: this is a finger currently down, which is also
+   * what makes it half the answer to whether the shutter is busy.
    */
   const pressPointerIdRef = useRef<number | null>(null);
   /**
@@ -229,6 +231,21 @@ export function CameraShutter({
    * is still down.
    */
   const spacePressRef = useRef(false);
+
+  /**
+   * Whether a press has the shutter right now: a threshold still counting, a
+   * Space whose activation is suspended, or a finger still down.
+   *
+   * A press owns this button's state for as long as it lasts, and what it owns
+   * has to survive to its own release: the suppression that keeps its ending
+   * from turning into a photo, and the suspension that keeps its repeats from
+   * re-arming an activation. Both are one press deep, which is what makes the
+   * question worth asking before a second one is let in.
+   */
+  const pressUnderway = () =>
+    holdTimerRef.current !== null ||
+    spacePressRef.current ||
+    pressPointerIdRef.current !== null;
 
   /**
    * Nothing of the last press is left to answer for.
@@ -471,11 +488,19 @@ export function CameraShutter({
     if (event.key !== " " && event.key !== "Enter") {
       return;
     }
-    // A second activation arriving mid-press ends the one underway rather than
-    // running beside it. The threshold goes with it, so nothing that press
-    // began can land after the user has moved on to another key, and the
-    // flags go with `beginPress` so the new activation is answered as the
-    // plain one it is.
+    // One gesture at a time, and the one that started owns the shutter. Enter
+    // arriving over a press does nothing at all: its own activation is taken,
+    // and the press underway keeps everything it is holding, which is what
+    // carries its suppression and its suspension through to its own release.
+    // Taking the default is what stops the browser activating the button from
+    // this key, since for a button that activation IS the keydown's default.
+    if (event.key === "Enter" && pressUnderway()) {
+      event.preventDefault();
+      return;
+    }
+    // A Space landing on a press still recorded is a press whose end never
+    // reached this button, so a new one begins and the old one's threshold
+    // goes with it rather than firing into the new press's ending.
     abandonPress();
     beginPress();
     if (!holdOffered || disabled) {
@@ -552,6 +577,10 @@ export function CameraShutter({
         // hand a wandering press its photo back, so the document listener is
         // told to leave this one alone.
         handledEndRef.current = event.nativeEvent;
+        // The finger is up, so no press has the shutter any more. The flags it
+        // may have raised are untouched: the click on its way is what spends
+        // them.
+        pressPointerIdRef.current = null;
         cancelHold();
       }}
       onPointerCancel={(event) => {
