@@ -13,7 +13,7 @@ import { type ReactNode } from "react";
 import { FIELD_STACK_CLASS } from "@/domains/settings/components/field-skeletons";
 import {
   brandLabel,
-  cardExpiryLabel,
+  cardExpiryParts,
 } from "@/domains/settings/utils/payment-method-brand";
 import { useTranslation, type TFunction } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
@@ -266,6 +266,10 @@ export function PaymentMethodModalShell({
  * gets its own message too: dropping it into the brand-and-last4 sentence
  * would leave the dots dangling, and dropping it to the card-less copy would
  * throw away a brand we do know.
+ *
+ * A known expiry is a sibling sentence rather than a fragment spliced into the
+ * one above, so its separator, spacing and position are the locale's to choose
+ * and the raw month and year are all that cross the boundary.
  */
 function replaceSubtitle(
   t: TFunction<"settings">,
@@ -277,27 +281,40 @@ function replaceSubtitle(
     return t("autoTopUpPaymentMethodModal.replaceSubtitle");
   }
 
-  // The single space is composed here rather than sitting in the sentences, so
-  // a card with no expiry leaves no double space behind.
-  const expiryLabel = cardExpiryLabel(t, card?.expMonth, card?.expYear);
-  const expiry = expiryLabel ? ` ${expiryLabel}` : "";
+  const expiry = cardExpiryParts(card?.expMonth, card?.expYear);
 
   if (!last4) {
+    if (expiry) {
+      return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoLast4Expiry", {
+        brand,
+        ...expiry,
+      });
+    }
     return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoLast4", {
       brand,
-      expiry,
     });
   }
   if (!brand) {
+    if (expiry) {
+      return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoBrandExpiry", {
+        last4,
+        ...expiry,
+      });
+    }
     return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoBrand", {
       last4,
-      expiry,
+    });
+  }
+  if (expiry) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitleCardExpiry", {
+      brand,
+      last4,
+      ...expiry,
     });
   }
   return t("autoTopUpPaymentMethodModal.replaceSubtitleCard", {
     brand,
     last4,
-    expiry,
   });
 }
 

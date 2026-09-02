@@ -94,6 +94,30 @@ describe("PaymentMethodModalShell", () => {
     ).not.toBeNull();
   });
 
+  test("a card with no last4 and no expiry reads its own sentence", () => {
+    const { getByText } = renderShell({
+      mode: "replace",
+      cardOnFile: { brand: "visa", last4: null, expMonth: null, expYear: null },
+    });
+    expect(
+      getByText(
+        "Replacing your Visa card. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("a card with no brand and no expiry reads its own sentence", () => {
+    const { getByText } = renderShell({
+      mode: "replace",
+      cardOnFile: { brand: null, last4: "4242", expMonth: null, expYear: null },
+    });
+    expect(
+      getByText(
+        "Replacing the card ending in 4242. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+  });
+
   test("a null card on file falls back to the plain subtitle", () => {
     const { getByText } = renderShell({ mode: "replace", cardOnFile: null });
     expect(getByText("The new card takes over immediately.")).not.toBeNull();

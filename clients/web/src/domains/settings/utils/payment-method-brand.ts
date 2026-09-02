@@ -38,17 +38,34 @@ export function brandDisplayLabel(
   return brandLabel(brand) ?? t("paymentMethodRow.savedCard");
 }
 
+/**
+ * The two halves an expiry is written from, or null when either is missing.
+ *
+ * Handed to a message as-is so the catalog sentence owns the separator and the
+ * order, which differ by locale.
+ */
+export function cardExpiryParts(
+  expMonth: number | null | undefined,
+  expYear: number | null | undefined,
+): { month: string; year: string } | null {
+  if (expMonth == null || expYear == null) {
+    return null;
+  }
+  return {
+    month: String(expMonth).padStart(2, "0"),
+    year: String(expYear).slice(-2),
+  };
+}
+
 /** Carries its own leading separator, so callers render it as-is. */
 export function cardExpiryLabel(
   t: TFunction<"settings">,
   expMonth: number | null | undefined,
   expYear: number | null | undefined,
 ): string | null {
-  if (expMonth == null || expYear == null) {
+  const parts = cardExpiryParts(expMonth, expYear);
+  if (parts === null) {
     return null;
   }
-  return t("autoTopUpPaymentMethodModal.cardOnFileExpiry", {
-    month: String(expMonth).padStart(2, "0"),
-    year: String(expYear).slice(-2),
-  });
+  return t("autoTopUpPaymentMethodModal.cardOnFileExpiry", parts);
 }
