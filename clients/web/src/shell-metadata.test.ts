@@ -157,6 +157,8 @@ describe("SPA shell: boot splash", () => {
    */
   test("keeps the splash off the floating windows", () => {
     expect(SHELL_INIT).toContain('"/floating/"');
+    // The legacy overlay path a shell mid-update still opens (`routes.tsx`).
+    expect(SHELL_INIT).toContain("/dictation-overlay$/");
     expect(SHELL_INIT).toContain('"data-floating"');
     const styles = [...doc.querySelectorAll("style")]
       .map((style) => style.textContent ?? "")

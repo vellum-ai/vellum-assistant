@@ -127,9 +127,14 @@
     // the surface appears when it is ready, and the desktop shows through
     // until then. Stamped here, before first paint, for the reason the theme
     // is: a splash that painted and then vanished is the flash this exists to
-    // prevent.
+    // prevent. The legacy overlay path is kept for a shell mid-update
+    // (`routes.tsx`), and it floats the same way without the segment.
     (function () {
-      if (window.location.pathname.indexOf("/floating/") !== -1) {
+      var path = window.location.pathname;
+      if (
+        path.indexOf("/floating/") !== -1 ||
+        /\/dictation-overlay$/.test(path)
+      ) {
         document.documentElement.setAttribute("data-floating", "");
       }
     })();
