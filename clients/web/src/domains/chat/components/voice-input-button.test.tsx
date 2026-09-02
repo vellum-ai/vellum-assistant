@@ -137,7 +137,7 @@ class FakeMediaRecorder {
 (globalThis as Record<string, unknown>).MediaRecorder = FakeMediaRecorder;
 
 const fakeStream = {
-  getTracks: () => [{ stop: () => {} }],
+  getTracks: () => [{ stop: () => Promise.resolve(null) }],
 } as unknown as MediaStream;
 Object.defineProperty(navigator, "mediaDevices", {
   configurable: true,
@@ -498,7 +498,7 @@ describe("VoiceInputButton — native partials fallback", () => {
       streamOnPartial = args.onPartial;
       // A stream whose daemon is reachable (localhost) but whose provider
       // is not: the handle exists, never goes live, never errors.
-      return { isLive: () => false, stop: () => {} };
+      return { isLive: () => false, stop: () => Promise.resolve(null) };
     };
     nativePartialsImpl = async (onPartial) => {
       onPartial("offline transcript");
@@ -533,7 +533,7 @@ describe("VoiceInputButton — native partials fallback", () => {
     let streamOnPartial: ((text: string) => void) | undefined;
     dictationStreamImpl = (args) => {
       streamOnPartial = args.onPartial;
-      return { isLive: () => false, stop: () => {} };
+      return { isLive: () => false, stop: () => Promise.resolve(null) };
     };
     postSttTranscribeSpy.mockImplementationOnce(async () => ({
       status: "error",
@@ -574,7 +574,7 @@ describe("VoiceInputButton — forced native provider (macOS Native Dictation)",
     let streamStarted = false;
     dictationStreamImpl = () => {
       streamStarted = true;
-      return { isLive: () => true, stop: () => {} };
+      return { isLive: () => true, stop: () => Promise.resolve(null) };
     };
     transcribeBlobImpl = async () => "spoken natively";
 
