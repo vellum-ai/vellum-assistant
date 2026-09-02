@@ -24,7 +24,11 @@ import {
 } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
+import {
+  linkMessage,
+  recordInbound,
+  recordOutboundPost,
+} from "../persistence/delivery-crud.js";
 import { messages } from "../persistence/schema/index.js";
 import { _setDeleteLookupConfigForTests } from "../runtime/routes/inbound-message-handler.js";
 import {
@@ -613,6 +617,152 @@ describe("Slack delete propagation", () => {
     expect(slackMeta!.channelTs).toBe("1234.5678");
     expect(slackMeta!.eventKind).toBe("message");
     expect(slackMeta!.displayName).toBe("Test User");
+  });
+
+  test("deleting one post of a split Slack reply keeps the surviving posts live", async () => {
+    // A reply split at a tool boundary posts two Slack messages from one
+    // row; the envelope names the first as `channelTs` and the rest under
+    // `additionalChannelTs`. Deletion is tracked per post, so the row-level
+    // marker lands only once every post is gone.
+    const chatId = "C0123CHANNEL";
+    const primaryTs = "1725100000.000901";
+    const additionalTs = "1725100000.000902";
+    const minted = recordInbound("slack", chatId, "evt-split-seed");
+    getDb()
+      .insert(messages)
+      .values({
+        id: "assistant-slack-split-reply",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "part one and part two",
+        metadata: JSON.stringify({
+          assistantMessageChannel: "slack",
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: chatId,
+            channelTs: primaryTs,
+            additionalChannelTs: [additionalTs],
+            eventKind: "message",
+          }),
+        }),
+        createdAt: Date.now(),
+      })
+      .run();
+    const readRow = () =>
+      getDb()
+        .select()
+        .from(messages)
+        .where(eq(messages.id, "assistant-slack-split-reply"))
+        .get()!;
+    const deleteReq = (postTs: string) =>
+      new Request("http://localhost:8080/channels/inbound", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Gateway-Origin": TEST_BEARER_TOKEN,
+        },
+        body: JSON.stringify({
+          sourceChannel: "slack",
+          interface: "slack",
+          conversationExternalId: chatId,
+          externalMessageId: `evt-del-${postTs}`,
+          eventKind: "delete",
+          content: "",
+          actorExternalId: "slack-system",
+          sourceMetadata: { messageId: postTs, actorUnattributed: true },
+        }),
+      });
+
+    const first = await handleChannelInbound(
+      deleteReq(additionalTs),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(((await first.json()) as Record<string, unknown>).deleted).toBe(
+      true,
+    );
+    const afterFirst = readSlackMetadata(
+      (JSON.parse(readRow().metadata!) as Record<string, string>).slackMeta,
+    );
+    expect(afterFirst!.deletedChannelTs).toEqual([additionalTs]);
+    expect(afterFirst!.deletedAt).toBeUndefined();
+    // The neutral readers see the same fact under the neutral names.
+    const neutralAfterFirst = readProviderMetadata(readRow().metadata);
+    expect(neutralAfterFirst!.deletedMessageIds).toEqual([additionalTs]);
+    expect(neutralAfterFirst!.additionalMessageIds).toEqual([additionalTs]);
+
+    const second = await handleChannelInbound(
+      deleteReq(primaryTs),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(((await second.json()) as Record<string, unknown>).deleted).toBe(
+      true,
+    );
+    const afterSecond = readSlackMetadata(
+      (JSON.parse(readRow().metadata!) as Record<string, string>).slackMeta,
+    );
+    expect(new Set(afterSecond!.deletedChannelTs)).toEqual(
+      new Set([additionalTs, primaryTs]),
+    );
+    expect(afterSecond!.deletedAt).toBeDefined();
+    expect(readRow().content).toBe("part one and part two");
+  });
+
+  test("deleting a Slack post resolves through the outbound index", async () => {
+    // The row's envelope names nothing: resolution comes from the index the
+    // post-send reconciliation writes, which is exact at any age, so the
+    // capped envelope scan is never what a post delivered since the index
+    // exists depends on.
+    const chatId = "C0123CHANNEL";
+    const postTs = "1700000000.000100";
+    const minted = recordInbound("slack", chatId, "evt-indexed-seed");
+    getDb()
+      .insert(messages)
+      .values({
+        id: "assistant-slack-indexed-post",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "an indexed post",
+        metadata: JSON.stringify({ assistantMessageChannel: "slack" }),
+        createdAt: Date.now(),
+      })
+      .run();
+    recordOutboundPost({
+      sourceChannel: "slack",
+      externalChatId: chatId,
+      providerMessageId: postTs,
+      messageId: "assistant-slack-indexed-post",
+      conversationId: minted.conversationId,
+    });
+
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        interface: "slack",
+        conversationExternalId: chatId,
+        externalMessageId: "evt-del-indexed",
+        eventKind: "delete",
+        content: "",
+        actorExternalId: "slack-system",
+        sourceMetadata: { messageId: postTs, actorUnattributed: true },
+      }),
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+    expect(json.deleted).toBe(true);
+    expect(json.messageId).toBe("assistant-slack-indexed-post");
+    const row = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.id, "assistant-slack-indexed-post"))
+      .get();
+    expect(readProviderMetadata(row!.metadata)!.deletedAt).toBeDefined();
   });
 
   test("delete for unknown ts is a no-op", async () => {

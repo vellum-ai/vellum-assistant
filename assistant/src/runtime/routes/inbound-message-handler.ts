@@ -64,6 +64,7 @@ import {
   formatSlackTimezoneLabel,
   isSlackTs,
   mergeSlackMetadata,
+  readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
   type SlackMessageMetadata,
@@ -88,6 +89,7 @@ import {
   addMessage,
   getMessageById,
   getMessages,
+  type MessageRow,
   selectProviderMetaCandidateMetadata,
   updateMessageContent,
   updateMessageMetadata,
@@ -163,6 +165,28 @@ let deleteLookupDelayMs = 2000;
  * couple of backoff steps bridge an automated deletion that outruns it.
  */
 const deleteOutboundReconcileRetries = 2;
+
+/**
+ * Deletion is tracked per provider post. Only the assistant's own rows fan
+ * out to several posts (a reply split at tool boundaries or length limits),
+ * so only they are judged post by post: the row-level marker lands once
+ * every post the row names is gone. Every other row is a single post by
+ * construction, as is a row whose envelope names no post at all.
+ */
+function postDeletionState(
+  row: MessageRow | null,
+  rowPostIds: readonly string[],
+  priorDeletedIds: readonly string[] | undefined,
+  deletedId: string,
+): { deletedIds: string[]; fullyDeleted: boolean } {
+  const deletedIds = Array.from(
+    new Set([...(priorDeletedIds ?? []), deletedId]),
+  );
+  const fullyDeleted =
+    row?.role !== "assistant" ||
+    rowPostIds.every((id) => deletedIds.includes(id));
+  return { deletedIds, fullyDeleted };
+}
 
 interface SlackActorTimezoneMetadata {
   timezone?: string;
@@ -671,14 +695,12 @@ export async function handleChannelInbound({
       });
       let providerMeta: string;
       if (base?.messageId) {
-        const rowPostIds = [
-          base.messageId,
-          ...(base.additionalMessageIds ?? []),
-        ];
-        const deletedIds = Array.from(
-          new Set([...(base.deletedMessageIds ?? []), deletedMessageTs]),
+        const { deletedIds, fullyDeleted } = postDeletionState(
+          row,
+          [base.messageId, ...(base.additionalMessageIds ?? [])],
+          base.deletedMessageIds,
+          deletedMessageTs,
         );
-        const fullyDeleted = rowPostIds.every((id) => deletedIds.includes(id));
         providerMeta = JSON.stringify({
           ...base,
           deletedMessageIds: deletedIds,
@@ -713,8 +735,21 @@ export async function handleChannelInbound({
       return { accepted: true, deleted: true, messageId: original.messageId };
     }
 
+    // The Slack envelope tracks the same per-post facts under its own names
+    // (`additionalChannelTs`, `deletedChannelTs`); `readProviderMetadata`
+    // serves them to every channel-agnostic reader as the neutral ones.
+    const slackMeta = readSlackMetadata(existingSlackMeta);
+    const { deletedIds, fullyDeleted } = postDeletionState(
+      row,
+      slackMeta
+        ? [slackMeta.channelTs, ...(slackMeta.additionalChannelTs ?? [])]
+        : [],
+      slackMeta?.deletedChannelTs,
+      deletedMessageTs,
+    );
     const updatedSlackMeta = mergeSlackMetadata(existingSlackMeta, {
-      deletedAt: Date.now(),
+      deletedChannelTs: deletedIds,
+      ...(fullyDeleted ? { deletedAt: Date.now() } : {}),
     });
 
     // updateMessageMetadata performs a shallow merge over the parent

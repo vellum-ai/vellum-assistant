@@ -226,11 +226,13 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   its row exactly; the envelope stays the row's self-description, and the
   capped envelope scan in `findMessageByProviderMessageId` survives only as
   the transitional fallback for rows reconciled before the table. Slack
-  keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
-  onto this shape on read, so the channel-agnostic readers in
+  keeps writing `slackMeta`, with the same facts under its own names
+  (`channelTs` plus `additionalChannelTs` for the posts, `deletedChannelTs`
+  for the deleted ones), and `readProviderMetadata` maps that envelope onto
+  this shape on read, so the channel-agnostic readers in
   `persistence/delivery-crud.ts` (thread evidence, and finding the
-  conversation that holds a given provider message id) serve both without a
-  per-channel branch.
+  conversation that holds a given provider message id) and the delete stage
+  serve both without a per-channel branch.
 
 ### Channel verification: gateway-owned
 

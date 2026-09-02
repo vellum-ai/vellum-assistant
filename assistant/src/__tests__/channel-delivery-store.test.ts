@@ -12,6 +12,7 @@ import {
   clearPayload,
   findMessageByProviderMessageId,
   findMessageBySourceId,
+  hasUnreconciledOutboundRow,
   linkMessage,
   recordInbound,
   recordOutboundPost,
@@ -289,6 +290,46 @@ describe("channel-delivery-store", () => {
         "555666777888999000",
       ),
     ).toBeNull();
+  });
+
+  test("a Slack reply awaiting its channelTs counts as an unreconciled outbound row", () => {
+    const chatId = "C0RACE";
+    const minted = recordInbound("slack", chatId, "evt-race-seed");
+    const db = getDb();
+    const slackMeta = (channelTs?: string) =>
+      JSON.stringify({
+        source: "slack",
+        eventKind: "message",
+        channelId: chatId,
+        ...(channelTs ? { channelTs } : {}),
+      });
+    expect(hasUnreconciledOutboundRow("slack", chatId)).toBe(false);
+
+    // The reserve-time envelope: no channelTs yet, the state the post-send
+    // reconciliation is about to resolve.
+    db.insert(messages)
+      .values({
+        id: "assistant-slack-pending",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "reply in flight",
+        createdAt: Date.now(),
+        metadata: JSON.stringify({ slackMeta: slackMeta() }),
+      })
+      .run();
+    expect(hasUnreconciledOutboundRow("slack", chatId)).toBe(true);
+    // Another chat's pending reply is not this chat's evidence.
+    expect(hasUnreconciledOutboundRow("slack", "C0OTHER")).toBe(false);
+
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          slackMeta: slackMeta("1725100000.000100"),
+        }),
+      })
+      .where(eq(messages.id, "assistant-slack-pending"))
+      .run();
+    expect(hasUnreconciledOutboundRow("slack", chatId)).toBe(false);
   });
 
   test("same chat on same channel reuses the same conversation", () => {

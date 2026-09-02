@@ -41,6 +41,8 @@ let metadataWriteFailuresRemaining = 0;
 
 /** Per-test override for the synthetic Slack `ts` returned by deliverChannelReply. */
 let nextDeliveryTs: string | null = null;
+/** Per-segment ts values, consumed in order before `nextDeliveryTs`. */
+const deliveryTsQueue: string[] = [];
 
 type RenderedHistoryStub = {
   text: string;
@@ -90,12 +92,12 @@ mock.module("../runtime/gateway-client.js", () => ({
       throw new Error("Simulated delivery failure (502)");
     }
     deliveryCalls.push({ callbackUrl, payload });
+    const queued = deliveryTsQueue.shift();
+    if (queued !== undefined) {
+      return { ok: true, ts: queued };
+    }
     if (nextDeliveryTs !== null) {
-      const ts = nextDeliveryTs;
-      // Only the first segment of a multi-segment delivery should carry
-      // back a meaningful ts for `channelTs` reconciliation. Tests that
-      // need specific ts values per-segment can re-set this between calls.
-      return { ok: true, ts };
+      return { ok: true, ts: nextDeliveryTs };
     }
     return { ok: true };
   },
@@ -209,6 +211,8 @@ describe("channel-reply-delivery", () => {
     updateMessageMetadataCalls.length = 0;
     metadataWriteFailuresRemaining = 0;
     nextDeliveryTs = null;
+    deliveryTsQueue.length = 0;
+    recordedOutboundPosts.length = 0;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContent = {
       text: "",
@@ -1199,9 +1203,9 @@ describe("channel-reply-delivery", () => {
       expect(updateMessageMetadataCalls.length).toBe(0);
     });
 
-    it("does NOT call updateMessageMetadata when slackMeta already has channelTs", async () => {
-      // Idempotency: a re-delivery (e.g. from channel-retry-sweep) must not
-      // overwrite a channelTs that is already in place.
+    it("does NOT call updateMessageMetadata when slackMeta already names the ts", async () => {
+      // Idempotency: a redelivery of the same Slack message must not write
+      // the row or the index again.
       const existingMeta = JSON.stringify({
         source: "slack",
         eventKind: "message",
@@ -1227,7 +1231,7 @@ describe("channel-reply-delivery", () => {
         surfaces: [],
         thinkingSegments: [],
       };
-      nextDeliveryTs = "1700000400.000999";
+      nextDeliveryTs = "1699999999.000111";
 
       await deliverReplyViaCallback(
         "conv-already",
@@ -1237,6 +1241,7 @@ describe("channel-reply-delivery", () => {
       );
 
       expect(updateMessageMetadataCalls.length).toBe(0);
+      expect(recordedOutboundPosts.length).toBe(0);
     });
 
     it("only reconciles from the FIRST segment's ts when the reply is split", async () => {
@@ -1253,7 +1258,7 @@ describe("channel-reply-delivery", () => {
         surfaces: [],
         thinkingSegments: [],
       };
-      nextDeliveryTs = "1700000500.000111";
+      deliveryTsQueue.push("1700000500.000111", "1700000500.000222");
 
       await deliverReplyViaCallback(
         "conv-multi",
@@ -1262,12 +1267,24 @@ describe("channel-reply-delivery", () => {
         "assistant-multi",
       );
 
-      // Two delivery POSTs but only one metadata write — the first ts wins.
+      // Two delivery POSTs, two posts recorded: the first as the row's own
+      // `channelTs`, the second under `additionalChannelTs`, and both in the
+      // outbound index so a reaction or delete naming either resolves.
       expect(deliveryCalls.length).toBe(2);
-      expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
+      expect(updateMessageMetadataCalls.length).toBe(2);
+      const merged = updateMessageMetadataCalls[1].updates.slackMeta as string;
       const parsed = JSON.parse(merged) as Record<string, unknown>;
       expect(parsed.channelTs).toBe("1700000500.000111");
+      expect(parsed.additionalChannelTs).toEqual(["1700000500.000222"]);
+      expect(parsed.channelId).toBe("C999");
+      expect(
+        recordedOutboundPosts.map((post) => post.providerMessageId),
+      ).toEqual(["1700000500.000111", "1700000500.000222"]);
+      expect(recordedOutboundPosts[0]).toMatchObject({
+        sourceChannel: "slack",
+        externalChatId: "C999",
+        messageId: "msg-multi",
+      });
     });
 
     it("composes with caller-supplied onMessageTs without losing either side-effect", async () => {

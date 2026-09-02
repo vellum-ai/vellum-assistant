@@ -3,10 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
+  isSlackEnvelopeAwaitingChannelTs,
   mergeSlackMetadata,
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
+  slackMetadataAsProviderMetadata,
   writeSlackMetadata,
 } from "./message-metadata.js";
 
@@ -392,5 +394,82 @@ describe("mergeSlackMetadata", () => {
     const parsed = readSlackMetadata(merged);
     expect(parsed?.reaction).toEqual(reactionMeta.reaction);
     expect(parsed?.displayName).toBe("Bob");
+  });
+});
+
+describe("slackMetadataAsProviderMetadata", () => {
+  test("serves a split reply's posts and deletions under the neutral names", () => {
+    const neutral = slackMetadataAsProviderMetadata({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      additionalChannelTs: ["1700000000.000200", "1700000000.000300"],
+      deletedChannelTs: ["1700000000.000200"],
+      eventKind: "message",
+    });
+    expect(neutral.messageId).toBe("1700000000.000100");
+    expect(neutral.additionalMessageIds).toEqual([
+      "1700000000.000200",
+      "1700000000.000300",
+    ]);
+    expect(neutral.deletedMessageIds).toEqual(["1700000000.000200"]);
+  });
+
+  test("a single-post row names no additional or deleted posts", () => {
+    const neutral = slackMetadataAsProviderMetadata({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+    });
+    expect(neutral.additionalMessageIds).toBeUndefined();
+    expect(neutral.deletedMessageIds).toBeUndefined();
+  });
+});
+
+describe("isSlackEnvelopeAwaitingChannelTs", () => {
+  const partial = JSON.stringify({
+    assistantMessageChannel: "slack",
+    slackMeta: JSON.stringify({
+      source: "slack",
+      eventKind: "message",
+      channelId: "C123",
+      threadTs: "1700000000.000001",
+    }),
+  });
+
+  test("recognizes the reserve-time envelope for its own chat", () => {
+    expect(isSlackEnvelopeAwaitingChannelTs(partial, "C123")).toBe(true);
+    expect(isSlackEnvelopeAwaitingChannelTs(partial, "C999")).toBe(false);
+  });
+
+  test("a reconciled, reaction, or non-Slack envelope is not waiting", () => {
+    const reconciled = JSON.stringify({
+      slackMeta: JSON.stringify({
+        source: "slack",
+        eventKind: "message",
+        channelId: "C123",
+        channelTs: "1700000000.000100",
+      }),
+    });
+    expect(isSlackEnvelopeAwaitingChannelTs(reconciled, "C123")).toBe(false);
+    const reaction = JSON.stringify({
+      slackMeta: JSON.stringify({
+        source: "slack",
+        eventKind: "reaction",
+        channelId: "C123",
+      }),
+    });
+    expect(isSlackEnvelopeAwaitingChannelTs(reaction, "C123")).toBe(false);
+    const neutral = JSON.stringify({
+      providerMeta: JSON.stringify({
+        source: "discord",
+        conversationExternalId: "C123",
+        eventKind: "message",
+      }),
+    });
+    expect(isSlackEnvelopeAwaitingChannelTs(neutral, "C123")).toBe(false);
+    expect(isSlackEnvelopeAwaitingChannelTs(null, "C123")).toBe(false);
+    expect(isSlackEnvelopeAwaitingChannelTs("not json", "C123")).toBe(false);
   });
 });

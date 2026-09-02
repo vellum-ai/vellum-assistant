@@ -20,6 +20,7 @@ import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
+import { isSlackEnvelopeAwaitingChannelTs } from "../messaging/providers/slack/message-metadata.js";
 import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
@@ -478,7 +479,8 @@ export function recordOutboundPost(post: {
 
 /**
  * Whether the chat has a recent outbound row still awaiting its post-send id
- * reconciliation (a neutral envelope naming no `messageId`). The deletion
+ * reconciliation (a neutral envelope naming no `messageId`, or a Slack
+ * envelope naming no `channelTs`). The deletion
  * path's evidence that "unresolvable" may mean "not reconciled yet" rather
  * than "never stored": with no such row, a miss is final and the delete
  * returns without paying a retry window. Bounded to the newest handful of
@@ -503,9 +505,12 @@ export function hasUnreconciledOutboundRow(
           eq(conversationKeys.conversationKey, keyPrefix),
           like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
         ),
-        like(messages.metadata, '%"providerMeta"%'),
-        // Inbound rows carry `providerMeta` too, and a busy chat's newest
-        // rows are mostly inbound; excluding rows the inbound-event index
+        or(
+          like(messages.metadata, '%"providerMeta"%'),
+          like(messages.metadata, '%"slackMeta"%'),
+        ),
+        // Inbound rows carry an envelope too, and a busy chat's newest rows
+        // are mostly inbound; excluding rows the inbound-event index
         // resolves keeps this probe's small window counting only rows that
         // could actually be an unreconciled outbound post.
         notExists(
@@ -525,6 +530,9 @@ export function hasUnreconciledOutboundRow(
     .limit(UNRECONCILED_OUTBOUND_ROW_SCAN)
     .all();
   for (const row of rows) {
+    if (isSlackEnvelopeAwaitingChannelTs(row.metadata, externalChatId)) {
+      return true;
+    }
     const meta = readProviderMetadata(row.metadata);
     if (
       meta?.conversationExternalId === externalChatId &&

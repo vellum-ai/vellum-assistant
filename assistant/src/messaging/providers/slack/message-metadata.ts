@@ -68,6 +68,18 @@ export const slackMessageMetadataSchema = z.object({
   reaction: slackReactionMetadataSchema.optional(),
   editedAt: z.number().optional(),
   deletedAt: z.number().optional(),
+  /**
+   * The further posts the same row produced: a reply split at tool
+   * boundaries or length limits posts several Slack messages, and `channelTs`
+   * names only the first. Slack's counterpart of `additionalMessageIds` on
+   * the neutral envelope.
+   */
+  additionalChannelTs: z.array(z.string()).optional(),
+  /**
+   * The row's posts deleted on Slack so far. `deletedAt` lands once every
+   * post the row names is here. Slack's counterpart of `deletedMessageIds`.
+   */
+  deletedChannelTs: z.array(z.string()).optional(),
   slackFiles: z.array(slackFileMetadataSchema).optional(),
 });
 
@@ -309,7 +321,17 @@ export function slackMetadataAsProviderMetadata(
     conversationExternalId: meta.channelId,
     // A reaction row stores the reacted message's ts in `channelTs`, which is
     // its target rather than an id of its own.
-    ...(meta.eventKind === "reaction" ? {} : { messageId: meta.channelTs }),
+    ...(meta.eventKind === "reaction"
+      ? {}
+      : {
+          messageId: meta.channelTs,
+          ...(meta.additionalChannelTs
+            ? { additionalMessageIds: meta.additionalChannelTs }
+            : {}),
+          ...(meta.deletedChannelTs
+            ? { deletedMessageIds: meta.deletedChannelTs }
+            : {}),
+        }),
     ...(meta.actorExternalUserId
       ? { actorExternalId: meta.actorExternalUserId }
       : {}),
@@ -331,6 +353,32 @@ export function slackMetadataAsProviderMetadata(
     ...(meta.editedAt !== undefined ? { editedAt: meta.editedAt } : {}),
     ...(meta.deletedAt !== undefined ? { deletedAt: meta.deletedAt } : {}),
   };
+}
+
+/**
+ * Whether a row's stored metadata is a Slack message envelope still waiting
+ * for its post-send `channelTs`: the shape `buildAssistantChannelMetadata`
+ * writes at reserve time, which the strict reader rejects for the very field
+ * the reconciliation is about to supply. Read leniently for that reason.
+ */
+export function isSlackEnvelopeAwaitingChannelTs(
+  metadata: string | null | undefined,
+  channelId: string,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+  const nested = parseRawObject(metadata).slackMeta;
+  if (typeof nested !== "string") {
+    return false;
+  }
+  const partial = parseRawObject(nested);
+  return (
+    partial.source === "slack" &&
+    partial.eventKind === "message" &&
+    partial.channelId === channelId &&
+    partial.channelTs === undefined
+  );
 }
 
 /**

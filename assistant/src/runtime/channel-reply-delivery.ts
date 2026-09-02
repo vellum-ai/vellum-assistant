@@ -6,7 +6,11 @@ import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { readProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { editChannelMessage } from "../messaging/providers/index.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  mergeSlackMetadata,
+  readSlackMetadata,
+  type SlackMessageMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getMessageById,
@@ -14,6 +18,7 @@ import {
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { recordOutboundPost } from "../persistence/delivery-crud.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
@@ -500,49 +505,35 @@ export async function deliverReplyViaCallback(
 /**
  * Build an `onMessageTs` handler that reconciles the persisted assistant
  * row's provider message ids from the transport's authoritative ones:
- * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` plus
- * `additionalMessageIds` for a row carrying the neutral envelope (Discord
- * today, any transport whose delivery result reports the sent id). The
- * back-filled ids are what let a later reaction or delete naming the
- * assistant's own post resolve back to this row.
+ * `slackMeta.channelTs` plus `additionalChannelTs` for a Slack row,
+ * `providerMeta.messageId` plus `additionalMessageIds` for a row carrying
+ * the neutral envelope (Discord today, any transport whose delivery result
+ * reports the sent id). Both arms record every id: the first as the row's
+ * own, the rest as further posts of the same reply (a reply split at tool
+ * boundaries or length limits posts several messages), and every id into
+ * the `channel_outbound_posts` index. The back-filled ids are what let a
+ * later reaction or delete naming any of the assistant's posts resolve back
+ * to this row.
  *
- * Behavior:
- * - A Slack row keeps the first ts that reaches a durable write. `channelTs`
- *   is the one id its envelope names, so once it is present the strict-reader
- *   check below makes every later invocation a no-op and the split reply's
- *   later segments, which are independent Slack messages, cannot overwrite it.
- * - A neutral-envelope row records every reported id: the first as
- *   `messageId`, the rest under `additionalMessageIds`, all naming this
- *   same row. An id already recorded (a redelivery) is skipped.
- * - No-op when the row was persisted with neither envelope (e.g. vellum
- *   outbound).
- * - Every write retries transient SQLite contention (`withSqliteRetry`),
- *   because this is the only durable record of the sent message's id and
- *   nothing revisits it once the event is marked delivered. Remaining
- *   failures are logged and swallowed so a DB error cannot break the
- *   outbound delivery itself.
+ * An id the row already names is a redelivery and is skipped. A row
+ * persisted with neither envelope (e.g. vellum outbound) is left untouched.
+ * Every write retries transient SQLite contention (`withSqliteRetry`),
+ * because this is the only durable record of the sent message's id and
+ * nothing revisits it once the event is marked delivered. Remaining failures
+ * are logged and swallowed so a DB error cannot break the outbound delivery
+ * itself.
  */
 function makeSentMessageIdReconciler(
   messageId: string,
 ): (ts: string) => Promise<void> {
-  // Rises only once a Slack stamp has committed, so a write that fails
-  // leaves the next segment's ts free to stamp the row.
-  let slackStamped = false;
   return async (ts: string): Promise<void> => {
-    // Only ever set on the Slack branch, so a neutral-envelope row (which
-    // records every reported id) is never gated here. Checked before the row
-    // is re-read so a split Slack reply pays one read, not one per segment.
-    if (!ts || slackStamped) {
+    if (!ts) {
       return;
     }
     try {
       // Re-read the row's current metadata so a concurrent edit-propagation
-      // write (e.g. `editedAt`) is not clobbered. `updateMessageMetadata`
-      // shallow-merges into the top-level envelope, and the per-channel
-      // sub-object is merged manually below so we can preserve fields on
-      // the partial pre-send envelope (`mergeSlackMetadata` would call
-      // `readSlackMetadata` which rejects the partial form for lacking
-      // channelTs, exactly the state we are reconciling).
+      // write (e.g. `editedAt`) is not clobbered, and so each segment of a
+      // split reply sees the ids the previous segment stamped.
       const row = getMessageById(messageId);
       if (row === null || row.metadata === null) {
         return;
@@ -564,49 +555,70 @@ function makeSentMessageIdReconciler(
         );
         return;
       }
-      // If the existing slackMeta already parses cleanly via the strict
-      // reader, channelTs is already present (a prior reconciliation ran,
-      // or backfill stamped the field) — nothing to do.
-      if (readSlackMetadata(slackMetaRaw) !== null) {
-        return;
-      }
-      // Lenient parse of the partial slackMeta so we can preserve every
-      // field already written by `handleMessageComplete` (source,
-      // eventKind, channelId, threadTs, ...) while patching channelTs in.
-      let existingSlackMeta: Record<string, unknown>;
-      try {
-        const parsed = JSON.parse(slackMetaRaw) as unknown;
-        if (
-          parsed === null ||
-          typeof parsed !== "object" ||
-          Array.isArray(parsed)
-        ) {
-          return;
-        }
-        existingSlackMeta = parsed as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      const mergedSlackMeta = JSON.stringify({
-        ...existingSlackMeta,
-        channelTs: ts,
-        // Force `source: "slack"` for parity with `mergeSlackMetadata`'s
-        // invariant — the reader rejects anything else and we never want a
-        // reconciled row to slip through with a stale source.
-        source: "slack",
-      });
-      await withSqliteRetry(
-        () => updateMessageMetadata(messageId, { slackMeta: mergedSlackMeta }),
-        { op: "reconcile_slack_channel_ts", context: { messageId } },
+      await reconcileSlackChannelTs(
+        messageId,
+        row.conversationId,
+        slackMetaRaw,
+        ts,
       );
-      slackStamped = true;
     } catch (err) {
       log.warn(
         { err, messageId },
-        "Failed to reconcile slackMeta.channelTs on outbound assistant row",
+        "Failed to reconcile the sent message id on the outbound assistant row",
       );
     }
   };
+}
+
+/**
+ * The Slack arm of the reconciliation. The pre-send envelope lacks
+ * `channelTs`, which is exactly the state being reconciled and the one the
+ * strict reader rejects, so the chat id is read leniently and the patch is
+ * merged over the raw envelope (`mergeSlackMetadata`) so every field written
+ * at reserve time (`threadTs`, timezone labels) survives.
+ */
+async function reconcileSlackChannelTs(
+  messageId: string,
+  conversationId: string,
+  slackMetaRaw: string,
+  ts: string,
+): Promise<void> {
+  const channelId = safeParseRecord(slackMetaRaw).channelId;
+  if (typeof channelId !== "string" || !channelId) {
+    return;
+  }
+  const reconciled = readSlackMetadata(slackMetaRaw);
+  if (
+    reconciled !== null &&
+    (reconciled.channelTs === ts ||
+      reconciled.additionalChannelTs?.includes(ts))
+  ) {
+    return;
+  }
+  await withSqliteRetry(
+    () =>
+      recordOutboundPost({
+        sourceChannel: "slack",
+        externalChatId: channelId,
+        providerMessageId: ts,
+        messageId,
+        conversationId,
+      }),
+    { op: "record_outbound_post", context: { messageId } },
+  );
+  const patch: Partial<SlackMessageMetadata> =
+    reconciled === null
+      ? { channelTs: ts }
+      : {
+          additionalChannelTs: [...(reconciled.additionalChannelTs ?? []), ts],
+        };
+  await withSqliteRetry(
+    () =>
+      updateMessageMetadata(messageId, {
+        slackMeta: mergeSlackMetadata(slackMetaRaw, patch),
+      }),
+    { op: "reconcile_slack_channel_ts", context: { messageId } },
+  );
 }
 
 /**
