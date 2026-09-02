@@ -1624,11 +1624,13 @@ function DictatingBody({
       {words ? (
         /* The end of the sentence, not the start of it.
  
-           A line that filled from the left would freeze on the opening words
+           A line that filled from the start would freeze on the opening words
            and leave the speaker watching the part they are least unsure of. So
-           the box is laid out right to left, which puts the overflow at the
-           beginning, and the run inside is isolated so the words themselves
-           keep their own order and their punctuation stays where it was said.
+           the words sit at the end of their box, and a run longer than the
+           box overflows at the start, where the clipping is. The end is the
+           words' own: the box takes its direction from them, so a transcript
+           in a right-to-left language ends on the left and is clipped on the
+           right, and its last words stay in view the same way.
  
            A stated width rather than a measured one: every other state on
            this surface is as wide as its content, and a sentence has no width
@@ -1639,11 +1641,12 @@ function DictatingBody({
            its words would be re-measured on every partial, and the pill's
            width transition would run for as long as the speaker talked. */
         <span
-          className="overflow-hidden text-left text-[12px] whitespace-nowrap text-white/85"
-          style={{ width: TRANSCRIPT_WIDTH, direction: "rtl" }}
+          dir="auto"
+          className="flex justify-end overflow-hidden text-[12px] whitespace-nowrap text-white/85"
+          style={{ width: TRANSCRIPT_WIDTH }}
           aria-live="polite"
         >
-          <bdi>{words}</bdi>
+          <span className="shrink-0">{words}</span>
         </span>
       ) : (
         <span

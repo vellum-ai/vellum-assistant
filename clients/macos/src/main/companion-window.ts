@@ -1072,15 +1072,26 @@ export const installCompanionWindow = (): void => {
    * leaves the renderer alive and its session running, and must not clear
    * anything.
    *
-   * Only the watch flag. The name and the tail are a record of what was said
-   * and this surface is still where it is read, the same bargain `working` is
-   * given by `clearCompanionWorking`.
+   * The watch flag and the dictation, which are the two things in the context
+   * that claim a microphone or a socket is open in that window. The name and
+   * the tail are a record of what was said and this surface is still where it
+   * is read, the same bargain `working` is given by `clearCompanionWorking`.
    */
   onMainWindowVisibilityChange(() => {
-    if (currentMainWindow() !== null || context.watching !== true) {
+    if (currentMainWindow() !== null) {
       return;
     }
-    context = { ...context, watching: false };
+    const claiming =
+      context.watching === true || context.dictating !== undefined;
+    if (!claiming) {
+      return;
+    }
+    context = {
+      ...context,
+      watching: false,
+      dictating: undefined,
+      dictationText: undefined,
+    };
     pushState();
   });
 

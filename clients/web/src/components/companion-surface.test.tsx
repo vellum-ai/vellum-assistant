@@ -1785,6 +1785,10 @@ describe("the avatar's resting collapse", () => {
     expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
   });
 
+  /** The box the words are drawn in, which is the one with a live region. */
+  const transcriptBox = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>("[aria-live][dir]");
+
   /**
    * The words are the point of the state. A speaker dictating into another
    * application cannot see what landed there yet, and this is the only surface
@@ -1820,10 +1824,12 @@ describe("the avatar's resting collapse", () => {
   });
 
   /**
-   * A line that filled from the left would freeze on the opening words and
-   * leave the speaker watching the part they are least unsure of. Laid out
-   * right to left so the overflow is at the beginning, with the run isolated
-   * so the words keep their own order.
+   * A line that filled from the start would freeze on the opening words and
+   * leave the speaker watching the part they are least unsure of. The words
+   * sit at the end of their box, so a run longer than the box overflows at
+   * the start, where the clipping is. The end is the words' own: the box
+   * takes its direction from them rather than forcing one, so a right-to-left
+   * transcript keeps its last words in view the same way.
    */
   test("clips the words from the front, not the end", () => {
     const { container } = render(
@@ -1834,11 +1840,12 @@ describe("the avatar's resting collapse", () => {
       />,
     );
 
-    const words = container.querySelector<HTMLElement>("bdi");
-    expect(words).not.toBeNull();
-    const box = words?.parentElement;
-    expect(box?.style.direction).toBe("rtl");
+    const box = transcriptBox(container);
+    expect(box).not.toBeNull();
+    expect(box?.className).toContain("justify-end");
     expect(box?.className).toContain("overflow-hidden");
+    expect(box?.getAttribute("dir")).toBe("auto");
+    expect(box?.style.direction).toBe("");
   });
 
   /**
@@ -1859,7 +1866,7 @@ describe("the avatar's resting collapse", () => {
         />,
       );
       const box =
-        container.querySelector<HTMLElement>("bdi")?.parentElement ??
+        transcriptBox(container) ??
         container.querySelector<HTMLElement>(".truncate");
       return box?.style.width;
     };
