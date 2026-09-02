@@ -104,6 +104,28 @@ const PluginMcpServerSchema = z.discriminatedUnion("type", [
   PluginHttpServerSchema,
 ]);
 
+/**
+ * Host default when an entry omits `type`, or uses the Claude-style
+ * `http` alias.
+ *
+ * Agent Plugins 1.0.0 requires `type` and names no default. MCP's current
+ * remote transport is Streamable HTTP, so this host fills omitted `type`
+ * (and `http`) as `streamable-http`. `sse` and `stdio` stay explicit.
+ */
+const PLUGIN_MCP_DEFAULT_TYPE = "streamable-http" as const;
+
+function normalizePluginMcpServer(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+  const record = raw as Record<string, unknown>;
+  const type = record.type;
+  if (type === undefined || type === "http") {
+    return { ...record, type: PLUGIN_MCP_DEFAULT_TYPE };
+  }
+  return raw;
+}
+
 const PluginMcpManifestSchema = z.object({
   mcpServers: z.record(z.string(), z.unknown()),
 });
@@ -243,7 +265,9 @@ export function readPluginMcpServers(
         continue;
       }
 
-      const entry = PluginMcpServerSchema.safeParse(raw);
+      const entry = PluginMcpServerSchema.safeParse(
+        normalizePluginMcpServer(raw),
+      );
       if (!entry.success) {
         issues.push({
           pluginName: plugin.name,

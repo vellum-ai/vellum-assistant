@@ -201,17 +201,8 @@ const unusedGitRunner: GitRunner = async (args) => {
   throw new Error(`git should not run for this install: ${args.join(" ")}`);
 };
 
-/**
- * Read a real, committed adapter stub from the repo so the integration
- * test exercises the adapter that ships rather than a fixture copy that
- * could drift from it. Returns every stub file keyed by its Contents-API
- * path (`plugins/<name>/<rel>`) so the fetch fake serves the whole stub
- * to the real postinstall runner. Resolves the stub relative to this
- * test file. Test files (`*.test.ts`) are skipped so they are not
- * overlaid onto the staged plugin.
- */
-function readRealAdapterStub(name: string): Record<string, string> {
-  const repoRel = `plugins/${name}`;
+function readRealCavemanStub(): Record<string, string> {
+  const repoRel = "plugins/caveman";
   const stubDir = join(import.meta.dir, "../../../../../", repoRel);
   const tree: Record<string, string> = {};
   const walk = (relDir: string): void => {
@@ -222,18 +213,11 @@ function readRealAdapterStub(name: string): Record<string, string> {
         walk(rel);
         continue;
       }
-      if (entry.name.endsWith(".test.ts")) {
-        continue;
-      }
       tree[`${repoRel}/${rel}`] = readFileSync(join(stubDir, rel), "utf-8");
     }
   };
   walk("");
   return tree;
-}
-
-function readRealCavemanStub(): Record<string, string> {
-  return readRealAdapterStub("caveman");
 }
 
 const CAVEMAN_SHA = "63a91ecadbf4c4719a4602a5abb00883f9966034";
@@ -960,62 +944,6 @@ describe("installPlugin — marketplace resolution", () => {
     expect(pkg.name).toBe("caveman");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
     expect(pkg.scripts?.postinstall).toBeUndefined();
-  });
-
-  test("adapts OpenSEO mcp.json to a Vellum streamable-http server", async () => {
-    const fetch = makeContentsFetch({
-      tree: readRealAdapterStub("openseo"),
-      manifest: {
-        name: "vellum-assistant",
-        plugins: [
-          {
-            name: "openseo",
-            source: {
-              source: "github",
-              repo: "every-app/open-seo",
-              path: "plugins/openseo",
-              ref: "c469a48ae90ab58413b198fe3d1ac1aa90a9b070",
-            },
-          },
-        ],
-      },
-    });
-    const runGit = fakeGitRunner({
-      tree: {
-        "plugins/openseo/mcp.json": JSON.stringify({
-          mcpServers: {
-            openseo: { url: "https://app.openseo.so/mcp" },
-          },
-        }),
-        "plugins/openseo/skills/keyword-research/SKILL.md":
-          "---\nname: keyword-research\ndescription: Discover keyword opportunities.\n---\n\nUse OpenSEO MCP data.",
-      },
-      commit: "c469a48ae90ab58413b198fe3d1ac1aa90a9b070",
-    });
-
-    await installPlugin(
-      { name: "openseo", ref: "main" },
-      { fetch, runGit, workspacePluginsDir: pluginsDir },
-    );
-
-    const target = join(pluginsDir, "openseo");
-    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf-8"));
-    expect(pkg.name).toBe("openseo");
-    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
-    expect(pkg.scripts?.postinstall).toBeUndefined();
-
-    const mcp = JSON.parse(readFileSync(join(target, "mcp.json"), "utf-8"));
-    expect(mcp).toEqual({
-      mcpServers: {
-        openseo: {
-          url: "https://app.openseo.so/mcp",
-          type: "streamable-http",
-        },
-      },
-    });
-    expect(
-      existsSync(join(target, "skills", "keyword-research", "SKILL.md")),
-    ).toBe(true);
   });
 
   test("strips a clone-supplied bunfig.toml so its preload can't run before the adapter", async () => {
