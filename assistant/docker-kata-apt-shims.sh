@@ -25,14 +25,21 @@ mkdir -p "${SHIM_DIR}"
 
 # Scanning the bin dirs forks a few processes per file; skip it when the
 # overlay state is unchanged (read-only invocations like `apt list` or
-# `dpkg -l`). The stamp digests the dpkg database plus the usr/local bin
-# listings: pip installs there can outrank existing shims without touching
-# the dpkg database, and must invalidate them too.
+# `dpkg -l`). The stamp covers command names, links, and small executable
+# contents so same-version reinstalls and pip installs invalidate stale shims.
 STAMP_FILE="${SHIM_DIR}/.overlay-stamp"
 STAMP="$(
   {
     md5sum "${DATA_ROOT}/var/lib/dpkg/status" 2>/dev/null
-    ls "${DATA_ROOT}/usr/local/bin" "${DATA_ROOT}/usr/local/sbin" 2>/dev/null
+    for d in ${PRIORITY_DIRS}; do
+      printf '%s\0' "${d}"
+      find "${DATA_ROOT}/${d}" -mindepth 1 -maxdepth 1 -printf '%P %y %l\0' 2>/dev/null | sort -z
+    done
+    for d in ${SCAN_DIRS}; do
+      find -L "${DATA_ROOT}/${d}" -mindepth 1 -maxdepth 1 -type f -size -513c -perm /111 -print0 2>/dev/null |
+        sort -z |
+        xargs -0 -r md5sum -z
+    done
   } | md5sum | cut -d' ' -f1
 )"
 if [ "${STAMP}" = "$(cat "${STAMP_FILE}" 2>/dev/null || true)" ]; then
