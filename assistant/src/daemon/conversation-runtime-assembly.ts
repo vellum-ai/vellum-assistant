@@ -1002,9 +1002,11 @@ function injectTransportHints(message: Message, hints: string[]): Message {
  * threads.
  *
  * The gateway normalizer (`gateway/src/slack/message-normalizer.ts`)
- * forwards `chatType: "channel"` for channel messages and app mentions,
- * `"im"` for a 1:1 DM, and `"mpim"` for a group DM. Accepting only
- * `chatType === "channel"` therefore returns `false` for both DM shapes.
+ * forwards `chatType: "channel"` for channel messages, `"im"` for a 1:1
+ * DM, and `"mpim"` for a group DM, and omits it for an app mention, which
+ * Slack sends without naming the room kind. Accepting only
+ * `chatType === "channel"` therefore returns `false` for both DM shapes
+ * and for an app mention.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on

@@ -746,7 +746,7 @@ Any persistent-stream transport that does not buffer events for disconnected cli
 
 | Module                                    | Purpose                                                                                                               |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `gateway/src/slack/socket-mode.ts`        | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up                         |
+| `gateway/src/slack/socket-mode.ts`        | `SlackSocketModeClient`: WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up                          |
 | `gateway/src/slack/slack-web.ts`          | `conversations.history` / `conversations.replies` helpers for reconnect catch-up                                      |
 | `gateway/src/slack/message-normalizer.ts` | Normalizers per event family (`normalizeSlackAppMention()`, DM, group DM, channel message) with bot-mention stripping |
 | `gateway/src/index.ts`                    | `/deliver/slack` route: outbound message delivery via `chat.postMessage`, thread and message ts on the callback URL   |
