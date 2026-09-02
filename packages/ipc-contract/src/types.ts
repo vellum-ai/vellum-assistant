@@ -200,9 +200,22 @@ export type HotkeyEventKind =
   | "voiceModeChord"
   | "modifierHold";
 
+/**
+ * What the user had highlighted in the application in front when a hold
+ * began. Read by the helper over Accessibility at the `down` edge and carried
+ * on it, so a hold made with something selected can be about the selection.
+ * Bounded at the helper; `truncated` says the text is a prefix.
+ */
+export interface HotkeySelection {
+  text: string;
+  truncated: boolean;
+}
+
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;
+  /** Only on a `modifierHold` `down`, and only when something was selected. */
+  selection?: HotkeySelection;
 }
 
 export type FnPushToTalkResult =

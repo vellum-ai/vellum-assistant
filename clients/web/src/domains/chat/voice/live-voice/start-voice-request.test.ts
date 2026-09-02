@@ -49,6 +49,7 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
 
 const {
   PENDING_VOICE_START_TTL_MS,
+  askVoiceFromSurface,
   drainPendingVoiceStart,
   requestVoiceStart,
   startVoiceFromSurface,
@@ -96,11 +97,14 @@ const starter = mock((assistantId: string, conversationId: string | null) => {
   useLiveVoiceStore.getState().setState("listening");
 });
 
+const sendText = mock((_text: string) => true);
+
 function registerStarter(): void {
   useLiveVoiceStore.getState().setStarter({
     prewarm: () => {},
     cancelPrewarm: () => {},
     start: starter,
+    sendText,
   });
 }
 
@@ -153,6 +157,7 @@ function expectStartedOnFreshDraft(): void {
 }
 
 beforeEach(() => {
+  sendText.mockClear();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
   __resetPendingDeepLinkForTesting();
@@ -522,6 +527,53 @@ describe("startVoiceFromSurface", () => {
     // That session is the one the user is in. Navigating would only walk the
     // app away from the composer that owns it.
     expect(navigate).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+});
+
+/**
+ * A question put from outside the chat: on a running session it is a turn on
+ * that session; otherwise a session opens for it, asks it as the user's own
+ * words, and ends once the reply has been heard.
+ */
+describe("askVoiceFromSurface", () => {
+  test("opens a session for the question that speaks it and then ends", async () => {
+    identityHydrated();
+    registerStarter();
+
+    expect(askVoiceFromSurface(navigate, "> the cell\n\nwhat is this")).toBe(
+      true,
+    );
+    await flushDrain();
+
+    const draftId = mintedConversationId();
+    expect(starter).toHaveBeenCalledWith("assistant-1", draftId, {
+      seedText: "> the cell\n\nwhat is this",
+      seedVisible: true,
+      endAfterSeedReply: true,
+    });
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  test("puts the question to a running session as a turn", () => {
+    identityHydrated();
+    registerStarter();
+    useLiveVoiceStore.getState().setState("listening");
+
+    expect(askVoiceFromSurface(navigate, "what is this")).toBe(true);
+
+    expect(sendText).toHaveBeenCalledWith("what is this");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+
+  test("reports a running session that cannot take the turn", () => {
+    identityHydrated();
+    registerStarter();
+    sendText.mockReturnValueOnce(false);
+    useLiveVoiceStore.getState().setState("speaking");
+
+    expect(askVoiceFromSurface(navigate, "what is this")).toBe(false);
     expect(isParked()).toBe(false);
   });
 });

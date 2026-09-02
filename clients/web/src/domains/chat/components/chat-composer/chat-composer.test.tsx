@@ -346,6 +346,7 @@ function resetLiveVoiceMocks() {
     prewarm: livePrewarmSpy,
     cancelPrewarm: liveCancelPrewarmSpy,
     start: liveStarterSpy,
+    sendText: () => false,
   });
   // Default to the returning-user path so the entry-point mic starts a session
   // directly. First-run interception (the prefs card) is covered by

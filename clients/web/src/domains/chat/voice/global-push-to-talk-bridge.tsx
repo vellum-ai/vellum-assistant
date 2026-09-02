@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
+
+import type { HotkeySelection } from "@vellumai/ipc-contract";
 
 import {
   VoiceInputButton,
@@ -8,6 +11,7 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
+import { askVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
@@ -35,6 +39,26 @@ interface GlobalPushToTalkBridgeProps {
  * cost is being measured. The log line below carries what each hold paid.
  */
 const CLEANUP_DEADLINE_MS = 5000;
+
+/**
+ * The turn a hold made over a selection becomes: the selection, quoted, and
+ * then the words. The selection comes first because it is what the words are
+ * about, and quoted so the model and the transcript both read it as something
+ * the user is pointing at rather than something they said. A selection the
+ * helper cut short says so, so the model does not reason about an ending it
+ * never saw.
+ */
+export function composeSelectionAsk(
+  selection: HotkeySelection,
+  words: string,
+): string {
+  const quoted = selection.text
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const tail = selection.truncated ? "\n> [selection continues]" : "";
+  return `${quoted}${tail}\n\n${words}`;
+}
 
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
@@ -74,6 +98,14 @@ export function GlobalPushToTalkBridge({
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   const holdToDictateEnabled = useHoldToDictateEnabled();
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
+  // What the hold in progress began over. Read when its transcript lands,
+  // which decides whether the words go to the cursor or to the assistant.
+  const holdSelectionRef = useRef<HotkeySelection | null>(null);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -134,13 +166,16 @@ export function GlobalPushToTalkBridge({
   // Hold to dictate, from whatever app the user is in. The same target the
   // overlay's stop button drives, so a hold and a press are the same dictation
   // and land the same way: through `handleTranscript` below, which cleans the
-  // transcript up and drops it at the cursor.
+  // transcript up and drops it at the cursor. A hold made over a selection is
+  // the one exception: its words are a question about the selection, and go
+  // to the assistant instead.
   useHoldToDictate({
     enabled: holdToDictateEnabled,
-    onHoldStart: () => {
+    onHoldStart: ({ selection }) => {
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
       }
+      holdSelectionRef.current = selection;
       // Read by the recording session as it starts, which decides there
       // whether the local transcript is the authority.
       markHoldDictation(true);
@@ -157,6 +192,26 @@ export function GlobalPushToTalkBridge({
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {
+      const selection = holdSelectionRef.current;
+      holdSelectionRef.current = null;
+      if (selection !== null) {
+        // A question about what was highlighted. Not pasted, and not cleaned
+        // up: the cleanup pass rewrites words meant for a document, and these
+        // are meant for the assistant, who hears them as said. The reply is
+        // spoken, on the call the companion shows while it plays.
+        const ask = composeSelectionAsk(selection, rawText);
+        const taken = askVoiceFromSurface(
+          (to, options) => navigateRef.current(to, options),
+          ask,
+        );
+        console.info(
+          `dictation: ask selectionChars=${selection.text.length} truncated=${selection.truncated} words=${rawText.length} taken=${taken}`,
+        );
+        if (!taken) {
+          showVoiceErrorToast("voice-ask-unavailable");
+        }
+        return;
+      }
       let insertText = rawText;
       // The cleanup pass: one model call that punctuates, drops the fillers,
       // adapts the tone to the application in front and applies the user's

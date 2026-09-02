@@ -41,18 +41,31 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
   }),
 }));
 
+type HoldStart = {
+  selection: { text: string; truncated: boolean } | null;
+};
 let holdHandlers: {
-  onHoldStart: () => void;
+  onHoldStart: (start: HoldStart) => void;
   onHoldEnd: () => void;
 } | null = null;
 mock.module("@/domains/chat/voice/use-hold-to-dictate", () => ({
   HOLD_ARMING_MS: 220,
   useHoldToDictate: (options: {
-    onHoldStart: () => void;
+    onHoldStart: (start: HoldStart) => void;
     onHoldEnd: () => void;
   }) => {
     holdHandlers = options;
   },
+}));
+
+const askedTexts: string[] = [];
+let nextAskTaken = true;
+mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
+  askVoiceFromSurface: (_navigate: unknown, ask: string) => {
+    askedTexts.push(ask);
+    return nextAskTaken;
+  },
+  startVoiceFromSurface: () => undefined,
 }));
 
 mock.module("@/domains/chat/hooks/use-dictation-overlay-sync", () => ({
@@ -141,6 +154,8 @@ afterEach(() => {
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;
+  askedTexts.length = 0;
+  nextAskTaken = true;
   toastErrorMock.mockClear();
   useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
@@ -272,9 +287,8 @@ describe("GlobalPushToTalkBridge", () => {
  * never reach the cursor, and a turn is spent that nobody asked for.
  */
 test("drives its own recorder, not whatever claimed dictation last", async () => {
-  const { registerPushToTalkTarget } = await import(
-    "@/domains/chat/voice/push-to-talk-target"
-  );
+  const { registerPushToTalkTarget } =
+    await import("@/domains/chat/voice/push-to-talk-target");
   const composerStart = mock(() => undefined);
   const composerStop = mock(() => undefined);
   const release = registerPushToTalkTarget({
@@ -285,7 +299,7 @@ test("drives its own recorder, not whatever claimed dictation last", async () =>
   renderBridge("a1");
 
   act(() => {
-    holdHandlers?.onHoldStart();
+    holdHandlers?.onHoldStart({ selection: null });
   });
   useVoiceRecordingStore.setState({ phase: "recording" });
   act(() => {
@@ -297,4 +311,92 @@ test("drives its own recorder, not whatever claimed dictation last", async () =>
   expect(voiceStopMock).toHaveBeenCalled();
 
   release();
+});
+
+/**
+ * A hold made over a selection is a question about it. The words go to the
+ * assistant with the selection quoted ahead of them, and nothing is pasted or
+ * cleaned up: the cleanup pass rewrites words meant for a document.
+ */
+describe("a hold over a selection", () => {
+  test("asks the assistant instead of pasting", async () => {
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "cleaned" };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({
+        selection: { text: "the powerhouse\nof the cell", truncated: false },
+      });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("what does this mean");
+    });
+
+    expect(askedTexts).toEqual([
+      "> the powerhouse\n> of the cell\n\nwhat does this mean",
+    ]);
+    expect(insertedTexts).toEqual([]);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("says when a selection was cut short", async () => {
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({
+        selection: { text: "a long passage", truncated: true },
+      });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("summarize this");
+    });
+
+    expect(askedTexts).toEqual([
+      "> a long passage\n> [selection continues]\n\nsummarize this",
+    ]);
+  });
+
+  test("is spent by its own transcript, so the next hold dictates", async () => {
+    nextTextInsertionStatus = "inserted";
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({
+        selection: { text: "selected", truncated: false },
+      });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("first");
+    });
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("second");
+    });
+
+    expect(askedTexts).toHaveLength(1);
+    expect(insertedTexts).toEqual(["second"]);
+  });
+
+  test("tells the user when the call cannot take the question", async () => {
+    nextAskTaken = false;
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({
+        selection: { text: "selected", truncated: false },
+      });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("what is this");
+    });
+
+    expect(insertedTexts).toEqual([]);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      formatVoiceError("voice-ask-unavailable"),
+      { id: "voice-error:voice-ask-unavailable" },
+    );
+  });
 });

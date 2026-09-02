@@ -21,13 +21,16 @@ mock.module("@/runtime/hotkey", () => ({
   },
 }));
 
-const { HOLD_ARMING_MS, useHoldToDictate } = await import(
-  "@/domains/chat/voice/use-hold-to-dictate"
-);
+const { HOLD_ARMING_MS, useHoldToDictate } =
+  await import("@/domains/chat/voice/use-hold-to-dictate");
 
-const press = () => {
+const press = (selection?: HotkeyEvent["selection"]) => {
   act(() => {
-    emitHotkeyEvent?.({ kind: "modifierHold", state: "down" });
+    emitHotkeyEvent?.({
+      kind: "modifierHold",
+      state: "down",
+      ...(selection ? { selection } : {}),
+    });
   });
 };
 
@@ -46,9 +49,7 @@ const settle = async (ms: number) => {
 const renderHold = () => {
   const onHoldStart = mock(() => {});
   const onHoldEnd = mock(() => {});
-  const view = renderHook(() =>
-    useHoldToDictate({ onHoldStart, onHoldEnd }),
-  );
+  const view = renderHook(() => useHoldToDictate({ onHoldStart, onHoldEnd }));
   return { onHoldStart, onHoldEnd, view };
 };
 
@@ -78,6 +79,24 @@ describe("hold to dictate", () => {
    * its own key, so a release inside the delay is someone typing Ctrl+Option+F
    * rather than reaching for dictation.
    */
+  test("hands the selection the hold began over to the start", async () => {
+    const { onHoldStart } = renderHold();
+    press({ text: "the powerhouse of the cell", truncated: false });
+    await settle(HOLD_ARMING_MS + 20);
+    expect(onHoldStart).toHaveBeenCalledWith({
+      selection: { text: "the powerhouse of the cell", truncated: false },
+    });
+    release();
+  });
+
+  test("starts with no selection when the edge carried none", async () => {
+    const { onHoldStart } = renderHold();
+    press();
+    await settle(HOLD_ARMING_MS + 20);
+    expect(onHoldStart).toHaveBeenCalledWith({ selection: null });
+    release();
+  });
+
   test("never opens it for a hold that ends inside the delay", async () => {
     const { onHoldStart, onHoldEnd } = renderHold();
 

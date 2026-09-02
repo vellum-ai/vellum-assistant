@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { KeyboardModifier } from "@vellumai/ipc-contract";
+import type { HotkeySelection, KeyboardModifier } from "@vellumai/ipc-contract";
 
 import {
   setModifierHold,
@@ -41,9 +41,19 @@ export const HOLD_TO_DICTATE_MODIFIERS: KeyboardModifier[] = [
  */
 export const HOLD_ARMING_MS = 220;
 
+/** What a hold began over. */
+export interface HoldStart {
+  /**
+   * What the user had highlighted when the keys went down, when anything was.
+   * Read once, at the `down` edge, so a hold is about what was selected as it
+   * began and not about what the user clicks on while talking.
+   */
+  selection: HotkeySelection | null;
+}
+
 export interface HoldToDictateHandlers {
   /** Open the microphone. Called once the hold has outlasted the arming delay. */
-  onHoldStart: () => void;
+  onHoldStart: (start: HoldStart) => void;
   /**
    * Close it and keep what was said. Called only where `onHoldStart` was, so a
    * hold that never armed never reaches this.
@@ -105,10 +115,11 @@ export function useHoldToDictate({
       }
       if (event.state === "down") {
         cancelArming();
+        const selection = event.selection ?? null;
         armingTimer = setTimeout(() => {
           armingTimer = null;
           open = true;
-          handlers.current.onHoldStart();
+          handlers.current.onHoldStart({ selection });
         }, HOLD_ARMING_MS);
         return;
       }

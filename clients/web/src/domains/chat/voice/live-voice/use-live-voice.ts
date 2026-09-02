@@ -187,6 +187,12 @@ export interface UseLiveVoiceResult {
   ) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
+  /**
+   * Put a typed turn to the running session, as the user's own words. `false`
+   * when there is no session up to take it or the assistant does not take
+   * typed turns; the caller keeps the text either way.
+   */
+  sendText: (text: string) => boolean;
 }
 
 /** Per-session options for {@link UseLiveVoiceResult.start}. */
@@ -211,7 +217,29 @@ export interface LiveVoiceStartOptions {
    * assistant greet twice.
    */
   seedText?: string;
+  /**
+   * Render the seed as the user's own message rather than hiding it. For a
+   * seed that is their words, such as a question they asked from another
+   * application, which reads as theirs in the transcript.
+   */
+  seedVisible?: boolean;
+  /**
+   * End the session once the reply to the seed has been heard, so a question
+   * asked from outside the room is answered and done rather than leaving the
+   * user on an open call. The end waits out a short quiet after playback
+   * drains, since a reply that runs a tool speaks in more than one piece.
+   */
+  endAfterSeedReply?: boolean;
 }
+
+/**
+ * How long a session that ends after its seed's reply waits, once the reply's
+ * audio has drained, for the turn to prove over. A reply that acknowledges and
+ * then runs a tool speaks twice, with the daemon's `thinking` frame for the
+ * tool run arriving inside this window; the user starting to speak lands
+ * inside it too. Either one keeps the session up.
+ */
+export const END_AFTER_SEED_REPLY_QUIET_MS = 2000;
 
 /** Injectable factories so tests can supply mock primitives. */
 export interface UseLiveVoiceOptions {
@@ -248,6 +276,12 @@ export interface UseLiveVoiceOptions {
    * uses {@link HELD_PLAYBACK_TIMEOUT_MS}.
    */
   heldPlaybackTimeoutMs?: number;
+  /**
+   * Override how long a session that ends after its seed's reply waits for the
+   * turn to prove over. Primarily a test seam; production uses
+   * {@link END_AFTER_SEED_REPLY_QUIET_MS}.
+   */
+  endAfterSeedReplyQuietMs?: number;
 }
 
 /**
@@ -300,6 +334,12 @@ interface SessionContext {
   responseEpoch: number;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
+  /**
+   * Whether the session ends once the reply to its seed has been heard (see
+   * `LiveVoiceStartOptions.endAfterSeedReply`). Set when the seed goes out and
+   * spent by the end that follows, so a reconnect never inherits it.
+   */
+  endAfterReply: boolean;
   /** Whether an automatic ptt_release is already in flight for this utterance. */
   releaseInFlight: boolean;
   /** Accumulated speech duration (ms) in the current utterance. */
@@ -812,6 +852,7 @@ export function useLiveVoice(
         responseAudioStarted: false,
         responseEpoch: 0,
         interruptSent: false,
+        endAfterReply: false,
         releaseInFlight: false,
         speechMs: 0,
         silenceMs: 0,
@@ -923,12 +964,18 @@ export function useLiveVoice(
             const seedText = pendingSeedTextRef.current;
             pendingSeedTextRef.current = null;
             if (seedText !== null) {
-              // `hidden`: the seed is an instruction, not something the user
-              // typed, so it drives the turn and stays in the model's context
-              // while never rendering in the transcript. An assistant too old
-              // to know the field persists it visibly instead, which is why
-              // the copy still reads as a sentence a person could have sent.
-              sendTextTurn(session, seedText, { hidden: true });
+              // `hidden`: a seed that is an instruction rather than something
+              // the user typed drives the turn and stays in the model's
+              // context while never rendering in the transcript. An assistant
+              // too old to know the field persists it visibly instead, which
+              // is why the copy still reads as a sentence a person could have
+              // sent. A seed that is the user's own words renders as theirs.
+              const sent = sendTextTurn(session, seedText, {
+                hidden: startOptions.seedVisible !== true,
+              });
+              if (sent && startOptions.endAfterSeedReply === true) {
+                session.endAfterReply = true;
+              }
             }
           });
         }),
@@ -1148,7 +1195,29 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
-          void finishResponseAfterPlayback(session, teardown);
+          void finishResponseAfterPlayback(session, teardown).then(() => {
+            if (!live() || !session.endAfterReply) {
+              return;
+            }
+            // The reply has been heard. Wait out the quiet before ending, and
+            // end only if nothing has started since: a `thinking` frame for a
+            // tool run bumps the epoch, and the user speaking opens an
+            // utterance. Either means the turn is not over.
+            const epoch = session.responseEpoch;
+            setTimeout(() => {
+              if (
+                !live() ||
+                !session.endAfterReply ||
+                session.responseEpoch !== epoch ||
+                session.utteranceOpen ||
+                useLiveVoiceStore.getState().state !== "listening"
+              ) {
+                return;
+              }
+              session.endAfterReply = false;
+              void stop();
+            }, opts.endAfterSeedReplyQuietMs ?? END_AFTER_SEED_REPLY_QUIET_MS);
+          });
         }),
         client.on("minimizeRoom", () => {
           if (!live()) {
@@ -1484,6 +1553,19 @@ export function useLiveVoice(
   // cancels any pending reconnect so it can't fire after unmount.
   useEffect(() => () => teardown(), [teardown]);
 
+  /**
+   * Put a typed turn to the running session, as the user's own words.
+   * `false` when there is no session up to take it, or the assistant does
+   * not take typed turns; the caller keeps the text either way.
+   */
+  const sendText = useCallback((text: string): boolean => {
+    const session = sessionRef.current;
+    if (!session) {
+      return false;
+    }
+    return sendTextTurn(session, text);
+  }, []);
+
   return {
     state,
     partialTranscript,
@@ -1495,6 +1577,7 @@ export function useLiveVoice(
     cancelPrewarmedPlayback,
     start,
     stop,
+    sendText,
   };
 }
 

@@ -120,6 +120,7 @@ function registerStarter(): void {
         .setSessionContext(assistantId, conversationId ?? null);
       useLiveVoiceStore.getState().setState("listening");
     },
+    sendText: () => false,
   });
 }
 

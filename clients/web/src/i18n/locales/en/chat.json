@@ -1696,6 +1696,7 @@
     "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
+    "askUnavailable": "The call you’re on can’t take a question right now.",
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
   "voiceFirstRunCard": {

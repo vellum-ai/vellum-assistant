@@ -244,21 +244,29 @@ final class MacHelper: @unchecked Sendable {
     }
 
     func emitModifierHold(state: String) {
+        var params: [String: Any] = [
+            "kind": "modifierHold",
+            "state": state,
+        ]
         if state == "down" {
             guard !isModifierHoldDown else { return }
             isModifierHoldDown = true
+            // What the user had highlighted when the keys went down travels
+            // with the edge, so the hold can be about it. Character counts
+            // only in the log; the text itself is the user's.
+            if let selection = FrontSelection.read() {
+                params["selection"] = [
+                    "text": selection.text,
+                    "truncated": selection.truncated,
+                ]
+                log("modifier hold down with selection chars=\(selection.text.count) truncated=\(selection.truncated)")
+            }
         } else if state == "up" {
             guard isModifierHoldDown else { return }
             isModifierHoldDown = false
         }
 
-        writeNotification(
-            method: "hotkey.event",
-            params: [
-                "kind": "modifierHold",
-                "state": state,
-            ]
-        )
+        writeNotification(method: "hotkey.event", params: params)
     }
 
     /// Every modifier this keyboard reports, so anything outside the configured
@@ -1156,7 +1164,18 @@ private func writePermissionStatusAndExit() {
     }
 }
 
-if CommandLine.arguments.contains("--request-speech-recognition") {
+if CommandLine.arguments.contains("--front-selection") {
+    // A probe for what the application in front exposes: run it with something
+    // highlighted and it prints what a hold would carry, then exits.
+    let selection = FrontSelection.read()
+    var payload: [String: Any] = ["trusted": AXIsProcessTrusted()]
+    payload["text"] = selection?.text ?? NSNull()
+    payload["truncated"] = selection?.truncated ?? false
+    let data = try! JSONSerialization.data(withJSONObject: payload, options: [])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
+    exit(0)
+} else if CommandLine.arguments.contains("--request-speech-recognition") {
     MainActor.assumeIsolated {
         NSApplication.shared.setActivationPolicy(.prohibited)
         if SFSpeechRecognizer.authorizationStatus() == .notDetermined {

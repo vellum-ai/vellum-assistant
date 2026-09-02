@@ -288,6 +288,9 @@ export function formatVoiceError(code: string): string {
       clientName: clientOsDisplayName(detectClientOs()),
     });
   }
+  if (code === "voice-ask-unavailable") {
+    return t("chat:voiceErrors.askUnavailable");
+  }
   return (
     VOICE_ERROR_MESSAGES[code] ??
     `Voice input failed (${code}). Try again or type your message.`
