@@ -13,7 +13,10 @@ setConfig("memory", { enabled: false });
 
 import * as messageTypes from "../../agent/message-types.js";
 import type { AssistantEvent } from "../../api/index.js";
-import { Conversation } from "../../daemon/conversation.js";
+import {
+  Conversation,
+  ProcessingClaimLostError,
+} from "../../daemon/conversation.js";
 import {
   deleteConversation,
   setConversation,
@@ -942,6 +945,102 @@ describe("standalone image persists are serialized per conversation", () => {
       failNextReclaims = 0;
       live.dispose();
       source.dispose();
+    }
+  });
+
+  test("a fence whose claim was cleared under it reports the loss", async () => {
+    // The caller does its work between the fence and its release, so a fence
+    // that answered "fine" for a hold Stop or a teardown already cleared would
+    // let that work run under a dead claim while a new turn acquires and
+    // writes alongside it.
+    const live = liveConversation("Live voice fence claim cleared");
+    try {
+      const owner = live.activeConversation.acquireProcessing();
+      expect(owner).not.toBeNull();
+
+      // The teardown shape: an unconditional clear while the marker is still
+      // the live claim's.
+      live.activeConversation.setProcessing(false);
+
+      await expect(
+        live.activeConversation.ensureProcessingMarker(owner!),
+      ).rejects.toThrow(ProcessingClaimLostError);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("a fence whose claim is taken away after the write reports the loss", async () => {
+    // The other half of the same window: the marker lands, and the hold is
+    // claimed away before the awaiter resumes. The fence answers for the
+    // present, not for the moment it started waiting.
+    const live = liveConversation("Live voice fence claim stolen");
+    try {
+      const owner = live.activeConversation.acquireProcessing();
+      expect(owner).not.toBeNull();
+
+      const fence = live.activeConversation.ensureProcessingMarker(owner!);
+      // A turn claiming the flag, which is how every turn starts.
+      live.activeConversation.setProcessing(true);
+
+      await expect(fence).rejects.toThrow(ProcessingClaimLostError);
+    } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+    }
+  });
+
+  test("a fenced acquire reads a lost claim as a busy conversation", async () => {
+    // Callers owe one answer for "this conversation is someone else's",
+    // however it became so, and the fenced acquire is what collapses the two
+    // routes into it. The claim is given back on the way out.
+    const live = liveConversation("Live voice fenced acquire loss");
+    try {
+      const marker = spyOn(
+        live.activeConversation,
+        "ensureProcessingMarker",
+      ).mockImplementation(async () => {
+        throw new ProcessingClaimLostError(live.id);
+      });
+
+      expect(
+        await live.activeConversation.acquireProcessingFenced(),
+      ).toBeNull();
+      // Not left held: the next acquire finds it free.
+      expect(live.activeConversation.isProcessing()).toBe(false);
+
+      marker.mockRestore();
+      expect(
+        await live.activeConversation.acquireProcessingFenced(),
+      ).not.toBeNull();
+    } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+    }
+  });
+
+  test("a fenced acquire that cannot persist its marker leaves nothing held", async () => {
+    // The P2 shape. A marker that will not land is a real failure, and the
+    // claim has to be gone before the throw reaches the caller, or the
+    // conversation is stuck processing with sends queuing behind a dead hold.
+    const live = liveConversation("Live voice fenced acquire marker failure");
+    try {
+      const marker = spyOn(
+        live.activeConversation,
+        "ensureProcessingMarker",
+      ).mockImplementation(async () => {
+        throw new Error("database is not readable");
+      });
+
+      await expect(
+        live.activeConversation.acquireProcessingFenced(),
+      ).rejects.toThrow("database is not readable");
+
+      expect(live.activeConversation.isProcessing()).toBe(false);
+      marker.mockRestore();
+    } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
     }
   });
 

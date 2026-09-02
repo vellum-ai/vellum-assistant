@@ -306,6 +306,18 @@ function abortReasonOf(signal?: AbortSignal): unknown {
   );
 }
 
+/**
+ * Thrown by the processing fence when the claim it was asked about is no
+ * longer the live one, which is the conversation having moved on to another
+ * holder rather than anything failing.
+ */
+export class ProcessingClaimLostError extends Error {
+  constructor(conversationId: string) {
+    super(`Processing claim lost for conversation ${conversationId}`);
+    this.name = "ProcessingClaimLostError";
+  }
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
@@ -1934,20 +1946,61 @@ export class Conversation {
   }
 
   /**
-   * Resolve once this claim's processing marker is durable, or reject when the
-   * retry budget runs out without it landing.
+   * Resolve once this claim's processing marker is durable. Reject when the
+   * retry budget runs out without it landing, and reject when the claim is not
+   * the live one.
    *
-   * Awaited immediately after {@link acquireProcessing} and before the hold is
-   * used for anything. A claim that is no longer the live one has nothing to
-   * wait for: the hold it is asking about is gone, and its caller learns that
-   * from the release it is about to be refused.
+   * Lost ownership is a failure here, not a pass. The caller does its work
+   * between this fence and its release, so answering "fine" for a hold that
+   * Stop or a teardown has already cleared would let that work run under a
+   * dead claim while a new turn acquires and writes alongside it.
+   *
+   * Asked again after the await because both can happen in one window: the
+   * write lands, and the hold is claimed away before this resumes. The fence
+   * has to describe the present, not the moment it started waiting.
    */
   async ensureProcessingMarker(owner: number): Promise<void> {
     const marker = this.processingMarker;
-    if (!marker || marker.owner !== owner) {
-      return;
+    if (!marker || marker.owner !== owner || this.processingOwner !== owner) {
+      throw new ProcessingClaimLostError(this.conversationId);
     }
     await marker.landed;
+    if (this.processingOwner !== owner) {
+      throw new ProcessingClaimLostError(this.conversationId);
+    }
+  }
+
+  /**
+   * Take the flag and wait out its marker, giving the claim back rather than
+   * ever leaving a live one unreleased.
+   *
+   * Null is "this conversation is someone else's", by either route: the flag
+   * was already held, or the hold was claimed away while the marker was still
+   * landing. Callers answer both with the busy behaviour they already owe.
+   *
+   * A throw is the marker itself refusing to persist, which is a real failure
+   * rather than a busy conversation, and the claim is already released before
+   * it is raised. Every acquire goes through here, so no call site can get the
+   * ordering wrong: there is no window where a claim exists and its release is
+   * not yet guaranteed.
+   */
+  async acquireProcessingFenced(): Promise<number | null> {
+    const owner = this.acquireProcessing();
+    if (owner === null) {
+      return null;
+    }
+    try {
+      await this.ensureProcessingMarker(owner);
+    } catch (err) {
+      // A no-op when the claim is already gone, which is exactly the case
+      // this is here to make harmless.
+      this.releaseProcessing(owner);
+      if (err instanceof ProcessingClaimLostError) {
+        return null;
+      }
+      throw err;
+    }
+    return owner;
   }
 
   /**
