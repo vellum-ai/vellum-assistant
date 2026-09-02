@@ -1,16 +1,16 @@
 /**
  * Pumps raw RFB bytes between one `/v1/desktop/stream` WebSocket and the
- * desktop's VNC server on localhost.
- *
- * The socket is a pure byte pipe: every frame in both directions is binary
- * RFB data, and outcomes are signaled with close codes only (1008 feature
- * disabled, 1013 busy, 1011 desktop failed or stopped, 1001 shutting down).
- * The gateway relays close codes but not pre-upgrade HTTP statuses, which is
- * why a disabled feature is reported after the upgrade rather than as a 404.
+ * desktop's VNC server on loopback. Every frame is binary RFB data; outcomes
+ * are signaled with close codes only (see `DESKTOP_CLOSE`).
  */
 
 import {
+  connectLoopback,
+  DESKTOP_CLOSE,
+  DESKTOP_VNC_PORT,
   type DesktopSessionManager,
+  type DesktopTcpHandlers,
+  type DesktopTcpSocket,
   type DesktopViewer,
   getDesktopSessionManager,
 } from "./desktop-session-manager.js";
@@ -18,41 +18,24 @@ import {
 /** Frames a client may send before the VNC socket is up; RFB handshakes are tiny. */
 const MAX_PENDING_BYTES = 1024 * 1024;
 
-export interface DesktopStreamClientSocket {
-  send(data: Uint8Array): void;
+interface DesktopStreamClientSocket {
+  /** Bun's `ServerWebSocket.send`: `0` means the frame was dropped. */
+  send(data: Uint8Array): number;
   close(code?: number, reason?: string): void;
 }
 
-export interface DesktopTcpSocket {
-  /** Returns the bytes accepted; fewer than offered means backpressure. */
-  write(data: Uint8Array): number;
-  end(): void;
-}
-
-export interface DesktopTcpHandlers {
-  onData(data: Uint8Array): void;
-  onDrain(): void;
-  onClose(): void;
-  onError(err: Error): void;
-}
-
-export type DesktopTcpConnect = (
-  port: number,
-  handlers: DesktopTcpHandlers,
-) => Promise<DesktopTcpSocket>;
-
-export interface DesktopStreamBridgeOptions {
-  /** Whether this daemon serves the desktop at all. Defaults to enabled. */
-  readonly enabled?: boolean;
+interface DesktopStreamBridgeOptions {
   readonly manager?: DesktopSessionManager;
-  readonly connect?: DesktopTcpConnect;
+  readonly connect?: (
+    port: number,
+    handlers: DesktopTcpHandlers,
+  ) => Promise<DesktopTcpSocket>;
 }
 
 export class DesktopStreamBridge {
   private readonly ws: DesktopStreamClientSocket;
-  private readonly enabled: boolean;
   private readonly manager: DesktopSessionManager;
-  private readonly connect: DesktopTcpConnect;
+  private readonly connect: NonNullable<DesktopStreamBridgeOptions["connect"]>;
   private readonly viewer: DesktopViewer;
 
   private tcp: DesktopTcpSocket | null = null;
@@ -67,36 +50,30 @@ export class DesktopStreamBridge {
     options: DesktopStreamBridgeOptions = {},
   ) {
     this.ws = ws;
-    this.enabled = options.enabled ?? true;
     this.manager = options.manager ?? getDesktopSessionManager();
-    this.connect = options.connect ?? connectToVnc;
+    this.connect = options.connect ?? connectLoopback;
     this.viewer = {
-      onDesktopLost: (reason) => this.fail(1011, `Desktop stopped: ${reason}`),
+      onDesktopLost: ({ code, reason }) => this.fail(code, reason),
     };
   }
 
   /** Claim the viewer slot, start the desktop, and dial its VNC port. */
   async start(): Promise<void> {
-    if (!this.enabled) {
-      this.fail(1008, "Desktop is not available on this assistant");
-      return;
-    }
     const slot = this.manager.acquireViewerSlot(this.viewer);
     if (!slot.ok) {
       if (slot.reason === "busy") {
-        this.fail(1013, "Desktop is in use by another viewer");
+        this.fail(DESKTOP_CLOSE.busy, "Desktop is in use by another viewer");
       } else {
-        this.fail(1001, "The assistant is shutting down");
+        this.fail(DESKTOP_CLOSE.goingAway, "The assistant is shutting down");
       }
       return;
     }
     this.ownsSlot = true;
 
-    let vncPort: number;
     try {
-      ({ vncPort } = await this.manager.ensureDesktopRunning());
+      await this.manager.ensureDesktopRunning();
     } catch {
-      this.fail(1011, "Desktop failed to start");
+      this.fail(DESKTOP_CLOSE.failed, "Desktop failed to start");
       return;
     }
     if (this.closed) {
@@ -105,14 +82,20 @@ export class DesktopStreamBridge {
 
     let tcp: DesktopTcpSocket;
     try {
-      tcp = await this.connect(vncPort, {
-        onData: (data) => this.ws.send(data),
+      tcp = await this.connect(DESKTOP_VNC_PORT, {
+        onData: (data) => {
+          if (this.ws.send(data) === 0) {
+            this.fail(DESKTOP_CLOSE.failed, "Viewer too slow");
+          }
+        },
         onDrain: () => this.flush(),
-        onClose: () => this.fail(1011, "Desktop connection closed"),
-        onError: () => this.fail(1011, "Desktop connection failed"),
+        onClose: () =>
+          this.fail(DESKTOP_CLOSE.failed, "Desktop connection closed"),
+        onError: () =>
+          this.fail(DESKTOP_CLOSE.failed, "Desktop connection failed"),
       });
     } catch {
-      this.fail(1011, "Desktop connection failed");
+      this.fail(DESKTOP_CLOSE.failed, "Desktop connection failed");
       return;
     }
     if (this.closed) {
@@ -130,7 +113,7 @@ export class DesktopStreamBridge {
     const bytes =
       message instanceof ArrayBuffer ? new Uint8Array(message) : message;
     if (this.pendingBytes + bytes.byteLength > MAX_PENDING_BYTES) {
-      this.fail(1009, "Desktop stream backlog exceeded");
+      this.fail(DESKTOP_CLOSE.failed, "Desktop stream backlog exceeded");
       return;
     }
     this.pending.push(bytes);
@@ -152,7 +135,7 @@ export class DesktopStreamBridge {
       const chunk = this.pending[0]!;
       const written = tcp.write(chunk);
       if (written < 0) {
-        this.fail(1011, "Desktop connection closed");
+        this.fail(DESKTOP_CLOSE.failed, "Desktop connection closed");
         return;
       }
       this.pendingBytes -= written;
@@ -187,16 +170,3 @@ export class DesktopStreamBridge {
     }
   }
 }
-
-const connectToVnc: DesktopTcpConnect = async (port, handlers) =>
-  Bun.connect({
-    hostname: "127.0.0.1",
-    port,
-    socket: {
-      data: (_socket, data) => handlers.onData(data),
-      drain: () => handlers.onDrain(),
-      close: () => handlers.onClose(),
-      error: (_socket, err) => handlers.onError(err),
-      connectError: (_socket, err) => handlers.onError(err),
-    },
-  });

@@ -33,7 +33,10 @@ import {
 import { processMessage } from "../daemon/process-message.js";
 import { makeAddrInUseError } from "../daemon/startup-error.js";
 import { isPodDesktopEnabled } from "../desktop/desktop-feature.js";
-import { getDesktopSessionManager } from "../desktop/desktop-session-manager.js";
+import {
+  DESKTOP_CLOSE,
+  destroyDesktopSessionManager,
+} from "../desktop/desktop-session-manager.js";
 import { DesktopStreamBridge } from "../desktop/desktop-stream-bridge.js";
 import {
   createLiveVoiceConnection,
@@ -199,16 +202,20 @@ interface WatchStreamWebSocketData {
   session?: WatchStreamSession;
 }
 
-/**
- * WebSocket data attached to `/v1/desktop/stream` connections. The socket
- * carries raw RFB bytes, bridged to the pod desktop's VNC server.
- */
+/** WebSocket data for `/v1/desktop/stream`: raw RFB bytes to the pod desktop. */
 interface DesktopStreamWebSocketData {
   wsType: "desktop-stream";
-  /** Whether the pod desktop is enabled here; the bridge closes 1008 when not. */
-  enabled: boolean;
   /** Bound at open time so message/close handlers reach this socket's pump. */
   bridge?: DesktopStreamBridge;
+}
+
+function podDesktopEnabled(): boolean {
+  try {
+    return isPodDesktopEnabled(getConfig());
+  } catch (err) {
+    log.warn({ err }, "Failed to read config for desktop stream gate");
+    return false;
+  }
 }
 
 export class RuntimeHttpServer {
@@ -400,13 +407,15 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "desktop-stream") {
-            log.info(
-              { enabled: data.enabled },
-              "Desktop stream WebSocket opened",
-            );
-            const bridge = new DesktopStreamBridge(ws, {
-              enabled: data.enabled,
-            });
+            log.info("Desktop stream WebSocket opened");
+            if (!podDesktopEnabled()) {
+              ws.close(
+                DESKTOP_CLOSE.unavailable,
+                "Desktop is not available on this assistant",
+              );
+              return;
+            }
+            const bridge = new DesktopStreamBridge(ws);
             data.bridge = bridge;
             void bridge.start();
             return;
@@ -706,7 +715,8 @@ export class RuntimeHttpServer {
     // that a socket closing just before shutdown had already under way.
     await drainWatchRetros();
 
-    getDesktopSessionManager().destroy();
+    // Bounded by the manager's kill grace, so shutdown never hangs on X.
+    await destroyDesktopSessionManager();
 
     const liveVoiceManager = getLiveVoiceSessionManager();
     const liveVoiceSessionId = liveVoiceManager.activeSessionId;
@@ -977,22 +987,37 @@ export class RuntimeHttpServer {
     return null;
   }
 
+  /**
+   * Shared gate for gateway-proxied WebSocket upgrades: private network peers
+   * and origins only, then a gateway service token. The gateway owns
+   * downstream client auth and dials these upstreams on the client's behalf.
+   */
+  private gateRuntimeStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+    label: string,
+  ): Response | null {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        `Direct ${label} access disabled: only private network peers allowed`,
+        403,
+      );
+    }
+    return this.verifyGatewayServiceToken(req);
+  }
+
   private handleMediaStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct media-stream access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    // Verify the gateway service token before accepting the upgrade.
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
+    const gateError = this.gateRuntimeStreamUpgrade(
+      req,
+      server,
+      "media-stream",
+    );
+    if (gateError) {
+      return gateError;
     }
 
     const wsUrl = new URL(req.url);
@@ -1015,30 +1040,14 @@ export class RuntimeHttpServer {
     return undefined!;
   }
 
-  /**
-   * Handle WebSocket upgrade for `/v1/stt/stream`.
-   *
-   * Private-network restrictions apply (same as media-stream) so the
-   * runtime remains unreachable from the public internet. The gateway
-   * authenticates the downstream client and proxies the upgrade with a
-   * short-lived gateway service token.
-   */
+  /** Handle WebSocket upgrade for `/v1/stt/stream`. */
   private handleSttStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct STT stream access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    // Verify the gateway service token before accepting the upgrade.
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
+    const gateError = this.gateRuntimeStreamUpgrade(req, server, "STT stream");
+    if (gateError) {
+      return gateError;
     }
 
     const wsUrl = new URL(req.url);
@@ -1072,28 +1081,14 @@ export class RuntimeHttpServer {
     return undefined!;
   }
 
-  /**
-   * Handle WebSocket upgrade for `/v1/live-voice`.
-   *
-   * The gateway owns downstream client auth and forwards this upstream with
-   * a short-lived gateway service token. The runtime accepts only private
-   * network peers/origins so the shell is not publicly reachable.
-   */
+  /** Handle WebSocket upgrade for `/v1/live-voice`. */
   private handleLiveVoiceUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct live voice access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
+    const gateError = this.gateRuntimeStreamUpgrade(req, server, "live voice");
+    if (gateError) {
+      return gateError;
     }
 
     const upgraded = server.upgrade(req, {
@@ -1107,28 +1102,18 @@ export class RuntimeHttpServer {
     return undefined!;
   }
 
-  /**
-   * Handle WebSocket upgrade for `/v1/watch/stream`.
-   *
-   * Gated exactly as `/v1/stt/stream` is: private network peers and origins
-   * only, then a gateway service token. The gateway owns downstream client
-   * auth and dials this upstream on the client's behalf.
-   */
+  /** Handle WebSocket upgrade for `/v1/watch/stream`. */
   private handleWatchStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct watch stream access disabled: only private network peers allowed",
-        403,
-      );
-    }
-
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
+    const gateError = this.gateRuntimeStreamUpgrade(
+      req,
+      server,
+      "watch stream",
+    );
+    if (gateError) {
+      return gateError;
     }
 
     const wsUrl = new URL(req.url);
@@ -1163,41 +1148,25 @@ export class RuntimeHttpServer {
   }
 
   /**
-   * Handle WebSocket upgrade for `/v1/desktop/stream`.
-   *
-   * Gated exactly as `/v1/watch/stream` is. A daemon without the pod desktop
-   * still upgrades and then closes the socket with 1008, so the browser sees
-   * the feature-disabled code through the gateway's pump.
+   * Handle WebSocket upgrade for `/v1/desktop/stream`. The feature gate is
+   * applied after the upgrade (close code 4008) because the gateway relays
+   * close codes, not pre-upgrade HTTP statuses, to the browser.
    */
   private handleDesktopStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct desktop stream access disabled: only private network peers allowed",
-        403,
-      );
-    }
-
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
-    }
-
-    let enabled = false;
-    try {
-      enabled = isPodDesktopEnabled(getConfig());
-    } catch (err) {
-      log.warn({ err }, "Failed to read config for desktop stream gate");
+    const gateError = this.gateRuntimeStreamUpgrade(
+      req,
+      server,
+      "desktop stream",
+    );
+    if (gateError) {
+      return gateError;
     }
 
     const upgraded = server.upgrade(req, {
-      data: {
-        wsType: "desktop-stream",
-        enabled,
-      } satisfies DesktopStreamWebSocketData,
+      data: { wsType: "desktop-stream" } satisfies DesktopStreamWebSocketData,
     });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });

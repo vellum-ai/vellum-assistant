@@ -1,18 +1,17 @@
 /**
- * On-demand pod desktop: one Xtigervnc X server with its built-in VNC server
- * on localhost, an openbox window manager, the vncconfig clipboard bridge and
- * Playwright's Chromium.
- *
- * The process tree starts lazily on the first `/v1/desktop/stream` socket,
- * serves one viewer at a time, lingers for a while after the last viewer
- * leaves so a reconnect is instant, and is torn down on expiry, on a crash of
- * the X server or window manager, or on runtime shutdown.
+ * On-demand pod desktop: Xtigervnc (VNC on loopback only, so the authenticated
+ * `/v1/desktop/stream` upgrade is the sole way in), openbox, the tigervncconfig
+ * clipboard bridge and Playwright's Chromium, started by the first viewer and
+ * lingering after the last one leaves so a reconnect is instant.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { importPlaywright } from "../tools/browser/runtime-check.js";
+import {
+  ensureChromium,
+  importPlaywright,
+} from "../tools/browser/runtime-check.js";
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
@@ -21,19 +20,26 @@ import { sleep } from "../util/retry.js";
 
 const log = getLogger("desktop-session");
 
-export const DESKTOP_DISPLAY = ":99";
+const DESKTOP_DISPLAY = ":99";
 export const DESKTOP_VNC_PORT = 5999;
-export const DESKTOP_GEOMETRY = "1440x900";
-export const DESKTOP_LINGER_MS = 5 * 60_000;
+const DESKTOP_GEOMETRY = "1440x900";
+const DESKTOP_LINGER_MS = 5 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;
 const VNC_PROBE_INTERVAL_MS = 100;
 const KILL_GRACE_MS = 2_000;
-const CHROMIUM_INSTALL_TIMEOUT_MS = 300_000;
+const BROWSER_CRASH_WINDOW_MS = 60_000;
+const BROWSER_CRASH_LIMIT = 3;
 
-export interface DesktopInfo {
-  readonly display: string;
-  readonly vncPort: number;
-}
+/**
+ * Close codes for `/v1/desktop/stream`. Application-range values cannot
+ * collide with velay's own 1013 or be remapped by the gateway's velay bridge.
+ */
+export const DESKTOP_CLOSE = {
+  goingAway: 1001,
+  unavailable: 4008,
+  failed: 4011,
+  busy: 4013,
+} as const;
 
 export type DesktopChildRole =
   | "x-server"
@@ -53,42 +59,70 @@ export interface DesktopSpawnRequest {
   readonly env: Record<string, string>;
 }
 
-/** Callback surface of the socket holding the viewer slot. */
-export interface DesktopViewer {
-  /** The desktop went away underneath the viewer (crash, idle expiry, shutdown). */
-  onDesktopLost(reason: string): void;
+/** Why the desktop went away underneath a viewer, as the close code it relays. */
+export interface DesktopLoss {
+  readonly code: typeof DESKTOP_CLOSE.goingAway | typeof DESKTOP_CLOSE.failed;
+  readonly reason: string;
 }
 
-export type AcquireViewerSlotResult =
+/** Callback surface of the socket holding the viewer slot. */
+export interface DesktopViewer {
+  onDesktopLost(loss: DesktopLoss): void;
+}
+
+export interface DesktopTcpSocket {
+  /** Returns the bytes accepted; fewer than offered means backpressure. */
+  write(data: Uint8Array): number;
+  end(): void;
+}
+
+export interface DesktopTcpHandlers {
+  onData(data: Uint8Array): void;
+  onDrain(): void;
+  onClose(): void;
+  onError(err: Error): void;
+}
+
+type DesktopSignal = "SIGTERM" | "SIGKILL";
+
+type ViewerSlotResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "busy" | "shutting-down" };
 
-export interface DesktopSessionManagerOptions {
+interface DesktopSessionManagerOptions {
   readonly spawn?: (
     role: DesktopChildRole,
     request: DesktopSpawnRequest,
   ) => DesktopChild;
+  /** PATH lookup for the desktop binaries; `null` when one is missing. */
+  readonly which?: (binary: string) => string | null;
   /** Whether the VNC server accepts connections on `port`. */
   readonly probeVncPort?: (port: number) => Promise<boolean>;
   /** Path of the Chromium binary to launch, installing it when needed. */
   readonly resolveChromiumPath?: () => Promise<string>;
-  readonly killProcessGroup?: (child: DesktopChild) => void;
+  readonly killProcessGroup?: (
+    child: DesktopChild,
+    signal: DesktopSignal,
+  ) => void;
   readonly lingerMs?: number;
   readonly readyDeadlineMs?: number;
+  readonly killGraceMs?: number;
   readonly profileDir?: string;
 }
 
 export class DesktopSessionManager {
   private readonly children = new Map<DesktopChildRole, DesktopChild>();
-  private starting: Promise<DesktopInfo> | null = null;
+  private starting: Promise<void> | null = null;
   private running = false;
   /** Bumped on every teardown so an in-flight start notices it lost its tree. */
   private generation = 0;
   private viewer: DesktopViewer | null = null;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
+  private browserExitsAt: number[] = [];
 
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
+  private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
   private readonly probeVncPort: NonNullable<
     DesktopSessionManagerOptions["probeVncPort"]
   >;
@@ -100,31 +134,26 @@ export class DesktopSessionManager {
   >;
   private readonly lingerMs: number;
   private readonly readyDeadlineMs: number;
+  private readonly killGraceMs: number;
   private readonly profileDir: string;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
     this.spawn = options.spawn ?? spawnDetached;
-    this.probeVncPort = options.probeVncPort ?? probeTcpPort;
+    this.which = options.which ?? Bun.which;
+    this.probeVncPort = options.probeVncPort ?? probeLoopbackPort;
     this.resolveChromiumPath =
       options.resolveChromiumPath ?? resolvePlaywrightChromium;
     this.killProcessGroup = options.killProcessGroup ?? killProcessGroup;
     this.lingerMs = options.lingerMs ?? DESKTOP_LINGER_MS;
     this.readyDeadlineMs = options.readyDeadlineMs ?? VNC_READY_DEADLINE_MS;
+    this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS;
     this.profileDir =
       options.profileDir ?? join(getDataDir(), "desktop-profile");
   }
 
-  get isRunning(): boolean {
-    return this.running;
-  }
-
-  get hasViewer(): boolean {
-    return this.viewer !== null;
-  }
-
   // ── Viewer slot ────────────────────────────────────────────────────
 
-  acquireViewerSlot(viewer: DesktopViewer): AcquireViewerSlotResult {
+  acquireViewerSlot(viewer: DesktopViewer): ViewerSlotResult {
     if (this.ingressClosed) {
       return { ok: false, reason: "shutting-down" };
     }
@@ -153,13 +182,13 @@ export class DesktopSessionManager {
   // ── Process tree ───────────────────────────────────────────────────
 
   /** Start the desktop if needed. Concurrent callers share one start. */
-  ensureDesktopRunning(): Promise<DesktopInfo> {
+  ensureDesktopRunning(): Promise<void> {
     if (this.ingressClosed) {
       return Promise.reject(new Error("Desktop ingress is closed"));
     }
     if (this.running) {
       void this.ensureBrowser(this.childEnv(), this.generation);
-      return Promise.resolve(desktopInfo());
+      return Promise.resolve();
     }
     this.starting ??= this.startDesktop().finally(() => {
       this.starting = null;
@@ -167,34 +196,65 @@ export class DesktopSessionManager {
     return this.starting;
   }
 
-  /** Refuse new viewers and kill the process tree. Safe to call repeatedly. */
-  destroy(): void {
+  /**
+   * Refuse new viewers and kill the process tree. Resolves once every child
+   * has exited or been hard-killed after the grace period. Safe to repeat.
+   */
+  destroy(): Promise<void> {
     this.ingressClosed = true;
-    this.teardown("shutdown");
+    return this.teardown({
+      code: DESKTOP_CLOSE.goingAway,
+      reason: "The assistant is shutting down",
+    });
   }
 
-  private async startDesktop(): Promise<DesktopInfo> {
+  private async startDesktop(): Promise<void> {
     const generation = this.generation;
+    const binaries = this.resolveBinaries();
     const env = this.childEnv();
-    this.launch("x-server", xServerCommand(), env);
-
-    const ready = await this.waitForVnc(generation);
-    if (this.generation !== generation) {
-      throw new Error("Desktop was torn down while starting");
+    try {
+      this.launch("x-server", xServerCommand(binaries.xServer), env);
+      const ready = await this.waitForVnc(generation);
+      if (this.generation !== generation) {
+        throw new Error("Desktop was torn down while starting");
+      }
+      if (!ready) {
+        throw new Error(
+          `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
+        );
+      }
+      this.launch("window-manager", [binaries.windowManager], env);
+      this.launch("clipboard", [binaries.clipboard, "-nowin"], env);
+    } catch (err) {
+      if (this.generation === generation) {
+        void this.teardown({
+          code: DESKTOP_CLOSE.failed,
+          reason: "Desktop failed to start",
+        });
+      }
+      throw err;
     }
-    if (!ready) {
-      this.teardown("vnc-not-ready");
-      throw new Error(
-        `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
-      );
-    }
-
-    this.launch("window-manager", ["openbox"], env);
-    this.launch("clipboard", ["vncconfig", "-nowin"], env);
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
     void this.ensureBrowser(env, generation);
-    return desktopInfo();
+  }
+
+  /** Preflight every binary the tree needs before anything is spawned. */
+  private resolveBinaries() {
+    const xServer = this.which("Xtigervnc");
+    const windowManager = this.which("openbox");
+    const clipboard = this.which("tigervncconfig") ?? this.which("vncconfig");
+    if (!xServer || !windowManager || !clipboard) {
+      const missing = [
+        xServer ? null : "Xtigervnc",
+        windowManager ? null : "openbox",
+        clipboard ? null : "tigervncconfig",
+      ].filter(Boolean);
+      throw new Error(
+        `Desktop binaries missing from PATH: ${missing.join(", ")}`,
+      );
+    }
+    return { xServer, windowManager, clipboard };
   }
 
   private async waitForVnc(generation: number): Promise<boolean> {
@@ -214,8 +274,8 @@ export class DesktopSessionManager {
   /**
    * Launch Chromium unless it is already up. Runs after the X server is
    * serving so the viewer sees a desktop while a first-time install
-   * completes. A user closing the browser is normal, so its exit never tears
-   * the desktop down; the next viewer gets a fresh window.
+   * completes; an install failure takes the desktop down so the viewer is
+   * not left staring at an empty one.
    */
   private async ensureBrowser(
     env: Record<string, string>,
@@ -233,6 +293,12 @@ export class DesktopSessionManager {
       this.launch("browser", browserCommand(executable, this.profileDir), env);
     } catch (err) {
       log.warn({ err }, "Desktop browser failed to launch");
+      if (this.generation === generation) {
+        void this.teardown({
+          code: DESKTOP_CLOSE.failed,
+          reason: "Desktop browser failed to start",
+        });
+      }
     }
   }
 
@@ -241,6 +307,11 @@ export class DesktopSessionManager {
     cmd: readonly string[],
     env: Record<string, string>,
   ): void {
+    const stale = this.children.get(role);
+    if (stale) {
+      log.warn({ role, pid: stale.pid }, "Desktop process already running");
+      void this.killAll([stale]);
+    }
     const child = this.spawn(role, { cmd, env });
     this.children.set(role, child);
     child.exited.then(
@@ -260,24 +331,74 @@ export class DesktopSessionManager {
     this.children.delete(role);
     if (role === "browser") {
       log.info({ outcome }, "Desktop browser exited");
+      this.onBrowserExit();
       return;
     }
     log.warn({ role, outcome }, "Desktop process exited, tearing down");
-    this.teardown(`${role} exited`);
+    void this.teardown({
+      code: DESKTOP_CLOSE.failed,
+      reason: `Desktop stopped: ${role} exited`,
+    });
   }
 
-  private teardown(reason: string): void {
+  /**
+   * A closed browser is normal use when nobody is watching; the next viewer
+   * gets a fresh window. Under a viewer it is relaunched so they are not
+   * stranded on an empty desktop, unless it keeps dying.
+   */
+  private onBrowserExit(): void {
+    if (!this.viewer || !this.running) {
+      return;
+    }
+    const now = Date.now();
+    this.browserExitsAt = this.browserExitsAt.filter(
+      (at) => now - at < BROWSER_CRASH_WINDOW_MS,
+    );
+    this.browserExitsAt.push(now);
+    if (this.browserExitsAt.length > BROWSER_CRASH_LIMIT) {
+      log.warn("Desktop browser is crash looping, tearing down");
+      void this.teardown({
+        code: DESKTOP_CLOSE.failed,
+        reason: "Desktop browser keeps crashing",
+      });
+      return;
+    }
+    void this.ensureBrowser(this.childEnv(), this.generation);
+  }
+
+  private teardown(loss: DesktopLoss): Promise<void> {
     this.clearLinger();
     this.generation += 1;
     this.running = false;
-    for (const child of this.children.values()) {
-      this.killProcessGroup(child);
-    }
+    this.browserExitsAt = [];
+    const children = [...this.children.values()];
     this.children.clear();
     const viewer = this.viewer;
     this.viewer = null;
-    if (viewer) {
-      viewer.onDesktopLost(reason);
+    viewer?.onDesktopLost(loss);
+    return this.killAll(children);
+  }
+
+  /** SIGTERM so X and Chromium exit cleanly, then SIGKILL whatever is left. */
+  private async killAll(children: readonly DesktopChild[]): Promise<void> {
+    if (children.length === 0) {
+      return;
+    }
+    const alive = new Set(children);
+    const exits = children.map((child) => {
+      this.killProcessGroup(child, "SIGTERM");
+      return child.exited.catch(() => 0).then(() => alive.delete(child));
+    });
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all(exits),
+      new Promise<void>((resolve) => {
+        grace = setTimeout(resolve, this.killGraceMs);
+      }),
+    ]);
+    clearTimeout(grace);
+    for (const child of alive) {
+      this.killProcessGroup(child, "SIGKILL");
     }
   }
 
@@ -286,7 +407,10 @@ export class DesktopSessionManager {
     this.lingerTimer = setTimeout(() => {
       this.lingerTimer = null;
       log.info("Desktop idle, tearing down");
-      this.teardown("idle");
+      void this.teardown({
+        code: DESKTOP_CLOSE.failed,
+        reason: "Desktop stopped: idle",
+      });
     }, this.lingerMs);
     this.lingerTimer.unref?.();
   }
@@ -307,9 +431,9 @@ export class DesktopSessionManager {
 // Commands
 // ---------------------------------------------------------------------------
 
-function xServerCommand(): string[] {
+function xServerCommand(executable: string): string[] {
   return [
-    "Xtigervnc",
+    executable,
     DESKTOP_DISPLAY,
     "-localhost",
     "-SecurityTypes",
@@ -338,10 +462,6 @@ function browserCommand(executable: string, profileDir: string): string[] {
   ];
 }
 
-function desktopInfo(): DesktopInfo {
-  return { display: DESKTOP_DISPLAY, vncPort: DESKTOP_VNC_PORT };
-}
-
 // ---------------------------------------------------------------------------
 // Default collaborators
 // ---------------------------------------------------------------------------
@@ -360,55 +480,61 @@ function spawnDetached(
   });
 }
 
-/** SIGTERM the group so X and Chromium exit cleanly, then hard-kill stragglers. */
-function killProcessGroup(child: DesktopChild): void {
-  try {
-    process.kill(-child.pid, "SIGTERM");
-  } catch {
-    // Already gone, or not a group leader; the tree kill below covers it.
+function killProcessGroup(child: DesktopChild, signal: DesktopSignal): void {
+  if (signal === "SIGKILL") {
+    terminateProcessTree(child);
+    return;
   }
-  setTimeout(() => terminateProcessTree(child), KILL_GRACE_MS).unref();
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // Not a group leader, or already gone.
+    child.kill(signal);
+  }
 }
 
-async function probeTcpPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
+/** Dial a loopback TCP port; resolves on connect, rejects when refused. */
+export function connectLoopback(
+  port: number,
+  handlers: DesktopTcpHandlers,
+): Promise<DesktopTcpSocket> {
+  return new Promise((resolve, reject) => {
     Bun.connect({
       hostname: "127.0.0.1",
       port,
       socket: {
-        open(socket) {
-          resolve(true);
-          socket.end();
-        },
-        data() {},
-        connectError() {
-          resolve(false);
-        },
+        open: (socket) => resolve(socket),
+        data: (_socket, data) => handlers.onData(data),
+        drain: () => handlers.onDrain(),
+        close: () => handlers.onClose(),
+        error: (_socket, err) => handlers.onError(err),
+        connectError: (_socket, err) => reject(err),
       },
-    }).catch(() => resolve(false));
+    }).catch(reject);
   });
 }
 
+const silentHandlers: DesktopTcpHandlers = {
+  onData() {},
+  onDrain() {},
+  onClose() {},
+  onError() {},
+};
+
+async function probeLoopbackPort(port: number): Promise<boolean> {
+  try {
+    const socket = await connectLoopback(port, silentHandlers);
+    socket.end();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function resolvePlaywrightChromium(): Promise<string> {
-  const { chromium } = await importPlaywright();
-  const executable = chromium.executablePath();
-  if (existsSync(executable)) {
-    return executable;
-  }
-  log.info("Desktop browser not installed, installing via playwright");
-  const install = Bun.spawn(["bunx", "playwright", "install", "chromium"], {
-    stdio: ["ignore", "ignore", "pipe"],
-    windowsHide: true,
-  });
-  const timer = setTimeout(() => install.kill(), CHROMIUM_INSTALL_TIMEOUT_MS);
-  const exitCode = await install.exited.finally(() => clearTimeout(timer));
-  if (exitCode !== 0) {
-    const stderr = (await new Response(install.stderr).text()).trim();
-    throw new Error(
-      `playwright install chromium failed: ${stderr || `exit code ${exitCode}`}`,
-    );
-  }
-  return executable;
+  const pw = await importPlaywright();
+  await ensureChromium(pw);
+  return pw.chromium.executablePath();
 }
 
 // ---------------------------------------------------------------------------
@@ -417,12 +543,13 @@ async function resolvePlaywrightChromium(): Promise<string> {
 
 let sharedManager: DesktopSessionManager | null = null;
 
-/**
- * The process-wide desktop session manager. One instance because there is
- * one display and one VNC port; lazily created so importing this module
- * costs nothing until a socket arrives.
- */
+/** One instance because there is one display and one VNC port. */
 export function getDesktopSessionManager(): DesktopSessionManager {
   sharedManager ??= new DesktopSessionManager();
   return sharedManager;
+}
+
+/** Shut the shared desktop down, if one was ever started. */
+export function destroyDesktopSessionManager(): Promise<void> {
+  return sharedManager?.destroy() ?? Promise.resolve();
 }

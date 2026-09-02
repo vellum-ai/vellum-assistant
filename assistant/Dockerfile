@@ -135,6 +135,11 @@ COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
 
+# Bake Playwright's Chromium for the pod desktop so the first viewer never
+# waits on a download; its shared libraries are in the apt list above.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN cd /app/assistant && bunx playwright install chromium && chmod -R a+rX /opt/ms-playwright
+
 # Materialize the git-ignored offline plugin manifest from its canonical source.
 # `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
 # (loaded even when platform features are enabled), so it must exist in the image
