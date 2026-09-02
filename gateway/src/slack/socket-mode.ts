@@ -84,6 +84,8 @@ type SlackAdmission = {
   isReactionRemoved: boolean;
   isMessageChanged: boolean;
   isMessageDeleted: boolean;
+  /** The deleted message was the assistant's own post. */
+  deletesOwnPost: boolean;
   /** A 1:1 IM or a group DM. `isGroupDm` distinguishes the two. */
   isDm: boolean;
   isGroupDm: boolean;
@@ -1383,14 +1385,24 @@ export class SlackSocketModeClient {
     // Slack's Socket Mode delivers the bot's own outbound messages back
     // as inbound events (DM echoes, thread reply echoes, etc.). This is
     // the one structural filter point — every event with the bot as author
-    // is dropped here, before any normalization or routing.
-    if (this.isOwnBotEvent(event)) {
+    // is dropped here, before any normalization or routing, with one
+    // exception below: a deletion of the bot's own post.
+    const isOwnBotEvent = this.isOwnBotEvent(event);
+    if (isOwnBotEvent && classifiedForKind?.kind !== "message_deleted") {
       // Exception: the bot's own posts are used to arm thread tracking (so
       // follow-up human replies are forwarded). This is a side effect only,
       // the event itself is still dropped.
       this.maybeTrackBotOwnPost(event);
       return;
     }
+    // A deletion of the assistant's own post is not an echo of anything the
+    // assistant said. It reports that a post the assistant made is gone from
+    // the channel, and this event is the only carrier of that fact, so it
+    // rides on through the delete admission below. The normalizer forwards
+    // it unattributed: Slack names the post's author (us) and never who
+    // deleted it, so there is no actor for the daemon to enforce.
+    const deletesOwnPost =
+      isOwnBotEvent && classifiedForKind?.kind === "message_deleted";
 
     // Classify the event once, then admit per kind. Each event has exactly one
     // kind, so at most one filter matches — the admit conditions per kind carry
@@ -1603,6 +1615,7 @@ export class SlackSocketModeClient {
       isReactionRemoved,
       isMessageChanged,
       isMessageDeleted,
+      deletesOwnPost,
       isDm,
       isGroupDm,
     });
@@ -1689,6 +1702,7 @@ export class SlackSocketModeClient {
       isReactionRemoved,
       isMessageChanged,
       isMessageDeleted,
+      deletesOwnPost,
       isDm,
       isGroupDm,
     } = admission;
@@ -1729,6 +1743,7 @@ export class SlackSocketModeClient {
         event,
         eventId,
         this.config.gatewayConfig,
+        { authoredBySelf: deletesOwnPost },
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
@@ -1805,7 +1820,13 @@ export class SlackSocketModeClient {
     // bound the wait to prevent a hanging TCP connection from stalling all
     // event processing.
     const actor = normalized.event.actor;
-    if (actor?.actorExternalId && !actor.displayName) {
+    // An unattributed event names the channel's synthetic system id, which
+    // is not a Slack user: there is nothing to look up.
+    if (
+      actor?.actorExternalId &&
+      !actor.displayName &&
+      !normalized.event.source.actorUnattributed
+    ) {
       const mentionedLabel = userLabels[actor.actorExternalId];
       if (mentionedLabel) {
         actor.displayName = mentionedLabel;
