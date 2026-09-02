@@ -43,7 +43,7 @@ let assistantStateMock:
   | {
       kind: "active";
       isLocal: boolean;
-      maintenanceMode?: { enabled: boolean };
+      maintenanceMode?: { enabled: boolean; adminLocked?: boolean };
     } = { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
@@ -768,6 +768,24 @@ describe("StatusBanner", () => {
     expect(html).toContain("Assistant is in maintenance mode");
     expect(html).toContain('data-tone="warning"');
     expect(html).toContain("Resume Assistant");
+  });
+
+  test("hides Resume when Recovery Mode is admin-locked", () => {
+    assistantStateMock = {
+      kind: "active",
+      isLocal: false,
+      maintenanceMode: { enabled: true, adminLocked: true },
+    };
+    operationalStatusQueryMock = {
+      data: { state: "maintenance_mode" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is in maintenance mode");
+    expect(html).not.toContain("Resume Assistant");
+    expect(html).toContain("Only Vellum can resume this assistant.");
   });
 
   test("renders status query failures as error banners", () => {

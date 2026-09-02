@@ -532,6 +532,7 @@
     "reloadApp": "重新載入應用程式"
   },
   "statusBanner": {
+    "adminLocked": "復原模式由 Vellum 啟用。只有 Vellum 可以恢復此助理。",
     "dismiss": "關閉",
     "goToDoctor": "前往診斷",
     "resumeAssistant": "恢復助理",

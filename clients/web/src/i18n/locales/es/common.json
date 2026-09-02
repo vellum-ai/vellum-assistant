@@ -532,6 +532,7 @@
     "reloadApp": "Recargar app"
   },
   "statusBanner": {
+    "adminLocked": "Vellum activó el modo de recuperación. Solo Vellum puede reanudar este asistente.",
     "dismiss": "Descartar",
     "goToDoctor": "Ir a Doctor",
     "resumeAssistant": "Reanudar asistente",

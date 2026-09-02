@@ -1682,6 +1682,7 @@
   },
   "recoveryModeControls": {
     "activeDescription": "活动中 - 已连接到调试终端",
+    "adminLockedDescription": "恢复模式由 Vellum 启用。只有 Vellum 可以恢复此助手。",
     "enter": "进入恢复模式",
     "enterError": "进入恢复模式失败。请重试。",
     "exitError": "退出恢复模式失败。请重试。",

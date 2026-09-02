@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { type Assistant, getAssistant } from "@/assistant/api";
+import { isAdminLockedRecovery } from "@/assistant/types";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
@@ -100,6 +101,7 @@ export function DebugControlsPanel() {
               <RestartAssistant
                 assistantId={assistant.id}
                 isLocal={assistant.is_local}
+                disabled={isAdminLockedRecovery(assistant.maintenance_mode)}
               />
             </div>
           </div>

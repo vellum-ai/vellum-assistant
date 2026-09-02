@@ -11,6 +11,7 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { isAdminLockedRecovery } from "@/assistant/types";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library/components/button";
@@ -102,6 +103,7 @@ export function RecoveryModeControls({
   }
 
   const isActive = maintenanceMode?.enabled === true;
+  const isAdminLocked = isAdminLockedRecovery(maintenanceMode);
   // Treat the lifecycle-loading window as effective loading: the existing
   // spinner branch already replaces the action button while a mutation is
   // in flight, so reusing it here keeps UX consistent and prevents the
@@ -122,7 +124,9 @@ export function RecoveryModeControls({
             </p>
             {isActive ? (
               <p className="text-body-small-default text-[var(--system-mid-strong)]">
-                {t("recoveryModeControls.activeDescription")}
+                {isAdminLocked
+                  ? t("recoveryModeControls.adminLockedDescription")
+                  : t("recoveryModeControls.activeDescription")}
               </p>
             ) : (
               <p className="text-body-small-default text-[var(--content-tertiary)]">
@@ -133,7 +137,7 @@ export function RecoveryModeControls({
         </div>
 
         <div className="ml-4 flex shrink-0 items-center gap-2">
-          {platformGate === "disabled" ? null : effectiveLoading ? (
+          {platformGate === "disabled" || isAdminLocked ? null : effectiveLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
           ) : isActive ? (
             <Button variant="outlined" onClick={handleExit}>
@@ -147,7 +151,7 @@ export function RecoveryModeControls({
         </div>
       </div>
 
-      {platformGate === "disabled" && (
+      {platformGate === "disabled" && !isAdminLocked && (
         <PlatformLoginNotice>
           {isActive
             ? t("recoveryModeControls.loginNoticeExit")

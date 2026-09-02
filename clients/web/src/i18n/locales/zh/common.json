@@ -532,6 +532,7 @@
     "reloadApp": "重新加载应用"
   },
   "statusBanner": {
+    "adminLocked": "恢复模式由 Vellum 启用。只有 Vellum 可以恢复此助手。",
     "dismiss": "忽略",
     "goToDoctor": "前往诊断",
     "resumeAssistant": "恢复助手",

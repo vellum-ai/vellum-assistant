@@ -272,7 +272,36 @@ describe("lifecycleService — server state projection", () => {
     expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
       kind: "active",
       isLocal: false,
-      maintenanceMode: { enabled: false },
+      maintenanceMode: { enabled: false, adminLocked: false },
+    });
+  });
+
+  test("active result projects admin-locked Recovery Mode", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-locked",
+        status: "active",
+        is_local: false,
+        maintenance_mode: {
+          enabled: true,
+          debug_pod_name: "assistant-asst-locked-debug",
+          admin_locked: true,
+        },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
+      kind: "active",
+      isLocal: false,
+      maintenanceMode: { enabled: true, adminLocked: true },
     });
   });
 

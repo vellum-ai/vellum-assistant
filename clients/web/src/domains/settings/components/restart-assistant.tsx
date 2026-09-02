@@ -38,9 +38,11 @@ async function restartLocalAssistant(
 export function RestartAssistant({
   assistantId,
   isLocal,
+  disabled = false,
 }: {
   assistantId: string;
   isLocal: boolean;
+  disabled?: boolean;
 }) {
   const { t } = useTranslation("settings");
   const [restarting, setRestarting] = useState(false);
@@ -98,7 +100,7 @@ export function RestartAssistant({
           restarting ? <Loader2 className="animate-spin" /> : <RotateCcw />
         }
         onClick={() => setConfirmOpen(true)}
-        disabled={restarting}
+        disabled={restarting || disabled}
         className="shrink-0"
       >
         {t("restartAssistant.button")}

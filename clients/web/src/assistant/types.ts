@@ -1,6 +1,26 @@
 export type MaintenanceModeInfo = {
   enabled?: boolean;
+  adminLocked?: boolean;
 };
+
+export function isAdminLockedRecovery(
+  maintenanceMode:
+    | {
+        enabled?: boolean;
+        admin_locked?: boolean;
+        adminLocked?: boolean;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!maintenanceMode?.enabled) {
+    return false;
+  }
+  return (
+    maintenanceMode.adminLocked === true ||
+    maintenanceMode.admin_locked === true
+  );
+}
 
 /**
  * Probe-confirmed daemon health, written by the lifecycle service's

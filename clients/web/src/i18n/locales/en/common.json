@@ -532,6 +532,7 @@
     "reloadApp": "Reload app"
   },
   "statusBanner": {
+    "adminLocked": "Recovery Mode was entered by Vellum. Only Vellum can resume this assistant.",
     "dismiss": "Dismiss",
     "goToDoctor": "Go to Doctor",
     "resumeAssistant": "Resume Assistant",

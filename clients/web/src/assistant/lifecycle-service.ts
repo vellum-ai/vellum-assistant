@@ -547,7 +547,10 @@ class AssistantLifecycleService {
     this.transition({
       kind: "active",
       isLocal,
-      maintenanceMode: { enabled: mm?.enabled },
+      maintenanceMode: {
+        enabled: mm?.enabled,
+        adminLocked: mm?.admin_locked === true,
+      },
     });
     if (isLocal) {
       this.startHealthHeartbeat(result.data.id);

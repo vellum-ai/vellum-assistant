@@ -1682,6 +1682,7 @@
   },
   "recoveryModeControls": {
     "activeDescription": "啟用中 - 已連線至偵錯終端機",
+    "adminLockedDescription": "復原模式由 Vellum 啟用。只有 Vellum 可以恢復此助理。",
     "enter": "進入復原模式",
     "enterError": "進入復原模式失敗。請再試一次。",
     "exitError": "結束復原模式失敗。請再試一次。",

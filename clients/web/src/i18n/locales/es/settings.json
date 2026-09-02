@@ -1682,6 +1682,7 @@
   },
   "recoveryModeControls": {
     "activeDescription": "Activo: conectado al terminal de depuración",
+    "adminLockedDescription": "Vellum activó el modo de recuperación. Solo Vellum puede reanudar este asistente.",
     "enter": "Entrar en modo de recuperación",
     "enterError": "No se pudo entrar en el modo de recuperación. Inténtalo de nuevo.",
     "exitError": "No se pudo salir del modo de recuperación. Inténtalo de nuevo.",

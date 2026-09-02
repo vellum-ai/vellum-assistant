@@ -1682,6 +1682,7 @@
   },
   "recoveryModeControls": {
     "activeDescription": "Active - connected to the debug terminal",
+    "adminLockedDescription": "Recovery Mode was entered by Vellum. Only Vellum can resume this assistant.",
     "enter": "Enter Recovery Mode",
     "enterError": "Failed to enter Recovery Mode. Please try again.",
     "exitError": "Failed to exit Recovery Mode. Please try again.",

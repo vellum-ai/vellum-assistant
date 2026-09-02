@@ -913,6 +913,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const lifecycleMaintenanceModeActive =
     assistantState.kind === "active" &&
     assistantState.maintenanceMode?.enabled === true;
+  const isAdminLockedRecovery =
+    assistantState.kind === "active" &&
+    assistantState.maintenanceMode?.adminLocked === true;
   const shouldUseLifecycleMaintenanceMode =
     lifecycleMaintenanceModeActive &&
     (!operationalStatus || isHealthyOperationalStatus(operationalStatus));
@@ -983,24 +986,27 @@ function useAssistantBannerConfig(): BannerConfig | null {
   return {
     ...operationalBanner,
     tone: maintenanceModeExitError ? "error" : operationalBanner.tone,
-    children: maintenanceModeExitError,
-    actions: assistantId ? (
-      <Button
-        variant="outlined"
-        size="compact"
-        leftIcon={
-          isExitingMaintenanceMode ? (
-            <LoaderCircle className="animate-spin" aria-hidden="true" />
-          ) : undefined
-        }
-        disabled={isExitingMaintenanceMode}
-        onClick={() => {
-          void handleExitMaintenanceMode();
-        }}
-      >
-        {t("statusBanner.resumeAssistant")}
-      </Button>
-    ) : undefined,
+    children: isAdminLockedRecovery
+      ? t("statusBanner.adminLocked")
+      : maintenanceModeExitError,
+    actions:
+      assistantId && !isAdminLockedRecovery ? (
+        <Button
+          variant="outlined"
+          size="compact"
+          leftIcon={
+            isExitingMaintenanceMode ? (
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+            ) : undefined
+          }
+          disabled={isExitingMaintenanceMode}
+          onClick={() => {
+            void handleExitMaintenanceMode();
+          }}
+        >
+          {t("statusBanner.resumeAssistant")}
+        </Button>
+      ) : undefined,
   };
 }
 
