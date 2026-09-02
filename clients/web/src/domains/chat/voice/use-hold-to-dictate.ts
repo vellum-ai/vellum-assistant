@@ -118,8 +118,15 @@ export function useHoldToDictate({
         const selection = event.selection ?? null;
         // The helper may have held the edge to read the selection. That time
         // was part of the hold, so it comes off the arming delay rather than
-        // being added to it.
-        const armingMs = Math.max(0, HOLD_ARMING_MS - (event.heldMs ?? 0));
+        // being added to it. A hold the read has already carried past the
+        // delay opens here and now: its `up` may be queued right behind this
+        // edge, and a deferred open would be cancelled by it.
+        const armingMs = HOLD_ARMING_MS - (event.heldMs ?? 0);
+        if (armingMs <= 0) {
+          open = true;
+          handlers.current.onHoldStart({ selection });
+          return;
+        }
         armingTimer = setTimeout(() => {
           armingTimer = null;
           open = true;

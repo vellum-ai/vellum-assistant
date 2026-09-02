@@ -31,13 +31,27 @@ enum FrontSelection {
         let truncated: Bool
     }
 
-    /// Where the text came from, for the log.
+    /// Where the text came from, for the log. `copySkipped` is a copy that was
+    /// not attempted because the pasteboard held something it could not be
+    /// given back cheaply.
     enum Path: String {
         case selectedText
         case range
         case copy
+        case copySkipped
         case none
     }
+
+    /// The most pasteboard text that is saved and put back around a copy.
+    static let maxRestoredBytes = 256 * 1024
+
+    /// Pasteboard types that mean the user has something copied which a
+    /// string cannot stand in for: an image, a file, a document. A copy
+    /// would replace it with text and the restore could only give the text
+    /// back, so no copy is attempted over these.
+    private static let irreplaceableTypes: [NSPasteboard.PasteboardType] = [
+        .tiff, .png, .pdf, .fileURL, .fileContents,
+    ]
 
     /// Everything a read learned, the text aside: what the log carries. No
     /// user content in here; the bundle id and role name the application and
@@ -102,10 +116,18 @@ enum FrontSelection {
             path = .range
         }
         if isBlank(text) {
-            text = selectionFromCopy() ?? ""
-            path = .copy
+            switch selectionFromCopy() {
+            case .text(let copied):
+                text = copied
+                path = .copy
+            case .nothing:
+                path = .copy
+            case .skipped:
+                path = .copySkipped
+            }
         }
         guard !isBlank(text) else {
+            outcome.path = path == .copySkipped ? .copySkipped : .none
             return outcome
         }
 
@@ -154,30 +176,44 @@ enum FrontSelection {
         return String(utf16[start..<end])
     }
 
+    enum CopyResult {
+        case text(String)
+        case nothing
+        case skipped
+    }
+
     /// Copy whatever the application in front has selected and read it off
     /// the pasteboard, then put the pasteboard back as it was. A pasteboard
     /// that does not change inside `copyWaitSeconds` means nothing was
     /// selected, and it is left untouched.
-    private static func selectionFromCopy() -> String? {
+    ///
+    /// What is saved is the pasteboard's text, as `ActionExecutor` saves it
+    /// around a paste: reading every representation of everything on the
+    /// pasteboard is unbounded work on the keyboard callback (a lazily
+    /// supplied image waits on its owner), and a pasteboard holding an image
+    /// or a file is left alone rather than replaced with text. The restore
+    /// also mirrors `ActionExecutor`'s guard: it only happens while the
+    /// pasteboard still holds the copy, so a write by anyone else in the
+    /// meantime is never overwritten.
+    private static func selectionFromCopy() -> CopyResult {
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-            return nil
+            return .nothing
         }
         let pasteboard = NSPasteboard.general
-        let changeCountBefore = pasteboard.changeCount
-        let saved: [[NSPasteboard.PasteboardType: Data]] = (pasteboard.pasteboardItems ?? []).map { item in
-            var contents: [NSPasteboard.PasteboardType: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    contents[type] = data
-                }
-            }
-            return contents
+        let types = pasteboard.types ?? []
+        if types.contains(where: { irreplaceableTypes.contains($0) }) {
+            return .skipped
         }
+        let savedData = types.contains(.string) ? pasteboard.data(forType: .string) : nil
+        if let savedData, savedData.count > maxRestoredBytes {
+            return .skipped
+        }
+        let changeCountBefore = pasteboard.changeCount
 
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: false)
         else {
-            return nil
+            return .nothing
         }
         down.flags = .maskCommand
         up.flags = .maskCommand
@@ -188,23 +224,21 @@ enum FrontSelection {
         while pasteboard.changeCount == changeCountBefore, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
-        guard pasteboard.changeCount != changeCountBefore else {
-            return nil
+        let changeCountAfterCopy = pasteboard.changeCount
+        guard changeCountAfterCopy != changeCountBefore else {
+            return .nothing
         }
         let text = pasteboard.string(forType: .string)
 
-        pasteboard.clearContents()
-        let items = saved.map { contents -> NSPasteboardItem in
-            let item = NSPasteboardItem()
-            for (type, data) in contents {
-                item.setData(data, forType: type)
+        // Only while the pasteboard still holds the copy. Anyone who wrote to
+        // it since owns it now, and what was saved is not theirs to lose.
+        if pasteboard.changeCount == changeCountAfterCopy {
+            pasteboard.clearContents()
+            if let savedData {
+                pasteboard.setData(savedData, forType: .string)
             }
-            return item
         }
-        if !items.isEmpty {
-            pasteboard.writeObjects(items)
-        }
-        return text
+        return text.map { .text($0) } ?? .nothing
     }
 
     private static func stringAttribute(_ element: AXUIElement, _ attribute: CFString) -> String? {

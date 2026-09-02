@@ -101,6 +101,16 @@ describe("hold to dictate", () => {
     release();
   });
 
+  test("opens on the edge when the helper's read has already outlasted the delay", async () => {
+    const { onHoldStart, onHoldEnd } = renderHold();
+    // The read took longer than the arming delay, and the user let go while
+    // it ran, so the `up` lands right behind the `down`.
+    press({ text: "selected", truncated: false }, HOLD_ARMING_MS + 30);
+    expect(onHoldStart).toHaveBeenCalledTimes(1);
+    release();
+    expect(onHoldEnd).toHaveBeenCalledTimes(1);
+  });
+
   test("starts with no selection when the edge carried none", async () => {
     const { onHoldStart } = renderHold();
     press();
