@@ -49,7 +49,10 @@ import {
 } from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
-import { persistQueuedMessageBody } from "../../daemon/conversation-messaging.js";
+import {
+  isConversationBusyError,
+  persistQueuedMessageBody,
+} from "../../daemon/conversation-messaging.js";
 import {
   buildModelInfoEvent,
   formatCleanResult,
@@ -2236,11 +2239,23 @@ export async function handleSendMessage(
     );
   }
 
-  if (conversation.isProcessing()) {
+  /**
+   * Put the message on the conversation's queue and answer with the
+   * accepted-and-queued shape.
+   *
+   * Reached from the check just below, and again from every point past it that
+   * finds the conversation busy after all. That check and the acquire which
+   * actually starts a turn are separated by guardian cleanup, history scoping
+   * and slash resolution, so anything taking the flag inside those awaits
+   * leaves a send that has to queue rather than fail. Answering the same way
+   * from both means a client cannot tell which side of the awaits the
+   * conversation went busy on.
+   */
+  const queueSend = async (content: string) => {
     // Queue the message so it's processed when the current turn completes
     const requestId = uuidv7();
     const enqueueResult = conversation.enqueueMessage({
-      content: contentAfterScan,
+      content,
       attachments,
       onEvent: broadcastMessage,
       requestId,
@@ -2325,6 +2340,30 @@ export async function handleSendMessage(
       conversationId: mapping.conversationId,
       requestId,
     };
+  };
+
+  /**
+   * Take the flag for an operation whose idle decision was made several awaits
+   * ago, fencing the marker before the operation writes anything. Null means
+   * the flag went to someone else in the meantime and the caller owes its own
+   * busy behaviour.
+   */
+  const claimAfterAwaits = async (): Promise<number | null> => {
+    const claim = conversation.acquireProcessing();
+    if (claim === null) {
+      return null;
+    }
+    try {
+      await conversation.ensureProcessingMarker(claim);
+    } catch (err) {
+      conversation.releaseProcessing(claim);
+      throw err;
+    }
+    return claim;
+  };
+
+  if (conversation.isProcessing()) {
+    return queueSend(contentAfterScan);
   }
 
   // Auto-deny pending confirmations for idle conversations. The legacy
@@ -2405,7 +2444,10 @@ export async function handleSendMessage(
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    conversation.setProcessing(true);
+    const slashOwner = await claimAfterAwaits();
+    if (slashOwner === null) {
+      return queueSend(rawContent);
+    }
     let cleanupDeferred = false;
     try {
       const slashMeta = {
@@ -2503,15 +2545,17 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && conversation.isProcessing()) {
-        conversation.setProcessing(false);
+      if (!cleanupDeferred && conversation.releaseProcessing(slashOwner)) {
         void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
 
   if (slashResult.kind === "compact") {
-    conversation.setProcessing(true);
+    const compactOwner = await claimAfterAwaits();
+    if (compactOwner === null) {
+      return queueSend(rawContent);
+    }
     const slashMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
@@ -2532,12 +2576,12 @@ export async function handleSendMessage(
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
-      conversation.setProcessing(false);
+      conversation.releaseProcessing(compactOwner);
       void conversation.kickDrainQueue("loop_complete", "compact_command");
       throw err;
     }
     if (persisted.deduplicated) {
-      conversation.setProcessing(false);
+      conversation.releaseProcessing(compactOwner);
       void conversation.kickDrainQueue("loop_complete", "compact_dedup");
       return {
         accepted: true,
@@ -2589,7 +2633,7 @@ export async function handleSendMessage(
           retryable: true,
         });
       } finally {
-        conversation.setProcessing(false);
+        conversation.releaseProcessing(compactOwner);
         void conversation.kickDrainQueue("loop_complete", "compact_command");
       }
     })();
@@ -2602,7 +2646,10 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "clean") {
-    conversation.setProcessing(true);
+    const cleanOwner = await claimAfterAwaits();
+    if (cleanOwner === null) {
+      return queueSend(rawContent);
+    }
     const conversationId = mapping.conversationId;
     // Outer try/finally guarantees the processing flag is cleared (and the
     // queue drained) on every failure path — including a throw from the
@@ -2668,7 +2715,7 @@ export async function handleSendMessage(
         conversationId,
       };
     } finally {
-      conversation.setProcessing(false);
+      conversation.releaseProcessing(cleanOwner);
       void conversation.kickDrainQueue("loop_complete", "clean_command");
     }
   }
@@ -2676,23 +2723,35 @@ export async function handleSendMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = uuidv7();
-  const persistResult = await conversation.persistUserMessage({
-    content: resolvedContent,
-    attachments,
-    requestId,
-    metadata: withClientMetadata(
-      body.automated === true || body.hidden === true
-        ? {
-            ...(body.automated === true ? { automated: true } : {}),
-            ...(body.hidden === true ? { hidden: true } : {}),
-          }
-        : undefined,
-      clientMetadata,
-    ),
-    scripted: body.scripted,
-    clientMessageId,
-    ...(clientOs ? { requestClientOs: clientOs } : {}),
-  });
+  let persistResult: Awaited<
+    ReturnType<typeof conversation.persistUserMessage>
+  >;
+  try {
+    persistResult = await conversation.persistUserMessage({
+      content: resolvedContent,
+      attachments,
+      requestId,
+      metadata: withClientMetadata(
+        body.automated === true || body.hidden === true
+          ? {
+              ...(body.automated === true ? { automated: true } : {}),
+              ...(body.hidden === true ? { hidden: true } : {}),
+            }
+          : undefined,
+        clientMetadata,
+      ),
+      scripted: body.scripted,
+      clientMessageId,
+      ...(clientOs ? { requestClientOs: clientOs } : {}),
+    });
+  } catch (err) {
+    if (isConversationBusyError(err)) {
+      // The flag went to someone else inside the awaits above. This is the
+      // same message the check at the top would have queued, so queue it.
+      return queueSend(resolvedContent);
+    }
+    throw err;
+  }
 
   const messageId = persistResult.id;
 
