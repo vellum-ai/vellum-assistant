@@ -89,20 +89,14 @@ describe("augmentMcpSetupDescription", () => {
     expect(augmentMcpSetupDescription(input)).toBe(input);
   });
 
-  test("appends 'Configured: <names>' for mcp-setup with enabled servers", async () => {
+  test("appends 'Configured: <names>' for mcp-setup with configured servers", async () => {
     setConfig("mcp", {
       servers: {
         "example-server": {
           transport: { type: "stdio", command: "example-cmd" },
-          enabled: true,
         },
         "another-server": {
           transport: { type: "stdio", command: "another-cmd" },
-          enabled: true,
-        },
-        "disabled-server": {
-          transport: { type: "stdio", command: "disabled-cmd" },
-          enabled: false,
         },
       },
     });

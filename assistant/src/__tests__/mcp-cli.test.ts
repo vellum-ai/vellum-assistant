@@ -316,8 +316,6 @@ describe("assistant mcp add", () => {
       "streamable-http",
       "-u",
       "https://example.com/mcp",
-      "-r",
-      "medium",
     ]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Added MCP server "test-http"');
@@ -334,7 +332,7 @@ describe("assistant mcp add", () => {
     expect(body.name).toBe("test-http");
     expect(body.transportType).toBe("streamable-http");
     expect(body.url).toBe("https://example.com/mcp");
-    expect(body.risk).toBe("medium");
+    expect(body).not.toHaveProperty("risk");
   });
 
   test("adds a stdio server with args", async () => {
@@ -346,8 +344,6 @@ describe("assistant mcp add", () => {
       "-a",
       "-y",
       "some-server",
-      "-r",
-      "low",
     ]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Added MCP server "test-stdio"');
