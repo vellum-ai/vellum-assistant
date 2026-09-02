@@ -469,9 +469,8 @@ describe("AppIconRow", () => {
       });
     });
 
-    // The two bundles hold sRGB channels in a display-p3 fill, so the readings
-    // are visibly different colors rather than rounding of each other. sRGB is
-    // the closest a renderer that cannot parse `color()` can get.
+    // The bundle fill and the hex name one color in two gamuts, so the sRGB
+    // reading is what a renderer that cannot parse `color()` falls back to.
     test("paints the sRGB ground where color() will not parse", async () => {
       dropDisplayP3Support();
       shellAppId = "ai.vocify-inc.vellum-assistant-ios.dev";

@@ -45,20 +45,18 @@ interface IconGround {
 /**
  * Vellum Dev draws its icon on pink, `clients/ios/App/App/AppIcon-Dev.icon`.
  *
- * That bundle declares its fill in display-p3 and holds sRGB channels there
- * rather than the conversion `clients/ios/README.md` asks for, so the installed
- * icon is the more saturated of the two on a wide-gamut screen. Naming the same
- * coordinates keeps the thumbnail from undershooting the icon it depicts;
- * {@link APP_ICON_GROUNDS} carries only the sRGB reading.
+ * That bundle declares its fill as the Display P3 conversion of the sRGB hex
+ * {@link APP_ICON_GROUNDS} carries. Naming the same coordinates draws the
+ * thumbnail in the gamut the installed icon is drawn in.
  */
 const DEV_GROUND: IconGround = {
-  displayP3: "color(display-p3 1 0.53333 0.78824)",
+  displayP3: "color(display-p3 0.9387 0.55755 0.7777)",
   srgb: APP_ICON_GROUNDS.dev,
 };
 
 /** Vellum Staging's yellow, read the same way off `AppIcon-Staging.icon`. */
 const STAGING_GROUND: IconGround = {
-  displayP3: "color(display-p3 0.91373 0.78824 0.10196)",
+  displayP3: "color(display-p3 0.89313 0.79283 0.2841)",
   srgb: APP_ICON_GROUNDS.staging,
 };
 
