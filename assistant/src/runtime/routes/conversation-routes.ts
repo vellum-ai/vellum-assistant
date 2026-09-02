@@ -2117,6 +2117,7 @@ export async function handleSendMessage(
 
       scheduleCannedReplyRelease({
         conversation,
+        owner: greetingOwner,
         origin: "canned_greeting",
         emit: () => {
           broadcastMessage({
@@ -2514,6 +2515,7 @@ export async function handleSendMessage(
       const message = slashResult.message;
       scheduleCannedReplyRelease({
         conversation,
+        owner: slashOwner,
         origin: "slash_command",
         emit: () => {
           broadcastMessage({
