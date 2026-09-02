@@ -17,7 +17,6 @@ import { Typography } from "@vellumai/design-library";
 
 import { SectionLabel } from "@/components/detail-primitives";
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
-import { ToolActionHeader } from "@/domains/chat/components/tool-activity/tool-action-header";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
@@ -31,8 +30,6 @@ export function FileEditDetail({ detail }: ToolActivityRendererProps) {
 
   return (
     <div className="flex flex-col gap-5">
-      <ToolActionHeader toolName={detail.toolName} input={detail.input} />
-
       <div>
         <SectionLabel>{t("toolDetailPanel.changes")}</SectionLabel>
         {path && (

@@ -18,8 +18,6 @@ import {
   CopyButton,
   SectionLabel,
 } from "@/components/detail-primitives";
-import { friendlyToolLabel } from "@/domains/chat/components/tool-call-chip/utils";
-import { ToolActionHeader } from "@/domains/chat/components/tool-activity/tool-action-header";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
@@ -40,14 +38,6 @@ export function BashDetail({
 
   return (
     <div className="flex flex-col gap-5">
-      <ToolActionHeader
-        toolName={detail.toolName}
-        input={detail.input}
-        // The command block below shows the command in full, so the header
-        // names the act rather than restating a truncated copy of it.
-        label={friendlyToolLabel(detail.toolName)}
-      />
-
       <div>
         <SectionLabel>{t("toolDetailPanel.command")}</SectionLabel>
         <div className="relative rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">

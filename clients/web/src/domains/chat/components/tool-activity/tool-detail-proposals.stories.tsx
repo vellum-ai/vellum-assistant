@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import type { ToolDetailPayload } from "@/stores/viewer-store";
+
 import { Notice } from "@vellumai/design-library";
 
 import { SectionLabel } from "@/components/detail-primitives";
@@ -14,6 +16,7 @@ import {
 import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
 import { FileEditDetail } from "@/domains/chat/components/tool-activity/file-edit-detail";
 import { RiskChip } from "@/domains/chat/components/tool-activity/risk-chip";
+import { ToolMetaRow } from "@/domains/chat/components/tool-activity/tool-meta-row";
 import { ToolDetailPanel } from "@/domains/chat/components/tool-detail-panel";
 import {
   getRiskBadgeWeakStyle,
@@ -75,25 +78,37 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
-/** Frames a proposal in the real drawer shell, the way the panel would. */
+/**
+ * Frames a proposal the way the panel composes one: the drawer shell with the
+ * activity sentence as its title, the meta row naming the tool and its risk,
+ * then the renderer's body. Composed here rather than through
+ * `ToolDetailPanel` because these renderers are deliberately not registered.
+ */
 function Proposed({
-  title,
+  detail,
   Glyph,
   children,
 }: {
-  title: string;
+  detail: ToolDetailPayload;
   Glyph: typeof FileText;
   children: React.ReactNode;
 }) {
   return (
     <DetailShell
       Glyph={Glyph}
-      title={title}
+      title={detail.activity || detail.title}
       closeLabel="Close"
       closeVariant="outlined"
       onClose={() => {}}
     >
-      {children}
+      <div className="flex flex-col gap-5">
+        <ToolMetaRow
+          toolName={detail.toolName}
+          input={detail.input}
+          riskLevel={detail.riskLevel}
+        />
+        {children}
+      </div>
     </DetailShell>
   );
 }
@@ -113,7 +128,7 @@ export const FileEditCurrent: Story = {
  */
 export const FileEditProposed: Story = {
   render: () => (
-    <Proposed title={fileEditDetail.activity} Glyph={FileText}>
+    <Proposed detail={fileEditDetail} Glyph={FileText}>
       <FileEditDetail
         detail={fileEditDetail}
         result={fileEditDetail.result}
@@ -137,7 +152,7 @@ export const BashCurrent: Story = {
 /** Proposed: a prompt line and its output on one surface. */
 export const BashProposed: Story = {
   render: () => (
-    <Proposed title={bashDetail.activity} Glyph={SquareTerminal}>
+    <Proposed detail={bashDetail} Glyph={SquareTerminal}>
       <BashDetail
         detail={bashDetail}
         result={bashDetail.result}
@@ -152,7 +167,7 @@ export const BashProposed: Story = {
 /** Proposed, failing: the output carries the error tone rather than a label. */
 export const BashProposedError: Story = {
   render: () => (
-    <Proposed title={bashErrorDetail.activity} Glyph={SquareTerminal}>
+    <Proposed detail={bashErrorDetail} Glyph={SquareTerminal}>
       <BashDetail
         detail={bashErrorDetail}
         result={bashErrorDetail.result}
@@ -167,7 +182,7 @@ export const BashProposedError: Story = {
 /** Proposed, running: the streamed tail lands in the same block. */
 export const BashProposedRunning: Story = {
   render: () => (
-    <Proposed title={bashStreamingDetail.activity} Glyph={SquareTerminal}>
+    <Proposed detail={bashStreamingDetail} Glyph={SquareTerminal}>
       <BashDetail
         detail={bashStreamingDetail}
         result={undefined}
@@ -191,7 +206,10 @@ const LEVELS = ["low", "medium", "high", "workspace", "elevated"];
  */
 export const RiskCurrent: Story = {
   render: () => (
-    <Proposed title="Risk, as it renders today" Glyph={FileText}>
+    <Proposed
+      detail={{ ...bashDetail, activity: "Risk, as it renders today" }}
+      Glyph={FileText}
+    >
       <div className="flex flex-col gap-5">
         {LEVELS.map((level) => {
           const style = getRiskBadgeWeakStyle(level);
@@ -221,7 +239,10 @@ export const RiskCurrent: Story = {
  */
 export const RiskProposed: Story = {
   render: () => (
-    <Proposed title="Risk, as a pill" Glyph={FileText}>
+    <Proposed
+      detail={{ ...bashDetail, activity: "Risk, as a pill" }}
+      Glyph={FileText}
+    >
       <div className="flex flex-wrap items-center gap-2">
         {LEVELS.map((level) => (
           <RiskChip key={level} level={level} />
