@@ -5,9 +5,12 @@ evals, future external clients. This directory is the **source of truth** for
 the wire contracts the assistant exposes: schemas, types, and pure helpers.
 
 Internal assistant code imports the files in this directory via relative paths
-(e.g. `../../api/events/open-url.js`). External consumers import the
-materialized npm-style package `@vellumai/assistant-api`, regenerated into
-`clients/web/node_modules/` by `clients/web/scripts/postinstall.ts`.
+(e.g. `../../api/events/open-url.js`). External consumers import it as the
+workspace package `@vellumai/assistant-api`, a `workspace:*` symlink to this
+directory, so an edit here reaches them immediately. The generated HTTP
+client is separate: it comes from `assistant/openapi.yaml`, regenerated with
+`cd assistant && bun run generate:openapi` and consumed by
+`cd clients/web && bun run openapi-ts`.
 
 ## Architecture
 
@@ -110,8 +113,9 @@ Handler-level tests in the consuming domain modules typically need no change
 Run before push, in order:
 
 ```bash
-# In clients/web — regenerate the @vellumai/assistant-api bundle
-bun run scripts/postinstall.ts
+# Regenerate the OpenAPI spec and the web client from it
+( cd assistant && bun run generate:openapi )
+( cd clients/web && bun run openapi-ts )
 
 # Type-check both packages
 ( cd assistant && bunx tsc --noEmit )

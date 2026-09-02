@@ -148,28 +148,20 @@
     "talk": {
       "body": "開始語音對話。",
       "title": "交談"
-    },
-    "type": {
-      "body": "從這裡傳送訊息，並在這裡閱讀回覆。",
-      "title": "輸入"
     }
   },
   "companionSurface": {
     "allow": "允許",
     "deny": "拒絕",
     "endSession": "結束會話",
-    "goBack": "返回",
-    "messagePlaceholder": "傳送訊息給 {name}",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
-    "send": "傳送",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
-    "type": "輸入",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"
   },

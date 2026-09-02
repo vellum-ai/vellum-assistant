@@ -9,6 +9,8 @@ import {
   PROVIDER_ERROR_MESSAGE_KIND,
 } from "../../persistence/conversation-crud.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { toToolInputSchema } from "../../tools/shared/zod-tool-schema.js";
+import { watchRetroReportInputSchema } from "../../tools/watch/watch-retro-report.js";
 import {
   buildRetroWakeOptions,
   buildWatchRetroPrompt,
@@ -133,6 +135,28 @@ function emptyDispatch() {
 /** A turn that ran and wrote prose but never called the report tool. */
 function proseOnlyDispatch(reply = "Here is what I understood.") {
   return recordingDispatch(reply, undefined, null);
+}
+
+/**
+ * The required property names of the object schema reached by walking `path`,
+ * descending through array `items` wherever the path crosses one.
+ */
+function requiredFieldsUnder(
+  schema: Record<string, unknown>,
+  path: readonly string[],
+): string[] {
+  let node: Record<string, unknown> | undefined = schema;
+  for (const segment of path) {
+    const properties = node?.properties as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    node = properties?.[segment];
+    while (node?.items) {
+      node = node.items as Record<string, unknown>;
+    }
+  }
+  const required = node?.required;
+  return Array.isArray(required) ? (required as string[]) : [];
 }
 
 describe("watch retrospective", () => {
@@ -879,5 +903,38 @@ describe("watch retrospective", () => {
 
     expect(prompt).toContain("<ax-tree>");
     expect(prompt).toContain("</ax-tree>");
+  });
+
+  /**
+   * The instructions are the only place the model learns what to put in a
+   * question, and a field they leave unnamed is one it has to invent a name
+   * for. The surface schema strips what it does not recognize, so an invented
+   * name draws a page with no text on it rather than failing anywhere.
+   *
+   * Read out of the tool's validating schema instead of listed here, so a
+   * field added to the payload cannot be added without a line about it. The
+   * validating one rather than the advertised one, because the question shape
+   * is deliberately not advertised: the prompt is where the model gets it, so
+   * the prompt is what has to be complete.
+   */
+  test("the instructions name every field a question requires", async () => {
+    // A timeline of two words, so a field name found below is one the
+    // instructions wrote rather than one the recording happened to contain.
+    const { sessionId } = recordObservation("Window: Editor");
+    const prompt = buildWatchRetroPrompt(renderWatchTimeline(sessionId));
+
+    const schema = toToolInputSchema(watchRetroReportInputSchema);
+    const questionShape = requiredFieldsUnder(schema, ["questions"]);
+    const optionShape = requiredFieldsUnder(schema, ["questions", "options"]);
+
+    // The two the dev-QA payload came back without, named so the guard reads
+    // as the thing it is defending rather than as an empty loop if the shape
+    // lookup ever returns nothing.
+    expect(questionShape).toContain("prompt");
+    expect(optionShape).toContain("label");
+
+    for (const field of [...questionShape, ...optionShape]) {
+      expect(prompt).toMatch(new RegExp(`\\b${field}\\b`));
+    }
   });
 });

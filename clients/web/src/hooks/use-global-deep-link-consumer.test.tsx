@@ -120,6 +120,7 @@ const asStarter = (start: (a: string, c: string | null) => void) => ({
   prewarm: () => {},
   cancelPrewarm: () => {},
   start,
+  sendText: () => false,
 });
 
 const resetStores = () => {

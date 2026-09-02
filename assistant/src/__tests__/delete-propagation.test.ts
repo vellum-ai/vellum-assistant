@@ -20,6 +20,7 @@ import { eq } from "drizzle-orm";
 
 import {
   readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -613,6 +614,158 @@ describe("Slack delete propagation", () => {
     expect(slackMeta!.channelTs).toBe("1234.5678");
     expect(slackMeta!.eventKind).toBe("message");
     expect(slackMeta!.displayName).toBe("Test User");
+  });
+
+  test("deleting the assistant's own Slack post is recorded without an actor", async () => {
+    // Slack names a deleted post's author and never who deleted it, so the
+    // gateway forwards a deletion of the assistant's own post unattributed
+    // (LUM-3521). The post opened no inbound event; the row resolves through
+    // the `channelTs` its Slack envelope carries, and the stamp lands on
+    // that envelope, where the Slack renderers read it.
+    const chatId = "C0123CHANNEL";
+    const postTs = "1725100000.000900";
+    const minted = recordInbound("slack", chatId, "evt-earlier-user-msg");
+    const messageId = "assistant-slack-reply-1";
+    getDb()
+      .insert(messages)
+      .values({
+        id: messageId,
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "The reply that was later deleted from the thread",
+        metadata: JSON.stringify({
+          assistantMessageChannel: "slack",
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: chatId,
+            channelTs: postTs,
+            threadTs: "1725100000.000100",
+            eventKind: "message",
+          }),
+        }),
+        createdAt: Date.now(),
+      })
+      .run();
+
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        interface: "slack",
+        conversationExternalId: chatId,
+        externalMessageId: "evt-del-own-post",
+        eventKind: "delete",
+        content: "",
+        actorExternalId: "slack-system",
+        sourceMetadata: {
+          messageId: postTs,
+          threadId: "1725100000.000100",
+          actorUnattributed: true,
+        },
+      }),
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(true);
+    expect(json.messageId).toBe(messageId);
+
+    const row = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    // Content survives: the stamp records loss of channel visibility, not an
+    // erasure of what the assistant said.
+    expect(row!.content).toBe(
+      "The reply that was later deleted from the thread",
+    );
+    const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
+    const slackMeta = readSlackMetadata(parsed.slackMeta as string);
+    expect(slackMeta!.deletedAt).toBeDefined();
+    expect(slackMeta!.channelTs).toBe(postTs);
+    expect(readProviderMetadata(row!.metadata)!.deletedAt).toBeDefined();
+  });
+
+  test("deleting the assistant's own Slack post stamps its neutral envelope per post", async () => {
+    // A Slack reply row carries the neutral envelope every channel writes,
+    // so its deletion takes the same per-post path as any channel's: the
+    // gateway forwards the delete unattributed (Slack names the author,
+    // never the deleter), the row resolves through the id its envelope
+    // names, and the Slack renderers read the stamp through the Slack view.
+    const chatId = "C0123CHANNEL";
+    const postTs = "1725100000.000900";
+    const minted = recordInbound("slack", chatId, "evt-earlier-user-msg");
+    const messageId = "assistant-slack-reply-1";
+    getDb()
+      .insert(messages)
+      .values({
+        id: messageId,
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "The reply that was later deleted from the thread",
+        metadata: JSON.stringify({
+          assistantMessageChannel: "slack",
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: chatId,
+            messageId: postTs,
+            threadId: "1725100000.000100",
+            eventKind: "message",
+            timestampTimezone: "America/New_York",
+          }),
+        }),
+        createdAt: Date.now(),
+      })
+      .run();
+
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        interface: "slack",
+        conversationExternalId: chatId,
+        externalMessageId: "evt-del-own-post",
+        eventKind: "delete",
+        content: "",
+        actorExternalId: "slack-system",
+        sourceMetadata: {
+          messageId: postTs,
+          threadId: "1725100000.000100",
+          actorUnattributed: true,
+        },
+      }),
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(true);
+    expect(json.messageId).toBe(messageId);
+
+    const row = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    expect(row!.content).toBe(
+      "The reply that was later deleted from the thread",
+    );
+    const neutral = readProviderMetadata(row!.metadata);
+    expect(neutral!.deletedMessageIds).toEqual([postTs]);
+    expect(neutral!.deletedAt).toBeDefined();
+    const view = readSlackMetadataFromMessageMetadata(row!.metadata);
+    expect(view!.channelTs).toBe(postTs);
+    expect(view!.deletedAt).toBe(neutral!.deletedAt);
+    expect(view!.timestampTimezone).toBe("America/New_York");
   });
 
   test("delete for unknown ts is a no-op", async () => {

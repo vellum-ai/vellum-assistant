@@ -399,14 +399,6 @@
       "values": ["glm-5p3-flash", "glm-5p3", "glm-5p2"]
     },
     {
-      "id": "ios-avatar-app-icon",
-      "scope": "client",
-      "key": "ios-avatar-app-icon",
-      "label": "iOS Avatar App Icon",
-      "description": "Shows the App icon picker in Settings -> General, where any user chooses an eyes-on-color home screen icon for iOS, seeds the picker from their assistant's character avatar, or resets to the default. Every change is a press, and iOS confirms each one with an alert of its own. Off hides the picker and leaves the default icon in place.",
-      "defaultEnabled": false
-    },
-    {
       "id": "android-avatar-app-icon",
       "scope": "client",
       "key": "android-avatar-app-icon",

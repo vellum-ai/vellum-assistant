@@ -148,28 +148,20 @@
     "talk": {
       "body": "Inicia una conversación por voz.",
       "title": "Talk"
-    },
-    "type": {
-      "body": "Envía un mensaje desde aquí y lee la respuesta aquí también.",
-      "title": "Type"
     }
   },
   "companionSurface": {
     "allow": "Permitir",
     "deny": "Denegar",
     "endSession": "Finalizar sesión",
-    "goBack": "Volver",
-    "messagePlaceholder": "Mensaje a {name}",
     "muteAssistant": "Silenciar asistente",
     "muteMicrophone": "Silenciar micrófono",
     "notNow": "Ahora no",
-    "send": "Enviar",
     "showSummary": "Mostrar resumen",
     "stopTeaching": "Dejar de enseñar",
     "summarizing": "Resumiendo",
     "talk": "Hablar",
     "teach": "Enseñar",
-    "type": "Escribir",
     "unmuteAssistant": "Activar sonido del asistente",
     "unmuteMicrophone": "Activar micrófono"
   },

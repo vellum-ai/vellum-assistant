@@ -338,7 +338,7 @@ export function stripRequestCodeDirectives(
   text: string,
   requestCode: string,
 ): string {
-  const code = escapeRegExp(requestCode);
+  const code = RegExp.escape(requestCode);
   const sentence = (core: string): RegExp =>
     new RegExp(`[^.!?\\n]*${core}[^.!?\\n]*[.!?]?(?:[ \\t]*\\n)?`, "gi");
   const next = text
@@ -353,11 +353,6 @@ export function stripRequestCodeDirectives(
       "",
     );
   return normalizeStrippedText(next);
-}
-
-/** Escape a literal for use inside a `RegExp` source string. */
-export function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

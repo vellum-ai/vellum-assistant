@@ -77,6 +77,7 @@ function makeStarter() {
     prewarm: mock(() => {}),
     cancelPrewarm: mock(() => {}),
     start: mock((_assistantId: string, _conversationId: string | null) => {}),
+    sendText: mock((_text: string) => false),
   };
 }
 

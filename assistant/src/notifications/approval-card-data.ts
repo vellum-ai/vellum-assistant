@@ -28,6 +28,7 @@ import {
   buildApprovalCardBlocks,
 } from "./approval-card-builder.js";
 import {
+  buildGuardianRequestCodeInstruction,
   buildQuestionDeliveryText,
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -321,12 +322,22 @@ function extractToolApprovalCard(
       ? bodyParts.join("\n\n")
       : "No additional context available.";
 
-  // The text sibling of the card, read by the model and text-only surfaces.
-  // No reply mechanics: the card's buttons act, and channel text gets its
-  // typed-reply instructions from the delivery layer.
-  const fallbackText =
+  // The card's text sibling is what a client without buttons sees (the
+  // CLI, search, the model), so it is the one place the card itself
+  // carries the typed instruction beside the ask.
+  const baseFallback =
     p.questionText ??
     `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
+  const requestCode = nonEmpty(p.requestCode);
+  const fallbackText = requestCode
+    ? `${baseFallback}\n\n${buildGuardianRequestCodeInstruction(
+        requestCode.trim().toUpperCase(),
+        resolveGuardianInstructionModeFromFields(
+          p.requestKind,
+          "toolName" in p ? (p.toolName ?? undefined) : undefined,
+        )?.mode ?? "approval",
+      )}`
+    : baseFallback;
 
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
@@ -396,7 +407,14 @@ function extractQuestionCard(
     // button on this card would be inert; channel buttons come from the
     // broadcaster, whose taps the guardian reply router does resolve.
     actions: [],
-    fallbackText: buildQuestionDeliveryText(p),
+    // The text sibling carries the answer instruction: it is the rendering
+    // for a client that cannot draw the card.
+    fallbackText: nonEmpty(p.requestCode)
+      ? `${buildQuestionDeliveryText(p)}\n\n${buildGuardianRequestCodeInstruction(
+          p.requestCode.trim().toUpperCase(),
+          "answer",
+        )}`
+      : buildQuestionDeliveryText(p),
   };
 }
 

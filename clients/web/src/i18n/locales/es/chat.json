@@ -278,6 +278,14 @@
     "photo": "Foto",
     "yourAssistant": "Tu asistente"
   },
+  "cameraViewOptions": {
+    "buttonAria": "Opciones de vista de la cámara",
+    "gateHudDescription": "El panel de ajuste de lo que conserva el modo en vivo.",
+    "gateHudTitle": "Lectura del filtro de fotogramas",
+    "keptFrameDescription": "El último fotograma enviado en vivo, junto a tus fotos. El envío continúa igualmente.",
+    "keptFrameTitle": "Último fotograma",
+    "title": "Mostrar"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },

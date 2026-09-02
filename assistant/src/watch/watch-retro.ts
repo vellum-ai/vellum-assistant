@@ -167,7 +167,7 @@ The payload:
 - \`purpose\`: one sentence on what it is for. This is the only sentence on the card.
 - \`steps\`: the steps in order, as short imperative fragments: "Open the Sentry issue", not "You opened the Sentry issue from the alert email". Three to eight of them. Concrete enough to follow, carrying no purpose of their own.
 - \`eyebrow\`: the session's own facts, e.g. "Watched 4 min, 11 screens".
-- \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything. Give each one an \`id\` no other question on this card uses.
+- \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything. Each question is \`{ id, kind, prompt }\`: \`prompt\` is the question worded the way you would ask it out loud, and \`id\` is a handle no other question on this card uses. A \`pick\` or a \`gate\` adds \`options\`, each of them \`{ id, label }\` and optionally a \`note\`: \`label\` is the answer as the user reads it, and \`id\` is that option's own handle. Use those names exactly. A question's text is \`prompt\` and never \`question\` or \`text\`; an option's text is \`label\` and never \`value\` or \`title\`. Anything sent under another name is dropped on the way to the card, and the page it belonged to is lost.
 
 Every question is answerable in one tap and every one is skippable, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
 

@@ -309,7 +309,7 @@ async function renderRow() {
 }
 
 /**
- * Put the stand-in shell on Android, flag and all. Each shell carries its own
+ * Put the stand-in shell on Android, flag and all. Android carries its own
  * flag, so naming the platform without opening its gate draws nothing.
  */
 function runOnAndroidShell(appId: string) {
@@ -331,10 +331,7 @@ beforeEach(() => {
   swapSucceeds = true;
   iconState = { supported: true, current: null, available: ALL_ICONS };
   useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
-  useClientFeatureFlagStore.setState({
-    iosAvatarAppIcon: true,
-    androidAvatarAppIcon: false,
-  });
+  useClientFeatureFlagStore.setState({ androidAvatarAppIcon: false });
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
 });
 
@@ -345,16 +342,14 @@ afterEach(() => {
   getAppIconState.mockClear();
   setAppIcon.mockClear();
   getInfoMock.mockClear();
-  useClientFeatureFlagStore.setState({
-    iosAvatarAppIcon: false,
-    androidAvatarAppIcon: false,
-  });
+  useClientFeatureFlagStore.setState({ androidAvatarAppIcon: false });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 describe("AppIconRow", () => {
-  test("draws nothing with the flag off", async () => {
-    useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
+  test("draws nothing on Android without its own flag", async () => {
+    nativeIOS = false;
+    nativeAndroid = true;
 
     const { container } = await renderRow();
 

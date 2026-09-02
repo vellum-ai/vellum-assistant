@@ -184,6 +184,14 @@
     "photo": "Фото",
     "yourAssistant": "Ваш ассистент"
   },
+  "cameraViewOptions": {
+    "buttonAria": "Параметры отображения камеры",
+    "gateHudDescription": "Панель настройки того, что сохраняет прямой эфир.",
+    "gateHudTitle": "Показатели фильтра кадров",
+    "keptFrameDescription": "Последний кадр, отправленный в эфире, рядом с вашими фото. Отправка продолжается в любом случае.",
+    "keptFrameTitle": "Последний кадр",
+    "title": "Показывать"
+  },
   "channelReferenceChip": {
     "heading": "Ссылка на сообщение из {channel}",
     "headingWithSender": "Ссылка на сообщение {sender} в {channel}",

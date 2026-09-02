@@ -42,7 +42,7 @@ import {
   resolveGuardianQuestionInstructionMode,
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
-import { nonEmpty } from "./notification-utils.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
@@ -171,12 +171,8 @@ function resolveApprovalContext(
 function resolveCodedTextContext(
   payload: Record<string, unknown>,
 ): ResolvedApprovalContext | undefined {
-  const requestId = nonEmpty(
-    typeof payload.requestId === "string" ? payload.requestId : undefined,
-  );
-  const requestCode = nonEmpty(
-    typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-  );
+  const requestId = nonEmpty(readPayloadString(payload, "requestId"));
+  const requestCode = nonEmpty(readPayloadString(payload, "requestCode"));
   if (!requestId || !requestCode) {
     return undefined;
   }

@@ -1250,10 +1250,6 @@ function wrapRecallEvidenceExcerpt(
     : wrapUntrustedContent(excerpt, { source });
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Earliest case-insensitive match of the query in `text`: the contiguous
  * query when present, otherwise the earliest of its lexical tokens (same
@@ -1275,7 +1271,7 @@ function findEarliestMatch(
     ).exec(text);
   };
 
-  const whole = execAnchored(escapeRegExp(query));
+  const whole = execAnchored(RegExp.escape(query));
   if (whole) {
     return { index: whole.index, length: whole[0].length };
   }
@@ -1285,7 +1281,9 @@ function findEarliestMatch(
   if (tokens.length === 0) {
     return null;
   }
-  const match = execAnchored(tokens.map(escapeRegExp).join("|"));
+  const match = execAnchored(
+    tokens.map((token) => RegExp.escape(token)).join("|"),
+  );
   return match ? { index: match.index, length: match[0].length } : null;
 }
 

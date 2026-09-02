@@ -540,10 +540,11 @@ export async function handleChannelInbound({
   // A delete names the original via `sourceMetadata.messageId` and
   // short-circuits the rest of the pipeline: no agent loop, no approval
   // routing. The stored row keeps its content for audit; rendering elides on
-  // the deletedAt marker. An attributed delete (the wire names the deleted
-  // message's author, as Slack's does) passed the ingress ACL above; an
-  // unattributed one bypassed it under the ACL's stated contract and applies
-  // only to a row this daemon ingested.
+  // the deletedAt marker. An attributed delete (the wire names a human
+  // author for the deleted message, as Slack's does for a member's post)
+  // passed the ingress ACL above; an unattributed one bypassed it under the
+  // ACL's stated contract and applies only to a row this daemon already
+  // holds for the chat.
   if (eventKind === "delete") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"
@@ -1868,6 +1869,15 @@ async function persistBackfilledSlackMessage(params: {
   );
   const slackTranscriptTimestampTimezone =
     resolveSlackTranscriptTimestampTimezone();
+  const slackTimezoneFields = buildSlackTimezoneMetadata({
+    actorTimezone,
+    actorTimezoneLabel,
+    actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
+    timestampTimezone: slackTranscriptTimestampTimezone?.timestampTimezone,
+    timestampTimezoneLabel:
+      slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
+    speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
+  });
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: params.channelId,
@@ -1876,15 +1886,7 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
     ...(actorExternalUserId ? { actorExternalUserId } : {}),
-    ...buildSlackTimezoneMetadata({
-      actorTimezone,
-      actorTimezoneLabel,
-      actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
-      timestampTimezone: slackTranscriptTimestampTimezone?.timestampTimezone,
-      timestampTimezoneLabel:
-        slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
-      speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
-    }),
+    ...slackTimezoneFields,
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
 
@@ -1906,9 +1908,32 @@ async function persistBackfilledSlackMessage(params: {
     ? message.timestamp
     : undefined;
 
+  // A row the daemon authors carries the neutral envelope, Slack's own fields
+  // riding its passthrough; a person's row keeps Slack's envelope for now.
+  const envelope =
+    role === "assistant"
+      ? {
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: params.channelId,
+            messageId: message.id,
+            eventKind: "message",
+            ...(message.threadId ? { threadId: message.threadId } : {}),
+            ...(message.sender?.name
+              ? { displayName: message.sender.name }
+              : {}),
+            ...(actorExternalUserId
+              ? { actorExternalId: actorExternalUserId }
+              : {}),
+            ...slackTimezoneFields,
+            ...(slackFiles.length > 0 ? { slackFiles } : {}),
+          } satisfies ProviderMessageMetadata),
+        }
+      : { slackMeta: writeSlackMetadata(slackMeta) };
+
   const persisted = await addMessage(params.conversationId, role, rawText, {
     metadata: {
-      slackMeta: writeSlackMetadata(slackMeta),
+      ...envelope,
       ...(sentAt !== undefined ? { sentAt } : {}),
       provenanceTrustClass: isGuardian ? "guardian" : "unknown",
       provenanceSourceChannel: "slack",
