@@ -8,8 +8,8 @@ import type {
 import { AgentLoop } from "../agent/loop.js";
 import type { StopContext } from "../plugin-api/types.js";
 import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
-import { buildInjectionEchoNudgeText } from "../plugins/defaults/injection-echo-reject/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { buildInjectionEchoNudgeText } from "../plugins/defaults/injection-echo-reject/hooks/post-model-call.js";
 import { registerPlugin } from "../plugins/registry.js";
 import type {
   ContentBlock,
@@ -2840,10 +2840,20 @@ describe("AgentLoop", () => {
       { type: "text", text: recoveredText },
     ]);
     expect(
+      history.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some(
+            (block) =>
+              block.type === "text" && block.text.includes("<turn_context>"),
+          ),
+      ),
+    ).toBe(false);
+    expect(
       history.some((message) =>
         message.content.some(
           (block) =>
-            block.type === "text" && block.text.includes("<turn_context>"),
+            block.type === "text" && block.text.includes("Alice here"),
         ),
       ),
     ).toBe(false);

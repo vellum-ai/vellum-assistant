@@ -60,8 +60,8 @@ import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery
 import imageRecoveryPkg from "./image-recovery/package.json" with { type: "json" };
 import injectionEchoRejectPostModelCall from "./injection-echo-reject/hooks/post-model-call.js";
 import injectionEchoRejectStop from "./injection-echo-reject/hooks/stop.js";
-import { resetInjectionEchoRejectStoreForTests } from "./injection-echo-reject/reject-state-store.js";
 import injectionEchoRejectPkg from "./injection-echo-reject/package.json" with { type: "json" };
+import { resetInjectionEchoRejectStoreForTests } from "./injection-echo-reject/reject-state-store.js";
 import { resetMaxTokensContinueStoreForTests } from "./max-tokens-continue/continue-state-store.js";
 import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-model-call.js";
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
