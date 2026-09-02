@@ -22,6 +22,7 @@
  * gateway, evals) import via `@vellumai/assistant-api`.
  */
 
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import {
@@ -358,6 +359,7 @@ const SlackMessageLinkSchema = z.object({
 
 const SlackReactionSchema = z.object({
   emoji: z.string(),
+  ...ReactionEmojiFieldsSchema.shape,
   op: z.enum(["added", "removed"]),
   actorDisplayName: z.string().optional(),
   targetChannelTs: z.string(),
@@ -621,6 +623,7 @@ export const ConversationMessageSchema = z.object({
   reaction: z
     .object({
       emoji: z.string(),
+      ...ReactionEmojiFieldsSchema.shape,
       op: z.enum(["added", "removed"]),
       targetMessageId: z.string(),
       actorDisplayName: z.string().optional(),

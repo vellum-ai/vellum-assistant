@@ -61,6 +61,12 @@ function normalizeSlackReaction(
         reaction: {
           op,
           emoji: event.reaction,
+          // Slack sends one namespace for both standard and workspace
+          // emoji and does not say which this is: `+1` and a workspace
+          // upload arrive identically, and only the workspace token can
+          // tell them apart. `shortcode` is that namespace, not a guess.
+          emojiKind: "shortcode",
+          emojiName: event.reaction,
           targetMessageId: event.item.ts,
         },
         // A daemon that does not yet understand the structured payload

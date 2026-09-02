@@ -8,12 +8,22 @@
  * writes the neutral shape `readProviderMetadata` serves to channel-agnostic
  * readers.
  */
+import {
+  pickReactionEmojiFields,
+  type ReactionEmojiFields,
+} from "@vellumai/service-contracts/reactions";
+
 import type { ChannelId } from "../channels/types.js";
 import type { ProviderMessageMetadata } from "./provider-message-metadata.js";
 import type { SlackMessageMetadata } from "./providers/slack/message-metadata.js";
 import { writeSlackMetadata } from "./providers/slack/message-metadata.js";
 
-export interface ReactionEnvelopeFacts {
+/**
+ * The emoji's typed identity is optional on the facts because the assistant's
+ * own reaction carries only the spelling it chose: it names an emoji rather
+ * than reporting one a channel described.
+ */
+export interface ReactionEnvelopeFacts extends ReactionEmojiFields {
   channel: ChannelId;
   /** Provider id of the chat the reaction belongs to. */
   chatId: string;
@@ -41,6 +51,7 @@ export function buildNeutralReactionMeta(
     reaction: {
       targetMessageId: facts.targetMessageId,
       emoji: facts.emoji,
+      ...pickReactionEmojiFields(facts),
       op: facts.op,
       ...(facts.actorDisplayName
         ? { actorDisplayName: facts.actorDisplayName }
@@ -85,6 +96,7 @@ export function buildSlackReactionMeta(
     ...(facts.actorDisplayName ? { displayName: facts.actorDisplayName } : {}),
     reaction: {
       emoji: facts.emoji,
+      ...pickReactionEmojiFields(facts),
       targetChannelTs: facts.targetMessageId,
       op: facts.op,
       ...(facts.actorDisplayName

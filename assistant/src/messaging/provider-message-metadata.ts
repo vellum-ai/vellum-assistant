@@ -1,3 +1,4 @@
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import { CHANNEL_IDS } from "../channels/types.js";
@@ -40,7 +41,21 @@ const providerReactionMetadataSchema = z.object({
    * namespace as `messageId`. Resolution is keyed on it, so it is required.
    */
   targetMessageId: z.string(),
+  /**
+   * The emoji in the channel's own spelling. Kept because the channel's
+   * write path consumes it and the model hands it back verbatim; the typed
+   * fields beside it are what a reader consults.
+   */
   emoji: z.string(),
+  /**
+   * Which namespace the emoji was drawn from, as the channel said it. Spread
+   * from the shared group rather than restated, and declared rather than
+   * left to passthrough: the outer envelope passes unknown keys through, but
+   * this nested object strips them, so an undeclared field writes fine and
+   * reads back as nothing with no error at either end. A row carrying only
+   * the spelling has its kind recovered by `resolveInboundReactionPayload`.
+   */
+  ...ReactionEmojiFieldsSchema.shape,
   op: z.enum(["added", "removed"]),
   actorDisplayName: z.string().optional(),
 });
