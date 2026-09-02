@@ -8,6 +8,8 @@ import {
   type DesktopSessionManager,
   type DesktopTcpHandlers,
   type DesktopTcpSocket,
+  destroyDesktopSessionManager,
+  getDesktopSessionManager,
 } from "./desktop-session-manager.js";
 import { DesktopStreamBridge } from "./desktop-stream-bridge.js";
 
@@ -169,7 +171,26 @@ describe("DesktopStreamBridge", () => {
     await b.bridge.start();
 
     expect(b.ws.closeCode).toBe(1001);
+    expect(b.ws.closeReason).toBe("The assistant is shutting down");
     expect(h.spawned).toEqual([]);
+  });
+
+  test("the shared manager is latched by shutdown even when no desktop was ever served", async () => {
+    await destroyDesktopSessionManager();
+
+    const ws = new FakeWs();
+    const bridge = new DesktopStreamBridge(ws, {
+      connect: async () => {
+        throw new Error("must not dial the VNC port");
+      },
+    });
+    await bridge.start();
+
+    expect(ws.closeCode).toBe(1001);
+    // Nothing is spawned: the start is refused before any binary is looked up.
+    await expect(
+      getDesktopSessionManager().ensureDesktopRunning(),
+    ).rejects.toThrow("Desktop ingress is closed");
   });
 
   test("closes a live viewer with 1001 when the runtime shuts down", async () => {

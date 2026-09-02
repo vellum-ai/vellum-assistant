@@ -8,7 +8,9 @@ import {
   connectLoopback,
   DESKTOP_CLOSE,
   DESKTOP_VNC_PORT,
+  type DesktopLoss,
   type DesktopSessionManager,
+  DesktopStartError,
   type DesktopTcpHandlers,
   type DesktopTcpSocket,
   type DesktopViewer,
@@ -52,28 +54,26 @@ export class DesktopStreamBridge {
     this.ws = ws;
     this.manager = options.manager ?? getDesktopSessionManager();
     this.connect = options.connect ?? connectLoopback;
-    this.viewer = {
-      onDesktopLost: ({ code, reason }) => this.fail(code, reason),
-    };
+    this.viewer = { onDesktopLost: (loss) => this.lose(loss) };
   }
 
   /** Claim the viewer slot, start the desktop, and dial its VNC port. */
   async start(): Promise<void> {
     const slot = this.manager.acquireViewerSlot(this.viewer);
     if (!slot.ok) {
-      if (slot.reason === "busy") {
-        this.fail(DESKTOP_CLOSE.busy, "Desktop is in use by another viewer");
-      } else {
-        this.fail(DESKTOP_CLOSE.goingAway, "The assistant is shutting down");
-      }
+      this.lose(slot.loss);
       return;
     }
     this.ownsSlot = true;
 
     try {
       await this.manager.ensureDesktopRunning();
-    } catch {
-      this.fail(DESKTOP_CLOSE.failed, "Desktop failed to start");
+    } catch (err) {
+      // Usually already closed through onDesktopLost; the error covers a
+      // start this viewer joined late and never got the callback for.
+      if (err instanceof DesktopStartError) {
+        this.lose(err.loss);
+      }
       return;
     }
     if (this.closed) {
@@ -145,6 +145,10 @@ export class DesktopStreamBridge {
       }
       this.pending.shift();
     }
+  }
+
+  private lose({ code, reason }: DesktopLoss): void {
+    this.fail(code, reason);
   }
 
   private fail(code: number, reason: string): void {

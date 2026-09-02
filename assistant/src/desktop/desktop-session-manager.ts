@@ -12,7 +12,6 @@ import {
   ensureChromium,
   importPlaywright,
 } from "../tools/browser/runtime-check.js";
-import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
@@ -22,13 +21,31 @@ const log = getLogger("desktop-session");
 
 const DESKTOP_DISPLAY = ":99";
 export const DESKTOP_VNC_PORT = 5999;
-const DESKTOP_GEOMETRY = "1440x900";
+const DESKTOP_WIDTH = 1440;
+const DESKTOP_HEIGHT = 900;
+const DESKTOP_GEOMETRY = `${DESKTOP_WIDTH}x${DESKTOP_HEIGHT}`;
 const DESKTOP_LINGER_MS = 5 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;
 const VNC_PROBE_INTERVAL_MS = 100;
 const KILL_GRACE_MS = 2_000;
 const BROWSER_CRASH_WINDOW_MS = 60_000;
 const BROWSER_CRASH_LIMIT = 3;
+
+/**
+ * What the desktop children see. Deliberately not `buildSanitizedEnv()`: its
+ * kata chroot PATH and LD_LIBRARY_PATH overlay would give this Chromium
+ * different libraries than the browser tool's, which launches with the plain
+ * process env.
+ */
+const DESKTOP_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "XDG_RUNTIME_DIR",
+  "TMPDIR",
+  "PLAYWRIGHT_BROWSERS_PATH",
+] as const;
 
 /**
  * Close codes for `/v1/desktop/stream`. Application-range values cannot
@@ -40,6 +57,22 @@ export const DESKTOP_CLOSE = {
   failed: 4011,
   busy: 4013,
 } as const;
+
+export type DesktopCloseCode =
+  (typeof DESKTOP_CLOSE)[keyof typeof DESKTOP_CLOSE];
+
+const SHUTTING_DOWN_LOSS: DesktopLoss = {
+  code: DESKTOP_CLOSE.goingAway,
+  reason: "The assistant is shutting down",
+};
+const START_FAILED_LOSS: DesktopLoss = {
+  code: DESKTOP_CLOSE.failed,
+  reason: "Desktop failed to start",
+};
+const BUSY_LOSS: DesktopLoss = {
+  code: DESKTOP_CLOSE.busy,
+  reason: "Desktop is in use by another viewer",
+};
 
 export type DesktopChildRole =
   | "x-server"
@@ -59,15 +92,26 @@ export interface DesktopSpawnRequest {
   readonly env: Record<string, string>;
 }
 
-/** Why the desktop went away underneath a viewer, as the close code it relays. */
+/** Why a viewer cannot have the desktop, as the close code it relays. */
 export interface DesktopLoss {
-  readonly code: typeof DESKTOP_CLOSE.goingAway | typeof DESKTOP_CLOSE.failed;
+  readonly code: DesktopCloseCode;
   readonly reason: string;
 }
 
 /** Callback surface of the socket holding the viewer slot. */
 export interface DesktopViewer {
   onDesktopLost(loss: DesktopLoss): void;
+}
+
+/** A start that failed, carrying the loss for a viewer `onDesktopLost` missed. */
+export class DesktopStartError extends Error {
+  constructor(
+    readonly loss: DesktopLoss,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "DesktopStartError";
+  }
 }
 
 export interface DesktopTcpSocket {
@@ -87,7 +131,7 @@ type DesktopSignal = "SIGTERM" | "SIGKILL";
 
 type ViewerSlotResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: "busy" | "shutting-down" };
+  | { readonly ok: false; readonly loss: DesktopLoss };
 
 interface DesktopSessionManagerOptions {
   readonly spawn?: (
@@ -108,11 +152,15 @@ interface DesktopSessionManagerOptions {
   readonly readyDeadlineMs?: number;
   readonly killGraceMs?: number;
   readonly profileDir?: string;
+  /** Where the children's allowlisted env is read from. */
+  readonly sourceEnv?: NodeJS.ProcessEnv;
 }
 
 export class DesktopSessionManager {
   private readonly children = new Map<DesktopChildRole, DesktopChild>();
   private starting: Promise<void> | null = null;
+  /** The kill of the last tree, which a new start waits out. */
+  private tearingDown: Promise<void> | null = null;
   private running = false;
   /** Bumped on every teardown so an in-flight start notices it lost its tree. */
   private generation = 0;
@@ -136,6 +184,7 @@ export class DesktopSessionManager {
   private readonly readyDeadlineMs: number;
   private readonly killGraceMs: number;
   private readonly profileDir: string;
+  private readonly sourceEnv: NodeJS.ProcessEnv;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
     this.spawn = options.spawn ?? spawnDetached;
@@ -149,16 +198,17 @@ export class DesktopSessionManager {
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS;
     this.profileDir =
       options.profileDir ?? join(getDataDir(), "desktop-profile");
+    this.sourceEnv = options.sourceEnv ?? process.env;
   }
 
   // ── Viewer slot ────────────────────────────────────────────────────
 
   acquireViewerSlot(viewer: DesktopViewer): ViewerSlotResult {
     if (this.ingressClosed) {
-      return { ok: false, reason: "shutting-down" };
+      return { ok: false, loss: SHUTTING_DOWN_LOSS };
     }
     if (this.viewer) {
-      return { ok: false, reason: "busy" };
+      return { ok: false, loss: BUSY_LOSS };
     }
     this.viewer = viewer;
     this.clearLinger();
@@ -181,10 +231,13 @@ export class DesktopSessionManager {
 
   // ── Process tree ───────────────────────────────────────────────────
 
-  /** Start the desktop if needed. Concurrent callers share one start. */
+  /**
+   * Start the desktop if needed. Concurrent callers share one start; it
+   * rejects with a `DesktopStartError`.
+   */
   ensureDesktopRunning(): Promise<void> {
     if (this.ingressClosed) {
-      return Promise.reject(new Error("Desktop ingress is closed"));
+      return Promise.reject(ingressClosedError());
     }
     if (this.running) {
       void this.ensureBrowser(this.childEnv(), this.generation);
@@ -202,17 +255,21 @@ export class DesktopSessionManager {
    */
   destroy(): Promise<void> {
     this.ingressClosed = true;
-    return this.teardown({
-      code: DESKTOP_CLOSE.goingAway,
-      reason: "The assistant is shutting down",
-    });
+    return this.teardown(SHUTTING_DOWN_LOSS);
   }
 
   private async startDesktop(): Promise<void> {
+    // The last tree may still be in its kill grace; its X server holds the
+    // display and port until it is gone.
+    await this.tearingDown;
+    if (this.ingressClosed) {
+      throw ingressClosedError();
+    }
     const generation = this.generation;
-    const binaries = this.resolveBinaries();
-    const env = this.childEnv();
+    let env: Record<string, string>;
     try {
+      const binaries = this.resolveBinaries();
+      env = this.childEnv();
       this.launch("x-server", xServerCommand(binaries.xServer), env);
       const ready = await this.waitForVnc(generation);
       if (this.generation !== generation) {
@@ -227,12 +284,9 @@ export class DesktopSessionManager {
       this.launch("clipboard", [binaries.clipboard, "-nowin"], env);
     } catch (err) {
       if (this.generation === generation) {
-        void this.teardown({
-          code: DESKTOP_CLOSE.failed,
-          reason: "Desktop failed to start",
-        });
+        void this.teardown(START_FAILED_LOSS);
       }
-      throw err;
+      throw new DesktopStartError(START_FAILED_LOSS, err);
     }
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
@@ -366,7 +420,11 @@ export class DesktopSessionManager {
     void this.ensureBrowser(this.childEnv(), this.generation);
   }
 
-  private teardown(loss: DesktopLoss): Promise<void> {
+  /**
+   * Kill the tree. The viewer, if any, hears `loss` before the kill starts;
+   * the linger path passes none since nobody is watching by then.
+   */
+  private teardown(loss?: DesktopLoss): Promise<void> {
     this.clearLinger();
     this.generation += 1;
     this.running = false;
@@ -375,8 +433,22 @@ export class DesktopSessionManager {
     this.children.clear();
     const viewer = this.viewer;
     this.viewer = null;
-    viewer?.onDesktopLost(loss);
-    return this.killAll(children);
+    if (viewer && loss) {
+      viewer.onDesktopLost(loss);
+    }
+    // Chain onto an earlier kill still in its grace so a start waits for both.
+    const done: Promise<void> = Promise.all([
+      this.tearingDown,
+      this.killAll(children),
+    ])
+      .then(() => undefined)
+      .finally(() => {
+        if (this.tearingDown === done) {
+          this.tearingDown = null;
+        }
+      });
+    this.tearingDown = done;
+    return done;
   }
 
   /** SIGTERM so X and Chromium exit cleanly, then SIGKILL whatever is left. */
@@ -407,10 +479,7 @@ export class DesktopSessionManager {
     this.lingerTimer = setTimeout(() => {
       this.lingerTimer = null;
       log.info("Desktop idle, tearing down");
-      void this.teardown({
-        code: DESKTOP_CLOSE.failed,
-        reason: "Desktop stopped: idle",
-      });
+      void this.teardown();
     }, this.lingerMs);
     this.lingerTimer.unref?.();
   }
@@ -423,8 +492,23 @@ export class DesktopSessionManager {
   }
 
   private childEnv(): Record<string, string> {
-    return { ...buildSanitizedEnv(), DISPLAY: DESKTOP_DISPLAY };
+    const env: Record<string, string> = {};
+    for (const key of DESKTOP_ENV_KEYS) {
+      const value = this.sourceEnv[key];
+      if (value != null) {
+        env[key] = value;
+      }
+    }
+    env.DISPLAY = DESKTOP_DISPLAY;
+    return env;
   }
+}
+
+function ingressClosedError(): DesktopStartError {
+  return new DesktopStartError(
+    SHUTTING_DOWN_LOSS,
+    new Error("Desktop ingress is closed"),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -451,13 +535,16 @@ function xServerCommand(executable: string): string[] {
 
 function browserCommand(executable: string, profileDir: string): string[] {
   // The daemon runs as root in the pod, where Chromium refuses its own
-  // sandbox; Playwright launches with the same flag.
+  // sandbox; Playwright launches with the same flag. The explicit geometry
+  // covers a window mapped before openbox is up to maximize it.
   return [
     executable,
     "--no-sandbox",
     "--no-first-run",
     "--disable-dev-shm-usage",
     "--start-maximized",
+    "--window-position=0,0",
+    `--window-size=${DESKTOP_WIDTH},${DESKTOP_HEIGHT}`,
     `--user-data-dir=${profileDir}`,
   ];
 }
@@ -549,7 +636,10 @@ export function getDesktopSessionManager(): DesktopSessionManager {
   return sharedManager;
 }
 
-/** Shut the shared desktop down, if one was ever started. */
+/**
+ * Shut the shared desktop down. Latches even when none was ever served, so a
+ * socket arriving mid-shutdown cannot start a tree that nothing would kill.
+ */
 export function destroyDesktopSessionManager(): Promise<void> {
-  return sharedManager?.destroy() ?? Promise.resolve();
+  return getDesktopSessionManager().destroy();
 }

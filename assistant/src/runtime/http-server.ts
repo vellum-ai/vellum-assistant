@@ -209,6 +209,13 @@ interface DesktopStreamWebSocketData {
   bridge?: DesktopStreamBridge;
 }
 
+type AllWebSocketData =
+  | MediaStreamWebSocketData
+  | SttStreamWebSocketData
+  | LiveVoiceWebSocketData
+  | WatchStreamWebSocketData
+  | DesktopStreamWebSocketData;
+
 function podDesktopEnabled(): boolean {
   try {
     return isPodDesktopEnabled(getConfig());
@@ -253,12 +260,6 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    type AllWebSocketData =
-      | MediaStreamWebSocketData
-      | SttStreamWebSocketData
-      | LiveVoiceWebSocketData
-      | WatchStreamWebSocketData
-      | DesktopStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -988,15 +989,19 @@ export class RuntimeHttpServer {
   }
 
   /**
-   * Shared gate for gateway-proxied WebSocket upgrades: private network peers
-   * and origins only, then a gateway service token. The gateway owns
+   * Shared path for gateway-proxied WebSocket upgrades: private network peers
+   * and origins only, then a gateway service token, then `parse` builds the
+   * socket data (or a 4xx Response) and the upgrade happens. The gateway owns
    * downstream client auth and dials these upstreams on the client's behalf.
+   * Returns a Response on failure. On success Bun has consumed the request and
+   * nothing is returned; the type is `Response` only to fit the router.
    */
-  private gateRuntimeStreamUpgrade(
+  private upgradeRuntimeStream(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
     label: string,
-  ): Response | null {
+    parse: (query: URLSearchParams) => AllWebSocketData | Response,
+  ): Response {
     if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
       return httpError(
         "FORBIDDEN",
@@ -1004,40 +1009,35 @@ export class RuntimeHttpServer {
         403,
       );
     }
-    return this.verifyGatewayServiceToken(req);
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) {
+      return tokenError;
+    }
+    const data = parse(new URL(req.url).searchParams);
+    if (data instanceof Response) {
+      return data;
+    }
+    if (!server.upgrade(req, { data })) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    return undefined!;
   }
 
   private handleMediaStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    const gateError = this.gateRuntimeStreamUpgrade(
-      req,
-      server,
-      "media-stream",
-    );
-    if (gateError) {
-      return gateError;
-    }
-
-    const wsUrl = new URL(req.url);
-    const callSessionId = wsUrl.searchParams.get("callSessionId");
-    if (!callSessionId) {
-      return new Response("Missing callSessionId", { status: 400 });
-    }
-    // Media-stream connections use a distinct wsType so the open/message/close
-    // handlers route them to MediaStreamCallSession.
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "media-stream", (query) => {
+      const callSessionId = query.get("callSessionId");
+      if (!callSessionId) {
+        return new Response("Missing callSessionId", { status: 400 });
+      }
+      // A distinct wsType routes these to MediaStreamCallSession.
+      return {
         wsType: "media-stream",
         callSessionId,
-      } satisfies MediaStreamWebSocketData,
+      } satisfies MediaStreamWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
   }
 
   /** Handle WebSocket upgrade for `/v1/stt/stream`. */
@@ -1045,40 +1045,25 @@ export class RuntimeHttpServer {
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    const gateError = this.gateRuntimeStreamUpgrade(req, server, "STT stream");
-    if (gateError) {
-      return gateError;
-    }
-
-    const wsUrl = new URL(req.url);
-    // provider is optional compatibility metadata — the runtime resolves
-    // the streaming transcriber from config (`services.stt.provider`).
-    const provider = wsUrl.searchParams.get("provider") ?? undefined;
-    const mimeType = wsUrl.searchParams.get("mimeType");
-    if (!mimeType) {
-      return new Response("Missing required query parameter: mimeType", {
-        status: 400,
-      });
-    }
-
-    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
-    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
-
-    const sessionId = crypto.randomUUID();
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "STT stream", (query) => {
+      // provider is optional compatibility metadata; the runtime resolves
+      // the streaming transcriber from config (`services.stt.provider`).
+      const provider = query.get("provider") ?? undefined;
+      const mimeType = query.get("mimeType");
+      if (!mimeType) {
+        return new Response("Missing required query parameter: mimeType", {
+          status: 400,
+        });
+      }
+      const sampleRateRaw = query.get("sampleRate");
+      return {
         wsType: "stt-stream",
         provider,
         mimeType,
-        sampleRate,
-        sessionId,
-      } satisfies SttStreamWebSocketData,
+        sampleRate: sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined,
+        sessionId: crypto.randomUUID(),
+      } satisfies SttStreamWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
   }
 
   /** Handle WebSocket upgrade for `/v1/live-voice`. */
@@ -1086,20 +1071,12 @@ export class RuntimeHttpServer {
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    const gateError = this.gateRuntimeStreamUpgrade(req, server, "live voice");
-    if (gateError) {
-      return gateError;
-    }
-
-    const upgraded = server.upgrade(req, {
-      data: {
-        wsType: "live-voice",
-      } satisfies LiveVoiceWebSocketData,
-    });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    return undefined!;
+    return this.upgradeRuntimeStream(
+      req,
+      server,
+      "live voice",
+      () => ({ wsType: "live-voice" }) satisfies LiveVoiceWebSocketData,
+    );
   }
 
   /** Handle WebSocket upgrade for `/v1/watch/stream`. */
@@ -1107,72 +1084,39 @@ export class RuntimeHttpServer {
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    const gateError = this.gateRuntimeStreamUpgrade(
-      req,
-      server,
-      "watch stream",
-    );
-    if (gateError) {
-      return gateError;
-    }
-
-    const wsUrl = new URL(req.url);
-    const mimeType = wsUrl.searchParams.get("mimeType");
-    if (!mimeType) {
-      return new Response("Missing required query parameter: mimeType", {
-        status: 400,
-      });
-    }
-
-    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
-    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
-    const conversationId =
-      wsUrl.searchParams.get("conversationId")?.trim() || undefined;
-    const clientId = wsUrl.searchParams.get("clientId")?.trim() || undefined;
-
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "watch stream", (query) => {
+      const mimeType = query.get("mimeType");
+      if (!mimeType) {
+        return new Response("Missing required query parameter: mimeType", {
+          status: 400,
+        });
+      }
+      const sampleRateRaw = query.get("sampleRate");
+      return {
         wsType: "watch-stream",
         mimeType,
-        sampleRate,
-        conversationId,
-        clientId,
+        sampleRate: sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined,
+        conversationId: query.get("conversationId")?.trim() || undefined,
+        clientId: query.get("clientId")?.trim() || undefined,
         sessionId: crypto.randomUUID(),
-      } satisfies WatchStreamWebSocketData,
+      } satisfies WatchStreamWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
-    return undefined!;
   }
 
   /**
-   * Handle WebSocket upgrade for `/v1/desktop/stream`. The feature gate is
-   * applied after the upgrade (close code 4008) because the gateway relays
-   * close codes, not pre-upgrade HTTP statuses, to the browser.
+   * Handle WebSocket upgrade for `/v1/desktop/stream`. The feature gate runs
+   * in the open handler, as close code 4008.
    */
   private handleDesktopStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    const gateError = this.gateRuntimeStreamUpgrade(
+    return this.upgradeRuntimeStream(
       req,
       server,
       "desktop stream",
+      () => ({ wsType: "desktop-stream" }) satisfies DesktopStreamWebSocketData,
     );
-    if (gateError) {
-      return gateError;
-    }
-
-    const upgraded = server.upgrade(req, {
-      data: { wsType: "desktop-stream" } satisfies DesktopStreamWebSocketData,
-    });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
-    return undefined!;
   }
 
   private async handleTwilioWebhook(
