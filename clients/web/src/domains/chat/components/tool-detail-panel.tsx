@@ -198,7 +198,10 @@ export function ToolDetailBody({
         <div className="mt-5">
           <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
           {hasResult && !isEmptyResult ? (
-            <CodeBlock text={result as string} />
+            <CodeBlock
+              text={result as string}
+              tone={isError ? "error" : "default"}
+            />
           ) : hasStreamedOutput ? (
             <CodeBlock text={streamedOutput as string} />
           ) : (

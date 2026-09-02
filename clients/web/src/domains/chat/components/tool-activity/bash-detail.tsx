@@ -14,7 +14,7 @@
 import { Typography } from "@vellumai/design-library";
 
 import {
-  ClampedContent,
+  CodeBlock,
   CopyButton,
   SectionLabel,
 } from "@/components/detail-primitives";
@@ -61,20 +61,7 @@ export function BashDetail({
       <div>
         <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
         {body ? (
-          <div className="relative rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
-            <ClampedContent length={body.length}>
-              <pre
-                className={`font-mono text-xs break-words whitespace-pre-wrap ${
-                  isError
-                    ? "text-[var(--system-negative-strong)]"
-                    : "text-[var(--content-default)]"
-                }`}
-              >
-                {body}
-              </pre>
-            </ClampedContent>
-            <CopyButton text={body} />
-          </div>
+          <CodeBlock text={body} tone={isError ? "error" : "default"} />
         ) : (
           <Typography
             variant="body-small-default"
