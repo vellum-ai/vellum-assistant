@@ -10,6 +10,7 @@
 import { Loader2, X } from "lucide-react";
 import { type ReactNode } from "react";
 
+import { FIELD_STACK_CLASS } from "@/domains/settings/components/field-skeletons";
 import {
   brandLabel,
   cardExpiryLabel,
@@ -165,7 +166,7 @@ export function PaymentMethodModalShell({
                 data-testid="payment-method-modal-fields"
                 aria-busy={locked}
                 className={cn(
-                  "flex flex-col gap-[10px]",
+                  FIELD_STACK_CLASS,
                   locked && "pointer-events-none opacity-45",
                 )}
               >

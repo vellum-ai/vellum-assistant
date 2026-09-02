@@ -27,7 +27,7 @@ export function brandLabel(brand: string | null | undefined): string | null {
   if (!key) {
     return null;
   }
-  return BRAND_LABELS[key] ?? null;
+  return Object.hasOwn(BRAND_LABELS, key) ? BRAND_LABELS[key] : null;
 }
 
 /** The brand label, or the one fallback for a card we can name no brand for. */

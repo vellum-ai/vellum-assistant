@@ -134,7 +134,7 @@ describe("CSP_POLICY", () => {
   });
 
   test("frame-src is a superset of the web bundle's frame-src meta", () => {
-    // See the superset note in csp.ts. Link drifted exactly this way once.
+    // See the superset note in csp.ts.
     const indexHtml = readFileSync(
       join(import.meta.dir, "../../../clients/web/index.html"),
       "utf8",

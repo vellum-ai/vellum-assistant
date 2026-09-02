@@ -27,8 +27,8 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * The default row: the brand named through `brandDisplayLabel` (the raw
- * `"visa"` reads as "Visa", and a brand we hold no label for reads as the
- * generic saved-card copy), the last four digits, and the Replace card action.
+ * `"visa"` reads as "Visa"), the last four digits, and the Replace card
+ * action.
  */
 export const Default: Story = {};
 
