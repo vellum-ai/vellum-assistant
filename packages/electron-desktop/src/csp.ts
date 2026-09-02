@@ -43,7 +43,10 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // via `loadStripe` (script-src js.stripe.com), which mounts the card and
 // address inputs inside iframes on js.stripe.com / *.js.stripe.com (frame-src)
 // and confirms SetupIntents against api.stripe.com (connect-src).
-// hooks.stripe.com hosts the 3D Secure challenge frame. This is Stripe's
+// hooks.stripe.com hosts the 3D Secure challenge frame. link.com /
+// *.link.com host the Link wallet frames the payment element mounts while
+// `wallets.link` is enabled: the banner, the OTP sheet, and the saved-card
+// panel. This is Stripe's
 // documented CSP set for Stripe.js: https://docs.stripe.com/security/guide
 // (minus maps.googleapis.com, which only applies when supplying your own
 // Google Maps key to the Address Element).
@@ -52,6 +55,11 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // Element iframes. Keeping the list to 'self' + Stripe hosts costs the
 // sandboxed srcdoc surfaces (visual, dynamic-page, app-viewer) nothing,
 // because a srcdoc document resolves as 'self'.
+//
+// This list must stay a superset of the frame-src meta in
+// clients/web/index.html. The packaged app serves that same bundle over
+// app:// and applies both policies, and CSP intersects, so a host missing
+// here is blocked in the desktop app however the meta reads.
 //
 // frame-src must not be dropped, and 'self' must stay the floor. It is the
 // only control over where a sandboxed frame can navigate *itself*: no CSP
@@ -66,7 +74,7 @@ export const CSP_POLICY = [
   `script-src 'self' 'unsafe-inline' https://${WILDCARD_HOST} https://js.stripe.com https://*.js.stripe.com`,
   "style-src 'self' 'unsafe-inline'",
   `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com https://storage.googleapis.com https://*.storage.googleapis.com https://api.stripe.com ws://localhost:* ws://127.0.0.1:*`,
-  "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com",
+  "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com",
   "img-src 'self' https: data: blob:",
   // Hosted voice-preview samples: ElevenLabs premades live in the
   // eleven-public-prod GCS bucket (path-scoped so the rest of GCS stays
