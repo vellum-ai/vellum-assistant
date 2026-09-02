@@ -108,7 +108,7 @@ function ViewPill({
   return (
     <button
       onClick={onClick}
-      className="rounded-full px-3 py-1 text-label-default transition-colors"
+      className="rounded-full px-3 py-1 text-label-medium-default transition-colors"
       style={{
         background: active ? "var(--surface-active)" : "var(--surface-overlay)",
         color: active ? "var(--content-default)" : "var(--content-secondary)",
@@ -340,7 +340,7 @@ function CandidateRow({
           {fmtScore(candidate.score)}
         </span>
         <span
-          className="text-label-small"
+          className="text-label-small-default"
           style={{ color: "var(--content-tertiary)" }}
         >
           {t("memoryTab.candidateScores", {
@@ -468,7 +468,7 @@ function V2ConfigCard({
               {t("memoryTab.configTitle")}
             </span>
             <span
-              className="text-label-default"
+              className="text-body-small-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
               {t("memoryTab.configSubtitle")}
@@ -517,7 +517,7 @@ function CountPill({
 }): ReactNode {
   return (
     <span
-      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-default"
+      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-medium-default"
       style={{
         background: "var(--surface-overlay)",
         color: "var(--content-secondary)",
@@ -882,7 +882,7 @@ function ConceptPageContent({
   if (query.isError || query.data?.kind === "missing") {
     body = (
       <span
-        className="text-label-small"
+        className="text-label-small-default"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("memoryTab.pageNotFound")}
@@ -893,7 +893,7 @@ function ConceptPageContent({
   } else {
     body = (
       <span
-        className="text-label-small"
+        className="text-label-small-default"
         style={{ color: "var(--content-tertiary)" }}
       >
         {t("memoryTab.loading")}
@@ -904,7 +904,7 @@ function ConceptPageContent({
   return (
     <div className="mt-2 flex flex-col gap-1">
       <span
-        className="text-label-small"
+        className="text-label-small-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {t("memoryTab.pageContentLabel")}
@@ -968,7 +968,7 @@ function SectionCard({
             </span>
             {subtitle != null && subtitle !== "" && (
               <span
-                className="text-label-default"
+                className="text-label-medium-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
                 {subtitle}
@@ -993,7 +993,7 @@ function MetaGrid({
       {rows.map(({ label, value }) => (
         <div key={label} className="flex items-baseline justify-between gap-3">
           <span
-            className="shrink-0 text-label-default"
+            className="shrink-0 text-label-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
             {label}
@@ -1020,7 +1020,7 @@ function BreakdownRow({
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span
-        className="text-label-small"
+        className="text-label-small-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {label}
@@ -1054,7 +1054,7 @@ function CodeBlock({ text }: { text: string }): ReactNode {
 function TypeChip({ label }: { label: string }): ReactNode {
   return (
     <span
-      className="rounded px-1.5 py-0.5 text-label-small"
+      className="rounded px-1.5 py-0.5 text-label-small-default"
       style={{
         background: "var(--surface-base)",
         color: "var(--content-secondary)",
@@ -1100,7 +1100,7 @@ function CopyButton({
       aria-label={
         copied ? t("memoryTab.copyAriaLabelCopied") : t("memoryTab.copyAriaLabel")
       }
-      className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-label-default transition-colors"
+      className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-label-medium-default transition-colors"
       style={{
         background: "var(--surface-overlay)",
         color: copied
@@ -1126,7 +1126,7 @@ function NoDataState({ t }: { t: MemoryTranslate }): ReactNode {
         {t("memoryTab.noDataTitle")}
       </p>
       <p
-        className="max-w-sm text-label-default"
+        className="max-w-sm text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {t("memoryTab.noDataBody")}

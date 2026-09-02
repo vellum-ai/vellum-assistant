@@ -141,7 +141,7 @@ export function AssistantSleepPolicy({
         <label className="block text-body-medium-default text-[var(--content-default)]">
           {t("assistantSleepPolicy.idleTimeout")}
         </label>
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
+        <p className="text-body-small-lighter text-[var(--content-tertiary)]">
           {t("assistantSleepPolicy.idleTimeoutDescription")}
         </p>
         <div className="mt-2 flex flex-wrap gap-2">

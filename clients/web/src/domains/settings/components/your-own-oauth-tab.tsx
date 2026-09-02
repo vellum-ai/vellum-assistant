@@ -260,7 +260,7 @@ export function YourOwnTab({
                   ? t("yourOwnOauthTab.addOwnApp", { name: displayName })
                   : t("yourOwnOauthTab.addAnotherApp", { name: displayName })}
               </p>
-              <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
+              <p className="text-body-small-lighter leading-relaxed text-[var(--content-tertiary)]">
                 {t("yourOwnOauthTab.credentialsNote")}
               </p>
             </div>
@@ -304,7 +304,7 @@ export function YourOwnTab({
                     }
                   />
                 </div>
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                   {t("yourOwnOauthTab.redirectHint")}
                 </p>
               </div>

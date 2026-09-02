@@ -95,7 +95,7 @@ export function CompactionTab({
               </span>
             </div>
             <p
-              className="text-label-default"
+              className="text-label-medium-default"
               style={{ color: "var(--content-secondary)" }}
             >
               {message}
@@ -247,7 +247,7 @@ function EventCard({
             </span>
           </div>
           <span
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{ color: "var(--content-tertiary)" }}
           >
             {formattedCreatedAt(event.createdAt)}
@@ -256,7 +256,7 @@ function EventCard({
 
         {outcome.detail ? (
           <p
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
             {outcome.detail}
@@ -368,13 +368,13 @@ function MetadataRow({
   return (
     <div className="flex items-baseline gap-3">
       <span
-        className="shrink-0 text-label-default"
+        className="shrink-0 text-label-medium-default"
         style={{ color: "var(--content-secondary)", minWidth: "10rem" }}
       >
         {label}
       </span>
       <span
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-default)" }}
       >
         {value}

@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { hashVerificationSecret } from "@vellumai/gateway-client";
 import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+import { z } from "zod";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import {
@@ -14,7 +15,7 @@ import {
   revokePendingSessions,
   updateSessionDelivery,
 } from "../../channels/gateway-verification-sessions.js";
-import type { ChannelId } from "../../channels/types.js";
+import { CHANNEL_IDS, type ChannelId } from "../../channels/types.js";
 import {
   findContactChannel,
   getChannelById,
@@ -173,9 +174,38 @@ export async function createInboundChallenge(
   };
 }
 
+/**
+ * Exactly what {@link getVerificationStatus} returns.
+ *
+ * Its own shape rather than the wide {@link ChannelVerificationSessionResult},
+ * which spans five different responses and so marks every field optional. A
+ * status caller always gets the binding verdict, and the route publishes this
+ * as its response body so clients read it from a generated type.
+ */
+export const verificationStatusResponseSchema = z.object({
+  success: z.boolean(),
+  bound: z.boolean(),
+  channel: z.enum(CHANNEL_IDS),
+  assistantId: z.string(),
+  hasPendingChallenge: z.boolean(),
+  guardianExternalUserId: z.string().optional(),
+  guardianDeliveryChatId: z.string().optional(),
+  guardianUsername: z.string().optional(),
+  guardianDisplayName: z.string().optional(),
+  verificationSessionId: z.string().optional(),
+  expiresAt: z.number().optional(),
+  nextResendAt: z.number().nullable().optional(),
+  sendCount: z.number().optional(),
+  pendingBootstrap: z.boolean().optional(),
+});
+
+export type VerificationStatusResponse = z.infer<
+  typeof verificationStatusResponseSchema
+>;
+
 export async function getVerificationStatus(
   channel?: ChannelId,
-): Promise<ChannelVerificationSessionResult> {
+): Promise<VerificationStatusResponse> {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -215,7 +245,7 @@ export async function getVerificationStatus(
     findActiveSession(resolvedChannel, { verificationPurpose: "guardian" }),
   ]);
   const hasPendingChallenge = pendingSession != null;
-  const outboundFields: Record<string, unknown> = {};
+  const outboundFields: Partial<VerificationStatusResponse> = {};
   if (activeOutboundSession) {
     outboundFields.verificationSessionId = activeOutboundSession.id;
     outboundFields.expiresAt = activeOutboundSession.expiresAt;

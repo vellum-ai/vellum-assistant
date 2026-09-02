@@ -200,6 +200,7 @@ const {
   cardGrowthFor,
   avatarOffsetFor,
   companionContextMenuTemplate,
+  defaultAvatarCentre,
   geometryFor,
   placeCanvas,
   callOnUpdate,
@@ -492,6 +493,24 @@ describe("placeCanvas", () => {
     expect(centre.y).toBe(WORK_AREA.y + DROP_BELOW);
     // Where it used to stop: the old canvas's half-height below the work area.
     expect(centre.y).toBeLessThan(WORK_AREA.y + RISE_ABOVE);
+  });
+});
+
+describe("defaultAvatarCentre", () => {
+  test("opens at the bottom centre of the work area", () => {
+    const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
+    expect(centre.x).toBe(720);
+    expect(centre.y).toBe(25 + 875 - 24 - GEOMETRY.avatarBox / 2);
+  });
+
+  test("centres on the display it is given, not the primary one", () => {
+    const secondary = { x: 1440, y: 0, width: 2560, height: 1415 };
+    expect(defaultAvatarCentre(secondary, GEOMETRY).x).toBe(1440 + 1280);
+  });
+
+  test("lands where placeCanvas leaves it alone", () => {
+    const wanted = defaultAvatarCentre(WORK_AREA, GEOMETRY);
+    expect(centreOf(placeCanvas(wanted, WORK_AREA, GEOMETRY))).toEqual(wanted);
   });
 });
 

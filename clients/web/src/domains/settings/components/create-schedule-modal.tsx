@@ -580,7 +580,7 @@ function ScheduleSummary({
         >
           {summary}
         </p>
-        <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+        <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
           {t("createScheduleModal.timezoneNote", { timezone: timezoneLabel })}
         </p>
       </div>

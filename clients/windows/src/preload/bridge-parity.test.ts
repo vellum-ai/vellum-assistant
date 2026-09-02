@@ -86,10 +86,12 @@ const WINDOWS_ONLY_SURFACE = [
   "menu.popup",
   "menu.titles",
 ];
-// The Fn push-to-talk key is a macOS helper contract; Windows uses a
-// configurable global chord.
+// Both are macOS helper contracts read off its raw keyboard monitor: the Fn
+// key, and a hold of a configured modifier set. Windows answers the first with
+// a configurable global chord, and has no hold of its own to register.
 const MACOS_ONLY_SURFACE = [
   "helper.hotkey.fnPushToTalk",
+  "helper.hotkey.setModifierHold",
 ];
 
 test("the composed Windows bridge satisfies every applicable VellumBridge key", () => {

@@ -448,12 +448,10 @@ export async function handleChannelInbound({
   // pipeline (ACL, admission floor, disk-pressure, conversation binding) so a
   // 👍 never triggers a verification handshake or an access-request
   // notification, and a stranger's reaction creates no conversation/binding.
-  // The interceptor drops strangers, records known contacts' reactions as
-  // transcript signals in the conversation of the reacted message, and routes
-  // a guardian's reaction on an approval card through the guardian decision
-  // pipeline. Reactions never mint a conversation; the one that wakes a
-  // turn (an admitted actor adding a reaction to the assistant's own post)
-  // is the interceptor's call. A family member whose payload does not
+  // The interceptor drops strangers and records an admitted actor's reaction
+  // as a transcript signal in the conversation of the reacted message.
+  // Reactions never mint a conversation; the one that wakes a turn (a
+  // reaction on the assistant's own post) is the interceptor's call. A family member whose payload does not
   // resolve (no emoji or no target message id) is dropped as noise here:
   // the kind names the family, so it must never fall through and be read
   // as a message.
@@ -478,7 +476,6 @@ export async function handleChannelInbound({
       actorUsername: body.actorUsername,
       replyCallbackUrl: body.replyCallbackUrl,
       sourceMetadata: body.sourceMetadata,
-      approvalConversationGenerator,
     });
   }
 

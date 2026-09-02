@@ -126,6 +126,25 @@ export const writeCompanionHidden = (hidden: boolean): void => {
   store().set("companionHidden", hidden);
 };
 
+/**
+ * Observe the companion-surface opt-out, returning an unsubscribe function.
+ *
+ * For menus that are built once and kept, rather than built fresh each time
+ * they open. The tray menu is the latter and needs nothing here; the
+ * application menu is the former, and without this its "Show Companion" item
+ * would keep showing the state the surface used to be in after the tray item
+ * or the surface's own right-click "Hide" moved it.
+ *
+ * Absent reads as shown, matching `readCompanionHidden`, so a subscriber never
+ * has to interpret the store's optionality for itself.
+ */
+export const onCompanionHiddenChange = (
+  callback: (hidden: boolean) => void,
+): (() => void) =>
+  store().onDidChange("companionHidden", (hidden) => {
+    callback(hidden ?? false);
+  });
+
 /** Where each axis keeps its own chosen size. */
 const COMPANION_SIZE_KEYS: Record<
   CompanionSizeAxis,

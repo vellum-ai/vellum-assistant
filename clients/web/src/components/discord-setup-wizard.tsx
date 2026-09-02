@@ -10,6 +10,7 @@ import { DiscordSetupCreateStep } from "@/components/discord-setup-create-step";
 import { DiscordSetupFinishStep } from "@/components/discord-setup-finish-step";
 import { DiscordSetupInviteStep } from "@/components/discord-setup-invite-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
+import { useClearOnSaveSuccess } from "@/hooks/use-clear-on-save-success";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
@@ -72,12 +73,12 @@ export function DiscordSetupWizard({
     useChannelSetupSteps(WIZARD_STEP_IDS);
   const [botToken, setBotToken] = useState("");
 
-  // Drop the credential once it is saved, and move on: neither surface
-  // unmounts this wizard on success, so the token would otherwise sit in a
-  // mounted field long after it was handed over.
+  useClearOnSaveSuccess(saveStatus, setBotToken);
+
+  // A stored token retires the credential step, so the wizard moves to the
+  // action that is actually left.
   useEffect(() => {
     if (saveStatus === "success") {
-      setBotToken("");
       goTo("invite");
     }
   }, [saveStatus, goTo]);

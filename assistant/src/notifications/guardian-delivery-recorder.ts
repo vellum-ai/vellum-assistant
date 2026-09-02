@@ -8,12 +8,8 @@
  * reached. Capturing the surface address here — the conversation id for the
  * in-app vellum card, or the channel-native message id (e.g. Slack `ts`) for a
  * channel card — is what lets a delivered card be addressed back to its request
- * later:
- *
- *   - to withdraw it in place when the request resolves
- *     (`approvals/guardian-card-withdrawal.ts`), and
- *   - to resolve an emoji reaction on the card to the right request when several
- *     are pending in the same chat (the by-destination-message lookup).
+ * later, to withdraw it in place when the request resolves
+ * (`approvals/guardian-card-withdrawal.ts`).
  *
  * Every producer records through here so the addressing convention lives in one
  * place and cannot drift between the path that writes the row and the paths that
@@ -48,7 +44,7 @@ export interface ApprovalCardDeliveryAddress {
   conversationId?: string;
   /** Channel addressing: the chat the card was delivered to. */
   chatId?: string;
-  /** Channel-native message id (e.g. Slack `ts`) — the reaction/withdrawal key. */
+  /** Channel-native message id (e.g. Slack `ts`): the withdrawal key. */
   messageId?: string;
   /** Initial delivery status (defaults to `DELIVERY_STATUS.pending`). */
   status?: string;
@@ -78,7 +74,7 @@ export async function recordApprovalCardDelivery(
   } catch (err) {
     log.error(
       { err, requestId: address.requestId, channel: address.channel },
-      "Failed to record approval card delivery; reaction/withdrawal on this card will not resolve",
+      "Failed to record approval card delivery; withdrawal of this card will not resolve",
     );
     return null;
   }
@@ -100,7 +96,7 @@ export async function recordApprovalCardDelivery(
  * `conversationId`. Platform push results are skipped entirely: a push
  * has no channel-native card surface to address back to.
  * Channel results additionally carry the chat (`destination`) and channel-native
- * id (`messageId`) used to match inbound replies/reactions; a blank `destination`
+ * id (`messageId`) used to match inbound replies; a blank `destination`
  * is recorded as unknown rather than persisting the literal channel name as a
  * chat id. Status has two readers: the voice guardian-action sweep acts only
  * on `sent`/`pending` rows, and card withdrawal skips rows already marked

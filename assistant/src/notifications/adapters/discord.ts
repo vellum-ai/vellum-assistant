@@ -74,7 +74,7 @@ export class DiscordAdapter implements ChannelAdapter {
             "Discord approval notification delivered with buttons",
           );
           // The message id lets the delivery row address the card later
-          // (reactions, button presses, in-place withdrawal).
+          // (button presses, in-place withdrawal).
           return { success: true, messageId: sent.lastMessageId };
         } catch (richErr) {
           if (richErr instanceof DiscordPartialSendError) {

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { defineConfig, globalIgnores } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
@@ -23,6 +26,83 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
  * contrast. Use semantic tokens (`--surface-*`, `--content-*`,
  * `--border-*`) instead. See `clients/web/docs/STYLE_GUIDE.md`.
  */
+/**
+ * Typography variant names that do not exist.
+ *
+ * `packages/design-library/src/tokens.css` defines the typography utilities
+ * via Tailwind `@utility`. The `--text-*` variables sit in a plain `:root`
+ * rather than `@theme`, so Tailwind generates nothing else. A name that is
+ * not declared there matches no CSS, and the element silently falls back to
+ * the inherited 16px/400 instead of failing.
+ *
+ * The list is parsed out of `tokens.css` rather than restated, so it cannot
+ * drift from the utilities that actually exist. `tokens.test.ts` takes the
+ * same approach with the colour palette, for the same reason. Filtered to
+ * the four scale families so unrelated `@utility` entries (for example
+ * `text-optical-center`) are not treated as variants.
+ *
+ * Transitional. This rule guards the class-string form, which `<Typography>`
+ * makes unnecessary: its `variant` prop is a typed union, so a wrong name is
+ * a compile error and none of this machinery is needed. Class strings are
+ * only unavoidable for variant-prefixing (`max-md:text-body-large-default`),
+ * which is 7 of ~1,430 usages here. The direction is to converge on the
+ * component and let this rule shrink to cover that remainder, so treat it as
+ * a net under the old path rather than an endorsement of it.
+ */
+const TYPOGRAPHY_VARIANTS = [
+  ...readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../packages/design-library/src/tokens.css",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ).matchAll(/@utility\s+text-((?:title|body|label|chat)[a-z-]*)\s*\{/g),
+].map((match) => match[1]);
+
+if (TYPOGRAPHY_VARIANTS.length === 0) {
+  throw new Error(
+    "No typography utilities found in tokens.css. The parse above has drifted from the file's shape, and the unknown-variant rule would match everything.",
+  );
+}
+
+/**
+ * Matches `text-` + a scale family unless the whole token is a real variant.
+ *
+ * The exemption ends with `(?![A-Za-z0-9_-])` rather than `\b`. A word
+ * boundary matches before a hyphen, so it would exempt anything merely
+ * *prefixed* by a valid variant (`text-chat-foo`,
+ * `text-body-small-default-typo`). The wider character class covers digit
+ * and underscore suffixes too (`text-title-small2`, `text-chat_extra`),
+ * which are equally undeclared. The class token has to end where the
+ * variant ends.
+ *
+ * The leading `(?<!-)` keeps the rule off CSS custom properties. Rebinding a
+ * token on one element is legitimate: the
+ * `[--text-label-medium-default-weight:600]` in `camera-status-pill.tsx`
+ * sets the variable the utility reads, which is how you change one facet of
+ * a variant without a second utility racing it on the same property.
+ * Without the lookbehind the `text-` inside `--text-…` matches.
+ */
+export const unknownTypographyPattern = `(?<!-)\\btext-(?!(?:${TYPOGRAPHY_VARIANTS.join("|")})(?![A-Za-z0-9_-]))(?:title|body|label|chat)[a-z-]*`;
+
+const unknownTypographyMessage =
+  "This is not a real typography variant, so it matches no CSS and the element falls back to the inherited 16px/400. Use one of: " +
+  TYPOGRAPHY_VARIANTS.map((v) => `text-${v}`).join(", ") +
+  '. Prefer <Typography variant="…"> so the name is checked by the compiler.';
+
+const unknownTypographyRules = [
+  {
+    selector: `Literal[value=/${unknownTypographyPattern}/]`,
+    message: unknownTypographyMessage,
+  },
+  {
+    selector: `TemplateElement[value.raw=/${unknownTypographyPattern}/]`,
+    message: unknownTypographyMessage,
+  },
+];
+
 const darkPairedColorScaleRules = [
   {
     selector:
@@ -238,6 +318,7 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
+        ...unknownTypographyRules,
         ...universalAuthRules,
         ...rawApiFetchRules,
         ...headerLiteralRules,
@@ -282,6 +363,7 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
+        ...unknownTypographyRules,
         ...universalAuthRules,
         ...rawApiFetchRules,
       ],

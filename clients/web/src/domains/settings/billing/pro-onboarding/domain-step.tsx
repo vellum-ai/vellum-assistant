@@ -206,7 +206,7 @@ export function DomainStep({
             </p>
           )}
           {isLocked && (
-            <p className="text-body-small-default text-[var(--content-tertiary)]">
+            <p className="text-body-small-lighter text-[var(--content-tertiary)]">
               {t("domainStep.domainLockedMessage")}
             </p>
           )}

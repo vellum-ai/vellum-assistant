@@ -1,6 +1,6 @@
 ---
 name: schedule
-description: Recurring and one-shot scheduling - cron, RRULE, or single fire-at time
+description: Reminders, automations, and recurring page, dashboard, or status monitoring (cron, RRULE, or fire-at)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📅"
@@ -8,16 +8,27 @@ metadata:
     display-name: "Schedule"
     category: "productivity"
     activation-hints:
-      - "User wants to set a reminder for a future time (e.g. 'remind me at 9am tomorrow', 'remind me to take meds at 8pm')"
-      - "User wants to schedule a recurring task or automation (e.g. 'every weekday at 9am', 'every Monday at noon')"
-      - "User wants to schedule a one-time future action the assistant should run autonomously (e.g. 'at 5pm check my email and summarize it')"
-      - "User wants to list, update, cancel, or inspect existing scheduled tasks or reminders"
+      - "User wants a reminder"
+      - "User wants a recurring task or nightly check"
+      - "User wants to monitor a page, dashboard, or status and get alerts"
+      - "User wants a one-time future action"
+      - "User wants to manage existing schedules"
     avoid-when:
-      - "User wants to add something to their task list or queue — use task-list tools instead"
-      - "User wants to act immediately or run a quick command that completes within the conversation — schedule is only for deferred or recurring execution"
+      - "User wants a task-list item"
+      - "User wants a one-off that finishes now. Recurring-job setup still uses this skill"
 ---
 
 Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Schedules support four modes: **execute** (run a message through the assistant), **notify** (send a notification to the user), **script** (run a shell command directly without LLM involvement), and **workflow** (run a saved multi-agent workflow by name).
+
+## Recurring Monitoring
+
+When the user wants something checked on a cadence (a status page, dashboard, site, or similar) and to be told if it is wrong, late, or missing: create a schedule. Do not author a standalone script they have to download, run, or maintain.
+
+- Recurrence, cutoff times, escalation, and notifications are schedule and notification primitives. Do not reimplement them in a workspace file the user has to run.
+- Prefer **execute** mode: the scheduled message browses or fetches the source, applies the user's rules, and notifies on exceptions. Use **script** mode only for a cheap deterministic check against a live source the assistant can already reach (curl an API, read a file in the workspace). A script-mode job is still a schedule, not a file you hand the user.
+- Looking at a page, pasting HTML, or gathering a roster is setup for the schedule, not a reason to skip creating one.
+- If browsing cannot reach the page, still create the schedule. Offer the desktop app (https://www.vellum.ai/download) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) so a logged-in browser session can run it. Do not replace the schedule with a parser against a pasted export, and do not assign comparison-run homework before anything is scheduled.
+- Watchers cover Gmail, Google Calendar, GitHub, Linear, and Outlook event polling. An arbitrary web page or status dashboard is this skill, not the watcher skill.
 
 ## Schedule Syntax
 
@@ -213,14 +224,15 @@ When `schedule_create` returns, it includes an integration status summary. Cross
 
 - If the task involves **email** (reading, sending, OTP verification): an email integration must be connected (check the "email" category)
 - If the task involves **making calls**: Twilio must be connected
-- If the task involves **web browsing or form-filling**: browser automation must be available (check client type)
+- If the task involves **web browsing or form-filling**: browser automation must be available (check client type). A timeout, auth wall, or missing logged-in browser is a setup gap, not a reason to skip the schedule or to write a standalone script.
 - If the task involves a **multi-step workflow** (e.g., book appointment → read confirmation email), trace the full dependency chain
 
 If any required capability is missing:
 
-1. **Do NOT tell the user the schedule is ready** - instead, explain what's missing and why the schedule won't work yet
-2. Offer to help set up the missing integration first
-3. The schedule is still created (so timing is preserved), but make it clear it won't execute successfully until dependencies are resolved
+1. **Still create the schedule** so timing is preserved. Do not tell the user it is ready to run.
+2. Explain what is missing and why the next fire will fail until that is fixed.
+3. Offer to set up the missing integration first. For a page the assistant cannot reach, offer the desktop app (https://www.vellum.ai/download) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) before asking for a screenshot or pasted export.
+4. Do not replace the schedule with a workspace script the user has to run themselves.
 
 ## Delivering Results
 

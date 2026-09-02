@@ -7,9 +7,9 @@
  * heartbeat failures all post here without a schedule involved.
  *
  * Under the title it may offer the schedule that would fill the panel. That
- * card is an advertisement, aimed at people who have not adopted schedules,
- * so it appears only while the user has none and has not dismissed it. Both
- * outcomes are here, since the scene has to hold together either way.
+ * card is an advertisement, aimed at people who have not adopted schedules, so
+ * it appears only while the user has none. Both outcomes are here, since the
+ * scene has to hold together either way.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
@@ -35,26 +35,21 @@ function Panel({ children }: { children: ReactNode }) {
 }
 
 /**
- * No schedules and no dismissal: the recipe is offered, with the control that
- * retires it pinned to the card's corner. No preview and no description, since
+ * No schedules: the recipe is offered. No preview and no description, since
  * the panel's own "Notifications" heading sits above this.
  */
 export const WithBriefingRecipe: Story = {
   render: () => (
     <Panel>
-      <NotificationsBellEmptyState
-        showBriefingRecipe
-        onDismissBriefingRecipe={() => {}}
-      />
+      <NotificationsBellEmptyState showBriefingRecipe />
     </Panel>
   ),
 };
 
 /**
- * What everyone else sees: someone who already has a schedule, someone who
- * dismissed the card, and anyone whose schedules have not loaded yet. The icon
- * well and the title carry the scene on their own, which is the case this
- * story is here to check.
+ * What everyone else sees: someone who already has a schedule, and anyone
+ * whose schedules have not loaded yet. The icon well and the title carry the
+ * scene on their own, which is the case this story is here to check.
  */
 export const TitleOnly: Story = {
   render: () => (

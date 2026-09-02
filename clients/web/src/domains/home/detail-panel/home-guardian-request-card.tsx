@@ -1,15 +1,44 @@
+import { type ReactNode } from "react";
+
+import {
+  CheckCircle,
+  CircleSlash,
+  Clock,
+  ExternalLink,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
+
 import { useGuardianactionsDecisionPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
-import { type TFunction, useTranslation } from "@/i18n";
+import { Trans, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { formatRelativeDate } from "@/utils/format-date";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import {
   type FeedItem,
   type FeedItemGuardianRequest,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,
 } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Tag, Typography } from "@vellumai/design-library";
+import type { TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
+
+/** The ask, set in a recessed block so it reads as the quoted request. */
+const SUMMARY_BLOCK_CLASS = [
+  "rounded-[var(--radius-md)] bg-[var(--surface-sunken)]",
+  "p-[var(--app-spacing-md)] leading-normal text-[var(--content-secondary)]",
+].join(" ");
+
+/**
+ * The tool's identifier, set as the code it is. One token per role rather
+ * than a `dark:` pair: `dark:` does not match the velvet theme, so a pair
+ * would leave velvet on the light value.
+ */
+const TOOL_NAME_CLASS = [
+  "rounded bg-[var(--surface-base)] px-1.5 py-0.5",
+  "font-mono text-body-small-default text-[var(--content-secondary)]",
+].join(" ");
 
 export interface HomeGuardianRequestCardProps {
   item: FeedItem;
@@ -19,14 +48,15 @@ export interface HomeGuardianRequestCardProps {
  * Detail card for the canonical guardian-request feed item.
  *
  * Everything renders off the item's `guardianRequest` projection, which
- * the daemon keeps aligned with the gateway-owned request: a `pending`
- * approval offers Approve/Reject through the canonical decision route,
- * a `pending` question points at the source conversation (the host
- * panel's "Go to Conversation" link is the way there), and a terminal
- * status renders as a receipt in place of the buttons. A decision that
- * comes back not-applied means another surface resolved the request
- * first; the projection converges through the feed's own refresh, so
- * the card only has to say so.
+ * the daemon keeps aligned with the gateway-owned request: the source
+ * line says where it came from and the summary carries the ask itself.
+ * A `pending` approval offers Approve/Reject through the canonical
+ * decision route, a `pending` question points at the source conversation
+ * (the host panel's "Go to Conversation" link is the way there), and a
+ * terminal status renders as a receipt in place of the buttons. A
+ * decision that comes back not-applied means another surface resolved
+ * the request first; the projection converges through the feed's own
+ * refresh, so the card only has to say so.
  */
 export function HomeGuardianRequestCard({
   item,
@@ -73,55 +103,90 @@ export function HomeGuardianRequestCard({
       : null;
   const resolvedElsewhere = decision.data?.applied === false;
 
-  const isPending = guardianRequest.status === "pending" && !decidedLocally;
+  const isPending =
+    guardianRequest.status === "pending" &&
+    !decidedLocally &&
+    !resolvedElsewhere;
   const showsApprovalButtons =
-    isPending && guardianRequest.intent === "approval" && !resolvedElsewhere;
+    isPending && guardianRequest.intent === "approval";
 
-  const contextLine = [
-    guardianRequest.toolName,
+  const receipt = isPending
+    ? null
+    : resolvedElsewhere
+      ? ALREADY_RESOLVED_RECEIPT
+      : receiptView(
+          decidedLocally
+            ? { ...guardianRequest, status: decidedLocally }
+            : guardianRequest,
+        );
+  const ReceiptIcon = receipt?.icon;
+
+  const metaLine = [
     guardianRequest.sourceContextLabel,
+    guardianRequest.requesterLabel,
+    formatRelativeDate(item.timestamp),
   ]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-md)]">
+      {/* No title and no status pill here. The panel header above names the
+          request, the same way it titles every other notification, and the
+          ask itself reads as the quoted block below. */}
       <Typography
-        variant="body-medium-default"
-        className="text-[var(--content-secondary)]"
+        variant="body-small-default"
+        className="text-[var(--content-tertiary)]"
       >
+        {metaLine}
+      </Typography>
+
+      <Typography variant="body-medium-default" className={SUMMARY_BLOCK_CLASS}>
         {item.summary}
       </Typography>
 
-      {guardianRequest.requesterLabel ? (
-        <MetadataRow
-          label={t("homeGuardianRequestCard.requester")}
-          value={guardianRequest.requesterLabel}
-        />
-      ) : null}
-
-      {contextLine ? (
-        <MetadataRow
-          label={t("homeGuardianRequestCard.source")}
-          value={contextLine}
-        />
-      ) : null}
-
-      {!isPending || resolvedElsewhere ? (
+      {/* Names the decision rather than the thing: what a person approves
+          here is the assistant running this tool. The identifier has no
+          display name anywhere in the pipeline, so it renders as the code
+          it is, the way the in-conversation confirmation card renders one. */}
+      {guardianRequest.toolName ? (
         <Typography
-          variant="body-small-emphasised"
-          className="text-[var(--content-default)]"
-          data-testid="guardian-request-receipt"
+          variant="body-small-default"
+          className="text-[var(--content-tertiary)]"
         >
-          {resolvedElsewhere
-            ? t("homeGuardianRequestCard.alreadyResolved")
-            : receiptLabel(
-                t,
-                decidedLocally
-                  ? { ...guardianRequest, status: decidedLocally }
-                  : guardianRequest,
-              )}
+          <Trans
+            ns="home"
+            i18nKey={
+              isPending
+                ? "homeGuardianRequestCard.toolRequesting"
+                : "homeGuardianRequestCard.toolRequested"
+            }
+            values={{ toolName: guardianRequest.toolName }}
+            components={{ code: <code className={TOOL_NAME_CLASS} /> }}
+          />
         </Typography>
+      ) : null}
+
+      {/* The meta line dates the request; a decision can land days later,
+          so the receipt carries its own time rather than letting the
+          request's stand for both. */}
+      {receipt && ReceiptIcon ? (
+        <div
+          data-testid="guardian-request-receipt"
+          className="flex flex-wrap items-center gap-[var(--app-spacing-sm)]"
+        >
+          <Tag tone={receipt.tone} leftIcon={<ReceiptIcon />}>
+            {t(receipt.labelKey)}
+          </Tag>
+          {guardianRequest.decidedAt ? (
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-tertiary)]"
+            >
+              {formatRelativeDate(guardianRequest.decidedAt)}
+            </Typography>
+          ) : null}
+        </div>
       ) : null}
 
       {showsApprovalButtons ? (
@@ -152,59 +217,45 @@ export function HomeGuardianRequestCard({
         </Typography>
       ) : null}
 
-      {guardianRequest.sourceUrl || guardianRequest.slackCardUrl ? (
-        <div className="flex flex-wrap gap-[var(--app-spacing-sm)]">
-          {guardianRequest.sourceUrl ? (
-            <ExternalLinkButton
-              href={guardianRequest.sourceUrl}
-              label={t("homeGuardianRequestCard.viewSourceMessage")}
-            />
-          ) : null}
-          {guardianRequest.slackCardUrl ? (
-            <ExternalLinkButton
-              href={guardianRequest.slackCardUrl}
-              label={t("homeGuardianRequestCard.openInSlack")}
-            />
-          ) : null}
-        </div>
+      {/* One link out, to where the request came from. The Slack DM card is
+          a delivery of this same request, so linking it from here would
+          send a person to a copy of the surface they are already on. */}
+      {guardianRequest.sourceUrl ? (
+        <ExternalTextLink
+          href={guardianRequest.sourceUrl}
+          icon={<ExternalLink className="size-2.5" />}
+          label={t("homeGuardianRequestCard.viewSourceThread")}
+        />
       ) : null}
     </div>
   );
 }
 
-interface MetadataRowProps {
-  label: string;
-  value: string;
-}
-
-function MetadataRow({ label, value }: MetadataRowProps) {
-  return (
-    <div className="flex items-baseline gap-[var(--app-spacing-sm)]">
-      <Typography
-        variant="body-small-emphasised"
-        className="shrink-0 text-[var(--content-secondary)]"
-      >
-        {label}
-      </Typography>
-      <Typography
-        variant="body-small-default"
-        className="min-w-0 truncate text-[var(--content-tertiary)]"
-      >
-        {value}
-      </Typography>
-    </div>
-  );
-}
-
-interface ExternalLinkButtonProps {
+interface ExternalTextLinkProps {
   href: string;
+  icon: ReactNode;
   label: string;
 }
 
-/** Outlined button opening an external target (Slack, a channel permalink). */
-function ExternalLinkButton({ href, label }: ExternalLinkButtonProps) {
+/**
+ * Low-chrome labelled action opening an external target (a Slack thread, a
+ * permalink). The `link` variant is for links set inside running text: it
+ * lays out `inline` and inherits its type from the paragraph around it, so
+ * it can neither space a leading icon nor size itself standing alone. A
+ * compact ghost button is the primitive for a standalone secondary action.
+ *
+ * `self-start` because the card is a flex column, which would otherwise
+ * stretch the button to the full width and centre its label.
+ */
+function ExternalTextLink({ href, icon, label }: ExternalTextLinkProps) {
   return (
-    <Button asChild variant="outlined">
+    <Button
+      asChild
+      variant="ghost"
+      size="compact"
+      leftIcon={icon}
+      className="self-start"
+    >
       <a
         href={href}
         target="_blank"
@@ -217,45 +268,84 @@ function ExternalLinkButton({ href, label }: ExternalLinkButtonProps) {
   );
 }
 
+type ReceiptLabelKey =
+  | "homeGuardianRequestCard.receipt.approved"
+  | "homeGuardianRequestCard.receipt.rejected"
+  | "homeGuardianRequestCard.receipt.expired"
+  | "homeGuardianRequestCard.receipt.superseded"
+  | "homeGuardianRequestCard.receipt.leftUnverified"
+  | "homeGuardianRequestCard.receipt.cancelled"
+  | "homeGuardianRequestCard.receipt.alreadyResolved";
+
+interface ReceiptView {
+  labelKey: ReceiptLabelKey;
+  tone: TagTone;
+  icon: LucideIcon;
+}
+
+/** The receipt for a decision another surface applied first. */
+const ALREADY_RESOLVED_RECEIPT: ReceiptView = {
+  labelKey: "homeGuardianRequestCard.receipt.alreadyResolved",
+  tone: "neutral",
+  icon: CircleSlash,
+};
+
 /**
- * Receipt sentence for a terminal projection. Each outcome is its own
- * whole-sentence key (never a select branch), with the by-name variant
- * used only when the daemon attributed the decision to a person. A
- * `denied` reached without a person's decision reads by its cause:
- * `superseded` when a newer message auto-denied it, the neutral park
- * label for a left-unverified contact.
+ * Receipt for a terminal projection, as the outcome tag this app uses
+ * for a settled thing. Only a decision a person made carries a tone: an
+ * approval is positive, a rejection negative, and an outcome nobody
+ * chose (expired, auto-denied by a newer message, a contact left
+ * unverified) is neutral, because it reports rather than judges.
+ *
+ * The decider is never named. A guardian request is the guardian's
+ * alone to decide, so the only name it could carry is the name of the
+ * person reading it.
  */
-function receiptLabel(
-  t: TFunction<"home">,
+function receiptView(
   guardianRequest: Pick<
     FeedItemGuardianRequest,
-    "status" | "decidedAction" | "decidedByLabel" | "terminalReason"
+    "status" | "decidedAction" | "terminalReason"
   >,
-): string {
-  const { status, decidedAction, decidedByLabel, terminalReason } =
-    guardianRequest;
+): ReceiptView {
+  const { status, decidedAction, terminalReason } = guardianRequest;
   if (status === "approved") {
-    return decidedByLabel
-      ? t("homeGuardianRequestCard.receipt.approvedBy", {
-          name: decidedByLabel,
-        })
-      : t("homeGuardianRequestCard.receipt.approved");
+    return {
+      labelKey: "homeGuardianRequestCard.receipt.approved",
+      tone: "positive",
+      icon: CheckCircle,
+    };
   }
   if (status === "denied") {
     if (terminalReason === GUARDIAN_TERMINAL_REASON_SUPERSEDED) {
-      return t("homeGuardianRequestCard.receipt.superseded");
+      return {
+        labelKey: "homeGuardianRequestCard.receipt.superseded",
+        tone: "neutral",
+        icon: CircleSlash,
+      };
     }
     if (decidedAction === "leave_unverified") {
-      return t("homeGuardianRequestCard.receipt.leftUnverified");
+      return {
+        labelKey: "homeGuardianRequestCard.receipt.leftUnverified",
+        tone: "neutral",
+        icon: CircleSlash,
+      };
     }
-    return decidedByLabel
-      ? t("homeGuardianRequestCard.receipt.rejectedBy", {
-          name: decidedByLabel,
-        })
-      : t("homeGuardianRequestCard.receipt.rejected");
+    return {
+      labelKey: "homeGuardianRequestCard.receipt.rejected",
+      tone: "negative",
+      icon: XCircle,
+    };
   }
   if (status === "expired") {
-    return t("homeGuardianRequestCard.receipt.expired");
+    return {
+      labelKey: "homeGuardianRequestCard.receipt.expired",
+      tone: "neutral",
+      icon: Clock,
+    };
   }
-  return t("homeGuardianRequestCard.receipt.cancelled");
+  return {
+    labelKey: "homeGuardianRequestCard.receipt.cancelled",
+    tone: "neutral",
+    icon: CircleSlash,
+  };
 }

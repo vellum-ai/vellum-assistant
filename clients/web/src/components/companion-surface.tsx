@@ -22,6 +22,7 @@ import type {
   Ref,
 } from "react";
 
+import type { CompanionDictating } from "@vellumai/ipc-contract";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
@@ -133,6 +134,20 @@ export type CompanionSurfacePhase =
    * `hover` because it is a question waiting on an answer rather than a hint.
    */
   | "summary"
+  /**
+   * Dictating: the pill held open by a microphone the user is holding a key
+   * for, somewhere else entirely.
+   *
+   * Open regardless of the pointer, for the reason `watching` is: this surface
+   * is the only thing on screen while the words are going into another app, so
+   * it is the only thing that can say the microphone is open, and one that hid
+   * itself would be a live microphone nobody can see.
+   *
+   * It outranks `watching` because the user is in the middle of it and it lasts
+   * seconds rather than minutes, and it is outranked by `call` and `typing` for
+   * the reason everything is: those are things they are already inside.
+   */
+  | "dictating"
   | "call"
   /**
    * Typing: the pill becomes a card carrying a condensed read of the
@@ -319,6 +334,9 @@ export const FALLBACK_WIDTHS: Record<
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
   summary: 220,
+  // One status word beside the creature, which is all this state has to say:
+  // the gesture is the control, and it is already under the user's hand.
+  dictating: 132,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
   call: 288,
@@ -633,6 +651,11 @@ export interface CompanionSurfaceProps {
    * than a child of it, which is what keeps it out of the width that animates.
    */
   intro?: ReactNode;
+  /**
+   * What a keyboard dictation has got to, when one is running. See
+   * {@link CompanionDictating}.
+   */
+  dictating?: CompanionDictating;
 }
 
 /**
@@ -710,6 +733,7 @@ export function CompanionSurface({
   onWatchRetro,
   captureCount = 0,
   watchEnabled = false,
+  dictating,
   call,
   onControl,
   intro,
@@ -988,6 +1012,8 @@ export function CompanionSurface({
                   onControl={onControl}
                   onWatch={onWatch}
                 />
+              ) : phase === "dictating" && dictating !== undefined ? (
+                <DictatingBody dictating={dictating} />
               ) : phase === "summary" && watchRetro !== undefined ? (
                 <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
               ) : (
@@ -1532,6 +1558,33 @@ function Avatar({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Expanded, mid-dictation: what the microphone is doing, and nothing else.
+ *
+ * No controls. Every other open state offers a way to act on itself, and this
+ * one is already under the user's hand: the gesture holding the pill open is
+ * the control, and letting go is how it ends. A stop button beside a key they
+ * are physically holding would be a second answer to a question they have
+ * already answered.
+ *
+ * The word is the same vocabulary a call uses for the same two facts, so a
+ * microphone open for dictation and one open for a conversation do not read as
+ * different machines.
+ */
+function DictatingBody({ dictating }: { dictating: CompanionDictating }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-2 px-1">
+      <AudioLines className="size-4 shrink-0" aria-hidden />
+      <span className="truncate text-[12px] text-white/85">
+        {dictating === "listening"
+          ? t("companionSurface.dictating")
+          : t("companionSurface.dictatingTranscribing")}
+      </span>
     </div>
   );
 }

@@ -1932,7 +1932,6 @@ export async function processMessage(
   if (trimmedContent.length > 0) {
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
-      channel: "vellum",
       actor: {
         actorPrincipalId:
           conversation.trustContext?.guardianPrincipalId ?? undefined,
