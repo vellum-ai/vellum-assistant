@@ -85,17 +85,28 @@ describe("hold to dictate", () => {
    */
   test("hands the selection the hold began over to the start", async () => {
     const { onHoldStart } = renderHold();
-    press({ text: "the powerhouse of the cell", truncated: false });
+    press({
+      text: "the powerhouse of the cell",
+      truncated: false,
+      editable: false,
+    });
     await settle(HOLD_ARMING_MS + 20);
     expect(onHoldStart).toHaveBeenCalledWith({
-      selection: { text: "the powerhouse of the cell", truncated: false },
+      selection: {
+        text: "the powerhouse of the cell",
+        truncated: false,
+        editable: false,
+      },
     });
     release();
   });
 
   test("takes the time the helper held the edge off the arming delay", async () => {
     const { onHoldStart } = renderHold();
-    press({ text: "selected", truncated: false }, HOLD_ARMING_MS - 20);
+    press(
+      { text: "selected", truncated: false, editable: false },
+      HOLD_ARMING_MS - 20,
+    );
     await settle(40);
     expect(onHoldStart).toHaveBeenCalledTimes(1);
     release();
@@ -105,7 +116,10 @@ describe("hold to dictate", () => {
     const { onHoldStart, onHoldEnd } = renderHold();
     // The read took longer than the arming delay, and the user let go while
     // it ran, so the `up` lands right behind the `down`.
-    press({ text: "selected", truncated: false }, HOLD_ARMING_MS + 30);
+    press(
+      { text: "selected", truncated: false, editable: false },
+      HOLD_ARMING_MS + 30,
+    );
     expect(onHoldStart).toHaveBeenCalledTimes(1);
     release();
     expect(onHoldEnd).toHaveBeenCalledTimes(1);

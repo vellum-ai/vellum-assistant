@@ -802,7 +802,11 @@
     "body": "語音提供者、轉錄和 API 金鑰位於<modelsLink>模型與服務</modelsLink>中。"
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "建議關閉"
+    "recommendedOff": "建議關閉",
+    "userTranscriptLabel": "顯示你說的話",
+    "userTranscriptDescription": "在你說話時即時轉錄文字。",
+    "assistantTranscriptLabel": "顯示助手說的話",
+    "assistantTranscriptDescription": "在語音回覆旁同步顯示文字。"
   },
   "windowsMenuBar": {
     "developer": "開發人員",
@@ -836,6 +840,24 @@
       "slack": "下載您的助理頭像，以上傳為應用程式圖示。",
       "discord": "下載您的助理頭像，以上傳為機器人圖示。",
       "telegram": "下載您的助理頭像，然後透過 /setuserpic 傳送給 BotFather。"
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "嚴格",
+      "description": "執行任何操作前均需確認。不自動批准任何操作。"
+    },
+    "conservative": {
+      "label": "保守",
+      "description": "自動批准低風險操作，例如網路搜尋以及在其自身工作區中讀寫檔案。"
+    },
+    "relaxed": {
+      "label": "寬鬆",
+      "description": "自動批准低風險與中等風險操作，例如修改其工作區之外的檔案。"
+    },
+    "fullAccess": {
+      "label": "完全存取",
+      "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
   }
 }

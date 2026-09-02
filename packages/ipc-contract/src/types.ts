@@ -189,6 +189,15 @@ export type HotkeyEventKind =
 export interface HotkeySelection {
   text: string;
   truncated: boolean;
+  /**
+   * Whether the control the selection sits in takes text. For a selection
+   * Accessibility handed over, the element reports its text as settable; for
+   * one that had to be copied out (see `FrontSelection.selectionFromCopy` in
+   * the helper), the focused control is a text control. A hold that is asked
+   * to change an editable selection can put the result back in its place;
+   * over anything else the words are a question.
+   */
+  editable: boolean;
 }
 
 export interface HotkeyEvent {

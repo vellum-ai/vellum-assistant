@@ -146,7 +146,7 @@
   },
   "cacheBreakpointMapCard": {
     "description": "此请求的前缀中，{count, plural, other {# 个缓存断点}} 的分布位置，以及哪些段是从缓存读取的，哪些是重新创建的。",
-    "estimatedTokens": "≈ {count} 个令牌",
+    "estimatedTokens": "≈ {count} 个 Token",
     "fullMissBody": "此轮中每个段都已重新创建。请与上方缓存差异中的上一轮进行比较，以找到发生变化的块。",
     "fullMissTitle": "完整缓存未命中",
     "loadError": "无法加载请求负载以映射缓存断点。",
@@ -157,7 +157,7 @@
     "statusRead": "从缓存读取",
     "statusUnknown": "已缓存",
     "title": "缓存断点",
-    "tokenEstimateNote": "令牌计数是根据文本长度估算的。"
+    "tokenEstimateNote": "Token 计数是根据文本长度估算的。"
   },
   "cacheDiffCard": {
     "changedLabel": "已更改",
@@ -203,7 +203,7 @@
     "unchangedLines": "⋯ {count} 行未更改"
   },
   "cacheHealthCard": {
-    "barAriaLabel": "提示词缓存细分：{total} 个令牌，其中 {segments}（{percent} 已缓存）。",
+    "barAriaLabel": "提示词缓存细分：{total} 个 Token，其中 {segments}（{percent} 已缓存）。",
     "barSegment": "{count} {label}",
     "cached": "已缓存",
     "description": "此调用的提示词有多少来自提示词缓存。",
@@ -211,11 +211,11 @@
     "segmentFresh": "新鲜输入",
     "segmentRead": "从缓存读取",
     "statusFullMissBody": "此调用的提示词均未从缓存中读取。",
-    "statusFullMissReCreatedSuffix": " 本轮有 {count} 个令牌写入缓存，但均未被重用 - 这通常意味着自上一轮以来缓存的前缀已更改。",
+    "statusFullMissReCreatedSuffix": " 本轮有 {count} 个 Token写入缓存，但均未被重用 - 这通常意味着自上一轮以来缓存的前缀已更改。",
     "statusFullMissTitle": "完全缓存未命中",
-    "statusHealthyBody": "此调用的提示词有 {percent}（{count} 个令牌）来自缓存。",
+    "statusHealthyBody": "此调用的提示词有 {percent}（{count} 个 Token）来自缓存。",
     "statusHealthyTitle": "健康的缓存重用",
-    "statusPartialBody": "此调用的提示词有 {percent}（{count} 个令牌）来自缓存；其余部分在本轮重新处理。",
+    "statusPartialBody": "此调用的提示词有 {percent}（{count} 个 Token）来自缓存；其余部分在本轮重新处理。",
     "statusPartialTitle": "部分缓存重用",
     "title": "缓存健康状况",
     "unavailableNote": "此调用未报告提示词缓存使用情况。",
@@ -437,7 +437,7 @@
   "compactionTab": {
     "compactedMessages": "{count} 已压缩",
     "compactedPreserved": "已压缩 / 已保留",
-    "contextTokens": "上下文令牌",
+    "contextTokens": "上下文 Token",
     "duration": "持续时间",
     "durationMs": "{count} 毫秒",
     "emptyBody": "压缩归因于紧随其后运行的调用。如果您在此处预期有压缩，请检查对话是否在此调用之前超出了其上下文预算。",
@@ -532,7 +532,7 @@
     "percentFull": "已使用 {percentage}%",
     "ringAria": "上下文窗口已使用 {percentage}%",
     "title": "上下文窗口",
-    "tokensUsed": "已使用 {used} / {max} 令牌"
+    "tokensUsed": "已使用 {used} / {max} Token"
   },
   "conversationActions": {
     "archive": "归档",
@@ -969,7 +969,7 @@
     "inContextPill": "在上下文中: {count}",
     "injectedMemoryContextTitle": "注入的记忆上下文",
     "injectedPill": "已注入: {count}",
-    "injectedTokensLabel": "注入的令牌",
+    "injectedTokensLabel": "注入的 Token",
     "latencyMs": "{ms} 毫秒",
     "loading": "加载中…",
     "loggedMemorySelectionSubtitle": "根据 v3 选择渲染，本轮未注入。",
@@ -1128,17 +1128,17 @@
     "message": "此对话分支所源自的对话已被删除，因此分支点之前的消息已丢失。此后发送的所有内容均完好无损。"
   },
   "overviewTab": {
-    "cacheTokensLabel": "缓存令牌",
+    "cacheTokensLabel": "缓存 Token",
     "conversationSubtitle": "迄今为止所有计费LLM调用的累计总额。",
     "conversationTitle": "对话",
     "createdLabel": "创建时间",
     "durationLabel": "持续时间",
     "estimatedCostLabel": "预估费用",
     "failedStatus": "失败",
-    "firstTokenKindLabel": "首个令牌类型",
-    "firstTokenLatencySubtitle": "此轮次首个令牌响应时间去向，由助手测量。",
-    "firstTokenLatencyTitle": "首个令牌延迟",
-    "inputTokensLabel": "输入令牌",
+    "firstTokenKindLabel": "首个 Token类型",
+    "firstTokenLatencySubtitle": "此轮次首个 Token响应时间去向，由助手测量。",
+    "firstTokenLatencyTitle": "首个 Token延迟",
+    "inputTokensLabel": "输入 Token",
     "latencyMs": "{ms} 毫秒",
     "loopExitReasonLabel": "循环退出原因",
     "modelLabel": "模型",
@@ -1147,7 +1147,7 @@
     "normalizedSummaryUnavailableSubtitle": "此调用仍包含原始请求和响应负载。",
     "normalizedSummaryUnavailableTitle": "标准化摘要不可用",
     "otherLabel": "其他",
-    "outputTokensLabel": "输出令牌",
+    "outputTokensLabel": "输出 Token",
     "providerLabel": "提供商",
     "requestMessagesLabel": "请求消息",
     "statusLabel": "状态",
@@ -1155,8 +1155,8 @@
     "toolCallsLabel": "工具调用",
     "toolsAvailableLabel": "可用工具",
     "totalCostSoFarLabel": "迄今总费用",
-    "totalToFirstTokenLabel": "至首个令牌总计",
-    "usageSubtitle": "由助手路由标准化的令牌和调用计数。",
+    "totalToFirstTokenLabel": "至首个 Token总计",
+    "usageSubtitle": "由助手路由标准化的Token 和调用计数。",
     "usageTitle": "用量"
   },
   "pageTabs": {
@@ -1251,7 +1251,7 @@
     "promptSectionsTitle": "提示词部分"
   },
   "providerBillingBanner": {
-    "body": "向您的提供商充值或降低模型令牌限制。",
+    "body": "向您的提供商充值或降低模型Token 限制。",
     "title": "您的 API 密钥需要充值"
   },
   "pullRefreshSpinner": {

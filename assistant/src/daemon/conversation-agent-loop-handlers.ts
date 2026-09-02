@@ -26,8 +26,6 @@ import type { ProviderMessageMetadata } from "../messaging/provider-message-meta
 import {
   formatSlackTimezoneLabel,
   isSlackTs,
-  type SlackMessageMetadata,
-  writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import {
   recordCompactionEndBestEffort,
@@ -1345,9 +1343,9 @@ function resolveAssistantReplyTimestampTimezone(ctx: Conversation): string {
  * snapshot that handleMessageComplete used to compute at end-of-turn. All
  * inputs (channel context, trust context, turnStartedAt) are stable across
  * the LLM call, so building this once at reserve is equivalent to building
- * it at complete. Slack reply rows further stamp a `slackMeta` sub-object —
- * the `channelTs` field stays absent here and is back-filled by
- * `deliverReplyViaCallback` after the gateway returns the ts.
+ * it at complete. The envelope's `messageId` stays absent here and is
+ * back-filled by `deliverReplyViaCallback` after the transport returns the
+ * sent message's id.
  */
 function buildAssistantChannelMetadata(
   state: EventHandlerState,
@@ -1363,61 +1361,59 @@ function buildAssistantChannelMetadata(
     sentAt: state.turnStartedAt,
   };
 
-  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
-    // The whole envelope resolves from one turn-local snapshot: the actor the
-    // provenance above names is the actor whose channel and thread the row
-    // routes to. Reading the live slot here instead would let a concurrent
-    // inbound repoint the reply mid-turn, and could stamp one actor's class
-    // beside another actor's routing identity.
-    const rowTrust = turnOrRestingTrust(deps.ctx);
-    const channelId = rowTrust?.requesterChatId;
-    if (channelId) {
-      // This turn's own inbound thread id (the same field guardian-approval
-      // cards read). Deliberately not the shared conversation binding: on a
-      // legacy flat→thread aliased Slack conversation a concurrent inbound
-      // can rewrite the binding's externalThreadId mid-turn.
-      const turnThreadTs = rowTrust?.sourceThreadId;
-      const threadTs = isSlackTs(turnThreadTs) ? turnThreadTs : undefined;
-      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
-        deps.ctx,
-      );
-      const timestampTimezoneLabel = formatSlackTimezoneLabel(
-        timestampTimezone,
-        { nowMs: state.turnStartedAt },
-      );
-      const partialSlackMeta: Partial<SlackMessageMetadata> = {
-        source: "slack",
-        eventKind: "message",
-        channelId,
-        ...(threadTs ? { threadTs } : {}),
-        timestampTimezone,
-        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
-      };
-      // `channelTs` is filled in by the post-send reconciliation step in
-      // `deliverReplyViaCallback`; cast through the Partial to satisfy
-      // the writer's type at this pre-send boundary.
-      metadata.slackMeta = writeSlackMetadata(
-        partialSlackMeta as SlackMessageMetadata,
-      );
-    }
-  } else if (deps.turnChannelContext.assistantMessageChannel !== "vellum") {
-    // Every other channel row describes itself in the neutral envelope
-    // `readProviderMetadata` serves, the shape a plugin channel writes too.
-    // `messageId` stays absent here and is back-filled by the post-send
-    // reconciliation once the transport returns the sent message's id, which
-    // is what lets a later reaction on this row resolve back to it. No
-    // `threadId`: a value there asserts a thread exists, and the reply's
-    // routing thread is delivery state, not a fact about this row.
-    const chatId = turnOrRestingTrust(deps.ctx)?.requesterChatId;
-    if (chatId) {
-      metadata.providerMeta = JSON.stringify({
-        source: deps.turnChannelContext.assistantMessageChannel,
-        conversationExternalId: chatId,
-        eventKind: "message",
-      } satisfies ProviderMessageMetadata);
-    }
+  const channel = deps.turnChannelContext.assistantMessageChannel;
+  if (channel === "vellum") {
+    // A vellum turn is not a provider message: no envelope.
+    return metadata;
   }
-
+  // Every channel row describes itself in the neutral envelope
+  // `readProviderMetadata` serves, the shape a plugin channel writes too.
+  // `messageId` stays absent here and is back-filled by the post-send
+  // reconciliation once the transport returns the sent message's id, which
+  // is what lets a later reaction or delete on this row resolve back to it.
+  //
+  // The whole envelope resolves from one turn-local snapshot: the actor the
+  // provenance above names is the actor whose channel and thread the row
+  // routes to. Reading the live slot here instead would let a concurrent
+  // inbound repoint the reply mid-turn, and could stamp one actor's class
+  // beside another actor's routing identity.
+  const rowTrust = turnOrRestingTrust(deps.ctx);
+  const chatId = rowTrust?.requesterChatId;
+  if (!chatId) {
+    return metadata;
+  }
+  const envelope: ProviderMessageMetadata = {
+    source: channel,
+    conversationExternalId: chatId,
+    eventKind: "message",
+  };
+  if (channel === "slack") {
+    // Slack's own facts ride the schema's passthrough and come back through
+    // the envelope's Slack view (`slackViewOfProviderMetadata`). The thread
+    // is this turn's own inbound thread id (the same field guardian-approval
+    // cards read), stated because the reply is posted in it and the Slack
+    // transcript is assembled by thread. Deliberately not the shared
+    // conversation binding: on a legacy flat-to-thread aliased Slack
+    // conversation a concurrent inbound can rewrite the binding's
+    // externalThreadId mid-turn.
+    const turnThreadTs = rowTrust?.sourceThreadId;
+    const threadTs = isSlackTs(turnThreadTs) ? turnThreadTs : undefined;
+    const timestampTimezone = resolveAssistantReplyTimestampTimezone(deps.ctx);
+    const timestampTimezoneLabel = formatSlackTimezoneLabel(timestampTimezone, {
+      nowMs: state.turnStartedAt,
+    });
+    metadata.providerMeta = JSON.stringify({
+      ...envelope,
+      ...(threadTs ? { threadId: threadTs } : {}),
+      ...(timestampTimezone ? { timestampTimezone } : {}),
+      ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
+    });
+    return metadata;
+  }
+  // No `threadId` on the other channels: a value there asserts a thread
+  // exists, and the reply's routing thread is delivery state, not a fact
+  // about this row.
+  metadata.providerMeta = JSON.stringify(envelope);
   return metadata;
 }
 

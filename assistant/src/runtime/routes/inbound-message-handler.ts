@@ -1869,6 +1869,15 @@ async function persistBackfilledSlackMessage(params: {
   );
   const slackTranscriptTimestampTimezone =
     resolveSlackTranscriptTimestampTimezone();
+  const slackTimezoneFields = buildSlackTimezoneMetadata({
+    actorTimezone,
+    actorTimezoneLabel,
+    actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
+    timestampTimezone: slackTranscriptTimestampTimezone?.timestampTimezone,
+    timestampTimezoneLabel:
+      slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
+    speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
+  });
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: params.channelId,
@@ -1877,15 +1886,7 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
     ...(actorExternalUserId ? { actorExternalUserId } : {}),
-    ...buildSlackTimezoneMetadata({
-      actorTimezone,
-      actorTimezoneLabel,
-      actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
-      timestampTimezone: slackTranscriptTimestampTimezone?.timestampTimezone,
-      timestampTimezoneLabel:
-        slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
-      speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
-    }),
+    ...slackTimezoneFields,
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
 
@@ -1907,9 +1908,32 @@ async function persistBackfilledSlackMessage(params: {
     ? message.timestamp
     : undefined;
 
+  // A row the daemon authors carries the neutral envelope, Slack's own fields
+  // riding its passthrough; a person's row keeps Slack's envelope for now.
+  const envelope =
+    role === "assistant"
+      ? {
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: params.channelId,
+            messageId: message.id,
+            eventKind: "message",
+            ...(message.threadId ? { threadId: message.threadId } : {}),
+            ...(message.sender?.name
+              ? { displayName: message.sender.name }
+              : {}),
+            ...(actorExternalUserId
+              ? { actorExternalId: actorExternalUserId }
+              : {}),
+            ...slackTimezoneFields,
+            ...(slackFiles.length > 0 ? { slackFiles } : {}),
+          } satisfies ProviderMessageMetadata),
+        }
+      : { slackMeta: writeSlackMetadata(slackMeta) };
+
   const persisted = await addMessage(params.conversationId, role, rawText, {
     metadata: {
-      slackMeta: writeSlackMetadata(slackMeta),
+      ...envelope,
       ...(sentAt !== undefined ? { sentAt } : {}),
       provenanceTrustClass: isGuardian ? "guardian" : "unknown",
       provenanceSourceChannel: "slack",

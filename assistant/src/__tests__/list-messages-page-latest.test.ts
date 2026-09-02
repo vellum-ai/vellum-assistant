@@ -527,6 +527,48 @@ describe("handleListMessages page=latest", () => {
     expect(body.messages[0].slackMessage).toBeUndefined();
   });
 
+  test("a reconciled assistant row on the neutral envelope projects the same slackMessage", async () => {
+    // The row a Slack reply is written with today: the neutral envelope,
+    // Slack's own fields on its passthrough, `messageId` back-filled by the
+    // post-send reconciliation. The wire projection reads it through the
+    // envelope's Slack view, so the client sees exactly what a legacy
+    // `slackMeta` row projects.
+    const conv = createConversation();
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack-neutral",
+        conversationId: conv.id,
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Posted to Slack" }]),
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: "C123ABCDEF",
+            messageId: "1710000000.000200",
+            threadId: "1710000000.000100",
+            eventKind: "message",
+            timestampTimezone: "America/New_York",
+            timestampTimezoneLabel: "ET",
+          }),
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = await callList({ conversationId: conv.id, page: "latest" });
+
+    const slackMessage = body.messages[0].slackMessage;
+    expect(slackMessage).toBeDefined();
+    expect(slackMessage?.channelId).toBe("C123ABCDEF");
+    expect(slackMessage?.channelTs).toBe("1710000000.000200");
+    expect(slackMessage?.threadTs).toBe("1710000000.000100");
+    expect(slackMessage?.eventKind).toBe("message");
+    expect(slackMessage?.messageLink).toBeDefined();
+  });
+
   test("the reconciled assistant row projects slackMessage with the post's own ts", async () => {
     // The other half of the same chain: once reconciliation stamps the ts the
     // transport returned, the identical row projects a full envelope. Built by

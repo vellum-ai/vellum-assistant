@@ -42,6 +42,8 @@ let metadataWriteFailuresRemaining = 0;
 
 /** Per-test override for the synthetic Slack `ts` returned by deliverChannelReply. */
 let nextDeliveryTs: string | null = null;
+/** Per-segment ts values, consumed in order before `nextDeliveryTs`. */
+const deliveryTsQueue: string[] = [];
 
 type RenderedHistoryStub = {
   text: string;
@@ -91,12 +93,12 @@ mock.module("../runtime/gateway-client.js", () => ({
       throw new Error("Simulated delivery failure (502)");
     }
     deliveryCalls.push({ callbackUrl, payload });
+    const queued = deliveryTsQueue.shift();
+    if (queued !== undefined) {
+      return { ok: true, ts: queued };
+    }
     if (nextDeliveryTs !== null) {
-      const ts = nextDeliveryTs;
-      // Only the first segment of a multi-segment delivery should carry
-      // back a meaningful ts for `channelTs` reconciliation. Tests that
-      // need specific ts values per-segment can re-set this between calls.
-      return { ok: true, ts };
+      return { ok: true, ts: nextDeliveryTs };
     }
     return { ok: true };
   },
@@ -191,9 +193,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
 // The reconciler writes the outbound-posts index through delivery-crud;
 // stub it so this suite stays DB-free while capturing the writes.
 const recordedOutboundPosts: Array<Record<string, string>> = [];
+/** Runs after each index write: a seam to observe or interleave a deletion before the envelope stamp. */
+let onRecordOutboundPost: ((post: Record<string, string>) => void) | null =
+  null;
 mock.module("../persistence/delivery-crud.js", () => ({
   recordOutboundPost: (post: Record<string, string>) => {
     recordedOutboundPosts.push(post);
+    onRecordOutboundPost?.(post);
   },
 }));
 
@@ -238,6 +244,9 @@ describe("channel-reply-delivery", () => {
     updateMessageMetadataCalls.length = 0;
     metadataWriteFailuresRemaining = 0;
     nextDeliveryTs = null;
+    deliveryTsQueue.length = 0;
+    recordedOutboundPosts.length = 0;
+    onRecordOutboundPost = null;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContentByContent.clear();
     renderedHistoryContent = {
@@ -1227,24 +1236,24 @@ describe("channel-reply-delivery", () => {
   // reconciliation every outbound assistant row falls through to the
   // legacy/flat fallback and is excluded from thread-tag rendering and the
   // active-thread focus block.
-  describe("slackMeta.channelTs reconciliation", () => {
-    /** Build the outer envelope mirroring `handleMessageComplete`'s write. */
-    function partialSlackEnvelope(
-      channelId: string,
-      threadTs?: string,
-    ): string {
-      // Note: this matches the partial write — channelTs is intentionally
-      // absent so `readSlackMetadata` returns null until reconciliation runs.
-      const inner: Record<string, unknown> = {
-        source: "slack",
-        eventKind: "message",
-        channelId,
-        ...(threadTs ? { threadTs } : {}),
-      };
+  describe("sent-message-id reconciliation", () => {
+    /**
+     * Build the outer envelope mirroring `buildAssistantChannelMetadata`'s
+     * write for a Slack reply: the neutral envelope, Slack's own fields on
+     * its passthrough, and no `messageId` yet, since the row is written
+     * before the post.
+     */
+    function partialEnvelope(channelId: string, threadId?: string): string {
       return JSON.stringify({
         userMessageChannel: "slack",
         assistantMessageChannel: "slack",
-        slackMeta: JSON.stringify(inner),
+        providerMeta: JSON.stringify({
+          source: "slack",
+          conversationExternalId: channelId,
+          eventKind: "message",
+          ...(threadId ? { threadId } : {}),
+          timestampTimezone: "America/New_York",
+        }),
       });
     }
 
@@ -1252,15 +1261,15 @@ describe("channel-reply-delivery", () => {
       conversationId: string,
       messageId: string,
       channelId: string,
-      threadTs?: string,
+      threadId?: string,
     ): void {
       conversationMessages.push({
         id: messageId,
         role: "assistant",
         content: '[{"type":"text","text":"hello"}]',
-        metadata: partialSlackEnvelope(channelId, threadTs),
+        metadata: partialEnvelope(channelId, threadId),
       });
-      // Set up renderer to produce one segment so onMessageTs fires once.
+      // One segment, so onMessageTs fires once.
       renderedHistoryContent = {
         text: "hello",
         textSegments: ["hello"],
@@ -1272,7 +1281,25 @@ describe("channel-reply-delivery", () => {
       };
     }
 
-    it("writes channelTs into slackMeta from the gateway-returned ts (top-level reply)", async () => {
+    function twoSegments(): void {
+      renderedHistoryContent = {
+        text: "AlphaBeta",
+        textSegments: ["Alpha", "Beta"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0", "tool:0", "text:1"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+    }
+
+    function envelopeOf(messageId: string): Record<string, unknown> {
+      const row = conversationMessages.find((m) => m.id === messageId);
+      const outer = JSON.parse(row?.metadata ?? "{}") as Record<string, string>;
+      return JSON.parse(outer.providerMeta) as Record<string, unknown>;
+    }
+
+    it("writes the gateway-returned ts as the row's messageId (top-level reply)", async () => {
       pushPartialAssistantRow("conv-recon-top", "msg-recon-top", "C123");
       nextDeliveryTs = "1700000123.000456";
 
@@ -1284,19 +1311,25 @@ describe("channel-reply-delivery", () => {
       );
 
       expect(updateMessageMetadataCalls.length).toBe(1);
-      const call = updateMessageMetadataCalls[0];
-      expect(call.messageId).toBe("msg-recon-top");
-      const merged = call.updates.slackMeta as string;
-      expect(typeof merged).toBe("string");
-      const parsed = JSON.parse(merged) as Record<string, unknown>;
-      expect(parsed.source).toBe("slack");
-      expect(parsed.channelId).toBe("C123");
-      expect(parsed.eventKind).toBe("message");
-      expect(parsed.channelTs).toBe("1700000123.000456");
-      expect(parsed.threadTs).toBeUndefined();
+      expect(updateMessageMetadataCalls[0].messageId).toBe("msg-recon-top");
+      const envelope = envelopeOf("msg-recon-top");
+      expect(envelope.source).toBe("slack");
+      expect(envelope.conversationExternalId).toBe("C123");
+      expect(envelope.eventKind).toBe("message");
+      expect(envelope.messageId).toBe("1700000123.000456");
+      expect(envelope.threadId).toBeUndefined();
+      // Slack's own field survived the stamp.
+      expect(envelope.timestampTimezone).toBe("America/New_York");
+      expect(recordedOutboundPosts).toHaveLength(1);
+      expect(recordedOutboundPosts[0]).toMatchObject({
+        sourceChannel: "slack",
+        externalChatId: "C123",
+        providerMessageId: "1700000123.000456",
+        messageId: "msg-recon-top",
+      });
     });
 
-    it("preserves an existing threadTs when reconciling channelTs (threaded reply)", async () => {
+    it("preserves an existing threadId when stamping the id (threaded reply)", async () => {
       pushPartialAssistantRow(
         "conv-recon-thread",
         "msg-recon-thread",
@@ -1312,16 +1345,14 @@ describe("channel-reply-delivery", () => {
         "assistant-recon-thread",
       );
 
-      expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
-      const parsed = JSON.parse(merged) as Record<string, unknown>;
-      expect(parsed.threadTs).toBe("1234.5678");
-      expect(parsed.channelTs).toBe("1700000200.000700");
+      const envelope = envelopeOf("msg-recon-thread");
+      expect(envelope.threadId).toBe("1234.5678");
+      expect(envelope.messageId).toBe("1700000200.000700");
     });
 
-    it("does NOT call updateMessageMetadata when the assistant row has no slackMeta", async () => {
-      // vellum/telegram/non-slack outbound: the row's metadata envelope has
-      // no slackMeta sub-key. The reconciler must short-circuit silently.
+    it("does NOT call updateMessageMetadata when the assistant row has no envelope", async () => {
+      // vellum outbound: the row's metadata carries no provider envelope.
+      // The reconciler must short-circuit silently.
       conversationMessages.push({
         id: "msg-vellum",
         role: "assistant",
@@ -1350,17 +1381,12 @@ describe("channel-reply-delivery", () => {
       );
 
       expect(updateMessageMetadataCalls.length).toBe(0);
+      expect(recordedOutboundPosts.length).toBe(0);
     });
 
-    it("does NOT call updateMessageMetadata when slackMeta already has channelTs", async () => {
-      // Idempotency: a re-delivery (e.g. from channel-retry-sweep) must not
-      // overwrite a channelTs that is already in place.
-      const existingMeta = JSON.stringify({
-        source: "slack",
-        eventKind: "message",
-        channelId: "C789",
-        channelTs: "1699999999.000111",
-      });
+    it("does NOT write again when the row already names the ts", async () => {
+      // Idempotency: a redelivery of the same message must not write the
+      // row or the index again.
       conversationMessages.push({
         id: "msg-already",
         role: "assistant",
@@ -1368,7 +1394,12 @@ describe("channel-reply-delivery", () => {
         metadata: JSON.stringify({
           userMessageChannel: "slack",
           assistantMessageChannel: "slack",
-          slackMeta: existingMeta,
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: "C789",
+            eventKind: "message",
+            messageId: "1699999999.000111",
+          }),
         }),
       });
       renderedHistoryContent = {
@@ -1380,7 +1411,7 @@ describe("channel-reply-delivery", () => {
         surfaces: [],
         thinkingSegments: [],
       };
-      nextDeliveryTs = "1700000400.000999";
+      nextDeliveryTs = "1699999999.000111";
 
       await deliverReplyViaCallback(
         "conv-already",
@@ -1390,23 +1421,125 @@ describe("channel-reply-delivery", () => {
       );
 
       expect(updateMessageMetadataCalls.length).toBe(0);
+      expect(recordedOutboundPosts.length).toBe(0);
     });
 
-    it("only reconciles from the FIRST segment's ts when the reply is split", async () => {
-      pushPartialAssistantRow("conv-multi", "msg-multi", "C999");
-      // Two-segment delivery: only the first segment's ts is the canonical
-      // channelTs for the persisted row. Subsequent segments correspond to
-      // independent Slack messages.
+    it("stamps a reply reserved with Slack's pre-send envelope and converges it onto the neutral one", async () => {
+      // Transitional: such a row is pending for the retry sweep only when a
+      // daemon that reserved Slack replies under `slackMeta` left it there.
+      conversationMessages.push({
+        id: "msg-presend-slack",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          assistantMessageChannel: "slack",
+          slackMeta: JSON.stringify({
+            source: "slack",
+            eventKind: "message",
+            channelId: "C321",
+            threadTs: "1700000000.000001",
+            timestampTimezone: "America/New_York",
+            timestampTimezoneLabel: "EST",
+          }),
+        }),
+      });
       renderedHistoryContent = {
-        text: "AlphaBeta",
-        textSegments: ["Alpha", "Beta"],
+        text: "hello",
+        textSegments: ["hello"],
         toolCalls: [],
         toolCallsBeforeText: false,
-        contentOrder: ["text:0", "tool:0", "text:1"],
+        contentOrder: ["text:0"],
         surfaces: [],
         thinkingSegments: [],
       };
-      nextDeliveryTs = "1700000500.000111";
+      nextDeliveryTs = "1700000321.000111";
+
+      await deliverReplyViaCallback(
+        "conv-presend",
+        "C321",
+        "http://gateway/deliver/slack",
+        "assistant-presend",
+      );
+
+      expect(recordedOutboundPosts).toHaveLength(1);
+      expect(recordedOutboundPosts[0]).toMatchObject({
+        sourceChannel: "slack",
+        externalChatId: "C321",
+        providerMessageId: "1700000321.000111",
+        messageId: "msg-presend-slack",
+      });
+      const row = conversationMessages.find(
+        (m) => m.id === "msg-presend-slack",
+      );
+      const outer = JSON.parse(row?.metadata ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      // One envelope per row: the pre-send Slack one is gone, the turn's
+      // other keys survive.
+      expect(outer.slackMeta).toBeUndefined();
+      expect(outer.userMessageChannel).toBe("slack");
+      expect(envelopeOf("msg-presend-slack")).toEqual({
+        source: "slack",
+        conversationExternalId: "C321",
+        eventKind: "message",
+        threadId: "1700000000.000001",
+        messageId: "1700000321.000111",
+        timestampTimezone: "America/New_York",
+        timestampTimezoneLabel: "EST",
+      });
+      const { readSlackMetadataFromMessageMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      expect(readSlackMetadataFromMessageMetadata(row?.metadata)).toMatchObject(
+        {
+          channelTs: "1700000321.000111",
+          threadTs: "1700000000.000001",
+          timestampTimezoneLabel: "EST",
+        },
+      );
+    });
+
+    it("leaves a Slack reply that already names its post under slackMeta alone", async () => {
+      conversationMessages.push({
+        id: "msg-slack-complete",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          slackMeta: JSON.stringify({
+            source: "slack",
+            eventKind: "message",
+            channelId: "C321",
+            channelTs: "1700000100.000001",
+          }),
+        }),
+      });
+      renderedHistoryContent = {
+        text: "hello",
+        textSegments: ["hello"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700000321.000222";
+
+      await deliverReplyViaCallback(
+        "conv-complete",
+        "C321",
+        "http://gateway/deliver/slack",
+        "assistant-complete",
+      );
+
+      expect(updateMessageMetadataCalls.length).toBe(0);
+      expect(recordedOutboundPosts.length).toBe(0);
+    });
+
+    it("records every segment of a split reply: the first as messageId, the rest as additional posts, all in the index", async () => {
+      pushPartialAssistantRow("conv-multi", "msg-multi", "C999");
+      twoSegments();
+      deliveryTsQueue.push("1700000500.000111", "1700000500.000222");
 
       await deliverReplyViaCallback(
         "conv-multi",
@@ -1415,12 +1548,14 @@ describe("channel-reply-delivery", () => {
         "assistant-multi",
       );
 
-      // Two delivery POSTs but only one metadata write — the first ts wins.
       expect(deliveryCalls.length).toBe(2);
-      expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
-      const parsed = JSON.parse(merged) as Record<string, unknown>;
-      expect(parsed.channelTs).toBe("1700000500.000111");
+      expect(updateMessageMetadataCalls.length).toBe(2);
+      const envelope = envelopeOf("msg-multi");
+      expect(envelope.messageId).toBe("1700000500.000111");
+      expect(envelope.additionalMessageIds).toEqual(["1700000500.000222"]);
+      expect(
+        recordedOutboundPosts.map((post) => post.providerMessageId),
+      ).toEqual(["1700000500.000111", "1700000500.000222"]);
     });
 
     it("composes with caller-supplied onMessageTs without losing either side-effect", async () => {
@@ -1440,20 +1575,18 @@ describe("channel-reply-delivery", () => {
         },
       );
 
-      // Caller's onMessageTs still fires for the delivered segment.
       expect(callerTsSeen).toEqual(["1700000600.000222"]);
-      // And reconciliation still wrote channelTs.
-      expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
-      const parsed = JSON.parse(merged) as Record<string, unknown>;
-      expect(parsed.channelTs).toBe("1700000600.000222");
+      expect(envelopeOf("msg-compose").messageId).toBe("1700000600.000222");
     });
 
-    it("after reconciliation, readSlackMetadata returns a valid envelope", async () => {
-      // End-to-end: this is the assertion that the ORIGINAL gap test
-      // (`outbound-slack-persistence.test.ts:209`) was inverted on. Once
-      // reconciliation runs, readSlackMetadata must accept the merged value.
+    it("after reconciliation, the row has a Slack view the transcript renderer accepts", async () => {
+      // The Slack renderers read the neutral envelope through its Slack
+      // view; before the stamp there is none, after it there is.
       pushPartialAssistantRow("conv-readback", "msg-readback", "C222");
+      const { readSlackMetadataFromMessageMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      const before = conversationMessages.find((m) => m.id === "msg-readback");
+      expect(readSlackMetadataFromMessageMetadata(before?.metadata)).toBeNull();
       nextDeliveryTs = "1700000700.000333";
 
       await deliverReplyViaCallback(
@@ -1463,22 +1596,18 @@ describe("channel-reply-delivery", () => {
         "assistant-readback",
       );
 
-      expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
-      // Imported here so the production read path (the same one the renderer
-      // uses) is what actually validates the merged envelope.
-      const { readSlackMetadata } =
-        await import("../messaging/providers/slack/message-metadata.js");
-      const parsed = readSlackMetadata(merged);
-      expect(parsed).not.toBeNull();
-      expect(parsed?.channelTs).toBe("1700000700.000333");
-      expect(parsed?.channelId).toBe("C222");
-      expect(parsed?.source).toBe("slack");
-      expect(parsed?.eventKind).toBe("message");
+      const after = conversationMessages.find((m) => m.id === "msg-readback");
+      const view = readSlackMetadataFromMessageMetadata(after?.metadata);
+      expect(view).not.toBeNull();
+      expect(view?.channelTs).toBe("1700000700.000333");
+      expect(view?.channelId).toBe("C222");
+      expect(view?.source).toBe("slack");
+      expect(view?.eventKind).toBe("message");
+      expect(view?.timestampTimezone).toBe("America/New_York");
     });
 
     it("retries a reconciliation write that hits transient SQLite contention", async () => {
-      // The stamp is the only durable record of the post's ts: no later sweep
+      // The stamp is the only durable record of the post's id: no later sweep
       // heals a miss once the event is marked delivered, so a SQLITE_BUSY on
       // the first attempt must not lose it.
       pushPartialAssistantRow("conv-busy", "msg-busy", "C333");
@@ -1493,30 +1622,19 @@ describe("channel-reply-delivery", () => {
       );
 
       expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
-      const parsed = JSON.parse(merged) as Record<string, unknown>;
-      expect(parsed.channelTs).toBe("1700000800.000444");
+      expect(envelopeOf("msg-busy").messageId).toBe("1700000800.000444");
     });
 
     it("stamps from a later segment when the first segment's write is lost", async () => {
-      // The row records the first ts that reaches a DURABLE write, not the
-      // first ts observed. A first-invocation latch would forfeit channelTs
-      // forever when that write fails, which is the reconciliation gap this
-      // reproduces: the reply posts successfully and the row never gains its
-      // own id, so history projects no `slackMessage` for it.
+      // The row records the first id that reaches a DURABLE write, not the
+      // first id observed: a first-invocation latch would forfeit the id
+      // forever when that write fails, and the row would never gain an id
+      // of its own.
       pushPartialAssistantRow("conv-lost", "msg-lost", "C444");
-      renderedHistoryContent = {
-        text: "AlphaBeta",
-        textSegments: ["Alpha", "Beta"],
-        toolCalls: [],
-        toolCallsBeforeText: false,
-        contentOrder: ["text:0", "tool:0", "text:1"],
-        surfaces: [],
-        thinkingSegments: [],
-      };
-      nextDeliveryTs = "1700000900.000555";
+      twoSegments();
+      deliveryTsQueue.push("1700000900.000555", "1700000900.000556");
       // Exhaust the initial attempt plus every `withSqliteRetry` retry, so the
-      // first segment's reconciliation is genuinely swallowed.
+      // first segment's stamp is genuinely swallowed.
       metadataWriteFailuresRemaining = 4;
 
       await deliverReplyViaCallback(
@@ -1526,14 +1644,14 @@ describe("channel-reply-delivery", () => {
         "assistant-lost",
       );
 
-      // Both segments posted; the surviving write carries the second post's ts
-      // rather than leaving the row without any id of its own.
       expect(deliveryCalls.length).toBe(2);
       expect(updateMessageMetadataCalls.length).toBe(1);
-      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
-      const { readSlackMetadata } =
-        await import("../messaging/providers/slack/message-metadata.js");
-      expect(readSlackMetadata(merged)).not.toBeNull();
+      expect(envelopeOf("msg-lost").messageId).toBe("1700000900.000556");
+      // Both posts still reached the index, which does not depend on the
+      // envelope write.
+      expect(
+        recordedOutboundPosts.map((post) => post.providerMessageId),
+      ).toEqual(["1700000900.000555", "1700000900.000556"]);
     });
 
     it("commits the reconciliation write before posting the next segment", async () => {
@@ -1541,16 +1659,14 @@ describe("channel-reply-delivery", () => {
       // boundary. Otherwise a crash between two posts of a split reply loses
       // the stamp for a message the reader can already see.
       pushPartialAssistantRow("conv-order", "msg-order", "C555");
-      renderedHistoryContent = {
-        text: "AlphaBeta",
-        textSegments: ["Alpha", "Beta"],
-        toolCalls: [],
-        toolCallsBeforeText: false,
-        contentOrder: ["text:0", "tool:0", "text:1"],
-        surfaces: [],
-        thinkingSegments: [],
+      twoSegments();
+      deliveryTsQueue.push("1700001000.000666", "1700001000.000667");
+      const seenAtSecondPost: unknown[] = [];
+      onRecordOutboundPost = (post) => {
+        if (post.providerMessageId === "1700001000.000667") {
+          seenAtSecondPost.push(envelopeOf("msg-order").messageId);
+        }
       };
-      nextDeliveryTs = "1700001000.000666";
 
       await deliverReplyViaCallback(
         "conv-order",
@@ -1559,17 +1675,84 @@ describe("channel-reply-delivery", () => {
         "assistant-order",
       );
 
-      // The row already parses through the strict reader by the time the
-      // second POST goes out, which is what makes the second segment a no-op.
-      const row = conversationMessages.find((m) => m.id === "msg-order");
-      const envelope = JSON.parse(row?.metadata ?? "{}") as Record<
-        string,
-        unknown
-      >;
-      const { readSlackMetadata } =
-        await import("../messaging/providers/slack/message-metadata.js");
-      expect(readSlackMetadata(envelope.slackMeta as string)).not.toBeNull();
-      expect(updateMessageMetadataCalls.length).toBe(1);
+      expect(seenAtSecondPost).toEqual(["1700001000.000666"]);
+    });
+
+    it("keeps a deletion that lands between the index write and the envelope stamp", async () => {
+      // Once the index names the post, a delete resolves to the row and
+      // stamps the envelope that still lacks its id. The stamp that follows
+      // must read that state, not the one it saw before the index write,
+      // and keep the row fully deleted: its only post is gone.
+      pushPartialAssistantRow("conv-window", "msg-window", "C666");
+      nextDeliveryTs = "1700001100.000777";
+      onRecordOutboundPost = () => {
+        const row = conversationMessages.find((m) => m.id === "msg-window")!;
+        const outer = JSON.parse(row.metadata!) as Record<string, string>;
+        row.metadata = JSON.stringify({
+          ...outer,
+          providerMeta: JSON.stringify({
+            ...(JSON.parse(outer.providerMeta) as Record<string, unknown>),
+            deletedMessageIds: ["1700001100.000777"],
+            deletedAt: 1700001101000,
+          }),
+        });
+      };
+
+      await deliverReplyViaCallback(
+        "conv-window",
+        "C666",
+        "http://gateway/deliver/slack",
+        "assistant-window",
+      );
+
+      const envelope = envelopeOf("msg-window");
+      expect(envelope.messageId).toBe("1700001100.000777");
+      expect(envelope.deletedMessageIds).toEqual(["1700001100.000777"]);
+      expect(envelope.deletedAt).toBe(1700001101000);
+    });
+
+    it("clears the row-level marker when a later post arrives after every known post was deleted", async () => {
+      // The first post was deleted before the second segment reconciled, so
+      // the row read as fully deleted. The second post is on the channel,
+      // so the row is not; the per-post record of the first deletion stays.
+      conversationMessages.push({
+        id: "msg-revive",
+        role: "assistant",
+        content: '[{"type":"text","text":"hello"}]',
+        metadata: JSON.stringify({
+          assistantMessageChannel: "slack",
+          providerMeta: JSON.stringify({
+            source: "slack",
+            conversationExternalId: "C777",
+            eventKind: "message",
+            messageId: "1700001200.000100",
+            deletedMessageIds: ["1700001200.000100"],
+            deletedAt: 1700001201000,
+          }),
+        }),
+      });
+      renderedHistoryContent = {
+        text: "second",
+        textSegments: ["second"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700001200.000200";
+
+      await deliverReplyViaCallback(
+        "conv-revive",
+        "C777",
+        "http://gateway/deliver/slack",
+        "assistant-revive",
+      );
+
+      const envelope = envelopeOf("msg-revive");
+      expect(envelope.additionalMessageIds).toEqual(["1700001200.000200"]);
+      expect(envelope.deletedMessageIds).toEqual(["1700001200.000100"]);
+      expect(envelope.deletedAt).toBeUndefined();
     });
   });
 });
