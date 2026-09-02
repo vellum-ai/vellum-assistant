@@ -12,7 +12,12 @@ import {
   type StepperStep,
   Typography,
 } from "@vellumai/design-library";
-import { GraduationCap, Loader2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  GraduationCap,
+  Loader2,
+} from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
@@ -352,52 +357,25 @@ export function WatchRetroSurface({
         />
       )}
 
-      <div className="mt-6 flex items-center gap-2">
-        {/* A `pick` and a `gate` commit on tap, matching every other
-            single-select surface in the app, so their page carries no advance
-            button. The recap, a `fill` and the summary have nothing to tap, so
-            they keep one. */}
-        {(onRecap || onSummary || currentQuestion?.kind === "fill") && (
-          <Button
-            variant="primary"
-            disabled={submitting}
-            leftIcon={
-              submitting ? <Loader2 className="animate-spin" /> : undefined
-            }
-            onClick={() => {
-              advance(answers);
-            }}
-          >
-            {onSummary || totalPages === 1
-              ? t("watchRetroSurface.save")
-              : onRecap
-                ? t("watchRetroSurface.looksRight")
-                : t("watchRetroSurface.next")}
-          </Button>
-        )}
+      {/* Back left, everything else right, primary last. That is the shape
+          `form-surface` uses for its paged footer and the order every
+          `Modal.Footer` puts its buttons in, so the forward action is always
+          the rightmost thing on the card. */}
+      <div className="mt-6 flex items-center justify-between gap-2">
+        <div>
+          {!onRecap && (
+            <Button
+              variant="outlined"
+              disabled={submitting}
+              leftIcon={<ChevronLeft />}
+              onClick={goBack}
+            >
+              {t("watchRetroSurface.back")}
+            </Button>
+          )}
+        </div>
 
-        {!onRecap && (
-          <Button variant="ghost" disabled={submitting} onClick={goBack}>
-            {t("watchRetroSurface.back")}
-          </Button>
-        )}
-
-        {currentQuestion && (
-          <Button
-            variant="ghost"
-            disabled={submitting}
-            onClick={() => {
-              // The default is already in `answers`, so a skip only has to
-              // move on. It stays marked skipped so the model can tell an
-              // accepted default from a chosen one.
-              advance(answers);
-            }}
-          >
-            {t("watchRetroSurface.skip")}
-          </Button>
-        )}
-
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
           {/* Says the recap read wrong, which is a correction rather than a
               refusal: the turn picks it up and asks what was off. */}
           {onRecap && (
@@ -412,6 +390,21 @@ export function WatchRetroSurface({
             </Button>
           )}
 
+          {currentQuestion && (
+            <Button
+              variant="ghost"
+              disabled={submitting}
+              onClick={() => {
+                // The default is already in `answers`, so a skip only has to
+                // move on. It stays marked skipped so the model can tell an
+                // accepted default from a chosen one.
+                advance(answers);
+              }}
+            >
+              {t("watchRetroSurface.skip")}
+            </Button>
+          )}
+
           {/* The one place the session can be thrown away, next to the thing
               being thrown away. */}
           {(onSummary || totalPages === 1) && (
@@ -423,6 +416,32 @@ export function WatchRetroSurface({
               }}
             >
               {t("watchRetroSurface.dontSave")}
+            </Button>
+          )}
+
+          {/* A `pick` and a `gate` commit on tap, matching every other
+              single-select surface in the app, so their page carries no
+              advance button. The recap, a `fill` and the summary have nothing
+              to tap, so they keep one. */}
+          {(onRecap || onSummary || currentQuestion?.kind === "fill") && (
+            <Button
+              variant="primary"
+              disabled={submitting}
+              leftIcon={
+                submitting ? <Loader2 className="animate-spin" /> : undefined
+              }
+              rightIcon={
+                onSummary || totalPages === 1 ? undefined : <ChevronRight />
+              }
+              onClick={() => {
+                advance(answers);
+              }}
+            >
+              {onSummary || totalPages === 1
+                ? t("watchRetroSurface.save")
+                : onRecap
+                  ? t("watchRetroSurface.looksRight")
+                  : t("watchRetroSurface.next")}
             </Button>
           )}
         </div>
