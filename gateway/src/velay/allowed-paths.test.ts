@@ -63,6 +63,9 @@ describe("VELAY_ALLOWED_PATHS", () => {
       // and injects the attested caller, and the gateway's handler admits only
       // the guardian on it. Self-hosted assistants bypass velay entirely.
       "/v1/watch/stream": true,
+      // The pod desktop rides the tunnel the same way: a guardian-only RFB
+      // byte pipe the web client dials with a velay-minted token.
+      "/v1/desktop/stream": true,
       "/assistant/credentials/enter": true,
       "/v1/credential-requests/peek": true,
       "/v1/credential-requests/submit": true,
@@ -123,6 +126,7 @@ describe("the registration allowlist and the bridge's WebSocket allowlist", () =
     "/v1/live-voice",
     "/v1/stt/stream",
     "/v1/watch/stream",
+    "/v1/desktop/stream",
   ];
 
   it("admits every tunnelled WebSocket route at both layers", () => {
@@ -149,7 +153,13 @@ describe("the registration allowlist and the bridge's WebSocket allowlist", () =
   });
 
   it("admits no near miss of a tunnelled route at either layer", () => {
-    for (const path of ["/v1/watch", "/v1/watch/stream/extra", "/v1/speech"]) {
+    for (const path of [
+      "/v1/watch",
+      "/v1/watch/stream/extra",
+      "/v1/desktop",
+      "/v1/desktop/stream/extra",
+      "/v1/speech",
+    ]) {
       expect({
         path,
         registration: compiled().some((re) => re.test(path)),

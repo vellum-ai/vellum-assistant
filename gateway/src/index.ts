@@ -55,6 +55,11 @@ import {
   type WatchStreamSocketData,
 } from "./http/routes/watch-stream-websocket.js";
 import {
+  createDesktopStreamWebsocketHandler,
+  getDesktopStreamWebsocketHandlers,
+  type DesktopStreamSocketData,
+} from "./http/routes/desktop-stream-websocket.js";
+import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
   type SpeechRelaySocketData,
@@ -322,6 +327,16 @@ function isWatchStreamSocketData(data: unknown): data is WatchStreamSocketData {
   );
 }
 
+function isDesktopStreamSocketData(
+  data: unknown,
+): data is DesktopStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "desktop-stream"
+  );
+}
+
 function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
   return (
     !!data &&
@@ -547,6 +562,7 @@ async function main() {
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleWatchStreamWs = createWatchStreamWebsocketHandler(config);
+  const handleDesktopStreamWs = createDesktopStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
     config,
@@ -571,6 +587,7 @@ async function main() {
   const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const watchStreamWebsocketHandlers = getWatchStreamWebsocketHandlers();
+  const desktopStreamWebsocketHandlers = getDesktopStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -1902,6 +1919,10 @@ async function main() {
           watchStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
@@ -1929,6 +1950,10 @@ async function main() {
           watchStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
@@ -1954,6 +1979,10 @@ async function main() {
         }
         if (isWatchStreamSocketData(ws.data)) {
           watchStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isLiveVoiceSocketData(ws.data)) {
@@ -2185,6 +2214,17 @@ async function main() {
     // assistant has no transport at all and never reaches here.
     if (url.pathname === "/v1/watch/stream") {
       const upgradeResult = await handleWatchStreamWs(req, server);
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
+      return undefined as unknown as Response;
+    }
+
+    // Same two shapes as the watch stream, and guardian-only for the same
+    // reason: the proxy replaces the caller's identity upstream, so whoever
+    // the gateway admits is who gets the pod's desktop.
+    if (url.pathname === "/v1/desktop/stream") {
+      const upgradeResult = await handleDesktopStreamWs(req, server);
       if (upgradeResult !== undefined) {
         return upgradeResult;
       }

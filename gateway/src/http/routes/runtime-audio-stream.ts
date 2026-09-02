@@ -4,12 +4,13 @@
  * frames between that client and the runtime.
  *
  * The gateway has more than one of these. `/v1/stt/stream` carries dictation
- * audio and `/v1/watch/stream` carries a watch session's narration, and as
- * proxies they are the same object: authenticate the downstream actor, dial a
- * fresh upstream socket with a short-lived service token, and pass frames
- * through in both directions until either end goes away. What differs is the
- * upstream path and which query parameters travel with it, which is why those
- * are the arguments here.
+ * audio, `/v1/watch/stream` carries a watch session's narration, and
+ * `/v1/desktop/stream` carries a pod desktop's RFB bytes, and as proxies they
+ * are the same object: authenticate the downstream actor, dial a fresh
+ * upstream socket with a short-lived service token, and pass frames through
+ * verbatim in both directions until either end goes away, each side's close
+ * code carried to the other. What differs is the upstream path and which
+ * query parameters travel with it, which is why those are the arguments here.
  *
  * **What the shared gate settles, and what it deliberately leaves open.** It
  * settles that the caller is *an* actor on this assistant: a valid edge JWT,
@@ -161,7 +162,7 @@ export interface RuntimeAudioStreamHandlerOptions<
   /** What this stream is called in log messages, e.g. `"STT stream"`. */
   label: string;
   /** Query parameters carried upstream, built from the socket's own state. */
-  upstreamParams: (data: T) => Record<string, string>;
+  upstreamParams?: (data: T) => Record<string, string>;
   /** Extra fields worth logging alongside every message about this socket. */
   logContext?: (data: T) => Record<string, unknown>;
 }
@@ -181,7 +182,7 @@ export function createRuntimeAudioStreamHandlers<
   upstreamPath,
   log,
   label,
-  upstreamParams,
+  upstreamParams = () => ({}),
   logContext = () => ({}),
 }: RuntimeAudioStreamHandlerOptions<T>) {
   return {
