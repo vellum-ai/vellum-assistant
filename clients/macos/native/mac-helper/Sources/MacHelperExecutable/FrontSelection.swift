@@ -53,13 +53,17 @@ enum FrontSelection {
             // the selection out of it.
             text = selectionFromRange(focused) ?? ""
         }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.count > maxChars {
-            return Selection(text: String(trimmed.prefix(maxChars)), truncated: true)
+        // Whitespace decides only whether anything is selected. What is
+        // selected travels as it is: the indentation of a selected snippet is
+        // part of what the user is asking about.
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
         }
-        return Selection(text: trimmed, truncated: false)
+
+        if text.count > maxChars {
+            return Selection(text: String(text.prefix(maxChars)), truncated: true)
+        }
+        return Selection(text: text, truncated: false)
     }
 
     private static func selectionFromRange(_ element: AXUIElement) -> String? {

@@ -913,6 +913,32 @@ export function useLiveVoice(
       const live = () =>
         sessionRef.current === session && session.generation === generation;
 
+      // The reply to the seed has been heard. Wait out the quiet before
+      // ending, and end only if nothing has started since: a `thinking`
+      // frame for a tool run bumps the epoch, an utterance the user has
+      // open keeps the session for them, and an accepted one disarms the
+      // end outright. Runs again after a discarded utterance, since room
+      // noise that opened one and was retracted is not the user carrying on.
+      const endAfterReplyWhenQuiet = (): void => {
+        if (!live() || !session.endAfterReply) {
+          return;
+        }
+        const epoch = session.responseEpoch;
+        setTimeout(() => {
+          if (
+            !live() ||
+            !session.endAfterReply ||
+            session.responseEpoch !== epoch ||
+            session.utteranceOpen ||
+            useLiveVoiceStore.getState().state !== "listening"
+          ) {
+            return;
+          }
+          session.endAfterReply = false;
+          void stop();
+        }, opts.endAfterSeedReplyQuietMs ?? END_AFTER_SEED_REPLY_QUIET_MS);
+      };
+
       session.unsubscribes.push(
         client.on("ready", (frame) => {
           if (!live()) {
@@ -1014,10 +1040,6 @@ export function useLiveVoice(
           }
           session.utteranceOpen = true;
           s.setUtteranceOpen(true);
-          // The user carrying on is the conversation continuing: a session
-          // that was to end after its seed's reply stays up for as long as
-          // they want it.
-          session.endAfterReply = false;
           // Server VAD fires on room noise as well as on speech, so hold the
           // flushed audio instead of destroying it: `utterance_discarded`
           // retracts a wrong barge-in and puts the reply back. A second onset
@@ -1033,6 +1055,11 @@ export function useLiveVoice(
           session.utteranceOpen = false;
           const s = useLiveVoiceStore.getState();
           s.setUtteranceOpen(false);
+          // The user carrying on is the conversation continuing: a session
+          // that was to end after its seed's reply stays up for as long as
+          // they want it. An accepted utterance rather than an onset, since
+          // server VAD opens one for room noise too.
+          session.endAfterReply = false;
           // End of user speech: stamp the client-heard latency start; the
           // response's first tts_audio consumes it (see
           // beginAssistantAudioIfNeeded). Manual mode stamps at the
@@ -1051,6 +1078,12 @@ export function useLiveVoice(
           // The discarded utterance never becomes a turn: drop its
           // end-of-speech stamp so it can't pair with a later turn's audio.
           session.speechEndedAtMs = null;
+          // The onset that opened this utterance also held off the end of a
+          // session that was to end after its reply. Nothing was said, so the
+          // end is owed again once whatever is playing has been heard.
+          void session.player.waitUntilDrained().then(() => {
+            endAfterReplyWhenQuiet();
+          });
           // The utterance the barge-in opened held no speech, so the barge-in
           // was wrong: put the flushed reply back rather than leaving silence
           // where the answer was. Resuming sets `speaking` itself.
@@ -1220,26 +1253,7 @@ export function useLiveVoice(
             return;
           }
           void finishResponseAfterPlayback(session, teardown).then(() => {
-            if (!live() || !session.endAfterReply) {
-              return;
-            }
-            // The reply has been heard. Wait out the quiet before ending, and
-            // end only if nothing has started since: a `thinking` frame for a
-            // tool run bumps the epoch, and the user speaking disarms the end
-            // outright. Either means the turn is not over.
-            const epoch = session.responseEpoch;
-            setTimeout(() => {
-              if (
-                !live() ||
-                !session.endAfterReply ||
-                session.responseEpoch !== epoch ||
-                useLiveVoiceStore.getState().state !== "listening"
-              ) {
-                return;
-              }
-              session.endAfterReply = false;
-              void stop();
-            }, opts.endAfterSeedReplyQuietMs ?? END_AFTER_SEED_REPLY_QUIET_MS);
+            endAfterReplyWhenQuiet();
           });
         }),
         client.on("minimizeRoom", () => {

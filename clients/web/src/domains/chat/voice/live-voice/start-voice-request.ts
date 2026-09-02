@@ -158,6 +158,21 @@ export function startVoiceFromSurface(
 }
 
 /**
+ * Say that a question asked out loud could not be taken.
+ *
+ * The question came from another application, and the answer was going to
+ * come back through the companion. A notice drawn in the app's window sits
+ * behind whatever the user is working in, so this is the one refusal that
+ * raises the window: the alternative is a hold that did nothing.
+ */
+export function announceAskRefused(): void {
+  void ensureMainWindowVisible();
+  toast.error(formatVoiceError("voice-ask-unavailable"), {
+    id: "voice-error:voice-ask-unavailable",
+  });
+}
+
+/**
  * Put a question to the assistant out loud, from a surface outside the chat.
  *
  * A session already running is the one the user is in, so the question goes
@@ -256,12 +271,11 @@ export async function drainPendingVoiceStart(
   // A plain start that stops here has handed the user something to look at
   // instead (no button, the card, the notice). A question that stops here has
   // been dropped, and the user who asked it from another application is
-  // watching the companion for an answer, so the drop is said out loud.
+  // watching the companion for an answer, so the drop is said where they can
+  // see it.
   const refuse = () => {
     if (consume()?.ask != null) {
-      toast.error(formatVoiceError("voice-ask-unavailable"), {
-        id: "voice-error:voice-ask-unavailable",
-      });
+      announceAskRefused();
     }
   };
   // Same eligibility as the composer's entry point: on an assistant too old to
@@ -307,9 +321,7 @@ export async function drainPendingVoiceStart(
       ask !== null &&
       useLiveVoiceStore.getState().starter?.sendText(ask) !== true
     ) {
-      toast.error(formatVoiceError("voice-ask-unavailable"), {
-        id: "voice-error:voice-ask-unavailable",
-      });
+      announceAskRefused();
     }
     return;
   }

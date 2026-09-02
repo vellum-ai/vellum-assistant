@@ -61,11 +61,13 @@ mock.module("@/domains/chat/voice/use-hold-to-dictate", () => ({
 
 const askedTexts: string[] = [];
 let nextAskTaken = true;
+const announceAskRefusedMock = mock(() => undefined);
 mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
   askVoiceFromSurface: (_navigate: unknown, ask: string) => {
     askedTexts.push(ask);
     return nextAskTaken;
   },
+  announceAskRefused: announceAskRefusedMock,
   startVoiceFromSurface: () => undefined,
 }));
 
@@ -159,6 +161,7 @@ afterEach(() => {
   insertedTexts.length = 0;
   askedTexts.length = 0;
   nextAskTaken = true;
+  announceAskRefusedMock.mockClear();
   toastErrorMock.mockClear();
   useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
@@ -421,9 +424,6 @@ describe("a hold over a selection", () => {
     });
 
     expect(insertedTexts).toEqual([]);
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      formatVoiceError("voice-ask-unavailable"),
-      { id: "voice-error:voice-ask-unavailable" },
-    );
+    expect(announceAskRefusedMock).toHaveBeenCalledTimes(1);
   });
 });

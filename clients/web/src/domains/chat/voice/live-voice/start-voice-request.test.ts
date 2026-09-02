@@ -587,6 +587,8 @@ describe("askVoiceFromSurface", () => {
 
     expect(starter).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledTimes(1);
+    // The notice is in the app's window, and the user is in another app.
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalled();
   });
 
   test("says so when the assistant is not ready to talk", async () => {

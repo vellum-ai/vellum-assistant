@@ -3633,7 +3633,7 @@ describe("speak first (seed turn)", () => {
       expect(h.view.result.current.state).toBe("idle");
     });
 
-    test("stays up for good once the user starts talking", async () => {
+    test("stays up for good once the user says something", async () => {
       const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
       await startAsk(h);
       speak(h, 2);
@@ -3664,6 +3664,34 @@ describe("speak first (seed turn)", () => {
       });
       expect(h.view.result.current.state).toBe("listening");
       expect(h.client.ended).toBe(false);
+    });
+
+    test("still ends when the onset was room noise the server took back", async () => {
+      const h = renderController({ endAfterSeedReplyQuietMs: QUIET_MS });
+      await startAsk(h);
+      speak(h, 2);
+      await finishSpeaking(h, 4);
+      act(() => {
+        h.client.emit("speechStarted", { type: "speech_started", seq: 5 });
+      });
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+      expect(h.client.ended).toBe(false);
+
+      await act(async () => {
+        h.client.emit("utteranceDiscarded", {
+          type: "utterance_discarded",
+          seq: 6,
+        });
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        await sleep(QUIET_MS * 2);
+      });
+
+      expect(h.view.result.current.state).toBe("idle");
+      expect(h.client.ended).toBe(true);
     });
 
     test("keeps the ask's shape across a pre-ready connect retry", async () => {

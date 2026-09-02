@@ -11,7 +11,10 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
-import { askVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
+import {
+  announceAskRefused,
+  askVoiceFromSurface,
+} from "@/domains/chat/voice/live-voice/start-voice-request";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
@@ -213,7 +216,7 @@ export function GlobalPushToTalkBridge({
           `dictation: ask selectionChars=${selection.text.length} truncated=${selection.truncated} words=${rawText.length} taken=${taken}`,
         );
         if (!taken) {
-          showVoiceErrorToast("voice-ask-unavailable");
+          announceAskRefused();
         }
         return;
       }
