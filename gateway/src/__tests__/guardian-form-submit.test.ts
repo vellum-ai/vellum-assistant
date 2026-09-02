@@ -100,7 +100,17 @@ describe("submitGuardianForm", () => {
     expect(resolveCall()?.body).toEqual({
       requestId: "req-2",
       error: "Cancelled by user",
+      cancelled: true,
     });
+  });
+
+  test("a write's resolution carries no cancellation marker", async () => {
+    await submitGuardianForm({
+      requestId: "req-2b",
+      write: async () => ({ resolution: { contactId: "c1" } }),
+    });
+
+    expect(resolveCall()?.body).not.toHaveProperty("cancelled");
   });
 
   test("a failure the writer classified keeps its own status", async () => {

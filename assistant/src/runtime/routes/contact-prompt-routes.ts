@@ -82,6 +82,8 @@ export interface ContactPromptResult {
   notesSaved?: boolean;
   /** Whether nothing the submission asked for landed. */
   nothingWritten?: boolean;
+  /** The guardian dismissed the form. Nothing was written. */
+  cancelled?: boolean;
 }
 
 /**
@@ -407,6 +409,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       channelType: z.string().optional(),
       address: z.string().optional(),
       verified: z.boolean().optional(),
+      cancelled: z.boolean().optional(),
     }),
   },
   {
@@ -429,6 +432,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       contactId: z.string().optional(),
       notesSaved: z.boolean().optional(),
       nothingWritten: z.boolean().optional(),
+      cancelled: z.boolean().optional(),
     }),
   },
   {
