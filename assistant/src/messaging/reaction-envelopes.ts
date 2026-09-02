@@ -8,7 +8,7 @@
  * writes the neutral shape `readProviderMetadata` serves to channel-agnostic
  * readers.
  */
-import type { InboundReactionPayload } from "@vellumai/gateway-client";
+import type { ReactionEmojiFields } from "@vellumai/service-contracts/reactions";
 
 import type { ChannelId } from "../channels/types.js";
 import type { ProviderMessageMetadata } from "./provider-message-metadata.js";
@@ -20,12 +20,7 @@ import { writeSlackMetadata } from "./providers/slack/message-metadata.js";
  * because the assistant's own reaction carries only the spelling it chose:
  * it names an emoji rather than reporting one a channel described.
  */
-type ReactionEmojiFacts = Partial<
-  Pick<
-    InboundReactionPayload,
-    "emojiKind" | "emojiName" | "emojiId" | "emojiAnimated"
-  >
->;
+type ReactionEmojiFacts = ReactionEmojiFields;
 
 export interface ReactionEnvelopeFacts extends ReactionEmojiFacts {
   channel: ChannelId;

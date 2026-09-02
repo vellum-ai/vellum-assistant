@@ -13,7 +13,7 @@
 import { INBOUND_EVENT_KINDS } from "./inbound-event-kind.js";
 import { z } from "zod";
 
-import { ReactionEmojiFieldsSchema } from "./inbound-event-kind.js";
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 
 import { ChannelConversationTypeSchema } from "./channel-permission-contract.js";
 

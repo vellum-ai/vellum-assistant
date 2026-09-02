@@ -74,41 +74,7 @@ export function inboundEventRefersToAnotherMessage(
   return kind !== "message";
 }
 
-import { z } from "zod";
-
-/**
- * Which namespace a channel drew a reaction's emoji from, said rather than
- * inferred from how the emoji was spelled. Modelled on Zulip's
- * `reaction_type`, which is the only one of the four systems surveyed that
- * separates the namespace from the name.
- *
- * `shortcode` is a name in the channel's own namespace whose kind the
- * channel does not disclose: Slack sends `+1` for the standard emoji and
- * `blob_wave` for a workspace upload with nothing to tell them apart, and
- * only the workspace token can resolve the second. It is therefore a
- * distinct kind from `unicode`, not a stand-in for an unknown one.
- */
-export type ReactionEmojiKind = "unicode" | "shortcode" | "custom";
-
-export const REACTION_EMOJI_KINDS = [
-  "unicode",
-  "shortcode",
-  "custom",
-] as const satisfies readonly ReactionEmojiKind[];
-
-/**
- * The typed emoji fields every schema that carries a reaction spreads in,
- * so the wire contract, the stored envelopes, and the response projection
- * describe one shape. Optional throughout: a persisted row or a replayed
- * payload may carry only the spelling, and `resolveInboundReactionPayload`
- * recovers a kind for those.
- */
-export const ReactionEmojiFieldsSchema = z.object({
-  emojiKind: z.enum(REACTION_EMOJI_KINDS).optional(),
-  emojiName: z.string().optional(),
-  emojiId: z.string().optional(),
-  emojiAnimated: z.boolean().optional(),
-});
+import type { ReactionEmojiKind } from "@vellumai/service-contracts/reactions";
 
 /** The structured payload of a reaction event. */
 export interface InboundReactionPayload {

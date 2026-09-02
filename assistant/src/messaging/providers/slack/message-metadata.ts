@@ -1,4 +1,4 @@
-import { ReactionEmojiFieldsSchema } from "@vellumai/gateway-client";
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import type { ProviderMessageMetadata } from "../../provider-message-metadata.js";

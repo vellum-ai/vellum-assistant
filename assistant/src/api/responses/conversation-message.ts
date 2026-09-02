@@ -22,6 +22,7 @@
  * gateway, evals) import via `@vellumai/assistant-api`.
  */
 
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import {
@@ -355,23 +356,6 @@ const SlackMessageLinkSchema = z.object({
   appUrl: z.string().optional(),
   webUrl: z.string().optional(),
 });
-
-/**
- * A reaction's typed emoji as the web receives it.
- *
- * Mirrors `ReactionEmojiFieldsSchema` in `@vellumai/gateway-client` (this
- * file is copied verbatim into client packages, so it cannot import the
- * contract; the daemon's reaction projector asserts the two stay aligned at
- * compile time). `shortcode` is a name in a channel's own namespace whose
- * kind the channel does not disclose, which Slack's is.
- */
-const ReactionEmojiFieldsSchema = z.object({
-  emojiKind: z.enum(["unicode", "shortcode", "custom"]).optional(),
-  emojiName: z.string().optional(),
-  emojiId: z.string().optional(),
-  emojiAnimated: z.boolean().optional(),
-});
-export type ReactionEmojiFields = z.infer<typeof ReactionEmojiFieldsSchema>;
 
 const SlackReactionSchema = z.object({
   emoji: z.string(),

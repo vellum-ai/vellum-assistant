@@ -3,7 +3,6 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-import { ReactionEmojiFieldsSchema } from "@vellumai/gateway-client";
 import {
   CLIENT_METADATA_HEADERS,
   type ClientMetadataField,
@@ -23,7 +22,6 @@ import {
   type ConversationContentBlock,
   type ConversationMessage,
   ConversationMessageSchema,
-  type ReactionEmojiFields,
 } from "../../api/responses/conversation-message.js";
 import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
 import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
@@ -836,22 +834,6 @@ function buildQueuedMessagePayloads(
       };
     });
 }
-
-// The response schema in `api/responses/conversation-message.ts` cannot
-// import the gateway contract (the api directory is copied verbatim into
-// client packages), so it mirrors `ReactionEmojiFieldsSchema` by value.
-// This assignment fails to compile if the two ever diverge in either
-// direction.
-type WireReactionEmojiFields = z.infer<typeof ReactionEmojiFieldsSchema>;
-type ReactionEmojiFieldsAligned = [WireReactionEmojiFields] extends [
-  ReactionEmojiFields,
-]
-  ? [ReactionEmojiFields] extends [WireReactionEmojiFields]
-    ? true
-    : never
-  : never;
-const _reactionEmojiFieldsAligned: ReactionEmojiFieldsAligned = true;
-void _reactionEmojiFieldsAligned;
 
 export async function handleListMessages({
   queryParams,
