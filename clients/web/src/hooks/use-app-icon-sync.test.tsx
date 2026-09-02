@@ -51,6 +51,7 @@ const NONE: AvatarState = {
 
 let avatarState: AvatarState | null = CHARACTER;
 let nativeIOS = true;
+let nativeAndroid = false;
 let iconState: AppIconState = {
   supported: true,
   current: null,
@@ -70,6 +71,7 @@ const setAppIcon = mock(async (_name: string | null) => swapSucceeds);
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
   useIsNativeIOS: () => nativeIOS,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({
@@ -100,17 +102,24 @@ async function renderSync() {
 beforeEach(() => {
   avatarState = CHARACTER;
   nativeIOS = true;
+  nativeAndroid = false;
   swapSucceeds = true;
   iconState = { supported: true, current: null, available: [ICON] };
   useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
-  useClientFeatureFlagStore.setState({ iosAvatarAppIcon: true });
+  useClientFeatureFlagStore.setState({
+    iosAvatarAppIcon: true,
+    androidAvatarAppIcon: false,
+  });
 });
 
 afterEach(() => {
   cleanup();
   getAppIconState.mockClear();
   setAppIcon.mockClear();
-  useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
+  useClientFeatureFlagStore.setState({
+    iosAvatarAppIcon: false,
+    androidAvatarAppIcon: false,
+  });
 });
 
 describe("useAppIconSync", () => {
@@ -137,6 +146,36 @@ describe("useAppIconSync", () => {
 
   test("stays off with the flag off", async () => {
     useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
+
+    const { result } = renderHook(() => useAppIconSync("asst-1"));
+
+    expect(result.current.enabled).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
+    expect(getAppIconState).not.toHaveBeenCalled();
+  });
+
+  test("runs on the Android shell behind its own flag", async () => {
+    nativeIOS = false;
+    nativeAndroid = true;
+    useClientFeatureFlagStore.setState({
+      iosAvatarAppIcon: false,
+      androidAvatarAppIcon: true,
+    });
+
+    const { result } = await renderSync();
+
+    await waitFor(() => {
+      expect(result.current.enabled).toBe(true);
+    });
+    expect(result.current.targetIcon).toBe(ICON);
+    expect(result.current.canSyncAvatar).toBe(true);
+  });
+
+  test("stays off on Android with only the iOS flag on", async () => {
+    // Each shell carries its own flag, so rolling the picker out on iOS must
+    // not open it on an Android handset.
+    nativeIOS = false;
+    nativeAndroid = true;
 
     const { result } = renderHook(() => useAppIconSync("asst-1"));
 

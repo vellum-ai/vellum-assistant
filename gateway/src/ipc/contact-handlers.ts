@@ -8,6 +8,8 @@
  */
 
 import {
+  ContactsIdentitySnapshotIpcParamsSchema,
+  ContactsIdentitySnapshotIpcResponseSchema,
   GetContactIpcParamsSchema,
   GetGuardianContactIpcParamsSchema,
   GetGuardianContactIpcResponseSchema,
@@ -107,6 +109,17 @@ export const contactRoutes: IpcRoute[] = [
           : {}),
       };
     },
+  },
+  {
+    // Identity projection of every contact + channel for the daemon's mirror
+    // reconciler (ids, ownership, addresses; no ACL, no assistant-info join).
+    method: "contacts_identity_snapshot",
+    schema: ContactsIdentitySnapshotIpcParamsSchema,
+    handler: () =>
+      ContactsIdentitySnapshotIpcResponseSchema.parse({
+        ok: true,
+        contacts: getStore().listIdentitySnapshot(),
+      }),
   },
   {
     // Exposes the guardian contact id(s) from the gateway DB (source of truth)

@@ -38,6 +38,7 @@ import type {
   CompanionSurfaceState,
   CompanionTurn,
   CompanionWatchRetro,
+  CompanionDictating,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -85,6 +86,9 @@ export function CompanionSurfacePage() {
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
+  const [dictating, setDictating] = useState<CompanionDictating | undefined>(
+    undefined,
+  );
   const [turns, setTurns] = useState<CompanionTurn[]>([]);
   // Empty until the app's window publishes one, which the surface covers with
   // the component's own fallback wording rather than drawing a blank name.
@@ -173,6 +177,7 @@ export function CompanionSurfacePage() {
       // reads as nothing running, because the alternative is a capture
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
+      setDictating(state.dictating);
       setWatchRetro(state.watchRetro);
       // Absence is no reads, for the same reason absence is no session: a
       // state that cannot say how much of the screen was taken has not
@@ -309,11 +314,13 @@ export function CompanionSurfacePage() {
     ? "typing"
     : call !== null
       ? "call"
-      : watching
-        ? "watching"
-        : watchRetro !== undefined
-          ? "summary"
-          : (introHeld ?? (hovered ? "hover" : "resting"));
+      : dictating !== undefined
+        ? "dictating"
+        : watching
+          ? "watching"
+          : watchRetro !== undefined
+            ? "summary"
+            : (introHeld ?? (hovered ? "hover" : "resting"));
 
   /**
    * Hit-test the pointer against the surface on every move.
@@ -500,6 +507,7 @@ export function CompanionSurfacePage() {
         // before the app's window has published one.
         assistantName={assistantName === "" ? undefined : assistantName}
         call={call ?? undefined}
+        dictating={dictating}
         // Unlike the turns, this is drawn whether or not the exchange on the
         // card is this surface's own: the question it answers is whether the
         // assistant is busy, and it is busy on someone else's conversation just

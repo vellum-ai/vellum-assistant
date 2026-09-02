@@ -98,7 +98,12 @@ mock.module("../schedule/schedule-store.js", () => ({
   deleteSchedule: async () => {},
 }));
 
+// Spread the actual module so transitive importers of names this
+// factory does not stub keep resolving (a partial factory breaks at
+// import time when the graph gains a new named import).
+const actualFeedWriter = await import("../home/feed-writer.js");
 mock.module("../home/feed-writer.js", () => ({
+  ...actualFeedWriter,
   stripConversationIds: async () => {},
 }));
 

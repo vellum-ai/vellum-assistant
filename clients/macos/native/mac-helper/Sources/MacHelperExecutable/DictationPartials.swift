@@ -147,6 +147,12 @@ final class DictationPartialsSession: @unchecked Sendable {
         }
 
         request.shouldReportPartialResults = true
+        // Punctuation and capitalisation from the recogniser itself, which
+        // costs nothing: without it the transcript is a run of lowercase words
+        // that reads as unfinished wherever it lands.
+        if #available(macOS 13.0, *) {
+            request.addsPunctuation = true
+        }
         // Pin recognition on-device when the locale has a local model:
         // dictation audio shouldn't leave the machine, and it keeps the
         // transcript working offline. Locales without an on-device model

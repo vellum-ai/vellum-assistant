@@ -9,6 +9,7 @@
 import type { Button, KnownBlock } from "@slack/types";
 import type {
   ApprovalUIMetadata,
+  ChannelDeliveryResult,
   MessageAudience,
   StreamOp,
 } from "@vellumai/gateway-client";
@@ -382,30 +383,42 @@ function imageBlocksFor(text: string): KnownBlock[] | undefined {
 
 /**
  * Add or remove an emoji reaction on a Slack message.
- * Non-throwing: logs errors but returns silently.
+ *
+ * Non-throwing: failures are logged and reported through the result so a
+ * tool-driven react can tell the model the truth, while the activity
+ * fallback is free to ignore it. Colons are stripped from the name because
+ * `reactions.add` takes the bare emoji name, and `already_reacted` /
+ * `no_reaction` count as success: the requested end state already holds.
  */
 export async function sendSlackReaction(
   channel: string,
   name: string,
   messageTs: string,
   action: "add" | "remove",
-): Promise<void> {
+): Promise<ChannelDeliveryResult> {
   const method = action === "add" ? "reactions.add" : "reactions.remove";
+  const bareName = name.replace(/^:+|:+$/g, "");
   try {
-    await callSlackApi(method, { channel, name, timestamp: messageTs });
+    await callSlackApi(method, {
+      channel,
+      name: bareName,
+      timestamp: messageTs,
+    });
+    return { ok: true };
   } catch (err) {
     if (err instanceof SlackApiError) {
       if (
         err.slackError === "already_reacted" ||
         err.slackError === "no_reaction"
       ) {
-        return;
+        return { ok: true };
       }
     }
     log.warn(
-      { err, channel, method, name },
+      { err, channel, method, name: bareName },
       "Failed to deliver Slack reaction",
     );
+    return { ok: false };
   }
 }
 

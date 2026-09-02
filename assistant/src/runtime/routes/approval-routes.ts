@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { PendingToolQuestionSchema } from "../../api/responses/conversation-message.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import type {
   SecretDelivery,
@@ -91,6 +92,14 @@ function handleConfirm({ body }: RouteHandlerArgs) {
       effectiveDecision === "allow" ? "approved" : "rejected",
     );
     interaction.directResolve(effectiveDecision as UserDecision);
+    // When a guardian request was promoted for this confirmation, bring its
+    // row to the matching terminal status and withdraw its cards; with no
+    // such row the CAS misses and this is a no-op.
+    void syncTerminalGuardianRequestStatus({
+      requestId,
+      status: effectiveDecision === "allow" ? "approved" : "denied",
+      syncContext: "confirm-direct-resolve",
+    });
     return { accepted: true };
   }
 

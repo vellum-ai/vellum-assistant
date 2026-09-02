@@ -19,6 +19,7 @@ import { ConversationMessageSchema } from "../api/responses/conversation-message
 import {
   addMessage,
   createConversation,
+  NO_RESPONSE_MESSAGE_KIND,
   SYSTEM_CARD_MESSAGE_KIND,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -39,6 +40,7 @@ interface ProjectedMessage {
   id: string;
   role: string;
   systemCard?: boolean;
+  noResponse?: boolean;
 }
 
 describe("handleListMessages system-card projection", () => {
@@ -72,6 +74,74 @@ describe("handleListMessages system-card projection", () => {
     const cardRow = response.messages.find((m) => m.id === card.id);
     expect(cardRow).toBeDefined();
     expect(cardRow?.systemCard).toBe(true);
+  });
+
+  test("projects noResponse from the deliberate-silence marker", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "thanks!" }]),
+    );
+    // Mirror the agent loop's turn-boundary stamp: the row keeps the raw
+    // sentinel as content and carries the marker in metadata.
+    const silent = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "<no_response/>" }]),
+      { metadata: { messageKind: NO_RESPONSE_MESSAGE_KIND } },
+    );
+
+    const response = (await handleListMessages({
+      queryParams: { conversationId: conv.id },
+    })) as { messages: ProjectedMessage[] };
+
+    for (const message of response.messages) {
+      expect(() => ConversationMessageSchema.parse(message)).not.toThrow();
+    }
+
+    const silentRow = response.messages.find((m) => m.id === silent.id);
+    expect(silentRow?.noResponse).toBe(true);
+  });
+
+  test("projects the reaction fact from a reaction row's envelope", async () => {
+    const conv = createConversation();
+    const row = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "[reaction]" }]),
+      {
+        metadata: {
+          messageKind: "reaction",
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.1",
+              emoji: "🎉",
+              op: "added",
+            },
+          }),
+        },
+      },
+    );
+
+    const response = (await handleListMessages({
+      queryParams: { conversationId: conv.id },
+    })) as {
+      messages: Array<
+        ProjectedMessage & {
+          reaction?: { emoji: string; selfAuthored?: boolean };
+        }
+      >;
+    };
+    for (const message of response.messages) {
+      expect(() => ConversationMessageSchema.parse(message)).not.toThrow();
+    }
+    const projected = response.messages.find((m) => m.id === row.id);
+    expect(projected?.reaction?.emoji).toBe("🎉");
+    expect(projected?.reaction?.selfAuthored).toBe(true);
   });
 
   test("omits systemCard on ordinary user and assistant rows", async () => {

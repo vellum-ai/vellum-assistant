@@ -49,9 +49,9 @@ import {
   getGuardianRequest as storeGetGuardianRequest,
   getGuardianRequestByCode as storeGetGuardianRequestByCode,
   getPendingByCallSessionId,
-  getPendingByDestinationMessage,
   isRequestInConversationScope,
   listDeliveries,
+  listDeliveriesByChat,
   listGuardianRequests as storeListGuardianRequests,
   listPendingByConversationScope,
   listPendingByDestinationChat,
@@ -171,20 +171,16 @@ export function listGuardianRequestDeliveries(
   return listDeliveries(requestId);
 }
 
+export function listGuardianRequestDeliveriesByChat(
+  channel: string,
+  chatId: string,
+): GuardianRequestDeliveryWire[] {
+  return listDeliveriesByChat(channel, chatId);
+}
+
 // ---------------------------------------------------------------------------
 // Destination + scope lookups
 // ---------------------------------------------------------------------------
-
-/** Reaction routing: the pending request delivered as a specific message. */
-export function getPendingRequestByDestinationMessage(
-  channel: string,
-  chatId: string,
-  messageId: string,
-): GuardianRequestWire | null {
-  return toWireOrNull(
-    getPendingByDestinationMessage(channel, chatId, messageId),
-  );
-}
 
 /**
  * Reply routing: pending requests delivered to a destination conversation
@@ -219,9 +215,8 @@ export function listPendingRequestsByScope(
 export function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): boolean {
-  return isRequestInConversationScope(requestId, conversationId, channel);
+  return isRequestInConversationScope(requestId, conversationId);
 }
 
 export function getPendingRequestByCallSession(

@@ -3,7 +3,7 @@
 The Windows desktop client. Like `clients/macos`, this is an Electron shell
 around the `clients/web` renderer: in dev it loads the Vite dev server (or
 vel's edge proxy when `vel up` is running), and in packaged builds it serves a
-bundled `resources/web-dist` over a privileged `app://` protocol.
+bundled `resources/cli-runtime/web-dist` over a privileged `app://` protocol.
 
 ## Layout
 
@@ -24,6 +24,11 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
   text insertion (security model in `native/README.md`).
   `native/Vellum.PreviewHandler` is the Explorer preview and thumbnail handler
   for `.vellum` bundles.
+- `src/main/features/voice-mode-chord.ts` registers the voice mode shortcut's
+  bare-modifier binding with the helper's low-level keyboard hook, because an
+  Electron `globalShortcut` cannot express one. A clean tap (chord down, chord
+  key up, nothing else in between) toggles voice mode system-wide; a shortcut
+  passing through the chord's keys (Alt+Tab over Alt) disarms instead.
 - [`docs/parity-matrix.md`](docs/parity-matrix.md) maps every bridge key and
   main-process capability to its Windows module, its macOS counterpart, and the
   test or packaged smoke that covers it, and lists the macOS concepts with no
@@ -132,10 +137,10 @@ matching GitHub release is downloaded and verified. Bump the pins there when
 the Bun version changes.
 
 `build:preview-handler` installs its manifest dependencies before invoking
-MSBuild. It resolves vcpkg from `VCPKG_ROOT`, the local Vellum build-tools
-checkout, or `PATH`, in that order. The checkout must contain full Git history
-for the manifest's pinned dependency baseline. The Visual Studio-bundled vcpkg
-may be too old for that baseline.
+MSBuild. It installs the manifest's pinned vcpkg baseline in the ignored
+`clients/windows/.build-tools` directory and reuses it for future builds. This
+keeps packaging independent of vcpkg copies exposed by Visual Studio,
+environment variables, or `PATH`.
 
 Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
 runs the same steps per architecture, then install-, launch-, and

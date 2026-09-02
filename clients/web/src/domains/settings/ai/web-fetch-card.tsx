@@ -238,7 +238,7 @@ export function WebFetchCard() {
               fullWidth
             />
             {defaultApiBase ? (
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                 {t("webFetchCard.apiBaseHint", {
                   defaultBase: defaultApiBase,
                 })}

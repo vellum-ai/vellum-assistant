@@ -1,4 +1,5 @@
 import { isToolResultOnlyUserMessage } from "../conversations/message-consolidation.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { UserError } from "../util/errors.js";
 
@@ -17,6 +18,17 @@ import { UserError } from "../util/errors.js";
  */
 export function startsNewTurn(msg: MessageRow): boolean {
   if (msg.role !== "user") {
+    return false;
+  }
+  // A reaction row is a channel fact attached to the turn it landed in, not
+  // a message that ran one: the agent loop never dispatches for reactions,
+  // so counting them would rehydrate a `turnCount` above the live counter
+  // and shift turn-indexed memory selection. The substring guard keeps the
+  // metadata parse off rows that cannot carry the envelope.
+  if (
+    msg.metadata?.includes("reaction") &&
+    readProviderMetadata(msg.metadata)?.eventKind === "reaction"
+  ) {
     return false;
   }
   return !isToolResultOnlyUserMessage(msg);

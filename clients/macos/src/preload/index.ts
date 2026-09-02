@@ -33,6 +33,8 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
@@ -59,6 +61,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
   createBundleConfirmBridge,
@@ -188,6 +191,13 @@ const bridge: VellumBridge = {
           "vellum:helper:hotkey:fnPushToTalk",
           enable,
         ) as Promise<FnPushToTalkResult>,
+      setModifierHold: (
+        hold: ModifierHold,
+      ): Promise<ModifierHoldRegistrationResult> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_SET_MODIFIER_HOLD,
+          hold,
+        ) as Promise<ModifierHoldRegistrationResult>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);

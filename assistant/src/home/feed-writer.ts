@@ -37,6 +37,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  type FeedItemGuardianRequest,
+  isPendingGuardianFeedItem,
+} from "../api/responses/home.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
@@ -182,6 +186,16 @@ export interface FeedItemContentPatch {
   summary?: string;
   urgency?: FeedItemUrgency;
   status?: FeedItemStatus;
+  /**
+   * Updater for the item's guardian projection, applied inside the
+   * coalescing queue so it reads the projection as of write time (a
+   * plain replacement value would race concurrent patches). Only runs
+   * when the item carries a `guardianRequest`; items without one are
+   * left untouched.
+   */
+  guardianRequest?: (
+    existing: FeedItemGuardianRequest,
+  ) => FeedItemGuardianRequest;
 }
 
 export async function patchFeedItemContent(
@@ -387,6 +401,9 @@ async function runWrite(): Promise<void> {
     if (patch.status !== undefined) {
       updated.status = patch.status;
     }
+    if (patch.guardianRequest !== undefined && existing.guardianRequest) {
+      updated.guardianRequest = patch.guardianRequest(existing.guardianRequest);
+    }
     items[idx] = updated;
     contentPatchResults.push({ resolve, value: updated });
   }
@@ -429,6 +446,14 @@ async function runWrite(): Promise<void> {
         continue;
       }
       if (idSet && !idSet.has(current.id)) {
+        continue;
+      }
+      // Bulk dismissal ("Clear all") never clears the live projection of
+      // an unresolved guardian request: the item is the request's one
+      // canonical home, and only resolution may retire it. A terminal
+      // receipt is not pending and clears like any other item, and a
+      // deliberate single-item dismissal stays available.
+      if (op.to === "dismissed" && isPendingGuardianFeedItem(current)) {
         continue;
       }
       items[i] = { ...current, status: op.to };

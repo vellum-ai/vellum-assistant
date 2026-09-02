@@ -286,7 +286,7 @@ export function WebSearchCard() {
               fullWidth
             />
             {defaultApiBase ? (
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                 {t("webSearchCard.apiBaseHint", {
                   defaultBase: defaultApiBase,
                 })}

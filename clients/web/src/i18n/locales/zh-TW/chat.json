@@ -258,6 +258,12 @@
     "unsupported": "此裝置無法開啟相機。",
     "uploadFailed": "無法傳送該相片。"
   },
+  "cameraShutterHint": {
+    "live": "即時 · 輕觸停止",
+    "liveDescription": "輕觸停止即時視訊。",
+    "photo": "輕觸拍照 · 長按開啟即時",
+    "photoDescription": "長按開啟即時視訊。"
+  },
   "cameraStatusPill": {
     "announceLive": "即時。{status}",
     "announceLiveMuted": "即時。已靜音。{status}",
@@ -545,11 +551,6 @@
     "closeAriaLabel": "關閉",
     "title": "對話動作"
   },
-  "conversationActivityPill": {
-    "activity": "活動",
-    "recent": "最近",
-    "running": "執行中"
-  },
   "conversationAssetActions": {
     "delete": "刪除",
     "downloadPdf": "下載 PDF",
@@ -610,9 +611,10 @@
     "title": "已達每日點數限制"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "我了解相關資產和記憶可能仍會保留",
     "cancel": "取消",
     "confirm": "刪除",
-    "message": "刪除「{title}」？這將永久移除對話及其訊息。此動作無法復原。",
+    "message": "刪除「{title}」？這將永久移除對話及其訊息。相關資產和記憶可能仍會保留。此動作無法復原。",
     "title": "刪除對話",
     "untitled": "未命名"
   },
@@ -1213,6 +1215,14 @@
     "goToFile": "前往檔案",
     "noPreviewForType": "此檔案類型無預覽"
   },
+  "progressRail": {
+    "agentsLabel": "代理",
+    "agentsToggleAria": "代理：{running, plural, =0 {無執行中} other {# 個執行中}}，{completed, plural, =0 {無已完成} other {# 個已完成}}",
+    "railAria": "進度",
+    "stepCounter": "第 {current} 步，共 {total} 步",
+    "title": "進度",
+    "titleFinished": "已完成"
+  },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"
   },
@@ -1441,9 +1451,7 @@
   },
   "skillLoadOutput": {
     "output": "輸出",
-    "outputFormatAria": "輸出格式",
-    "showLess": "顯示較少",
-    "showMore": "顯示更多"
+    "outputFormatAria": "輸出格式"
   },
   "skillToolList": {
     "fromSkill": "來自 {name}"
@@ -1463,10 +1471,6 @@
   },
   "storeCredentialDialog": {
     "successToast": "已安全儲存。金鑰從未進入聊天。"
-  },
-  "subagentAvatarRow": {
-    "details": "詳細資料",
-    "showDetailsAria": "顯示子代理詳細資料"
   },
   "subagentDetailPanel": {
     "backToTimelineAria": "返回時間軸",
@@ -1489,8 +1493,6 @@
     "workedFor": "已執行 {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "收合",
-    "collapseDetailsAria": "收合子代理詳細資料",
     "stopSubagentAria": "停止子代理"
   },
   "suggestionCard": {
@@ -1563,6 +1565,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "關閉工具詳細資料",
+    "denied": "此工具呼叫未獲核准，因此沒有執行。",
+    "emptyOutput": "該工具沒有回傳任何輸出。",
     "output": "輸出",
     "riskLevel": "風險等級",
     "running": "正在執行…"
@@ -1654,6 +1658,7 @@
     "muteMicrophone": "將麥克風靜音",
     "mutedState": "已靜音。{state}",
     "showCamera": "顯示相機",
+    "stopLive": "停止即時",
     "takePhoto": "拍照",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"
@@ -1728,5 +1733,13 @@
   },
   "workspacePathLink": {
     "openTitle": "開啟 {path}"
+  },
+  "transcript": {
+    "noResponse": "決定不回覆",
+    "reactionAddedSelf": "已用 {emoji} 回應",
+    "reactionRemovedSelf": "已移除 {emoji} 回應",
+    "reactionAdded": "{name} 用 {emoji} 回應",
+    "reactionRemoved": "{name} 移除了 {emoji} 回應",
+    "reactionSomeone": "有人"
   }
 }

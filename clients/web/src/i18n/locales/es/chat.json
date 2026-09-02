@@ -259,6 +259,12 @@
     "unsupported": "Este dispositivo no puede abrir una cámara.",
     "uploadFailed": "No se pudo enviar esa foto."
   },
+  "cameraShutterHint": {
+    "live": "En vivo · Toca para detener",
+    "liveDescription": "Toca para detener el video en vivo.",
+    "photo": "Toca para foto · Mantén para en vivo",
+    "photoDescription": "Mantén pulsado para iniciar el video en vivo."
+  },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",
     "announceLiveMuted": "En vivo. Silenciado. {status}",
@@ -499,6 +505,9 @@
     "toolLabel": "Herramienta:"
   },
   "contactActions": {
+    "cancelFailed": "No se pudo descartar el formulario. Inténtalo de nuevo.",
+    "recordCancelFailed": "No se pudo descartar el formulario. Inténtalo de nuevo.",
+    "recordSaveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo.",
     "saveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo."
   },
   "contactPromptCard": {
@@ -507,8 +516,26 @@
     "contactSaved": "Contacto guardado",
     "dismiss": "Descartar",
     "enterAddress": "Introduce la dirección de {channel}",
+    "markVerified": "Marcar esta dirección como verificada",
+    "markVerifiedHelp": "Una dirección verificada puede enviar mensajes a tu asistente.",
     "save": "Guardar",
     "saving": "Guardando…"
+  },
+  "contactRecordCard": {
+    "cancel": "Cancelar",
+    "contactDeleted": "Contacto eliminado",
+    "contactSaved": "Contacto guardado",
+    "createTitle": "Añadir un contacto",
+    "delete": "Eliminar",
+    "deleteTitle": "¿Eliminar a {name}?",
+    "deleteWarning": "Esto también elimina sus canales, por lo que ya no podrá contactar con tu asistente.",
+    "dismiss": "Descartar",
+    "namePlaceholder": "Nombre",
+    "noChannels": "Este contacto no tiene canales.",
+    "notesPlaceholder": "Notas (opcional)",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "updateTitle": "Actualizar a {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "Borrar contexto",
@@ -545,11 +572,6 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
-  },
-  "conversationActivityPill": {
-    "activity": "Actividad",
-    "recent": "Recientes",
-    "running": "En ejecución"
   },
   "conversationAssetActions": {
     "delete": "Eliminar",
@@ -611,9 +633,10 @@
     "title": "Límite diario de créditos alcanzado"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "Entiendo que los recursos y recuerdos relacionados pueden seguir existiendo",
     "cancel": "Cancelar",
     "confirm": "Eliminar",
-    "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Esta acción no se puede deshacer.",
+    "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
@@ -1214,6 +1237,14 @@
     "goToFile": "Ir al archivo",
     "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
+  "progressRail": {
+    "agentsLabel": "Agentes",
+    "agentsToggleAria": "Agentes: {running, plural, =0 {ninguno en curso} one {# en curso} other {# en curso}}, {completed, plural, =0 {ninguno terminado} one {# terminado} other {# terminados}}",
+    "railAria": "Progreso",
+    "stepCounter": "{current} de {total}",
+    "title": "Progreso",
+    "titleFinished": "Terminado"
+  },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
   },
@@ -1442,9 +1473,7 @@
   },
   "skillLoadOutput": {
     "output": "Salida",
-    "outputFormatAria": "Formato de salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más"
+    "outputFormatAria": "Formato de salida"
   },
   "skillToolList": {
     "fromSkill": "De {name}"
@@ -1464,10 +1493,6 @@
   },
   "storeCredentialDialog": {
     "successToast": "Guardado de forma segura. La clave nunca entró en el chat."
-  },
-  "subagentAvatarRow": {
-    "details": "Detalles",
-    "showDetailsAria": "Mostrar detalles del subagente"
   },
   "subagentDetailPanel": {
     "backToTimelineAria": "Volver a la línea de tiempo",
@@ -1490,8 +1515,6 @@
     "workedFor": "Trabajó durante {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Contraer",
-    "collapseDetailsAria": "Contraer detalles del subagente",
     "stopSubagentAria": "Detener subagente"
   },
   "suggestionCard": {
@@ -1564,6 +1587,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Cerrar detalles de la herramienta",
+    "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
+    "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "output": "Salida",
     "riskLevel": "Nivel de riesgo",
     "running": "Ejecutando…"
@@ -1655,6 +1680,7 @@
     "muteMicrophone": "Silenciar el micrófono",
     "mutedState": "Silenciado. {state}",
     "showCamera": "Mostrar la cámara",
+    "stopLive": "Detener en vivo",
     "takePhoto": "Tomar una foto",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
@@ -1729,5 +1755,13 @@
   },
   "workspacePathLink": {
     "openTitle": "Abrir {path}"
+  },
+  "transcript": {
+    "noResponse": "Decidió no responder",
+    "reactionAddedSelf": "Reaccionó con {emoji}",
+    "reactionRemovedSelf": "Quitó la reacción {emoji}",
+    "reactionAdded": "{name} reaccionó con {emoji}",
+    "reactionRemoved": "{name} quitó su reacción {emoji}",
+    "reactionSomeone": "Alguien"
   }
 }

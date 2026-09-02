@@ -428,6 +428,20 @@ export function useSendMessage({
             activeConversationId:
               useConversationStore.getState().activeConversationId,
           });
+          // Ignored is about the UI, not about the message. Nothing on screen
+          // belongs to this send any more, but its text was cleared from the
+          // composer when it started and this failure is the end of the line
+          // for it, so it goes back to its own conversation's draft rather than
+          // nowhere. A hidden send has no user text to give back.
+          if (!isHidden) {
+            useComposerStore
+              .getState()
+              .restoreFailedDraft(
+                requestAssistantId,
+                requestConversationId,
+                content,
+              );
+          }
           return { status: "ignored" };
         }
         const detail = resolvePostError(
@@ -604,22 +618,47 @@ export function useSendMessage({
           toast.error(t("chat:useSendMessage.commandFailed"));
           return;
         }
-        useChatSessionStore.getState().addEphemeralMetaResult({
-          id: crypto.randomUUID(),
-          kind: data.kind,
-          text: data.text,
+        // The command ran against its own conversation and the daemon has
+        // already answered for it, so nothing about it is cancelled here. What
+        // is scoped is where the answer is drawn: the ephemeral card and the
+        // context-usage readout describe the ONE thread on screen, and a
+        // command whose thread the user left while the send chain held it
+        // would otherwise render its card in whatever transcript is open.
+        //
+        // Read at answer time rather than at call time, since the round trip
+        // is the window the switch happens in.
+        const answerIsOnScreen = isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: activeAssistantId,
+          requestConversationId: conversationId,
         });
+        if (answerIsOnScreen) {
+          useChatSessionStore.getState().addEphemeralMetaResult({
+            id: crypto.randomUUID(),
+            kind: data.kind,
+            text: data.text,
+          });
+        }
         if (data.contextUsage) {
           const usage: ContextWindowUsage = {
             tokens: data.contextUsage.tokens,
             maxTokens: data.contextUsage.maxTokens,
             fillRatio: data.contextUsage.fillRatio,
           };
+          // Both of these are keyed by conversation and stay correct wherever
+          // the user is: the per-conversation map is what the indicator reads
+          // on the way back into this thread, and the stored copy survives a
+          // reload. Only the live readout describes the open thread.
           useChatSessionStore
             .getState()
             .setContextWindowUsageForConversation(conversationId, usage);
-          useChatSessionStore.getState().setContextWindowUsage(usage);
           saveContextWindowUsage(activeAssistantId, conversationId, usage);
+          if (answerIsOnScreen) {
+            useChatSessionStore.getState().setContextWindowUsage(usage);
+          }
         }
       } catch (err) {
         captureError(err, { context: "run_local_meta_command" });
@@ -644,12 +683,69 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // Whether the transcript on screen is still the one this send belongs to.
+      //
+      // A send can be entered after an await that began under a different
+      // conversation: the composer resolves a camera frame and reposts an
+      // edited message before calling in here, and the user is free to switch
+      // threads while either runs. The POST further down targets the conversation
+      // this call closed over, so the message is delivered either way. What does
+      // not travel with it is every store this function writes on the way: the
+      // turn phase, the interaction surfaces, and the transcript itself all
+      // describe the ONE conversation on screen, and a stale send writing into
+      // them dresses somebody else's thread up as this one's.
+      //
+      // Nothing is deferred by skipping them, because there is no equivalent
+      // work to do for the original conversation: `switchToConversation` resets
+      // the turn and interaction stores and blanks the session snapshot on
+      // every move, so reopening that thread re-derives its state from history
+      // and the live stream. The sidebar's own processing key is written
+      // against the conversation id further down and stays correct.
+      //
+      // Asked, never remembered. The user can switch at any point, the POST
+      // being the longest such window, so a snapshot taken here would be
+      // answering for a screen that has since changed. Every write reads it
+      // where it stands; the pre-POST ones all run in one synchronous stretch,
+      // so they see one another's answer regardless.
+      //
+      // Hoisted above the `/doctor` branch, which runs before this function's
+      // own null guard, so the two ids are checked here rather than relied on
+      // from a narrowing that a closure cannot carry. Every other caller runs
+      // past that guard, where both are non-null and the extra checks stand
+      // true.
+      const sendScopeIsCurrent = () =>
+        assistantId !== null &&
+        activeConversationId !== null &&
+        isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: assistantId,
+          requestConversationId: activeConversationId,
+        });
+
       // `/doctor <message>` navigates to the Doctor panel rather than starting
       // an assistant turn, parking the first message in a hand-off store so the
       // panel can auto-start a session and send it. Handled before the
       // conversation/disk-pressure guards below since it needs neither.
       const doctorPrompt = parseDoctorCommand(content);
       if (doctorPrompt !== null) {
+        // Dropped outright when its thread is no longer the one on screen.
+        // The composer serializes deliveries, so a `/doctor` typed behind a
+        // pending camera frame arrives whenever that frame resolves, and
+        // navigating then would take the window the user is now working in to
+        // a panel they did not ask for. A navigation intent from a context the
+        // user has abandoned is not deferred, it is dropped: nothing is parked
+        // either, since a hand-off prompt with no navigation behind it would
+        // surface unbidden on their next visit to the Doctor.
+        //
+        // Ahead of both branches, so neither half of the command can run
+        // without the other. A send that had no conversation of its own has no
+        // thread to have left, and keeps today's behavior.
+        if (activeConversationId !== null && !sendScopeIsCurrent()) {
+          return;
+        }
         // The Doctor is platform-hosted only. On a self-hosted assistant its
         // tab doesn't exist, so the command is disabled: clear the input and
         // surface a notice rather than sending "/doctor …" as a normal turn.
@@ -689,24 +785,33 @@ export function useSendMessage({
         });
         return;
       }
-      setError(null);
-      setNotice(null);
+      if (sendScopeIsCurrent()) {
+        setError(null);
+        setNotice(null);
+      }
       // Local meta commands (/clean, /status, /commands, /models) never start a
       // turn: resolve them via the daemon and render an ephemeral card.
       if (isLocalMetaCommand(content)) {
         await runLocalMetaCommand(content, activeConversationId, assistantId);
         return;
       }
-      // A real send supersedes any ephemeral meta-command cards.
-      useChatSessionStore.getState().clearEphemeralMetaResults();
-      useInteractionStore.getState().resetSecretAndConfirmation();
+      // A real send supersedes any ephemeral meta-command cards. Only the ones
+      // on screen: see `sendScopeIsCurrent`. Hidden sends supersede them too, as
+      // they always have, since the surfaces belong to the thread rather than
+      // to the row a send does or does not draw.
+      if (sendScopeIsCurrent()) {
+        useChatSessionStore.getState().clearEphemeralMetaResults();
+        useInteractionStore.getState().resetSecretAndConfirmation();
+      }
       // NOTE: a send deliberately does NOT dismiss the "Connect Claude Code"
       // prompt. Unlike a turn-blocking confirmation/secret (superseded by the
       // next send), the Connect card is a non-blocking remediation CTA that
       // stays until the user resolves it — connects (self-heal / auto-continue)
       // or dismisses it (X) — the way `ask_question` stays until answered. The
       // post-connect retirement lives in `useAcpAutoContinue` instead.
-      useChatSessionStore.getState().clearConfirmationToolCallMap();
+      if (sendScopeIsCurrent()) {
+        useChatSessionStore.getState().clearConfirmationToolCallMap();
+      }
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
@@ -719,7 +824,10 @@ export function useSendMessage({
       // no-op for rows it doesn't match) to both the snapshot and the history
       // cache, and the dismissed-id list that drives the hide set is computed
       // over the same view.
-      if (shouldCleanupSupersededInteractions(uiContextRef.current)) {
+      if (
+        sendScopeIsCurrent() &&
+        shouldCleanupSupersededInteractions(uiContextRef.current)
+      ) {
         const transcriptForScan =
           useChatSessionStore.getState().snapshot?.messages ?? [];
 
@@ -760,7 +868,12 @@ export function useSendMessage({
           ? { queueStatus: "queued" as const, queuePosition: 0 }
           : {}),
       };
-      if (!isHidden) {
+      // The row is skipped rather than added and removed: nothing would take it
+      // back out, since a switch clears the list and this one arrives after
+      // that. The server echo puts the message where it belongs when its thread
+      // is next opened. The pending queue FIFO below follows the same rule.
+      const rendersOptimisticRow = !isHidden && sendScopeIsCurrent();
+      if (rendersOptimisticRow) {
         addOptimisticSend(userMessage);
       }
       void getSoundManager().play("message_sent");
@@ -771,8 +884,10 @@ export function useSendMessage({
         // A hidden send renders no optimistic row and the daemon suppresses
         // its queued ack, so there is nothing for the pending FIFO to bind.
         // Tracking it would park a dead entry at the head that the next
-        // visible send's ack would bind to instead of its own row.
-        if (!isHidden) {
+        // visible send's ack would bind to instead of its own row. A send
+        // whose conversation is no longer on screen has no row here either,
+        // and its ack belongs to a thread this FIFO does not describe.
+        if (rendersOptimisticRow) {
           useChatSessionStore
             .getState()
             .pushPendingQueuedMessageId(userMessage.id);
@@ -792,16 +907,39 @@ export function useSendMessage({
             },
           );
           if (!postResult.ok) {
-            revertQueuedMessage(userMessage.id);
-            const detail = resolvePostError(
-              postResult.error.code,
-              postResult.error.detail,
-              "Failed to queue message. Please try again.",
-            );
-            setError({
-              message: detail,
-              code: postResult.error.code ?? undefined,
-            });
+            // Reported only to the thread it happened in. The streaming path
+            // answers a scope mismatch the same way, returning `ignored`
+            // without surfacing anything, because an error banner raised over
+            // a conversation the user is now reading describes a send they
+            // cannot see and cannot retry from there.
+            //
+            // Asked here rather than remembered from before the POST: the
+            // switch that moves this send off screen is at its most likely
+            // during that round trip.
+            const onScreenAtFailure = sendScopeIsCurrent();
+            if (onScreenAtFailure) {
+              revertQueuedMessage(userMessage.id);
+              const detail = resolvePostError(
+                postResult.error.code,
+                postResult.error.detail,
+                "Failed to queue message. Please try again.",
+              );
+              setError({
+                message: detail,
+                code: postResult.error.code ?? undefined,
+              });
+            }
+            // Off screen there is no banner to carry the failure and no
+            // composer of this thread's to put the text back into, so it goes
+            // to that thread's draft instead of being lost. Its own condition
+            // rather than the banner's `else`, because what matters is where
+            // the send stands NOW: one that was on screen when it started and
+            // is not by the time it fails belongs here.
+            if (!onScreenAtFailure && !isHidden) {
+              useComposerStore
+                .getState()
+                .restoreFailedDraft(assistantId, activeConversationId, content);
+            }
             return;
           }
           void surfaceConversationAfterUserSend(
@@ -816,18 +954,33 @@ export function useSendMessage({
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            const queueIds =
-              useChatSessionStore.getState().pendingQueuedMessageIds;
-            const idx = queueIds.indexOf(userMessage.id);
-            if (idx !== -1) {
-              queueIds.splice(idx, 1);
+            //
+            // All of that describes the thread on screen: the queue FIFO, the
+            // row's queue badge, and the turn this send is now driving. A send
+            // whose thread the user has left owns none of them, and claiming
+            // the turn store here would replace the open conversation's phase
+            // and active turn id, mid-answer if that thread is streaming. The
+            // branch is reachable for such a send because `willQueue` reads
+            // the open thread's phase, so it can queue a message for a
+            // conversation that was idle all along. See `sendScopeIsCurrent`,
+            // asked again here because the POST is a window the user can
+            // switch threads inside.
+            if (sendScopeIsCurrent()) {
+              const queueIds =
+                useChatSessionStore.getState().pendingQueuedMessageIds;
+              const idx = queueIds.indexOf(userMessage.id);
+              if (idx !== -1) {
+                queueIds.splice(idx, 1);
+              }
+              setOptimisticSends((prev) =>
+                clearQueueStatus(prev, userMessage.id),
+              );
+              const fallbackTurnId = newTurnId();
+              useTurnStore.getState().requestSend(fallbackTurnId);
+              useTurnStore.getState().acceptSend(fallbackTurnId);
             }
-            setOptimisticSends((prev) =>
-              clearQueueStatus(prev, userMessage.id),
-            );
-            const fallbackTurnId = newTurnId();
-            useTurnStore.getState().requestSend(fallbackTurnId);
-            useTurnStore.getState().acceptSend(fallbackTurnId);
+            // Keyed by conversation rather than by what is on screen, so it
+            // stays correct for the thread this send belongs to either way.
             {
               const currentConv = findConversation(
                 queryClient,
@@ -844,7 +997,11 @@ export function useSendMessage({
             return;
           }
           const requestId = postResult.requestId;
-          if (requestId) {
+          // The mapping exists to bind the daemon's `message_queued_deleted`
+          // broadcast to a rendered row, and the deletion it would confirm can
+          // only have been asked for from one. A send with no row on screen has
+          // neither, so the whole block belongs to the thread on screen.
+          if (requestId && sendScopeIsCurrent()) {
             const sessionStore = useChatSessionStore.getState();
             sessionStore.setRequestIdMapping(requestId, userMessage.id);
             if (sessionStore.consumePendingLocalDeletion(userMessage.id)) {
@@ -864,15 +1021,33 @@ export function useSendMessage({
             }
           }
         } catch (err) {
+          // Captured whatever the scope, since a thrown send is a real fault;
+          // only its report to the user is scoped, as above.
           captureError(err, { context: "send_message_queue" });
-          revertQueuedMessage(userMessage.id);
-          setError({ message: "Failed to queue message. Please try again." });
+          const onScreenAtThrow = sendScopeIsCurrent();
+          if (onScreenAtThrow) {
+            revertQueuedMessage(userMessage.id);
+            setError({ message: "Failed to queue message. Please try again." });
+          }
+          if (!onScreenAtThrow && !isHidden) {
+            useComposerStore
+              .getState()
+              .restoreFailedDraft(assistantId, activeConversationId, content);
+          }
         }
         return;
       }
 
       const turnId = newTurnId();
-      useTurnStore.getState().requestSend(turnId);
+      // The turn store describes the conversation on screen and nothing else,
+      // so a send that is no longer on it must not put that thread into the
+      // submitting phase: `acceptSend` below is already scope-checked and would
+      // never arrive to clear it, leaving a composer disabled with no turn
+      // behind it. The id still travels, so the send's own bookkeeping is
+      // unchanged.
+      if (sendScopeIsCurrent()) {
+        useTurnStore.getState().requestSend(turnId);
+      }
 
       const currentConv = findConversation(
         queryClient,
@@ -896,7 +1071,21 @@ export function useSendMessage({
         } as Conversation);
       }
 
-      cancelReconciliation();
+      // "A turn is starting here, so the stream takes over from the poll."
+      // Below the events-tail floor that timer is the open thread's only
+      // delivery backstop (at or above it the call is already a no-op, see
+      // `useMessageReconciliation`), and a send that is no longer on screen is
+      // starting a turn somewhere else. Cancelling would strand the thread the
+      // user IS watching, and nothing re-arms it: such a send returns on its
+      // own scope check inside `sendMessageViaStream` before that function
+      // reaches `startReconciliationLoop`.
+      //
+      // Skipping arms nothing of its own. The loop's start is the only thing
+      // that sets a timer and it replaces rather than stacks, so what is left
+      // running is the open thread's own loop, reconciling the open thread.
+      if (sendScopeIsCurrent()) {
+        cancelReconciliation();
+      }
 
       const isDraft = !currentConv;
       let resolvedId: string | undefined;
@@ -1047,13 +1236,31 @@ export function useSendMessage({
         void refreshConversations();
       } catch (err) {
         captureError(err, { context: "send_chat_message" });
-        setError({ message: "Something went wrong. Please try again." });
+        // The same split the queue branch's catch makes: the fault is recorded
+        // whatever the scope, its report is not. `onStreamError` idles the turn
+        // store and drops its active turn, which belongs to whichever thread is
+        // on screen, so a stale send reaching it would end the answer the user
+        // is actually watching.
+        //
+        // A throw is also the one failure that never reaches
+        // `sendMessageViaStream`'s own scope classification, so this is the
+        // only place that can hand the text back to its conversation.
+        const onScreenAtThrow = sendScopeIsCurrent();
+        if (onScreenAtThrow) {
+          setError({ message: "Something went wrong. Please try again." });
+          useTurnStore.getState().onStreamError();
+        }
+        if (!onScreenAtThrow && !isHidden) {
+          useComposerStore
+            .getState()
+            .restoreFailedDraft(assistantId, activeConversationId, content);
+        }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key
         // and the resolved key may have processing markers. `endTurn`
         // covers the single-conversation pairing; this catch-all clears
-        // every key the send touched and fires `onStreamError` once.
-        useTurnStore.getState().onStreamError();
+        // every key the send touched. Keyed by conversation, so it runs
+        // wherever the user is standing.
         const keysToClean = [activeConversationId, resolvedId].filter(
           Boolean,
         ) as string[];

@@ -74,6 +74,7 @@ import { ROUTES as GATEWAY_STATUS_ROUTES } from "./gateway-status-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
+import { GUARDIAN_FORM_ROUTES } from "./guardian-form-routes.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
@@ -138,6 +139,7 @@ import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
+import { ROUTES as SIGHT_FRAME_ROUTES } from "./sight-frame-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
 import { ROUTES as SOUNDS_CONFIG_ROUTES } from "./sounds-config-routes.js";
@@ -193,6 +195,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CLIENT_ROUTES,
   ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
+  ...GUARDIAN_FORM_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_CLI_ROUTES,
@@ -285,6 +288,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SIGHT_FRAME_ROUTES,
   ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,

@@ -273,6 +273,7 @@ targets:
     sources:
       - path: AppTests
       - path: App/Attribution.swift
+      - path: App/NotificationCategories.swift
       - path: App/Shared
         includes:
           - AppGroupID.swift

@@ -37,7 +37,13 @@ mock.module("../daemon/conversation-registry.js", () => ({
         })
       : undefined,
 }));
+// Spread the actual module so transitive importers of names this
+// factory does not stub keep resolving (a partial factory breaks at
+// import time when the graph gains a new named import).
+const actualGatewayGuardianRequests =
+  await import("../channels/gateway-guardian-requests.js");
 mock.module("../channels/gateway-guardian-requests.js", () => ({
+  ...actualGatewayGuardianRequests,
   createGuardianRequest: (params: Record<string, unknown>) =>
     createGuardianRequestMock(params),
   expireGuardianRequest: (id: string) => expireGuardianRequestMock(id),

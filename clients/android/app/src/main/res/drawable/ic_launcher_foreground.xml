@@ -6,9 +6,9 @@
     android:viewportHeight="108">
     <!--
         The quirky eye pair, copied verbatim from the eyeStyles table in
-        assistant/src/avatar/character-components.ts (source viewBox 724x691,
-        eye center 335,352). The group puts that center on the icon center and
-        scales the pair to 36dp, half of the 72dp a launcher mask keeps visible.
+        packages/avatar-catalog (source viewBox 724x691, eye center 335,352).
+        The group puts that center on the icon center and scales the pair to
+        36dp, half of the 72dp a launcher mask keeps visible.
     -->
     <group
         android:pivotX="335"

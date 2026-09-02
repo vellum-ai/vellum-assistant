@@ -11,7 +11,13 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef, type FormEvent, type ReactNode } from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from "@testing-library/react";
 
 import {
   type ChatAttachment,
@@ -42,6 +48,7 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
 // mocking `use-is-mobile`, so a test says which signal the composer actually
@@ -162,13 +169,8 @@ mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
   VoiceFirstRunCard: (props: {
     onStart: () => void;
     onDismiss?: () => void;
-    nonDismissible?: boolean;
   }) => (
-    <div
-      data-testid="first-run-card"
-      // Surface the lock so a test can assert the composer passes it on iOS.
-      data-non-dismissible={String(props.nonDismissible ?? false)}
-    >
+    <div data-testid="first-run-card">
       <button type="button" onClick={props.onStart}>
         first-run-start
       </button>
@@ -861,7 +863,19 @@ function renderTouchTabletComposer(props: RenderComposerProps = {}) {
   return renderComposerView(props);
 }
 
+/**
+ * The group that comes and goes with the keyboard, and carries the `hidden`
+ * gate these tests are about. The row around it stands whether or not the
+ * composer has focus, because the status controls beside the pills do.
+ */
 function pillsRow(container: HTMLElement) {
+  return container.querySelector(
+    '[data-slot="composer-settings-pills-group"]',
+  );
+}
+
+/** The always-present row that holds the pills group and the status controls. */
+function pillsRowContainer(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-settings-pills"]');
 }
 
@@ -1290,6 +1304,38 @@ describe("ChatComposer — optional slots", () => {
 // ---------------------------------------------------------------------------
 
 describe("ChatComposer: mobile settings pills row", () => {
+  test("the status controls stay up while the pills are hidden", () => {
+    // GIVEN a phone composer nobody has tapped into, carrying a status control
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      statusControlsSlot: <span data-testid="status-control">STATUS</span>,
+    });
+
+    // THEN the pills are away with the keyboard...
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // ...but the control beside them is not: it reports work the assistant is
+    // doing, which has nothing to do with whether the composer has focus.
+    const row = pillsRowContainer(container);
+    expect(row).not.toBeNull();
+    expect(row?.hasAttribute("hidden")).toBe(false);
+    expect(
+      container.querySelector('[data-testid="status-control"]'),
+    ).not.toBeNull();
+  });
+
+  test("an idle unfocused row carries no margin above the card", () => {
+    // GIVEN nothing to show on either end: no status control, pills hidden
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row keeps its margin class but the `:has()` guard cancels it,
+    // so an empty strip cannot push the composer down. Asserted on the class
+    // rather than computed style: happy-dom does not resolve `:has()`.
+    expect(pillsRowContainer(container)?.className).toContain(
+      "[&:not(:has(>*:not([hidden])>*))]:mb-0",
+    );
+  });
+
   test("an unfocused phone composer keeps the row mounted but hidden", () => {
     // GIVEN a phone composer nobody has tapped into
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
@@ -2591,12 +2637,8 @@ describe("ChatComposer — live-voice integration", () => {
     const { getByLabelText, getByTestId } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN the prefs card appears (dismissible on web) and the session has NOT
-    // started yet
+    // THEN the prefs card appears and the session has NOT started yet
     expect(getByTestId("first-run-card")).toBeTruthy();
-    expect(
-      getByTestId("first-run-card").getAttribute("data-non-dismissible"),
-    ).toBe("false");
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(livePrewarmSpy).not.toHaveBeenCalled();
   });
@@ -2643,11 +2685,10 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("Capacitor iOS: first-ever entry shows the prefs card too (web↔iOS parity)", () => {
-    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
-    // entry. The card is intentionally shown on every platform — a deliberate
-    // deviation from CAPACITOR.md's "no dismissible pre-prompt before
-    // getUserMedia" rule, chosen for parity with web (see the composer's
-    // handleLiveVoiceStart note) — so the iOS shell must get it too.
+    // GIVEN the native iOS shell, no session, and a first-ever entry. The
+    // card is shown on every platform (see the composer's handleLiveVoiceStart
+    // note), so the iOS shell must get it too. Dismiss cancels without
+    // requesting the mic, which is what the following test pins.
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockIsNativeIOS = true;
     useVoicePrefsStore.setState({ firstRunSeen: false });
@@ -2656,15 +2697,29 @@ describe("ChatComposer — live-voice integration", () => {
     const { getByLabelText, getByTestId } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN the same prefs card appears and the session has NOT started yet —
-    // like web, but locked (non-dismissible) so it leads straight to the mic
-    // alert per CAPACITOR.md.
+    // THEN the same prefs card appears and the session has NOT started yet.
     expect(getByTestId("first-run-card")).toBeTruthy();
-    expect(
-      getByTestId("first-run-card").getAttribute("data-non-dismissible"),
-    ).toBe("true");
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(livePrewarmSpy).not.toHaveBeenCalled();
+  });
+
+  test("Capacitor iOS: dismissing the prefs card cancels without touching the mic", () => {
+    // The card carries the same ✕ / backdrop dismiss as web. Cancelling is a
+    // path that never reaches `getUserMedia`, so it keeps the CAPACITOR.md
+    // rule satisfied: the only route to the OS alert is still "Start talking".
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockIsNativeIOS = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+    fireEvent.click(getByText("first-run-dismiss"));
+
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(livePrewarmSpy).not.toHaveBeenCalled();
+    // Un-consumed: the card returns on the next entry.
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
   });
 
   test("Capacitor iOS: returning-user entry prewarms and starts after preflight", async () => {
@@ -3150,5 +3205,67 @@ describe("ChatComposer — text area during a live-voice session", () => {
 
     // THEN the ghost paints as it would without a session
     expect(container.textContent).toContain("ghost completion text");
+  });
+});
+
+/**
+ * The Eyes camera control. The viewfinder it raises mounts with the chat
+ * layout's desktop branch, so every surface that branch skips must skip the
+ * control too or the press opens a camera nobody can see or close.
+ */
+describe("Eyes toggle placement", () => {
+  const EYES_LABEL = "Turn on camera vision";
+
+  function setVisionMode(value: "off" | "on") {
+    act(() => {
+      useClientFeatureFlagStore
+        .getState()
+        .setStringFlags({ visionMode: value }, null);
+    });
+  }
+
+  beforeEach(() => {
+    setVisionMode("on");
+    mockIsNativeMobile = false;
+  });
+
+  afterEach(() => {
+    setVisionMode("off");
+    mockIsNativeMobile = false;
+  });
+
+  /** A mouse-driven window with room to spare: the row the toggle belongs to. */
+  function renderDesktopComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: false, coarsePointer: false });
+    return renderComposerView(props);
+  }
+
+  test("rides the desktop action row", () => {
+    const { container } = renderDesktopComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).not.toBeNull();
+  });
+
+  test("is absent below the width breakpoint, where the tile does not mount", () => {
+    const { container } = renderPhoneComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
+  });
+
+  test("is absent on a roomy native shell, which clears that breakpoint", () => {
+    // A Capacitor tablet in landscape: wide enough for the desktop row, and the
+    // one shell whose viewfinder is a native preview layer rather than a
+    // `getUserMedia` `<video>`.
+    mockIsNativeMobile = true;
+    const { container } = renderTouchTabletComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
+  });
+
+  test("is absent while the vision-mode flag is off", () => {
+    setVisionMode("off");
+    const { container } = renderDesktopComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
   });
 });

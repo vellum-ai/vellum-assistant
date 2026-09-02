@@ -8,7 +8,9 @@ const slack = {
   sendSlackReply: mock((..._args: unknown[]) =>
     Promise.resolve({ ts: "slack-ts" }),
   ),
-  sendSlackReaction: mock((..._args: unknown[]) => Promise.resolve()),
+  sendSlackReaction: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true }),
+  ),
   sendSlackAgentSessionStatus: mock((..._args: unknown[]) => Promise.resolve()),
   sendSlackAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
@@ -22,6 +24,9 @@ const slack = {
 };
 const telegram = {
   editTelegramMessage: mock((..._args: unknown[]) => Promise.resolve()),
+  sendTelegramReaction: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true }),
+  ),
   sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramRichReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramTypingIndicator: mock((..._args: unknown[]) => Promise.resolve()),
@@ -46,6 +51,9 @@ const discord = {
     Promise.resolve(true),
   ),
   editDiscordMessage: mock((..._args: unknown[]) => Promise.resolve()),
+  sendDiscordReaction: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true }),
+  ),
   sendDiscordAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
   ),
@@ -63,9 +71,11 @@ mock.module("../../../util/logger.js", () => ({
 const {
   deliverDirect,
   editChannelMessage,
+  sendChannelReaction,
   sendChannelStreamOp,
   setChannelActivity,
   supportsChannelActivity,
+  supportsChannelReaction,
   isDirectDelivery,
   getTransportForCallback,
 } = await import("../index.js");
@@ -200,6 +210,108 @@ describe("Slack sub-operation selection", () => {
     ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, ts: "stream-ts" });
+  });
+});
+
+describe("react dispatch", () => {
+  test("sendChannelReaction routes to the Slack reaction sender", async () => {
+    const result = await sendChannelReaction("slack", {
+      chatId: "C1",
+      messageId: "123.456",
+      emoji: "thumbsup",
+      action: "add",
+    });
+    expect(result.ok).toBe(true);
+    expect(slack.sendSlackReaction).toHaveBeenCalledWith(
+      "C1",
+      "thumbsup",
+      "123.456",
+      "add",
+    );
+  });
+
+  test("supportsChannelReaction follows the transport declaration", () => {
+    expect(supportsChannelReaction("slack")).toBe(true);
+    expect(supportsChannelReaction("telegram")).toBe(true);
+    expect(supportsChannelReaction("discord")).toBe(true);
+    expect(supportsChannelReaction("whatsapp")).toBe(false);
+    expect(supportsChannelReaction("some-plugin-channel")).toBe(false);
+    expect(supportsChannelReaction(undefined)).toBe(false);
+  });
+
+  test("sendChannelReaction routes to the Telegram reaction sender", async () => {
+    const result = await sendChannelReaction("telegram", {
+      chatId: "12345",
+      messageId: "678",
+      emoji: "👍",
+      action: "add",
+    });
+    expect(result.ok).toBe(true);
+    expect(telegram.sendTelegramReaction).toHaveBeenCalledWith(
+      "12345",
+      "👍",
+      "678",
+      "add",
+    );
+  });
+
+  test("a Discord thread reaction addresses the thread channel, not the parent", async () => {
+    await sendChannelReaction("discord", {
+      chatId: "PARENT",
+      threadId: "THREAD",
+      messageId: "M1",
+      emoji: "👍",
+      action: "add",
+    });
+    expect(discord.sendDiscordReaction).toHaveBeenCalledWith(
+      "THREAD",
+      "👍",
+      "M1",
+      "add",
+    );
+  });
+
+  test("Slack ignores the thread coordinate: chatId plus ts addresses the message", async () => {
+    await sendChannelReaction("slack", {
+      chatId: "C1",
+      threadId: "1716000000.000001",
+      messageId: "1716000000.000002",
+      emoji: "thumbsup",
+      action: "add",
+    });
+    expect(slack.sendSlackReaction).toHaveBeenCalledWith(
+      "C1",
+      "thumbsup",
+      "1716000000.000002",
+      "add",
+    );
+  });
+
+  test("sendChannelReaction routes to the Discord reaction sender", async () => {
+    const result = await sendChannelReaction("discord", {
+      chatId: "C9",
+      messageId: "M9",
+      emoji: "<:vex:12345>",
+      action: "remove",
+    });
+    expect(result.ok).toBe(true);
+    expect(discord.sendDiscordReaction).toHaveBeenCalledWith(
+      "C9",
+      "<:vex:12345>",
+      "M9",
+      "remove",
+    );
+  });
+
+  test("a channel without react resolves to nothing and sends nothing", async () => {
+    const result = await sendChannelReaction("whatsapp", {
+      chatId: "W1",
+      messageId: "m1",
+      emoji: "thumbsup",
+      action: "add",
+    });
+    expect(result).toEqual({ ok: true });
+    expect(whatsapp.sendWhatsAppReply).not.toHaveBeenCalled();
   });
 });
 

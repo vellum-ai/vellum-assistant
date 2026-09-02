@@ -77,17 +77,21 @@ const required = VELLUM_BRIDGE_KEYS.filter(
   (key) => !NOT_APPLICABLE.includes(key),
 );
 
-// Windows draws its own menu bar and themes the native caption buttons.
+// Windows draws its own menu bar, themes the native caption buttons, and
+// registers the voice mode shortcut's chord with its keyboard hook.
 const WINDOWS_ONLY_SURFACE = [
+  "helper.hotkey.onRegistrationChange",
+  "helper.hotkey.setVoiceModeChord",
   "mainWindow.setTitleBarOverlay",
   "menu.popup",
   "menu.titles",
 ];
-// The Fn push-to-talk key is a macOS helper contract; Windows uses a
-// configurable global chord.
+// Both are macOS helper contracts read off its raw keyboard monitor: the Fn
+// key, and a hold of a configured modifier set. Windows answers the first with
+// a configurable global chord, and has no hold of its own to register.
 const MACOS_ONLY_SURFACE = [
   "helper.hotkey.fnPushToTalk",
-  "helper.hotkey.onEvent",
+  "helper.hotkey.setModifierHold",
 ];
 
 test("the composed Windows bridge satisfies every applicable VellumBridge key", () => {

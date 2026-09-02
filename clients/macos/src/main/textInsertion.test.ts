@@ -14,8 +14,6 @@ type Harness = {
   flushTimers: () => void;
   writes: string[];
   restoredSnapshots: ClipboardSnapshot[];
-  hideApp: ReturnType<typeof mock>;
-  showApp: ReturnType<typeof mock>;
   runAppleScript: ReturnType<typeof mock>;
   warn: ReturnType<typeof mock>;
 };
@@ -44,8 +42,6 @@ const createHarness = ({
   const timers: Array<() => void> = [];
   const writes: string[] = [];
   const restoredSnapshots: ClipboardSnapshot[] = [];
-  const hideApp = mock(() => undefined);
-  const showApp = mock(() => undefined);
   const runAppleScriptMock = mock((_script: string) => runAppleScript());
   const warn = mock(() => undefined);
 
@@ -64,8 +60,6 @@ const createHarness = ({
         clipboardSnapshot = textSnapshot(text);
         writes.push(text);
       },
-      hideApp,
-      showApp,
       runAppleScript: runAppleScriptMock,
       warn,
       setTimeout: (callback: () => void) => {
@@ -84,8 +78,6 @@ const createHarness = ({
     },
     writes,
     restoredSnapshots,
-    hideApp,
-    showApp,
     runAppleScript: runAppleScriptMock,
     warn,
   };
@@ -100,7 +92,6 @@ describe("typeIntoFrontApp", () => {
     ).resolves.toEqual({ status: "vellum-focused" });
 
     expect(harness.runAppleScript).not.toHaveBeenCalled();
-    expect(harness.hideApp).not.toHaveBeenCalled();
     expect(harness.writes).toEqual([]);
   });
 
@@ -160,7 +151,9 @@ describe("typeIntoFrontApp", () => {
 
     harness.flushTimers();
     expect(harness.getClipboardText()).toBe("previous clipboard");
-    expect(harness.showApp).toHaveBeenCalledTimes(1);
     expect(harness.warn).toHaveBeenCalledTimes(1);
   });
 });
+
+
+

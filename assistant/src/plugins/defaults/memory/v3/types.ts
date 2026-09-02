@@ -23,12 +23,23 @@ export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
 
 /**
- * Injection-block id for the v3 ephemeral `<memory_spotlight>` block (the
- * current window's matched sections, re-rendered at the user tail each turn).
- * Distinct from {@link MEMORY_V3_BLOCK_ID}: the spotlight never participates
- * in v2 suppression and is never persisted to message metadata.
+ * Injection-block id for the v3 per-turn `<memory_spotlight>` block (the
+ * current window's matched sections). Distinct from {@link MEMORY_V3_BLOCK_ID}:
+ * the spotlight never participates in v2 suppression. Each turn's block stays
+ * on the user message that was sent with it.
  */
 export const MEMORY_V3_SPOTLIGHT_BLOCK_ID = "memory-v3-spotlight" as const;
+
+/**
+ * Message-metadata key for the wrapped `<memory_spotlight>` block persisted
+ * on the user row that received it. `loadFromDb` rehydrates from this key so
+ * historical turns keep the spotlight they were sent with. Kept as a
+ * literal in `messageMetadataSchema` (same pattern as
+ * `memoryV3InjectedBlock`) so the storage schema does not import the
+ * memory feature.
+ */
+export const MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY =
+  "memoryV3SpotlightBlock" as const;
 
 /**
  * A single section of a page: the lead (text before the first `## heading`,

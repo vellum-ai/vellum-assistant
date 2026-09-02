@@ -12,6 +12,8 @@ on:
       - 'assistant/src/avatar/**'
       - 'packages/avatar-catalog/**'
       - 'clients/android/app/src/main/res/**'
+      # The generator also owns the manifest's activity-alias block.
+      - 'clients/android/app/src/main/AndroidManifest.xml'
       - 'clients/ios/App/App/AppIcon.icon/**'
       - 'clients/ios/App/App/AppIcon-Dev.icon/**'
       - 'clients/ios/App/App/AppIcon-Staging.icon/**'

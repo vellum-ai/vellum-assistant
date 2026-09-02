@@ -313,6 +313,52 @@ function meanAbsoluteDifference(a: Float32Array, b: Float32Array): number {
 }
 
 /**
+ * The checks `offer` runs before it has a kept frame to compare against, in
+ * the order it runs them. Ends at the keep that establishes the baseline.
+ */
+const FIRST_KEEP_PATH = [
+  "warmup",
+  "featureless",
+  "rate-floor",
+  "moving",
+  "first",
+] as const satisfies readonly FrameGateReason[];
+
+/** The checks `offer` runs once a baseline exists, in the order it runs them. */
+const BASELINE_PATH = [
+  "warmup",
+  "featureless",
+  "rate-floor",
+  "moving",
+  "heartbeat",
+  "novel",
+  "unchanged",
+] as const satisfies readonly FrameGateReason[];
+
+/**
+ * The checks that were on the table for one decision, in the order `offer`
+ * runs them, ending at the one that could not be got past.
+ *
+ * `offer` is not a single list of checks: it branches on whether a kept frame
+ * exists, and the two branches share only their first four steps. A reader
+ * needs the branch that was actually taken, because "the checks above the
+ * highlighted one all passed" is the whole value of seeing the order, and a
+ * flattened list makes that claim about checks the frame never reached.
+ *
+ * The decision identifies its own branch. `offer` computes
+ * {@link FrameGateDecision.novelty} as the difference from the last kept frame
+ * before any check runs, so it is null on exactly the frames judged without a
+ * baseline. Reading the branch back off the decision is what keeps this
+ * function honest: there is no second copy of the control flow to forget to
+ * update, only the same condition `offer` itself branched on.
+ */
+export function frameGateDecisionPath(
+  decision: Pick<FrameGateDecision, "novelty">,
+): readonly FrameGateReason[] {
+  return decision.novelty === null ? FIRST_KEEP_PATH : BASELINE_PATH;
+}
+
+/**
  * Create a gate.
  *
  * Allocation-free after construction: three fixed grids and no per-frame

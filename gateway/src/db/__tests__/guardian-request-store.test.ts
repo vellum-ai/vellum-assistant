@@ -14,10 +14,10 @@ import {
   getGuardianRequest,
   getGuardianRequestByCode,
   getPendingByCallSessionId,
-  getPendingByDestinationMessage,
   GuardianRequestIntegrityError,
   isRequestInConversationScope,
   listDeliveries,
+  listDeliveriesByChat,
   listGuardianRequests,
   listPendingByConversationScope,
   listPendingByDestinationChat,
@@ -705,50 +705,6 @@ describe("deliveries", () => {
 // By-destination reads
 // ---------------------------------------------------------------------------
 
-describe("getPendingByDestinationMessage", () => {
-  test("recovers the pending request behind a delivered card message", () => {
-    const req = createRequest();
-    const other = createRequest();
-    createDelivery({
-      requestId: req.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-1",
-    });
-    createDelivery({
-      requestId: other.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-2",
-    });
-
-    expect(
-      getPendingByDestinationMessage("telegram", "chat-1", "msg-1")?.id,
-    ).toBe(req.id);
-    expect(
-      getPendingByDestinationMessage("telegram", "chat-1", "msg-3"),
-    ).toBeNull();
-    expect(
-      getPendingByDestinationMessage("slack", "chat-1", "msg-1"),
-    ).toBeNull();
-  });
-
-  test("returns null when the matched request is no longer pending", () => {
-    const req = createRequest();
-    createDelivery({
-      requestId: req.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-1",
-    });
-    resolveGuardianRequest(req.id, "pending", { status: "approved" });
-
-    expect(
-      getPendingByDestinationMessage("telegram", "chat-1", "msg-1"),
-    ).toBeNull();
-  });
-});
-
 describe("listPendingByDestinationChat", () => {
   test("returns pending requests for the (channel, chatId) pair, deduplicated", () => {
     const pending = createRequest();
@@ -880,13 +836,9 @@ describe("isRequestInConversationScope", () => {
     });
 
     expect(isRequestInConversationScope(req.id, "access-req-src")).toBe(true);
+    // A channel delivery's paired conversation is in scope: it renders the
+    // same actionable in-app card as the vellum delivery's conversation.
     expect(isRequestInConversationScope(req.id, "guardian-conv")).toBe(true);
-    expect(isRequestInConversationScope(req.id, "guardian-conv", "slack")).toBe(
-      true,
-    );
-    expect(
-      isRequestInConversationScope(req.id, "guardian-conv", "telegram"),
-    ).toBe(false);
     expect(isRequestInConversationScope(req.id, "unrelated-conv")).toBe(false);
     expect(isRequestInConversationScope("missing", "guardian-conv")).toBe(
       false,
@@ -934,5 +886,45 @@ describe("getByPendingQuestionId", () => {
 
     expect(getByPendingQuestionId("pq-1")?.id).toBe(req.id);
     expect(getByPendingQuestionId("pq-2")).toBeNull();
+  });
+});
+
+describe("listDeliveriesByChat", () => {
+  test("returns every delivery addressed to the chat, across requests and statuses", () => {
+    const reqA = createRequest();
+    const reqB = createRequest();
+    createDelivery({
+      requestId: reqA.id,
+      destinationChannel: "slack",
+      destinationChatId: "D0AAAAAAAAA",
+      destinationMessageId: "1725100000.000100",
+    });
+    const withdrawn = createDelivery({
+      requestId: reqB.id,
+      destinationChannel: "slack",
+      destinationChatId: "D0AAAAAAAAA",
+      destinationMessageId: "1725100001.000100",
+      status: "withdrawn",
+    });
+    createDelivery({
+      requestId: reqA.id,
+      destinationChannel: "slack",
+      destinationChatId: "D0BBBBBBBBB",
+      destinationMessageId: "1725100002.000100",
+    });
+    createDelivery({
+      requestId: reqA.id,
+      destinationChannel: "telegram",
+      destinationChatId: "D0AAAAAAAAA",
+      destinationMessageId: "42",
+    });
+
+    const rows = listDeliveriesByChat("slack", "D0AAAAAAAAA");
+    expect(rows.map((d) => d.destinationMessageId).sort()).toEqual([
+      "1725100000.000100",
+      "1725100001.000100",
+    ]);
+    // A withdrawn card is still a card: importers must keep excluding it.
+    expect(rows.find((d) => d.id === withdrawn.id)?.status).toBe("withdrawn");
   });
 });

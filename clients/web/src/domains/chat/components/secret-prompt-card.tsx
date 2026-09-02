@@ -150,7 +150,7 @@ export function SecretPromptCard({
             disabled={isSubmitting || saved}
             fullWidth
           />
-          <p className="text-body-small-default text-[var(--content-disabled)]">
+          <p className="text-body-small-lighter text-[var(--content-disabled)]">
             {t("secretPromptCard.storedSecurelyNote")}
           </p>
         </div>

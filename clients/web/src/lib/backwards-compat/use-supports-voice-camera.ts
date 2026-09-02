@@ -1,22 +1,22 @@
 /**
  * Backwards-compat gate: sending a photo into a live voice call.
  *
- * The camera in the voice room uploads a frame over the ordinary attachment
+ * The camera in the voice room uploads a photo over the ordinary attachment
  * route and then tells the daemon about it with an `attach_image` live-voice
- * frame, which the daemon parks and attaches to the next turn's user message.
- * The upload half works against any assistant; the frame does not.
+ * frame, which the daemon persists as its own user message. The upload half
+ * works against any assistant; the frame does not.
  *
  * The web app always serves the latest bundle while the assistant can be any
  * locally-installed version, and an assistant that predates the frame answers
- * it with a protocol `error` whose code is `unknown_type`. That error is
- * indistinguishable from the one an old assistant returns for `update_config`:
- * the daemon does not forward the rejected frame's type on the error frame
- * (`live-voice-connection.ts`'s `sendError` sends only `code` and `message`),
- * so the transport's `unknown_type` handler cannot tell the two apart. Sending
- * `attach_image` speculatively would therefore do two bad things at once: the
- * photo would silently never reach the model, and the transport would latch
- * `configUpdatesUnsupported` and stop applying the voice-room settings for the
- * rest of the session.
+ * it with a protocol `error` whose code is `unknown_type`, the same code an
+ * old assistant returns for `update_config`. Assistants at or above
+ * `MIN_VERSION` name the rejected frame on the error (`frameType`), so the
+ * transport can tell the two apart; older ones send `code` and `message`
+ * alone, and the transport's `unknown_type` handler has to guess. It guesses
+ * `update_config`, so sending `attach_image` speculatively would do two bad
+ * things at once: the photo would silently never reach the model, and the
+ * transport would latch `configUpdatesUnsupported` and stop applying the
+ * voice-room settings for the rest of the session.
  *
  * So this is a WRITE gate, and write gates hide the affordance rather than
  * letting it fail (see docs/BACKWARDS_COMPAT.md): below `MIN_VERSION` the room

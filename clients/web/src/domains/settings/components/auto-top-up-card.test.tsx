@@ -18,6 +18,16 @@
  *    fires an update mutation.
  *  - A successful enable invalidates the daily-limit and billing summary
  *    queries so the daily-limit card picks up the server-applied default.
+ *  - Save and Disable both seed the config cache from a response that carries
+ *    no payment-method fields, so both carry the cached ones forward: the card
+ *    expiry and the saved billing address survive until the next GET.
+ *  - Both add-a-card gates open the same modal in the mode the config calls
+ *    for (the repeated-declines cutoff still has the declined card attached,
+ *    so it replaces) and seed it with the saved billing address.
+ *  - Both gates are disabled while a 3DS redirect return is still resolving,
+ *    so no second modal can stack on the one that outcome replays into.
+ *  - The modal's `onSavedOptimistic` resolves with the synced card, which is
+ *    what titles its success panel.
  *
  * Strategy: the render-only cases pre-populate the React Query cache so the
  * card's `useQuery` resolves synchronously — `renderToStaticMarkup` is
@@ -29,15 +39,25 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
+import * as savedSyncModule from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as runtimeBrowser from "@/runtime/browser";
+import type { AutoTopUpPaymentMethodModalProps } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import type {
   AutoTopUpConfigResponse,
+  BillingAddress,
   DailyCreditLimitResponse,
 } from "@/generated/api/types.gen";
 
@@ -58,6 +78,10 @@ mock.module("@/runtime/browser", () => ({
 
 let updateCalls: Array<Record<string, unknown>> = [];
 let retrieveResponse: AutoTopUpConfigResponse;
+// What the PUT answers with, when it differs from the GET: the real endpoint
+// skips the Stripe payment-method retrieve, so its payment-method fields come
+// back null.
+let updateResponse: AutoTopUpConfigResponse | null = null;
 let dailyLimitResponse: DailyCreditLimitResponse;
 
 mock.module("@/generated/api/sdk.gen", () => ({
@@ -66,13 +90,75 @@ mock.module("@/generated/api/sdk.gen", () => ({
   // `configure_top_up` deeplink must never trigger this on mount.
   organizationsBillingAutoTopUpUpdate: (opts: Record<string, unknown>) => {
     updateCalls.push(opts);
-    return Promise.resolve({ data: retrieveResponse, response: { ok: true } });
+    return Promise.resolve({
+      data: updateResponse ?? retrieveResponse,
+      response: { ok: true },
+    });
   },
   organizationsBillingAutoTopUpRetrieve: () =>
     Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
+  // The real disable response only echoes the enabled bit, which is what makes
+  // the card seed the cache from `DISABLED_CONFIG` instead.
+  organizationsBillingAutoTopUpDisableCreate: () =>
+    Promise.resolve({
+      data: { enabled: false, stubbed: false, message: "" },
+      response: { ok: true },
+    }),
   organizationsBillingDailyCreditLimitRetrieve: () =>
     Promise.resolve({ data: dailyLimitResponse, response: { ok: true } }),
 }));
+
+// The saved-card sync the card hands the modal as `onSavedOptimistic`. Mocked
+// so the confirm endpoint and its webhook-poll fallback stay out of these
+// tests; what matters here is that the card passes the sync's answer back.
+let syncCalls: Array<{ setupIntentId: string | null }> = [];
+let syncedCard: SavedPaymentMethod | null = null;
+mock.module("@/domains/settings/hooks/use-payment-method-saved-poll", () => ({
+  ...savedSyncModule,
+  usePaymentMethodSavedSync:
+    () => async (args: { setupIntentId: string | null }) => {
+      syncCalls.push(args);
+      return syncedCard;
+    },
+}));
+
+// Stub the Stripe setup modal: these tests assert only which mode, card on
+// file, and billing address each gate hands it.
+let pmModalProps: AutoTopUpPaymentMethodModalProps | null = null;
+mock.module(
+  "@/domains/settings/components/auto-top-up-payment-method-modal",
+  () => ({
+    AutoTopUpPaymentMethodModal: (props: AutoTopUpPaymentMethodModalProps) => {
+      pmModalProps = props;
+      return props.open ? <div data-testid="pm-modal-stub" /> : null;
+    },
+  }),
+);
+
+// The real confirm is a portalled dialog; a bare button keeps the disable path
+// reachable from a test.
+mock.module(
+  "@/domains/settings/components/auto-top-up-disable-confirm",
+  () => ({
+    AutoTopUpDisableConfirm: ({
+      open,
+      onConfirm,
+    }: {
+      open: boolean;
+      onConfirm: () => void;
+    }) =>
+      open ? (
+        <button data-testid="disable-confirm" onClick={onConfirm} />
+      ) : null,
+  }),
+);
+
+function lastPmModalProps(): AutoTopUpPaymentMethodModalProps {
+  if (pmModalProps == null) {
+    throw new Error("AutoTopUpPaymentMethodModal was never rendered");
+  }
+  return pmModalProps;
+}
 
 import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
@@ -81,6 +167,8 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 
 const { AutoTopUpCard, DISABLED_CONFIG } = await import("./auto-top-up-card");
+const { useSetupIntentReturnStore } =
+  await import("@/domains/settings/setup-intent-return-store");
 
 function makeClient(config: AutoTopUpConfigResponse): QueryClient {
   const client = new QueryClient({
@@ -141,10 +229,77 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
   payment_method_last4: "4242",
 };
 
+const BILLING_ADDRESS: BillingAddress = {
+  line1: "100 Example Ave",
+  line2: null,
+  city: "Springfield",
+  state: "CA",
+  postal_code: "94000",
+  country: "US",
+};
+
+const CARD_ON_FILE = {
+  brand: "visa",
+  last4: "4242",
+  expMonth: 4,
+  expYear: 2042,
+};
+
+/** Configs carrying every payment-method field the GET can fill in. */
+const WITH_EXPIRY_AND_ADDRESS: AutoTopUpConfigResponse = {
+  ...DISABLED_WITH_CARD,
+  payment_method_exp_month: 4,
+  payment_method_exp_year: 2042,
+  billing_address: BILLING_ADDRESS,
+};
+
+const ENABLED_WITH_EXPIRY_AND_ADDRESS: AutoTopUpConfigResponse = {
+  ...ENABLED_WITH_CARD,
+  payment_method_exp_month: 4,
+  payment_method_exp_year: 2042,
+  billing_address: BILLING_ADDRESS,
+};
+
+/** The payment-method fields neither the PUT nor the disable response carries. */
+const NO_PAYMENT_METHOD_FIELDS = {
+  payment_method_brand: null,
+  payment_method_last4: null,
+  payment_method_exp_month: null,
+  payment_method_exp_year: null,
+  billing_address: null,
+};
+
+function cachedConfig(client: QueryClient): AutoTopUpConfigResponse {
+  const config = client.getQueryData<AutoTopUpConfigResponse>(
+    organizationsBillingAutoTopUpRetrieveQueryKey(),
+  );
+  if (config == null) {
+    throw new Error("config query cache is empty");
+  }
+  return config;
+}
+
+/**
+ * Wait out the mount-time background refetch so a later cache write is not
+ * clobbered when that response lands.
+ */
+async function settleConfigQuery(client: QueryClient) {
+  await waitFor(() => {
+    if (client.isFetching() > 0) {
+      throw new Error("config refetch still in flight");
+    }
+  });
+}
+
 beforeEach(() => {
   updateCalls = [];
+  syncCalls = [];
+  syncedCard = null;
   nativeAndroid = false;
   openedUrl = null;
+  pmModalProps = null;
+  updateResponse = null;
+  useSetupIntentReturnStore.setState({ pending: false, outcome: null });
   retrieveResponse = { ...DISABLED_CONFIG };
   dailyLimitResponse = {
     daily_credit_limit_usd: null,
@@ -236,11 +391,7 @@ describe("AutoTopUpCard payment-method removal reaction", () => {
     // Let the mount-time background refetch settle first, so its (stale)
     // result cannot land after the removal write below and mask the
     // transition.
-    await waitFor(() => {
-      if (client.isFetching() > 0) {
-        throw new Error("config refetch still in flight");
-      }
-    });
+    await settleConfigQuery(client);
 
     fireEvent.click(getByTestId("auto-top-up-edit-button"));
     expect(
@@ -419,11 +570,7 @@ describe("AutoTopUpCard enable gate", () => {
 
     // Let the mount-time background refetch settle so it cannot overwrite the
     // card-appeared write below.
-    await waitFor(() => {
-      if (client.isFetching() > 0) {
-        throw new Error("config refetch still in flight");
-      }
-    });
+    await settleConfigQuery(client);
 
     // Toggle on with no card: the add-card gate shows, no form.
     fireEvent.click(getByLabelText("Enable auto-reload"));
@@ -475,11 +622,7 @@ describe("AutoTopUpCard enable gate", () => {
     const client = makeClient(cutOff);
     const { container, getByLabelText } = render(wrap(cutOff, "/", client));
 
-    await waitFor(() => {
-      if (client.isFetching() > 0) {
-        throw new Error("config refetch still in flight");
-      }
-    });
+    await settleConfigQuery(client);
 
     fireEvent.click(getByLabelText("Enable auto-reload"));
     expect(
@@ -678,5 +821,178 @@ describe("AutoTopUpCard default daily credit limit", () => {
     expect(invalidated).not.toContain(
       JSON.stringify(organizationsBillingDailyCreditLimitRetrieveQueryKey()),
     );
+  });
+});
+
+describe("AutoTopUpCard payment-method fields in the config cache", () => {
+  test("a save keeps the cached expiry and billing address", async () => {
+    // The PUT skips the Stripe payment-method retrieve, so its response has no
+    // payment-method fields; dropping them here empties the card expiry and the
+    // modal's address prefill until the next GET.
+    retrieveResponse = { ...ENABLED_WITH_EXPIRY_AND_ADDRESS };
+    const client = makeClient(ENABLED_WITH_EXPIRY_AND_ADDRESS);
+    const { getByTestId } = render(
+      wrap(ENABLED_WITH_EXPIRY_AND_ADDRESS, "/", client),
+    );
+    await settleConfigQuery(client);
+
+    updateResponse = {
+      ...ENABLED_WITH_EXPIRY_AND_ADDRESS,
+      ...NO_PAYMENT_METHOD_FIELDS,
+    };
+    fireEvent.click(getByTestId("auto-top-up-edit-button"));
+    fireEvent.click(getByTestId("auto-top-up-save-button"));
+
+    await waitFor(() => {
+      if (updateCalls.length === 0) {
+        throw new Error("update endpoint not called");
+      }
+    });
+    await waitFor(() => {
+      if (cachedConfig(client).payment_method_exp_month == null) {
+        throw new Error("expiry not preserved in the config cache");
+      }
+    });
+
+    const cached = cachedConfig(client);
+    expect(cached.payment_method_brand).toBe("visa");
+    expect(cached.payment_method_last4).toBe("4242");
+    expect(cached.payment_method_exp_month).toBe(4);
+    expect(cached.payment_method_exp_year).toBe(2042);
+    expect(cached.billing_address).toEqual(BILLING_ADDRESS);
+  });
+
+  test("a disable keeps the cached expiry and billing address", async () => {
+    // The disable response echoes only the enabled bit, and the endpoint
+    // leaves the saved card attached, so the seeded config must still describe
+    // that card in full.
+    retrieveResponse = { ...ENABLED_WITH_EXPIRY_AND_ADDRESS };
+    const client = makeClient(ENABLED_WITH_EXPIRY_AND_ADDRESS);
+    const { getByLabelText, getByTestId } = render(
+      wrap(ENABLED_WITH_EXPIRY_AND_ADDRESS, "/", client),
+    );
+    await settleConfigQuery(client);
+
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+    fireEvent.click(getByTestId("disable-confirm"));
+
+    await waitFor(() => {
+      if (cachedConfig(client).enabled) {
+        throw new Error("config cache still reports auto-reload enabled");
+      }
+    });
+
+    const cached = cachedConfig(client);
+    expect(cached.has_payment_method).toBe(true);
+    expect(cached.payment_method_brand).toBe("visa");
+    expect(cached.payment_method_last4).toBe("4242");
+    expect(cached.payment_method_exp_month).toBe(4);
+    expect(cached.payment_method_exp_year).toBe(2042);
+    expect(cached.billing_address).toEqual(BILLING_ADDRESS);
+  });
+});
+
+describe("AutoTopUpCard add-a-card gates", () => {
+  test("the declines cutoff opens the modal in replace mode on the declined card", () => {
+    // The cutoff keeps the declined card attached, so this entry point is a
+    // replacement; opening it in add mode would contradict the Billing card,
+    // which offers Replace for the same state.
+    const config: AutoTopUpConfigResponse = {
+      ...WITH_EXPIRY_AND_ADDRESS,
+      disabled_due_to_repeated_failures: true,
+    };
+    retrieveResponse = config;
+    const { container } = render(wrap(config));
+
+    const cutoffButton = container.querySelector(
+      '[data-testid="auto-top-up-declined-cutoff"] [data-testid="auto-top-up-add-pm-button"]',
+    );
+    expect(cutoffButton).not.toBeNull();
+    fireEvent.click(cutoffButton as HTMLElement);
+
+    expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual(CARD_ON_FILE);
+    expect(lastPmModalProps().billingAddress).toEqual(BILLING_ADDRESS);
+  });
+
+  test("the no-payment-method gate opens the modal in add mode", () => {
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      has_payment_method: false,
+    };
+    retrieveResponse = config;
+    const { container, getByLabelText } = render(wrap(config));
+
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+    const gateButton = container.querySelector(
+      '[data-testid="auto-top-up-add-pm-button"]',
+    );
+    fireEvent.click(gateButton as HTMLElement);
+
+    expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().mode).toBe("add");
+    expect(lastPmModalProps().cardOnFile).toBeNull();
+    expect(lastPmModalProps().billingAddress).toBeNull();
+  });
+
+  test("both gates are disabled while a redirect return is unresolved", () => {
+    // The outcome replays into `PaymentMethodsCard`'s modal, so a second one
+    // opened here would stack on it and start an orphan SetupIntent.
+    useSetupIntentReturnStore.setState({ pending: true });
+    const config: AutoTopUpConfigResponse = {
+      ...WITH_EXPIRY_AND_ADDRESS,
+      disabled_due_to_repeated_failures: true,
+    };
+    retrieveResponse = config;
+    const { container } = render(wrap(config));
+
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="auto-top-up-add-pm-button"]',
+    );
+    expect(buttons.length).toBe(2);
+    for (const button of buttons) {
+      expect(button.disabled).toBe(true);
+    }
+  });
+
+  test("hands the modal a saved callback that resolves with the synced card", async () => {
+    // The modal titles its success panel with what this resolves to, so the
+    // card must return the sync's answer rather than swallowing it.
+    syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      has_payment_method: false,
+    };
+    retrieveResponse = config;
+    render(wrap(config));
+
+    const saved = await act(async () =>
+      lastPmModalProps().onSavedOptimistic({ setupIntentId: "seti_1" }),
+    );
+
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+    expect(saved).toEqual({
+      brand: "visa",
+      last4: "4242",
+      autoReloadEnabled: false,
+    });
+  });
+
+  test("both gates stay usable when no return is in flight", () => {
+    const config: AutoTopUpConfigResponse = {
+      ...WITH_EXPIRY_AND_ADDRESS,
+      disabled_due_to_repeated_failures: true,
+    };
+    retrieveResponse = config;
+    const { container } = render(wrap(config));
+
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="auto-top-up-add-pm-button"]',
+    );
+    expect(buttons.length).toBe(2);
+    for (const button of buttons) {
+      expect(button.disabled).toBe(false);
+    }
   });
 });

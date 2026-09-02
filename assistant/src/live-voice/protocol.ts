@@ -8,6 +8,8 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "end",
   "update_config",
   "attach_image",
+  "attach_frame",
+  "sight_frame",
   "text",
 ] as const;
 
@@ -194,15 +196,88 @@ export interface LiveVoiceClientUpdateConfigFrame {
  * caps size, and stores the blob, and routing an image through this socket
  * would duplicate all of it on a transport tuned for 50 ms audio frames.
  *
- * The id is *parked*, not dispatched. It rides the next turn's own user
- * message (see {@link LiveVoiceSession}'s pending-attachment handling), so the
- * photo and the words spoken about it are one message rather than two, which
- * is what lets "what's this?" resolve, and what keeps the image attached to the
- * newest user message, the only one a context-overflow retry preserves media on
- * (`conversation-media-retry.ts`).
+ * The id is persisted the moment it arrives, as a standalone user message that
+ * runs no turn (see `live-voice-photo.ts`). A snap the user watched themselves
+ * take has to show up in the conversation whether or not they ever speak about
+ * it, and landing it in history immediately is what makes shutter-then-speak
+ * and speak-then-shutter answer the same way.
+ *
+ * Deliberately not {@link LiveVoiceClientAttachFrameFrame}, which parks its id
+ * for the next spoken turn instead. The two frames look alike on the wire and
+ * answer opposite questions: a deliberate snap must appear now; an ambient
+ * camera frame is worthless without the words that follow it.
  */
 export interface LiveVoiceClientAttachImageFrame {
   readonly type: "attach_image";
+  readonly attachmentId: string;
+}
+
+/**
+ * An ambient camera frame the client picked for the assistant to see, already
+ * uploaded over the normal attachment route, and sent here as an id alone for
+ * the same reason {@link LiveVoiceClientAttachImageFrame} sends one.
+ *
+ * The id is *parked* on the session rather than persisted. It rides the next
+ * spoken turn's own user message, and the slot is cleared as that turn starts,
+ * so a frame that arrives mid-turn belongs to the turn after it. Nothing the
+ * user asked for happened here: a frame nobody ever speaks over must leave no
+ * trace in the conversation, and a frame that does get words must be part of
+ * the same message as those words. Riding the newest user message is also what
+ * carries it through a context-overflow retry, the only message media survives
+ * on (`conversation-media-retry.ts`).
+ *
+ * Latest wins. A second frame overwrites the first, because what matters is
+ * what the camera is pointed at when the user speaks.
+ *
+ * A `null` id is the other direction: unpark, meaning the client's camera is
+ * no longer on and the slot must not keep answering for it. It clears the slot
+ * and gives the frame up, so a viewfinder the user closed leaves nothing
+ * staged behind it. Sending it needs no id of its own because the slot only
+ * ever holds one frame and only the client that parked it can be closing.
+ *
+ * `null` and a missing field are different things. An absent `attachmentId` is
+ * still a malformed frame, because a client that meant to unpark says so.
+ *
+ * Version skew: a build carrying the park half but not this one refuses the
+ * null with the attributable recoverable error, which the web client logs and
+ * drops. Only dev builds cut between the two changes are affected, and there
+ * the cost is a frame the session gives up at close instead of at unpark.
+ */
+export interface LiveVoiceClientAttachFrameFrame {
+  readonly type: "attach_frame";
+  readonly attachmentId: string | null;
+}
+
+/**
+ * An ambient camera frame the client's gate kept, already uploaded over the
+ * normal attachment route and sent here as an id alone for the same reason
+ * {@link LiveVoiceClientAttachImageFrame} sends one.
+ *
+ * Three client frames carry an image and they mean three different things:
+ *
+ * - `attach_image` is a photo the user deliberately snapped. It persists
+ *   standalone the moment it arrives and drives the client's receipt strip.
+ * - `attach_frame` parks one frame on the session for the next spoken turn's
+ *   own user message to carry, and persists nothing by itself.
+ * - `sight_frame` persists an ambient keep immediately as its own user
+ *   message, tagged as a camera frame, and runs no turn.
+ *
+ * A keep is tagged so retention can age it out of the model's context (newest
+ * few stay images, older ones become timestamped stubs) while the transcript
+ * keeps every one of them. The transcript is therefore the record of what the
+ * assistant saw, and the model correlates a frame with speech by adjacency
+ * rather than by any attachment to a turn.
+ *
+ * A frame the attachment store does not know is refused with `frameType:
+ * "sight_frame"` and `recoverable: true`: the session is fine and only this
+ * frame failed. Attributing it is what lets the client retract the preview it
+ * already showed instead of filing the error with the transient transcriber
+ * and TTS blips that share `recoverable`. The refusal echoes the frame's
+ * `attachmentId` too, because keeps overlap: see that field on
+ * {@link LiveVoiceErrorServerFrame}.
+ */
+export interface LiveVoiceClientSightFrameFrame {
+  readonly type: "sight_frame";
   readonly attachmentId: string;
 }
 
@@ -253,6 +328,8 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientEndFrame
   | LiveVoiceClientUpdateConfigFrame
   | LiveVoiceClientAttachImageFrame
+  | LiveVoiceClientAttachFrameFrame
+  | LiveVoiceClientSightFrameFrame
   | LiveVoiceClientTextTurnFrame;
 
 interface LiveVoiceBinaryAudioFrame {
@@ -513,11 +590,12 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    * daemons predating the field.
    *
    * It exists so an `unknown_type` is attributable. A client that sends more
-   * than one optional frame (today: `update_config` and `attach_image`) gets
-   * the same code for either, and without this has to assume which one was
-   * refused. The wrong assumption is silent in both directions: settings stop
-   * applying for a session, or a photo the user watched themselves take is
-   * dropped with nothing said.
+   * than one optional frame (today: `update_config`, `attach_image`,
+   * `attach_frame`, `sight_frame`, and `text`) gets the same code for any of
+   * them, and without this has to assume which one was refused. The wrong
+   * assumption is silent in both directions: settings stop applying for a
+   * session, or a photo the user watched themselves take is dropped with
+   * nothing said.
    */
   readonly frameType?: string;
   /**
@@ -526,6 +604,23 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    * from older daemons) means the error is terminal for the session.
    */
   readonly recoverable?: boolean;
+  /**
+   * The attachment the refused frame named, present on `sight_frame`
+   * rejections so the client can retire the exact keep that failed.
+   *
+   * `frameType` alone only narrows a rejection to the keep stream, and that
+   * stream is the one place several sends are routinely outstanding at once:
+   * the camera keeps shooting while a persist waits out a running turn, so a
+   * client holding three unacknowledged keeps cannot tell which of them this
+   * error is about. Naming the id is what turns "a frame failed" into "this
+   * preview comes down".
+   *
+   * Optional, and no other error path populates it: a parse failure has no
+   * id to name, and the other frames carrying an attachment have at most one
+   * in flight, which `frameType` already identifies. Clients must tolerate
+   * an absent id and must not gate any behavior on its presence.
+   */
+  readonly attachmentId?: string;
 }
 
 export type LiveVoiceServerFrame =
@@ -654,6 +749,10 @@ export function validateLiveVoiceClientFrame(
       return validateUpdateConfigFrame(value);
     case "attach_image":
       return validateAttachImageFrame(value);
+    case "attach_frame":
+      return validateAttachFrameFrame(value);
+    case "sight_frame":
+      return validateSightFrameFrame(value);
     case "text":
       return validateTextTurnFrame(value);
   }
@@ -747,6 +846,62 @@ function validateAttachImageFrame(
   return {
     ok: true,
     frame: { type: "attach_image", attachmentId: value.attachmentId },
+  };
+}
+
+function validateAttachFrameFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientAttachFrameFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "attach_frame frame is missing required field attachmentId",
+      "attachmentId",
+      "attach_frame",
+    );
+  }
+
+  if (value.attachmentId !== null && !isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "attach_frame frame field attachmentId must be a non-empty string or null",
+      "attachmentId",
+      "attach_frame",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "attach_frame", attachmentId: value.attachmentId },
+  };
+}
+
+function validateSightFrameFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightFrameFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "sight_frame frame is missing required field attachmentId",
+      "attachmentId",
+      "sight_frame",
+    );
+  }
+
+  // No null form, unlike `attach_frame`. Nothing is staged for a keep to give
+  // up: it persisted on arrival, so a closing viewfinder has nothing to clear.
+  if (!isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "sight_frame frame field attachmentId must be a non-empty string",
+      "attachmentId",
+      "sight_frame",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "sight_frame", attachmentId: value.attachmentId },
   };
 }
 

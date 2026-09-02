@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   isLocalMetaCommand,
+  isLocallyHandledCommand,
   parseDoctorCommand,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
 
@@ -76,6 +77,46 @@ describe("parseDoctorCommand", () => {
       "/",
     ]) {
       expect(parseDoctorCommand(input)).toBeNull();
+    }
+  });
+});
+
+describe("isLocallyHandledCommand", () => {
+  test("covers both of the send's turn-free paths", () => {
+    // GIVEN a command the send resolves without posting a message
+    // WHEN asked
+    // THEN it reports true, whether it is the Doctor hand-off or a meta command
+    for (const input of [
+      "/doctor",
+      "/doctor fix my profiles",
+      "/clean",
+      "/status",
+      "/commands",
+      "/models",
+    ]) {
+      expect(isLocallyHandledCommand(input)).toBe(true);
+    }
+  });
+
+  test("tolerates the whitespace and case its parts do", () => {
+    expect(isLocallyHandledCommand("  /status  ")).toBe(true);
+    expect(isLocallyHandledCommand("  /doctor  ")).toBe(true);
+    expect(isLocallyHandledCommand("/STATUS")).toBe(true);
+  });
+
+  test("leaves anything that becomes a real message alone", () => {
+    // /compact and /btw start a turn, and a command that leads content the
+    // send reads as ordinary text (a staged quote or channel reference in
+    // front of it) is a real message too.
+    for (const input of [
+      "/compact",
+      "/btw one more thing",
+      "/cleanup",
+      "hello",
+      "/",
+      "> quoted\n\n/status",
+    ]) {
+      expect(isLocallyHandledCommand(input)).toBe(false);
     }
   });
 });

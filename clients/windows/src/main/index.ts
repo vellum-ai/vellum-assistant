@@ -53,10 +53,10 @@ import { installWebContentsSecurity } from "./windows.client";
 /**
  * Windows shell for the Vellum Assistant: a hardened BrowserWindow loading
  * the clients/web renderer (Vite dev server in dev, `app://` static serving
- * of `resources/web-dist` in packaged builds). Every desktop capability is a
- * module under `./features/`, composed through the capability registry once
- * the app is ready; `docs/parity-matrix.md` maps them to their macOS
- * counterparts.
+ * of `resources/cli-runtime/web-dist` in packaged builds). Every desktop
+ * capability is a module under `./features/`, composed through the capability
+ * registry once the app is ready; `docs/parity-matrix.md` maps them to their
+ * macOS counterparts.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -134,7 +134,10 @@ const RENDERER_MOUNT = "/assistant";
 
 const resolveRendererRoot = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "web-dist");
+    // The renderer bundle ships once, inside the CLI runtime (see
+    // scripts/package-runtime.ts); the installed copy under userData is a
+    // clone of this directory.
+    return path.join(process.resourcesPath, "cli-runtime", "web-dist");
   }
   // Dev source tree: clients/web/dist. Requires `bun run build` in clients/web/.
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");

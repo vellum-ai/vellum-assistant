@@ -19,6 +19,7 @@ import type { PromptKind } from "@/domains/chat/prompt-submission";
 import type {
   PendingSecretState,
   PendingConfirmationState,
+  PendingContactRecordRequestState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingAcpConnectState,
@@ -54,7 +55,9 @@ export interface InteractionState {
   pendingConfirmation: PendingConfirmationState | null;
 
   pendingContactRequest: PendingContactRequestState | null;
+  pendingContactRecordRequest: PendingContactRecordRequestState | null;
   contactRequestAccepted: boolean;
+  contactRecordRequestAccepted: boolean;
 
   pendingQuestion: PendingQuestionState | null;
   /**
@@ -191,7 +194,15 @@ export interface InteractionActions {
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
   dismissContactRequestIfMatches: (requestId: string) => void;
-  acceptContactRequest: () => void;
+  /**
+   * Show the answered state, but only while the card on screen is the one that
+   * was answered. A response can land after its card is gone, and the card
+   * that replaced it belongs to a different request.
+   */
+  acceptContactRequestIfMatches: (requestId: string) => void;
+  showContactRecordRequest: (payload: PendingContactRecordRequestState) => void;
+  dismissContactRecordRequestIfMatches: (requestId: string) => void;
+  acceptContactRecordRequestIfMatches: (requestId: string) => void;
 
   // Question
   showQuestion: (payload: PendingQuestionState) => void;
@@ -246,7 +257,13 @@ export interface InteractionActions {
 
   // Resets
   resetSecretAndConfirmation: () => void;
-  resetAll: () => void;
+  /**
+   * Reset per-conversation prompt state. Pass `assistantChanged` on an
+   * assistant switch, which also drops the workspace-global contact forms:
+   * they belong to the daemon that raised them, and answering one against a
+   * different assistant would be posting to a gateway that never heard of it.
+   */
+  resetAll: (options?: { assistantChanged?: boolean }) => void;
 }
 
 export type InteractionStore = InteractionState & InteractionActions;
@@ -261,6 +278,7 @@ const INITIAL_STATE: InteractionState = {
     question: null,
     secret: null,
     contactRequest: null,
+    contactRecordRequest: null,
   },
   pendingSecret: null,
   secretSaved: false,
@@ -268,7 +286,9 @@ const INITIAL_STATE: InteractionState = {
   pendingConfirmation: null,
 
   pendingContactRequest: null,
+  pendingContactRecordRequest: null,
   contactRequestAccepted: false,
+  contactRecordRequestAccepted: false,
 
   pendingQuestion: null,
   questionRevision: 0,
@@ -296,6 +316,7 @@ export function hasActiveInteraction(state: InteractionState): boolean {
     state.pendingSecret !== null ||
     state.pendingConfirmation !== null ||
     state.pendingContactRequest !== null ||
+    state.pendingContactRecordRequest !== null ||
     state.pendingQuestion !== null
   );
 }
@@ -414,7 +435,37 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set({ pendingContactRequest: null });
   },
 
-  acceptContactRequest: () => set({ contactRequestAccepted: true }),
+  acceptContactRequestIfMatches: (requestId) => {
+    if (get().pendingContactRequest?.requestId !== requestId) {
+      return;
+    }
+    set({ contactRequestAccepted: true });
+  },
+
+  // ----- Contact record request -----
+  showContactRecordRequest: (payload) =>
+    set({
+      pendingContactRecordRequest: payload,
+      contactRecordRequestAccepted: false,
+    }),
+
+  dismissContactRecordRequestIfMatches: (requestId) => {
+    const { pendingContactRecordRequest } = get();
+    if (
+      !pendingContactRecordRequest ||
+      pendingContactRecordRequest.requestId !== requestId
+    ) {
+      return;
+    }
+    set({ pendingContactRecordRequest: null });
+  },
+
+  acceptContactRecordRequestIfMatches: (requestId) => {
+    if (get().pendingContactRecordRequest?.requestId !== requestId) {
+      return;
+    }
+    set({ contactRecordRequestAccepted: true });
+  },
 
   // ----- Question -----
   showQuestion: (payload) =>
@@ -584,10 +635,33 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   // rebuild it). Clearing it here would permanently orphan the transcript
   // guidance that points at the card. The dismissed set still resets, so a
   // returned-to conversation can re-raise from history.
-  resetAll: () =>
+  resetAll: (options) =>
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
+      // Both contact forms are workspace-global: they are broadcast without a
+      // conversation, so one can arrive while the guardian is on Home or in
+      // another conversation. Dropping them on a conversation switch would
+      // strip the only copy of a form the daemon is still holding a command
+      // open for, with nothing to re-raise it from. An assistant switch is
+      // different: the form belongs to the assistant that raised it, so it
+      // goes rather than following the guardian to a gateway that would
+      // refuse it.
+      ...(options?.assistantChanged
+        ? {}
+        : {
+            pendingContactRequest: state.pendingContactRequest,
+            contactRequestAccepted: state.contactRequestAccepted,
+            pendingContactRecordRequest: state.pendingContactRecordRequest,
+            contactRecordRequestAccepted: state.contactRecordRequestAccepted,
+            // Their in-flight submissions travel with them; a switch
+            // mid-submit must not look like the submission was never claimed.
+            submittingByKind: {
+              ...INITIAL_STATE.submittingByKind,
+              contactRequest: state.submittingByKind.contactRequest,
+              contactRecordRequest: state.submittingByKind.contactRecordRequest,
+            },
+          }),
       // A conversation switch drops the card, which is a change like any other:
       // carry the counters forward and advance them rather than restarting
       // from the initial zero. Restarting would let a read issued before the

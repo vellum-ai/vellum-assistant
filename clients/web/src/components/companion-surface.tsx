@@ -22,6 +22,7 @@ import type {
   Ref,
 } from "react";
 
+import type { CompanionDictating } from "@vellumai/ipc-contract";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
@@ -40,6 +41,7 @@ import { MarkdownMessage } from "@vellumai/design-library";
 import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -133,6 +135,20 @@ export type CompanionSurfacePhase =
    * `hover` because it is a question waiting on an answer rather than a hint.
    */
   | "summary"
+  /**
+   * Dictating: the pill held open by a microphone the user is holding a key
+   * for, somewhere else entirely.
+   *
+   * Open regardless of the pointer, for the reason `watching` is: this surface
+   * is the only thing on screen while the words are going into another app, so
+   * it is the only thing that can say the microphone is open, and one that hid
+   * itself would be a live microphone nobody can see.
+   *
+   * It outranks `watching` because the user is in the middle of it and it lasts
+   * seconds rather than minutes, and it is outranked by `call` and `typing` for
+   * the reason everything is: those are things they are already inside.
+   */
+  | "dictating"
   | "call"
   /**
    * Typing: the pill becomes a card carrying a condensed read of the
@@ -202,6 +218,57 @@ const WATCHING_RING_ACCENT = "#ff9f45";
 const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 
 /**
+ * The capsule the creature collapses into at rest.
+ *
+ * At rest this surface is a marker rather than a mascot. It sits on the desktop
+ * all day over whatever the user is actually working in, and a character
+ * standing there is a character in the way; a thin capsule says the assistant
+ * is here and reachable and asks for nothing. The creature comes back the
+ * moment the pointer arrives, which is the only time anyone is looking at it.
+ *
+ * As wide as the artwork it stands in for ({@link AVATAR_IMAGE}), so the
+ * collapse reads as the creature tucking into its own width rather than as a
+ * differently sized object taking its place. The height is the one authored
+ * number here: thin enough to read as a marker, tall enough to see against a
+ * busy desktop and to carry the working ring around.
+ *
+ * **The box it is drawn in does not shrink with it.** That box is the drag
+ * handle, the point the host positions the window around, and the rect the
+ * pointer is hit-tested against, so shrinking it would move the anchor the host
+ * measures every drag and clamp against, and would make the surface hardest to
+ * hit exactly when it is smallest. What changes is the shape drawn inside it.
+ *
+ * **Nor does the capsule grow with the sizes.** It is drawn at these numbers on
+ * every setting, countering the scale the avatar's node carries (see
+ * `restingScale` in {@link Avatar}). Sizing the creature is a statement about
+ * the creature: someone who wants a big mascot when they look at it has not
+ * asked for a big lozenge sitting over their work all day, and the marker is
+ * the one part of this surface nobody chose to be looking at. Countering the
+ * transform rather than the lengths is what keeps the border, the radius and
+ * the ring identical at every setting instead of thickening with the scale.
+ */
+const RESTING_HEIGHT = 10;
+
+/**
+ * The capsule's box, which is exactly the accent the user sees: no rim.
+ *
+ * It wore a dark hairline for a while, to put an edge between the working ring
+ * and a capsule painted the ring's own colour. It went because a creature
+ * peeking out from behind a bordered pill reads as peeking out of a slot in a
+ * device, and the pill is meant to be the creature's own colour and nothing
+ * else. The ring still carries a turn at rest: its bright arc orbits and its
+ * glow falls on the desktop, and neither needs a dark line to be seen.
+ *
+ * One statement of it, because two things are sized from it and they must not
+ * drift. The capsule is drawn at it, and the box the working ring rides matches
+ * it at rest so the ring hugs the shape rather than the air around it.
+ */
+const RESTING_BOX = {
+  width: AVATAR_IMAGE,
+  height: RESTING_HEIGHT,
+};
+
+/**
  * The clearance every round thing inside the pill keeps from its edge.
  *
  * One number, because the geometry only works at one value. Nested rounded
@@ -259,6 +326,9 @@ export const FALLBACK_WIDTHS: Record<
   // answer rather than a set of ways in, so its words are not the pointer's to
   // reveal. That is what makes it wider than the idle row it stands in for.
   summary: 220,
+  // One status word beside the creature, which is all this state has to say:
+  // the gesture is the control, and it is already under the user's hand.
+  dictating: 132,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
   call: 288,
@@ -573,6 +643,11 @@ export interface CompanionSurfaceProps {
    * than a child of it, which is what keeps it out of the width that animates.
    */
   intro?: ReactNode;
+  /**
+   * What a keyboard dictation has got to, when one is running. See
+   * {@link CompanionDictating}.
+   */
+  dictating?: CompanionDictating;
 }
 
 /**
@@ -650,6 +725,7 @@ export function CompanionSurface({
   onWatchRetro,
   captureCount = 0,
   watchEnabled = false,
+  dictating,
   call,
   onControl,
   intro,
@@ -728,6 +804,16 @@ export function CompanionSurface({
   // when `growth` flips, and the creature the host measures every drag, clamp
   // and direction check against is not.
   const placement = edgeAt(growth, avatarHalf + gap);
+
+  /**
+   * Whether the introduction's card is drawn beside the surface.
+   *
+   * `null` is what the host passes when there is no beat to draw and
+   * `undefined` is what a caller that never mentions it leaves behind, and both
+   * mean the same thing. Named rather than tested inline, because the one thing
+   * that reads it is deciding whether the creature is on screen at all.
+   */
+  const introDrawn = intro !== null && intro !== undefined;
 
   // The card growing downward draws its composer row first, so the row starts
   // one options box above the creature's baseline and the card falls away from
@@ -918,6 +1004,8 @@ export function CompanionSurface({
                   onControl={onControl}
                   onWatch={onWatch}
                 />
+              ) : phase === "dictating" && dictating !== undefined ? (
+                <DictatingBody dictating={dictating} />
               ) : phase === "summary" && watchRetro !== undefined ? (
                 <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
               ) : (
@@ -946,6 +1034,20 @@ export function CompanionSurface({
         // uses while a reply is streaming: one vocabulary for "it is working"
         // wherever the user meets it.
         busy={assistantWorking}
+        // At rest the creature tucks into a capsule. The same answer the pill's
+        // own width reads, so the two collapse together and the surface goes to
+        // its resting shape as one thing.
+        //
+        // Except while the introduction is on screen. Its first beat presents
+        // the creature by name and deliberately does not open the pill
+        // (`introPhase` answers null for `meet`), so the phase is `resting`
+        // with a card pointing at a creature that is not drawn. A card
+        // introducing the capsule is the one thing this collapse must not do.
+        collapsed={!expanded && !introDrawn}
+        // The capsule is drawn at one size on every setting, so it counters
+        // what this node carries. That is the avatar's box over the authored
+        // one: the options scale on the box above cancels against `avatarRel`.
+        restingScale={COMPANION_BASE_AVATAR_BOX / avatarBox}
         edge={edge}
         style={{
           left: "50%",
@@ -1247,8 +1349,13 @@ function Composer({
  * animation on that node would silently replace one of them. Everything that
  * belongs to the creature rides inside the wrapper, glow included, so the light
  * travels with what is casting it. The edge sits outside the wrapper: it is
- * drawn on the box rather than on the artwork, so a ring saying something is
+ * drawn on the shape rather than on the artwork, so a ring saying something is
  * running holds still while the creature breathes under it.
+ *
+ * **The collapse is a third node, for the same reason.** Fading and shrinking
+ * the creature away at rest is a `transform`, and putting it on the bob would
+ * silently drop the bob. So the collapse gets a wrapper of its own around the
+ * bob, and the two animations stay on separate nodes.
  */
 function Avatar({
   accentHex,
@@ -1256,6 +1363,8 @@ function Avatar({
   character,
   busy = false,
   attentive = false,
+  collapsed = false,
+  restingScale = 1,
   edge,
   style,
   elementRef,
@@ -1268,6 +1377,18 @@ function Avatar({
   character?: CompanionCharacter;
   busy?: boolean;
   attentive?: boolean;
+  /**
+   * Whether the surface is at rest, where the creature gives way to the
+   * capsule. See {@link RESTING_HEIGHT}.
+   */
+  collapsed?: boolean;
+  /**
+   * What the capsule scales by to undo the scale this node already carries, so
+   * it is drawn at one size whatever the creature is sized to. Applies to the
+   * capsule alone: the expanded shape is the creature's own box and grows with
+   * it, which is the whole point of the setting.
+   */
+  restingScale?: number;
   /** What the creature's edge is drawing. See `edge` in `CompanionSurface`. */
   edge?: ReactNode;
   style?: CSSProperties;
@@ -1294,58 +1415,185 @@ function Avatar({
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
-      {edge}
+      {/* The box the working ring is drawn around: the creature's whole box
+        while it is being looked at, the capsule at rest.
+
+        A ring is a statement about the shape it rides, so at rest it hugs the
+        capsule rather than circling the empty box the capsule sits in.
+
+        The ring is the only thing this node carries and the node is otherwise
+        invisible, because this box grows between the two shapes and anything
+        filling it grows with it: an accent inflating to the creature's box and
+        dissolving reads as a bubble popping rather than as the creature coming
+        out of the pill. The capsule is drawn beside it, at its own size.
+
+        One node either way, never remounted, which is what keeps the one-shot
+        capture flare from replaying: see `edge` in `CompanionSurface`. */}
       <div
-        className="companion-avatar-bob relative grid place-items-center"
-        style={{ animation: reduce ? "none" : undefined }}
+        className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,transform] duration-300"
+        style={{
+          width: collapsed ? RESTING_BOX.width : COMPANION_BASE_AVATAR_BOX,
+          height: collapsed ? RESTING_BOX.height : COMPANION_BASE_AVATAR_BOX,
+          // Centred on the anchor, then scaled about that centre. The scale is
+          // stated on both sides rather than only the collapsed one, so the two
+          // states are the same transform list and interpolate cleanly.
+          transform: `translate(-50%, -50%) scale(${collapsed ? restingScale : 1})`,
+          // The easing the pill's own width uses, so the two halves of a
+          // surface waking up settle together rather than in sequence.
+          transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+          // Nothing travels for a reader who asked for stillness. The shape
+          // still changes, it just arrives changed: the fades below are kept,
+          // since a cross-fade is not motion across the screen.
+          transitionDuration: reduce ? "0s" : undefined,
+        }}
       >
-        <span
-          className="companion-glow absolute size-10 rounded-full blur-lg"
+        {edge}
+      </div>
+      {/* The capsule itself, drawn whole in the assistant's own colour.
+
+        The colour is all that is left of the creature at this size, so it is
+        the shape rather than a mark on it: a dark lozenge carrying a dot is
+        chrome with a light in it, and what this wants to be is the assistant,
+        small. It is also what keeps the marker findable on a busy desktop,
+        which matters more here than anywhere else on the surface: at rest this
+        is the only thing saying the assistant is there at all.
+
+        **It holds its size and fades where it stands.** Sized on itself rather
+        than filling the box above, which grows to the creature's. Nothing about
+        the resting shape moves: the creature is what grows out of the pill and
+        shrinks back into it, and one thing moving is what makes that legible.
+
+        The pill's own material is deliberately not borrowed: a white rim over a
+        saturated colour reads as a highlight on it and muddies the one thing
+        the shape is for, and it wears no dark rim either; see
+        {@link RESTING_BOX}. The shadow stays, since it is what holds any of
+        this against a desktop the surface does not own. */}
+      <div
+        className="absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
+        style={{
+          width: RESTING_BOX.width,
+          height: RESTING_BOX.height,
+          transform: `translate(-50%, -50%) scale(${restingScale})`,
+          background: accentHex,
+          opacity: collapsed ? 1 : 0,
+        }}
+        aria-hidden
+      />
+      {/* Once in a while the creature looks out of the capsule: it rises from
+        behind the top or bottom edge far enough to show its eyes, holds a
+        moment, and ducks back; see `CompanionPeek`, which is the chat page's
+        composer peek over a smaller rim. Only for a composed creature: a
+        custom image has nobody to peek. Rides the capsule's transform and
+        fade, so it is drawn at the capsule's one size on every setting and
+        goes with it when the creature comes out for real. */}
+      {character !== undefined ? (
+        <CompanionPeek
+          character={character}
+          capsule={RESTING_BOX}
+          // A working creature holds a focused pose, and stops blinking for the
+          // same reason. The ring is carrying the state; nothing else should.
+          enabled={collapsed && !busy}
+          className="absolute top-1/2 left-1/2 transition-opacity duration-200"
           style={{
-            background: accentHex,
-            animation: reduce ? "none" : undefined,
+            transform: `translate(-50%, -50%) scale(${restingScale})`,
+            opacity: collapsed ? 1 : 0,
           }}
-          aria-hidden
         />
-        {character !== undefined ? (
-          // The live creature, composed here rather than shipped as pixels. It
-          // blinks, twitches and breathes on its own, which is the whole reason
-          // the traits cross the bridge instead of a still.
-          <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
-            <AnimatedAvatar
-              components={BUNDLED_COMPONENTS}
-              traits={character}
-              size={AVATAR_IMAGE}
-              isAssistantBusy={busy}
-              attentive={attentive}
-            />
-          </div>
-        ) : avatarSrc === undefined ? (
-          // Until the avatar resolves, a disc in its colour. Same size, so
-          // nothing about the geometry moves when the image lands.
+      ) : null}
+      {/* The creature, tucking into the capsule rather than blinking out of
+        it. A wrapper of its own because the scale is a `transform` and the bob
+        below already owns one. */}
+      <div
+        className="transition-[opacity,transform] duration-300"
+        style={{
+          opacity: collapsed ? 0 : 1,
+          transform: collapsed ? "scale(0.35)" : "scale(1)",
+          transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+          // The scale is dropped for a reader who asked for stillness and the
+          // fade is kept: a cross-fade is not motion across the screen, and it
+          // is gentler than the creature snapping in and out.
+          transitionProperty: reduce ? "opacity" : undefined,
+        }}
+      >
+        <div
+          className="companion-avatar-bob relative grid place-items-center"
+          style={{ animation: reduce ? "none" : undefined }}
+        >
           <span
-            className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
-            style={{ background: accentHex }}
+            className="companion-glow absolute size-10 rounded-full blur-lg"
+            style={{
+              background: accentHex,
+              animation: reduce ? "none" : undefined,
+            }}
             aria-hidden
           />
-        ) : (
-          // A custom uploaded image, which has no traits to compose and so no
-          // eyes to animate.
-          //
-          // Undraggable, because the avatar is the surface's drag handle. An
-          // image is natively draggable, and the platform's own HTML5 image drag
-          // takes the pointer and ends the `mousemove` stream the surface's drag
-          // runs on, so pressing a custom avatar would move nothing where
-          // pressing a composed creature moves the window. WebKit honours the CSS
-          // on paths where it ignores the attribute, so both are needed.
-          <img
-            src={avatarSrc}
-            alt=""
-            draggable={false}
-            className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
-          />
-        )}
+          {character !== undefined ? (
+            // The live creature, composed here rather than shipped as pixels. It
+            // blinks, twitches and breathes on its own, which is the whole reason
+            // the traits cross the bridge instead of a still.
+            <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
+              <AnimatedAvatar
+                components={BUNDLED_COMPONENTS}
+                traits={character}
+                size={AVATAR_IMAGE}
+                isAssistantBusy={busy}
+                attentive={attentive}
+              />
+            </div>
+          ) : avatarSrc === undefined ? (
+            // Until the avatar resolves, a disc in its colour. Same size, so
+            // nothing about the geometry moves when the image lands.
+            <span
+              className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+              style={{ background: accentHex }}
+              aria-hidden
+            />
+          ) : (
+            // A custom uploaded image, which has no traits to compose and so no
+            // eyes to animate.
+            //
+            // Undraggable, because the avatar is the surface's drag handle. An
+            // image is natively draggable, and the platform's own HTML5 image drag
+            // takes the pointer and ends the `mousemove` stream the surface's drag
+            // runs on, so pressing a custom avatar would move nothing where
+            // pressing a composed creature moves the window. WebKit honours the CSS
+            // on paths where it ignores the attribute, so both are needed.
+            <img
+              src={avatarSrc}
+              alt=""
+              draggable={false}
+              className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
+            />
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Expanded, mid-dictation: what the microphone is doing, and nothing else.
+ *
+ * No controls. Every other open state offers a way to act on itself, and this
+ * one is already under the user's hand: the gesture holding the pill open is
+ * the control, and letting go is how it ends. A stop button beside a key they
+ * are physically holding would be a second answer to a question they have
+ * already answered.
+ *
+ * The word is the same vocabulary a call uses for the same two facts, so a
+ * microphone open for dictation and one open for a conversation do not read as
+ * different machines.
+ */
+function DictatingBody({ dictating }: { dictating: CompanionDictating }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-2 px-1">
+      <AudioLines className="size-4 shrink-0" aria-hidden />
+      <span className="truncate text-[12px] text-white/85">
+        {dictating === "listening"
+          ? t("companionSurface.dictating")
+          : t("companionSurface.dictatingTranscribing")}
+      </span>
     </div>
   );
 }

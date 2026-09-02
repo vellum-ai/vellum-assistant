@@ -656,6 +656,31 @@ export function listDeliveries(requestId: string): GuardianRequestDelivery[] {
     .map(rowToDelivery);
 }
 
+/**
+ * Every delivery row addressed to one channel-native chat, across all
+ * requests. Serves transcript importers deciding whether a channel
+ * message is a guardian card (a delivery projection) rather than
+ * conversation content, so no status filter: a withdrawn card is still
+ * a card.
+ */
+export function listDeliveriesByChat(
+  channel: string,
+  chatId: string,
+): GuardianRequestDelivery[] {
+  const db = getGatewayDb();
+  return db
+    .select()
+    .from(guardianRequestDeliveries)
+    .where(
+      and(
+        eq(guardianRequestDeliveries.destinationChannel, channel),
+        eq(guardianRequestDeliveries.destinationChatId, chatId),
+      ),
+    )
+    .all()
+    .map(rowToDelivery);
+}
+
 export interface UpdateDeliveryParams {
   status?: string;
   destinationMessageId?: string;
@@ -669,9 +694,6 @@ export function updateDelivery(
   const now = Date.now();
 
   const setValues: Record<string, unknown> = { updatedAt: now };
-  if (updates.status !== undefined) {
-    setValues.status = updates.status;
-  }
   if (updates.destinationMessageId !== undefined) {
     setValues.destinationMessageId = updates.destinationMessageId;
   }
@@ -680,6 +702,23 @@ export function updateDelivery(
     .set(setValues)
     .where(eq(guardianRequestDeliveries.id, id))
     .run();
+
+  // `withdrawn` is the terminal per-surface receipt that a card was durably
+  // withdrawn, preserved here the same way the per-request expire preserves
+  // it: delivery recording lands its sent/failed status patch after the
+  // broadcast settles, so a decision racing that window would otherwise
+  // overwrite the receipt and re-describe an already-withdrawn card as live.
+  if (updates.status !== undefined) {
+    db.update(guardianRequestDeliveries)
+      .set({ status: updates.status, updatedAt: now })
+      .where(
+        and(
+          eq(guardianRequestDeliveries.id, id),
+          ne(guardianRequestDeliveries.status, DELIVERY_STATUS.withdrawn),
+        ),
+      )
+      .run();
+  }
 
   const row = db
     .select()
@@ -713,42 +752,6 @@ function pendingRequestsForDeliveries(
   }
 
   return pendingRequests;
-}
-
-/**
- * Find the pending request whose guardian-facing delivery landed on a
- * specific channel message (channel + chat + message id) — the addressing
- * key for emoji-reaction decisions. Returns null when no delivery matches
- * or the matched request is no longer pending.
- */
-export function getPendingByDestinationMessage(
-  destinationChannel: string,
-  destinationChatId: string,
-  destinationMessageId: string,
-): GuardianRequest | null {
-  const db = getGatewayDb();
-
-  const delivery = db
-    .select()
-    .from(guardianRequestDeliveries)
-    .where(
-      and(
-        eq(guardianRequestDeliveries.destinationChannel, destinationChannel),
-        eq(guardianRequestDeliveries.destinationChatId, destinationChatId),
-        eq(
-          guardianRequestDeliveries.destinationMessageId,
-          destinationMessageId,
-        ),
-      ),
-    )
-    .get();
-
-  if (!delivery) {
-    return null;
-  }
-
-  const request = getGuardianRequest(delivery.requestId);
-  return request && request.status === "pending" ? request : null;
 }
 
 /**
@@ -852,14 +855,15 @@ export function listPendingByConversationScope(
 /**
  * Check whether a guardian decision's conversation is in scope for a
  * request: either the request's `sourceConversationId` matches, or any
- * recorded delivery has a matching `destinationConversationId` (optionally
- * scoped by `channel`). Returns true when the decision is allowed from the
- * given conversation.
+ * recorded delivery has a matching `destinationConversationId`. Returns true
+ * when the decision is allowed from the given conversation. Deliberately not
+ * narrowed by delivery channel: `destinationConversationId` is always an
+ * internal conversation id, and every delivery's paired conversation renders
+ * the same actionable in-app card.
  */
 export function isRequestInConversationScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): boolean {
   const request = getGuardianRequest(requestId);
   if (!request) {
@@ -871,11 +875,7 @@ export function isRequestInConversationScope(
   }
 
   const deliveries = listDeliveries(requestId);
-  return deliveries.some(
-    (d) =>
-      d.destinationConversationId === conversationId &&
-      (!channel || d.destinationChannel === channel),
-  );
+  return deliveries.some((d) => d.destinationConversationId === conversationId);
 }
 
 // ---------------------------------------------------------------------------

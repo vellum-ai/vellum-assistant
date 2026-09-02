@@ -31,6 +31,7 @@ import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel
 import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
+import { SightToggle } from "@/domains/chat/sight/sight-toggle";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
@@ -86,7 +87,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
-  isNativeIOS,
   useIsNativeAndroid,
   useIsNativeMobile,
 } from "@/runtime/platform-detection";
@@ -154,6 +154,16 @@ export interface ChatComposerProps {
    */
   onAddAttachmentFiles: (files: FileList | File[]) => File[] | void;
 
+  /**
+   * The same gate `onAddAttachmentFiles` applies, resolved by the caller: false
+   * when an image attached to this message would be rejected by the provider
+   * and take the turn down with it. Read by the Eyes toggle, which offers no
+   * camera where its frames could not be sent. Defaults to true for the
+   * surfaces that attach no images of their own (the app-editing and story
+   * composers), which is what they do today.
+   */
+  imageAttachmentsAllowed?: boolean;
+
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).
   voiceInputRef?: RefObject<VoiceInputButtonHandle | null>;
@@ -195,6 +205,12 @@ export interface ChatComposerProps {
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row
   // on desktop; on mobile both settings slots move to the row above the card)
+  /**
+   * Controls seated at the LEADING edge of the mobile settings row, opposite
+   * the threshold and model pills. Carries the chat's status cluster (Progress,
+   * Agents) so the composer has one strip of controls above it rather than two.
+   */
+  statusControlsSlot?: ReactNode;
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
   // Model-profile picker rendered on the row's right end, beside the mic
@@ -335,6 +351,7 @@ export function ChatComposer({
   typingDisabled,
   sendDisabled,
   onAddAttachmentFiles,
+  imageAttachmentsAllowed = true,
   voiceInputRef,
   onVoiceTranscript,
   onVoiceInterimTranscript,
@@ -346,6 +363,7 @@ export function ChatComposer({
   assistantId,
   conversationId,
   conversationIsEmpty = false,
+  statusControlsSlot,
   thresholdPickerSlot,
   modelPickerSlot,
   settingsSheetOpen = false,
@@ -651,12 +669,12 @@ export function ChatComposer({
       }
       // First-run preferences card — shown on the first-ever voice entry on
       // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
-      // welcome card). On iOS the card renders locked (`nonDismissible`, see its
-      // render below), which keeps it compliant with `docs/CAPACITOR.md` § OS
-      // permission requests: the card precedes the live-voice `getUserMedia`
-      // alert, and a locked pre-prompt whose only action leads straight to that
-      // alert is the sanctioned pattern (Apple HIG / App Store Review 5.1.1(iv))
-      // — a *dismissible* pre-prompt is the disallowed one.
+      // welcome card), and dismissible on all of them. The card precedes the
+      // live-voice `getUserMedia` alert, so `docs/CAPACITOR.md` § OS permission
+      // requests governs it: dismissing cancels outright and never reaches
+      // `getUserMedia`, so the only path that does reach the alert is still
+      // the direct one ("Start talking"). A widget or Siri launch can open
+      // the card by accident; dismiss is how that user gets out.
       if (firstRunCardIntercepts()) {
         return;
       }
@@ -1018,15 +1036,21 @@ export function ChatComposer({
     !hasBannerAboveCard &&
     !hasPendingQuestion &&
     (isNativeMobileShell || composerInUse);
-  // The entrance belongs to the row that arrives with the keyboard. A row that
-  // stands throughout has no arrival to animate, and the same animation there
-  // replays on every mount, settling the composer on each navigation.
+  // The entrance belongs to the pills, which arrive with the keyboard. A
+  // control that stands throughout has no arrival to animate, and the same
+  // animation there replays on every mount, settling the composer on each
+  // navigation. So this dresses the PILLS group, not the row around it: the
+  // status controls beside them are always up and must not inherit either the
+  // entrance or the hiding.
   const settingsPillsClassName = settingsPillsVisible
-    ? `mb-3 flex justify-end gap-1.5 pr-1.5${
+    ? `flex shrink-0 items-center gap-1.5${
         isNativeMobileShell
           ? ""
           : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
       }`
+    // Undefined rather than the layout classes while hidden: `hidden` already
+    // takes the group out of layout, and a class arriving with the reveal is
+    // what makes the entrance animation run on each one.
     : undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
@@ -1498,19 +1522,16 @@ export function ChatComposer({
       {firstRunCardOpen && (
         // First voice-mode entry only — the card commits prefs + starts via
         // `handleFirstRunStart`; a plain dismiss cancels without consuming the
-        // first run, so it returns on the next entry. On Capacitor iOS the card
-        // is locked (no ✕ / backdrop / Escape): it precedes the live-voice
-        // `getUserMedia` alert, so per `docs/CAPACITOR.md` § OS permission
-        // requests the pre-prompt must lead straight to that alert — its only
-        // action is "Start talking", and there is no card-level cancel (backing
-        // out means denying the OS mic prompt, or ✕ once the room opens).
+        // first run, so it returns on the next entry. Dismissible on every
+        // platform, Capacitor iOS included: the card precedes the live-voice
+        // `getUserMedia` alert, and `docs/CAPACITOR.md` § OS permission requests
+        // allows a pre-prompt whose decline path never reaches the gated API.
         <VoiceFirstRunCard
           assistantId={assistantId}
           onStart={handleFirstRunStart}
           onDismiss={() =>
             useLiveVoiceStore.getState().setFirstRunCardOpen(false)
           }
-          nonDismissible={isNativeIOS()}
         />
       )}
       {/* Every banner that stands over the card, in one watched box. While
@@ -1639,16 +1660,36 @@ export function ChatComposer({
             // accessibility tree, and lets the entrance run again on every
             // reveal. Reduced motion keeps the placement and drops the
             // movement.
+            // The row itself is always up, because the status controls in it
+            // are: they report work the assistant is doing, which does not
+            // depend on whether the composer has focus. Only the pills come
+            // and go with the keyboard, so the `hidden` gate moved onto them.
+            //
+            // The inset lands the last pill's edge over the send circle's, so
+            // the row reads as hung off the card rather than floated past it.
+            //
+            // The margin is dropped when the row has nothing showing (no
+            // status controls, pills hidden), so an idle unfocused composer
+            // does not carry 12px of empty strip above it. The selector asks
+            // for a group that is not itself hidden AND has an element in it,
+            // which is exactly "something is on screen here".
             <div
               data-slot="composer-settings-pills"
-              hidden={!settingsPillsVisible}
-              // The right inset lands the last pill's edge over the send
-              // circle's, so the row reads as hung off the card rather than
-              // floated past it.
-              className={settingsPillsClassName}
+              className="mb-3 flex items-center justify-between gap-1.5 px-1.5 [&:not(:has(>*:not([hidden])>*))]:mb-0"
             >
-              {thresholdPickerSlot}
-              {modelPickerSlot}
+              {/* Leading group, then the pills. `justify-between` parks the
+                  pills on the right whether or not this one has content. */}
+              <div className="flex min-w-0 items-center gap-1.5">
+                {statusControlsSlot}
+              </div>
+              <div
+                data-slot="composer-settings-pills-group"
+                hidden={!settingsPillsVisible}
+                className={settingsPillsClassName}
+              >
+                {thresholdPickerSlot}
+                {modelPickerSlot}
+              </div>
             </div>
           )}
           <Popover.Root open={emoji.show || slash.show}>
@@ -1747,6 +1788,29 @@ export function ChatComposer({
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
                           {!isAssistantBusy && attachControl}
+                          {/* Desktop only, which this row already is: the
+                              viewfinder mounts with the chat layout's desktop
+                              branch, and a control offered anywhere that branch
+                              does not render would open a camera with nothing
+                              to preview it and nothing to close it. Pop-out
+                              windows are excluded on that count, as they are
+                              from the voice room and the companion mirror, and
+                              the native mobile shells on it plus their own: a
+                              Capacitor viewfinder is the plugin preview layer
+                              rather than a `getUserMedia` `<video>` (see
+                              `voice/voice-room/voice-camera.ts`), and a roomy
+                              tablet clears the width breakpoint this row is
+                              chosen by. Renders nothing while the `vision-mode`
+                              flag is off. */}
+                          {!isAssistantBusy &&
+                            !isPopout &&
+                            !isNativeMobileShell && (
+                              <SightToggle
+                                imageAttachmentsAllowed={
+                                  imageAttachmentsAllowed
+                                }
+                              />
+                            )}
                           {!isAssistantBusy && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"

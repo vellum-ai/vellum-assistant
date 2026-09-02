@@ -236,7 +236,7 @@ export function DailyCreditLimitCard() {
 
         {requiredByAutoTopUp && (
           <p
-            className="text-body-small-default text-[var(--content-tertiary)]"
+            className="text-body-small-lighter text-[var(--content-tertiary)]"
             data-testid="daily-credit-limit-required-note"
           >
             {t("dailyCreditLimitCard.requiredNote")}

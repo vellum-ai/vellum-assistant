@@ -183,28 +183,28 @@ describe("host-file-executor", () => {
     test("caps an unbounded read at the character budget and says so", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "big.txt");
-      const total = 20_500;
+      const total = 100_500;
       fs.writeFileSync(filePath, "x".repeat(total));
 
       const result = __testing.executeRead({ path: filePath });
       const [body] = result.content!.split("\n\n[Truncated:");
-      expect(body).toHaveLength(20_000);
+      expect(body).toHaveLength(100_000);
       expect(result.content).toContain(
-        `[Truncated: characters 0-20000 of ${total}. Read on with start_index=20000.]`,
+        `[Truncated: characters 0-100000 of ${total}. Read on with start_index=100000.]`,
       );
     });
 
     test("a maxChars above the budget is clamped to it", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "big.txt");
-      fs.writeFileSync(filePath, "x".repeat(20_500));
+      fs.writeFileSync(filePath, "x".repeat(100_500));
 
       const result = __testing.executeRead({
         path: filePath,
-        maxChars: 20_500,
+        maxChars: 100_500,
       });
       const [body] = result.content!.split("\n\n[Truncated:");
-      expect(body).toHaveLength(20_000);
+      expect(body).toHaveLength(100_000);
     });
 
     test("reads text file and returns content", () => {

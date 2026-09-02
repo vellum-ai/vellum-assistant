@@ -39,6 +39,31 @@ mock.module("../../plugin-api/vision-support.js", () => ({
   doesSupportVision: () => pinProfileSupportsVision,
 }));
 
+// Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
+// ids exist; anything else resolves to nothing, which is how an id the client
+// invented reaches the bridge. `collectedAttachmentIds` is the store's other
+// half: the fake `deleteMessageById` below writes into it under the real
+// orphan rule, so an id the cleanup ate stops resolving here, exactly as a
+// deleted attachment row would.
+import * as realAttachmentsStore from "../../persistence/attachments-store.js";
+
+const collectedAttachmentIds = new Set<string>();
+
+mock.module("../../persistence/attachments-store.js", () => ({
+  ...realAttachmentsStore,
+  resolveAttachmentsForPersist: (ids: string[]) =>
+    ids
+      .filter(
+        (id) => id.startsWith("att-frame-") && !collectedAttachmentIds.has(id),
+      )
+      .map((id) => ({
+        id,
+        filename: `${id}.png`,
+        mimeType: "image/png",
+        data: "ZnJhbWU=",
+      })),
+}));
+
 // Conversation-CRUD doubles for the teardown transcript-hygiene pass. The
 // real module is spread so every other export keeps its production behavior;
 // only the functions the hygiene pass (and discard) touch are recorded.
@@ -48,15 +73,22 @@ let getMessageByIdImpl: (
   messageId: string,
   conversationId?: string,
 ) => unknown = () => null;
+// Attachment ids each persisted message links, so the fake delete below can
+// apply the orphan rule to the same candidate set the real one would collect.
+const messageAttachmentLinks = new Map<string, string[]>();
 const crudLog: {
   reads: string[];
   updates: Array<{ messageId: string; content: string }>;
   deletes: string[];
-} = { reads: [], updates: [], deletes: [] };
+  retained: Array<{ messageId: string; ids: readonly string[] }>;
+} = { reads: [], updates: [], deletes: [], retained: [] };
 function resetCrudLog(): void {
   crudLog.reads.length = 0;
   crudLog.updates.length = 0;
   crudLog.deletes.length = 0;
+  crudLog.retained.length = 0;
+  messageAttachmentLinks.clear();
+  collectedAttachmentIds.clear();
   getMessageByIdImpl = () => null;
 }
 
@@ -69,8 +101,23 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   updateMessageContent: (messageId: string, content: string) => {
     crudLog.updates.push({ messageId, content });
   },
-  deleteMessageById: (messageId: string) => {
+  deleteMessageById: (
+    messageId: string,
+    options?: { retainAttachmentIds?: readonly string[] },
+  ) => {
     crudLog.deletes.push(messageId);
+    const retained = options?.retainAttachmentIds ?? [];
+    crudLog.retained.push({ messageId, ids: retained });
+    // Mirrors the real cleanup: the row's own attachment links are the
+    // candidate set, and a candidate nothing else references is collected
+    // unless the caller retained it. Every id here is referenced by this one
+    // row, which is the case the rollback path is about.
+    for (const id of messageAttachmentLinks.get(messageId) ?? []) {
+      if (!retained.includes(id)) {
+        collectedAttachmentIds.add(id);
+      }
+    }
+    messageAttachmentLinks.delete(messageId);
     return { segmentIds: [], deletedSummaryIds: [] };
   },
   // The echo path advances the snapshot anchor for a real-user turn; the
@@ -132,6 +179,7 @@ interface FakeConversation {
     content: string;
     requestId: string;
     metadata?: Record<string, unknown>;
+    attachments?: Array<Record<string, unknown>>;
   }) => Promise<{ id: string }>;
   workingDir: string;
   addEventObserver: (observer: unknown) => () => void;
@@ -167,7 +215,12 @@ function makeFakeConversation(opts: {
   let clientCallback: ((msg: unknown) => Promise<void>) | undefined;
   let persistCount = 0;
   let lastPersistOpts:
-    | { content: string; requestId: string; metadata?: Record<string, unknown> }
+    | {
+        content: string;
+        requestId: string;
+        metadata?: Record<string, unknown>;
+        attachments?: Array<Record<string, unknown>>;
+      }
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
@@ -196,6 +249,14 @@ function makeFakeConversation(opts: {
     persistUserMessage: async (persistOpts) => {
       persistCount += 1;
       lastPersistOpts = persistOpts;
+      // The link rows the real persist writes, which is what makes an
+      // attachment a cleanup candidate when this message is deleted.
+      if (persistOpts.attachments && persistOpts.attachments.length > 0) {
+        messageAttachmentLinks.set(
+          `msg-${persistCount}`,
+          persistOpts.attachments.map((a) => a.id as string),
+        );
+      }
       // Recorded before `onPersist` so scripted persist FAILURES also
       // appear in the event stream — ordering tests need the losing
       // attempt visible.
@@ -493,6 +554,125 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     // Only live-voice sessions pass `voiceTelemetry`; a phone call has no
     // live-voice session id to attribute a turn to.
     expect(fake.lastPersistOpts()?.metadata).not.toHaveProperty("client");
+  });
+});
+
+describe("startVoiceTurn camera-frame attachments", () => {
+  test("hydrates parked ids onto the turn's own user message", async () => {
+    // The live-voice session parks an ambient camera frame and hands the id
+    // over; the row it lands on is the one carrying the user's words, so the
+    // picture and the sentence about it are one message.
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      attachments: ["att-frame-1"],
+    });
+
+    expect(fake.lastPersistOpts()?.attachments).toEqual([
+      {
+        id: "att-frame-1",
+        filename: "att-frame-1.png",
+        mimeType: "image/png",
+        data: "ZnJhbWU=",
+      },
+    ]);
+    // `UserMessageAttachment` carries no metadata of its own, so which of a
+    // row's attachments were ambient frames is recorded on the message.
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      voiceSessionTurn: true,
+      sightFrameAttachmentIds: ["att-frame-1"],
+    });
+  });
+
+  test("an id that resolves to nothing costs the caller no turn", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      attachments: ["att-missing"],
+    });
+
+    expect(fake.persistCount()).toBe(1);
+    expect(fake.lastPersistOpts()).not.toHaveProperty("attachments");
+    expect(fake.lastPersistOpts()?.metadata).not.toHaveProperty(
+      "sightFrameAttachmentIds",
+    );
+  });
+
+  test("a discarded turn leaves its camera frame attachable again", async () => {
+    // The hold verdict rolls the speculative turn back and the session parks
+    // the id again for the replay. The rollback deletes the row, and the row
+    // was the attachment's only reference, so without the retention the
+    // cleanup takes the frame with it and the replayed utterance speaks
+    // without the picture the user is holding up, with nothing said.
+    resetCrudLog();
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      attachments: ["att-frame-1"],
+    });
+    expect(fake.lastPersistOpts()?.attachments).toHaveLength(1);
+
+    await handle.discard?.();
+
+    // The replay: the same parked id, and the row it lands on still carries
+    // the frame.
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      attachments: ["att-frame-1"],
+    });
+
+    expect(fake.lastPersistOpts()?.attachments).toEqual([
+      {
+        id: "att-frame-1",
+        filename: "att-frame-1.png",
+        mimeType: "image/png",
+        data: "ZnJhbWU=",
+      },
+    ]);
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      sightFrameAttachmentIds: ["att-frame-1"],
+    });
+    // The rollback asked for exactly the ids its own row linked.
+    expect(crudLog.retained).toEqual([
+      { messageId: "msg-1", ids: ["att-frame-1"] },
+    ]);
+  });
+
+  test("a discard with no parked frame retains nothing", async () => {
+    resetCrudLog();
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+    });
+    await handle.discard?.();
+
+    expect(crudLog.deletes).toEqual(["msg-1"]);
+    expect(crudLog.retained).toEqual([{ messageId: "msg-1", ids: [] }]);
+  });
+
+  test("a turn with no parked frame persists exactly as before", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({ ...makeTurnOptions(), content: "what is this" });
+
+    expect(fake.lastPersistOpts()).not.toHaveProperty("attachments");
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+    });
   });
 });
 

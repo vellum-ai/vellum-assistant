@@ -162,7 +162,7 @@ export function RiskToleranceSettings() {
         {t("riskToleranceSettings.description")}
       </p>
       {loadError && (
-        <p className="mt-2 text-body-small-default text-[var(--system-negative-strong)]">
+        <p className="mt-2 text-body-small-lighter text-[var(--system-negative-strong)]">
           {t("riskToleranceSettings.loadError")}
         </p>
       )}
@@ -171,7 +171,7 @@ export function RiskToleranceSettings() {
           <div className="text-body-medium-default text-[var(--content-default)]">
             {t("riskToleranceSettings.conversationsTitle")}
           </div>
-          <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+          <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
             {t("riskToleranceSettings.conversationsDescription")}
           </p>
           <div className="mt-2" style={{ maxWidth: 280 }}>
@@ -213,7 +213,7 @@ export function RiskToleranceSettings() {
               <div className="text-body-medium-default text-[var(--content-default)]">
                 {t("riskToleranceSettings.backgroundTitle")}
               </div>
-              <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+              <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
                 {t("riskToleranceSettings.backgroundDescription")}
               </p>
               <div className="mt-2" style={{ maxWidth: 280 }}>
@@ -237,7 +237,7 @@ export function RiskToleranceSettings() {
               <div className="text-body-medium-default text-[var(--content-default)]">
                 {t("riskToleranceSettings.headlessTitle")}
               </div>
-              <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+              <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
                 {t("riskToleranceSettings.headlessDescription")}
               </p>
               <div className="mt-2" style={{ maxWidth: 280 }}>

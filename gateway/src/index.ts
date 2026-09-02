@@ -90,7 +90,10 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
-import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import {
+  handleContactPromptSubmit,
+  handleContactRecordSubmit,
+} from "./http/routes/contact-prompt.js";
 import {
   handleListDevices,
   handleRevokeDevice,
@@ -113,6 +116,7 @@ import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
+import { createPlatformPushProxyHandler } from "./http/routes/platform-push-proxy.js";
 import { createPsHandler } from "./http/routes/ps.js";
 import { createVelayStatusHandler } from "./http/routes/velay-status.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
@@ -609,6 +613,7 @@ async function main() {
   const oauthAppsProxy = createOAuthAppsProxyHandler(config);
   const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
+  const platformPushProxy = createPlatformPushProxyHandler(credentialCache);
   const psHandler = createPsHandler(config);
   const velayStatusHandler = createVelayStatusHandler(velayTunnelClient);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
@@ -908,6 +913,7 @@ async function main() {
     ...buildContactsControlPlaneRoutes({
       contactsControlPlaneProxy,
       handleContactPromptSubmit,
+      handleContactRecordSubmit,
     }),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
@@ -1350,6 +1356,42 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handleCreateBackup(req),
+    },
+
+    // ── Platform push / Live Activity tokens ──
+    // Django-owned registration. Remote-gateway clients hit these
+    // same-origin; without a dedicated route they fall through to the
+    // runtime-proxy catch-all and 404. The handler forwards to Django
+    // with the stored assistant API key and platform assistant UUID.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/push-tokens\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => platformPushProxy.handleUpsertPushToken(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/push-tokens\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        platformPushProxy.handleDeletePushToken(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/live-activity\/tokens\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => platformPushProxy.handleUpsertLiveActivityToken(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/live-activity\/tokens\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        platformPushProxy.handleDeleteLiveActivityToken(req, params[0]),
     },
 
     // ── Channel readiness ──

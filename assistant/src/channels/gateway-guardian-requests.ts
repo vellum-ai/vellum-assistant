@@ -157,7 +157,7 @@ export const getGuardianRequestByCodeOrNull = degradeOnFailure(
 );
 
 /** List guardian requests matching the filters. Throws on transport failure. */
-async function listGuardianRequests(
+export async function listGuardianRequests(
   filters: ListGuardianRequestsIpcParams = {},
 ): Promise<GuardianRequestWire[]> {
   return callGateway(
@@ -284,26 +284,22 @@ export const listGuardianRequestDeliveriesOrEmpty = degradeOnFailure(
 );
 
 /**
- * Reaction routing: the pending request whose delivered card is the
- * reacted-to message. Throws on transport failure.
+ * Every delivery row addressed to one channel-native chat, across all
+ * requests. Transcript importers use the recorded message ids to
+ * recognize guardian card messages as delivery projections. Throws on
+ * transport failure so callers can fail safe instead of importing a
+ * card as conversation content.
  */
-async function getPendingRequestByDestinationMessage(
+export async function listGuardianRequestDeliveriesByChat(
   channel: string,
   chatId: string,
-  messageId: string,
-): Promise<GuardianRequestWire | null> {
+): Promise<GuardianRequestDeliveryWire[]> {
   return callGateway(
-    GUARDIAN_REQUESTS_IPC_METHODS.getByDestinationMessage,
-    { channel, chatId, messageId },
-    GuardianRequestLookupIpcResponseSchema,
+    GUARDIAN_REQUESTS_IPC_METHODS.listDeliveriesByChat,
+    { channel, chatId },
+    GuardianRequestDeliveryListIpcResponseSchema,
   );
 }
-
-/** `getPendingRequestByDestinationMessage` deny-path variant: degrades to null. */
-export const getPendingRequestByDestinationMessageOrNull = degradeOnFailure(
-  getPendingRequestByDestinationMessage,
-  null,
-);
 
 /**
  * Reply routing: pending requests delivered to a destination conversation
@@ -349,17 +345,16 @@ export const listPendingRequestsByScopeOrEmpty = degradeOnFailure(
 
 /**
  * Is a decision from this conversation allowed for the request (source
- * match, or delivery match optionally narrowed by `channel`)? Throws on
+ * match, or delivery match on any channel's paired conversation)? Throws on
  * transport failure.
  */
 async function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): Promise<boolean> {
   const response = await callGateway(
     GUARDIAN_REQUESTS_IPC_METHODS.inScope,
-    { requestId, conversationId, channel },
+    { requestId, conversationId },
     GuardianRequestInScopeIpcResponseSchema,
   );
   return response.inScope;

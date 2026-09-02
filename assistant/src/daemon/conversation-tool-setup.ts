@@ -16,6 +16,7 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -728,7 +729,9 @@ function resolveTurnClientOs(ctx: Conversation): {
   const clientOs = pin
     ? pin.clientOs
     : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" || transportInterface === "windows"
+      (transportInterface === "macos" ||
+      transportInterface === "windows" ||
+      transportInterface === "linux"
         ? transportInterface
         : undefined));
   return { clientOs, transportInterface };
@@ -821,6 +824,20 @@ export function isToolActiveForContext(
       return true;
     }
   }
+  // The react capability follows the transport's declaration: the tool is on
+  // the wire exactly when the turn's channel transport implements `react`,
+  // so the model never sees an option the channel cannot honor. The turn's
+  // own capabilities take precedence over the conversation's structural ones
+  // (same order as `conversationSupportsDynamicUi`): an app-side turn on a
+  // channel-origin conversation has no channel message to react to, and the
+  // executor's channel comes from the turn. Wake pins read as no channel
+  // and hide it.
+  if (name === "react_to_message") {
+    const turnChannel = pin
+      ? undefined
+      : (ctx.currentTurnChannelCapabilities ?? channelCapabilities)?.channel;
+    return supportsChannelReaction(turnChannel);
+  }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
       channelCapabilities?.channel === "slack" &&
@@ -885,7 +902,12 @@ export function isToolActiveForContext(
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
     const { clientOs } = resolveTurnClientOs(ctx);
-    return (clientOs === "macos" || clientOs === "windows") && !hasNoClient;
+    return (
+      (clientOs === "macos" ||
+        clientOs === "windows" ||
+        clientOs === "linux") &&
+      !hasNoClient
+    );
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;

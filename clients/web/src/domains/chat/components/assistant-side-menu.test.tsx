@@ -712,11 +712,36 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     return html.slice(open, close + 1);
   };
 
-  test("rail body reserves no bottom padding", () => {
+  test("rail body reserves nothing under its list", () => {
     const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
 
+    expect(tag).not.toContain("mb-24");
+    expect(tag).not.toContain("margin-bottom");
+  });
+
+  test("the overlay scrollport rounds its cut onto the card's corners", () => {
+    // The cut lands mid-card whenever the list outruns the drawer, so it
+    // carries the card's own radius.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("clip-path:inset(");
+    expect(tag).toContain("var(--radius-xl)");
+    expect(sliceBodyOpeningTag(renderMenu({ conversations }))).not.toContain(
+      "clip-path",
+    );
+  });
+
+  test("the overlay reserve ends the scrollport rather than padding it", () => {
+    // A margin, so the reserve ends the scrollport: padding belongs to the
+    // scrollable box, and a card taller than the drawer paints through it.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("mb-24");
     expect(tag).not.toContain("pb-24");
-    expect(tag).not.toContain("padding-bottom");
   });
 
   test("reserves the measured floating-column height once mounted", async () => {
@@ -781,7 +806,7 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
       );
 
       // happy-dom's CSSStyleDeclaration drops values containing `env()`,
-      // so the composed `padding-bottom` calc is unobservable here; the
+      // so the composed `margin-bottom` calc is unobservable here; the
       // measured height feeding it is asserted via its custom property,
       // which happy-dom stores verbatim.
       const measuredReserve = () => {
@@ -1715,6 +1740,78 @@ describe("AssistantSideMenu · equal section treatment", () => {
       // height of its own, so it reaches the footer on a tall rail.
       expect(scroller("Slack").classList.contains("flex-1")).toBe(true);
       expect(scroller("Slack").style.maxHeight).toBe("");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the overlay drawer lets the body scroll Chats clear of the floating pills", () => {
+    const { container } = render(
+      createElement(SideMenuUnderTest, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "overlay",
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+        onStartNewConversation: () => {},
+        footerAction: createElement("span", null, "Preferences"),
+      }),
+    );
+    try {
+      const root = container.querySelector<HTMLElement>(
+        '[data-slot="collapsible"]',
+      );
+      expect(root?.classList.contains("flex-1")).toBe(false);
+
+      const sections = sectionElements(container);
+      const labels = sectionLabels(container);
+      const chats = sections[labels.indexOf("Chats")];
+      if (!chats) {
+        throw new Error("expected the Chats section");
+      }
+
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the overlay windows a long Chats list against the drawer body", async () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const { container } = render(
+      createElement(SideMenuUnderTest, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "overlay",
+        conversations: Array.from(
+          { length: CONVERSATION_LIST_VIRTUALIZE_THRESHOLD + 1 },
+          (_, index) =>
+            makeConversation({
+              conversationId: `r${index}`,
+              title: `Recent ${index}`,
+            }),
+        ),
+        onSelectConversation: () => {},
+        onStartNewConversation: () => {},
+      }),
+    );
+    try {
+      const chats = sectionElements(container)[
+        sectionLabels(container).indexOf("Chats")
+      ];
+      if (!chats) {
+        throw new Error("expected the Chats section");
+      }
+
+      await waitFor(() => {
+        expect(chats.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+      });
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+      expect(
+        chats.querySelector('[data-slot="virtual-list"]')?.parentElement
+          ?.style.minHeight,
+      ).toBe("");
     } finally {
       cleanup();
     }

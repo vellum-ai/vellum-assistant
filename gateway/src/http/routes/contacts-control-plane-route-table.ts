@@ -11,7 +11,10 @@
  */
 
 import type { RouteDefinition } from "../router.js";
-import type { handleContactPromptSubmit } from "./contact-prompt.js";
+import type {
+  handleContactPromptSubmit,
+  handleContactRecordSubmit,
+} from "./contact-prompt.js";
 import type { createContactsControlPlaneProxyHandler } from "./contacts-control-plane-proxy.js";
 
 export type ContactsControlPlaneProxy = ReturnType<
@@ -21,11 +24,13 @@ export type ContactsControlPlaneProxy = ReturnType<
 export interface ContactsControlPlaneRouteDeps {
   contactsControlPlaneProxy: ContactsControlPlaneProxy;
   handleContactPromptSubmit: typeof handleContactPromptSubmit;
+  handleContactRecordSubmit: typeof handleContactRecordSubmit;
 }
 
 export function buildContactsControlPlaneRoutes({
   contactsControlPlaneProxy,
   handleContactPromptSubmit,
+  handleContactRecordSubmit,
 }: ContactsControlPlaneRouteDeps): RouteDefinition[] {
   return [
     {
@@ -33,6 +38,12 @@ export function buildContactsControlPlaneRoutes({
       method: "POST",
       auth: "edge",
       handler: (req) => handleContactPromptSubmit(req),
+    },
+    {
+      path: "/v1/contacts/record/submit",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleContactRecordSubmit(req),
     },
     {
       path: "/v1/contacts",

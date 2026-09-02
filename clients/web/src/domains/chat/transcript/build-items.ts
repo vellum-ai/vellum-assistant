@@ -28,6 +28,7 @@ export interface BuildTranscriptItemsInput {
     description?: string;
     role?: string;
   } | null;
+  pendingContactRecordRequest?: { requestId: string } | null;
   isThinking: boolean;
   /**
    * Whether the assistant is busy on an in-flight turn at all (from
@@ -142,6 +143,7 @@ export function buildTranscriptItems(
     pendingSecret,
     pendingConfirmation,
     pendingContactRequest,
+    pendingContactRecordRequest,
     isThinking,
   } = input;
 
@@ -255,6 +257,14 @@ export function buildTranscriptItems(
       role: pendingContactRequest.role,
     };
     items.push(item);
+  }
+
+  if (pendingContactRecordRequest) {
+    items.push({
+      kind: "pendingContactRecordRequest",
+      key: `contact-record-request-${pendingContactRecordRequest.requestId}`,
+      requestId: pendingContactRecordRequest.requestId,
+    });
   }
 
   if (input.showOnboardingChoice) {

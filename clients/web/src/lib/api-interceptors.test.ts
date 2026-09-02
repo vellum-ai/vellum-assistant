@@ -542,6 +542,11 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "oauth",
       // `/a2a/invites/redeem` is a platform broker (Django) route.
       "a2a",
+      // Device and Live Activity token registration is Django-owned. Cloud
+      // and local-with-ingress keep the session path; remote-gateway
+      // authorizes these separately rather than rewriting them here.
+      "push-tokens",
+      "live-activity",
       // artifacts is daemon/gateway-owned but no gateway or daemon route
       // serves it, so it must NOT be rewritten — forwarding would 404
       // rather than reach a handler.
@@ -789,6 +794,36 @@ describe("api-interceptors / self-hosted contact-family flattening", () => {
     }
   });
 
+  test("keepalive survives the rewrite, so a pagehide-time send is not cancelled", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    // Bun's Request neither stores nor re-exposes `keepalive`, so the flag is
+    // stamped onto the input and the assertion intercepts the init the
+    // rewrite hands the constructor, instead of reading the property back.
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/telemetry/ingest`,
+      { method: "POST", body: "{}" },
+    );
+    Object.defineProperty(input, "keepalive", { value: true });
+
+    const OriginalRequest = globalThis.Request;
+    let rebuiltInit: RequestInit | undefined;
+    globalThis.Request = class extends OriginalRequest {
+      constructor(info: RequestInfo | URL, init?: RequestInit) {
+        super(info, init);
+        rebuiltInit = init;
+      }
+    } as typeof Request;
+    try {
+      const output = await rewriteForSelfHostedIngress(input, {
+        skipSegmentAllowlist: true,
+      });
+      expect(output).not.toBeNull();
+      expect(rebuiltInit?.keepalive).toBe(true);
+    } finally {
+      globalThis.Request = OriginalRequest;
+    }
+  });
+
   test("no ingress registered — rewrite returns null and the request is untouched", async () => {
     const scopedPath = `/v1/assistants/${SELF_HOSTED_ID}/contacts`;
     const input = new Request(`https://platform.test${scopedPath}`, {
@@ -886,6 +921,79 @@ describe("api-interceptors / remote gateway direct requests", () => {
     const input = new Request(`${window.location.origin}/v1/feature-flags`);
 
     expect(authorizeRemoteGatewayRequest(input)).toBeNull();
+  });
+
+  test("authorizes platform-client push-token upserts with the paired browser token", async () => {
+    setSelfHostedConnection({
+      url: window.location.origin,
+      token: ACTOR_TOKEN,
+    });
+    const path = `/v1/assistants/${SELF_HOSTED_ID}/push-tokens/`;
+    const input = new Request(`${window.location.origin}${path}`, {
+      method: "POST",
+      headers: { "Vellum-Organization-Id": TEST_ORG_ID },
+    });
+
+    const output = await requestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.credentials).toBe("omit");
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+    expect(output.headers.get("X-CSRFToken")).toBeNull();
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
+  });
+
+  test("authorizes platform-client live-activity upserts with the paired browser token", async () => {
+    setSelfHostedConnection({
+      url: window.location.origin,
+      token: ACTOR_TOKEN,
+    });
+    const path = `/v1/assistants/${SELF_HOSTED_ID}/live-activity/tokens/`;
+    const input = new Request(`${window.location.origin}${path}`, {
+      method: "POST",
+    });
+
+    const output = await requestInterceptor(input);
+
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
+  });
+
+  test("preserves a remote ingress path prefix for platform-client push-token upserts", async () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const path = `/assistant-123/v1/assistants/${SELF_HOSTED_ID}/push-tokens/`;
+    const input = new Request(`${window.location.origin}${path}`, {
+      method: "POST",
+    });
+
+    const output = await requestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
+  });
+
+  test("relocates an origin-root push-token upsert under a path-prefixed remote ingress", async () => {
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant-123`,
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/${SELF_HOSTED_ID}/push-tokens/`,
+      { method: "POST" },
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(new URL(output.url).pathname).toBe(
+      `/assistant-123/v1/assistants/${SELF_HOSTED_ID}/push-tokens/`,
+    );
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
   });
 });
 

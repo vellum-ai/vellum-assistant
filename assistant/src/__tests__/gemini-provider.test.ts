@@ -403,6 +403,70 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("3.7 Flash: disabled maps to the LOW floor, not MINIMAL", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const flash37Provider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.7-flash",
+    );
+    await flash37Provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "disabled" } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("3.7 Flash: an explicit minimal level is clamped up to LOW", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const flash37Provider = new GeminiProvider(
+      "test-api-key",
+      "models/gemini-3.7-flash",
+    );
+    await flash37Provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        config: {
+          thinking: {
+            type: "adaptive",
+            level: "minimal",
+            streamThinking: false,
+          },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("3.7 Flash: adaptive with no level keeps Google's default", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const flash37Provider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.7-flash",
+    );
+    await flash37Provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "adaptive", streamThinking: true } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      includeThoughts: true,
+    });
+  });
+
   test("Pro: a supported explicit level passes through unchanged", async () => {
     fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
 

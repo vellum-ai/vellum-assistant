@@ -12,7 +12,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useRef } from "react";
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import {
   fakeStream,
@@ -60,6 +67,8 @@ function Probe({ flash = true }: { flash?: boolean }) {
       </span>
       <span data-testid="facing">{camera.facing}</span>
       <span data-testid="flipping">{camera.flipping ? "yes" : "no"}</span>
+      <span data-testid="open-state">{camera.open ? "yes" : "no"}</span>
+      <span data-testid="native-state">{camera.native ? "yes" : "no"}</span>
       <button
         type="button"
         data-testid="open"
@@ -98,6 +107,20 @@ async function press(testId: string) {
   });
 }
 
+/**
+ * The same press, and the same read, scoped to one of two probes on screen at
+ * once. The bare helpers above go through `screen`, which spans the whole
+ * document and so finds both copies of a test id.
+ */
+async function pressIn(container: HTMLElement, testId: string) {
+  await act(async () => {
+    within(container).getByTestId(testId).click();
+  });
+}
+
+const readIn = (container: HTMLElement, testId: string) =>
+  within(container).getByTestId(testId).textContent;
+
 /** Render the probe and open a native camera, settling the capability probe. */
 async function openNativeCamera() {
   render(<Probe />);
@@ -110,6 +133,7 @@ beforeEach(() => {
   startSpy.mockClear();
   startSpy.mockImplementation(async () => true);
   stopSpy.mockClear();
+  stopSpy.mockImplementation(async () => {});
   flipSpy.mockClear();
   flipSpy.mockImplementation(async () => true);
   getFlashModesSpy.mockClear();
@@ -645,6 +669,60 @@ describe("useVoiceCamera: an open superseded while the bridge starts it", () => 
     await waitFor(() => expect(flashAvailable()).toBe(true));
   });
 
+  test("a failed replacement start still clears a canceled start's survivor", async () => {
+    // Start A resolves after a close and a reopen, and defers its cleanup to
+    // the reopen's pending start B. When B then fails, B is the newest call
+    // and posts the stop that clears whatever A left running; nothing else
+    // owns a native source that would.
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+    render(<Probe />);
+    await press("open");
+    await press("close");
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    const secondStart = deferredCall<boolean>();
+    startSpy.mockImplementation(secondStart.answer);
+    await press("open");
+
+    await settle(() => firstStart.resolve(true));
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    await settle(() => secondStart.resolve(false));
+    expect(stopSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test("waits for the survivor's release before asking the browser", async () => {
+    // The same failure, on a shell that has `getUserMedia` to fall back to.
+    // The device the fallback is about to ask for is the one the survivor is
+    // still holding, and a request that overlaps the release comes back
+    // `NotReadableError`, which closes the viewfinder it was opening.
+    const getUserMedia = mock(async () => fakeStream());
+    stubMediaDevices(getUserMedia);
+
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+    render(<Probe />);
+    await press("open");
+    await press("close");
+
+    const secondStart = deferredCall<boolean>();
+    startSpy.mockImplementation(secondStart.answer);
+    await press("open");
+    await settle(() => firstStart.resolve(true));
+
+    const release = deferredCall<undefined>();
+    stopSpy.mockImplementation(release.answer);
+    await settle(() => secondStart.resolve(false));
+
+    expect(stopSpy).toHaveBeenCalledTimes(2);
+    expect(getUserMedia).not.toHaveBeenCalled();
+
+    await settle(() => release.resolve(undefined));
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
   test("stops the camera nothing owns when only a close follows", async () => {
     // The other half of the discipline: with no reopen behind it, the
     // superseded start is the last owner standing, and the stop it posts
@@ -659,6 +737,31 @@ describe("useVoiceCamera: an open superseded while the bridge starts it", () => 
     await settle(() => slowStart.resolve(true));
 
     expect(stopSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useVoiceCamera: a start the plugin refuses", () => {
+  test("leaves a preview another surface is showing alone", async () => {
+    // Both plugin implementations refuse a start while a preview is running,
+    // so a second surface raising its camera over a live one fails by design.
+    // That failure raised nothing and owns nothing: the hardware it collided
+    // with is the viewfinder the first surface is still reporting open, and a
+    // stop posted for it would be the room's camera going dark because the
+    // composer's overlay asked for one.
+    stubMediaDevices(null);
+    const owner = render(<Probe />);
+    await pressIn(owner.container, "open");
+    await waitFor(() => expect(getFlashModesSpy).toHaveBeenCalled());
+    expect(readIn(owner.container, "open-state")).toBe("yes");
+    stopSpy.mockClear();
+
+    startSpy.mockImplementation(async () => false);
+    const intruder = render(<Probe />);
+    await pressIn(intruder.container, "open");
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(readIn(owner.container, "open-state")).toBe("yes");
+    expect(readIn(owner.container, "native-state")).toBe("yes");
   });
 });
 

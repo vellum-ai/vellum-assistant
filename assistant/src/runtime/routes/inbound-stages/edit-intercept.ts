@@ -16,6 +16,7 @@
  * resolvable target is dropped.
  */
 import type { ChannelId } from "../../../channels/types.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
@@ -227,6 +228,11 @@ export async function handleEditIntercept(
   // path, so reindex the message into the lexical index — the idempotent
   // upsert replaces the stale Qdrant point with the edited content.
   enqueueLexicalIndexForMessage(original.messageId);
+  // The rewrite lands in the store only; a resident conversation keeps the
+  // pre-edit text in memory until it reloads, so the next turn would answer
+  // a revision the sender already replaced. Stale-marking makes that turn's
+  // history reload pick up the edit.
+  findConversation(original.conversationId)?.markHistoryStale();
   markProcessed(editResult.eventId);
   log.info(
     { assistantId, sourceMessageId, messageId: original.messageId },

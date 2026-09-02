@@ -1540,6 +1540,35 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/contacts/record/submit": {
+        post: {
+          summary: "Submit a contact record in response to a prompt",
+          description:
+            "Authenticated gateway endpoint that accepts the create, update, or delete a guardian confirmed in the contact-record form the assistant broadcast. Writes the contact record (display name and notes only, never a channel), then notifies the assistant to unblock the waiting CLI call. A `cancelled: true` body resolves the waiting call without writing.",
+          operationId: "contactsRecordSubmitPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Contact record written and prompt resolved",
+            },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized: missing or invalid bearer token",
+            },
+            "403": { description: "Cannot delete a guardian contact" },
+            "404": { description: "Contact not found" },
+            "503": { description: "Bearer token not configured" },
+          },
+        },
+      },
       "/v1/contact-channels/{contactChannelId}": {
         patch: {
           summary: "Update a contact channel",

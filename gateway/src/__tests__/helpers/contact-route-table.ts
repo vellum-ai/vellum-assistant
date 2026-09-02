@@ -31,6 +31,7 @@ export function buildMarkedContactRoutes(): RouteDefinition[] {
   return buildContactsControlPlaneRoutes({
     contactsControlPlaneProxy,
     handleContactPromptSubmit: marker("handleContactPromptSubmit"),
+    handleContactRecordSubmit: marker("handleContactRecordSubmit"),
   });
 }
 

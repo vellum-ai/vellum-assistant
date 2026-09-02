@@ -75,7 +75,6 @@ describe("resolveHotkeyCatalog", () => {
       "togglePinConversation",
       "sidebarToggle",
       "popOut",
-      "home",
       "previousConversation",
       "nextConversation",
     ]);
@@ -121,10 +120,10 @@ describe("vellum:hotkeys:set", () => {
   });
 
   test("persists a valid accelerator, merging into existing overrides", () => {
-    hotkeys = { home: "CmdOrCtrl+Shift+H" };
+    hotkeys = { popOut: "CmdOrCtrl+Shift+O" };
     invoke("vellum:hotkeys:set", ["newConversation", "CmdOrCtrl+Alt+T"]);
     expect(hotkeys).toEqual({
-      home: "CmdOrCtrl+Shift+H",
+      popOut: "CmdOrCtrl+Shift+O",
       newConversation: "CmdOrCtrl+Alt+T",
     });
   });
@@ -135,9 +134,12 @@ describe("vellum:hotkeys:set", () => {
   });
 
   test("clears an override when passed null", () => {
-    hotkeys = { newConversation: "CmdOrCtrl+Alt+T", home: "CmdOrCtrl+Shift+H" };
+    hotkeys = {
+      newConversation: "CmdOrCtrl+Alt+T",
+      popOut: "CmdOrCtrl+Shift+O",
+    };
     invoke("vellum:hotkeys:set", ["newConversation", null]);
-    expect(hotkeys).toEqual({ home: "CmdOrCtrl+Shift+H" });
+    expect(hotkeys).toEqual({ popOut: "CmdOrCtrl+Shift+O" });
   });
 
   test("rejects an invalid accelerator without writing", () => {

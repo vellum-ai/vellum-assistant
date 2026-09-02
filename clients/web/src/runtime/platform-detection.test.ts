@@ -159,6 +159,11 @@ describe("detectClientOs", () => {
     expect(detectClientOs()).toBe("macos");
   });
 
+  test("returns 'linux' inside the Linux Electron shell", () => {
+    setElectronHost("linux");
+    expect(detectClientOs()).toBe("linux");
+  });
+
   test("uses the renderer platform for legacy Electron bridges", () => {
     setElectronHost();
     setPlatform("MacIntel");
@@ -166,6 +171,9 @@ describe("detectClientOs", () => {
 
     setPlatform("Win32");
     expect(detectClientOs()).toBe("windows");
+
+    setPlatform("Linux x86_64");
+    expect(detectClientOs()).toBe("linux");
   });
 
   test("returns 'ios' inside the Capacitor iOS native shell", () => {

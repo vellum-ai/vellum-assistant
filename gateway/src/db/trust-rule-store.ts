@@ -15,6 +15,8 @@ export interface TrustRule {
   origin: "default" | "user_defined";
   userModified: boolean;
   deleted: boolean;
+  /** Directory scope. Null means the rule applies globally (any directory). */
+  scope: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,6 +39,8 @@ export interface CreateInput {
   pattern: string;
   risk: string;
   description: string;
+  /** Optional directory scope. Null/undefined means global (applies anywhere). */
+  scope?: string | null;
 }
 
 export interface UpdateInput {
@@ -91,6 +95,7 @@ function toTrustRule(row: typeof trustRules.$inferSelect): TrustRule {
     origin: row.origin as TrustRule["origin"],
     userModified: row.userModified,
     deleted: row.deleted,
+    scope: row.scope ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -169,13 +174,15 @@ export class TrustRuleStore {
     const now = nowISO();
     const id = crypto.randomUUID();
 
+    const scope = input.scope ?? null;
     this.db.run(sql`
-      INSERT INTO trust_rules (id, tool, pattern, risk, description, origin, user_modified, deleted, created_at, updated_at)
-      VALUES (${id}, ${input.tool}, ${input.pattern}, ${input.risk}, ${input.description}, 'user_defined', 0, 0, ${now}, ${now})
+      INSERT INTO trust_rules (id, tool, pattern, risk, description, origin, user_modified, deleted, scope, created_at, updated_at)
+      VALUES (${id}, ${input.tool}, ${input.pattern}, ${input.risk}, ${input.description}, 'user_defined', 0, 0, ${scope}, ${now}, ${now})
       ON CONFLICT (tool, pattern) DO UPDATE SET
         risk = excluded.risk,
         description = excluded.description,
         origin = excluded.origin,
+        scope = excluded.scope,
         deleted = 0,
         updated_at = excluded.updated_at
     `);
@@ -184,7 +191,10 @@ export class TrustRuleStore {
       .select()
       .from(trustRules)
       .where(
-        and(eq(trustRules.tool, input.tool), eq(trustRules.pattern, input.pattern)),
+        and(
+          eq(trustRules.tool, input.tool),
+          eq(trustRules.pattern, input.pattern),
+        ),
       )
       .get();
 
@@ -291,11 +301,7 @@ export class TrustRuleStore {
       updates.description = originalDescription;
     }
 
-    this.db
-      .update(trustRules)
-      .set(updates)
-      .where(eq(trustRules.id, id))
-      .run();
+    this.db.update(trustRules).set(updates).where(eq(trustRules.id, id)).run();
 
     return this.getById(id)!;
   }

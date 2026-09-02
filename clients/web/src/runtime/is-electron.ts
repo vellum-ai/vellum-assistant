@@ -36,6 +36,8 @@ import type {
   DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -53,6 +55,8 @@ import type {
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
+  VoiceModeChord,
+  VoiceModeChordRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -155,7 +159,16 @@ declare global {
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
-          fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
+          setVoiceModeChord?(
+            activator: VoiceModeChord | null,
+          ): Promise<VoiceModeChordRegistrationResult>;
+          setModifierHold?(
+            hold: ModifierHold,
+          ): Promise<ModifierHoldRegistrationResult>;
+          onRegistrationChange?(
+            callback: (active: boolean) => void,
+          ): () => void;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
         dictation?: {
@@ -232,6 +245,10 @@ declare global {
         renameLockfileAssistant?(
           assistantId: string,
           name: string,
+        ): Promise<LockfileWriteResult>;
+        stampLockfileAssistantOnboarded?(
+          assistantId: string,
+          onboardedAt: string,
         ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,

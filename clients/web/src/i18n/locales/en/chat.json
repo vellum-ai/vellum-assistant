@@ -259,6 +259,12 @@
     "unsupported": "This device can't open a camera.",
     "uploadFailed": "Couldn't send that photo."
   },
+  "cameraShutterHint": {
+    "live": "Live · Tap to stop",
+    "liveDescription": "Tap to stop live video.",
+    "photo": "Tap photo · Hold for live",
+    "photoDescription": "Hold to start live video."
+  },
   "cameraStatusPill": {
     "announceLive": "Live. {status}",
     "announceLiveMuted": "Live. Muted. {status}",
@@ -499,6 +505,9 @@
     "toolLabel": "Tool:"
   },
   "contactActions": {
+    "cancelFailed": "Failed to dismiss the form. Please try again.",
+    "recordCancelFailed": "Failed to dismiss the form. Please try again.",
+    "recordSaveFailed": "Failed to save the contact. Please try again.",
     "saveFailed": "Failed to save contact. Please try again."
   },
   "contactPromptCard": {
@@ -507,8 +516,26 @@
     "contactSaved": "Contact saved",
     "dismiss": "Dismiss",
     "enterAddress": "Enter {channel} address",
+    "markVerified": "Mark this address verified",
+    "markVerifiedHelp": "A verified address is allowed to message your assistant.",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "contactRecordCard": {
+    "cancel": "Cancel",
+    "contactDeleted": "Contact deleted",
+    "contactSaved": "Contact saved",
+    "createTitle": "Add a contact",
+    "delete": "Delete",
+    "deleteTitle": "Delete {name}?",
+    "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
+    "dismiss": "Dismiss",
+    "namePlaceholder": "Name",
+    "noChannels": "This contact has no channels.",
+    "notesPlaceholder": "Notes (optional)",
+    "save": "Save",
+    "saving": "Saving…",
+    "updateTitle": "Update {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "Clear Context",
@@ -545,11 +572,6 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
-  },
-  "conversationActivityPill": {
-    "activity": "Activity",
-    "recent": "Recent",
-    "running": "Running"
   },
   "conversationAssetActions": {
     "delete": "Delete",
@@ -611,9 +633,10 @@
     "title": "Daily credit limit reached"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "I understand that related assets and memories may still persist",
     "cancel": "Cancel",
     "confirm": "Delete",
-    "message": "Delete “{title}”? This permanently removes the conversation and its messages. This cannot be undone.",
+    "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
@@ -716,6 +739,45 @@
   "formSurface": {
     "secureHint": "This value will be sent securely and will not be stored in your browser.",
     "selectPlaceholder": "Select..."
+  },
+  "frameGateHud": {
+    "decisionOrder": "Decision order",
+    "detailLabel": "Detail (luma SD)",
+    "keep": "Keep",
+    "keptFrameAlt": "Kept frame",
+    "maxIntervalLabel": "Heartbeat interval",
+    "minDetailLabel": "Detail floor",
+    "minIntervalLabel": "Rate floor",
+    "motionLabel": "Motion vs previous frame",
+    "noKeeps": "No frames kept yet.",
+    "noveltyLabel": "Novelty vs last kept",
+    "noveltyThresholdLabel": "Novelty threshold",
+    "overridden": "Moved off the default",
+    "reasonFeatureless": "Too little detail to compare.",
+    "reasonFirst": "Nothing kept yet, and the view settled.",
+    "reasonHeartbeat": "Nothing changed, but the last photo is old.",
+    "reasonMoving": "The view is still moving.",
+    "reasonNovel": "Enough changed since the last photo.",
+    "reasonRateFloor": "Too soon after the last photo.",
+    "reasonUnchanged": "Settled, recent, and much the same as the last photo.",
+    "reasonWarmup": "Still inside the exposure warmup.",
+    "recentFrames": "Recent frames",
+    "recentKeeps": "Recent keeps",
+    "reset": "Reset",
+    "settleThresholdLabel": "Settle threshold",
+    "skip": "Skip",
+    "stepFeatureless": "Detail floor",
+    "stepFirst": "First keep",
+    "stepHeartbeat": "Heartbeat",
+    "stepMoving": "Settled",
+    "stepNovel": "Novelty",
+    "stepRateFloor": "Rate floor",
+    "stepUnchanged": "Unchanged",
+    "stepWarmup": "Warmup",
+    "surfaceComposer": "Composer camera",
+    "surfaceVoice": "Voice room camera",
+    "thresholds": "Thresholds",
+    "valueAbsent": "n/a"
   },
   "groupActions": {
     "archiveAll": "Archive All…",
@@ -1214,6 +1276,14 @@
     "goToFile": "Go to file",
     "noPreviewForType": "No preview for this file type"
   },
+  "progressRail": {
+    "agentsLabel": "Agents",
+    "agentsToggleAria": "Agents: {running, plural, =0 {none running} one {# running} other {# running}}, {completed, plural, =0 {none finished} one {# finished} other {# finished}}",
+    "railAria": "Progress",
+    "stepCounter": "{current} of {total}",
+    "title": "Progress",
+    "titleFinished": "Finished"
+  },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
   },
@@ -1411,6 +1481,17 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
+  "sightTile": {
+    "close": "Close camera",
+    "interrupted": "The camera was disconnected.",
+    "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
+    "unavailable": "No camera is available."
+  },
+  "sightToggle": {
+    "busyInCall": "The voice call is using the camera",
+    "turnOff": "Turn off camera vision",
+    "turnOn": "Turn on camera vision"
+  },
   "singleActivity": {
     "webSearch": "Web Search"
   },
@@ -1442,9 +1523,7 @@
   },
   "skillLoadOutput": {
     "output": "Output",
-    "outputFormatAria": "Output format",
-    "showLess": "Show less",
-    "showMore": "Show more"
+    "outputFormatAria": "Output format"
   },
   "skillToolList": {
     "fromSkill": "From {name}"
@@ -1464,10 +1543,6 @@
   },
   "storeCredentialDialog": {
     "successToast": "Stored securely. The key never entered the chat."
-  },
-  "subagentAvatarRow": {
-    "details": "Details",
-    "showDetailsAria": "Show subagent details"
   },
   "subagentDetailPanel": {
     "backToTimelineAria": "Back to timeline",
@@ -1490,8 +1565,6 @@
     "workedFor": "Worked for {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "Collapse",
-    "collapseDetailsAria": "Collapse subagent details",
     "stopSubagentAria": "Stop subagent"
   },
   "suggestionCard": {
@@ -1564,6 +1637,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Close tool details",
+    "denied": "This tool call was not approved, so it did not run.",
+    "emptyOutput": "The tool returned no output.",
     "output": "Output",
     "riskLevel": "Risk Level",
     "running": "Running…"
@@ -1655,6 +1730,7 @@
     "muteMicrophone": "Mute microphone",
     "mutedState": "Muted. {state}",
     "showCamera": "Show the camera",
+    "stopLive": "Stop live",
     "takePhoto": "Take a photo",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
@@ -1729,5 +1805,21 @@
   },
   "workspacePathLink": {
     "openTitle": "Open {path}"
+  },
+  "transcript": {
+    "noResponse": "Chose not to respond",
+    "reactionAddedSelf": "Reacted with {emoji}",
+    "reactionRemovedSelf": "Removed the {emoji} reaction",
+    "reactionAdded": "{name} reacted with {emoji}",
+    "reactionRemoved": "{name} removed their {emoji} reaction",
+    "reactionSomeone": "Someone"
+  },
+  "watchRetroSurface": {
+    "discard": "Discard",
+    "next": "Next",
+    "save": "Save skill",
+    "skip": "Skip",
+    "thatsIt": "That's it",
+    "untitledTask": "What I saw"
   }
 }

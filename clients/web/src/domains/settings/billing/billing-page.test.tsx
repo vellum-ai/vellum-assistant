@@ -1,5 +1,6 @@
 /**
- * BillingTab pro-onboarding re-entry wiring.
+ * BillingTab pro-onboarding re-entry wiring, and where the Stripe redirect
+ * return is driven from.
  *
  * `?pro_onboarding` reopens the post-checkout onboarding wizard without a
  * Stripe `session_id`, and the "Finish Pro setup" nudge renders only for a
@@ -15,6 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -31,6 +33,7 @@ import type {
   SubscriptionPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import * as activeAssistantIdModule from "@/assistant/use-active-assistant-id";
 import * as platformGate from "@/hooks/use-platform-gate";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as authStore from "@/stores/auth-store";
@@ -92,6 +95,13 @@ mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantLifecycleIsLoading: () => false,
 }));
 
+// The Usage tab reads the active assistant, which normally comes from the
+// route gate this test does not mount.
+mock.module("@/assistant/use-active-assistant-id", () => ({
+  ...activeAssistantIdModule,
+  useActiveAssistantId: () => "assistant-1",
+}));
+
 mock.module("@/stores/auth-store", () => ({
   ...authStore,
   useIsPlatformSessionSettled: () => true,
@@ -150,6 +160,19 @@ mock.module("@/domains/settings/components/invoices-table", () => ({
 }));
 mock.module("@/domains/settings/components/payment-methods-card", () => ({
   PaymentMethodsCard: () => null,
+}));
+// Reports where `useSetupIntentReturn` is mounted. The real hook drops its
+// params from the URL up front, so a resolution mounted inside the billing tab
+// panel would be lost the moment the user looks at the Usage tab.
+let setupIntentReturnUnmounts = 0;
+mock.module("@/domains/settings/hooks/use-setup-intent-return", () => ({
+  useSetupIntentReturn: () => {
+    useEffect(() => {
+      return () => {
+        setupIntentReturnUnmounts += 1;
+      };
+    }, []);
+  },
 }));
 mock.module("@/domains/settings/components/plan-card", () => ({
   PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
@@ -240,6 +263,7 @@ beforeEach(() => {
   orgReady = true;
   nativeAndroid = false;
   activeAssistantIsPlatformHosted = true;
+  setupIntentReturnUnmounts = 0;
 });
 
 afterEach(() => {
@@ -481,5 +505,26 @@ describe("Finish Pro setup nudge", () => {
     );
     expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
     expect(domainsCalls).toBe(0);
+  });
+});
+
+describe("BillingPage Stripe redirect return", () => {
+  test("keeps the return mounted when the user switches to the Usage tab", async () => {
+    const { getByText, queryByTestId } = renderPage();
+
+    expect(queryByTestId("plan-card-tier-upgraded")).not.toBeNull();
+
+    // Radix tab triggers select on mousedown, not on a synthesized click.
+    fireEvent.mouseDown(getByText("Usage"));
+
+    // The billing panel is gone, but the return that outlives it is not: a
+    // resolution can run for up to 20 seconds, and the params are already off
+    // the URL.
+    await waitFor(() => {
+      if (queryByTestId("plan-card-tier-upgraded") != null) {
+        throw new Error("billing panel still mounted");
+      }
+    });
+    expect(setupIntentReturnUnmounts).toBe(0);
   });
 });

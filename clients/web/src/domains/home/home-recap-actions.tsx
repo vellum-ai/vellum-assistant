@@ -10,7 +10,11 @@ import type { ReactNode } from "react";
 
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import type { TFunction } from "@/i18n";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  type FeedItem,
+  type FeedItemStatus,
+  isPendingGuardianFeedItem,
+} from "@vellumai/assistant-api";
 import { ActionMenu, cn, Tooltip } from "@vellumai/design-library";
 
 import { buildReadToggle } from "./read-toggle";
@@ -120,14 +124,19 @@ export function buildRecapActions({
     });
   }
 
-  actions.push({
-    id: "dismiss",
-    label: t("actions.dismiss"),
-    icon: Trash2,
-    onSelect: () => onDismiss(item.id),
-    destructive: true,
-    swipeEdge: "trailing",
-  });
+  // The live projection of an unresolved guardian request offers no
+  // dismiss: resolution is what retires it, and its terminal receipt
+  // becomes dismissible like any other item.
+  if (!isPendingGuardianFeedItem(item)) {
+    actions.push({
+      id: "dismiss",
+      label: t("actions.dismiss"),
+      icon: Trash2,
+      onSelect: () => onDismiss(item.id),
+      destructive: true,
+      swipeEdge: "trailing",
+    });
+  }
 
   return actions;
 }

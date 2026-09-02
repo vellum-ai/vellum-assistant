@@ -267,9 +267,9 @@ export function resetDiscordDmChannelCache(): void {
 
 /** Call a Discord REST route with a JSON body. */
 export async function callDiscordApi<T>(
-  method: "POST" | "PATCH",
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
   route: string,
-  body: Record<string, unknown>,
+  body?: Record<string, unknown>,
 ): Promise<T | undefined> {
   const botToken = await resolveBotToken();
   return discordCall<T>(route, () =>
@@ -277,10 +277,10 @@ export async function callDiscordApi<T>(
       method,
       headers: {
         Authorization: `Bot ${botToken}`,
-        "Content-Type": "application/json",
         "User-Agent": DISCORD_USER_AGENT,
+        ...(body ? { "Content-Type": "application/json" } : {}),
       },
-      body: JSON.stringify(body),
+      ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(DISCORD_DEFAULT_TIMEOUT_MS),
     }),
   );

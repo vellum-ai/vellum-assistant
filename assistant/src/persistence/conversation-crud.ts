@@ -91,8 +91,12 @@ import {
   type ConversationCreateType,
   type ConversationOrigin,
   isHiddenMessageMetadata,
+  isNoResponseMetadata,
+  isReactionMessageMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
+  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
+  sightFrameAttachmentIdsFromMetadata,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
@@ -305,7 +309,7 @@ export const messageMetadataSchema = z
     /**
      * Optional client-side metadata bag attached to user messages at persist
      * time. `os` carries the client-reported OS surface ("web" | "ios" |
-     * "macos" | "windows" | "android") from the request body's `clientOs`
+     * "macos" | "windows" | "linux" | "android") from the request body's `clientOs`
      * field, stamped by `persistQueuedMessageBody`. The transport
      * `userMessageInterface` is
      * "web" for the web, mobile, and desktop apps alike, so this is the only
@@ -418,6 +422,12 @@ export const messageMetadataSchema = z
      *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
      *  not import the memory feature. */
     memoryV3InjectedBlock: z.string().optional(),
+    /** Memory-v3 per-turn `<memory_spotlight>` block (wrapped). Rehydrated
+     *  by `loadFromDb` so historical turns keep the spotlight they were sent
+     *  with. The key matches the memory plugin's
+     *  `MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`, kept as a literal here so
+     *  the storage schema does not import the memory feature. */
+    memoryV3SpotlightBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
@@ -458,7 +468,10 @@ export {
  * alongside the schema that carries them.
  */
 export {
+  isNoResponseMetadata,
   isSystemCardMetadata,
+  NO_RESPONSE_MESSAGE_KIND,
+  REACTION_MESSAGE_KIND,
   SYSTEM_CARD_MESSAGE_KIND,
 } from "./conversation-types.js";
 
@@ -485,7 +498,7 @@ export function isProviderErrorMetadata(
 
 /**
  * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice. Standalone rows never merge with adjacent
+ * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
@@ -499,7 +512,12 @@ export function isStandaloneAssistantMessage(
   }
   try {
     const parsed = JSON.parse(metadata) as Record<string, unknown>;
-    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
+    return (
+      isSystemCardMetadata(parsed) ||
+      isProviderErrorMetadata(parsed) ||
+      isNoResponseMetadata(parsed) ||
+      isReactionMessageMetadata(parsed)
+    );
   } catch {
     return false;
   }
@@ -741,11 +759,17 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
 });
 
 /**
- * Monotonic timestamp source for message ordering. Two messages saved within
- * the same millisecond (e.g., tool_results user message + assistant message in
- * message_complete) would get the same Date.now(), making their reload order
- * non-deterministic. This counter ensures every call returns a strictly
- * increasing value so insertion order is always preserved.
+ * Monotonic timestamp source for message ordering and conversation creation.
+ * Two messages saved within the same millisecond (e.g., tool_results user
+ * message + assistant message in message_complete) would get the same
+ * Date.now(), making their reload order non-deterministic. This counter
+ * ensures every call returns a strictly increasing value so insertion order is
+ * always preserved.
+ *
+ * Conversation rows draw from it for a second reason: `created_at` is what
+ * tells one incarnation of an id from another, so two creations in one
+ * millisecond must not be able to collide. Sharing the counter with messages
+ * costs nothing, both wanting the same "never twice the same value" guarantee.
  */
 let lastTimestamp = 0;
 function monotonicNow(): number {
@@ -768,6 +792,24 @@ interface InsertedMessage {
   deduplicated: boolean;
 }
 
+/**
+ * Thrown by an insert whose caller's `insertPrecondition` reads false.
+ *
+ * No row was written, so a caller holding resources for the message it asked
+ * for (an uploaded attachment, a pending client receipt) is free to give them
+ * up on this error. Carries no SQLite code, which is what keeps
+ * {@link withSqliteRetry} from mistaking it for contention and retrying an
+ * abort that will only abort again.
+ */
+export class MessageInsertPreconditionError extends Error {
+  constructor(conversationId: string) {
+    super(
+      `Message insert precondition failed for conversation ${conversationId}`,
+    );
+    this.name = "MessageInsertPreconditionError";
+  }
+}
+
 interface InsertMessageCoreParams {
   conversationId: string;
   role: MessageRole;
@@ -781,6 +823,9 @@ interface InsertMessageCoreParams {
    *  `requestId` for user turns) can pass it here so the persisted
    *  row ID matches the runtime request ID. */
   id?: string;
+  /** Answered synchronously at the top of every insert attempt. See
+   *  {@link AddMessageOptions.insertPrecondition}. */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -867,6 +912,7 @@ async function insertMessageCore(
     metadata,
     clientMessageId,
     id,
+    insertPrecondition,
   } = params;
   warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
@@ -893,8 +939,17 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage =>
-      timeSyncSection(
+    (): InsertedMessage => {
+      // Asked at the top of EVERY attempt, and synchronously, because that is
+      // the scope the answer holds for. Contention retries this function after
+      // an awaited backoff, so an answer given once for the call would be
+      // reporting on the world as it stood before a sleep the caller cannot
+      // see. From here to the statement below there is nothing async, so the
+      // answer and the row this attempt writes share one tick.
+      if (insertPrecondition && !insertPrecondition()) {
+        throw new MessageInsertPreconditionError(conversationId);
+      }
+      return timeSyncSection(
         "messages:insert",
         (): InsertedMessage => {
           const now = monotonicNow();
@@ -1004,7 +1059,8 @@ async function insertMessageCore(
           contentBytes:
             typeof content === "string" ? content.length : undefined,
         }),
-      ),
+      );
+    },
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
@@ -1061,7 +1117,12 @@ export function createConversation(
       },
 ) {
   const db = getDb();
-  const now = Date.now();
+  // Monotonic, because `created_at` is a conversation's incarnation identity:
+  // callers holding work for an id compare against the stamp they were
+  // accepted for, so a row deleted and written back under that id has to carry
+  // a later one even when both land in the same millisecond. Per process is
+  // the scope that matters, the holders being in-memory and gone on a restart.
+  const now = monotonicNow();
   const initialSeq = getCurrentSeq();
   const opts =
     typeof titleOrOpts === "string"
@@ -1675,6 +1736,8 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     });
   }
 
+  widenForkSightFrameTags(messagesToCopy, forkedMessageIds, attachmentIdMap);
+
   // Set lastMessageAt to the max createdAt of copied messages so the
   // forked conversation sorts correctly by message recency.
   const lastCopiedMessage = messagesToCopy.at(-1);
@@ -1715,6 +1778,75 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
       fork.id,
       messagesToCopy.at(-1)?.createdAt ?? null,
     );
+  }
+}
+
+/**
+ * Extend the copied rows' camera-frame tags to name the fork's cloned
+ * attachment ids alongside the source ids they were written with.
+ *
+ * A fork leaves its rows describing their attachments two different ways:
+ * `messages.content` is copied byte for byte and still names the SOURCE
+ * attachment ids, while `message_attachments` is re-linked to freshly CLONED
+ * rows under new ids. Readers split along that seam. Camera-frame retention
+ * matches the tag against the ids in the content blocks (source ids), and the
+ * compactor builds its image manifest from the links (cloned ids) and stamps
+ * those onto the frames it rebuilds. A tag naming only one vocabulary goes
+ * blind on the other, so it names both.
+ *
+ * Widening rather than remapping is deliberate: replacing the source ids would
+ * fix the compactor's frames by breaking every frame the fork holds directly,
+ * which is the common case. Extra ids are inert, since an id no block carries
+ * simply never matches.
+ *
+ * Runs after the attachment loop because that loop is what produces the id map.
+ * Only rows that actually carry a tag are rewritten, so an ordinary fork does
+ * no extra writes.
+ */
+function widenForkSightFrameTags(
+  messagesToCopy: MessageRow[],
+  forkedMessageIds: Map<string, string>,
+  attachmentIdMap: Map<string, string>,
+): void {
+  if (attachmentIdMap.size === 0) {
+    return;
+  }
+  const db = getDb();
+  for (const message of messagesToCopy) {
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (!forkedMessageId) {
+      continue;
+    }
+    const sourceMetadata = parseMessageMetadata(message.metadata);
+    const sourceIds = sightFrameAttachmentIdsFromMetadata(sourceMetadata);
+    if (sourceIds.length === 0) {
+      continue;
+    }
+    const widened = new Set(sourceIds);
+    for (const sourceId of sourceIds) {
+      const clonedId = attachmentIdMap.get(sourceId);
+      if (clonedId) {
+        widened.add(clonedId);
+      }
+    }
+    if (widened.size === sourceIds.length) {
+      continue;
+    }
+    const forkedRow = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, forkedMessageId))
+      .get();
+    const forkedMetadata = parseMessageMetadata(forkedRow?.metadata ?? null);
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          ...(forkedMetadata ?? {}),
+          [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: [...widened],
+        }),
+      })
+      .where(eq(messages.id, forkedMessageId))
+      .run();
   }
 }
 
@@ -2278,6 +2410,17 @@ export interface AddMessageOptions {
    *  internally. Pass the same value as `requestId` for user turns so
    *  the persisted row ID matches the runtime correlation ID. */
   id?: string;
+  /**
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts with a
+   * {@link MessageInsertPreconditionError} and writes nothing.
+   *
+   * For a caller whose right to write can lapse while the insert is in
+   * flight. Per attempt rather than per call because contention retries the
+   * insert after an awaited backoff, and the world can move under a caller
+   * during that sleep.
+   */
+  insertPrecondition?: () => boolean;
 }
 
 /**
@@ -2291,7 +2434,8 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id, insertPrecondition } =
+    options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
@@ -2299,6 +2443,7 @@ export async function addMessage(
     metadata,
     clientMessageId,
     id,
+    ...(insertPrecondition ? { insertPrecondition } : {}),
   });
 
   if (inserted.deduplicated) {
@@ -2492,6 +2637,41 @@ export function selectProviderMetaCandidateMetadata(
     }
   }
   return out;
+}
+
+/**
+ * Every attachment the conversation's rows tagged as an ambient camera frame,
+ * mapped to the `createdAt` of the row that carried it.
+ *
+ * Like the Slack prefilter above, the `LIKE` is an indexable narrowing only:
+ * each candidate row is parsed and validated before an id is taken, so a row
+ * that merely mentions the key contributes nothing. Any row state qualifies
+ * because the tag is written with the insert, and the lineage filter is what
+ * lets a fork see the frames it inherited.
+ */
+export function selectSightFrameCaptureTimes(
+  conversationId: string,
+): Map<string, number> {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all();
+  const captureTimes = new Map<string, number>();
+  for (const row of rows) {
+    const metadata = parseMessageMetadata(row.metadata);
+    for (const id of sightFrameAttachmentIdsFromMetadata(metadata)) {
+      captureTimes.set(id, row.createdAt);
+    }
+  }
+  return captureTimes;
 }
 
 /**
@@ -4082,8 +4262,18 @@ export function relinkAttachments(
  *
  * Returns segment IDs so the caller can clean up the corresponding
  * Qdrant vector entries.
+ *
+ * `retainAttachmentIds` exempts attachments from the orphan cleanup below, for
+ * a caller rolling a message back rather than deleting it: the attachment
+ * returns to the uploaded-but-unlinked state it was in before the row existed,
+ * which is a live state (that is where every attachment sits between upload and
+ * send), not a leak. Callers deleting a message for good pass nothing and the
+ * attachments it alone referenced are collected.
  */
-export function deleteMessageById(messageId: string): DeletedMemoryIds {
+export function deleteMessageById(
+  messageId: string,
+  options?: { retainAttachmentIds?: readonly string[] },
+): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
@@ -4145,7 +4335,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     ...purgeMessageSegments([messageId], "deleteMessageById:post-delete"),
   );
 
-  deleteOrphanAttachments(candidateAttachmentIds);
+  const retainAttachmentIds = options?.retainAttachmentIds;
+  deleteOrphanAttachments(
+    retainAttachmentIds && retainAttachmentIds.length > 0
+      ? candidateAttachmentIds.filter((id) => !retainAttachmentIds.includes(id))
+      : candidateAttachmentIds,
+  );
 
   // Remove the deleted message's point from the lexical index. Enqueued only
   // when the row actually existed (`msgRow` set), after the transaction and

@@ -101,6 +101,13 @@
     "renameErrorToast": "The rename didn't go through. Please try again.",
     "renameSuccessToast": "Say hi to {newName}!",
     "scheduleCadence": "{cadence} · next {nextRun}",
+    "scheduleGhosts": {
+      "inboxTriageCadence": "Every 2 hours",
+      "inboxTriageName": "Inbox triage",
+      "morningBriefingCadence": "Every weekday at 8:00",
+      "morningBriefingName": "Morning briefing"
+    },
+    "setUpSchedule": "Set one up",
     "updateAvatarAndName": "Update avatar and name",
     "viewMoreSchedules": "{count, plural, one {View # more…} other {View # more…}}"
   },

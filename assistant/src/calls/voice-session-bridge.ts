@@ -28,6 +28,7 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   deleteMessageById,
   getMessageById,
@@ -323,6 +324,20 @@ export interface VoiceTurnOptions {
   };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
+  /**
+   * Ids of already-uploaded attachments to hang on this turn's persisted user
+   * message, hydrated here into the shape the message stores.
+   *
+   * Filled by the live-voice session from the camera frame a client parked on
+   * it (`attach_frame`), which is why these are ambient rather than chosen:
+   * they ride the turn's own user message so the picture and the words about it
+   * are one message, and so the media survives a context-overflow retry, which
+   * preserves it only on the newest user message.
+   *
+   * Ids that resolve to nothing are dropped: an unresolvable frame must not
+   * cost the caller their turn.
+   */
+  attachments?: readonly string[];
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
   /** Assistant scope for multi-assistant channels. */
@@ -1023,9 +1038,20 @@ export async function startVoiceTurn(
 
   const requestId = uuidv7();
   const turnId = crypto.randomUUID();
+  // Ids this turn's row actually links, read back by `discardFn` so a rollback
+  // does not take the attachments down with the row.
+  let linkedAttachmentIds: string[] = [];
   const persistTurnUserMessage = async (): Promise<string> => {
+    // Resolved inside the persist, not once outside it, so the retry after a
+    // lost lock race stores exactly what the first attempt would have.
+    const turnAttachments =
+      opts.attachments && opts.attachments.length > 0
+        ? resolveAttachmentsForPersist([...opts.attachments])
+        : [];
+    linkedAttachmentIds = turnAttachments.map((a) => a.id);
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
+      ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
       requestId,
       metadata: {
         // Durable "this turn came from an open voice session" marker; see
@@ -1068,6 +1094,14 @@ export async function startVoiceTurn(
                   : {}),
               },
             }
+          : {}),
+        // Names which of the row's attachments arrived as ambient camera
+        // frames rather than files the user picked, so retention can treat
+        // them differently. `UserMessageAttachment` carries no metadata of its
+        // own, so the marking lives on the message and refers to the
+        // attachments by id.
+        ...(turnAttachments.length > 0
+          ? { sightFrameAttachmentIds: turnAttachments.map((a) => a.id) }
           : {}),
       },
     });
@@ -1865,7 +1899,18 @@ export async function startVoiceTurn(
       // Same rollback pattern as the pointer-turn runner: delete the row,
       // then rebuild in-memory history from the clean DB (a plain pop is
       // fragile against concurrent compaction reassigning the array).
-      deleteMessageById(messageId);
+      //
+      // The row's own attachments are exempted from the orphan cleanup. A
+      // discard unwinds the turn as though it never ran, so an ambient camera
+      // frame goes back to being uploaded-but-unsent, which is exactly what
+      // the live-voice session's parked slot expects to find when the held
+      // utterance is replayed. Collecting it here would delete the row and
+      // the bytes, and the replay would silently speak without the picture.
+      deleteMessageById(messageId, {
+        ...(linkedAttachmentIds.length > 0
+          ? { retainAttachmentIds: linkedAttachmentIds }
+          : {}),
+      });
       await conversation.loadFromDb();
       publishConversationMessagesChanged(opts.conversationId);
     } catch (err) {

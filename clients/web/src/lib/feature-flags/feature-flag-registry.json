@@ -28,6 +28,15 @@
       "values": ["off", "on"]
     },
     {
+      "id": "vision-mode",
+      "scope": "client",
+      "key": "vision-mode",
+      "label": "Vision Mode",
+      "description": "Gates the Eyes camera surface in the web composer: the toggle, the floating viewfinder tile, and the send-frame path are all reachable only through the toggle. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
@@ -178,6 +187,14 @@
       "key": "scroll-debug-overlay",
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "camera-gate-debug-hud",
+      "scope": "client",
+      "key": "camera-gate-debug-hud",
+      "label": "Camera Gate Debug HUD",
+      "description": "Unlock the camera frame gate's tuning readout: the Settings toggle that turns it on, and the live panel over the composer's sight tile and the voice room's viewfinder showing motion, novelty and detail against their thresholds, the check that decided each frame, and sliders that move those thresholds while the camera runs. Staff sessions get it without the flag; the flag is for local gateway sessions, which carry no platform identity and are where the gate is tuned.",
       "defaultEnabled": false
     },
     {
@@ -373,21 +390,13 @@
       "defaultEnabled": true
     },
     {
-      "id": "experiment-balanced-model-2026-08-06",
+      "id": "experiment-balanced-model-2026-08-31",
       "scope": "assistant",
-      "key": "experiment-balanced-model-2026-08-06",
+      "key": "experiment-balanced-model-2026-08-31",
       "label": "Experiment: Balanced Profile Model",
-      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = the shipped pin (accounts/fireworks/models/glm-5p2); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
-      "defaultEnabled": "control",
-      "values": ["control", "terra", "glm-5p2"]
-    },
-    {
-      "id": "obscure-credits",
-      "scope": "client",
-      "key": "obscure-credits",
-      "label": "Obscure Credits",
-      "description": "Obscures raw credit dollar amounts across the web billing surfaces in favor of a usage-relative view. The Plan section's current-plan tile trades its price footer for a Usage Balance bar and its credits spec chip reads \"<Package> usage, reset monthly\"; the plans takeover, custom-plan modal, and Pro provisioning takeover swap dollar credit wording for the catalog's usage labels; the Credits balance tile and the chat preferences menu show only credit bought or earned beyond the plan's included grants. Chat low-balance and daily-limit banners still name credits. Off leaves every surface exactly as it ships today.",
-      "defaultEnabled": false
+      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. glm-5p3-flash = the shipped pin (accounts/fireworks/models/glm-5p3-flash); glm-5p3 = accounts/fireworks/models/glm-5p3; glm-5p2 = accounts/fireworks/models/glm-5p2. Replaces experiment-balanced-model-2026-08-06, which ended on 2026-08-31: the activation cohort keys a user on their first-ever assignment per flag, so a new arm on the old key could never enrol a user the old test already stamped. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to the shipped pin.",
+      "defaultEnabled": "glm-5p3-flash",
+      "values": ["glm-5p3-flash", "glm-5p3", "glm-5p2"]
     },
     {
       "id": "ios-avatar-app-icon",
@@ -395,6 +404,14 @@
       "key": "ios-avatar-app-icon",
       "label": "iOS Avatar App Icon",
       "description": "Shows the App icon picker in Settings -> General, where any user chooses an eyes-on-color home screen icon for iOS, seeds the picker from their assistant's character avatar, or resets to the default. Every change is a press, and iOS confirms each one with an alert of its own. Off hides the picker and leaves the default icon in place.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "android-avatar-app-icon",
+      "scope": "client",
+      "key": "android-avatar-app-icon",
+      "label": "Android Avatar App Icon",
+      "description": "Shows the App icon picker in Settings -> General on Android, where any user chooses an eyes-on-color launcher icon, seeds the picker from their assistant's character avatar, or resets to the default. Android applies the change when the app goes to the background, and switching icons can reset a pinned home-screen shortcut. Off hides the picker and leaves the default icon in place.",
       "defaultEnabled": false
     },
     {
@@ -419,6 +436,14 @@
       "key": "chatgpt-device-code-login",
       "label": "ChatGPT Device Code Login",
       "description": "Gates the device-code sign-in as the primary ChatGPT subscription connect flow in the web client. Off: the redirect-and-paste flow is the only flow the connect section shows, with no device code UI and no other-sign-in-options disclosure. On: device code leads, and the redirect-and-paste flow stays reachable behind that disclosure and takes the section over when the assistant has no device-auth route.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "model-first-profile-create",
+      "scope": "client",
+      "key": "model-first-profile-create",
+      "label": "Model-First Profile Create",
+      "description": "Reverses the two questions the web client's New Model modal asks when creating an inference profile. Off: the modal asks for a provider first and then offers that provider's models. On: it opens on one searchable list of every catalog model the assistant can reach, deduplicated across providers, and only then asks which provider serves the chosen model. That second question is skipped when a single provider serves it, answered with radio cards when several do, and turned into an inline connect form (API key, setup, or ChatGPT sign-in) when the chosen route has no connection yet. Editing an existing profile is unchanged either way, and both flows persist the same profile shape.",
       "defaultEnabled": false
     }
   ]

@@ -22,10 +22,10 @@ import {
   GUARDIAN_REQUESTS_IPC_METHODS,
   GetGuardianRequestByCallSessionIpcParamsSchema,
   GetGuardianRequestByCodeIpcParamsSchema,
-  GetGuardianRequestByDestinationMessageIpcParamsSchema,
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GetGuardianRequestIpcParamsSchema,
   GuardianRequestInScopeIpcParamsSchema,
+  ListGuardianRequestDeliveriesByChatIpcParamsSchema,
   ListGuardianRequestDeliveriesIpcParamsSchema,
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
@@ -45,10 +45,10 @@ import {
   getGuardianRequest,
   getGuardianRequestByCode,
   getPendingRequestByCallSession,
-  getPendingRequestByDestinationMessage,
   getRequestByPendingQuestion,
   isGuardianRequestInScope,
   listGuardianRequestDeliveries,
+  listGuardianRequestDeliveriesByChat,
   listGuardianRequests,
   listPendingRequestsByDestination,
   listPendingRequestsByScope,
@@ -188,14 +188,15 @@ export const guardianRequestRoutes: IpcRoute[] = [
     },
   },
   {
-    // Reaction routing: the pending request whose delivered card is the
-    // reacted-to message.
-    method: GUARDIAN_REQUESTS_IPC_METHODS.getByDestinationMessage,
-    schema: GetGuardianRequestByDestinationMessageIpcParamsSchema,
+    // Transcript importers: the delivery rows addressed to one chat, so
+    // guardian card messages can be recognized as projections rather
+    // than imported as conversation content.
+    method: GUARDIAN_REQUESTS_IPC_METHODS.listDeliveriesByChat,
+    schema: ListGuardianRequestDeliveriesByChatIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { channel, chatId, messageId } =
-        GetGuardianRequestByDestinationMessageIpcParamsSchema.parse(params);
-      return getPendingRequestByDestinationMessage(channel, chatId, messageId);
+      const { channel, chatId } =
+        ListGuardianRequestDeliveriesByChatIpcParamsSchema.parse(params);
+      return listGuardianRequestDeliveriesByChat(channel, chatId);
     },
   },
   {
@@ -222,10 +223,10 @@ export const guardianRequestRoutes: IpcRoute[] = [
     method: GUARDIAN_REQUESTS_IPC_METHODS.inScope,
     schema: GuardianRequestInScopeIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { requestId, conversationId, channel } =
+      const { requestId, conversationId } =
         GuardianRequestInScopeIpcParamsSchema.parse(params);
       return {
-        inScope: isGuardianRequestInScope(requestId, conversationId, channel),
+        inScope: isGuardianRequestInScope(requestId, conversationId),
       };
     },
   },

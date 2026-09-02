@@ -1,4 +1,8 @@
-import type { ContentBlock, Message } from "../providers/types.js";
+import {
+  attachmentIdFragment,
+  type ContentBlock,
+  type Message,
+} from "../providers/types.js";
 import { optimizeImageForTransport } from "./image-optimize.js";
 
 export interface MessageAttachmentInput {
@@ -91,6 +95,7 @@ export function attachmentsToContentBlocks(
             media_type: mediaType,
             data,
           },
+          ...attachmentIdFragment(attachment.id),
         } as ContentBlock;
       }
 
@@ -103,7 +108,7 @@ export function attachmentsToContentBlocks(
           filename: attachment.filename,
         },
         extracted_text: attachment.extractedText,
-        ...(attachment.id ? { _attachmentId: attachment.id } : {}),
+        ...attachmentIdFragment(attachment.id),
       } as ContentBlock;
     }),
   );

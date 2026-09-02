@@ -423,7 +423,13 @@ export function createGuardianGatewaySim() {
     if (!row) {
       throw new Error(`sim: delivery ${id} not found`);
     }
-    Object.assign(row, patch, { updatedAt: Date.now() });
+    // Mirrors the gateway store: `withdrawn` is a terminal per-surface
+    // receipt a later status patch never overwrites.
+    const effectivePatch =
+      row.status === "withdrawn" && patch.status !== undefined
+        ? { ...patch, status: row.status }
+        : patch;
+    Object.assign(row, effectivePatch, { updatedAt: Date.now() });
   }
 
   async function listGuardianRequestDeliveries(
@@ -435,23 +441,17 @@ export function createGuardianGatewaySim() {
       .map((d) => ({ ...d }));
   }
 
-  async function getPendingRequestByDestinationMessage(
+  async function listGuardianRequestDeliveriesByChat(
     channel: string,
     chatId: string,
-    messageId: string,
-  ): Promise<SimGuardianRequest | null> {
+  ): Promise<SimGuardianDelivery[]> {
     throwIfReadError();
-    const delivery = deliveries.find(
-      (d) =>
-        d.destinationChannel === channel &&
-        d.destinationChatId === chatId &&
-        d.destinationMessageId === messageId,
-    );
-    if (!delivery) {
-      return null;
-    }
-    const request = requests.get(delivery.requestId);
-    return request?.status === "pending" ? { ...request } : null;
+    return deliveries
+      .filter(
+        (d) =>
+          d.destinationChannel === channel && d.destinationChatId === chatId,
+      )
+      .map((d) => ({ ...d }));
   }
 
   async function listPendingRequestsByDestination(params: {
@@ -521,7 +521,6 @@ export function createGuardianGatewaySim() {
   async function isGuardianRequestInScope(
     requestId: string,
     conversationId: string,
-    channel?: string,
   ): Promise<boolean> {
     throwIfReadError();
     const request = requests.get(requestId);
@@ -534,8 +533,7 @@ export function createGuardianGatewaySim() {
     return deliveries.some(
       (d) =>
         d.requestId === requestId &&
-        d.destinationConversationId === conversationId &&
-        (!channel || d.destinationChannel === channel),
+        d.destinationConversationId === conversationId,
     );
   }
 
@@ -592,6 +590,7 @@ export function createGuardianGatewaySim() {
     getGuardianRequest,
     getGuardianRequestOrNull: degrade(getGuardianRequest, null),
     getGuardianRequestByCodeOrNull: degrade(getGuardianRequestByCode, null),
+    listGuardianRequests,
     listGuardianRequestsOrEmpty: degrade(listGuardianRequests, []),
     updateGuardianRequest,
     decideGuardianRequest,
@@ -601,13 +600,10 @@ export function createGuardianGatewaySim() {
     createGuardianRequestDelivery,
     updateGuardianRequestDelivery,
     listGuardianRequestDeliveries,
+    listGuardianRequestDeliveriesByChat,
     listGuardianRequestDeliveriesOrEmpty: degrade(
       listGuardianRequestDeliveries,
       [],
-    ),
-    getPendingRequestByDestinationMessageOrNull: degrade(
-      getPendingRequestByDestinationMessage,
-      null,
     ),
     listPendingRequestsByDestinationOrEmpty: degrade(
       listPendingRequestsByDestination,

@@ -229,7 +229,7 @@ User messages are scanned at ingress (`secret-ingress.ts`) against known credent
 | Component           | Location                                               | What it stores                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Secret values       | CES credential store or encrypted file store           | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
-| Credential metadata | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
+| Credential records  | CES `<cesDataRoot>/metadata.json`                      | Service, field, alias, policy (`allowedTools`, `allowedDomains`, `injectionTemplates`), timestamps. Served over CES RPC/HTTP.                                    |
 | Config              | `$VELLUM_WORKSPACE_DIR/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend, blockTokenShapedMessages (default `true` — whole-message token-shape heuristic)             |
 
 ### Key Files

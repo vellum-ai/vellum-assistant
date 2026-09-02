@@ -120,7 +120,7 @@ Scoped approval grants allow a guardian's approval decision on one channel (e.g.
 
 ### Guardian Decision Primitive
 
-All guardian approval decisions — regardless of how they arrive — route through a single primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel reactions/text.
+All guardian approval decisions, regardless of how they arrive, route through a single primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel text replies.
 
 **Core API:**
 
@@ -2066,7 +2066,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | ---------------------------------------- | ------------------------------------------------------ | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
 | API key                                  | CES / encrypted file store                             | Encrypted binary                    | CES API / `secure-keys.ts`         | Permanent                                               |
 | Credential secrets                       | CES / encrypted file store                             | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
-| Credential metadata                      | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
+| Credential records                       | CES `<cesDataRoot>/metadata.json`                      | JSON                                | CES RPC/HTTP + atomic file write   | Permanent (until deleted via tool)                      |
 | Integration OAuth tokens                 | CES / encrypted file store (via `secure-keys.ts`)      | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
 | User preferences                         | UserDefaults                                           | plist                               | Foundation                         | Permanent                                               |
 | Session logs                             | `~/Library/.../logs/session-*.json`                    | JSON per session                    | Swift Codable                      | Unbounded                                               |

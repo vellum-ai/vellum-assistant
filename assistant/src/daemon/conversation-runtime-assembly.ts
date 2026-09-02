@@ -27,8 +27,9 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
+  MEMORY_SPOTLIGHT_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
-  stripSpotlightInjections,
+  stripTailUserTextBlocksByPrefix,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
@@ -48,6 +49,7 @@ import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
+  selectSightFrameCaptureTimes,
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
@@ -63,6 +65,7 @@ import {
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_SPOTLIGHT_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -76,8 +79,14 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { getLogger } from "../util/logger.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import {
+  hasAttributableImages,
+  resolveSightKeepLatestFrames,
+  stripAgedSightFrames,
+} from "./conversation-sight-frames.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {} from "./message-protocol.js";
@@ -88,6 +97,8 @@ import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
 export { stripInjectionsForCompaction } from "../context/strip-injections.js";
+
+const log = getLogger("conversation-runtime-assembly");
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -737,6 +748,64 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
 }
 
+// ---------------------------------------------------------------------------
+// Camera-frame retention
+// ---------------------------------------------------------------------------
+
+/**
+ * Trim the conversation's ambient camera frames down to the newest
+ * `sight.keepLatestFrames`, replacing the rest with text stubs.
+ *
+ * A camera call samples a frame every few seconds, and history resends
+ * every inline image on every later request, so an hour-long call otherwise
+ * grows its own context until the provider rejects it. Trimming here, on the
+ * assembled copy the turn is about to send, keeps the stored transcript and its
+ * attachments intact.
+ *
+ * The tag that names the frames is per-row metadata, and the assembled
+ * `Message[]` omits row metadata, so the ids are read back from the rows and
+ * matched against the attachment id each image block carries: `workspace_ref`
+ * on a reloaded block, `_attachmentId` on the live copy a turn pushed. One
+ * uninterrupted call and a reloaded conversation therefore trim from the same
+ * pool. A conversation with no tagged rows returns the input array unchanged.
+ *
+ * Called twice over a turn that compacts: once before the run, and again on the
+ * rebuilt history the agent loop installs, since compaction reads the stored
+ * rows and can retain frames this pass had already stubbed.
+ *
+ * Best-effort: this trims cost, it does not decide what the turn means, so a
+ * failed read degrades to the untrimmed history rather than failing the turn.
+ */
+export function applySightFrameRetention(
+  messages: Message[],
+  conversationId: string,
+): Message[] {
+  // A frame always traces back to an attachment row, so a history holding no
+  // attributable image can be answered without reading any rows. That is the
+  // overwhelming majority of turns, and this pass sits on the per-turn critical
+  // path.
+  if (!hasAttributableImages(messages)) {
+    return messages;
+  }
+  try {
+    const captureTimes = selectSightFrameCaptureTimes(conversationId);
+    if (captureTimes.size === 0) {
+      return messages;
+    }
+    return stripAgedSightFrames(
+      messages,
+      captureTimes,
+      resolveSightKeepLatestFrames(),
+    ).messages;
+  } catch (err) {
+    log.warn(
+      { conversationId, err },
+      "Camera-frame retention failed (non-fatal)",
+    );
+    return messages;
+  }
+}
+
 /**
  * Build the `<channel_capabilities>` block text for the given capabilities, or
  * `null` on the happy path (desktop, full capabilities, no special context)
@@ -754,7 +823,8 @@ export function buildChannelCapabilityBlock(
     caps.supportsVoiceInput &&
     !isGroupChatType(caps.chatType) &&
     clientOs !== "macos" &&
-    clientOs !== "windows"
+    clientOs !== "windows" &&
+    clientOs !== "linux"
   ) {
     return null;
   }
@@ -779,6 +849,13 @@ export function buildChannelCapabilityBlock(
     lines.push("");
     lines.push(
       "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths. Prefer PowerShell or CLI automation over foreground computer use when either can complete the task reliably.",
+    );
+  }
+
+  if (clientOs === "linux") {
+    lines.push("");
+    lines.push(
+      "On Linux, prefer CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
     );
   }
 
@@ -1810,6 +1887,13 @@ export interface RuntimeInjectionBlocks {
    */
   memoryV3InjectedBlock?: string;
   /**
+   * Rendered `<memory_spotlight>` body spliced onto this turn's user
+   * message. Persisted by the user-prompt-submit hook under
+   * `metadata.memoryV3SpotlightBlock`. Historical turns keep the block they
+   * were sent with; a new spotlight is added only on the new tail.
+   */
+  memoryV3SpotlightBlock?: string;
+  /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
    * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
@@ -1998,6 +2082,7 @@ function applyInjectionBlock(
       ];
     }
   }
+  return runMessages;
 }
 
 /**
@@ -2230,7 +2315,7 @@ function fallbackTurnTrust(
  *     the user tail content.
  *
  * Returns the final message array plus a `blocks` object holding the exact
- * injected text for each captured block — callers persist those bytes to
+ * injected text for each captured block. Callers persist those bytes to
  * message metadata for later byte-exact rehydration.
  */
 export async function applyRuntimeInjections(
@@ -2444,6 +2529,7 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let memoryV3SpotlightCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2493,6 +2579,11 @@ export async function applyRuntimeInjections(
           }
           break;
         }
+        case MEMORY_V3_SPOTLIGHT_BLOCK_ID:
+          if (block.text.length > 0) {
+            memoryV3SpotlightCaptured = block.text;
+          }
+          break;
       }
     }
   }
@@ -2511,16 +2602,19 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: memory-v3 ephemeral-spotlight strip + v2 tail suppression ──
+  // ── Step 0: tail spotlight strip + v2 tail suppression ──
   //
-  // Spotlight strip (unconditional): the `<memory_spotlight>` block is
-  // ephemeral by contract — re-rendered at the current tail each turn — so any
-  // spotlight riding history from a previous turn is stale and is removed
-  // here. This is a SCOPED strip of only that block id: the frozen `<memory>`
-  // card blocks on historical messages are untouched (the cache contract).
-  // With the v3 flag off no spotlight blocks exist and this is a content
-  // no-op, keeping the v2 path bit-for-bit identical.
-  let runMessagesForAssembly = stripSpotlightInjections(runMessages);
+  // Spotlight strip (tail only): mid-turn re-entry and post-compact can
+  // hand back a tail that already carries this turn's `<memory_spotlight>`.
+  // Strip that leftover from the tail so Step 2 splices a single fresh
+  // copy. Historical user messages keep the spotlight they were sent with,
+  // so the provider prefix through those messages stays byte-identical.
+  // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
+  // spotlight blocks exist and this is a content no-op.
+  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(
+    runMessages,
+    [MEMORY_SPOTLIGHT_MATCHER],
+  );
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2727,6 +2821,7 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3SpotlightBlock: memoryV3SpotlightCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

@@ -19,33 +19,18 @@
  */
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import {
-  getActiveOrganizationIdForRequests,
-  useOrganizationStore,
-} from "@/stores/organization-store";
-import { isAuthenticated } from "@/stores/session-status";
-import { requestScopeKey } from "@/utils/request-scope-key";
+import { useOrganizationStore } from "@/stores/organization-store";
+import { currentRequestScopeKey } from "@/stores/request-scope";
 
 /**
- * The identity client flags currently evaluate against.
- *
- * The organization comes from `getActiveOrganizationIdForRequests()` — the
- * same derivation that builds `Vellum-Organization-Id` and that
- * `useOrgHeaderReadiness()` releases the fetch on — so the scope names whoever
- * the server actually evaluated for. The store's resolved id alone would not:
- * it is null while the persisted id is carrying requests, which stamps an
- * organization's evaluation as belonging to no organization at all.
+ * The identity client flags currently evaluate against: the scope the request
+ * that fetched them carried, so the key names whoever the server evaluated for.
  *
  * Agreement is enforced rather than assumed: values carry the scope they were
  * produced under, and the store drops any the scope in hand no longer answers.
  */
 export function currentClientFlagScopeKey(): string {
-  const { sessionStatus, user } = useAuthStore.getState();
-  return requestScopeKey({
-    isAuthenticated: isAuthenticated(sessionStatus),
-    userId: user?.id,
-    organizationId: getActiveOrganizationIdForRequests(),
-  });
+  return currentRequestScopeKey();
 }
 
 /**

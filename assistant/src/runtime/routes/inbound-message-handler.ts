@@ -21,6 +21,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
+import { listGuardianRequestDeliveriesByChat } from "../../channels/gateway-guardian-requests.js";
 import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
@@ -45,6 +46,7 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
@@ -67,7 +69,10 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
-import { mergeProviderMessageMetadata } from "../../messaging/read-provider-metadata.js";
+import {
+  mergeProviderMessageMetadata,
+  readProviderMetadata,
+} from "../../messaging/read-provider-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
 import {
   attachInlineAttachmentToMessage,
@@ -90,8 +95,11 @@ import {
 import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversation-title-service.js";
 import {
   clearPayload,
+  DELETE_PROVIDER_MESSAGE_ID_MAX_SCAN,
+  findMessageByProviderMessageId,
   findMessageBySourceId,
   hasInboundEventForSource,
+  hasUnreconciledOutboundRow,
   recordInbound,
 } from "../../persistence/delivery-crud.js";
 import { markProcessed } from "../../persistence/delivery-status.js";
@@ -148,6 +156,13 @@ const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
 // EDIT_LOOKUP_RETRIES / EDIT_LOOKUP_DELAY_MS constants.
 let deleteLookupRetries = 5;
 let deleteLookupDelayMs = 2000;
+/**
+ * Attempts during which a delete with no inbound event keeps retrying the
+ * envelope lane: an assistant post's provider id lands with the post-send
+ * reconciliation, one delivery round-trip behind the post itself, so a
+ * couple of backoff steps bridge an automated deletion that outruns it.
+ */
+const deleteOutboundReconcileRetries = 2;
 
 interface SlackActorTimezoneMetadata {
   timezone?: string;
@@ -433,13 +448,13 @@ export async function handleChannelInbound({
   // pipeline (ACL, admission floor, disk-pressure, conversation binding) so a
   // 👍 never triggers a verification handshake or an access-request
   // notification, and a stranger's reaction creates no conversation/binding.
-  // The interceptor drops strangers, records known contacts' reactions as
-  // transcript signals in the conversation of the reacted message, and routes
-  // a guardian's reaction on an approval card through the guardian decision
-  // pipeline. Reactions never mint a conversation and never drive an agent
-  // turn. A family member whose payload does not resolve (no emoji or no
-  // target message id) is dropped as noise here: the kind names the family,
-  // so it must never fall through and be read as a message.
+  // The interceptor drops strangers and records an admitted actor's reaction
+  // as a transcript signal in the conversation of the reacted message.
+  // Reactions never mint a conversation; the one that wakes a turn (a
+  // reaction on the assistant's own post) is the interceptor's call. A family member whose payload does not
+  // resolve (no emoji or no target message id) is dropped as noise here:
+  // the kind names the family, so it must never fall through and be read
+  // as a message.
   if (isReactionEvent(body)) {
     const reaction = resolveInboundReactionPayload(body);
     if (!reaction) {
@@ -461,7 +476,6 @@ export async function handleChannelInbound({
       actorUsername: body.actorUsername,
       replyCallbackUrl: body.replyCallbackUrl,
       sourceMetadata: body.sourceMetadata,
-      approvalConversationGenerator,
     });
   }
 
@@ -555,20 +569,38 @@ export async function handleChannelInbound({
     // that window is silently dropped and the deletion signal is lost.
     let original: { messageId: string; conversationId: string } | null = null;
     for (let attempt = 0; attempt <= deleteLookupRetries; attempt++) {
-      original = findMessageBySourceId(
-        sourceChannel,
-        conversationExternalId,
-        deletedMessageTs,
-      );
+      // Two resolution lanes, each with its own race. An inbound row's
+      // event is written before its message link lands (retried until
+      // `hasInboundEventForSource` says the source was never ingested). An
+      // assistant post opens no inbound event; its provider id is written
+      // by the post-send reconciliation, which an automated deletion can
+      // outrun, so the envelope lane retries within the same bounded
+      // window rather than giving up on the first miss.
+      original =
+        findMessageBySourceId(
+          sourceChannel,
+          conversationExternalId,
+          deletedMessageTs,
+        ) ??
+        findMessageByProviderMessageId(
+          sourceChannel,
+          conversationExternalId,
+          deletedMessageTs,
+        );
       if (original) {
         break;
       }
-      // The retry window exists for one race: the original's inbound-event
-      // row is written before its message link lands. A source with no row
-      // at all was never ingested, so nothing can appear by waiting, and
-      // waiting would hold this conversation's serialized lane through the
-      // full miss window for every unrelated delete a busy room produces.
+      // A source with no inbound row was either never ingested (nothing can
+      // appear by waiting) or is an assistant post racing its post-send id
+      // reconciliation. Only the second earns a wait, and it leaves
+      // evidence: a recent outbound row whose envelope names no id yet.
+      // Without that evidence the miss is final, so an unrelated delete in
+      // a busy room never holds the serialized lane through the window.
+      const raceStillPossible =
+        attempt < deleteOutboundReconcileRetries &&
+        hasUnreconciledOutboundRow(sourceChannel, conversationExternalId);
       if (
+        !raceStillPossible &&
         !hasInboundEventForSource(
           sourceChannel,
           conversationExternalId,
@@ -585,13 +617,24 @@ export async function handleChannelInbound({
             attempt: attempt + 1,
             maxAttempts: deleteLookupRetries,
           },
-          "Original message not linked yet, retrying delete lookup",
+          "Original message not resolved yet, retrying delete lookup",
         );
         await new Promise((resolve) =>
           setTimeout(resolve, deleteLookupDelayMs),
         );
       }
     }
+
+    // Recency-capped misses above could still be an OLD assistant post:
+    // deletion can target one arbitrarily far back, so the last resort is a
+    // single deep scan. Once, after the retries: age and race are exclusive
+    // (a post old enough to be past the recent window reconciled long ago).
+    original ??= findMessageByProviderMessageId(
+      sourceChannel,
+      conversationExternalId,
+      deletedMessageTs,
+      { maxScan: DELETE_PROVIDER_MESSAGE_ID_MAX_SCAN },
+    );
 
     if (!original) {
       log.debug(
@@ -617,19 +660,48 @@ export async function handleChannelInbound({
         : null;
 
     if (!existingSlackMeta) {
-      const providerMeta = mergeProviderMessageMetadata(
-        row?.metadata ?? null,
-        {
-          source: sourceChannel,
-          conversationExternalId,
-          messageId: deletedMessageTs,
-          ...(sourceMetadata?.threadId
-            ? { threadId: sourceMetadata.threadId }
-            : {}),
-        },
-        { deletedAt: Date.now() },
-      );
+      // Deletion is tracked per provider post: a split reply's row names
+      // several posts, and deleting one must not read as the whole reply
+      // vanishing. The row-level `deletedAt` lands only when every post the
+      // row names is gone; a row whose envelope names no id (a legacy row
+      // synthesized from lookup facts) is single-post by construction and
+      // keeps the direct stamp.
+      const base = readProviderMetadata(row?.metadata ?? null, {
+        allowFlatLegacy: true,
+      });
+      let providerMeta: string;
+      if (base?.messageId) {
+        const rowPostIds = [
+          base.messageId,
+          ...(base.additionalMessageIds ?? []),
+        ];
+        const deletedIds = Array.from(
+          new Set([...(base.deletedMessageIds ?? []), deletedMessageTs]),
+        );
+        const fullyDeleted = rowPostIds.every((id) => deletedIds.includes(id));
+        providerMeta = JSON.stringify({
+          ...base,
+          deletedMessageIds: deletedIds,
+          ...(fullyDeleted ? { deletedAt: Date.now() } : {}),
+        });
+      } else {
+        providerMeta = mergeProviderMessageMetadata(
+          row?.metadata ?? null,
+          {
+            source: sourceChannel,
+            conversationExternalId,
+            messageId: deletedMessageTs,
+            ...(sourceMetadata?.threadId
+              ? { threadId: sourceMetadata.threadId }
+              : {}),
+          },
+          { deletedAt: Date.now() },
+        );
+      }
       updateMessageMetadata(original.messageId, { providerMeta });
+      // The stamp lands in the store only; stale-marking makes a resident
+      // conversation's next turn reload and see the row as deleted.
+      findConversation(original.conversationId)?.markHistoryStale();
       log.info(
         {
           conversationExternalId,
@@ -650,6 +722,7 @@ export async function handleChannelInbound({
     // (channel, interface, provenance, etc.) untouched. Content column
     // is intentionally not updated.
     updateMessageMetadata(original.messageId, { slackMeta: updatedSlackMeta });
+    findConversation(original.conversationId)?.markHistoryStale();
 
     log.info(
       {
@@ -1412,6 +1485,30 @@ export async function handleChannelInbound({
             }
           : undefined;
 
+      // Neutral per-row envelope for every non-Slack channel, mirroring the
+      // Slack capture above field for field: it is persisted as the row's
+      // `providerMeta` so the row can say which external message it is, in
+      // which thread, from whom. Slack keeps its own `slackMeta` envelope
+      // (mapped to the neutral shape on read), so nothing is stored twice.
+      const inboundActorDisplayName =
+        body.actorDisplayName ?? body.actorUsername;
+      const channelInbound: ProviderMessageMetadata | undefined =
+        sourceChannel !== "slack"
+          ? {
+              source: sourceChannel,
+              conversationExternalId,
+              messageId: sourceMessageId ?? externalMessageId,
+              eventKind: "message",
+              ...(channelThreadId ? { threadId: channelThreadId } : {}),
+              ...(inboundActorDisplayName
+                ? { displayName: inboundActorDisplayName }
+                : {}),
+              ...(trustCtx.requesterExternalUserId
+                ? { actorExternalId: trustCtx.requesterExternalUserId }
+                : {}),
+            }
+          : undefined;
+
       // Account identifier threaded into backfill so `resolveConnection()`
       // can pick the right workspace in multi-account setups. Best-effort:
       // the gateway forwards `sourceMetadata.account` when it knows which
@@ -1519,6 +1616,7 @@ export async function handleChannelInbound({
         clientTimezone: inboundClientTimezone,
         slackBotMentioned,
         slackInbound,
+        channelInbound,
       });
     }
   }
@@ -2138,6 +2236,19 @@ async function runBackfillSlackDmIfCold(params: {
       return;
     }
 
+    // Guardian approval cards posted to this chat are delivery
+    // projections of canonical requests, never conversation content, so
+    // their message ts must not be imported as transcript rows. The
+    // gateway delivery registry is the authority on which messages
+    // those are (it covers cards from every daemon build). An
+    // unreachable gateway aborts the backfill rather than importing a
+    // card: the DM stays cold, so the next inbound message retries.
+    const guardianCardTs = new Set(
+      (await listGuardianRequestDeliveriesByChat("slack", params.channelId))
+        .map((delivery) => delivery.destinationMessageId)
+        .filter((ts): ts is string => typeof ts === "string" && ts.length > 0),
+    );
+
     const seen = readStoredSlackChannelTs(params.conversationId);
     let written = 0;
     // Slack's conversation.history returns most-recent first. Reverse so
@@ -2147,6 +2258,9 @@ async function runBackfillSlackDmIfCold(params: {
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
       if (seen.has(message.id)) {
+        continue;
+      }
+      if (guardianCardTs.has(message.id)) {
         continue;
       }
       if (await isSlackAssistantThreadPlaceholder(message, params.account)) {

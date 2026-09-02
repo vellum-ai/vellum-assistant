@@ -1,4 +1,8 @@
 import {
+  isNoResponseOnlyText,
+  isPotentialNoResponsePrefix,
+} from "@vellumai/service-contracts/no-response";
+import {
   Fragment,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -45,6 +49,7 @@ import {
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
+  isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { ResponseArtifactCard } from "@/domains/chat/transcript/response-artifact-card";
@@ -792,10 +797,20 @@ export function TranscriptMessageBody({
     surface: ConversationMessageSurface,
     key: string,
   ): ReactNode => {
+    const displaySurface = wireSurfaceToDisplay(surface);
+    // The plan card has one home now, and it is not the transcript: the
+    // progress rail (desktop) / sticky card (mobile) follows the newest plan
+    // from a fixed position, so it stays readable while the assistant works
+    // instead of scrolling away mid-run. Drawing it here too would leave a
+    // stale second copy of a card that is already on screen. See
+    // `useLatestTaskProgress`.
+    if (isTaskProgressSurface(displaySurface)) {
+      return null;
+    }
     return (
       <div key={key} className="w-full">
         <SurfaceRouter
-          surface={wireSurfaceToDisplay(surface)}
+          surface={displaySurface}
           onAction={onSurfaceAction}
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
@@ -921,7 +936,8 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -1034,6 +1050,19 @@ export function TranscriptMessageBody({
     if (group.type === "text") {
       const isSmoothedTrailing =
         gi === lastGroupIndex && smoothedTrailingText !== null;
+      // A live-streamed sentinel (or a prefix that could still become one)
+      // is held back from display, mirroring the Slack stream's own
+      // partial-sentinel suppression: once the turn settles, the fold marks
+      // the message isNoResponse and the quiet marker takes over.
+      if (
+        isStreaming &&
+        !isUser &&
+        gi === lastGroupIndex &&
+        (isNoResponseOnlyText(group.text.trim()) ||
+          isPotentialNoResponsePrefix(group.text))
+      ) {
+        return null;
+      }
       // `useSmoothStreamText` returns the target string itself (identity,
       // not a copy) once the reveal has drained the backlog — that identity
       // check is what flips the sweep from "revealing" to "caughtUp".

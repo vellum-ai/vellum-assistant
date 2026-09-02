@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/components/onboarding-layout";
+import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
@@ -52,7 +53,10 @@ export function StartScreen() {
               fullWidth
               className="h-11 text-base"
               onClick={() =>
-                void navigate(routes.onboarding.privacy, SETUP_NAVIGATE)
+                void navigate(
+                  `${routes.onboarding.privacy}?${NEW_ASSISTANT_PARAM}=1`,
+                  SETUP_NAVIGATE,
+                )
               }
             >
               {t("startScreen.createAssistant")}

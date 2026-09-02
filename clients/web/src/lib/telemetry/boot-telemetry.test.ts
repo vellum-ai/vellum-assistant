@@ -2,10 +2,26 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { publish } from "@/lib/event-bus";
 
-const postTelemetryEvents = mock(() => {});
+interface SentEvent {
+  checkName: string;
+  value: number | null;
+  detail: Record<string, unknown>;
+  daemonEventId?: string;
+}
+
+const sendClientWatchdogEvent = mock((_event: SentEvent) => {});
+const setClientPerfBootId = mock((_id: string) => {});
 let consent = true;
 
-mock.module("@/lib/telemetry/ingest", () => ({ postTelemetryEvents }));
+// A complete factory rather than a spread of the actual module: the real
+// `client-perf.ts` is the transport layer, and importing it here would drag
+// the daemon SDK client graph into a test that never sends anything.
+mock.module("@/lib/telemetry/client-perf", () => ({
+  sendClientWatchdogEvent,
+  setClientPerfBootId,
+  emitClientPerfEvent: mock(() => {}),
+  __resetClientPerfForTests: mock(() => {}),
+}));
 mock.module("@/lib/telemetry/consent", () => ({
   readAnalyticsConsent: () => consent,
 }));
@@ -20,21 +36,28 @@ const {
   TERMINAL_FLUSH_GRACE_MS,
 } = await import("@/lib/telemetry/boot-telemetry");
 
-/** The events from the most recent flush. */
-function lastBatch(): Array<Record<string, unknown>> {
-  const call = postTelemetryEvents.mock.calls.at(-1) as
-    | [Array<Record<string, unknown>>]
-    | undefined;
-  return call?.[0] ?? [];
+function lastSent(): SentEvent {
+  const call = sendClientWatchdogEvent.mock.calls.at(-1);
+  expect(call).toBeDefined();
+  return call![0];
 }
 
-function checkNames(): string[] {
-  return lastBatch().map((event) => String(event.check_name));
+/** The single `client_boot` event from the most recent flush. */
+function bootEvent(): SentEvent {
+  const event = lastSent();
+  expect(event.checkName).toBe("client_boot");
+  return event;
+}
+
+/** The per-mark duration map inside the boot event's detail. */
+function bootMarks(): Record<string, number> {
+  return bootEvent().detail.marks as Record<string, number>;
 }
 
 beforeEach(() => {
   __resetBootTelemetryForTests();
-  postTelemetryEvents.mockClear();
+  sendClientWatchdogEvent.mockClear();
+  setClientPerfBootId.mockClear();
   consent = true;
 });
 
@@ -68,25 +91,25 @@ describe("bootRouteLabel", () => {
 });
 
 describe("markBoot", () => {
-  test("buffers marks and emits one watchdog event per mark on flush", () => {
+  test("buffers marks and flushes ONE event carrying the whole waterfall", () => {
     startBootTelemetry();
     markBoot("safe_area_ready", { value: 100 });
     markBoot("session_ready", { value: 250 });
     markBoot("react_mount", { value: 300 });
 
-    expect(postTelemetryEvents).not.toHaveBeenCalled();
+    expect(sendClientWatchdogEvent).not.toHaveBeenCalled();
 
     flushBootTelemetry();
 
-    const batch = lastBatch();
-    expect(batch).toHaveLength(3);
-    expect(checkNames()).toEqual([
-      "client_boot.safe_area_ready",
-      "client_boot.session_ready",
-      "client_boot.react_mount",
-    ]);
-    expect(batch.map((e) => e.value)).toEqual([100, 250, 300]);
-    expect(batch.every((e) => e.type === "watchdog")).toBe(true);
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
+    expect(bootMarks()).toMatchObject({
+      safe_area_ready: 100,
+      session_ready: 250,
+      react_mount: 300,
+    });
+    // No terminal mark landed, so the boot has no scalar and no outcome.
+    expect(bootEvent().value).toBeNull();
+    expect(bootEvent().detail.outcome).toBeNull();
   });
 
   test("first write wins, so a later navigation cannot overwrite a cold mark", () => {
@@ -95,10 +118,7 @@ describe("markBoot", () => {
     markBoot("transcript_painted", { value: 9_000 });
     flushBootTelemetry();
 
-    const painted = lastBatch().find(
-      (e) => e.check_name === "client_boot.transcript_painted",
-    );
-    expect(painted?.value).toBe(500);
+    expect(bootMarks().transcript_painted).toBe(500);
   });
 
   test("a terminal mark does not flush synchronously, it arms a grace window", async () => {
@@ -110,15 +130,14 @@ describe("markBoot", () => {
     markBoot("transcript_painted", { value: 700 });
     markBoot("chat_interactive", { value: 800 });
 
-    expect(postTelemetryEvents).not.toHaveBeenCalled();
+    expect(sendClientWatchdogEvent).not.toHaveBeenCalled();
 
-    // A late vital still makes the same batch.
+    // A late vital still makes the same waterfall.
     markBoot("fcp", { value: 2_396 });
     await Bun.sleep(TERMINAL_FLUSH_GRACE_MS + 250);
 
-    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
-    expect(checkNames()).toContain("client_boot.chat_interactive");
-    expect(checkNames()).toContain("client_boot.fcp");
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
+    expect(bootMarks()).toMatchObject({ chat_interactive: 800, fcp: 2_396 });
   });
 
   test("a slow history fetch is waited for, not flushed past", async () => {
@@ -130,15 +149,17 @@ describe("markBoot", () => {
     markBoot("chat_interactive", { value: 800 });
 
     await Bun.sleep(TERMINAL_FLUSH_GRACE_MS + 250);
-    expect(postTelemetryEvents).not.toHaveBeenCalled();
+    expect(sendClientWatchdogEvent).not.toHaveBeenCalled();
 
     // History finally resolves well after the grace window would have closed.
     markBoot("transcript_painted", { value: 9_000 });
     await Bun.sleep(TERMINAL_FLUSH_GRACE_MS + 250);
 
-    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
-    expect(checkNames()).toContain("client_boot.transcript_painted");
-    expect(checkNames()).toContain("client_boot.chat_interactive");
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
+    expect(bootMarks()).toMatchObject({
+      chat_interactive: 800,
+      transcript_painted: 9_000,
+    });
     // Two grace windows of real time; well inside the 20s boot deadline.
   }, 15_000);
 
@@ -149,22 +170,20 @@ describe("markBoot", () => {
     markBoot("chat_interactive", { value: 800 });
     flushBootTelemetry("deadline");
 
-    expect(checkNames()).toContain("client_boot.chat_interactive");
-    expect(
-      (lastBatch()[0]?.detail as Record<string, unknown>).flush_trigger,
-    ).toBe("deadline");
+    expect(bootMarks()).toMatchObject({ chat_interactive: 800 });
+    expect(bootEvent().detail.flush_trigger).toBe("deadline");
   });
 
   test("the flush latch closes the family, so nothing is double-sent", () => {
     startBootTelemetry();
     markBoot("chat_interactive", { value: 800 });
     flushBootTelemetry();
-    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
 
     markBoot("transcript_painted", { value: 900 });
     flushBootTelemetry();
 
-    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -193,13 +212,11 @@ describe("navigation timing", () => {
       nav.loadEventEnd = 81;
       flushBootTelemetry();
 
-      const batch = lastBatch();
-      const byName = new Map(
-        batch.map((e) => [String(e.check_name), e.value as number]),
-      );
-      expect(byName.get("client_boot.ttfb")).toBe(6);
-      expect(byName.get("client_boot.dom_content_loaded")).toBe(79);
-      expect(byName.get("client_boot.load_event_end")).toBe(81);
+      expect(bootMarks()).toMatchObject({
+        ttfb: 6,
+        dom_content_loaded: 79,
+        load_event_end: 81,
+      });
     } finally {
       performance.getEntriesByType = original;
     }
@@ -224,7 +241,7 @@ describe("navigation timing", () => {
       markBoot("react_mount", { value: 300 });
       flushBootTelemetry();
 
-      expect(checkNames()).toEqual(["client_boot.react_mount"]);
+      expect(Object.keys(bootMarks())).toEqual(["react_mount"]);
     } finally {
       performance.getEntriesByType = original;
     }
@@ -232,36 +249,28 @@ describe("navigation timing", () => {
 });
 
 describe("units", () => {
-  test("a CLS score survives rounding, and durations stay whole ms", () => {
+  test("the CLS score keeps decimals in its own field, apart from the ms marks", () => {
     // Rounding a score to the nearest integer destroys it: a normal CLS of
     // 0.05 becomes 0 and the whole series reads as "no layout shift anywhere".
+    // Keeping it out of the duration map means nobody can average ms with a
+    // score by iterating `marks`.
     startBootTelemetry();
     markBoot("cls", { value: 0.0523 });
     markBoot("react_mount", { value: 300.7 });
     flushBootTelemetry();
 
-    const byName = new Map(
-      lastBatch().map((e) => [String(e.check_name), e.value as number]),
-    );
-    expect(byName.get("client_boot.cls")).toBe(0.052);
-    expect(byName.get("client_boot.cls")).not.toBe(0);
-    expect(byName.get("client_boot.react_mount")).toBe(301);
+    expect(bootEvent().detail.cls).toBe(0.052);
+    expect(bootEvent().detail.cls).not.toBe(0);
+    expect(bootMarks().react_mount).toBe(301);
+    expect(bootMarks()).not.toHaveProperty("cls");
   });
 
-  test("every event declares its unit so ms and score never get averaged together", () => {
+  test("cls is null, not absent or zero, when the engine never reported one", () => {
     startBootTelemetry();
-    markBoot("cls", { value: 0.05 });
-    markBoot("fcp", { value: 1_200 });
+    markBoot("react_mount", { value: 300 });
     flushBootTelemetry();
 
-    const byName = new Map(
-      lastBatch().map((e) => [
-        String(e.check_name),
-        (e.detail as Record<string, unknown>).unit,
-      ]),
-    );
-    expect(byName.get("client_boot.cls")).toBe("score");
-    expect(byName.get("client_boot.fcp")).toBe("ms");
+    expect(bootEvent().detail.cls).toBeNull();
   });
 });
 
@@ -275,12 +284,8 @@ describe("terminal exclusivity", () => {
     markBoot("chat_interactive", { value: 900 });
     flushBootTelemetry();
 
-    const terminals = checkNames().filter(
-      (n) =>
-        n === "client_boot.chat_blocked" ||
-        n === "client_boot.chat_interactive",
-    );
-    expect(terminals).toEqual(["client_boot.chat_blocked"]);
+    expect(bootEvent().detail.outcome).toBe("blocked");
+    expect(bootMarks()).not.toHaveProperty("chat_interactive");
   });
 
   test("holds in the other order too", () => {
@@ -289,12 +294,10 @@ describe("terminal exclusivity", () => {
     markBootBlocked("stuck_connecting");
     flushBootTelemetry();
 
-    const terminals = checkNames().filter(
-      (n) =>
-        n === "client_boot.chat_blocked" ||
-        n === "client_boot.chat_interactive",
-    );
-    expect(terminals).toEqual(["client_boot.chat_interactive"]);
+    expect(bootEvent().detail.outcome).toBe("interactive");
+    expect(bootEvent().value).toBe(900);
+    expect(bootEvent().detail.blocked_reason).toBeNull();
+    expect(bootMarks()).not.toHaveProperty("chat_blocked");
   });
 });
 
@@ -304,19 +307,15 @@ describe("flush trigger", () => {
     markBoot("react_mount", { value: 300 });
     flushBootTelemetry("pagehide");
 
-    expect(
-      (lastBatch()[0]?.detail as Record<string, unknown>).flush_trigger,
-    ).toBe("pagehide");
+    expect(bootEvent().detail.flush_trigger).toBe("pagehide");
 
     __resetBootTelemetryForTests();
-    postTelemetryEvents.mockClear();
+    sendClientWatchdogEvent.mockClear();
     startBootTelemetry();
     markBoot("react_mount", { value: 300 });
     flushBootTelemetry("deadline");
 
-    expect(
-      (lastBatch()[0]?.detail as Record<string, unknown>).flush_trigger,
-    ).toBe("deadline");
+    expect(bootEvent().detail.flush_trigger).toBe("deadline");
   });
 });
 
@@ -331,15 +330,15 @@ describe("resume", () => {
     publish("app.resume", { signal: "app_state" });
     publish("sse.opened", { assistantId: "a", cause: "resume" });
 
-    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
-    expect(checkNames()).toEqual(["client_resume.to_sse_open"]);
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
+    expect(lastSent().checkName).toBe("client_resume.to_sse_open");
 
     // A resume with no reopen: nothing is emitted, ever.
-    postTelemetryEvents.mockClear();
+    sendClientWatchdogEvent.mockClear();
     publish("app.resume", { signal: "online" });
     await Bun.sleep(200);
 
-    expect(postTelemetryEvents).not.toHaveBeenCalled();
+    expect(sendClientWatchdogEvent).not.toHaveBeenCalled();
   });
 
   test("away_ms is null when no background preceded the resume", () => {
@@ -349,17 +348,13 @@ describe("resume", () => {
     publish("app.hidden", { signal: "app_state" });
     publish("app.resume", { signal: "app_state" });
     publish("sse.opened", { assistantId: "a", cause: "resume" });
-    expect(
-      (lastBatch()[0]?.detail as Record<string, unknown>).away_ms,
-    ).not.toBeNull();
+    expect(lastSent().detail.away_ms).not.toBeNull();
 
-    postTelemetryEvents.mockClear();
+    sendClientWatchdogEvent.mockClear();
     publish("app.resume", { signal: "online" });
     publish("sse.opened", { assistantId: "a", cause: "error" });
 
-    expect(
-      (lastBatch()[0]?.detail as Record<string, unknown>).away_ms,
-    ).toBeNull();
+    expect(lastSent().detail.away_ms).toBeNull();
   });
 
   test("a second hide during a pending resume cannot corrupt away_ms", async () => {
@@ -376,13 +371,26 @@ describe("resume", () => {
     await Bun.sleep(20);
     publish("sse.opened", { assistantId: "a", cause: "resume" });
 
-    const away = (lastBatch()[0]?.detail as Record<string, unknown>)
-      .away_ms as number;
-    expect(checkNames()).toEqual(["client_resume.to_sse_open"]);
+    expect(lastSent().checkName).toBe("client_resume.to_sse_open");
+    const away = lastSent().detail.away_ms as number;
     expect(away).toBeGreaterThanOrEqual(0);
     // Measured against the hide that actually preceded this resume, so it is
     // bounded by the gap between them, not by the whole elapsed window.
     expect(away).toBeLessThan(200);
+  });
+
+  test("shares the boot's id so the two families stitch together", () => {
+    startBootTelemetry();
+    markBoot("react_mount", { value: 300 });
+    flushBootTelemetry();
+    const bootId = bootEvent().detail.boot_id;
+    expect(typeof bootId).toBe("string");
+
+    publish("app.hidden", { signal: "app_state" });
+    publish("app.resume", { signal: "app_state" });
+    publish("sse.opened", { assistantId: "a", cause: "resume" });
+
+    expect(lastSent().detail.boot_id).toBe(bootId);
   });
 });
 
@@ -400,7 +408,7 @@ describe("registration lifetime", () => {
     publish("app.resume", { signal: "app_state" });
     publish("sse.opened", { assistantId: "a", cause: "resume" });
 
-    expect(checkNames()).toEqual(["client_resume.to_sse_open"]);
+    expect(lastSent().checkName).toBe("client_resume.to_sse_open");
   });
 
   test("a remount does not start a second boot record", () => {
@@ -410,63 +418,60 @@ describe("registration lifetime", () => {
     startBootTelemetry();
     flushBootTelemetry();
 
-    const bootIds = new Set(
-      lastBatch().map(
-        (e) => (e.detail as Record<string, unknown>).boot_id as string,
-      ),
-    );
-    expect(bootIds.size).toBe(1);
-    expect(checkNames()).toEqual(["client_boot.react_mount"]);
+    expect(sendClientWatchdogEvent).toHaveBeenCalledTimes(1);
+    expect(setClientPerfBootId).toHaveBeenCalledTimes(1);
+    expect(Object.keys(bootMarks())).toEqual(["react_mount"]);
   });
 });
 
 describe("markBootBlocked", () => {
-  test("records the failure terminal with its reason in detail", () => {
+  test("records the failure terminal with its reason at the top level", () => {
     startBootTelemetry();
     markBootBlocked("stuck_connecting");
     flushBootTelemetry();
 
-    const batch = lastBatch();
-    expect(batch).toHaveLength(1);
-    expect(batch[0]?.check_name).toBe("client_boot.chat_blocked");
-    expect(batch[0]?.detail).toMatchObject({ reason: "stuck_connecting" });
+    expect(bootEvent().detail.outcome).toBe("blocked");
+    expect(bootEvent().detail.blocked_reason).toBe("stuck_connecting");
+    expect(bootMarks()).toHaveProperty("chat_blocked");
+    // The terminal mark's time is the boot's scalar even on failure, so
+    // time-to-failure is aggregable alongside time-to-interactive.
+    expect(typeof bootEvent().value).toBe("number");
   });
 
-  test("success and failure are distinct check names, not one name with a flag", () => {
-    // The success/failure split has to be a plain count comparison in BigQuery,
-    // so the two outcomes must never collapse onto the same check name.
+  test("success and failure are distinct outcomes, not one value with a flag", () => {
+    // The success/failure split has to be a plain field comparison in
+    // BigQuery, so the two outcomes must never collapse onto the same shape.
     startBootTelemetry();
     markBootBlocked("lifecycle_error");
     flushBootTelemetry();
-    const blockedNames = checkNames();
+    const blocked = bootEvent().detail.outcome;
 
     __resetBootTelemetryForTests();
-    postTelemetryEvents.mockClear();
+    sendClientWatchdogEvent.mockClear();
     startBootTelemetry();
     markBoot("chat_interactive", { value: 800 });
     flushBootTelemetry();
 
-    expect(blockedNames).not.toEqual(checkNames());
-    expect(blockedNames).toEqual(["client_boot.chat_blocked"]);
-    expect(checkNames()).toEqual(["client_boot.chat_interactive"]);
+    expect(blocked).toBe("blocked");
+    expect(bootEvent().detail.outcome).toBe("interactive");
   });
 });
 
 describe("consent", () => {
-  test("an opt-out drops the batch at flush time", () => {
+  test("an opt-out drops the event at flush time", () => {
     startBootTelemetry();
     markBoot("react_mount", { value: 300 });
     consent = false;
     flushBootTelemetry();
 
-    expect(postTelemetryEvents).not.toHaveBeenCalled();
+    expect(sendClientWatchdogEvent).not.toHaveBeenCalled();
   });
 
   test("consent is read at send time, not at record time", () => {
     // Recording a mark is not an upload, so the only check that matters is the
     // one immediately before the request. Here it flips the permissive way;
     // the test above covers the direction that actually protects the user, an
-    // opt-out landing mid-window and suppressing the whole batch.
+    // opt-out landing mid-window and suppressing the whole event.
     consent = false;
     startBootTelemetry();
     markBoot("safe_area_ready", { value: 100 });
@@ -475,27 +480,26 @@ describe("consent", () => {
     consent = true;
     flushBootTelemetry();
 
-    expect(checkNames()).toEqual([
-      "client_boot.safe_area_ready",
-      "client_boot.session_ready",
-    ]);
+    expect(bootMarks()).toMatchObject({
+      safe_area_ready: 100,
+      session_ready: 250,
+    });
   });
 });
 
-describe("detail bag", () => {
+describe("the boot event", () => {
   test("carries shared boot context and stays inside the 4096-byte cap", () => {
     startBootTelemetry();
     markBoot("react_mount", { value: 300 });
     flushBootTelemetry();
 
-    const detail = lastBatch()[0]?.detail as Record<string, unknown>;
+    const detail = bootEvent().detail;
     expect(detail).toMatchObject({
       route: expect.any(String),
       surface: expect.any(String),
       os: expect.any(String),
       lcp_supported: expect.any(Boolean),
       cls_supported: expect.any(Boolean),
-      unit: "ms",
     });
     expect(typeof detail.boot_id).toBe("string");
 
@@ -507,23 +511,21 @@ describe("detail bag", () => {
     ).toBe(true);
     expect(detail.nav_type).not.toBe("unknown");
 
-    // Ingest silently drops a single event whose `detail` exceeds this when
+    // Ingest rejects a single event whose `detail` exceeds this when
     // serialized (WatchdogTelemetryEventSerializer.DETAIL_MAX_JSON_BYTES).
     expect(JSON.stringify(detail).length).toBeLessThan(4096);
   });
 
-  test("every mark in one boot shares a boot_id so the waterfall stitches back together", () => {
+  test("carries a deterministic collapse key derived from the boot id", () => {
+    // A double send of the same boot must collapse downstream instead of
+    // counting twice.
     startBootTelemetry();
-    markBoot("safe_area_ready", { value: 100 });
-    markBoot("session_ready", { value: 250 });
+    markBoot("react_mount", { value: 300 });
     flushBootTelemetry();
 
-    const bootIds = new Set(
-      lastBatch().map(
-        (e) => (e.detail as Record<string, unknown>).boot_id as string,
-      ),
+    expect(bootEvent().daemonEventId).toBe(
+      `client_boot:${String(bootEvent().detail.boot_id)}`,
     );
-    expect(bootIds.size).toBe(1);
   });
 
   test("carries no message, conversation, or assistant identifiers", () => {
@@ -531,8 +533,7 @@ describe("detail bag", () => {
     markBoot("react_mount", { value: 300 });
     flushBootTelemetry();
 
-    const detail = lastBatch()[0]?.detail as Record<string, unknown>;
-    for (const key of Object.keys(detail)) {
+    for (const key of Object.keys(bootEvent().detail)) {
       expect(key).not.toMatch(/conversation|assistant|message|user|path|url/i);
     }
   });

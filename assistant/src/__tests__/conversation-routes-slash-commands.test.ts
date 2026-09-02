@@ -106,7 +106,7 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
-  getSourcePathsForAttachments: () => new Map(),
+  resolveAttachmentsForPersist: () => [],
   attachmentExists: () => false,
   linkAttachmentToMessage: () => {},
   attachInlineAttachmentToMessage: () => {},
@@ -162,6 +162,7 @@ mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: ipcCallMock,
 }));
 
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
@@ -226,6 +227,7 @@ function makeConversation() {
   const events: unknown[] = [];
   const messages: unknown[] = [];
   let processing = false;
+  let owner = 0;
   const conversation = {
     conversationId: "conv-slash-test",
     messages,
@@ -244,6 +246,23 @@ function makeConversation() {
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;
+      owner = value ? owner + 1 : 0;
+    },
+    acquireProcessingFenced: async () => {
+      if (processing) {
+        return null;
+      }
+      processing = true;
+      owner += 1;
+      return owner;
+    },
+    releaseProcessing: (claim: number) => {
+      if (claim !== owner) {
+        return false;
+      }
+      processing = false;
+      owner = 0;
+      return true;
     },
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -530,6 +549,36 @@ describe("handleSendMessage canned wake-up greeting", () => {
     }
   });
 
+  test("queues a first greeting whose flag went away during the awaits", async () => {
+    // The canned wake-up greeting used to claim the flag unconditionally, so
+    // it greeted over a turn already writing and both mutated one history.
+    // It declines instead and falls through, the way its sibling branches do,
+    // and the gate below answers as a busy conversation owes.
+    const { conversation, persistUserMessage, runAgentLoop } =
+      makeConversation();
+    conversation.setProcessing(true);
+    const stub = conversation as unknown as { isProcessing: () => boolean };
+    stub.isProcessing = () => false;
+    // What the real one does while another holder has the flag, which is what
+    // the fall-through below runs into.
+    persistUserMessage.mockImplementationOnce(async () => {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    });
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("Wake up, my friend!"),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    // No greeting rows: the branch never ran.
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
   test("persists the clientMessageId on the user row", async () => {
     const { conversation, runAgentLoop } = makeConversation();
     const res = await callHandler(
@@ -548,5 +597,81 @@ describe("handleSendMessage canned wake-up greeting", () => {
     expect(userCall).toBeDefined();
     const options = userCall?.[3] as { clientMessageId?: string } | undefined;
     expect(options?.clientMessageId).toBe("nonce-wake-123");
+  });
+});
+
+describe("handleSendMessage flag taken after its queue decision", () => {
+  beforeEach(() => {
+    addMessageMock.mockClear();
+  });
+
+  test("queues a plain send whose flag went away during the awaits", async () => {
+    // The route decides to queue or run at the top, then awaits guardian
+    // cleanup, history scoping and slash resolution. A camera frame taking the
+    // flag inside those awaits leaves the persist rejecting busy, and the send
+    // has to reach the queue the early decision would have used rather than
+    // failing in the client's face.
+    const { conversation, persistUserMessage, runAgentLoop } =
+      makeConversation();
+    persistUserMessage.mockImplementationOnce(async () => {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    });
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("what is this"),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    expect(runAgentLoop).not.toHaveBeenCalled();
+  });
+
+  test("still fails a send whose persist failed for any other reason", async () => {
+    // The control: only the busy rejection queues. Everything else is a real
+    // failure and must not be answered as an accepted message.
+    const { conversation } = makeConversation();
+    const { persistUserMessage } = makeConversation();
+    void persistUserMessage;
+    (
+      conversation as unknown as {
+        persistUserMessage: ReturnType<typeof mock>;
+      }
+    ).persistUserMessage = mock(async () => {
+      throw new Error("disk on fire");
+    });
+
+    await expect(
+      callHandler(
+        (args) => handleSendMessage(args, makeDeps(conversation)),
+        makeRequest("what is this"),
+        undefined,
+        202,
+      ),
+    ).rejects.toThrow("disk on fire");
+  });
+
+  test("queues a slash command whose flag went away during the awaits", async () => {
+    // Same window, the branch that hand-rolls its own claim. It takes the flag
+    // rather than setting it, so a hold taken since is answered by the queue
+    // instead of being claimed away from the turn that owns it.
+    const { conversation, runAgentLoop } = makeConversation();
+    conversation.setProcessing(true);
+    // The early gate reads idle, the claim below does not.
+    const stub = conversation as unknown as { isProcessing: () => boolean };
+    stub.isProcessing = () => false;
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("/context"),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    expect(runAgentLoop).not.toHaveBeenCalled();
   });
 });

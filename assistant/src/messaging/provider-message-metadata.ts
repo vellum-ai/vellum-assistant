@@ -62,6 +62,13 @@ export const providerMessageMetadataSchema = z
      */
     messageId: z.string().optional(),
     /**
+     * Provider ids of the further posts this row's delivery produced beyond
+     * `messageId`: one stored reply split at tool boundaries or length
+     * limits posts several provider messages, and they all belong to this
+     * one row. A reaction or delete naming any of them resolves here.
+     */
+    additionalMessageIds: z.array(z.string()).optional(),
+    /**
      * Provider id of the thread this row sits in, absent when it is not in one.
      * Never synthesized from `messageId`: a value here asserts that a thread
      * exists, and inventing one keys conversations on threads that never do.
@@ -82,7 +89,19 @@ export const providerMessageMetadataSchema = z
     eventKind: z.enum(["message", "reaction"]),
     reaction: providerReactionMetadataSchema.optional(),
     editedAt: z.number().optional(),
+    /**
+     * The row is no longer visible on the channel: every provider post it
+     * produced has been deleted. Readers treat this as the whole row's
+     * deletion mark, as before rows could name several posts.
+     */
     deletedAt: z.number().optional(),
+    /**
+     * Provider ids among `messageId`/`additionalMessageIds` whose posts have
+     * been deleted on the channel. A split reply can lose one post while the
+     * others stay visible, so deletion is tracked per id; `deletedAt` is
+     * stamped only once every id is here.
+     */
+    deletedMessageIds: z.array(z.string()).optional(),
   })
   .passthrough();
 

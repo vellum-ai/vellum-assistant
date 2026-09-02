@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "@/i18n";
 
 import type { Conversation } from "@/types/conversation-types";
-import { ConfirmDialog } from "@vellumai/design-library";
+import { Checkbox, ConfirmDialog } from "@vellumai/design-library";
 
 /**
  * Confirmation gate for the per-conversation Delete action. One click
@@ -71,8 +71,21 @@ export function DeleteConversationConfirmDialog({
   onCancel,
 }: DeleteConversationConfirmDialogProps) {
   const { t } = useTranslation("chat");
+  const [acknowledged, setAcknowledged] = useState(false);
   const title =
     pending?.title?.trim() || t("deleteConversationConfirmDialog.untitled");
+
+  useEffect(() => {
+    setAcknowledged(false);
+  }, [pending?.conversationId]);
+
+  const handleConfirm = useCallback(() => {
+    if (!acknowledged) {
+      return;
+    }
+    onConfirm();
+  }, [acknowledged, onConfirm]);
+
   return (
     <ConfirmDialog
       open={pending !== null}
@@ -85,8 +98,18 @@ export function DeleteConversationConfirmDialog({
       confirmLabel={t("deleteConversationConfirmDialog.confirm")}
       cancelLabel={t("deleteConversationConfirmDialog.cancel")}
       destructive
-      onConfirm={onConfirm}
+      confirmDisabled={!acknowledged}
+      onConfirm={handleConfirm}
       onCancel={onCancel}
-    />
+    >
+      <Checkbox
+        className="mt-3 [&_button[data-state=unchecked]]:border-[var(--border-element)] [&_button[data-state=unchecked]]:bg-[var(--surface-base)]"
+        checked={acknowledged}
+        onCheckedChange={(next) => {
+          setAcknowledged(next === true);
+        }}
+        label={t("deleteConversationConfirmDialog.acknowledgment")}
+      />
+    </ConfirmDialog>
   );
 }

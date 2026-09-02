@@ -1,6 +1,32 @@
 import { TrustRuleStore, type TrustRule } from "../db/trust-rule-store.js";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when `cwd` is within the rule's `scope` (i.e. cwd equals scope
+ * or is a subdirectory of it). A null/undefined scope means global — always
+ * matches. A missing `cwd` also matches (the caller doesn't have the working
+ * directory available and accepts the wider match).
+ */
+function isScopeMatch(
+  scope: string | null | undefined,
+  cwd: string | undefined,
+): boolean {
+  if (!scope || scope === "everywhere") return true; // global rule
+  if (!cwd) return true; // caller has no cwd — don't silently drop the rule
+  // Strip the "/*" glob suffix emitted by generateDirectoryScopeOptions()
+  const dir = scope.endsWith("/*") ? scope.slice(0, -2) : scope;
+  const normalizedScope = dir.endsWith("/") ? dir : dir + "/";
+  const normalizedCwd = cwd.endsWith("/") ? cwd : cwd + "/";
+  return (
+    normalizedCwd === normalizedScope ||
+    normalizedCwd.startsWith(normalizedScope)
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Cache class
 // ---------------------------------------------------------------------------
 
@@ -54,22 +80,34 @@ class TrustRuleCache {
    * most specific key still wins overall, so a more specific seeded default
    * (e.g. `git push`) is preserved over a broader user rule (e.g. `action:git`);
    * that broader rule still applies to subcommands without their own default.
+   *
+   * @param cwd - The tool's working directory. When provided, scoped rules
+   *   (those with a non-null `scope`) are skipped unless `cwd` is equal to or
+   *   a subdirectory of `scope`. When omitted, all rules (including scoped
+   *   ones) are eligible — callers that don't have `cwd` available accept the
+   *   wider match rather than silently dropping scoped rules.
    */
-  findBaseRisk(tool: string, command: string): TrustRule | null {
+  findBaseRisk(tool: string, command: string, cwd?: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
 
     const isUserRule = (rule: TrustRule | undefined): rule is TrustRule =>
       !!rule && (rule.userModified || rule.origin === "user_defined");
 
+    const scopeMatches = (rule: TrustRule): boolean =>
+      isScopeMatch(rule.scope, cwd);
+
     // At each key, prefer a user-authored rule (literal or `action:`) over a
     // seeded default; otherwise resolve the literal, then its `action:` sibling.
+    // Rules whose scope doesn't match the current working directory are skipped.
     const lookup = (key: string): TrustRule | undefined => {
       const literal = toolMap.get(key);
       const action = toolMap.get(`action:${key}`);
-      if (isUserRule(literal)) return literal;
-      if (isUserRule(action)) return action;
-      return literal ?? action;
+      const litOk = literal && scopeMatches(literal) ? literal : undefined;
+      const actOk = action && scopeMatches(action) ? action : undefined;
+      if (isUserRule(litOk)) return litOk;
+      if (isUserRule(actOk)) return actOk;
+      return litOk ?? actOk;
     };
 
     // 1. Exact match
@@ -110,11 +148,26 @@ class TrustRuleCache {
    * This mirrors the `action:`-prefix handling in {@link findBaseRisk}; the
    * macOS client and the seeded defaults persist bare patterns, which still
    * match on the first lookup.
+   *
+   * @param cwd - The tool's working directory. When provided, scoped rules are
+   *   skipped unless `cwd` is equal to or a subdirectory of `scope`. When
+   *   omitted, all rules (including scoped ones) are eligible.
    */
-  findToolOverride(tool: string, pattern: string): TrustRule | null {
+  findToolOverride(
+    tool: string,
+    pattern: string,
+    cwd?: string,
+  ): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
-    return toolMap.get(pattern) ?? toolMap.get(`${tool}:${pattern}`) ?? null;
+    const candidates = [
+      toolMap.get(pattern),
+      toolMap.get(`${tool}:${pattern}`),
+    ];
+    for (const rule of candidates) {
+      if (rule && isScopeMatch(rule.scope, cwd)) return rule;
+    }
+    return null;
   }
 
   /**

@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
 import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 import {
   getLocalBool,
@@ -124,12 +125,14 @@ export function useMacOsNudgeState(): {
   }, [firstSeenAt, ageEligible]);
 
   const handleDownload = useCallback(() => {
+    emitNativeAppNudgeEvent("click", "banner", "macos");
     openMacOsDownload();
     writeMacOsAppDownloaded();
     setDownloaded(true);
   }, []);
 
   const handleBannerDismiss = useCallback(() => {
+    emitNativeAppNudgeEvent("dismiss", "banner", "macos");
     writeMacOsAppBannerDismissed();
     setBannerDismissed(true);
   }, []);

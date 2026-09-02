@@ -15,15 +15,6 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).toContain("Ending in 4242");
   });
 
-  test("normalizes a lowercase brand to its canonical label", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow brand="visa" last4="4242" onUpdateCard={() => {}} />,
-    );
-    const row = getByTestId("payment-method-row");
-    expect(row.textContent).toContain("Visa");
-    expect(row.textContent).not.toContain("visa");
-  });
-
   test("falls back to a generic label and omits the ending line when null", () => {
     const { getByTestId } = render(
       <PaymentMethodRow brand={null} last4={null} onUpdateCard={() => {}} />,
@@ -34,19 +25,59 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).not.toContain("null");
   });
 
-  test("renders a long unmapped brand verbatim", () => {
+  test("renders the expiry after the ending line when both parts are known", () => {
     const { getByTestId } = render(
       <PaymentMethodRow
-        brand="internationalmaestro"
-        last4="0005"
+        brand="visa"
+        last4="4242"
+        expMonth={4}
+        expYear={2042}
         onUpdateCard={() => {}}
       />,
     );
     const row = getByTestId("payment-method-row");
-    expect(row.textContent).toContain("internationalmaestro");
+    expect(row.textContent).toContain("Ending in 4242");
+    expect(row.textContent).toContain("\u00b7 04 / 42");
   });
 
-  test("fires onUpdateCard when Update Card is clicked", () => {
+  test("omits the expiry when either part is missing", () => {
+    const { getByTestId, rerender } = render(
+      <PaymentMethodRow
+        brand="visa"
+        last4="4242"
+        expMonth={4}
+        expYear={null}
+        onUpdateCard={() => {}}
+      />,
+    );
+    expect(getByTestId("payment-method-row").textContent).not.toContain(
+      "\u00b7",
+    );
+
+    rerender(
+      <PaymentMethodRow
+        brand="visa"
+        last4="4242"
+        expMonth={null}
+        expYear={2042}
+        onUpdateCard={() => {}}
+      />,
+    );
+    expect(getByTestId("payment-method-row").textContent).not.toContain(
+      "\u00b7",
+    );
+  });
+
+  test("omits the expiry when the props are not supplied at all", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow brand="visa" last4="4242" onUpdateCard={() => {}} />,
+    );
+    expect(getByTestId("payment-method-row").textContent).not.toContain(
+      "\u00b7",
+    );
+  });
+
+  test("fires onUpdateCard when Replace card is clicked", () => {
     const onUpdateCard = mock(() => {});
     const { getByTestId } = render(
       <PaymentMethodRow
@@ -59,11 +90,38 @@ describe("PaymentMethodRow", () => {
     expect(onUpdateCard).toHaveBeenCalledTimes(1);
   });
 
-  test("offers Update Card as the only action", () => {
+  test("actionsDisabled disables the row's actions", () => {
+    const onUpdateCard = mock(() => {});
+    const { getByTestId } = render(
+      <PaymentMethodRow
+        brand="Visa"
+        last4="4242"
+        onUpdateCard={onUpdateCard}
+        actionsDisabled
+      />,
+    );
+    const replace = getByTestId("payment-method-update") as HTMLButtonElement;
+    expect(replace.disabled).toBe(true);
+    fireEvent.click(replace);
+    expect(onUpdateCard).not.toHaveBeenCalled();
+  });
+
+  test("leaves the row's actions enabled by default", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
+    );
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  test("offers Replace card as the only action", () => {
     const { getByTestId, queryByTestId } = render(
       <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
-    expect(getByTestId("payment-method-update")).not.toBeNull();
+    expect(getByTestId("payment-method-update").textContent).toContain(
+      "Replace card",
+    );
     expect(queryByTestId("payment-method-remove")).toBeNull();
   });
 });

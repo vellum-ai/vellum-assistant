@@ -1,82 +1,67 @@
 /**
  * Boot / resume performance telemetry, the measure-first baseline (LUM-2907).
  *
- * ## Why this rides the `watchdog` wire shape
+ * ## Transport and shape
  *
- * There is no `client_performance` / `page_load` event type on the platform's
- * ingest, and adding one is a cross-repo sequence that must start platform-side
- * (see `assistant/src/telemetry/AGENTS.md`, the emitter is the *last* step; an
- * emitter shipped ahead of its serializer loses every event, because ingest
- * silently skips unknown types and still 2xxes).
+ * One `watchdog` event per boot, posted through the daemon relay via
+ * `sendClientWatchdogEvent` in `client-perf.ts`, which documents why the
+ * relay is the only transport that works in every mode this client runs in.
+ * `check_name` is `client_boot`, `value` is the milliseconds to the terminal
+ * mark (null when the boot never settled), and `detail` carries the whole
+ * waterfall: the per-mark duration map, the CLS score, the outcome, and the
+ * boot context.
  *
- * `watchdog` is already exactly the shape a timing baseline needs, and its
- * serializer says so in as many words: `check_name` is an open string and "the
- * primary group-by dimension downstream", `value` is "the single measured
- * magnitude for the check ... as a FLOAT", and `detail` is an "open JSON bag ...
- * without a platform-coordinated schema change" (bounded at 4096 serialized
- * bytes). So one event per mark, keyed by check name, gives per-mark p50/p95
- * from a plain `GROUP BY` with no JSON parsing and no backend change, the same
- * ride-an-existing-shape move `memory-telemetry.ts` makes on `onboarding`.
+ * One event per boot rather than one per mark, for three reasons:
+ *   - The relay takes one event per request, and a ten-POST flush on the
+ *     boot path is the wrong trade on exactly the path being measured.
+ *   - Every percentile is computed over the same population. Per-mark rows
+ *     let a partial flush under-report late marks in precisely the slow
+ *     boots that matter, skewing per-mark percentiles against each other.
+ *   - A missing mark is visible as a gap in an otherwise-present waterfall
+ *     instead of an absent row indistinguishable from an unsent one.
  *
- * Destination is live today: `watchdog_raw` (BigQuery) has `check_name STRING`,
- * `value FLOAT`, `detail JSON`, plus `assistant_version`, `organization_id`,
- * and `user_id`, and `stg_telemetry__watchdog` stages it partitioned by day.
+ * A deterministic `daemon_event_id` (`client_boot:` + the boot id) makes a
+ * double send collapse downstream.
  *
  * ## The two families
  *
- * `client_boot.*` is a **cold start** by construction: this module only
+ * `client_boot` is a **cold start** by construction: this module only
  * initializes when a document loads, which on iOS means the shell navigated
  * `WKWebView` at the origin (`clients/ios/README.md`, the app bundles no web
  * assets), so Navigation Timing describes a real page load.
  *
- * `client_resume.*` is a **warm start** by construction: the document survived,
- * the app was merely backgrounded, and the bus published `app.resume`. The two
- * families never overlap, so cold-vs-warm needs no discriminator field, the
- * check-name prefix is the discriminator.
+ * `client_resume.*` is a **warm start** by construction: the document
+ * survived, the app was merely backgrounded, and the bus published
+ * `app.resume`. The two never overlap, so cold-vs-warm needs no
+ * discriminator field, the check name is the discriminator.
  *
- * ## Relationship to `client-perf.ts`
- *
- * `client-perf.ts` (#40106) is the shared emitter for the sibling measure-first
- * families: `client_switch.*`, `client_resume.request_count`, and
- * `client_list.drain`. It rides the same `watchdog` shape and the same detail-bag
- * convention (raw JSON scalars, `null` for unavailable, no ids or raw pathnames),
- * and this module follows that convention so the families stay queryable
- * together. `startBootTelemetry` registers its `boot_id` through
- * `setClientPerfBootId`, which is the join: every sibling event from the same
- * page load then carries the boot it happened in, so a slow switch or list drain
- * can be traced back to its boot waterfall.
- *
- * This module keeps its own envelope construction rather than calling
- * `emitClientPerfEvent` per mark, for two reasons: a boot flushes ~10 marks as
- * ONE batched POST (per-mark emits would mean ten requests on the boot path),
- * and `emitClientPerfEvent` rounds `value` to an integer, which would destroy
- * the CLS score (see `SCORE_MARKS`). Folding the two together needs a shared
- * envelope builder with a unit-aware rounding hook; tracked in LUM-3060.
- *
- * Note that `client_resume.*` is a shared prefix: `to_sse_open` is emitted here,
- * `request_count` by `resume-request-counter.ts`. Both describe the same warm
- * start, so keep new resume check names consistent across the two.
+ * Note that `client_resume.*` is a shared prefix: `to_sse_open` is emitted
+ * here, `request_count` by `resume-request-counter.ts`. Both describe the
+ * same warm start, so keep new resume check names consistent across the two.
  *
  * ## Privacy
  *
- * Metadata only. No message content, no conversation/assistant ids, no URLs:
- * `route` is a fixed label from a closed set (see `bootRouteLabel`), never a
+ * Metadata only. No message content, no conversation ids, no URLs: `route`
+ * is a fixed label from a closed set (see `bootRouteLabel`), never a
  * pathname, so a conversation id can't ride in on it. `boot_id` is a fresh
- * random UUID per page load used only to stitch one waterfall back together.
+ * random UUID per page load used only to stitch the families together.
  *
  * ## Reading the paint marks
  *
  * `fcp` and `lcp` are only comparable across visible page loads. A document
  * that loads while hidden has its paint deferred until it is shown, so those
- * two marks describe "time until the user looked at it", not render cost. Both
- * are therefore floors, not costs, and a long tail on them is the first thing
- * to segment out before concluding anything about render work.
+ * two marks describe "time until the user looked at it", not render cost.
+ * Both are therefore floors, not costs, and a long tail on them is the first
+ * thing to segment out before concluding anything about render work.
  */
 
 import { subscribe } from "@/lib/event-bus";
 import { readAnalyticsConsent } from "@/lib/telemetry/consent";
-import { setClientPerfBootId } from "@/lib/telemetry/client-perf";
-import { postTelemetryEvents } from "@/lib/telemetry/ingest";
+import {
+  type ClientPerfDetail,
+  sendClientWatchdogEvent,
+  setClientPerfBootId,
+} from "@/lib/telemetry/client-perf";
 import { detectClientOs, isNativeMobile } from "@/runtime/platform-detection";
 
 /**
@@ -126,29 +111,14 @@ export type BootMark =
 const TERMINAL_MARKS = new Set<BootMark>(["chat_interactive", "chat_blocked"]);
 
 /**
- * Marks whose `value` is NOT a duration. Only `cls`, which is a unitless
- * layout-shift score in roughly the 0 to 0.5 range.
- *
- * This set exists because rounding a score to the nearest integer destroys it:
- * a perfectly normal CLS of 0.05 becomes 0, and the whole series reads as
- * "no layout shift anywhere". Durations round to whole milliseconds; scores keep
- * three decimals. The `unit` field in the detail bag carries the same
- * distinction downstream, so nobody averages milliseconds together with a score.
+ * `cls` is the one mark whose value is NOT a duration: a unitless
+ * layout-shift score in roughly the 0 to 0.5 range, where rounding to the
+ * nearest integer destroys it (a normal 0.05 becomes 0 and the series reads
+ * as "no layout shift anywhere"). It therefore lives in its own `cls` detail
+ * field with three decimals, structurally apart from the whole-millisecond
+ * `marks` duration map, so nobody averages milliseconds with a score.
  */
-const SCORE_MARKS = new Set<BootMark>(["cls"]);
-
-function markUnit(mark: BootMark): "ms" | "score" {
-  return SCORE_MARKS.has(mark) ? "score" : "ms";
-}
-
-function roundForUnit(mark: BootMark, value: number): number {
-  return SCORE_MARKS.has(mark)
-    ? Math.round(value * 1000) / 1000
-    : Math.round(value);
-}
-
-const BOOT_CHECK_PREFIX = "client_boot";
-const RESUME_CHECK_PREFIX = "client_resume";
+const CLS_MARK: BootMark = "cls";
 
 /**
  * Backstop flush for a boot that never reaches a terminal mark at all: a
@@ -397,34 +367,62 @@ export function markBootBlocked(reason: BootBlockedReason): void {
   markBoot("chat_blocked", { extra: { reason } });
 }
 
+/** The one `client_boot` event a boot flushes. */
+export interface BootEvent {
+  /** Collapse key, so a double send of the same boot dedupes downstream. */
+  daemonEventId: string;
+  /** Milliseconds to the terminal mark, or null when the boot never settled. */
+  value: number | null;
+  detail: ClientPerfDetail;
+}
+
 /**
- * Builds one `watchdog` event per recorded mark.
+ * Builds the single `client_boot` event carrying the whole waterfall.
  *
- * Split into its own export so the shape is testable without a live transport
- * and without the module's flush latch.
+ * Durations round to whole milliseconds (sub-millisecond precision is noise
+ * at this scale, and the raw floats are a small fingerprinting surface); the
+ * CLS score keeps three decimals in its own field (see {@link CLS_MARK}).
+ *
+ * Split into its own export so the shape is testable without a live
+ * transport and without the module's flush latch.
  */
-export function buildBootEvents(
+export function buildBootEvent(
   recorded: ReadonlyMap<BootMark, RecordedMark>,
   ctx: BootContext,
   flushTrigger: BootFlushTrigger,
-): object[] {
-  return [...recorded].map(([mark, { value, extra }]) => ({
-    type: "watchdog" as const,
-    daemon_event_id: crypto.randomUUID(),
-    recorded_at: Date.now(),
-    check_name: `${BOOT_CHECK_PREFIX}.${mark}`,
-    // Durations round to whole milliseconds (sub-millisecond precision is noise
-    // at this scale, and the raw floats are a small fingerprinting surface);
-    // scores keep their decimals. See `SCORE_MARKS`.
-    value: roundForUnit(mark, value),
+): BootEvent {
+  const durations: Record<string, number> = {};
+  let cls: number | null = null;
+  for (const [mark, { value }] of recorded) {
+    if (mark === CLS_MARK) {
+      cls = Math.round(value * 1000) / 1000;
+    } else {
+      durations[mark] = Math.round(value);
+    }
+  }
+  const interactive = recorded.get("chat_interactive");
+  const blocked = recorded.get("chat_blocked");
+  const terminal = interactive ?? blocked;
+  return {
+    daemonEventId: `client_boot:${ctx.boot_id}`,
+    value: terminal === undefined ? null : Math.round(terminal.value),
     detail: {
       ...ctx,
-      unit: markUnit(mark),
       flush_trigger: flushTrigger,
       backgrounded_before_terminal: backgroundedBeforeTerminal,
-      ...extra,
+      // Derived from which terminal mark landed, never from both: `markBoot`
+      // enforces terminal exclusivity, so at most one exists.
+      outcome:
+        interactive !== undefined
+          ? "interactive"
+          : blocked !== undefined
+            ? "blocked"
+            : null,
+      blocked_reason: blocked?.extra?.reason ?? null,
+      cls,
+      marks: durations,
     },
-  }));
+  };
 }
 
 /**
@@ -468,7 +466,13 @@ export function flushBootTelemetry(
   if (!readAnalyticsConsent()) {
     return;
   }
-  postTelemetryEvents(buildBootEvents(marks, context, trigger));
+  const event = buildBootEvent(marks, context, trigger);
+  sendClientWatchdogEvent({
+    checkName: "client_boot",
+    value: event.value,
+    detail: event.detail,
+    daemonEventId: event.daemonEventId,
+  });
 }
 
 /**
@@ -592,25 +596,20 @@ function subscribeResumeTelemetry(): () => void {
   let hiddenAt: number | null = null;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const emit = (mark: string, value: number, extra: object): void => {
+  const emit = (value: number, extra: object): void => {
     if (!context || !readAnalyticsConsent()) {
       return;
     }
-    postTelemetryEvents([
-      {
-        type: "watchdog",
-        daemon_event_id: crypto.randomUUID(),
-        recorded_at: Date.now(),
-        check_name: `${RESUME_CHECK_PREFIX}.${mark}`,
-        value: Math.round(value),
-        detail: {
-          boot_id: context.boot_id,
-          surface: context.surface,
-          os: context.os,
-          ...extra,
-        },
+    sendClientWatchdogEvent({
+      checkName: "client_resume.to_sse_open",
+      value: Math.round(value),
+      detail: {
+        boot_id: context.boot_id,
+        surface: context.surface,
+        os: context.os,
+        ...extra,
       },
-    ]);
+    });
   };
 
   const clearPending = (): void => {
@@ -665,12 +664,12 @@ function subscribeResumeTelemetry(): () => void {
 
   const unsubOpened = subscribe("sse.opened", () => {
     if (pendingAt === null) {
-      // A cold boot's first open is the `client_boot.sse_open` mark, not a
+      // A cold boot's first open is the boot event's `sse_open` mark, not a
       // resume; only opens with a resume outstanding belong to this family.
       markBoot("sse_open");
       return;
     }
-    emit("to_sse_open", performance.now() - pendingAt, {
+    emit(performance.now() - pendingAt, {
       signal: pendingSignal,
       away_ms: pendingAwayMs,
     });
@@ -759,7 +758,7 @@ export function startBootTelemetry(): () => void {
 
   // A boot that is backgrounded or navigated away mid-flight still reports what
   // it reached, tagged `pagehide` so downstream can tell a cut-short waterfall
-  // from one that genuinely stalled. `postTelemetryEvents` already sends with
+  // from one that genuinely stalled. `sendClientWatchdogEvent` sends with
   // `keepalive`, so the request outlives the page.
   detachPageHide = (): void => flushBootTelemetry("pagehide");
   window.addEventListener("pagehide", detachPageHide);

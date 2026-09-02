@@ -20,6 +20,15 @@ mock.module("../config/env.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
+// Wake dispatches are captured, not run: this suite pins persistence, and
+// the real background machinery would race the assertions.
+const dispatchedWakes: Array<Record<string, unknown>> = [];
+mock.module("../runtime/routes/inbound-stages/background-dispatch.js", () => ({
+  processChannelMessageInBackground: (params: Record<string, unknown>) => {
+    dispatchedWakes.push(params);
+  },
+}));
+
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
@@ -78,14 +87,12 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
 import { messages } from "../persistence/schema/conversations.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { isReactionEvent } from "../runtime/routes/inbound-stages/reaction-intercept.js";
 import {
   handleChannelInbound,
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
-import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 
@@ -106,6 +113,7 @@ function resetState(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   gatewayGuardians = [];
+  _conversationMocks.clear();
 }
 
 function seedActiveMember(): void {
@@ -264,6 +272,10 @@ describe("Slack reaction event persistence", () => {
     expect(row.content).toBe("[reaction]");
 
     const envelope = JSON.parse(row.metadata!) as Record<string, unknown>;
+    // Provenance keeps the row visible to actor-scoped history loads:
+    // filterMessagesForUntrustedActor drops rows with no trust class.
+    expect(envelope.provenanceTrustClass).toBe("trusted_contact");
+    expect(envelope.provenanceSourceChannel).toBe("slack");
     const slackMetaRaw = envelope.slackMeta;
     expect(typeof slackMetaRaw).toBe("string");
 
@@ -276,6 +288,9 @@ describe("Slack reaction event persistence", () => {
     // Slack sends no thread on a reaction, so the row claims none.
     expect(slackMeta!.threadTs).toBeUndefined();
     expect(slackMeta!.displayName).toBe(SLACK_DISPLAY_NAME);
+    // Stable identity, not the sender-controlled label: the history
+    // renderer attributes the fenced line's origin by this id.
+    expect(slackMeta!.actorExternalUserId).toBe(SLACK_USER_ID);
     expect(slackMeta!.reaction).toEqual({
       emoji: "thumbsup",
       actorDisplayName: SLACK_DISPLAY_NAME,
@@ -414,6 +429,39 @@ describe("Slack reaction event persistence", () => {
     expect(rows.length).toBe(1);
   });
 
+  test("a persisted reaction stale-marks the resident conversation", async () => {
+    const conversationId = seedStoredMessage("1700000000.111111");
+    const markHistoryStale = mock(() => {});
+    _conversationMocks.set(conversationId, {
+      markHistoryStale,
+    } as unknown as Conversation);
+
+    const resp = await handleChannelInbound(
+      buildReactionRequest("reaction:thumbsup"),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(resp.status).toBe(200);
+    expect(markHistoryStale).toHaveBeenCalledTimes(1);
+  });
+
+  test("a duplicate reaction does not stale-mark again", async () => {
+    const conversationId = seedStoredMessage("1700000000.111111");
+    const markHistoryStale = mock(() => {});
+    _conversationMocks.set(conversationId, {
+      markHistoryStale,
+    } as unknown as Conversation);
+    const sharedExternalMessageId = `${SLACK_CHANNEL_ID}:1700000000.777777:bob`;
+    const makeReq = () =>
+      buildReactionRequest("reaction:tada", {
+        externalMessageId: sharedExternalMessageId,
+      });
+
+    await handleChannelInbound(makeReq(), undefined, TEST_BEARER_TOKEN);
+    await handleChannelInbound(makeReq(), undefined, TEST_BEARER_TOKEN);
+    expect(markHistoryStale).toHaveBeenCalledTimes(1);
+  });
+
   test("reaction on the assistant's own post lands in that conversation", async () => {
     // An outbound post opens no inbound event, so the only record of its ts
     // is the `slackMeta` on the assistant row. Seeded here the way the
@@ -449,13 +497,21 @@ describe("Slack reaction event persistence", () => {
       TEST_BEARER_TOKEN,
     );
     expect(resp.status).toBe(200);
+    const body = (await resp.json()) as Record<string, unknown>;
 
+    // An admitted actor adding a reaction to the assistant's own post wakes
+    // a discretion turn instead of writing the passive row here: the turn's
+    // own persisted user row is the reaction row.
+    expect(body.reaction).toBe("wake_dispatched");
+    expect(dispatchedWakes).toHaveLength(1);
+    expect(dispatchedWakes[0].conversationId).toBe(conversationId);
+    expect(typeof dispatchedWakes[0].slackReactionRowMeta).toBe("string");
     const reactionRow = db.$client
       .prepare(
         "SELECT conversation_id AS conversationId FROM messages WHERE content = '[reaction]'",
       )
       .get() as { conversationId: string } | null;
-    expect(reactionRow?.conversationId).toBe(conversationId);
+    expect(reactionRow).toBeNull();
   });
 
   test("a reaction leaves the reacted message resolvable by its own id", async () => {
@@ -566,200 +622,6 @@ describe("Slack reaction event persistence", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Guardian approval-by-reaction integration test
-// ---------------------------------------------------------------------------
-//
-// Verifies that approval interception runs before reaction persistence so a
-// guardian's `reaction:` event on a pending approval prompt applies the
-// decision and no transcript-line row is written for the reaction itself.
-
-const GUARDIAN_USER_ID = "U_GUARDIAN_REACT";
-const GUARDIAN_DISPLAY_NAME = "Guardian Reactor";
-const GUARDIAN_REACTION_TOOL = "execute_shell";
-const GUARDIAN_REACTION_INPUT = { command: "rm -rf /tmp/test" };
-
-function seedGuardianForChannel(): void {
-  seedGatewayGuardian({
-    channelType: "slack",
-    address: GUARDIAN_USER_ID,
-    principalId: GUARDIAN_USER_ID,
-    externalChatId: SLACK_CHANNEL_ID,
-  });
-  createGuardianBinding({
-    channel: "slack",
-    guardianExternalUserId: GUARDIAN_USER_ID,
-    guardianDeliveryChatId: SLACK_CHANNEL_ID,
-    guardianPrincipalId: GUARDIAN_USER_ID,
-  });
-}
-
-function seedPendingGuardianApprovalForReaction(
-  requestId: string,
-  conversationId: string,
-  reactedTs: string,
-): void {
-  // Canonical tool_approval request keyed by the confirmation requestId — the
-  // same record assistant-event-hub creates for every confirmation.
-  bridgeState.seedRequest({
-    id: requestId,
-    kind: "tool_approval",
-    sourceType: "channel",
-    sourceChannel: "slack",
-    sourceConversationId: conversationId,
-    requesterExternalUserId: "requester-user-1",
-    requesterChatId: SLACK_CHANNEL_ID,
-    guardianExternalUserId: GUARDIAN_USER_ID,
-    guardianPrincipalId: GUARDIAN_USER_ID,
-    toolName: GUARDIAN_REACTION_TOOL,
-    status: "pending",
-    expiresAt: Date.now() + 300_000,
-  });
-
-  // The delivered approval card → request mapping the reaction resolves
-  // against (destination message id = the reacted Slack ts).
-  bridgeState.seedDelivery({
-    requestId,
-    destinationChannel: "slack",
-    destinationChatId: SLACK_CHANNEL_ID,
-    destinationMessageId: reactedTs,
-  });
-
-  // Register a pending interaction so the tool_approval resolver finds the
-  // requester-side hook to drive `allow`.
-  const handleConfirmationResponse = mock(() => {});
-  const _mockSession = {
-    handleConfirmationResponse,
-    ensureActorScopedHistory: async () => {},
-  } as unknown as Conversation;
-  _conversationMocks.set(conversationId, _mockSession);
-  pendingInteractions.register(requestId, {
-    conversationId,
-    kind: "confirmation",
-    confirmationDetails: {
-      toolName: GUARDIAN_REACTION_TOOL,
-      input: GUARDIAN_REACTION_INPUT,
-      riskLevel: "high",
-      allowlistOptions: [
-        { label: "test", description: "test", pattern: "test" },
-      ],
-      scopeOptions: [{ label: "everywhere", scope: "everywhere" }],
-    },
-  });
-}
-
-describe("guardian approval-by-reaction integration via handleChannelInbound", () => {
-  beforeEach(() => {
-    const db = getDb();
-    db.run("DELETE FROM messages");
-    db.run("DELETE FROM channel_inbound_events");
-    db.run("DELETE FROM conversations");
-    db.run("DELETE FROM contact_channels");
-    db.run("DELETE FROM contacts");
-    bridgeState.reset();
-    gatewayGuardians = [];
-    pendingInteractions.clear();
-    msgCounter = 0;
-  });
-
-  test("guardian reaction on pending approval applies decision and persists no transcript row", async () => {
-    seedGuardianForChannel();
-    const requestId = "req-guardian-react-1";
-    // Back the guardian request and its pending interaction with a real
-    // conversation row, inserted directly via the DB layer.
-    const db = getDb();
-    const conversationId = "conv-react-test-1";
-    const now = Date.now();
-    db.$client
-      .prepare(
-        `INSERT INTO conversations (
-          id, title, created_at, updated_at, total_input_tokens, total_output_tokens,
-          total_estimated_cost, context_compacted_message_count, conversation_type,
-          source, memory_scope_id, host_access, is_auto_title
-        ) VALUES (?, NULL, ?, ?, 0, 0, 0, 0, 'standard', 'user', 'default', 0, 1)`,
-      )
-      .run(conversationId, now, now);
-
-    const reactedTs = "1700000099.000001";
-    // The approval card was delivered on this ts; its canonical delivery row
-    // is how the guardian reaction is scoped to a known approval message.
-    seedPendingGuardianApprovalForReaction(
-      requestId,
-      conversationId,
-      reactedTs,
-    );
-
-    const body = {
-      sourceChannel: "slack",
-      interface: "slack",
-      conversationExternalId: SLACK_CHANNEL_ID,
-      externalMessageId: `${SLACK_CHANNEL_ID}:${reactedTs}:guardian-react`,
-      content: "reaction:white_check_mark",
-      callbackData: "reaction:white_check_mark",
-      actorExternalId: GUARDIAN_USER_ID,
-      actorDisplayName: GUARDIAN_DISPLAY_NAME,
-      replyCallbackUrl: "http://localhost:7830/deliver/slack",
-      sourceMetadata: {
-        messageId: reactedTs,
-        chatType: "channel",
-      },
-    };
-    const req = new Request("http://localhost:8080/channels/inbound", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Gateway-Origin": TEST_BEARER_TOKEN,
-      },
-      body: JSON.stringify(body),
-    });
-
-    // Wire a non-undefined `approvalConversationGenerator` to mirror the
-    // production configuration. The deterministic reaction handler must
-    // short-circuit before the generator is consulted — if it runs, it
-    // returns `keep_pending` so the assertions below would fail loudly.
-    const approvalConversationGenerator = mock(async () => ({
-      disposition: "keep_pending" as const,
-      replyText: "mock conversational turn should not be invoked for reactions",
-    }));
-
-    const resp = await handleChannelInbound(
-      req,
-      undefined,
-      TEST_BEARER_TOKEN,
-      undefined,
-      approvalConversationGenerator,
-    );
-    const json = (await resp.json()) as Record<string, unknown>;
-
-    expect(resp.status).toBe(200);
-    expect(json.accepted).toBe(true);
-    expect(json.canonicalRouter).toBe("canonical_decision_applied");
-    expect(approvalConversationGenerator).not.toHaveBeenCalled();
-
-    // The guardian request is resolved (no longer pending).
-    expect(bridgeState.getRequest(requestId)?.status).toBe("approved");
-
-    // No transcript row was written for the reaction itself — resolved
-    // guardian approval reactions have no transcript representation.
-    const reactionRows = readPersistedMessages().filter((row) => {
-      if (!row.metadata) {
-        return false;
-      }
-      try {
-        const env = JSON.parse(row.metadata) as Record<string, unknown>;
-        if (typeof env.slackMeta !== "string") {
-          return false;
-        }
-        const meta = readSlackMetadata(env.slackMeta);
-        return meta?.eventKind === "reaction";
-      } catch {
-        return false;
-      }
-    });
-    expect(reactionRows.length).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Reaction access-control regression (LUM-2489)
 // ---------------------------------------------------------------------------
 //
@@ -772,6 +634,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
 describe("reaction access control (no verification handshake)", () => {
   const STRANGER_USER_ID = "U_REACTION_STRANGER";
   const CONTACT_USER_ID = "U_REACTION_CONTACT";
+  const GUARDIAN_USER_ID = "U_GUARDIAN_REACT";
   // Guardian's approval channel is a DM, distinct from the public channel the
   // reaction lands in (mirroring production). Reusing the public channel id
   // would let a reactor match the guardian's channel via findContactChannel's

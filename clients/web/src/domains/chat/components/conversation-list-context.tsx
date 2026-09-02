@@ -23,6 +23,13 @@ export interface ConversationListContextValue {
    * below the menu that knows which variant is mounted.
    */
   overlayCards?: boolean;
+  /**
+   * The overlay drawer's scrollport. Overlay lists grow with this ancestor
+   * and virtualize against it, so conversation rows can travel into the
+   * padding reserved for the floating Preferences and New Chat pills.
+   * Unset on the rail, where each section owns its own scroller.
+   */
+  scrollParent?: HTMLElement;
   activeConversationId?: string;
   /** Whether the *active* conversation is mid-turn (its row shows a spinner). */
   activeConversationProcessing?: boolean;

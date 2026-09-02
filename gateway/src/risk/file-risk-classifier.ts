@@ -751,7 +751,11 @@ export class FileRiskClassifier implements RiskClassifier<
     // created them.
     try {
       const ruleCache = getTrustRuleCache();
-      const override = ruleCache.findToolOverride(toolName, filePath);
+      const override = ruleCache.findToolOverride(
+        toolName,
+        filePath,
+        dirname(filePath),
+      );
       if (
         override &&
         (override.userModified || override.origin === "user_defined")

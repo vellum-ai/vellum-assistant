@@ -23,7 +23,13 @@ import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 // The conversation-key lookup is the only path into the unresolvable-conversation
 // early return, and it reads SQLite. Stub it so this stays a unit test of the
 // response shape. Imported dynamically below so the stub is in place first.
+// The factory spreads the real module: the route module's import graph pulls
+// other named exports from this store, and a partial factory fails at import
+// time the moment any transitive module adds one.
+const actualConversationKeyStore =
+  await import("../../../persistence/conversation-key-store.js");
 mock.module("../../../persistence/conversation-key-store.js", () => ({
+  ...actualConversationKeyStore,
   getConversationByKey: () => undefined,
 }));
 
