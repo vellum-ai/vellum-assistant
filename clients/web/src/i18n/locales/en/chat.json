@@ -863,6 +863,7 @@
     "startVoiceMode": "Start voice mode"
   },
   "liveVoiceStatus": {
+    "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
     "connecting": "Connecting…",
     "ending": "Ending…",
     "listening": "Listening…",

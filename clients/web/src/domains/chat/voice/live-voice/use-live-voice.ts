@@ -97,6 +97,7 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
+import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
   type LiveVoiceErrorRecovery,
@@ -975,6 +976,18 @@ export function useLiveVoice(
               });
               if (sent && startOptions.endAfterSeedReply === true) {
                 session.endAfterReply = true;
+              }
+              // A session that exists for its seed has nothing to do when
+              // the assistant cannot take the turn (one that predates typed
+              // turns declines it at `sendText`'s gate). Left up, it would
+              // be an open microphone with the question silently gone, so
+              // it fails instead and says why.
+              if (!sent && startOptions.endAfterSeedReply === true) {
+                finishWithError(
+                  session,
+                  teardown,
+                  fixedT("chat")("liveVoiceStatus.askUnsupported"),
+                );
               }
             }
           });

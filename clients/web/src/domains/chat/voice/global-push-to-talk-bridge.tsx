@@ -175,11 +175,16 @@ export function GlobalPushToTalkBridge({
       if (useVoiceRecordingStore.getState().phase === "recording") {
         return;
       }
-      holdSelectionRef.current = selection;
       // Read by the recording session as it starts, which decides there
       // whether the local transcript is the authority.
       markHoldDictation(true);
-      holdTarget()?.start();
+      // The selection binds to the recording that began over it and to no
+      // other. A hold the recorder refuses (the previous transcript is still
+      // being finished) leaves the previous hold's selection where it was,
+      // so that transcript is still about what it was held over.
+      if (holdTarget()?.start() === true) {
+        holdSelectionRef.current = selection;
+      }
     },
     onHoldEnd: () => {
       markHoldDictation(false);

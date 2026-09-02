@@ -25,6 +25,7 @@ const insertedTexts: string[] = [];
 let nextDictationResult: { mode: "dictation"; text: string } | null = null;
 let overlayStopCallback: (() => void) | null = null;
 const voiceStopMock = mock(() => undefined);
+const voiceStartMock = mock(() => true);
 type ToastErrorOptions = { id?: string };
 const toastErrorMock = mock(
   (_message: string, _options?: ToastErrorOptions) => undefined,
@@ -34,7 +35,7 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
   VoiceInputButton: forwardRef<unknown, VoiceInputButtonProps>((props, ref) => {
     latestVoiceInputProps = props;
     useImperativeHandle(ref, () => ({
-      start: () => undefined,
+      start: voiceStartMock,
       stop: voiceStopMock,
     }));
     return null;
@@ -151,6 +152,8 @@ afterEach(() => {
   latestVoiceInputProps = null;
   overlayStopCallback = null;
   voiceStopMock.mockClear();
+  voiceStartMock.mockClear();
+  voiceStartMock.mockReturnValue(true);
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;
@@ -378,6 +381,30 @@ describe("a hold over a selection", () => {
 
     expect(askedTexts).toHaveLength(1);
     expect(insertedTexts).toEqual(["second"]);
+  });
+
+  test("a hold the recorder refuses does not rebind the selection", async () => {
+    nextTextInsertionStatus = "inserted";
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({
+        selection: { text: "first", truncated: false },
+      });
+    });
+    // The first transcript is still being finished when the next hold lands,
+    // so the recorder turns it away.
+    voiceStartMock.mockReturnValue(false);
+    act(() => {
+      holdHandlers?.onHoldStart({
+        selection: { text: "second", truncated: false },
+      });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("what is this");
+    });
+
+    expect(askedTexts).toEqual(["> first\n\nwhat is this"]);
   });
 
   test("tells the user when the call cannot take the question", async () => {
