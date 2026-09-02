@@ -36,10 +36,12 @@ function makeProvider(id: string, displayName: string): MessagingProvider {
   };
 }
 
-// "phone" is a messaging provider but not a channel: a send through it has
-// no chat conversation to record in. "telegram" is both.
+// "outlook" is a messaging provider but not a channel (it is not in
+// CHANNEL_IDS): a send through it has no chat conversation to record in.
+// "phone" and "telegram" are channels.
 const phoneProvider = makeProvider("phone", "Phone");
 const telegramProvider = makeProvider("telegram", "Telegram");
+const outlookProvider = makeProvider("outlook", "Outlook");
 let provider: MessagingProvider = phoneProvider;
 
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
@@ -197,7 +199,7 @@ describe("messaging-send tool", () => {
     const dir = mkdtempSync(join(tmpdir(), "msg-send-att-"));
     const filePath = join(dir, "report.pdf");
     writeFileSync(filePath, "pdf-bytes");
-    provider.id = "outlook";
+    provider = outlookProvider;
 
     try {
       const result = await run(
@@ -303,12 +305,12 @@ describe("messaging-send tool", () => {
   });
 
   test("records nothing for a provider that is not a channel", async () => {
-    provider = phoneProvider;
+    provider = outlookProvider;
 
     await run(
       {
-        platform: "phone",
-        conversation_id: "+15550004444",
+        platform: "outlook",
+        conversation_id: "user@example.com",
         text: "hello",
       },
       {
