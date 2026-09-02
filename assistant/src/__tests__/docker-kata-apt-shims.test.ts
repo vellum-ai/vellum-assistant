@@ -48,9 +48,15 @@ function createDataRoot(): string {
   return dataRoot;
 }
 
-function refreshShims(dataRoot: string): void {
+function refreshShims(dataRoot: string, pathPrefix?: string): void {
   execFileSync("/bin/sh", [scriptPath], {
-    env: { ...process.env, VELLUM_APT_DATA_ROOT: dataRoot },
+    env: {
+      ...process.env,
+      PATH: pathPrefix
+        ? `${pathPrefix}:${process.env.PATH ?? ""}`
+        : process.env.PATH,
+      VELLUM_APT_DATA_ROOT: dataRoot,
+    },
   });
 }
 
@@ -77,7 +83,13 @@ describe("docker-kata-apt-shims", () => {
       expect(readFileSync(shim, "utf8")).toContain(firstTarget);
 
       writeExecutable(source, `#!/bin/sh\nexec ${secondTarget} "$@"\n`);
-      refreshShims(dataRoot);
+      const fakeBin = join(dataRoot, "fake-bin");
+      mkdirSync(fakeBin);
+      writeExecutable(
+        join(fakeBin, "mv"),
+        '#!/bin/sh\n[ -f "$3" ] || exit 91\nexec /bin/mv "$@"\n',
+      );
+      refreshShims(dataRoot, fakeBin);
 
       const refreshedShim = readFileSync(shim, "utf8");
       expect(refreshedShim).toContain(secondTarget);

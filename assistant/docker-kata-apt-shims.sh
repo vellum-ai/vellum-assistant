@@ -75,19 +75,6 @@ shim_source() {
   done
 }
 
-# Drop stale shims: source gone, source no longer a pure trampoline for the
-# recorded target (e.g. an upgrade replaced the wrapper with a real binary
-# while leaving the old target installed), or target gone.
-for shim in "${SHIM_DIR}"/*; do
-  [ -f "${shim}" ] || continue
-  grep -qs "^${MARKER}" "${shim}" || continue
-  target="$(sed -n "s|^${MARKER} ||p" "${shim}" | sed -n '1p')"
-  src="$(shim_source "$(basename "${shim}")")"
-  if [ -z "${target}" ] || [ -z "${src}" ] || [ ! -x "${DATA_ROOT}${target}" ] || [ "$(wrapper_target "${src}")" != "${target}" ]; then
-    rm -f "${shim}"
-  fi
-done
-
 for d in ${SCAN_DIRS}; do
   for bin in "${DATA_ROOT}/${d}/"*; do
     # Shims outrank every chroot bin dir on PATH, so only the
@@ -115,6 +102,17 @@ for d in ${SCAN_DIRS}; do
       rm -f "${tmp}"
     fi
   done
+done
+
+# Drop shims that remain stale after desired replacements are installed.
+for shim in "${SHIM_DIR}"/*; do
+  [ -f "${shim}" ] || continue
+  grep -qs "^${MARKER}" "${shim}" || continue
+  target="$(sed -n "s|^${MARKER} ||p" "${shim}" | sed -n '1p')"
+  src="$(shim_source "$(basename "${shim}")")"
+  if [ -z "${target}" ] || [ -z "${src}" ] || [ ! -x "${DATA_ROOT}${target}" ] || [ "$(wrapper_target "${src}")" != "${target}" ]; then
+    rm -f "${shim}"
+  fi
 done
 
 printf '%s\n' "${STAMP}" >"${STAMP_FILE}"
