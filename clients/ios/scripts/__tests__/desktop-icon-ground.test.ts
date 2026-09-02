@@ -6,8 +6,9 @@
  * greens. The manifests also carry the same Display P3 encoding the iOS bundles
  * do, so an environment's ground is one value across every client. Windows has
  * no manifest to pin: it ships hand-rendered per-environment ICO assets, so
- * this guard decodes each one and reads its ground back rather than trusting
- * that whoever changed the palette also re-rendered the icons.
+ * this guard decodes every image inside each one and reads its ground back
+ * rather than trusting that whoever changed the palette also re-rendered the
+ * icons. A hand render can mix sizes, so one entry is not evidence for the rest.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -61,26 +62,24 @@ interface DecodedPng {
   pixels: Buffer;
 }
 
-/** The ICO entries are all 32bpp PNGs, so the smallest one decodes the fastest. */
-function readSmallestIcoEntry(environment: string): Buffer {
+interface IcoEntry {
+  /** The entry's declared width, which the ICO header records as 0 for 256. */
+  size: number;
+  png: Buffer;
+}
+
+/** Every image the ICO carries, smallest first; they are all 32bpp PNGs. */
+function readIcoEntries(environment: string): IcoEntry[] {
   const ico = readFileSync(
     join(CLIENTS_DIR, "windows/build-resources/icons", environment, "icon.ico"),
   );
-  const entries = Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
+  return Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
     const record = 6 + index * 16;
-    return {
-      width: ico[record] || 256,
-      length: ico.readUInt32LE(record + 8),
-      offset: ico.readUInt32LE(record + 12),
-    };
-  }).sort((left, right) => left.width - right.width);
-  const smallest = entries[0] as { length: number; offset: number };
-  const entry = ico.subarray(
-    smallest.offset,
-    smallest.offset + smallest.length,
-  );
-  expect([...entry.subarray(0, 8)]).toEqual(PNG_SIGNATURE);
-  return entry;
+    const offset = ico.readUInt32LE(record + 12);
+    const png = ico.subarray(offset, offset + ico.readUInt32LE(record + 8));
+    expect([...png.subarray(0, 8)]).toEqual(PNG_SIGNATURE);
+    return { size: ico[record] || 256, png };
+  }).sort((left, right) => left.size - right.size);
 }
 
 /** The bytes an unfiltered scanline adds back, Paeth included. */
@@ -232,9 +231,21 @@ describe("desktop icon ground", () => {
   }
 
   for (const { environment, icon } of STANDARDIZED) {
-    test(`the ${environment} Windows ICO renders ${icon}'s ground`, () => {
-      const decoded = decodePng(readSmallestIcoEntry(environment));
-      expect(dominantOpaqueColor(decoded)).toEqual(p3ToSrgb(readIosFill(icon)));
+    test(`every ${environment} Windows ICO image renders ${icon}'s ground`, () => {
+      const ground = p3ToSrgb(readIosFill(icon));
+      const entries = readIcoEntries(environment);
+      expect(entries.length).toBeGreaterThan(0);
+      // Keying by size names the offending image when one entry drifts alone.
+      expect(
+        Object.fromEntries(
+          entries.map(({ size, png }) => [
+            `${size}px`,
+            dominantOpaqueColor(decodePng(png)),
+          ]),
+        ),
+      ).toEqual(
+        Object.fromEntries(entries.map(({ size }) => [`${size}px`, ground])),
+      );
     });
   }
 
