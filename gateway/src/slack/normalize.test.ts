@@ -1752,7 +1752,7 @@ describe("normalizeSlackMessageDelete", () => {
       },
     });
     const result = normalizeSlackMessageDelete(event, "evt-del-self", config, {
-      authoredBySelf: true,
+      selfAuthored: true,
     });
 
     expect(result).not.toBeNull();

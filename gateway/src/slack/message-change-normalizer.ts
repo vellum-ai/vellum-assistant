@@ -119,7 +119,7 @@ export function normalizeSlackMessageEdit(
  * Slack names the deleted post's author in `previous_message.user` and never
  * who deleted it. A human author rides as the actor: the daemon gates the
  * delete on that author's membership, which confines it to rows it ingested
- * from a member. When the author is the assistant itself (`authoredBySelf`,
+ * from a member. When the author is the assistant itself (`selfAuthored`,
  * decided by the caller's self-filter) or Slack names no author at all
  * (another app's `bot_message`, or a `previous_message` Slack left out),
  * there is no identity claim to enforce: the event rides unattributed on the
@@ -132,7 +132,7 @@ export function normalizeSlackMessageDelete(
   event: unknown,
   eventId: string,
   config: GatewayConfig,
-  options?: { authoredBySelf?: boolean },
+  options?: { selfAuthored?: boolean },
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageDeletedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -145,9 +145,7 @@ export function normalizeSlackMessageDelete(
   const channel = deleted.channel;
 
   const author =
-    options?.authoredBySelf === true
-      ? undefined
-      : deleted.previous_message?.user;
+    options?.selfAuthored === true ? undefined : deleted.previous_message?.user;
   const actorId = author ?? "slack-system";
   const actorUnattributed = author === undefined;
 

@@ -1387,8 +1387,8 @@ export class SlackSocketModeClient {
     // the one structural filter point — every event with the bot as author
     // is dropped here, before any normalization or routing, with one
     // exception below: a deletion of the bot's own post.
-    const isOwnBotEvent = this.isOwnBotEvent(event);
-    if (isOwnBotEvent && classifiedForKind?.kind !== "message_deleted") {
+    const ownEvent = this.isOwnBotEvent(event);
+    if (ownEvent && classifiedForKind?.kind !== "message_deleted") {
       // Exception: the bot's own posts are used to arm thread tracking (so
       // follow-up human replies are forwarded). This is a side effect only,
       // the event itself is still dropped.
@@ -1402,7 +1402,7 @@ export class SlackSocketModeClient {
     // it unattributed: Slack names the post's author (us) and never who
     // deleted it, so there is no actor for the daemon to enforce.
     const deletesOwnPost =
-      isOwnBotEvent && classifiedForKind?.kind === "message_deleted";
+      ownEvent && classifiedForKind?.kind === "message_deleted";
 
     // Classify the event once, then admit per kind. Each event has exactly one
     // kind, so at most one filter matches — the admit conditions per kind carry
@@ -1743,7 +1743,7 @@ export class SlackSocketModeClient {
         event,
         eventId,
         this.config.gatewayConfig,
-        { authoredBySelf: deletesOwnPost },
+        { selfAuthored: deletesOwnPost },
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
