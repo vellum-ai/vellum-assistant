@@ -159,6 +159,10 @@ export function handleContactRequest(
     description: event.description,
     role: event.role,
     verify: event.verify,
+    contactId: event.contactId,
+    contactDisplayName: event.contactDisplayName,
+    displayName: event.displayName,
+    notes: event.notes,
   });
 }
 

@@ -66,6 +66,14 @@ export interface PendingContactRequestState {
    * unverified no matter what the command proposed.
    */
   verify?: boolean;
+  /** The contact this address binds to. Fixed by the command, not by the form. */
+  contactId?: string;
+  /** That contact's current name, so the form can say where the channel is going. */
+  contactDisplayName?: string;
+  /** Proposed name for a contact this form would create. Editable in the form. */
+  displayName?: string;
+  /** Proposed notes for a contact this form would create. */
+  notes?: string;
 }
 
 /**

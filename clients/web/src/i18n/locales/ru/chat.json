@@ -270,8 +270,11 @@
     "recordSaveFailed": "Не удалось сохранить контакт. Попробуйте ещё раз."
   },
   "contactPromptCard": {
+    "addingToContact": "Добавление канала для {name}",
     "markVerified": "Отметить этот адрес как подтверждённый",
-    "markVerifiedHelp": "Подтверждённый адрес может писать вашему ассистенту."
+    "markVerifiedHelp": "Подтверждённый адрес может писать вашему ассистенту.",
+    "namePlaceholder": "Имя",
+    "notesLabel": "Заметки"
   },
   "contactRecordCard": {
     "cancel": "Отмена",

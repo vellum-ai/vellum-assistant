@@ -56,6 +56,7 @@ export async function handleContactPromptSubmit(
   address: string,
   channelType: string,
   verify: boolean,
+  displayName?: string,
 ): Promise<void> {
   const { pendingContactRequest, submittingByKind } =
     useInteractionStore.getState();
@@ -87,11 +88,14 @@ export async function handleContactPromptSubmit(
     const result = await submitContactPrompt(
       ctx.assistantId,
       pendingContactRequest.requestId,
-      address,
-      channelType,
-      pendingContactRequest.role,
-      undefined,
-      verify,
+      {
+        address,
+        channelType,
+        role: pendingContactRequest.role,
+        contactId: pendingContactRequest.contactId,
+        displayName,
+        verify,
+      },
     );
     if (!result.ok) {
       captureSubmissionRejection("submit_contact_prompt", result);
