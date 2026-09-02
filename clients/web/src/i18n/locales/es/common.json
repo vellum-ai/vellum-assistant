@@ -317,6 +317,9 @@
   "lazyBoundary": {
     "loadError": "Esta sección no se pudo cargar. Recarga la página para intentarlo de nuevo."
   },
+  "localNotification": {
+    "goToConversation": "Ir a la conversación"
+  },
   "macosAppBanner": {
     "ariaLabel": "Descargar la app de macOS",
     "ctaAriaLabel": "Descargar la app de macOS",

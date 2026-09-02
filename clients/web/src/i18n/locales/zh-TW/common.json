@@ -317,6 +317,9 @@
   "lazyBoundary": {
     "loadError": "此區段無法載入。請重新載入頁面再試一次。"
   },
+  "localNotification": {
+    "goToConversation": "前往對話"
+  },
   "macosAppBanner": {
     "ariaLabel": "下載 macOS 應用程式",
     "ctaAriaLabel": "下載 macOS 應用程式",

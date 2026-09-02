@@ -319,6 +319,9 @@
   "lazyBoundary": {
     "loadError": "This section couldn't load. Reload the page to try again."
   },
+  "localNotification": {
+    "goToConversation": "Go to Conversation"
+  },
   "macosAppBanner": {
     "ariaLabel": "Download the macOS app",
     "ctaAriaLabel": "Download macOS app",

@@ -107,6 +107,9 @@
     "started": "Скачивание началось",
     "startedDescription": "Файл {filename} появится в загрузках браузера."
   },
+  "localNotification": {
+    "goToConversation": "Перейти к диалогу"
+  },
   "managedServicesBanner": {
     "body": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>"
   },

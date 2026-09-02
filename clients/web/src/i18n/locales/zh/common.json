@@ -317,6 +317,9 @@
   "lazyBoundary": {
     "loadError": "此部分无法加载。请重新加载页面重试。"
   },
+  "localNotification": {
+    "goToConversation": "前往对话"
+  },
   "macosAppBanner": {
     "ariaLabel": "下载 macOS 应用",
     "ctaAriaLabel": "下载 macOS 应用",
