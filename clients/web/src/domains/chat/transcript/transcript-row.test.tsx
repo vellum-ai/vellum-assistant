@@ -13,7 +13,10 @@ mock.module("@/domains/chat/components/credits-upsell-card", () => ({
   CreditsUpsellCard: () => <div data-testid="credits-upsell-card-stub" />,
 }));
 
-import { displayReactionEmoji } from "@/domains/chat/transcript/transcript-message-body-shared";
+import {
+  displayReactionEmoji,
+  SlackReactionLine,
+} from "@/domains/chat/transcript/transcript-message-body-shared";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import type { CreditsUpsellItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -69,6 +72,60 @@ describe("TranscriptRow reaction dispatch", () => {
     expect(getByTestId("reaction-line-row").textContent).toContain("🎉");
     expect(queryByText("[reaction]")).toBeNull();
     expect(container.querySelector("#msg-m-react")).toBeTruthy();
+  });
+
+  test("the daemon's display wins over a spelling the browser cannot resolve", () => {
+    const message: DisplayMessage = {
+      id: "m-react-toned",
+      role: "user",
+      ...textBody("[reaction]"),
+      reaction: {
+        emoji: "thumbsup::skin-tone-3",
+        emojiDisplay: "👍🏼",
+        op: "added",
+        targetMessageId: "555.3",
+        actorDisplayName: "Alice",
+      },
+    };
+    const { getByTestId } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-react-toned", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    const text = getByTestId("reaction-line-row").textContent;
+    expect(text).toContain("👍🏼");
+    expect(text).not.toContain("skin-tone");
+  });
+
+  test("the Slack-shaped line reads the same resolved display off the neutral fact", () => {
+    const message: DisplayMessage = {
+      id: "m-react-slack",
+      role: "user",
+      ...textBody("[reaction]"),
+      reaction: {
+        emoji: "thumbsup::skin-tone-3",
+        emojiDisplay: "👍🏼",
+        op: "added",
+        targetMessageId: "1725100000.000200",
+        actorDisplayName: "Bob",
+      },
+      slackMessage: {
+        channelId: "C042MSGCHAN",
+        channelTs: "1725100050.000300",
+        eventKind: "reaction",
+        reaction: {
+          emoji: "thumbsup::skin-tone-3",
+          op: "added",
+          actorDisplayName: "Bob",
+          targetChannelTs: "1725100000.000200",
+        },
+      },
+    };
+    const { getByTestId } = render(<SlackReactionLine message={message} />);
+    const text = getByTestId("slack-reaction-line").textContent;
+    expect(text).toContain("👍🏼");
+    expect(text).not.toContain("skin-tone");
   });
 
   test("a Discord custom emoji renders as its shortcode name, never raw markup", () => {
