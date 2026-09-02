@@ -257,14 +257,11 @@ export function createChannelReplySession(params: {
       const clean = streamableText();
       const plan = activeProgress;
       const key = progressKey(plan);
-      // One operation per flush, carrying the whole delta. A channel whose
-      // API caps a single call splits it on its own side, where the cap is
-      // known; the plan rides along so it advances with the text.
       // One operation per chunk the channel will accept, and the delivered
       // mark advances only for a chunk the channel confirmed. Advancing it for
       // a whole delta the channel took in pieces would let a failure part-way
       // through re-send the part that already landed, and the reader would see
-      // it twice.
+      // it twice. The plan rides along, so it advances with the text.
       while (confirmedLength < clean.length) {
         const chunk = clean.slice(
           confirmedLength,
