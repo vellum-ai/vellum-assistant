@@ -43,6 +43,7 @@ import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-gro
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import {
   ToolDetailBody,
+  ToolDetailHeaderTitle,
   toolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
@@ -268,6 +269,7 @@ export function SubagentDetailPanel({
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
+  const showToolHeader = Boolean(activeDetail && activeDetail.kind !== "thinking");
 
   return (
     <DetailShell
@@ -339,7 +341,15 @@ export function SubagentDetailPanel({
           )}
         </>
       }
-      title={headerTitle}
+      // A drilled-into tool step gets the shared tool-detail header, so it is
+      // headed the same way as in the main panel. Thinking steps and the
+      // timeline keep the plain string.
+      title={showToolHeader ? undefined : headerTitle}
+      titleNode={
+        activeDetail && activeDetail.kind !== "thinking" ? (
+          <ToolDetailHeaderTitle detail={activeDetail} />
+        ) : undefined
+      }
       headerTrailing={<StatusBadge status={entry.status} />}
       headerActions={
         isRunning && onStop ? (

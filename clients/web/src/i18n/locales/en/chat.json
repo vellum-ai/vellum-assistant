@@ -1645,11 +1645,13 @@
     "settings": "Settings"
   },
   "toolDetailPanel": {
+    "changes": "Changes",
     "closeAria": "Close tool details",
+    "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
+    "input": "Input",
     "output": "Output",
-    "riskLevel": "Risk Level",
     "running": "Running…"
   },
   "toolStepPill": {

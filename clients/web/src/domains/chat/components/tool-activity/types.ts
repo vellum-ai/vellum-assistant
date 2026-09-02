@@ -27,6 +27,8 @@ export interface ToolActivityRendererProps {
   isRunning: boolean;
   /** Whether the call ended in an error. */
   isError: boolean;
+  /** Whether the call was refused, or its confirmation expired unanswered. */
+  isDenied: boolean;
   /**
    * Assistant that owns the conversation, threaded to any markdown so
    * workspace file links resolve against the right workspace.
