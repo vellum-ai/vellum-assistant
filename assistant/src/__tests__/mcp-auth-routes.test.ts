@@ -32,8 +32,6 @@ setConfig("mcp", {
   servers: {
     "my-server": {
       transport: { type: "sse", url: "https://mcp.example.com" },
-      enabled: true,
-      defaultRiskLevel: "high",
     },
   },
 });

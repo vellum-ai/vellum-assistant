@@ -7,7 +7,6 @@ import {
   Loader2,
   LogIn,
   LogOut,
-  Power,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -17,7 +16,6 @@ import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
-import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { useTranslation } from "@/i18n";
 
@@ -37,10 +35,6 @@ const STATUS_CONFIG: Record<
     icon: KeyRound,
     className: "text-[var(--system-warning-strong)]",
   },
-  disabled: {
-    icon: Power,
-    className: "text-[var(--content-tertiary)]",
-  },
 };
 
 const DEFAULT_STATUS = {
@@ -54,8 +48,6 @@ function statusLabel(status: string, t: SettingsTranslate): string {
       return t("mcpServerCard.statusConnected");
     case "needs-auth":
       return t("mcpServerCard.statusNeedsAuth");
-    case "disabled":
-      return t("mcpServerCard.statusDisabled");
     default:
       return t("mcpServerCard.statusError");
   }
@@ -64,12 +56,10 @@ function statusLabel(status: string, t: SettingsTranslate): string {
 interface McpServerCardProps {
   server: McpServerEntry;
   toolsSummary: McpToolsSummaryServer | undefined;
-  onToggleEnabled: (serverId: string, enabled: boolean) => void;
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
   onAuthenticate: (serverId: string) => void;
   onRevokeOAuth: (serverId: string) => void;
-  isUpdating: boolean;
   isAuthenticating: boolean;
   isRevoking: boolean;
 }
@@ -77,12 +67,10 @@ interface McpServerCardProps {
 export function McpServerCard({
   server,
   toolsSummary,
-  onToggleEnabled,
   onRemove,
   onConfigure,
   onAuthenticate,
   onRevokeOAuth,
-  isUpdating,
   isAuthenticating,
   isRevoking,
 }: McpServerCardProps) {
@@ -90,11 +78,6 @@ export function McpServerCard({
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const statusInfo = STATUS_CONFIG[server.status] ?? DEFAULT_STATUS;
   const StatusIcon = statusInfo.icon;
-
-  const handleToggle = useCallback(
-    (next: boolean) => onToggleEnabled(server.id, next),
-    [onToggleEnabled, server.id],
-  );
 
   const handleRemove = useCallback(
     () => onRemove(server.id),
@@ -166,7 +149,7 @@ export function McpServerCard({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            {isUpdating || isAuthenticating ? (
+            {isAuthenticating ? (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
             ) : null}
             {server.status === "needs-auth" &&
@@ -210,20 +193,6 @@ export function McpServerCard({
                 </Button>
               </>
             ) : null}
-            <Toggle
-              checked={server.enabled}
-              onChange={handleToggle}
-              disabled={isUpdating}
-              aria-label={
-                server.enabled
-                  ? t("mcpServerCard.toggleDisableAriaLabel", {
-                      serverId: server.id,
-                    })
-                  : t("mcpServerCard.toggleEnableAriaLabel", {
-                      serverId: server.id,
-                    })
-              }
-            />
             <Button
               variant="ghost"
               size="compact"

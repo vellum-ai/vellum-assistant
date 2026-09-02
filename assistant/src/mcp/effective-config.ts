@@ -42,8 +42,6 @@ let lastBuiltPluginFingerprint: string | null = null;
 export function buildEffectiveMcpConfig(
   workspaceConfig?: McpConfig,
 ): ResolvedMcpConfig {
-  // An absent `mcp` key still has to yield the schema's own defaults
-  // (`globalMaxTools`), since plugin servers alone are enough to need them.
   const base = workspaceConfig ?? McpConfigSchema.parse({});
   const servers: Record<string, ResolvedMcpServerConfig> = {};
   for (const [id, config] of Object.entries(base.servers)) {

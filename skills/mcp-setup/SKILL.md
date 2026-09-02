@@ -95,16 +95,16 @@ assistant mcp list
 assistant mcp list --json   # machine-readable output
 ```
 
-Shows each server's connection status, transport, URL/command, and risk level. Status indicators:
+Shows each server's connection status, transport, and URL/command. Status indicators:
 
 - `✓` Connected
-- `✗` Error or disabled
+- `✗` Error
 - `!` Needs authentication
 
 ### Add a server
 
 ```
-assistant mcp add <name> -t <transport> -u <url> [-r low|medium|high] [--disabled]
+assistant mcp add <name> -t <transport> -u <url>
 ```
 
 Transport types:
@@ -113,13 +113,11 @@ Transport types:
 - `sse` — legacy remote servers
 - `stdio` — local process: use `-c <command>` and `-a <args...>` instead of `-u`
 
-Risk level (`-r`) controls approval prompts per tool call: `low` auto-approves, `high` always prompts. Omit it and the server starts at `medium`, and a tool's own MCP annotations move it one step from there (`destructiveHint` up, `readOnlyHint` down).
-
 Examples:
 
 ```
 assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp
-assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low
+assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp
 assistant mcp add local-db -t stdio -c npx -a -y @my/mcp-server
 ```
 
@@ -156,13 +154,7 @@ Manually signals the assistant to reconnect all MCP servers from disk. Normally 
 
 ## Advanced Configuration
 
-`mcp add` covers the common cases. For advanced options, edit `$VELLUM_WORKSPACE_DIR/config.json` directly under `mcp.servers.<name>`:
-
-- `env` — environment variables for stdio servers
-- `headers` — custom HTTP headers for remote servers
-- `maxTools` — per-server tool cap (default: 20)
-- `allowedTools` / `blockedTools` — tool name filters
-- `globalMaxTools` — total cap across all servers (default: 50)
+`mcp add` covers the common cases. For stdio environment variables, edit `$VELLUM_WORKSPACE_DIR/config.json` under `mcp.servers.<name>.transport.env`. Auth headers for remote servers go through `assistant mcp add -H` or the settings UI, not the config file.
 
 ## SKILL COMPLETE WHEN
 

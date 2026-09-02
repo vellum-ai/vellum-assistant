@@ -193,8 +193,6 @@ describe("assistant mcp list", () => {
                 type: "streamable-http",
                 url: "https://example.com/mcp",
               },
-              enabled: true,
-              defaultRiskLevel: "medium",
             },
           ],
         },
@@ -207,7 +205,6 @@ describe("assistant mcp list", () => {
     expect(stdout).toContain("test-server");
     expect(stdout).toContain("streamable-http");
     expect(stdout).toContain("https://example.com/mcp");
-    expect(stdout).toContain("medium");
   });
 
   test("shows disabled status", async () => {
@@ -220,8 +217,6 @@ describe("assistant mcp list", () => {
               id: "disabled-server",
               status: "✗ disabled",
               transport: { type: "sse", url: "https://example.com/sse" },
-              enabled: false,
-              defaultRiskLevel: "high",
             },
           ],
         },
@@ -247,8 +242,6 @@ describe("assistant mcp list", () => {
                 command: "npx",
                 args: ["-y", "some-mcp-server"],
               },
-              enabled: true,
-              defaultRiskLevel: "low",
             },
           ],
         },
@@ -260,7 +253,6 @@ describe("assistant mcp list", () => {
     expect(stdout).toContain("stdio-server");
     expect(stdout).toContain("stdio");
     expect(stdout).toContain("npx -y some-mcp-server");
-    expect(stdout).toContain("low");
   });
 
   test("--json outputs valid JSON", async () => {
@@ -276,8 +268,6 @@ describe("assistant mcp list", () => {
                 type: "streamable-http",
                 url: "https://example.com/mcp",
               },
-              enabled: true,
-              defaultRiskLevel: "high",
             },
           ],
         },
@@ -375,27 +365,6 @@ describe("assistant mcp add", () => {
     expect(body.args).toEqual(["-y", "some-server"]);
   });
 
-  test("adds server as disabled with --disabled flag", async () => {
-    const { exitCode } = await runMcpAdd("test-disabled", [
-      "-t",
-      "sse",
-      "-u",
-      "https://example.com/sse",
-      "--disabled",
-    ]);
-    expect(exitCode).toBe(0);
-
-    const addCall = mockCliIpcCallFn.mock.calls.find(
-      (c) => c[0] === "internal_mcp_add",
-    );
-    expect(addCall).toBeDefined();
-    const body = (addCall![1] as Record<string, unknown>).body as Record<
-      string,
-      unknown
-    >;
-    expect(body.disabled).toBe(true);
-  });
-
   test("rejects duplicate server name via IPC error", async () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
@@ -436,48 +405,6 @@ describe("assistant mcp add", () => {
 
     const { stderr } = await runMcpAdd("bad-http", ["-t", "streamable-http"]);
     expect(stderr).toContain("--url is required");
-  });
-
-  test("sends no risk when --risk is omitted, leaving the config default", async () => {
-    const { exitCode } = await runMcpAdd("default-risk", [
-      "-t",
-      "sse",
-      "-u",
-      "https://example.com/sse",
-    ]);
-    expect(exitCode).toBe(0);
-
-    const addCall = mockCliIpcCallFn.mock.calls.find(
-      (c) => c[0] === "internal_mcp_add",
-    );
-    expect(addCall).toBeDefined();
-    const body = (addCall![1] as Record<string, unknown>).body as Record<
-      string,
-      unknown
-    >;
-    expect(body.risk).toBeUndefined();
-  });
-
-  test("forwards an explicit --risk", async () => {
-    const { exitCode } = await runMcpAdd("explicit-risk", [
-      "-t",
-      "sse",
-      "-u",
-      "https://example.com/sse",
-      "-r",
-      "high",
-    ]);
-    expect(exitCode).toBe(0);
-
-    const addCall = mockCliIpcCallFn.mock.calls.find(
-      (c) => c[0] === "internal_mcp_add",
-    );
-    expect(addCall).toBeDefined();
-    const body = (addCall![1] as Record<string, unknown>).body as Record<
-      string,
-      unknown
-    >;
-    expect(body.risk).toBe("high");
   });
 
   test("calls cliIpcCall with internal_mcp_add", async () => {

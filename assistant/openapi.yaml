@@ -17303,10 +17303,6 @@ paths:
                   type: array
                   items:
                     type: string
-                risk:
-                  type: string
-                disabled:
-                  type: boolean
                 headers:
                   type: object
                   propertyNames:
@@ -17393,7 +17389,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).
+      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
       tags:
         - internal
       responses:
@@ -17425,26 +17421,12 @@ paths:
                           required:
                             - type
                           additionalProperties: {}
-                        enabled:
-                          type: boolean
-                        defaultRiskLevel:
-                          type: string
                         hasOAuth:
                           type: boolean
-                        allowedTools:
-                          type: array
-                          items:
-                            type: string
-                        blockedTools:
-                          type: array
-                          items:
-                            type: string
                       required:
                         - id
                         - status
                         - transport
-                        - enabled
-                        - defaultRiskLevel
                         - hasOAuth
                       additionalProperties: false
                 required:
@@ -17556,24 +17538,6 @@ paths:
               properties:
                 name:
                   type: string
-                enabled:
-                  type: boolean
-                defaultRiskLevel:
-                  type: string
-                maxTools:
-                  type: number
-                allowedTools:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: string
-                    - type: "null"
-                blockedTools:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: string
-                    - type: "null"
                 headers:
                   anyOf:
                     - type: object
