@@ -4,7 +4,7 @@
  *
  * Mirrors `confirmation-request-guardian-bridge.ts` for the question kind:
  * emits the notification signal (the broadcaster renders the options as card
- * actions — see `resolveQuestionOptionsContext`) and records the resulting
+ * actions — see `resolveQuestionContext`) and records the resulting
  * card deliveries so reply routing can address taps back to the request.
  *
  * Unlike the confirmation bridge — which escalates a NON-guardian's request TO
