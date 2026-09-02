@@ -123,8 +123,11 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  // The dictation cleanup pass. A user is holding a key with the words in
+  // their head and nothing on screen until this answers, so it is priced as
+  // a latency call and nothing else runs on this site.
   interactionClassifier: {
-    profile: "cost-optimized",
+    profile: "latency-optimized",
     effort: "low",
     thinking: { enabled: false },
   },
