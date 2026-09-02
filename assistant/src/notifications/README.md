@@ -295,7 +295,7 @@ The notification system delivers to three channel types:
 
 ### Vellum (always connected)
 
-Local SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
+Local SSE via the assistant's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
 
 - `sourceEventName` -- the event that triggered the notification
 - `title` and `body` -- rendered notification copy
@@ -311,7 +311,7 @@ HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` s
 
 Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
 
-- **Vellum** is always considered connected (HTTP transport is always available when the daemon is running)
+- **Vellum** is always considered connected (HTTP transport is always available when the assistant is running)
 - **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
 
 ## Conversation Materialization
@@ -443,7 +443,6 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 
 ```ts
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import { resolveVisibleInSourceNow } from "../notifications/resolve-visible-in-source.js";
 
 await emitNotificationSignal({
   sourceEventName: "your_event_name",
@@ -453,12 +452,11 @@ await emitNotificationSignal({
     requiresAction: true,
     urgency: "high",
     isAsyncBackground: false,
-    // Opt in only on the arrivals that already rendered this event in the
-    // conversation; `renderedInConversation` is whatever proof your producer
-    // has. Global and infra signals pass a literal `false` instead.
-    visibleInSourceNow: resolveVisibleInSourceNow({
-      conversationId: renderedInConversation ? conversationId : undefined,
-    }),
+    // `false` is the correct default. Only a producer that can prove this
+    // arrival already rendered the event in the conversation may resolve the
+    // hint instead, and each one needs a flag that names it. See
+    // "Choosing `visibleInSourceNow`" below.
+    visibleInSourceNow: false,
   },
   contextPayload: {
     /* arbitrary data for the decision engine */
@@ -477,10 +475,10 @@ The call is fire-and-forget safe by default -- errors are caught and logged inte
 
 Step 1 suppresses on this hint before anything else runs, and nothing downstream can rescue a signal it swallows, so a wrong `true` deletes the notification outright. All four rules below must hold before a producer resolves the hint instead of passing `false`.
 
-- **Opt in only when the notification duplicates something that conversation has already rendered.** Having a conversation id in scope is not sufficient; the producer must know that _this_ arrival put the announced thing on screen there. `runtime/background-job-runner.ts` is the worked example: one catch block is reached from several directions, and it passes `presenceConversationId` only when the failure carries a `turnFailure`, the one arrival whose conversation is guaranteed to have emitted a `conversation_error` the user can read. A runner timeout leaves the turn still rendering as in progress and a bootstrap throw never reaches the agent loop, so both keep notifying.
+- **Opt in only when the notification duplicates something that conversation has already rendered, and only behind a flag that names your producer.** `resolveVisibleInSourceNow()` reads `activity-presence-suppression`, which gates the background-activity failure producer alone, so a new producer needs its own flag or an extension of that one before it calls the resolver. Otherwise the flag silently governs a producer its description does not cover. Having a conversation id in scope is not sufficient; the producer must know that _this_ arrival put the announced thing on screen there. `runtime/background-job-runner.ts` is the worked example: one catch block is reached from several directions, and it passes `presenceConversationId` only when the failure carries a `turnFailure`, the one arrival whose conversation is guaranteed to have emitted a `conversation_error` the user can read. A runner timeout leaves the turn still rendering as in progress and a bootstrap throw never reaches the agent loop, so both keep notifying.
 - **Pass a literal `false` for global and infra signals.** Heartbeat, credential health, webhook health, and worker liveness have no source surface to watch, so there is nothing to duplicate.
 - **Never opt in a `guardian.question` producer.** The card _is_ the prompt, so a `true` suppresses the question's only rendering and the tool hangs until the prompt timeout. `runtime/question-request-guardian-bridge.ts` carries the rationale at its hint block, and three regression pins hold the line: `runtime/__tests__/question-request-guardian-bridge.test.ts`, `__tests__/confirmation-request-guardian-bridge.test.ts`, and `__tests__/notification-guardian-path.test.ts`.
-- **A producer running inside the schedule worker cannot read presence at all.** `schedule/worker.ts` is a standalone OS process and the sole runner of schedule execution, while the resolver reads `assistantEventHub` through `isWebConversationFocused()` and that hub's SSE clients exist only in the daemon process. Every presence read from the worker resolves `false`, whatever the user is watching. The trap is in testing: a test that drives the producer and mocks presence in one process passes while the shipped worker suppresses nothing. Tracked as JARVIS-1711.
+- **A producer running inside the schedule worker cannot read presence at all.** `schedule/worker.ts` is a standalone OS process and the sole runner of schedule execution, while the resolver reads `assistantEventHub` through `isWebConversationFocused()` and that hub's SSE clients exist only in the assistant process. Every presence read from the worker resolves `false`, whatever the user is watching. The trap is in testing: a test that drives the producer and mocks presence in one process passes while the shipped worker suppresses nothing. Tracked as JARVIS-1711.
 
 ## How to Add a New Channel
 
@@ -569,4 +567,4 @@ from the unified `llm` block. Override defaults by setting either of:
 
 When a call site override is unset, the resolver falls back to the shipped call-site default profile.
 
-The notification pipeline is always active -- signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.
+The notification pipeline is always active -- signals are processed and dispatched as soon as the assistant is running. The audit trail (events, decisions, deliveries) is written for every signal.
