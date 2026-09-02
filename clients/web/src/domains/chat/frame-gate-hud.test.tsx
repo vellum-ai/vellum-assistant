@@ -331,19 +331,31 @@ const strip = () => screen.queryByTestId("frame-gate-hud-strip");
 const sheet = () => screen.queryByTestId("frame-gate-hud-sheet");
 const backdrop = () => screen.queryByTestId("frame-gate-hud-backdrop");
 
-/** Put a decision on the record and render a mount that may stand down. */
-function renderCollapsible(): void {
-  render(<FrameGateHud surface="composer" collapsible />);
+/**
+ * Put a decision on the record and render a mount that may stand down.
+ *
+ * The element handed back is the readout's parent, which in the app is the
+ * room's own box: the element motion attaches the room's drag to.
+ */
+function renderCollapsible(): HTMLElement {
+  const { container } = render(<FrameGateHud surface="composer" collapsible />);
   judge("composer", "novel", true);
+  return container;
 }
 
 /** Render the collapsible mount on a narrow window and open its sheet. */
-function openSheet(): void {
+function openSheet(): HTMLElement {
   isMobileRef.value = true;
-  renderCollapsible();
+  const container = renderCollapsible();
   act(() => {
     fireEvent.click(strip()!);
   });
+  return container;
+}
+
+/** A press, as the room's drag listener would receive one. */
+function press(target: Element): void {
+  target.dispatchEvent(new Event("pointerdown", { bubbles: true }));
 }
 
 /**
@@ -482,6 +494,9 @@ describe("FrameGateHud sheet", () => {
   test("the affordance that says it can be closed closes it", () => {
     openSheet();
 
+    // The grabber sits inside the sheet, whose surface takes every press out
+    // of the room's reach. The dismissal rides the tap that follows rather
+    // than the press, so taking the press costs it nothing.
     act(() => {
       fireEvent.click(screen.getByTestId("frame-gate-hud-collapse"));
     });
@@ -534,6 +549,79 @@ describe("FrameGateHud sheet", () => {
         backdrop()!.compareDocumentPosition(sheet()!) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * The room the sheet opens in is dragged down to minimize the call, and
+   * motion arms that by listening for `pointerdown` on the room's own element
+   * in the bubble phase. A scroll down the readout would be the same gesture,
+   * so a press the sheet has taken must not reach the room.
+   *
+   * The gesture loop itself needs a layout engine, so what is asserted here is
+   * the property the loop turns on: which presses reach an ancestor of the
+   * mount, standing in for the element the room attaches its drag to.
+   */
+  describe("the room's drag", () => {
+    test("never sees a press that lands on the sheet", () => {
+      const room = openSheet();
+      const roomDrag = mock(() => {});
+      room.addEventListener("pointerdown", roomDrag);
+
+      press(screen.getByRole("button", { name: "Reset" }));
+
+      expect(roomDrag).not.toHaveBeenCalled();
+    });
+
+    test("still sees a press that lands anywhere else", () => {
+      const room = openSheet();
+      const roomDrag = mock(() => {});
+      room.addEventListener("pointerdown", roomDrag);
+
+      // The backdrop is a sibling of the sheet, not part of it, so the room is
+      // still pulled down by everything around the readout.
+      press(backdrop()!);
+      expect(roomDrag).toHaveBeenCalledTimes(1);
+
+      // And by the strip, which is chrome over the feed rather than a surface
+      // with a gesture of its own.
+      press(strip()!);
+      expect(roomDrag).toHaveBeenCalledTimes(2);
+    });
+
+    test("the sheet's own children are handed the press first", () => {
+      openSheet();
+      const slider = within(
+        screen.getByTestId("frame-gate-hud-slider-noveltyThreshold"),
+      ).getByRole("slider");
+      const sliderPress = mock(() => {});
+      slider.addEventListener("pointerdown", sliderPress);
+
+      // Taken on the way back up rather than on the way down: a slider still
+      // starts its own drag, and only the room is left out.
+      press(slider);
+
+      expect(sliderPress).toHaveBeenCalledTimes(1);
+    });
+
+    test("the sheet asks the browser back for the vertical pan", () => {
+      openSheet();
+
+      // The room carries `pan-x` for as long as it is draggable, which is how
+      // it stops the browser scrolling under the gesture it owns. Stopping
+      // motion's listener does not give that back; the sheet has to say so.
+      expect(sheet()?.style.touchAction).toBe("pan-y");
+    });
+
+    test("is left alone while the readout is a strip", () => {
+      isMobileRef.value = true;
+      const room = renderCollapsible();
+      const roomDrag = mock(() => {});
+      room.addEventListener("pointerdown", roomDrag);
+
+      press(strip()!);
+
+      expect(roomDrag).toHaveBeenCalledTimes(1);
     });
   });
 });

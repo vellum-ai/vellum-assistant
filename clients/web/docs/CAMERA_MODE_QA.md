@@ -83,11 +83,17 @@ scrim.
       and separately tap the bar at the top of the sheet: each closes it, and
       neither press reaches the shutter underneath. The strip stays up while
       the sheet is open and its meters keep moving.
-- [ ] The sheet does not take the room's gestures. With the sheet open, drag a
-      threshold slider sideways across its whole range: the value follows and
-      the room does not start sliding down. Then drag downward on the sheet's
-      own body: the room minimizes, which is the room's gesture, and nothing is
-      left on screen belonging to the readout.
+- [ ] The sheet scrolls, and the room holds still under it. The readout is
+      taller than the sheet's height cap, so the lower sliders are reachable
+      only by scrolling. With the sheet open, swipe up and down its body: the
+      readout scrolls to the reset button and back, and the room never starts
+      sliding toward a minimize. Drag a threshold sideways across its whole
+      range and the same holds.
+- [ ] The room is still pulled down by everything around the sheet. With the
+      sheet open, drag downward on the frame outside it: the room minimizes,
+      which is the room's own gesture, and the readout goes down with it. Close
+      the sheet and drag from the same place the sheet occupied: the room
+      minimizes there too.
 - [ ] Tuning survives the collapse. Move a threshold in the sheet, close it,
       and open it again: the value is where it was left, and the dot marking a
       moved threshold is still beside it. Reset puts every slider back.

@@ -41,9 +41,41 @@
  * dismisses on tap rather than on a drag: the room's own chrome answers a
  * downward drag by minimizing the whole call, so a sheet that read drags here
  * would be competing with that for the same gesture.
+ *
+ * ## Why the sheet claims the presses that land on it
+ *
+ * That same room drag is what a scroll inside this sheet would be competing
+ * with. Motion attaches the drag as a `pointerdown` listener on the room's own
+ * element, in the bubble phase and passive
+ * (`VisualElementDragControls.addListeners` through `addPointerEvent` and
+ * `addDomEvent`), and its only carve-out is a press on a text input, so a
+ * button, a slider or a scrolling column inside the room starts a room drag
+ * like anything else. The readout is taller than its own height cap, so the
+ * lower sliders are reachable only by a vertical swipe, and that swipe would
+ * pull the room down instead of scrolling.
+ *
+ * The sheet therefore stops `pointerdown` from leaving it, on the element that
+ * is both its surface and its scroll container. Stopping propagation is not
+ * `preventDefault`: `docs/CAPACITOR.md` bans the latter on `pointerdown`
+ * because WebKit drops the rest of the sequence with it, and the tap that
+ * follows this press still lands, which is what the grabber's dismissal and
+ * every switch inside the readout ride. It is the bubble phase, so the slider
+ * or button under the finger has already been handed the press by the time the
+ * sheet takes it out of the room's reach.
+ *
+ * The whole sheet rather than an inner scroll region: a press that lands on
+ * this surface is aimed at this surface. The backdrop is a sibling and keeps
+ * its press, so the room is still dragged by everything around the sheet, and
+ * a sheet that is closed leaves the room exactly as it was.
+ *
+ * The drag has a second half that is the browser's rather than motion's: the
+ * same props put `touch-action: pan-x` on the room (`useHTMLProps`), which is
+ * how it stops the browser panning vertically under a gesture it means to own.
+ * The sheet asks for the vertical pan back on its own box, the way every other
+ * scrolling panel over a claimed gesture in this app does.
  */
 
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { cn } from "@vellumai/design-library";
 
 import { CAMERA_MEDIA_GLASS_CLASS } from "@/domains/chat/voice/voice-room/camera-mode-paint";
@@ -75,7 +107,24 @@ export function FrameGateHudCompact({
   const { t } = useTranslation("chat");
   const overrides = useCameraGateDebugStore.use.overrides();
   const [expanded, setExpanded] = useState(false);
+  const [sheet, setSheet] = useState<HTMLDivElement | null>(null);
   const collapseLabel = t("frameGateHud.collapse");
+
+  // A native listener rather than React's `onPointerDown`: React delegates to
+  // the app's root container, which the room's own element sits inside, so a
+  // synthetic stop runs long after the room has already been handed the press.
+  useEffect(() => {
+    if (!sheet) {
+      return;
+    }
+    const claimPress = (event: PointerEvent) => {
+      event.stopPropagation();
+    };
+    sheet.addEventListener("pointerdown", claimPress);
+    return () => {
+      sheet.removeEventListener("pointerdown", claimPress);
+    };
+  }, [sheet]);
 
   return (
     <>
@@ -115,6 +164,7 @@ export function FrameGateHudCompact({
             onClick={() => setExpanded(false)}
           />
           <div
+            ref={setSheet}
             data-slot="frame-gate-hud"
             data-testid="frame-gate-hud-sheet"
             className={cn(
@@ -122,7 +172,10 @@ export function FrameGateHudCompact({
               "flex flex-col gap-3 rounded-t-xl px-3 pt-2 text-[11px] leading-tight shadow-lg",
               CAMERA_MEDIA_GLASS_CLASS,
             )}
-            style={{ paddingBottom: `calc(0.75rem + ${SAFE_AREA_BOTTOM})` }}
+            style={{
+              paddingBottom: `calc(0.75rem + ${SAFE_AREA_BOTTOM})`,
+              touchAction: "pan-y",
+            }}
           >
             {/* The bar a sheet is closed by everywhere else, at a size a thumb
                 can find. The bar itself is 4px; the button around it is the
