@@ -318,8 +318,7 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 - A bundle's `fill-specializations` solid is a **Display P3** value, so an
   sRGB hex has to be converted before it goes in. All three bundles carry a
   true conversion of their hex. Pasting the raw sRGB components straight
-  through renders noticeably more saturated than the hex you started from,
-  which is why the conversion is required rather than optional.
+  through renders noticeably more saturated than the hex you started from.
 - `App/App/AvatarIcons.xcassets` holds the alternate icons, one
   `.appiconset` per eye style and color, named `avatar-eyes-<eye>-<color>`.
   Every combination ships: 9 eye styles × 6 colors, so 54 sets. Each set is a

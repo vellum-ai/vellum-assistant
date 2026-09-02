@@ -11,11 +11,14 @@
  * icons. A hand render can mix sizes, so one entry is not evidence for the rest.
  * Linux derives its ground at build time instead, so the guard runs that
  * script's own conversion rather than a copy that could drift away from it.
+ * The same conversion carries each ground over to the Android flavors, which
+ * spell it as plain sRGB hex, so the two encodings cannot drift apart.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
+import { P3_SPELLING, readIconFill } from "./icon-bundle-fixtures";
 
 const CLIENTS_DIR = join(import.meta.dir, "../../..");
 
@@ -29,8 +32,6 @@ const STANDARDIZED = [
   { environment: "dev", icon: "AppIcon-Dev.icon" },
 ] as const;
 
-const P3_SPELLING = /^display-p3:\d+\.\d+,\d+\.\d+,\d+\.\d+,\d+\.\d+$/;
-
 /** The desktop manifests keep the fill at the top level, not per appearance. */
 function readDesktopFill(platform: string, environment: string): string {
   const path = join(
@@ -43,16 +44,28 @@ function readDesktopFill(platform: string, environment: string): string {
   return JSON.parse(readFileSync(path, "utf8")).fill.solid;
 }
 
-/** The bundle pins every appearance to one color, so any specialization does. */
-function readIosFill(icon: string): string {
-  const path = join(CLIENTS_DIR, "ios/App/App", icon, "icon.json");
-  const solids = new Set(
-    JSON.parse(readFileSync(path, "utf8"))["fill-specializations"].map(
-      ({ value }: { value: { solid: string } }) => value.solid,
-    ),
+/** The launcher background an Android flavor declares, in plain sRGB hex. */
+function flavorLauncherBackground(environment: string): string {
+  const path = join(
+    CLIENTS_DIR,
+    "android/app/src",
+    environment,
+    "res/values/colors.xml",
   );
-  expect(solids.size).toBe(1);
-  return [...solids][0] as string;
+  const hex = /name="launcher_background"\s*>\s*(#[0-9A-Fa-f]{6})\s*</.exec(
+    readFileSync(path, "utf8"),
+  )?.[1];
+  if (!hex) {
+    throw new Error(`${environment} declares no launcher_background`);
+  }
+  return hex.toUpperCase();
+}
+
+function toHex(components: number[]): string {
+  const digits = components
+    .map((component) => component.toString(16).padStart(2, "0"))
+    .join("");
+  return `#${digits}`.toUpperCase();
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -246,13 +259,13 @@ describe("desktop icon ground", () => {
 
   for (const { environment, icon } of STANDARDIZED) {
     test(`${environment} matches ${icon}`, () => {
-      expect(readDesktopFill("macos", environment)).toBe(readIosFill(icon));
+      expect(readDesktopFill("macos", environment)).toBe(readIconFill(icon));
     });
   }
 
   for (const { environment, icon } of STANDARDIZED) {
     test(`Linux and every ${environment} Windows ICO image render ${icon}'s ground`, () => {
-      const fill = readIosFill(icon);
+      const fill = readIconFill(icon);
       // The shipped awk and this file's rotation are independent conversions;
       // demanding both catches a drift in either one.
       const ground = renderedSrgb(fill);
@@ -269,6 +282,17 @@ describe("desktop icon ground", () => {
         ),
       ).toEqual(
         Object.fromEntries(entries.map(({ size }) => [`${size}px`, ground])),
+      );
+    });
+  }
+
+  for (const { environment, icon } of STANDARDIZED) {
+    // The P3 surfaces above and the sRGB surfaces Android and the web share are
+    // two spellings of one ground, so each cluster staying self-consistent is
+    // only half the guard: this converts across the seam and pins the result.
+    test(`${icon} converts to the ${environment} Android launcher hex`, () => {
+      expect(toHex(p3ToSrgb(readIconFill(icon)))).toBe(
+        flavorLauncherBackground(environment),
       );
     });
   }
