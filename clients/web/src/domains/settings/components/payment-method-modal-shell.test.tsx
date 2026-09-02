@@ -60,14 +60,26 @@ describe("PaymentMethodModalShell", () => {
     expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
   });
 
-  test("a card on file with no last4 drops the empty dots", () => {
+  test("a card on file with no last4 reads its own sentence", () => {
     const { getByText } = renderShell({
       mode: "replace",
       cardOnFile: { ...VISA_ON_FILE, last4: null },
     });
     expect(
       getByText(
-        "Replacing Visa · 04 / 42. The new card takes over immediately.",
+        "Replacing your Visa card · 04 / 42. The new card takes over immediately.",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("a card on file with no brand reads its own sentence", () => {
+    const { getByText } = renderShell({
+      mode: "replace",
+      cardOnFile: { ...VISA_ON_FILE, brand: null },
+    });
+    expect(
+      getByText(
+        "Replacing the card ending in 4242 · 04 / 42. The new card takes over immediately.",
       ),
     ).not.toBeNull();
   });

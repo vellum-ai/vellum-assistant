@@ -11,7 +11,6 @@ import { Loader2, X } from "lucide-react";
 import { type ReactNode } from "react";
 
 import {
-  brandDisplayLabel,
   brandLabel,
   cardExpiryLabel,
 } from "@/domains/settings/utils/payment-method-brand";
@@ -258,28 +257,48 @@ export function PaymentMethodModalShell({
 }
 
 /**
- * Names the card being replaced inside the replace subtitle, falling back to
- * the card-less copy when Stripe gave us neither a brand nor a last4.
+ * Names the card being replaced inside the replace subtitle.
+ *
+ * Each card shape reads a whole sentence from the catalog rather than having
+ * one composed here around a standalone card label, so a locale that inflects
+ * the card reference for the verb can write it that way. The brand-only shape
+ * gets its own message too: dropping it into the brand-and-last4 sentence
+ * would leave the dots dangling, and dropping it to the card-less copy would
+ * throw away a brand we do know.
  */
 function replaceSubtitle(
   t: TFunction<"settings">,
   card: CardOnFile | null,
 ): string {
-  if (!card || (!card.brand && !card.last4)) {
-    return t("autoTopUpPaymentMethodModal.replaceSubtitle");
-  }
-  const brand = brandDisplayLabel(t, card.brand);
-  const label = card.last4
-    ? t("autoTopUpPaymentMethodModal.cardOnFile", {
-        brand,
-        last4: card.last4,
-      })
-    : brand;
-  const expiry = cardExpiryLabel(t, card.expMonth, card.expYear);
+  const brand = card?.brand ? brandLabel(card.brand) : null;
+  const last4 = card?.last4 ?? null;
+  // `cardExpiryLabel` carries its own leading separator, so the sentences take
+  // it behind a single space, or take nothing at all.
+  const expiryLabel = card
+    ? cardExpiryLabel(t, card.expMonth, card.expYear)
+    : null;
+  const expiry = expiryLabel ? ` ${expiryLabel}` : "";
 
-  return t("autoTopUpPaymentMethodModal.replaceSubtitleCard", {
-    card: expiry ? `${label} ${expiry}` : label,
-  });
+  if (brand && last4) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitleCard", {
+      brand,
+      last4,
+      expiry,
+    });
+  }
+  if (last4) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoBrand", {
+      last4,
+      expiry,
+    });
+  }
+  if (brand) {
+    return t("autoTopUpPaymentMethodModal.replaceSubtitleCardNoLast4", {
+      brand,
+      expiry,
+    });
+  }
+  return t("autoTopUpPaymentMethodModal.replaceSubtitle");
 }
 
 /** Titles the success panel, and the screen-reader title above it. */
