@@ -1529,6 +1529,7 @@ export class SlackSocketModeClient {
         subtype: (event as { subtype?: string }).subtype,
         user: (event as { user?: string }).user,
         hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
+        ...(deletesOwnPost ? { deletesOwnPost: true } : {}),
       },
       "Slack event accepted by filter",
     );
