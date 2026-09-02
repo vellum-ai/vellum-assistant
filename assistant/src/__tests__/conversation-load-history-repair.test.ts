@@ -812,9 +812,7 @@ describe("loadFromDb history repair", () => {
     expect(allText).toContain("Deploy finished cleanly.");
     // 🎉 (surviving target) quotes; 👀 (deleted target) does not.
     const tadaLine = allText.split("\n").find((line) => line.includes("🎉"));
-    const eyesLine = allText
-      .split("\n")
-      .find((line) => line.includes("👀"));
+    const eyesLine = allText.split("\n").find((line) => line.includes("👀"));
     expect(tadaLine).toContain("Deploy finished cleanly.");
     expect(eyesLine).toContain("an earlier message");
   });
