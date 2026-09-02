@@ -7,9 +7,10 @@
  *     CSRF + org header via the interceptor). We spy on `client.post` rather
  *     than `mock.module`-ing the whole SDK, matching the pattern in
  *     `domains/chat/inspector/compaction-trail-fetch.test.ts`.
- *   - `buildLiveVoiceWsUrl` — must produce the cloud velay URL with the
- *     `assistantId` in the path, a URL-encoded `?token=`, the `wss` scheme,
- *     and `conversationId` propagated only when supplied.
+ *   - `buildVelayWsUrl` / `buildSelfHostedGatewayWsUrl` and the resolvers on
+ *     top of them: the cloud velay URL carries the `assistantId` in the path,
+ *     a URL-encoded `?token=`, and the `wss` scheme; the self-hosted URL
+ *     follows the ingress and bypasses the HTTP-only local proxy.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -18,8 +19,8 @@ import { client } from "@/generated/api/client.gen";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 import {
-  buildLiveVoiceWsUrl,
-  buildSelfHostedLiveVoiceWsUrl,
+  buildSelfHostedGatewayWsUrl,
+  buildVelayWsUrl,
   getVelayWsScheme,
   isPairedGatewayIngress,
   VelayWsTokenError,
@@ -114,58 +115,33 @@ describe("mintVelayWsToken", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildLiveVoiceWsUrl
+// buildVelayWsUrl
 // ---------------------------------------------------------------------------
 
-describe("buildLiveVoiceWsUrl", () => {
-  test("builds the cloud velay URL with assistantId path + wss scheme + ?token=", () => {
-    const url = new URL(
-      buildLiveVoiceWsUrl({ assistantId: "assistant-1", token: "tok-abc" }),
-    );
-    expect(url.protocol).toBe("wss:");
-    expect(url.host).toBe("velay.vellum.ai");
-    expect(url.pathname).toBe("/assistant-1/v1/live-voice");
-    expect(url.searchParams.get("token")).toBe("tok-abc");
-    expect(url.searchParams.has("conversationId")).toBe(false);
-  });
+describe("buildVelayWsUrl", () => {
+  const args = { assistantId: "assistant-1", routePath: "/v1/live-voice" };
 
   test("URL-encodes tokens containing reserved characters", () => {
     const token = "a/b+c=d e";
-    const raw = buildLiveVoiceWsUrl({ assistantId: "assistant-1", token });
+    const raw = buildVelayWsUrl({ ...args, token });
     // The encoded form must round-trip back to the original token.
     expect(new URL(raw).searchParams.get("token")).toBe(token);
     // And the raw string must not carry the unencoded reserved chars.
     expect(raw).not.toContain("token=a/b+c=d e");
   });
 
-  test("appends conversationId as an additional query param when provided", () => {
-    const url = new URL(
-      buildLiveVoiceWsUrl({
-        assistantId: "assistant-1",
-        conversationId: "conv-xyz",
-        token: "tok-abc",
-      }),
-    );
-    expect(url.searchParams.get("token")).toBe("tok-abc");
-    expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
-  });
-
   test("derives the velay host from the injected platform URL (Electron shell)", () => {
     window.__VELLUM_CONFIG__ = {
       platformUrl: "https://staging-platform.vellum.ai",
     };
-    const url = new URL(
-      buildLiveVoiceWsUrl({ assistantId: "assistant-1", token: "tok-abc" }),
-    );
+    const url = new URL(buildVelayWsUrl({ ...args, token: "tok-abc" }));
     expect(url.protocol).toBe("wss:");
     expect(url.host).toBe("velay-staging.vellum.ai");
   });
 
   test("falls back to the prod velay host for an off-convention platform URL", () => {
     window.__VELLUM_CONFIG__ = { platformUrl: "http://localhost:8000" };
-    const url = new URL(
-      buildLiveVoiceWsUrl({ assistantId: "assistant-1", token: "tok-abc" }),
-    );
+    const url = new URL(buildVelayWsUrl({ ...args, token: "tok-abc" }));
     expect(url.host).toBe("velay.vellum.ai");
   });
 });
@@ -191,45 +167,21 @@ describe("getVelayWsScheme", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildSelfHostedLiveVoiceWsUrl
+// buildSelfHostedGatewayWsUrl
 // ---------------------------------------------------------------------------
 
-describe("buildSelfHostedLiveVoiceWsUrl", () => {
-  test("maps an https ingress to wss, no assistantId path prefix, actor token", () => {
-    const url = new URL(
-      buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "https://x.ngrok-free.app",
-        token: "actor-tok",
-      }),
-    );
-    expect(url.protocol).toBe("wss:");
-    expect(url.host).toBe("x.ngrok-free.app");
-    // Gateway serves /v1/live-voice directly — no /<assistantId> prefix.
-    expect(url.pathname).toBe("/v1/live-voice");
-    expect(url.searchParams.get("token")).toBe("actor-tok");
-    expect(url.searchParams.has("conversationId")).toBe(false);
-  });
-
-  test("maps a plain-http local ingress to ws", () => {
-    const url = new URL(
-      buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "http://localhost:8787",
-        token: "actor-tok",
-      }),
-    );
-    expect(url.protocol).toBe("ws:");
-    expect(url.host).toBe("localhost:8787");
-    expect(url.pathname).toBe("/v1/live-voice");
-  });
+describe("buildSelfHostedGatewayWsUrl", () => {
+  const args = { routePath: "/v1/live-voice", token: "actor-tok" };
 
   test("local __gateway proxy path: dials the loopback gateway port directly", () => {
-    // The HTTP-only __gateway proxy can't carry a WS upgrade, so live-voice must
-    // bypass it and hit 127.0.0.1:<port> directly. Origin host + prefix dropped.
+    // The HTTP-only __gateway proxy can't carry a WS upgrade, so the socket
+    // bypasses it and hits 127.0.0.1:<port>. Origin host, prefix, query, and
+    // hash are all dropped; the bypass keys off the path, not the scheme.
     const url = new URL(
-      buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "http://localhost:3000/assistant/__gateway/7821?a=1#frag",
-        conversationId: "conv-xyz",
-        token: "actor-tok",
+      buildSelfHostedGatewayWsUrl({
+        ...args,
+        ingressUrl: "https://app.example/assistant/__gateway/7821?a=1#frag",
+        params: { conversationId: "conv-xyz" },
       }),
     );
     expect(url.protocol).toBe("ws:");
@@ -241,51 +193,25 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
     expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
   });
 
-  test("local __gateway path bypasses even an https origin (Electron app://-style)", () => {
-    // The bypass keys off the proxy path, not the origin scheme, so a live-voice
-    // WS never rides the same-origin proxy regardless of host.
+  test("paired __gateway-paired path throws PairedVoiceUnavailableError on any origin", () => {
+    // The paired proxy is HTTP-only with no loopback port to bypass to, so the
+    // builder fails typed before any dial. On an Electron app:// origin a raw
+    // dial would otherwise throw an opaque WebSocket construction error.
+    for (const ingressUrl of [
+      "http://localhost:3000/assistant/__gateway-paired/asst-1",
+      "app://vellum/assistant/__gateway-paired/asst-1",
+    ]) {
+      expect(() =>
+        buildSelfHostedGatewayWsUrl({ ...args, ingressUrl }),
+      ).toThrow(PairedVoiceUnavailableError);
+    }
+  });
+
+  test("remote ingress keeps its host and path prefix, drops query and hash", () => {
     const url = new URL(
-      buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "https://app.example/assistant/__gateway/18101",
-        token: "actor-tok",
-      }),
-    );
-    expect(url.protocol).toBe("ws:");
-    expect(url.host).toBe("127.0.0.1:18101");
-    expect(url.pathname).toBe("/v1/live-voice");
-  });
-
-  test("paired __gateway-paired path throws PairedVoiceUnavailableError (browser origin)", () => {
-    // The paired proxy is HTTP-only and has no loopback port to bypass to, so
-    // no WS URL exists; the builder must fail typed instead of producing a
-    // ws://localhost URL no host upgrades.
-    expect(() =>
-      buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "http://localhost:3000/assistant/__gateway-paired/asst-1",
-        token: "actor-tok",
-      }),
-    ).toThrow(PairedVoiceUnavailableError);
-  });
-
-  test("paired __gateway-paired path throws on an Electron app:// origin too", () => {
-    // The app:// protocol can't be rewritten to wss (the WHATWG setter no-ops
-    // on non-special to special), so a raw dial would throw an opaque
-    // WebSocket construction error; the builder fails typed before any dial.
-    expect(() =>
-      buildSelfHostedLiveVoiceWsUrl({
-        ingressUrl: "app://vellum/assistant/__gateway-paired/asst-1",
-        token: "actor-tok",
-      }),
-    ).toThrow(PairedVoiceUnavailableError);
-  });
-
-  test("remote ingress (no __gateway path) keeps its host and appends the route", () => {
-    // A real remote gateway ingress is dialled as-is — only the local proxy path
-    // is rewritten to loopback.
-    const url = new URL(
-      buildSelfHostedLiveVoiceWsUrl({
+      buildSelfHostedGatewayWsUrl({
+        ...args,
         ingressUrl: "https://x.ngrok-free.app/gw?a=1#frag",
-        token: "actor-tok",
       }),
     );
     expect(url.protocol).toBe("wss:");
@@ -298,7 +224,7 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// resolveGatewayWsUrl — the routing every gateway WS shares
+// resolveGatewayWsUrl: the routing every gateway WS shares
 // ---------------------------------------------------------------------------
 
 describe("resolveGatewayWsUrl", () => {

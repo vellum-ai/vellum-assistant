@@ -91,7 +91,6 @@ const { useAssistantIdentityStore } =
 const { MIN_VERSION: RETRO_MIN_VERSION } =
   await import("@/lib/backwards-compat/watch-retro-completion");
 const {
-  buildWatchStreamWsUrl,
   isWatchSessionActive,
   resolveWatchStreamWsUrl,
   stopWatch,
@@ -388,28 +387,16 @@ afterEach(() => {
   assistantListeners.clear();
 });
 
-describe("the watch stream URL", () => {
-  test("carries the actor token and the capture's audio format", () => {
-    const url = new URL(
-      buildWatchStreamWsUrl({
-        ingressUrl: "https://gateway.example.com",
-        token: "actor-jwt",
-      }),
-    );
-    expect(url.protocol).toBe("wss:");
+describe("toggling a watch session", () => {
+  test("opens the stream with the actor token and audio format, and starts the microphone", async () => {
+    await startRunning();
+
+    expect(sockets).toHaveLength(1);
+    const url = new URL(socket().url);
     expect(url.pathname).toBe("/v1/watch/stream");
     expect(url.searchParams.get("token")).toBe("actor-jwt");
     expect(url.searchParams.get("mimeType")).toBe("audio/pcm");
     expect(url.searchParams.get("sampleRate")).toBe("16000");
-  });
-});
-
-describe("toggling a watch session", () => {
-  test("opens the stream and starts the microphone", async () => {
-    await startRunning();
-
-    expect(sockets).toHaveLength(1);
-    expect(socket().url).toContain("/v1/watch/stream");
     expect(capture.calls.started).toBe(1);
     expect(useWatchStore.getState().watching).toBe(true);
   });

@@ -37,18 +37,8 @@
  * routes through the platform `client` — that interceptor attaches the session
  * cookie + CSRF + `Vellum-Organization-Id`.
  *
- * ---------------------------------------------------------------------------
- * Shared with more than live voice
- * ---------------------------------------------------------------------------
- *
- * The transport pieces here are route-agnostic: {@link resolveGatewayWsUrl},
- * {@link buildSelfHostedGatewayWsUrl}, {@link buildVelayWsUrl}, and
- * {@link mintVelayWsToken} are what watch (`domains/chat/watch`) and the pod
- * desktop (`domains/chat/desktop`) dial through as well. Only the
- * `…LiveVoiceWsUrl` wrappers are live voice's own. The file keeps its name and
- * its home because live voice is where the rules were worked out and is still
- * their principal user; the alternative is a second module that restates them
- * and drifts.
+ * This module is the route-agnostic gateway WS transport shared by live voice,
+ * watch (`domains/chat/watch`), and the pod desktop (`domains/chat/desktop`).
  */
 
 import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
@@ -180,14 +170,6 @@ export function getVelayWsScheme(host: string): "ws" | "wss" {
   return loopback ? "ws" : "wss";
 }
 
-export interface BuildLiveVoiceWsUrlArgs {
-  assistantId: string;
-  /** Optional conversation to attach the live-voice session to. */
-  conversationId?: string;
-  /** Short-lived token from {@link mintVelayWsToken}. */
-  token: string;
-}
-
 export interface BuildVelayWsUrlArgs {
   assistantId: string;
   /** Gateway route to open, e.g. `/v1/live-voice` or `/v1/watch/stream`. */
@@ -236,39 +218,6 @@ export function buildVelayWsUrl({
     url.searchParams.set(key, value);
   }
   return url.toString();
-}
-
-/**
- * Build the velay live-voice WebSocket URL for the cloud path. Thin wrapper
- * over {@link buildVelayWsUrl} for the `/v1/live-voice` route.
- *
- * This is the cloud builder. The self-hosted/local path uses
- * {@link buildSelfHostedLiveVoiceWsUrl}; {@link resolveLiveVoiceWsUrl} chooses
- * between them.
- */
-export function buildLiveVoiceWsUrl({
-  assistantId,
-  conversationId,
-  token,
-}: BuildLiveVoiceWsUrlArgs): string {
-  return buildVelayWsUrl({
-    assistantId,
-    routePath: LIVE_VOICE_ROUTE,
-    token,
-    params: conversationId ? { conversationId } : undefined,
-  });
-}
-
-export interface BuildSelfHostedLiveVoiceWsUrlArgs {
-  /**
-   * The user's gateway ingress URL (e.g. `https://x.ngrok-free.app` or a plain
-   * `http://localhost:{port}`), from {@link getSelfHostedIngressUrl}.
-   */
-  ingressUrl: string;
-  /** Optional conversation to attach the live-voice session to. */
-  conversationId?: string;
-  /** Platform actor edge JWT from {@link getSelfHostedActorToken}. */
-  token: string;
 }
 
 /**
@@ -380,24 +329,6 @@ export function buildSelfHostedGatewayWsUrl({
     target.searchParams.set(key, value);
   }
   return target.toString();
-}
-
-/**
- * Build the live-voice WebSocket URL for the self-hosted / local path. Thin
- * wrapper over {@link buildSelfHostedGatewayWsUrl} for the `/v1/live-voice`
- * route; the gateway serves it directly (no velay `/<assistantId>` prefix).
- */
-export function buildSelfHostedLiveVoiceWsUrl({
-  ingressUrl,
-  conversationId,
-  token,
-}: BuildSelfHostedLiveVoiceWsUrlArgs): string {
-  return buildSelfHostedGatewayWsUrl({
-    ingressUrl,
-    routePath: LIVE_VOICE_ROUTE,
-    token,
-    params: conversationId ? { conversationId } : undefined,
-  });
 }
 
 export interface ResolveGatewayWsUrlArgs {

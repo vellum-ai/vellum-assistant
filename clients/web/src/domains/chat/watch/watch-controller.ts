@@ -77,10 +77,7 @@
 
 import { create } from "zustand";
 
-import {
-  buildSelfHostedGatewayWsUrl,
-  resolveGatewayWsUrl,
-} from "@/domains/chat/voice/live-voice/connection";
+import { resolveGatewayWsUrl } from "@/domains/chat/voice/live-voice/connection";
 import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
@@ -255,44 +252,8 @@ let drainRelease: Promise<void> | null = null;
 const WATCH_STREAM_ROUTE = "/v1/watch/stream";
 
 /**
- * Build the self-hosted watch stream WebSocket URL:
- *
- *   ws(s)://<ingressHost>/v1/watch/stream?token=…&mimeType=audio/pcm&sampleRate=16000
- *
- * The same shape as `buildSttStreamWsUrl`, and through the same helper, so the
- * two audio streams cannot drift into two ideas of how to reach the gateway.
- * Exported for unit tests.
- */
-export function buildWatchStreamWsUrl({
-  ingressUrl,
-  token,
-}: {
-  ingressUrl: string;
-  token: string;
-}): string {
-  return buildSelfHostedGatewayWsUrl({
-    ingressUrl,
-    routePath: WATCH_STREAM_ROUTE,
-    token,
-    params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
-  });
-}
-
-/**
  * Resolve the watch stream WebSocket URL for `assistantId`. Thin wrapper over
  * {@link resolveGatewayWsUrl} for the `/v1/watch/stream` route.
- *
- * On the managed path velay injects the authenticated user and org as
- * `X-Velay-*` headers; the gateway takes its managed branch on those and
- * cross-checks the caller against the stored `platform_user_id`
- * (`gateway/src/http/routes/guardian-pin.ts`). On the self-hosted path it
- * validates the actor JWT against the guardian binding instead, so the
- * guardian-only rule is the same rule on both paths, proven two ways.
- *
- * Throws `PairedVoiceUnavailableError` for a paired ingress and
- * `VelayWsTokenError` for a missing actor token or a refused mint, so a
- * start that cannot resolve a URL is distinguishable from one this
- * environment simply does not support. Exported for unit tests.
  */
 export function resolveWatchStreamWsUrl(assistantId: string): Promise<string> {
   return resolveGatewayWsUrl({
