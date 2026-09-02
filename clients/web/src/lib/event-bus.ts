@@ -40,11 +40,20 @@ import type { CommandUrlProvenance } from "@/runtime/native-deep-link";
  * `"online"`: `window.online` fired after `navigator.onLine` flipped
  * back to true; surfaced as a resume so consumers that just want
  * "we're probably stale, refresh" can subscribe to a single channel.
+ * `"window_attention"`: the Electron main process reported the main
+ * window back on screen. It is the desktop renderer's only source for
+ * this edge, because Vellum windows disable background throttling and
+ * that disables the Page Visibility API with it, so `"visibility"`
+ * never fires there.
  */
-export type AppResumeSignal = "visibility" | "app_state" | "online";
+export type AppResumeSignal =
+  | "visibility"
+  | "app_state"
+  | "online"
+  | "window_attention";
 
 /** Source of a synthetic `"app.hidden"` event. */
-export type AppHiddenSignal = "visibility" | "app_state";
+export type AppHiddenSignal = "visibility" | "app_state" | "window_attention";
 
 /**
  * Which checkout a completed Stripe session belongs to: a Pro

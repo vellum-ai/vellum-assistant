@@ -471,9 +471,9 @@ export interface VellumBridge {
     ): Promise<{ success: boolean; errorMessage?: string }>;
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
     /**
-     * Authoritative main-window state pushed from main. Vellum windows disable
-     * background throttling, which also disables the Page Visibility API, so
-     * the renderer cannot read this for itself.
+     * Authoritative state of the window this renderer belongs to, pushed from
+     * main. Vellum windows disable background throttling, which also disables
+     * the Page Visibility API, so the renderer cannot read this for itself.
      */
     onWindowAttention(
       callback: (payload: WindowAttentionPayload) => void,

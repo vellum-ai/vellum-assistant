@@ -19,7 +19,7 @@ import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import { handle } from "../ipc.client";
 import log from "../logger";
-import { current, ensureVisible } from "../main-window";
+import { ensureVisible } from "../main-window";
 
 /**
  * Linux notifications feature. Delivery prefers a native helper toast module
@@ -159,9 +159,7 @@ const notifications: CapabilityModule<DesktopCapabilityRegistry> = {
       ...(helperPath ? { create: createHelperToastFactory(helperPath) } : {}),
     });
     installNotifications();
-    const teardownWindowAttention = installWindowAttention({
-      currentMainWindow: current,
-    });
+    const teardownWindowAttention = installWindowAttention();
     app.once("before-quit", teardownWindowAttention);
   },
 };

@@ -6,7 +6,12 @@
  * 1. **Signal sources.** Wires each `runtime/event-sources/*` helper
  *    once at mount so DOM visibility, network online/offline,
  *    Capacitor app state, Capacitor deep links, Electron
- *    `powerMonitor`, and Electron deep-link events flow into the bus.
+ *    `powerMonitor`, Electron main-window attention, and Electron
+ *    deep-link events flow into the bus. The DOM visibility source and
+ *    the Electron attention source describe the same edge and both
+ *    register unconditionally: only one of them can fire on a given
+ *    host, because Electron disables the Page Visibility API and the
+ *    attention bridge exists nowhere else.
  *    The lifecycle diagnostics
  *    recorder is attached in the same effect so those signals are
  *    captured for support bundles, and boot/resume performance
@@ -39,6 +44,7 @@ import { publishElectronConnectivitySource } from "@/runtime/event-sources/elect
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
 import { publishElectronDownloadsSource } from "@/runtime/event-sources/electron-downloads";
 import { publishElectronPowerSource } from "@/runtime/event-sources/electron-power";
+import { publishElectronWindowAttentionSource } from "@/runtime/event-sources/electron-window-attention";
 import { publishWindowOnlineSource } from "@/runtime/event-sources/window-online";
 
 interface UseEventBusInitParams {
@@ -76,6 +82,7 @@ export function useEventBusInit({
       publishElectronDeepLinksSource(),
       publishElectronDownloadsSource(),
       publishElectronConnectivitySource(),
+      publishElectronWindowAttentionSource(),
       subscribeLifecycleDiagnostics(),
       startBootTelemetry(),
       subscribeSwitchTelemetry(),

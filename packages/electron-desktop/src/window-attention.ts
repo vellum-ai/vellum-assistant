@@ -5,7 +5,8 @@ import { WINDOW_ATTENTION } from "@vellumai/ipc-contract";
 import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
 
 /**
- * Authoritative main-window state, published from main to every renderer.
+ * Authoritative window state, published from main to the renderer that each
+ * window owns.
  *
  * Every Vellum window sets `backgroundThrottling: false`, which also disables
  * the Page Visibility API. A renderer therefore reads `document.visibilityState`
@@ -13,48 +14,36 @@ import type { WindowAttentionPayload } from "@vellumai/ipc-contract";
  * that it is off screen. Main can, through `BrowserWindow` state plus the app's
  * focus and blur events.
  *
+ * Every renderer hears about its own window and no other. A conversation
+ * pop-out is an independent window with its own visibility, and the consumers
+ * reading this signal act on it: they stop the camera, drop live capture
+ * consent, and tear down the SSE stream. Handing a pop-out the main window's
+ * state would disconnect the conversation the user is looking at the moment
+ * the main window is minimized behind it.
+ *
  * The publisher is event driven, never polled: `browser-window-focus` /
- * `browser-window-blur` plus the main window's own show, hide, minimize,
- * restore, and closed events are edge complete for the three booleans
- * published here. `closed` carries its own weight: a blur can leave renderers
- * holding a visible-but-unfocused window that is then destroyed, and without
- * that edge nothing corrects `visible` until an unrelated transition.
+ * `browser-window-blur` plus each window's own show, hide, minimize, restore,
+ * and closed events are edge complete for the three booleans published here.
+ * `closed` carries its own weight: the window that inherits focus from one
+ * being destroyed is not guaranteed an app-level focus event, and without that
+ * edge nothing corrects `focused` until an unrelated transition.
  *
  * Delivery is tracked per `webContents`, not once globally, because the
  * channel is push only and main answers no requests on it. Pop-out windows are
  * separate page loads, so renderers routinely appear between attention
  * transitions; a global "same as last time" cache would leave those
- * uninitialized. Each renderer is instead sent the current payload when its
+ * uninitialized. Each renderer is instead sent its window's payload when its
  * page finishes loading (a reload counts as a fresh page), and identical
  * repeats are dropped per recipient so the dedup benefit survives. The preload
  * caches that payload and replays it to callbacks that register later, so the
  * per-page send reaches renderer subscribers whenever they appear.
  */
 
-const UNATTENDED: WindowAttentionPayload = {
-  visible: false,
-  focused: false,
-  minimized: false,
-};
+type WindowEvent = "show" | "hide" | "minimize" | "restore";
 
-type MainWindowEvent = "show" | "hide" | "minimize" | "restore" | "closed";
+const WINDOW_EVENTS: WindowEvent[] = ["show", "hide", "minimize", "restore"];
 
-const MAIN_WINDOW_EVENTS: MainWindowEvent[] = [
-  "show",
-  "hide",
-  "minimize",
-  "restore",
-  "closed",
-];
-
-export interface WindowAttentionDependencies {
-  currentMainWindow: () => BrowserWindow | null;
-}
-
-const readAttention = (win: BrowserWindow | null): WindowAttentionPayload => {
-  if (!win || win.isDestroyed()) {
-    return UNATTENDED;
-  }
+const readAttention = (win: BrowserWindow): WindowAttentionPayload => {
   return {
     visible: win.isVisible(),
     focused: win.isFocused(),
@@ -73,59 +62,68 @@ const isSamePayload = (
   );
 };
 
-export function installWindowAttention(
-  deps: WindowAttentionDependencies,
-): () => void {
+export function installWindowAttention(): () => void {
   // Keyed by `webContents` so a renderer that never reaches its `destroyed`
   // event still falls out of the record once Electron drops it.
   const delivered = new WeakMap<WebContents, WindowAttentionPayload>();
   // Subscriptions have to be enumerable for teardown, so this one is a strong
-  // Map; every entry removes itself on `destroyed`.
+  // Map; every entry removes itself when its window closes or its renderer is
+  // destroyed.
   const untrackers = new Map<WebContents, () => void>();
-  let boundWindow: BrowserWindow | null = null;
 
-  function detachWindow(): void {
-    if (boundWindow && !boundWindow.isDestroyed()) {
-      const emitter: NodeJS.EventEmitter = boundWindow;
-      for (const event of MAIN_WINDOW_EVENTS) {
-        emitter.off(event, publish);
-      }
-    }
-    boundWindow = null;
-  }
-
-  // The accessor can return null before the shell builds its window, and a
-  // fresh window after one is rebuilt, so binding is resolved on every edge.
-  function rebind(win: BrowserWindow | null): void {
-    detachWindow();
-    if (!win) {
+  function track(win: BrowserWindow): void {
+    if (win.isDestroyed()) {
       return;
     }
-    const emitter: NodeJS.EventEmitter = win;
-    for (const event of MAIN_WINDOW_EVENTS) {
-      emitter.on(event, publish);
-    }
-    boundWindow = win;
-  }
-
-  function track(contents: WebContents): void {
+    const contents = win.webContents;
     if (untrackers.has(contents) || contents.isDestroyed()) {
       return;
     }
+
+    // Each subscription registers its own remover, so a window that closes
+    // takes every listener it owns with it rather than waiting for teardown.
+    // Dropping a listener never reaches the native handle, so a remover still
+    // runs on a window Electron has already destroyed.
+    const removers: Array<() => void> = [];
+    const untrack = (): void => {
+      untrackers.delete(contents);
+      delivered.delete(contents);
+      for (const remove of removers) {
+        remove();
+      }
+      removers.length = 0;
+    };
     const onLoad = (): void => {
       // A load hands the channel to a document that has heard nothing, so the
       // previous delivery to this `webContents` no longer counts.
       delivered.delete(contents);
       publish();
     };
-    const untrack = (): void => {
-      untrackers.delete(contents);
-      delivered.delete(contents);
-      contents.off("did-finish-load", onLoad);
-      contents.off("destroyed", untrack);
+    const onClosed = (): void => {
+      untrack();
+      publish();
     };
+
+    const emitter: NodeJS.EventEmitter = win;
+    for (const event of WINDOW_EVENTS) {
+      emitter.on(event, publish);
+      removers.push(() => {
+        emitter.off(event, publish);
+      });
+    }
+    emitter.on("closed", onClosed);
+    removers.push(() => {
+      emitter.off("closed", onClosed);
+    });
     contents.on("did-finish-load", onLoad);
+    removers.push(() => {
+      contents.off("did-finish-load", onLoad);
+    });
     contents.once("destroyed", untrack);
+    removers.push(() => {
+      contents.off("destroyed", untrack);
+    });
+
     untrackers.set(contents, untrack);
   }
 
@@ -145,23 +143,17 @@ export function installWindowAttention(
   }
 
   function publish(): void {
-    const win = deps.currentMainWindow();
-    const live = win && !win.isDestroyed() ? win : null;
-    if (live !== boundWindow) {
-      rebind(live);
-    }
-    const payload = readAttention(live);
-    for (const target of BrowserWindow.getAllWindows()) {
-      if (target.isDestroyed()) {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) {
         continue;
       }
-      track(target.webContents);
-      sendTo(target.webContents, payload);
+      track(win);
+      sendTo(win.webContents, readAttention(win));
     }
   }
 
   function onWindowCreated(_event: unknown, win: BrowserWindow): void {
-    track(win.webContents);
+    track(win);
   }
 
   app.on("browser-window-focus", publish);
@@ -177,6 +169,5 @@ export function installWindowAttention(
     for (const untrack of [...untrackers.values()]) {
       untrack();
     }
-    detachWindow();
   };
 }

@@ -1,5 +1,5 @@
 /**
- * Collapses the two signal sources that describe the same physical
+ * Collapses the signal sources that describe the same physical
  * lifecycle edge into one bus publish: `document.visibilitychange`
  * (`runtime/event-sources/dom-visibility.ts`, `signal: "visibility"`) and
  * Capacitor `App.appStateChange`
@@ -8,6 +8,12 @@
  * every `app.resume` subscriber that kicks off work would otherwise do it
  * twice. The bus therefore delivers at most one `app.resume` and one
  * `app.hidden` per physical edge for that pair.
+ *
+ * `signal: "window_attention"`
+ * (`runtime/event-sources/electron-window-attention.ts`) has no second source
+ * to collapse against. It is the desktop renderer's only report of this edge,
+ * since the DOM source cannot fire under Electron, and it routes through here
+ * so the window it shares with the other two is honoured.
  *
  * The first source to reach an edge wins it, and its `signal` label is the
  * one subscribers see. Which of the two arrives first is not fixed, so
@@ -31,8 +37,8 @@ const LIFECYCLE_EDGE_DEDUP_MS = 1_000;
 
 type LifecycleEdge = "resume" | "hidden";
 
-/** The two signal sources that can describe a single lifecycle edge. */
-type LifecycleEdgeSignal = "visibility" | "app_state";
+/** The signal sources that can describe a single lifecycle edge. */
+type LifecycleEdgeSignal = "visibility" | "app_state" | "window_attention";
 
 let lastEdge: LifecycleEdge | null = null;
 let lastAt = 0;
