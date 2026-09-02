@@ -693,6 +693,14 @@ export function registerContactsCommand(program: Command): void {
             process.exitCode = 1;
             return;
           }
+          if (opts.verify && !opts.channel) {
+            writeError(
+              cmd,
+              "--verify needs --channel: there is no channel to attest without one. Pass --channel, or drop --verify.",
+            );
+            process.exitCode = 1;
+            return;
+          }
           // A channel makes this the address form, which writes the record and
           // binds the channel under one confirmation.
           if (opts.channel) {

@@ -383,6 +383,23 @@ describe("contacts create --channel", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  test("--verify without --channel is refused, naming both flags", async () => {
+    // The record form has no verify field, so accepting this would create a
+    // channel-less contact while reporting the flag as honored.
+    const { stderr } = await runAssistantCommandFull(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--verify",
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(stderr).toContain("--verify");
+    expect(stderr).toContain("--channel");
+    expect(process.exitCode).toBe(1);
+  });
+
   test("--channel without --name is refused: the contact needs a name", async () => {
     const { stderr } = await runAssistantCommandFull(
       "contacts",

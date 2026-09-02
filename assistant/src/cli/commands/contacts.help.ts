@@ -163,6 +163,9 @@ contact is created under it. That form shows --notes but does not let the
 guardian edit them, so they are written as passed; use 'contacts update' to
 change them afterwards.
 
+--address and --verify only mean something alongside --channel, so either one
+without it is refused rather than ignored.
+
 ${FORM_NOTE}
 
 Examples:
