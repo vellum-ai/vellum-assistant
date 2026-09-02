@@ -245,6 +245,23 @@ mock.module("@/lib/local-mode", () => ({
 mock.module("@/lib/local-platform-identity", () => ({
   bootstrapLocalAssistantPlatformIdentity:
     bootstrapLocalAssistantPlatformIdentityMock,
+  // Logout unregisters push tokens, which resolve a platform UUID through
+  // this module. The stubs exist so the graph can link; auth-store tests
+  // do not exercise the resolver.
+  resolveLocalAssistantPlatformIdentity: async (id: string) => id,
+  fetchPlatformStatus: async () => null,
+  isUuid: (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    ),
+}));
+
+mock.module("@/lib/platform-assistant-id", () => ({
+  resolvePlatformAssistantId: async (id: string) => id,
+}));
+
+mock.module("@/lib/paired-platform-identity", () => ({
+  resolvePairedAssistantPlatformId: async () => null,
 }));
 
 mock.module("@/runtime/native-auth", () => ({

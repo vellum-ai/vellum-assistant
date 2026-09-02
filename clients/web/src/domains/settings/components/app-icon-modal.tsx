@@ -2,9 +2,12 @@
  * The app icon picker.
  *
  * Cycles eyes and color the way the avatar builder cycles traits, previews the
- * pair as iOS draws it on the home screen, and applies the one the user lands
- * on. Nothing is applied by cycling: iOS puts up a system alert the app cannot
- * suppress on every icon change, so the swap waits for a press on Set.
+ * pair as the home screen draws it, and applies the one the user lands on.
+ * Nothing is applied by cycling: the swap waits for a press on Set, because iOS
+ * puts up a system alert the app cannot suppress on every icon change and
+ * Android only takes the new icon once the app leaves the foreground. A press
+ * therefore does different things on the two shells, so the note under the
+ * preview and the line a refused swap puts up are written per platform.
  *
  * Prop-driven, in the shape of `AvatarManagementModal`. {@link AppIconRow}
  * owns the shell snapshot and hands down what it found, so what this modal
@@ -15,6 +18,7 @@ import { useEffect, useState } from "react";
 import { AppIconPreview } from "@/components/avatar/app-icon-preview";
 import { TraitCycleRow } from "@/components/avatar/trait-cycle-row";
 import { useTranslation } from "@/i18n";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import {
   DEFAULT_APP_ICON_TRAITS,
   appIconNameForTraits,
@@ -75,6 +79,7 @@ export function AppIconModal({
   onReset,
 }: AppIconModalProps) {
   const { t } = useTranslation("settings");
+  const isAndroidShell = useIsNativeAndroid();
   const [eyeIndex, setEyeIndex] = useState(0);
   const [colorIndex, setColorIndex] = useState(0);
   const [pending, setPending] = useState(false);
@@ -208,14 +213,14 @@ export function AppIconModal({
           ) : null}
 
           <p className="text-body-small-lighter text-[var(--content-tertiary)]">
-            {t("appIcon.note")}
+            {t(isAndroidShell ? "appIcon.androidApplyNote" : "appIcon.note")}
           </p>
           {failed ? (
             <p
               role="alert"
               className="text-body-small-lighter text-[color:var(--content-negative)]"
             >
-              {t("appIcon.error")}
+              {t(isAndroidShell ? "appIcon.androidError" : "appIcon.error")}
             </p>
           ) : null}
         </Modal.Body>

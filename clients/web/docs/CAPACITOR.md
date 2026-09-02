@@ -79,6 +79,8 @@ The voice-mode first-run card ([`voice-first-run-card.tsx`](../src/domains/chat/
 
 Pair `isXSupported()` capability checks with `useIsNativePlatform()` for any pre-permission UI: capability detection alone is not sufficient.
 
+A welcome or settings card whose dismiss **does not** call the permission API is not a pre-prompt. It must stay dismissible. The first-run voice card is this case: ✕ / backdrop / Escape cancel without calling `getUserMedia`. Locking that card traps an accidental widget or Siri launch with no way out.
+
 ### Keyboard-only affordances on touch devices
 
 Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
@@ -184,7 +186,7 @@ The shell registers **nine app-local** Capacitor plugins in [`MyViewController.c
 | `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads without leaving the app. See the section below |
 | `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 | `WidgetSnapshot` | [`src/runtime/widget-snapshot.ts`](../src/runtime/widget-snapshot.ts) | Mirrors a conversation summary (unread and in-progress counts plus the three most recent threads) into App Group UserDefaults for the Home Screen widgets, reloading their timelines after each write. `sync` replaces the whole snapshot; `clear` drops it, so a signed-out account's titles do not outlive the session on a surface that renders without unlocking the app |
-| `AppIcon` | [`src/runtime/app-icon.ts`](../src/runtime/app-icon.ts) | Reads the alternate home-screen icons the build ships (`CFBundleAlternateIcons`) and swaps between them. Backs the App icon picker in Settings -> General, where a user cycles eyes and color, with a Match avatar shortcut that seeds the selection from the assistant's avatar. iOS shows a system alert on every icon change, so `set` runs only from a press and never on its own |
+| `AppIcon` | [`src/runtime/app-icon.ts`](../src/runtime/app-icon.ts) | Reads the alternate home-screen icons the build ships (iOS `CFBundleAlternateIcons`, Android `<activity-alias>` components) and swaps between them. Backs the App icon picker in Settings -> General, where a user cycles eyes and color, with a Match avatar shortcut that seeds the selection from the assistant's avatar. iOS shows a system alert on every icon change, so `set` runs only from a press and never on its own. Android defers its component toggle to app background and reports the recorded target as `current` until the toggle lands, so the web contract is the same on both |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 

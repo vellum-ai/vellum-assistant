@@ -1451,9 +1451,7 @@
   },
   "skillLoadOutput": {
     "output": "输出",
-    "outputFormatAria": "输出格式",
-    "showLess": "显示更少",
-    "showMore": "显示更多"
+    "outputFormatAria": "输出格式"
   },
   "skillToolList": {
     "fromSkill": "来自 {name}"
@@ -1567,6 +1565,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "关闭工具详情",
+    "denied": "此工具调用未获批准，因此没有运行。",
+    "emptyOutput": "该工具没有返回任何输出。",
     "output": "输出",
     "riskLevel": "风险级别",
     "running": "正在运行…"

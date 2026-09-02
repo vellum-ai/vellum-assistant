@@ -22,9 +22,15 @@
  * everything it recorded, and the timeline outlives the turn.
  */
 
+import { randomUUID } from "node:crypto";
+
 import {
+  type WatchRetroSurfaceData,
+  WatchRetroSurfaceDataSchema,
+} from "../api/surfaces.js";
+import {
+  addMessage,
   getMessages,
-  isStandaloneAssistantMessage,
   setConversationSurfaced,
 } from "../persistence/conversation-crud.js";
 import type { WakeOptions } from "../runtime/agent-wake.js";
@@ -48,22 +54,55 @@ const log = getLogger("watch-retro");
 const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
 
 /**
- * What the retro asks for, and the order it asks in.
+ * What the retro reports, and the shape it reports in.
  *
- * **The ask comes first, and it is the shorter half.** What the user owes this
- * turn is a handful of answers; everything else is the assistant showing its
- * work. Leading with the report buries the one part that needs them under the
- * part that does not, and a reader who has to reach the bottom to find the
- * question has already been asked for more than the question was worth.
+ * **It is a card, not a turn of prose.** The turn ends by calling
+ * `watch_retro_report`, and this module turns that call into a `card` surface
+ * under the `watch_retro` template, which the client draws as a paged card: the
+ * record on the first page, one question per page after it.
+ *
+ * **The daemon appends the card; the model never reaches `ui_show`.** This wake
+ * is `clientless`, and `conversation-tool-setup` gates the whole `ui_surface`
+ * family on a client being present, so `ui_show` is absent from this turn's
+ * tool set rather than merely denied. A retrospective told to call it can only
+ * report that it cannot. `watch_retro_report` is an ordinary tool and passes
+ * that gate, and the surface is appended here, the way the memory
+ * retrospective's `skill_card` is appended by the daemon rather than requested
+ * by the model.
+ *
+ * **The append waits for the turn to end.** A `ui_surface` row written mid-turn
+ * can land between a persisted `tool_use` and its `tool_result`, an ordering
+ * strict OpenAI-compatible backends reject; the skill card defers around it,
+ * and running after `dispatch` resolves avoids it outright. The report survives
+ * the wait in the transcript, as the tool call's own input, so nothing is held
+ * in memory between the call and the append.
+ *
+ * **A template rather than a surface type of its own, so an older client still
+ * gets the report.** The macOS app ships its own renderer and floats its CLI to
+ * the npm `latest` tag (`clients/macos/src/main/cli-installer.ts`), so this
+ * assistant runs behind renderers that predate it. One that does not recognize
+ * a surface *type* renders an unsupported-surface notice and nothing else; one
+ * that does not recognize a card *template* still renders the card, falling
+ * back to `title`, `subtitle` and `body`. The card is the entire account of the
+ * session and the instructions below allow no prose beside it, so the degraded
+ * path has to carry the record rather than an error. That is what `body` is
+ * for, and why it repeats in prose what `templateData` carries in structure.
+ *
+ * **The record leads, and the paging is what allows that.** A question on its
+ * own page is not competing with the account for attention, the progress bar
+ * says how much is left, and the record is what the user needs in order to
+ * answer anything else. The two are one decision: the questions may sit behind
+ * the record only for as long as they have pages of their own. Prose has no
+ * second axis, so a report collapsed back into a single block has to put its
+ * questions first or bury them.
  *
  * **It asks about what it does not know, not about what it just wrote.** The
  * `skill-management` skill will not scaffold until four points are settled:
  * what the skill does, its trigger phrases, its major steps, and its
- * destructive step and done condition. Its checkpoint is explicit that the
- * ones to raise are the ones being guessed at. Re-asking all four regardless
- * turns the report into a questionnaire about itself, where the user confirms
- * a list of steps printed directly above the question asking whether those are
- * the steps.
+ * destructive step and done condition. The ones to raise are the ones being
+ * guessed at. Re-asking all four regardless turns the report into a
+ * questionnaire about itself, where the user confirms a list of steps printed
+ * on the page before.
  *
  * The trigger phrase is always one of the open ones, because it is the single
  * field the recording cannot supply: the timeline holds what they did, never
@@ -74,60 +113,69 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * was seen. The recording establishes what someone did once; it establishes
  * nothing about whether they want it done again without being asked, and the
  * gap between those two is the whole risk of turning a demonstration into a
- * skill. `skill-management` will not scaffold until that step is settled
- * either, so an unasked one stalls the flow it was meant to feed.
+ * skill.
  *
- * **The skill loads before the report is written, and nothing follows the
- * report.** This is about where the report lands on screen, not about the
- * order the work happens in. A client renders an assistant turn as its final
- * prose plus the intermediate work that led there, and the web transcript
- * collapses that intermediate half into an "Earlier activity" disclosure that
- * a settled turn shows closed (`finalResponseGroupIndex` in
- * `transcript-message-body.tsx`). Everything before the turn's last non-empty
- * text block is intermediate by that rule, including prose. Writing the report
- * first and loading the skill after it puts a `skill_load` and whatever the
- * model says once the skill is in hand *after* the report, which demotes the
- * report to intermediate work and hides it behind a collapsed row next to the
- * reasoning rows. The user presses stop on a session and is shown a folded-up
- * link where the account of it should be.
+ * **No question is a yes/no whose "no" teaches nothing.** "Priority came from
+ * the event count, under 100 is Medium?" packs an entire inferred rule into a
+ * binary: a "no" costs a round trip and comes back with nothing in it, and the
+ * user is now owed a follow-up they cannot see. Every question is a pick from
+ * named alternatives instead, with the model's own reading among them and
+ * marked as such. A yes/no survives only where the alternatives genuinely are
+ * yes and no, which in practice is the destructive gate and nothing else.
  *
- * So the load comes first and the report is last. `skill-management` opens on
- * "Ask before doing anything", so a turn that loads it and then asks is
- * following it rather than jumping the flow, and the report is the alignment
- * its first step calls for. The instruction that nothing follows the report is
- * as load-bearing as the ordering: one trailing line of sign-off is another
- * text block after it, and the report is intermediate again.
+ * The rule that falls out is the one worth keeping: if the alternatives cannot
+ * be enumerated, the question is not ready to be asked, and the honest move is
+ * to leave the step described rather than explained.
  *
- * **The report does not depend on the load succeeding.** `skill-management` is
- * a selector, not a fixed definition: `loadSkillCatalog` lets a managed or
+ * **Every page is skippable, and every skip lands somewhere safe.** A skipped
+ * `fill` keeps its pre-filled suggestion, so it is an edit rather than a blank.
+ * A skipped `pick` takes the first option, which is the reading the recording
+ * already supports. A skipped `gate` takes the first option too, and on a gate
+ * that first option must be the cautious one. It is the single place where the
+ * default is deliberately not the model's guess.
+ *
+ * **The skill loads before the card is shown, and nothing follows the card.**
+ * `skill-management` opens on "Ask before doing anything", so a turn that loads
+ * it and then asks is following it rather than jumping the flow. Ending on the
+ * `ui_show` keeps the card as the last thing in the turn, where prose written
+ * after it would read as a sign-off nobody asked for.
+ *
+ * **The card does not depend on the load succeeding.** `skill-management` is a
+ * selector, not a fixed definition: `loadSkillCatalog` lets a managed or
  * workspace skill of the same id replace the bundled one, and
  * `resolveSkillSelector` hands back whichever entry won. So the load can come
  * back as someone else's skill, or as a refusal, and putting it ahead of the
- * report is what makes either one land before the user has been told anything.
- * A refusal is the likelier of the two here: this wake is `clientless`, and an
+ * card is what makes either one land before the user has been told anything. A
+ * refusal is the likelier of the two here: this wake is `clientless`, and an
  * inline-command load with no human present is denied outright
- * (`permissions/checker.ts`, `isDynamicSkillLoadInvocation`). The bundled skill
- * carries no such expansions, so the ordinary path is unaffected, but a shadow
- * that carries them is denied on arrival.
+ * (`permissions/checker.ts`, `isDynamicSkillLoadInvocation`).
  *
  * Neither outcome is allowed to become the retro. The session was recorded, the
  * timeline is already in this prompt, and the account of it is the one thing the
  * user is owed for having pressed stop; a permission error where that account
  * should be is the same empty thread the `surfaceConversation` guard exists to
- * prevent, just with prose in it. So the instructions write the report either
- * way and say the handoff did not happen, rather than reporting on the load.
+ * prevent. So the instructions show the card either way and say the handoff did
+ * not happen in the card's own coverage line, rather than reporting on the load.
  */
-const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you write anything, and follow it. Do not author or scaffold a skill until the four points that step names are settled: the report below is the alignment its first step calls for.
+const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you do anything else, and follow it. Do not author or scaffold a skill yet: the report below is the alignment its first step calls for, and the answers come back before anything is written.
 
-Write the report below whether or not that load succeeds. If it fails, is refused, or comes back as something other than the skill-management flow, do not report on the load and do not retry it: write the report, and end it with one line saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
+Then make exactly one \`watch_retro_report\` call. That call is the last thing you do this turn. Nothing follows it: no prose, no sign-off, no note about what you loaded, no further tool call. The report is drawn as a card in the conversation once this turn ends, so writing the same thing again in prose would show the user two of it. Report whether or not the skill loaded; if it did not, add one short sentence to \`coverage\` saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
 
-Then write back to the user in two sections, in this order, both as level-2 headings. That report is the last thing you do this turn, and nothing follows it: no sign-off, no note about what you loaded, no further tool call. Their answers come back as an ordinary reply and the flow picks up from there.
+The payload:
 
-First, "What I need from you". The questions you cannot answer from the recording, numbered, most consequential first. Each one concrete enough to answer in a sentence, and each one about something you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Always ask what they would say to start this task, in their own words, because the recording cannot tell you that. Ask about the done condition if it is unclear. Always confirm any destructive or irreversible step, even one the recording showed plainly: watching someone do a thing once is not agreement to have it done again unattended, and this is the one place the rule below does not apply. Otherwise do not ask them to confirm something the recording already showed you.
+- \`task\`: the task in one line, named the way the user would name it.
+- \`purpose\`: one sentence on what it is for. This is the only sentence on the card.
+- \`steps\`: the steps in order, as short imperative fragments: "Open the Sentry issue", not "You opened the Sentry issue from the alert email". Three to eight of them. Concrete enough to follow, carrying no purpose of their own.
+- \`eyebrow\`: the session's own facts, e.g. "Watched 4 min, 11 screens".
+- \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything. Give each one an \`id\` no other question on this card uses.
 
-Second, "What I saw". Open with one sentence naming the task and what it is for, on its own and not as a list item. Then the steps in order beneath it, one line each and concrete enough to follow, carrying no purpose of their own. This is the record your questions sit on top of, so state it rather than asking about it.
+Every question is answerable in one tap and every one is skippable, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
 
-Open on the first heading. No preamble, no announcing what you are about to do, no narrating which skills you are loading. Correct your reading against whatever they tell you. If they decide this is not worth keeping, say so and stop.`;
+- \`kind: "fill"\` is a single text field, and there is at most one of them: what they would say to start this task, in their own words. Always ask it, because the recording cannot tell you. Put your best guess in \`suggestion\` so skipping keeps a working phrase instead of leaving it blank.
+- \`kind: "pick"\` is two to four named alternatives. The first option is the default and must be the reading the recording supports; mark it with a \`note\` saying so. Never ask a yes/no whose "no" tells you nothing: "was the rule X?" wastes the question, where "what decides this?" with X first among the options gets an answer either way. If you cannot name the alternatives, you do not understand the gap well enough to ask about it, so leave the step described and ask nothing.
+- \`kind: "gate"\` is for a destructive or irreversible step, and it is asked however plainly the step was seen. Not "did you do this" (you watched them), but whether you may do it unattended. The first option must be the cautious one ("Ask me first"), because a skipped question takes it.
+
+Ask about the done condition only if it is genuinely unclear, and as a \`pick\`.`;
 
 /**
  * Told to the model whenever the render was bounded, naming the bound that
@@ -153,6 +201,12 @@ function coverageNotice(render: WatchTimelineRender): string {
   // was also clipped, so the drop is stated and the clipping is allowed for.
   return `This is a partial recording. The session logged ${render.totalEntries} entries and the timeline below carries only the ${render.entries.length} most recent of them, so the first ${dropped} are missing entirely. Treat the beginning of the task as something to ask about rather than something to state. What is here may also be cut short in places. Say plainly what you could not read instead of filling it in.`;
 }
+
+/** The card template the retro reports through. */
+const WATCH_RETRO_TEMPLATE = "watch_retro";
+
+/** The tool a retrospective hands its report to. */
+const WATCH_RETRO_TOOL_NAME = "watch_retro_report";
 
 /** The element the recording is fenced in. */
 const TIMELINE_TAG = "watch-timeline";
@@ -374,7 +428,15 @@ async function dispatchWatchRetro(
     if (!dispatched.invoked) {
       return { status: "failed", reason: dispatched.reason ?? "unknown" };
     }
-    if (!hasReport(summary.conversationId, priorMessageIds)) {
+    // The card is what the user is owed, so a turn that made no usable report
+    // call has produced nothing regardless of what else it wrote. Appending is
+    // also the test: there is no separate "did it report" check that could
+    // disagree with whether a card actually landed.
+    const surfaceId = await appendRetroCard(
+      summary.conversationId,
+      priorMessageIds,
+    );
+    if (surfaceId === null) {
       return { status: "failed", reason: "no_report" };
     }
 
@@ -405,36 +467,87 @@ function messageIds(conversationId: string): ReadonlySet<string> {
 }
 
 /**
- * Whether the turn left the user something to read.
+ * Turn the turn's `watch_retro_report` call into the card the user is shown.
  *
- * Asked of the conversation rather than of the dispatch result, because a wake
- * reports invocation and a report is a stronger thing. `inspectWakeOutput`
- * counts a `tool_use` block as output, so a retro whose first act is loading
- * the `skill-management` skill has already "produced output" before it has
- * said anything, and a run that then stops or errors still returns
- * `invoked: true`. Surfacing on that gives the user a thread of tool plumbing
- * with no report and no question in it.
+ * **Read back out of history rather than handed over.** The tool records and
+ * returns; nothing is kept in memory between the call and this append, so a
+ * crash in between loses no report that was actually made. The turn's own
+ * `tool_use` block is the record, and its `input` is the payload.
  *
- * Standalone assistant rows are not reports either: that is the shape a
- * provider error takes, which persists as an assistant message and returns
- * normally, and a system card is machinery rather than an account of the
- * session.
+ * **The newest call wins.** A model that corrects itself calls again rather
+ * than editing, so the last call in the turn is the one it stands behind.
+ *
+ * **Parsed again here.** A tool result is a promise about validation, not about
+ * what was persisted, and the block this reads has been through the provider
+ * and the message store since. The card's own schema is what the renderer
+ * trusts, so it is what the payload is held to before a row is written.
+ *
+ * Returns the appended surface id, or null when the turn made no usable call.
  */
-function hasReport(
+async function appendRetroCard(
   conversationId: string,
   priorMessageIds: ReadonlySet<string>,
-): boolean {
-  return getMessages(conversationId).some((message) => {
+): Promise<string | null> {
+  let payload: WatchRetroSurfaceData | null = null;
+  for (const message of getMessages(conversationId)) {
     if (priorMessageIds.has(message.id) || message.role !== "assistant") {
-      return false;
+      continue;
     }
-    if (isStandaloneAssistantMessage(message.role, message.metadata)) {
-      return false;
+    for (const block of message.content) {
+      if (block.type !== "tool_use" || block.name !== WATCH_RETRO_TOOL_NAME) {
+        continue;
+      }
+      const parsed = WatchRetroSurfaceDataSchema.safeParse(block.input);
+      // A call whose payload cannot be drawn is not a report. The schema is
+      // tolerant, so this only rejects what is not an object at all; the task
+      // check below is what rejects an empty one.
+      if (parsed.success && parsed.data.task.trim().length > 0) {
+        payload = parsed.data;
+      }
     }
-    return message.content.some(
-      (block) => block.type === "text" && block.text.trim().length > 0,
-    );
-  });
+  }
+  if (payload === null) {
+    return null;
+  }
+
+  const surfaceId = `${WATCH_RETRO_TEMPLATE}-${randomUUID()}`;
+  const steps = payload.steps;
+  // `title`, `subtitle` and `body` are what a renderer too old to know the
+  // template draws, and they are the whole report for that reader. Derived here
+  // rather than asked of the model, so the degraded view cannot drift from the
+  // structured one or be forgotten. Questions stay out of it: that reader has
+  // no way to answer them.
+  const body = steps.map((step, index) => `${index + 1}. ${step}`).join("\n");
+  const surfaceBlock = {
+    type: "ui_surface",
+    surfaceId,
+    surfaceType: "card",
+    title: payload.task,
+    display: "inline",
+    data: {
+      title: payload.task,
+      ...(payload.purpose ? { subtitle: payload.purpose } : {}),
+      body,
+      template: WATCH_RETRO_TEMPLATE,
+      templateData: payload,
+    },
+  };
+  // Plain-text sibling, the approval-card pattern: providers drop `ui_surface`
+  // when serializing history, so without this the model's next turn would have
+  // no idea what it just showed the user, and the CLI, search and channel
+  // replies would render the session as nothing at all.
+  const fallbackBlock = {
+    type: "text",
+    text: `Here is what I saw: ${payload.task}${body ? `\n\n${body}` : ""}`,
+    _surfaceFallback: true,
+  };
+  await addMessage(
+    conversationId,
+    "assistant",
+    JSON.stringify([surfaceBlock, fallbackBlock]),
+    { skipIndexing: true, clientMessageId: surfaceId },
+  );
+  return surfaceId;
 }
 
 /**

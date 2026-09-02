@@ -2,12 +2,13 @@ import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { useTranslation } from "@/i18n";
 
-/** Row height of a mounted Stripe input, so the swap does not move the modal. */
+/** Row height copied from a mounted Stripe input. */
 const FIELD_ROW_CLASS = "h-[42px] w-full rounded-lg";
 
 /**
- * Vertical rhythm of the field stack. The skeleton and the mounted form share
- * it so they stay the same height and the reveal does not move the modal.
+ * Vertical rhythm of the field stack, shared with the mounted form. The five
+ * rows match the manual-entry baseline; the reveal grows past it whenever Link
+ * renders its banner or, for a signed-in member, its saved-card panel.
  */
 export const FIELD_STACK_CLASS = "flex flex-col gap-[10px]";
 

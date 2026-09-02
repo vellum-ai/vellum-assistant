@@ -56,9 +56,7 @@ export type {
   ModifierHoldRegistrationResult,
 };
 
-export type MacHelperPermissionKind =
-  | "speechRecognition"
-  | "inputMonitoring";
+export type MacHelperPermissionKind = "speechRecognition" | "inputMonitoring";
 
 export type MacHelperPermissionStatus =
   | "unknown"
@@ -70,6 +68,13 @@ export type MacHelperPermissionStatus =
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.enum(["fnPushToTalk", "modifierHold"]),
   state: z.enum(["down", "up"]),
+  selection: z
+    .object({
+      text: z.string(),
+      truncated: z.boolean(),
+    })
+    .optional(),
+  heldMs: z.number().optional(),
 });
 
 const HOTKEY_RESULT_SCHEMA = z.object({
@@ -197,9 +202,7 @@ const applyModifierHold = async (
   }
 };
 
-const fnPushToTalk = async (
-  enable: boolean,
-): Promise<FnPushToTalkResult> => {
+const fnPushToTalk = async (enable: boolean): Promise<FnPushToTalkResult> => {
   try {
     const result = await client.call("hotkey.fnPushToTalk", { enable });
     const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
@@ -256,30 +259,21 @@ const queryBundledMacHelperPermission = async (
   const outputPath = path.join(tempDir, "status.json");
 
   try {
-    await openMacHelperApp(
-      [
-        "--permission-status",
-        kind,
-        "--status-output",
-        outputPath,
-      ],
-    );
+    await openMacHelperApp([
+      "--permission-status",
+      kind,
+      "--status-output",
+      outputPath,
+    ]);
     return await readPermissionStatusFile(outputPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 };
 
-const openMacHelperApp = async (
-  helperArgs: string[],
-): Promise<void> => {
+const openMacHelperApp = async (helperArgs: string[]): Promise<void> => {
   await new Promise<void>((resolve, reject) => {
-    const args = [
-      "-n",
-      getMacHelperAppPath(),
-      "--args",
-      ...helperArgs,
-    ];
+    const args = ["-n", getMacHelperAppPath(), "--args", ...helperArgs];
     const child = spawn("open", args, { stdio: "ignore" });
     let settled = false;
 
@@ -376,7 +370,9 @@ const setDictationPartials = async (
       audioChunkCount = 0;
     }
     const replaced =
-      previousOwner && previousOwner !== webContents && !previousOwner.isDestroyed()
+      previousOwner &&
+      previousOwner !== webContents &&
+      !previousOwner.isDestroyed()
         ? ` (replaced wc=${previousOwner.id})`
         : "";
     const tap = enable && parsed.data.tap ? ` tap=${parsed.data.tap}` : "";
@@ -510,9 +506,7 @@ const enableFnPushToTalkForOwner = async (
 
   const result = await syncFnPushToTalkRegistration();
   if (!result.ok) {
-    log.warn(
-      `[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`,
-    );
+    log.warn(`[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`);
     removeHotkeyOwner(webContents.id);
     void syncFnPushToTalkRegistration();
   }

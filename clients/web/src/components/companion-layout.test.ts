@@ -149,15 +149,14 @@ describe("the introduction's step off the creature", () => {
 /**
  * The strip between the avatar and the pill, as arithmetic. The rects it is
  * handed come from the DOM, so these are about the shape it makes of them:
- * between the facing edges, and no taller than the composer row.
+ * between the facing edges, and no taller than the pill.
  */
 const AVATAR = { left: 100, right: 144, top: 100, bottom: 144 };
-const ROW = { rowHeight: 44, cardGrowth: "up" } as const;
 
 describe("bridgeRect", () => {
   test("spans the facing edges when the pill grows rightward", () => {
     const pill = { left: 156, right: 356, top: 100, bottom: 144 };
-    expect(bridgeRect(AVATAR, pill, ROW)).toEqual({
+    expect(bridgeRect(AVATAR, pill)).toEqual({
       left: 144,
       right: 156,
       top: 100,
@@ -167,7 +166,7 @@ describe("bridgeRect", () => {
 
   test("spans them the other way when it grows leftward", () => {
     const pill = { left: -100, right: 88, top: 100, bottom: 144 };
-    expect(bridgeRect(AVATAR, pill, ROW)).toEqual({
+    expect(bridgeRect(AVATAR, pill)).toEqual({
       left: 88,
       right: 100,
       top: 100,
@@ -183,7 +182,7 @@ describe("bridgeRect", () => {
   test("takes the pill's height rather than a taller avatar's", () => {
     const tall = { left: 100, right: 200, top: 40, bottom: 200 };
     const pill = { left: 212, right: 412, top: 156, bottom: 200 };
-    expect(bridgeRect(tall, pill, ROW)).toEqual({
+    expect(bridgeRect(tall, pill)).toEqual({
       left: 200,
       right: 212,
       top: 156,
@@ -191,38 +190,10 @@ describe("bridgeRect", () => {
     });
   });
 
-  /**
-   * The card is the one state that is not its own row. A strip drawn to its
-   * full height would hand the window a column of empty canvas beside the card
-   * to swallow desktop presses in, so it stops at the composer row: the card's
-   * last child growing up, and its first growing down.
-   */
-  test("covers only the composer row of a card growing up", () => {
-    const card = { left: 156, right: 472, top: -146, bottom: 144 };
-    expect(bridgeRect(AVATAR, card, ROW)).toEqual({
-      left: 144,
-      right: 156,
-      top: 100,
-      bottom: 144,
-    });
-  });
-
-  test("covers only the composer row of a card growing down", () => {
-    const card = { left: 156, right: 472, top: 100, bottom: 390 };
-    expect(
-      bridgeRect(AVATAR, card, { rowHeight: 44, cardGrowth: "down" }),
-    ).toEqual({
-      left: 144,
-      right: 156,
-      top: 100,
-      bottom: 144,
-    });
-  });
-
   /** Overlapping rects have no gap between them, and an empty strip says so. */
   test("is empty when the two overlap", () => {
     const overlapping = { left: 120, right: 320, top: 100, bottom: 144 };
-    const bridge = bridgeRect(AVATAR, overlapping, ROW);
+    const bridge = bridgeRect(AVATAR, overlapping);
     expect(bridge.left).toBeGreaterThan(bridge.right);
   });
 });
@@ -234,7 +205,7 @@ describe("bridgeRect", () => {
 describe("onCompanionSurface", () => {
   const PILL = { left: 156, right: 356, top: 100, bottom: 144 };
   const at = (x: number, y: number, pill: typeof PILL | null = null): boolean =>
-    onCompanionSurface({ x, y }, { avatar: AVATAR, pill, ...ROW });
+    onCompanionSurface({ x, y }, { avatar: AVATAR, pill });
 
   test("is the creature alone when there is no pill", () => {
     expect(at(120, 120)).toBe(true);
@@ -258,8 +229,8 @@ describe("onCompanionSurface", () => {
   });
 
   /**
-   * The gap is a strip, not a column. Above the row it is desktop, or the
-   * window swallows presses in the empty canvas beside a card.
+   * The gap is a strip, not a column. Above the pill it is desktop, or the
+   * window swallows presses in the empty canvas above the surface.
    */
   test("does not claim the canvas above the gap", () => {
     expect(at(150, 90, PILL)).toBe(false);

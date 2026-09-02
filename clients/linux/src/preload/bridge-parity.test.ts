@@ -78,9 +78,9 @@ const LINUX_ONLY_SURFACE = [
   "menu.popup",
   "menu.titles",
 ];
-// Both are macOS helper contracts read off its raw keyboard monitor: the Fn
-// key, and a hold of a configured modifier set. Linux answers the first with
-// a configurable global chord, and has no hold of its own to register.
+// The macOS helper watches the raw keyboard, which is where the Fn tap and
+// the bare-modifier hold come from. The Linux sidecar has no such tap, so
+// its hotkey surface is the shortcut chord alone.
 const MACOS_ONLY_SURFACE = [
   "helper.hotkey.fnPushToTalk",
   "helper.hotkey.setModifierHold",

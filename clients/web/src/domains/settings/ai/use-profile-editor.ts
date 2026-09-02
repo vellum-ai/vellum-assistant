@@ -23,7 +23,7 @@ import {
   OPENAI_COMPATIBLE_PROVIDER,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
-import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
+import { resolveModelDisplayName } from "@/assistant/model-display";
 import { connectionServesProvider } from "@/domains/settings/ai/provider-availability";
 import { CONNECTION_PROVIDERS } from "@/domains/settings/ai/provider-editor-constants";
 import {

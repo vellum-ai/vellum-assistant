@@ -47,8 +47,16 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice,
 }));
 
+const toastError = mock((_message: string, _options?: { id?: string }) => {});
+mock.module("@vellumai/design-library/components/toast", () => ({
+  toast: { error: toastError },
+  Toaster: () => null,
+  ToastContent: () => null,
+}));
+
 const {
   PENDING_VOICE_START_TTL_MS,
+  askVoiceFromSurface,
   drainPendingVoiceStart,
   requestVoiceStart,
   startVoiceFromSurface,
@@ -96,11 +104,14 @@ const starter = mock((assistantId: string, conversationId: string | null) => {
   useLiveVoiceStore.getState().setState("listening");
 });
 
+const sendText = mock((_text: string) => true);
+
 function registerStarter(): void {
   useLiveVoiceStore.getState().setStarter({
     prewarm: () => {},
     cancelPrewarm: () => {},
     start: starter,
+    sendText,
   });
 }
 
@@ -153,6 +164,8 @@ function expectStartedOnFreshDraft(): void {
 }
 
 beforeEach(() => {
+  sendText.mockClear();
+  toastError.mockClear();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
   __resetPendingDeepLinkForTesting();
@@ -522,6 +535,97 @@ describe("startVoiceFromSurface", () => {
     // That session is the one the user is in. Navigating would only walk the
     // app away from the composer that owns it.
     expect(navigate).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+});
+
+/**
+ * A question put from outside the chat: on a running session it is a turn on
+ * that session; otherwise a session opens for it, asks it as the user's own
+ * words, and ends once the reply has been heard.
+ */
+describe("askVoiceFromSurface", () => {
+  test("opens a session for the question that speaks it and then ends", async () => {
+    identityHydrated();
+    registerStarter();
+
+    expect(askVoiceFromSurface(navigate, "> the cell\n\nwhat is this")).toBe(
+      true,
+    );
+    await flushDrain();
+
+    const draftId = mintedConversationId();
+    expect(starter).toHaveBeenCalledWith("assistant-1", draftId, {
+      seedText: "> the cell\n\nwhat is this",
+      seedVisible: true,
+      endAfterSeedReply: true,
+    });
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  test("puts the question to a running session as a turn", () => {
+    identityHydrated();
+    registerStarter();
+    useLiveVoiceStore.getState().setState("listening");
+
+    expect(askVoiceFromSurface(navigate, "what is this")).toBe(true);
+
+    expect(sendText).toHaveBeenCalledWith("what is this");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+
+  test("says so when the assistant cannot serve the question", async () => {
+    // A plain start on an assistant too old for live voice stops quietly,
+    // as the composer renders no voice button. A question was asked out
+    // loud from another application, so its drop is said.
+    identityHydrated("0.10.11");
+    registerStarter();
+
+    askVoiceFromSurface(navigate, "what is this");
+    await flushDrain();
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+    // The notice is in the app's window, and the user is in another app.
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalled();
+  });
+
+  test("says so when the assistant is not ready to talk", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
+
+    askVoiceFromSurface(navigate, "what is this");
+    await flushDrain();
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  test("a session that started mid-preflight takes the question as a turn", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightLiveVoice.mockImplementationOnce(async () => {
+      useLiveVoiceStore.getState().setState("listening");
+      return preflightVerdict;
+    });
+
+    askVoiceFromSurface(navigate, "what is this");
+    await flushDrain();
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(sendText).toHaveBeenCalledWith("what is this");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  test("reports a running session that cannot take the turn", () => {
+    identityHydrated();
+    registerStarter();
+    sendText.mockReturnValueOnce(false);
+    useLiveVoiceStore.getState().setState("speaking");
+
+    expect(askVoiceFromSurface(navigate, "what is this")).toBe(false);
     expect(isParked()).toBe(false);
   });
 });

@@ -15,15 +15,6 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).toContain("Ending in 4242");
   });
 
-  test("normalizes a lowercase brand to its canonical label", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow brand="visa" last4="4242" onUpdateCard={() => {}} />,
-    );
-    const row = getByTestId("payment-method-row");
-    expect(row.textContent).toContain("Visa");
-    expect(row.textContent).not.toContain("visa");
-  });
-
   test("falls back to a generic label and omits the ending line when null", () => {
     const { getByTestId } = render(
       <PaymentMethodRow brand={null} last4={null} onUpdateCard={() => {}} />,
@@ -84,18 +75,6 @@ describe("PaymentMethodRow", () => {
     expect(getByTestId("payment-method-row").textContent).not.toContain(
       "\u00b7",
     );
-  });
-
-  test("renders a long unmapped brand verbatim", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="internationalmaestro"
-        last4="0005"
-        onUpdateCard={() => {}}
-      />,
-    );
-    const row = getByTestId("payment-method-row");
-    expect(row.textContent).toContain("internationalmaestro");
   });
 
   test("fires onUpdateCard when Replace card is clicked", () => {

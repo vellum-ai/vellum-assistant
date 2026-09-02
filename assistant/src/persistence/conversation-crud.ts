@@ -422,6 +422,12 @@ export const messageMetadataSchema = z
      *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
      *  not import the memory feature. */
     memoryV3InjectedBlock: z.string().optional(),
+    /** Memory-v3 per-turn `<memory_spotlight>` block (wrapped). Rehydrated
+     *  by `loadFromDb` so historical turns keep the spotlight they were sent
+     *  with. The key matches the memory plugin's
+     *  `MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`, kept as a literal here so
+     *  the storage schema does not import the memory feature. */
+    memoryV3SpotlightBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

@@ -65,61 +65,47 @@ function buildCombinedDictationPrompt(
   body: DictationBody,
   stylePrompt?: string,
 ): string {
+  // Every line here is read on every hold, so the prompt says each thing
+  // once and leaves the model no reasoning to write.
   const sections = [
-    "You are a voice input assistant. You will receive a speech transcription and must:",
-    '1. Classify it as "dictation" (text to insert) or "action" (task for an assistant to execute)',
-    "2. If dictation, clean up the text. If action, return the raw transcription.",
+    "You are a voice input assistant. Given a speech transcription, classify it and, if it is dictation, clean it up.",
     "",
     "## Classification",
-    'DICTATION examples: "Hey how are you doing", "I think we should move forward with the proposal", "Dear team comma please review the attached document"',
-    'ACTION examples: "Message Aaron on Slack saying hey what\'s up", "Send an email to the team about the meeting", "Open Spotify and play my playlist", "Search for flights to Denver", "Create a new document in Google Docs"',
+    "dictation: the user is composing text to be typed as-is.",
+    "action: the user is asking an assistant to do something (send, message, open, search, create, schedule). Return the transcription unchanged.",
+    `Cursor in text field: ${body.context.cursorInTextField ? "yes" : "no"}. If yes, lean toward dictation unless the intent to command is clear.`,
     "",
-    "Key signals for ACTION: the user is addressing an assistant and asking it to DO something (send, message, open, search, create, schedule, etc.)",
-    "Key signals for DICTATION: the user is composing text content that should be typed out as-is",
-    `Cursor in text field: ${body.context.cursorInTextField ? "yes" : "no"} -- if yes, lean toward dictation unless the intent to command is clear.`,
-    "",
-    "## Cleanup Rules (for dictation mode only)",
-    "- Fix grammar, punctuation, and capitalization",
-    "- Remove filler words (um, uh, like, you know)",
-    '- Rewrite vague or hedging language ("so yeah probably", "I guess maybe") into clear, confident statements',
-    "- Maintain the speaker's intent and meaning",
+    "## Cleanup",
+    "- Fix grammar, punctuation and capitalization; remove filler words",
+    "- Rewrite hedging into clear statements, keeping the speaker's meaning",
+    "- When the speaker enumerates items, lay them out as a list, one per line",
+    "- Keep the user's natural voice; do not over-formalize casual speech",
   ];
 
   if (stylePrompt) {
     sections.push(
       "",
-      "## User Style (HIGHEST PRIORITY)",
-      "The user has configured these style preferences. They OVERRIDE the default tone adaptation below.",
-      "Follow these instructions precisely -- they reflect the user's personal writing voice and preferences.",
+      "## User Style (highest priority)",
+      "The user's own writing preferences. They override the tone guidance below.",
       "",
       stylePrompt,
     );
   }
 
-  sections.push("", "## Tone Adaptation");
-
-  if (stylePrompt) {
-    sections.push(
-      "Use these as fallback guidance only when the User Style above does not cover a specific aspect:",
-    );
-  } else {
-    sections.push("Adapt your output tone based on the active application:");
-  }
-
   sections.push(
-    "- Email apps (Gmail, Mail): Professional but warm. Use proper greetings and sign-offs if appropriate.",
-    "- Slack: Casual and conversational. Match typical chat style.",
-    "- Code editors (VS Code, Xcode): Technical and concise. Code comments style.",
-    "- Terminal: Command-like, terse.",
-    "- Messages/iMessage: Very casual, texting style. Short sentences.",
-    "- Notes/Docs: Neutral, clear writing.",
-    "- Default: Match the user's natural voice.",
     "",
-    "## Context Clues",
-    "- Window title may contain recipient name (Slack DMs, email compose)",
-    "- If you can identify a recipient, adapt formality to the apparent relationship",
-    "- Maintain the user's natural voice -- don't over-formalize casual speech",
-    "- The user's writing patterns and preferences may be available from memory context -- follow those when present",
+    "## Tone",
+    stylePrompt
+      ? "Fallback guidance where the User Style above is silent:"
+      : "Adapt tone to the active application:",
+    "- Email: professional but warm, greetings and sign-offs where they fit",
+    "- Slack: casual and conversational",
+    "- Code editors: technical and concise",
+    "- Terminal: terse, command-like",
+    "- Messages: very casual, short sentences",
+    "- Notes and docs: neutral, clear writing",
+    "- Otherwise: the user's natural voice",
+    "The window title may name the recipient; adapt formality to the apparent relationship.",
     "",
     buildAppMetadataBlock(body.context),
   );
@@ -233,6 +219,9 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
   // Non-command: single LLM call that classifies AND cleans in one shot
   const transcription = expandSnippets(body.transcription, profile.snippets);
 
+  // Covers provider resolution as well as the call, which is what the caller
+  // waits for.
+  const modelStartedAt = Date.now();
   try {
     const provider = await getConfiguredProvider("interactionClassifier");
     if (!provider) {
@@ -289,12 +278,8 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
                     description:
                       "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
                   },
-                  reasoning: {
-                    type: "string",
-                    description: "Brief reasoning for the classification",
-                  },
                 },
-                required: ["mode", "text", "reasoning"],
+                required: ["mode", "text"],
               },
             },
           ],
@@ -317,12 +302,16 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
         const input = toolBlock.input as {
           mode?: string;
           text?: string;
-          reasoning?: string;
         };
         const mode: DictationMode =
           input.mode === "action" ? "action" : "dictation";
         log.info(
-          { mode, reasoning: input.reasoning },
+          {
+            mode,
+            modelMs: Date.now() - modelStartedAt,
+            inChars: transcription.length,
+            outChars: input.text?.length ?? 0,
+          },
           "LLM dictation classify+clean",
         );
 
@@ -343,14 +332,17 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
         };
       }
 
-      log.warn("No tool_use block in combined dictation call, using heuristic");
+      log.warn(
+        { modelMs: Date.now() - modelStartedAt },
+        "No tool_use block in combined dictation call, using heuristic",
+      );
     } finally {
       cleanup();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
-      { err: message },
+      { err: message, modelMs: Date.now() - modelStartedAt },
       "Combined dictation LLM call failed, using heuristic",
     );
   }

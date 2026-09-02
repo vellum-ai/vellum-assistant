@@ -24,6 +24,8 @@ import { Button, Tag, Typography } from "@vellumai/design-library";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { HomeMarkdownContent } from "./home-markdown-content";
+
 /** The ask, set in a recessed block so it reads as the quoted request. */
 const SUMMARY_BLOCK_CLASS = [
   "rounded-[var(--radius-md)] bg-[var(--surface-sunken)]",
@@ -74,15 +76,8 @@ export function HomeGuardianRequestCard({
 
   if (!guardianRequest) {
     // The panel header above this card already renders the title, so this
-    // fallback shows the body. Matches HomeToolPermissionCard.
-    return (
-      <Typography
-        variant="body-medium-default"
-        className="text-[var(--content-secondary)]"
-      >
-        {item.summary}
-      </Typography>
-    );
+    // fallback shows the body.
+    return <HomeMarkdownContent content={item.summary} />;
   }
 
   const decide = (action: "approve_once" | "reject") => {
@@ -141,9 +136,14 @@ export function HomeGuardianRequestCard({
         {metaLine}
       </Typography>
 
-      <Typography variant="body-medium-default" className={SUMMARY_BLOCK_CLASS}>
-        {item.summary}
-      </Typography>
+      {/* The summary is the daemon's conversation seed: markdown, with a
+          question's numbered options on their own lines. Rendered the way
+          the generic detail renders its body, so that structure survives
+          instead of collapsing into one run-on paragraph. */}
+      <HomeMarkdownContent
+        content={item.summary}
+        className={SUMMARY_BLOCK_CLASS}
+      />
 
       {/* Names the decision rather than the thing: what a person approves
           here is the assistant running this tool. The identifier has no

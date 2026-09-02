@@ -44,8 +44,9 @@ const STREAM_COALESCE_MS = 400;
  * - `streamed`: the reply was delivered live into a single streamed message;
  *   finalize skips re-posting text, reconciles `slackMeta.channelTs` to the
  *   stream `ts`, and posts only attachments.
- * - `fallback`: no stream was opened (ineligible turn, no deliverable text, or
- *   a failed `startStream`); finalize posts the full reply normally.
+ * - `fallback`: no stream was opened (ineligible turn, neither deliverable
+ *   text nor a plan, or a failed `startStream`); finalize posts the full
+ *   reply normally.
  */
 export type SlackStreamReconciliation =
   | { mode: "streamed"; messageTs: string; deliveredSegmentCount: number }
@@ -100,9 +101,9 @@ type StreamState = "idle" | "streaming" | "fallback";
 /**
  * Owns the live-content lifecycle of one Slack DM reply: it consumes the
  * assistant token stream once, opens a streamed message (in plan display
- * mode) on first deliverable text, coalesces deltas into `appendStream`
- * calls, advances a native plan block from `task_progress` surfaces, and
- * finalizes with `stopStream`.
+ * mode) on the first deliverable text or progress plan, whichever comes
+ * first, coalesces deltas into `appendStream` calls, advances a native plan
+ * block from `task_progress` surfaces, and finalizes with `stopStream`.
  *
  * Any stream-call failure degrades gracefully: the session abandons streaming
  * (state `fallback`) and reports back so durable finalize posts the full reply
@@ -197,11 +198,13 @@ export function createSlackReplySession(params: {
   const enqueueStart = (): void => {
     enqueue(async () => {
       const clean = streamableText();
-      if (clean.trim().length === 0) {
+      const plan = activeProgress;
+      // A plan alone opens the stream; text alone does too. Neither means
+      // there is nothing to show yet, so the start is left for a later flush.
+      if (clean.trim().length === 0 && !plan) {
         return;
       }
       const firstChunk = clean.slice(0, SLACK_STREAM_MARKDOWN_LIMIT);
-      const plan = activeProgress;
       try {
         const result = await sendChannelStreamOp(replyCallbackUrl, chatId, {
           action: "start",
@@ -307,6 +310,21 @@ export function createSlackReplySession(params: {
     });
   };
 
+  /**
+   * Whether there is anything worth opening the stream for.
+   *
+   * A plan counts on its own. `chat.startStream` takes `markdown_text` as
+   * optional and fixes `task_display_mode` at start, so a plan-only start is
+   * both legal and the only way task cards can tick while the turn works: the
+   * model is told to show its progress card early on a multi-step turn, which
+   * is precisely the moment it has produced no prose. Requiring text first
+   * would hold every such plan back until the final answer, by which point
+   * the steps it was meant to narrate are already done.
+   */
+  const hasOpenableContent = (): boolean =>
+    hasDeliverableAssistantText(streamableText()) ||
+    activeProgress !== undefined;
+
   const flush = (): void => {
     if (coalesceTimer) {
       clearTimeout(coalesceTimer);
@@ -316,7 +334,7 @@ export function createSlackReplySession(params: {
       return;
     }
     if (!started) {
-      if (!hasDeliverableAssistantText(streamableText())) {
+      if (!hasOpenableContent()) {
         return;
       }
       started = true;
@@ -453,7 +471,10 @@ export function createSlackReplySession(params: {
 
       // A reply that completed before the first coalesced flush still streams
       // as a single start→stop so the transcript holds one streamed message.
-      if (!started && hasDeliverableAssistantText(rawText)) {
+      // A turn whose only output was a plan opens here too, so work the model
+      // narrated only as steps still leaves the user something to read.
+      // `finished` is already set, so the shared check reads the full text.
+      if (!started && hasOpenableContent()) {
         started = true;
         enqueueStart();
       }

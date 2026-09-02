@@ -10,7 +10,7 @@
  */
 
 import { Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -18,6 +18,16 @@ import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 const COPIED_RESET_MS = 1500;
+
+/**
+ * Content longer than this collapses behind "Show more". Roughly a dozen lines
+ * of prose: enough to tell what the block holds, short enough that whatever
+ * sits above it stays on screen.
+ */
+const CLAMP_CHARS = 700;
+
+/** Collapsed height of a clamped block, in px. */
+const CLAMP_HEIGHT = 260;
 
 /**
  * Small ghost button that copies `text` to the clipboard and shows a transient
@@ -71,13 +81,76 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-/** A `<pre>` code block with a copy button positioned in the top-right. */
+/**
+ * Collapses `children` to a readable height when `length` exceeds the clamp,
+ * with a fade over the cut and a Show more control. Callers pass the length of
+ * the text they are rendering rather than the node, because the decision is
+ * about how much there is to read, not how it is marked up.
+ *
+ * The fade is painted in `--surface-overlay`, so a clamped block has to sit on
+ * that surface for the gradient to disappear into it.
+ */
+export function ClampedContent({
+  length,
+  children,
+}: {
+  length: number;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const clampable = length > CLAMP_CHARS;
+  const clamped = clampable && !expanded;
+
+  return (
+    <>
+      <div
+        className="relative overflow-hidden"
+        style={clamped ? { maxHeight: CLAMP_HEIGHT } : undefined}
+      >
+        {children}
+        {clamped && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[var(--surface-overlay)] to-transparent"
+          />
+        )}
+      </div>
+      {clampable && (
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          className="mt-2 w-full border-t border-[var(--border-base)] pt-2 text-left"
+        >
+          <Typography
+            variant="body-medium-default"
+            as="span"
+            className="text-[var(--content-default)]"
+          >
+            {expanded
+              ? t("detailPrimitives.showLess")
+              : t("detailPrimitives.showMore")}
+          </Typography>
+        </button>
+      )}
+    </>
+  );
+}
+
+/**
+ * A `<pre>` code block with a copy button positioned in the top-right, clamped
+ * when the text is long. Tool results reach the panel at up to
+ * `HARD_MAX_TOOL_RESULT_CHARS` (400,000), which is not a height any panel can
+ * absorb.
+ */
 export function CodeBlock({ text }: { text: string }) {
   return (
-    <div className="relative">
-      <pre className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
-        {text}
-      </pre>
+    <div className="relative rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+      <ClampedContent length={text.length}>
+        <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
+          {text}
+        </pre>
+      </ClampedContent>
       <CopyButton text={text} />
     </div>
   );

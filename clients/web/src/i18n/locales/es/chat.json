@@ -1473,9 +1473,7 @@
   },
   "skillLoadOutput": {
     "output": "Salida",
-    "outputFormatAria": "Formato de salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más"
+    "outputFormatAria": "Formato de salida"
   },
   "skillToolList": {
     "fromSkill": "De {name}"
@@ -1589,6 +1587,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Cerrar detalles de la herramienta",
+    "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
+    "emptyOutput": "La herramienta no devolvió ninguna salida.",
     "output": "Salida",
     "riskLevel": "Nivel de riesgo",
     "running": "Ejecutando…"

@@ -27,8 +27,9 @@ import {
   quarantineRefusedExchanges,
 } from "../context/refusal-quarantine.js";
 import {
+  MEMORY_SPOTLIGHT_MATCHER,
   NOW_SCRATCHPAD_STRIP_PREFIXES,
-  stripSpotlightInjections,
+  stripTailUserTextBlocksByPrefix,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
@@ -64,6 +65,7 @@ import {
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_SPOTLIGHT_BLOCK_ID,
 } from "../plugins/defaults/memory/v3/types.js";
 import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
@@ -1885,6 +1887,13 @@ export interface RuntimeInjectionBlocks {
    */
   memoryV3InjectedBlock?: string;
   /**
+   * Rendered `<memory_spotlight>` body spliced onto this turn's user
+   * message. Persisted by the user-prompt-submit hook under
+   * `metadata.memoryV3SpotlightBlock`. Historical turns keep the block they
+   * were sent with; a new spotlight is added only on the new tail.
+   */
+  memoryV3SpotlightBlock?: string;
+  /**
    * True when memory-v3 superseded v2 as this turn's `<memory>` source —
    * `memory.v3.live` is on AND the v3 injector produced a block (possibly
    * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
@@ -2073,6 +2082,7 @@ function applyInjectionBlock(
       ];
     }
   }
+  return runMessages;
 }
 
 /**
@@ -2305,7 +2315,7 @@ function fallbackTurnTrust(
  *     the user tail content.
  *
  * Returns the final message array plus a `blocks` object holding the exact
- * injected text for each captured block — callers persist those bytes to
+ * injected text for each captured block. Callers persist those bytes to
  * message metadata for later byte-exact rehydration.
  */
 export async function applyRuntimeInjections(
@@ -2519,6 +2529,7 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let memoryV3SpotlightCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
@@ -2568,6 +2579,11 @@ export async function applyRuntimeInjections(
           }
           break;
         }
+        case MEMORY_V3_SPOTLIGHT_BLOCK_ID:
+          if (block.text.length > 0) {
+            memoryV3SpotlightCaptured = block.text;
+          }
+          break;
       }
     }
   }
@@ -2586,16 +2602,19 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: memory-v3 ephemeral-spotlight strip + v2 tail suppression ──
+  // ── Step 0: tail spotlight strip + v2 tail suppression ──
   //
-  // Spotlight strip (unconditional): the `<memory_spotlight>` block is
-  // ephemeral by contract — re-rendered at the current tail each turn — so any
-  // spotlight riding history from a previous turn is stale and is removed
-  // here. This is a SCOPED strip of only that block id: the frozen `<memory>`
-  // card blocks on historical messages are untouched (the cache contract).
-  // With the v3 flag off no spotlight blocks exist and this is a content
-  // no-op, keeping the v2 path bit-for-bit identical.
-  let runMessagesForAssembly = stripSpotlightInjections(runMessages);
+  // Spotlight strip (tail only): mid-turn re-entry and post-compact can
+  // hand back a tail that already carries this turn's `<memory_spotlight>`.
+  // Strip that leftover from the tail so Step 2 splices a single fresh
+  // copy. Historical user messages keep the spotlight they were sent with,
+  // so the provider prefix through those messages stays byte-identical.
+  // Frozen `<memory>` card blocks are untouched. With the v3 flag off no
+  // spotlight blocks exist and this is a content no-op.
+  let runMessagesForAssembly = stripTailUserTextBlocksByPrefix(
+    runMessages,
+    [MEMORY_SPOTLIGHT_MATCHER],
+  );
 
   // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
@@ -2802,6 +2821,7 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3SpotlightBlock: memoryV3SpotlightCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,

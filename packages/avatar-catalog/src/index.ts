@@ -22,4 +22,4 @@
  *
  * Leaf package: no dependencies, no runtime imports.
  */
-export { getCharacterComponents } from "./catalog.js";
+export { getCharacterComponents, SCLERA } from "./catalog.js";
