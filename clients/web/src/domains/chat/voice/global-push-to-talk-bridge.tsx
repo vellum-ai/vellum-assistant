@@ -31,11 +31,10 @@ interface GlobalPushToTalkBridgeProps {
 /**
  * How long a hold gives the cleanup pass before inserting the words as heard.
  *
- * Generous for a healthy call, which is a small model answering a sentence,
- * and far short of the route's own five second timeout, which is the wait
- * the pass has been measured costing when the daemon is not answering.
+ * The route's own timeout, so the pass gets every chance to answer while its
+ * cost is being measured. The log line below carries what each hold paid.
  */
-const CLEANUP_DEADLINE_MS = 1500;
+const CLEANUP_DEADLINE_MS = 5000;
 
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
@@ -166,11 +165,8 @@ export function GlobalPushToTalkBridge({
       // nothing else on its path is worth waiting for; what it costs is
       // measured rather than assumed. Character counts and timings only.
       //
-      // Raced against a deadline rather than awaited. The pass is worth a few
-      // hundred milliseconds and no more: a daemon that is not answering has
-      // been measured stalling for the route's own five second timeout and
-      // then returning the words untouched, and a hold that waited for that
-      // would be paying the whole wait for nothing. Past the deadline the raw
+      // Raced against a deadline rather than awaited, so a daemon that is not
+      // answering costs the hold the deadline and no more. Past it the raw
       // words go down and the late answer is dropped.
       const cleanupStartedAt = Date.now();
       const cleanupAbort = new AbortController();
