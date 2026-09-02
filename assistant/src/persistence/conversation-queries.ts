@@ -26,6 +26,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   ASSISTANT_INITIATED_GROUP_ID,
+  ASSISTANT_INITIATED_SOURCE,
   type ConversationType,
   NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
@@ -216,21 +217,19 @@ function notBackgroundVisibilitySql(alias = "conversations"): string {
 
 /**
  * Raw SQL predicate for "a thread the assistant started on its own": the rows
- * the notification pipeline materialized, which it stamps
- * `source = 'notification'` (`notifications/conversation-pairing.ts`).
+ * stamped {@link ASSISTANT_INITIATED_SOURCE} at creation by a producer that
+ * opted the thread into the section.
  *
  * Membership rides `source` rather than `group_id` because those rows are
  * filed nowhere — see {@link ASSISTANT_INITIATED_GROUP_ID} for why the section
- * is still named as a group id.
- *
- * Only the vellum arm of the pipeline reaches this predicate in practice: a
- * delivery on a channel with `continue_existing_conversation` is created
- * `conversation_type = 'background'` and is already withheld from the standard
- * listing, so the section holds exactly the threads that were addressed to
- * this app.
+ * is still named as a group id. It is a dedicated source rather than the
+ * notification pipeline's `'notification'`, whose rows are the transactional
+ * request trails (guardian approvals, confirmation / access / question /
+ * tool-grant requests, channel deliveries) that belong to the bell and to
+ * Chats - see {@link ASSISTANT_INITIATED_SOURCE} for the full rationale.
  */
 function assistantInitiatedSql(alias = "conversations"): string {
-  return `(${alias}.source = 'notification' AND ${ungroupedSql(alias)})`;
+  return `(${alias}.source = '${ASSISTANT_INITIATED_SOURCE}' AND ${ungroupedSql(alias)})`;
 }
 
 /**
@@ -238,13 +237,12 @@ function assistantInitiatedSql(alias = "conversations"): string {
  * wrapped in `NOT`.
  *
  * `source` is nullable and the overwhelming majority of rows carry NULL, so
- * `NOT (source = 'notification')` evaluates to NULL for them under SQL's
- * three-valued logic and the WHERE clause drops them. Negating the column
- * naively would therefore not withhold one section from Chats — it would
- * empty Chats.
+ * `NOT (source = '...')` evaluates to NULL for them under SQL's three-valued
+ * logic and the WHERE clause drops them. Negating the column naively would
+ * therefore not withhold one section from Chats - it would empty Chats.
  */
 function notAssistantInitiatedSql(alias = "conversations"): string {
-  return `(${alias}.source IS NULL OR ${alias}.source != 'notification' OR NOT ${ungroupedSql(alias)})`;
+  return `(${alias}.source IS NULL OR ${alias}.source != '${ASSISTANT_INITIATED_SOURCE}' OR NOT ${ungroupedSql(alias)})`;
 }
 
 /**

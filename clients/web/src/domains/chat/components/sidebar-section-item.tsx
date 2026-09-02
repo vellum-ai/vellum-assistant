@@ -21,8 +21,9 @@
 
 import type { ReactNode } from "react";
 
+import { Inbox } from "lucide-react";
+
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
-import { AssistantEyesMark } from "@/domains/chat/components/assistant-eyes-mark";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
@@ -35,8 +36,19 @@ import {
   assistantSectionLabel,
   sectionIcon,
 } from "@/domains/chat/utils/sidebar-section-icon";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
+import { toneForBg } from "@/utils/avatar-tone";
+
+/**
+ * The assistant section shows at most five realizations before scrolling
+ * within itself: 5 rows at 30px plus the 4px gaps between them. A glanceable
+ * stack rather than a feed - the section is a person's short list, not
+ * another Chats.
+ */
+const ASSISTANT_SECTION_MAX_HEIGHT = 5 * 30 + 4 * 4;
 
 export interface SidebarSectionItemProps {
   section: SidebarSection;
@@ -86,6 +98,17 @@ export function SidebarSectionItem({
      wants the name, and the same store is what the layout above reads. */
   const assistantName = useAssistantIdentityStore.use.name();
   const isAssistantSection = section.type === "assistant";
+  /* The accent hex, for choosing the disc glyph's ink in JS: `color-mix`
+     can pale a color but cannot answer "is this too light for white?", and
+     the yellow palette entry is. Null keeps every other section off the
+     avatar query, and null accent (custom-image / still-loading avatar) is
+     the case where the disc falls back to the plain surface anyway. */
+  const { components, traits } = useAssistantAvatar(
+    isAssistantSection ? assistantId : null,
+  );
+  const accentHex = isAssistantSection
+    ? resolveAvatarAccentHex(components, traits)
+    : null;
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -103,18 +126,58 @@ export function SidebarSectionItem({
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
-      /* The assistant's own eyes stand where the topic glyph would, because
-         this section is a person rather than a category. `AssistantEyesMark`
-         renders `null` without a character avatar (custom image, or still
-         loading), and the slot collapses to the Lucide fallback in that
-         case — so a custom-image avatar gets a plain header rather than a
-         gap where a mark should be. */
+      /* The Inbox mark in the full-accent disc - the same disc the avatar's
+         eyes used to sit in, kept because it is what makes the header read
+         as this section's own; only the occupant changed. NOT the eyes: the
+         eyes are the assistant herself and stay exclusive to the cluster at
+         the top of the rail, or this header reads as a second switcher. The
+         glyph's ink comes from `toneForBg`'s perceived-brightness rule -
+         white on every palette entry except yellow, where white vanishes -
+         not from the stricter WCAG `contrastForeground`, whose text-grade
+         threshold turns mid-tone colors like the pink dark; a 16px glyph is
+         iconography, not body text. With no accent (custom-image or
+         still-loading avatar, exactly when `accentHex` is null) the disc
+         falls back to the plain lifted surface and the glyph to the
+         tertiary ink every other section's glyph wears. */
       iconNode={
         isAssistantSection ? (
-          <AssistantEyesMark assistantId={assistantId} width={16} />
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent,var(--surface-lift))]">
+            <Inbox
+              size={16}
+              aria-hidden
+              className={
+                accentHex ? undefined : "text-[var(--content-tertiary)]"
+              }
+              style={accentHex ? { color: toneForBg(accentHex).fg } : undefined}
+            />
+          </span>
         ) : undefined
       }
       label={label}
+      /* The name in the emphasised ink rather than the shared header
+         classes' tertiary gray: this header sits on its own tinted surface,
+         where the section-family gray reads as disabled instead of quiet.
+         Set on the label span, so it overrides by inheritance rather than
+         specificity. */
+      labelClassName={
+        isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
+      }
+      /* The whole header on its own surface: a deeper cut of the accent than
+         the card's 18%, spanning disc, label, unread dot, and chevron edge
+         to edge - one pill, not a pill with the controls stranded outside
+         it. Geometry is the Figma spec (8300:166976) at its native size: a
+         32px disc inset 2px inside a 36px pill, the same height as a
+         collapsed side-menu item, whose full roundness is likewise half of
+         36. The title's own horizontal padding is inline style from
+         `sidebar-nav-geometry`, so the 2px disc inset needs the `!`
+         overrides; the trailing cluster's `pr-[6px]` is the pill's right
+         padding. Row-axis centering of the 32px disc in the 36px row is
+         what yields the inset above and below. */
+      headerClassName={
+        isAssistantSection
+          ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_32%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-0.5! [&_[data-slot=collapsible-nav-section-title]]:pr-2!"
+          : undefined
+      }
       /* The one section painted in the assistant's own color, so it reads as
          coming from someone rather than as another bucket. `--avatar-accent`
          is published on `<html>` by `useAvatarAccentVar` and is *absent* for
@@ -124,10 +187,20 @@ export function SidebarSectionItem({
          other card paints. A `transparent` fallback would instead punch a
          hole in the card. 18% is the balance point: strong enough that the
          card reads as a different surface at a glance, short of reading as
-         selected — the rows on top still have to read as ordinary rows. */
+         selected - the rows on top still have to read as ordinary rows.
+
+         `mt-auto` is the anchor half of the section's bottom pin. The order
+         pin (`pinAssistantSectionLast`) makes it the last card, but only the
+         last *space-claiming* section grows to fill the rail, and when that
+         section is collapsed nothing does - the leftover height would open
+         below this card and float it mid-rail. Auto margin sends that
+         leftover above it instead, so the card sits against the Preferences
+         footer whatever the sections above are doing; when a grown section
+         has already consumed the leftover, there is no free space and the
+         margin is inert. */
       cardClassName={
         isAssistantSection
-          ? "bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_18%,var(--surface-lift))]"
+          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_18%,var(--surface-lift))]"
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from
@@ -144,6 +217,7 @@ export function SidebarSectionItem({
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
       isLast={isLast}
+      maxHeight={isAssistantSection ? ASSISTANT_SECTION_MAX_HEIGHT : undefined}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
       /* The only section that renders at zero, so the only one with anything
@@ -154,7 +228,7 @@ export function SidebarSectionItem({
          reason: it keeps the absent case unambiguous. */
       children={
         isAssistantSection && conversations.length === 0 ? (
-          <AssistantSectionEmptyState assistantId={assistantId} />
+          <AssistantSectionEmptyState />
         ) : undefined
       }
     />

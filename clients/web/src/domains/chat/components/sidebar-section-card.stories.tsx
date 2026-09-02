@@ -323,7 +323,7 @@ export const AssistantInitiatedEmpty: Story = {
     label: "From Ada",
     items: [],
     cardClassName: ASSISTANT_TINT_CLASS,
-    children: <AssistantSectionEmptyState assistantId={null} />,
+    children: <AssistantSectionEmptyState />,
   },
   decorators: [
     (Story) => (

@@ -92,7 +92,7 @@
   },
   "assistantSection": {
     "emptyTitle": "Nothing on my mind yet.",
-    "emptyBody": "I keep thinking between our conversations. When something's worth your time, I'll start a thread here."
+    "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
   },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",

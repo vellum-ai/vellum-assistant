@@ -447,17 +447,37 @@ export const UNGROUPED_GROUP_ID = "system:all";
 export const PINNED_GROUP_ID = "system:pinned";
 
 /**
+ * The `conversations.source` that makes a thread a member of the
+ * assistant-initiated section ({@link ASSISTANT_INITIATED_GROUP_ID}).
+ *
+ * Opt-in and stamped at creation, by a producer declaring "this is a thread
+ * I started because it is worth the user's time" - a heartbeat realization,
+ * an observation the user did not ask for. Deliberately NOT the notification
+ * pipeline's `'notification'`: the conversations that stamp carries are the
+ * transactional flows (guardian call approvals, confirmation / access /
+ * question / tool-grant requests, channel delivery trails - the
+ * `requiresConversation` producers), which belong to the bell and to Chats,
+ * and matching on it would also sweep every historical row into the section
+ * the day the flag turns on. A dedicated source makes membership all-new by
+ * construction: nothing stamps it until a producer passes it through
+ * `conversationMetadata.source` on its notification signal (see
+ * `notifications/conversation-pairing.ts`), so the section holds exactly the
+ * threads written for it and nothing retroactively.
+ */
+// FROZEN: persisted `conversations.source` value. Never rename it.
+export const ASSISTANT_INITIATED_SOURCE = "assistant_initiated";
+
+/**
  * The section holding the conversations the assistant started on its own:
- * every thread the notification pipeline materialized
- * (`source = 'notification'`, see `notifications/conversation-pairing.ts`).
+ * the threads stamped {@link ASSISTANT_INITIATED_SOURCE} at creation.
  *
  * A pseudo-group in the same sense as {@link UNGROUPED_GROUP_ID}: no row
  * carries it in `group_id`. Those conversations are filed nowhere (NULL
- * `group_id`, native `origin_channel`), which is exactly why they land in
- * Chats today; membership is decided by `source`, not by the column this id
- * names. It is spelled as a group id anyway so a client selects the section
- * through the `groupId` parameter every other section already uses, rather
- * than through a filter only this one section knows about.
+ * `group_id`), so without the split they land in Chats; membership is
+ * decided by `source`, not by the column this id names. It is spelled as a
+ * group id anyway so a client selects the section through the `groupId`
+ * parameter every other section already uses, rather than through a filter
+ * only this one section knows about.
  */
 export const ASSISTANT_INITIATED_GROUP_ID = "system:assistant";
 

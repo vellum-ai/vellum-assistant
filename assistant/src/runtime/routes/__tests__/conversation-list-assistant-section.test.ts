@@ -1,7 +1,7 @@
 /**
  * The `assistant-initiated-threads` split: the threads the assistant started
- * on its own (`source = 'notification'`) become their own sidebar section
- * instead of sitting in Chats.
+ * on its own (`source = 'assistant_initiated'`, opt-in at creation) become
+ * their own sidebar section instead of sitting in Chats.
  *
  * The flag is the whole point of these tests. It is a read-side gate over rows
  * that exist either way, so the off arm must be byte-identical to the behavior
@@ -84,11 +84,21 @@ function titlesFrom(response: ListResponse): string[] {
 }
 
 /**
- * A thread the notification pipeline materialized. Mirrors what
- * `pairDeliveryWithConversation` writes on the vellum arm: a standard-type
- * conversation, filed nowhere, stamped `source: 'notification'`.
+ * A thread a producer opted into the assistant-initiated section: a
+ * standard-type conversation, filed nowhere, stamped
+ * `source: 'assistant_initiated'` at creation (ASSISTANT_INITIATED_SOURCE).
  */
 function seedAssistantInitiated(title: string): string {
+  return createConversation({ title, source: "assistant_initiated" }).id;
+}
+
+/**
+ * A transactional notification trail - what the guardian request flows and
+ * channel deliveries materialize (`source: 'notification'`, see
+ * `notifications/conversation-pairing.ts`). Never a member of the section:
+ * these belong to the bell and to Chats.
+ */
+function seedNotificationTrail(title: string): string {
   return createConversation({ title, source: "notification" }).id;
 }
 
@@ -236,8 +246,8 @@ describe("assistant-initiated threads — flag on", () => {
   });
 
   test("the standard list withholds them, and keeps every NULL-source row", () => {
-    // The regression this guards: `NOT (source = 'notification')` is NULL for
-    // the NULL-source rows that make up most of the list, so a naive negation
+    // The regression this guards: `NOT (source = '...')` is NULL for the
+    // NULL-source rows that make up most of the list, so a naive negation
     // would return an empty list rather than one section fewer.
     seedAssistantInitiated("overnight-realization");
     createConversation({ title: "user-thread" });
@@ -276,6 +286,25 @@ describe("assistant-initiated threads — flag on", () => {
     ]);
   });
 
+  test("transactional notification trails are not members, and stay in Chats", () => {
+    // The membership source is opt-in precisely so the flag turning on cannot
+    // sweep the historical guardian-request and channel-delivery trails
+    // (`source = 'notification'`) into the section: only threads written for
+    // the section, from the moment producers start stamping its source, are
+    // members.
+    seedNotificationTrail("approve-this-call");
+    seedAssistantInitiated("overnight-realization");
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({ kind: "assistant", total: 1, unread: 0 });
+    expect(sections).toContainEqual({ kind: "chats", total: 1, unread: 0 });
+    expect(titlesFrom(invokeList())).toEqual(["approve-this-call"]);
+    expect(titlesFrom(invokeList({ groupId: "system:assistant" }))).toEqual([
+      "overnight-realization",
+    ]);
+  });
+
   test("a thread filed into a custom group leaves the section and stays listable", () => {
     // The exclusion is the complement of the section, so a thread that moved
     // out of the section must not stay excluded from the list of the group it
@@ -294,14 +323,31 @@ describe("assistant-initiated threads — flag on", () => {
     ]);
   });
 
+  test("the Archive view keeps archived section threads", () => {
+    // Archive asks archiveStatus=archived with no groupId, and the section
+    // only ever lists active rows, so the split's exclusion must not reach
+    // archived reads or an archived section thread is visible nowhere.
+    const archived = seedAssistantInitiated("archived-realization");
+    rawRun(
+      "test:archive",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      archived,
+    );
+
+    expect(titlesFrom(invokeList({ archiveStatus: "archived" }))).toEqual([
+      "archived-realization",
+    ]);
+  });
+
   test("the background umbrella is left unnarrowed", () => {
-    // Channel deliveries land as background rows carrying the same source.
-    // They are addressed by conversation type, and narrowing that bucket by
-    // source would drop rows its callers still page through.
+    // A background row carrying the section's own source is addressed by
+    // conversation type, and narrowing that bucket by source would drop rows
+    // its callers still page through.
     const background = createConversation({
-      title: "channel-delivery",
+      title: "background-realization",
       conversationType: "background",
-      source: "notification",
+      source: "assistant_initiated",
     });
 
     expect(
