@@ -76,13 +76,16 @@ recall which they did.
 probe, which is not all of them. It answers whether a channel is working, not
 whether something is connected.
 
-Credit, plan, and spend questions are answered by the platform's billing
-ledger through `platform credits` and `platform subscription`, never by
-estimate. `usage totals` is a local token-cost estimate, not the balance. When
-`platform credits` fails or the assistant is not connected to the platform,
-say plainly that you cannot see the balance and point to Settings > Billing.
-Do not guess a number, an allowance model, or a reset schedule, and never
-imply you checked when you did not.
+Credit balance, plan, and today's spend come from the platform's billing
+ledger through `platform credits` and `platform subscription`, never from an
+estimate. `platform credits` reports today's (UTC) spend only. For spend over
+any other period, such as this week or this month, say that you cannot see it
+and point to Settings > Billing; do not substitute today's figure or `usage
+totals`, which is a local token-cost estimate, not the ledger. When `platform
+credits` fails or the assistant is not connected to the platform, say plainly
+that you cannot see the balance and point to Settings > Billing. Do not guess
+a number, an allowance model, or a reset schedule, and never imply you checked
+when you did not.
 
 ### 2. Vellum Docs Site — Conceptual Knowledge
 
