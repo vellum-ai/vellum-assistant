@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  offloadOversizedText,
+  OVERSIZED_CONTENT_FILENAME,
+} from "../daemon/port-oversized-content.js";
+import {
   attachInlineAttachmentToMessage,
   AttachmentUploadError,
   createInlineAttachment,
@@ -29,10 +33,6 @@ import { getConversationDirPath } from "../persistence/conversation-disk-view.js
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawGet, rawRun } from "../persistence/raw-query.js";
-import {
-  offloadOversizedText,
-  OVERSIZED_CONTENT_FILENAME,
-} from "../daemon/port-oversized-content.js";
 import { mediaSourceBytes } from "../providers/media-resolve.js";
 import { getConversationsDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";

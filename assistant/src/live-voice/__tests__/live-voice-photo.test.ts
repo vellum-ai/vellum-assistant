@@ -11,7 +11,6 @@ import { waitFor } from "../../__tests__/helpers/wait-for.js";
 
 setConfig("memory", { enabled: false });
 
-import * as messageTypes from "../../agent/message-types.js";
 import type { AssistantEvent } from "../../api/index.js";
 import {
   Conversation,
@@ -23,6 +22,7 @@ import {
 } from "../../daemon/conversation-registry.js";
 import { applySightFrameRetention } from "../../daemon/conversation-runtime-assembly.js";
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import * as portOversized from "../../daemon/port-oversized-content.js";
 import * as attachmentsStore from "../../persistence/attachments-store.js";
 import {
   getAttachmentById,
@@ -63,22 +63,22 @@ await initializeDb();
  * Run something in the window the persist opens between materializing an
  * attachment and inserting its row.
  *
- * `createUserMessage` is the last step the persist awaits before the insert,
- * so a hook here lands inside that window without a timer to race. Armed per
- * test and cleared as it fires; every other test leaves it null and gets the
- * real function.
+ * `offloadOversizedText` is the last step the persist awaits before the
+ * insert, so a hook here lands inside that window without a timer to race.
+ * Armed per test and cleared as it fires; every other test leaves it null
+ * and gets the real function.
  */
 let duringPersistBeforeInsert: (() => void) | null = null;
-const realMessageTypes = { ...messageTypes };
-mock.module("../../agent/message-types.js", () => ({
-  ...realMessageTypes,
-  createUserMessage: (
-    ...args: Parameters<typeof realMessageTypes.createUserMessage>
+const realPortOversized = { ...portOversized };
+mock.module("../../daemon/port-oversized-content.js", () => ({
+  ...realPortOversized,
+  offloadOversizedText: (
+    ...args: Parameters<typeof realPortOversized.offloadOversizedText>
   ) => {
     const hook = duringPersistBeforeInsert;
     duringPersistBeforeInsert = null;
     hook?.();
-    return realMessageTypes.createUserMessage(...args);
+    return realPortOversized.offloadOversizedText(...args);
   },
 }));
 

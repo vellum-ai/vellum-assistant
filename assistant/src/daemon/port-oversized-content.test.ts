@@ -56,6 +56,9 @@ describe("offloadOversizedText", () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain(original);
+    if (result.fileBlock === undefined) {
+      throw new Error("expected an offloaded file block");
+    }
 
     const blocks = assembleUserContentBlocks(result.text, [], result.fileBlock);
     expect(JSON.stringify(blocks)).not.toContain(original);
