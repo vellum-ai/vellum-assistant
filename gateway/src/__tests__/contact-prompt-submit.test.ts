@@ -1211,6 +1211,27 @@ describe("handleContactPromptSubmit", () => {
     expectEmittedContactsChanged(ipcMock);
   });
 
+  test("targeted bind: the mirror repair carries the target's stored name", async () => {
+    seedContact("c-alice", "Alice Chen");
+    parkedFlags = { known: true, verify: false, contactId: "c-alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-mirror-name",
+        address: "alice.mirror@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // The mirror row can be missing, and its create path names a contact after
+    // the channel address when the op carries no name.
+    const mirror = callsFor(ipcMock, "contacts_mirror_upsert_full");
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body.contactId).toBe("c-alice");
+    expect(mirror[0].body.displayName).toBe("Alice Chen");
+  });
+
   test("targeted bind: reuses a channel the target already holds", async () => {
     seedContact("c-alice", "Alice");
     seedChannel("chan-alice", "c-alice", "alice@example.com");

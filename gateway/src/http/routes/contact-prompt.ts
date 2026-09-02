@@ -306,6 +306,7 @@ async function bindSubmittedChannel(input: {
       return await bindChannelToContact({
         requestId,
         contactId: target.id,
+        contactDisplayName: target.displayName,
         channelType,
         address: normalizedAddress,
         verify: input.verify,
@@ -504,6 +505,11 @@ async function bindGuardianChannel(args: {
 async function bindChannelToContact(args: {
   requestId: string;
   contactId: string;
+  /**
+   * The contact's stored name. Carried into the mirror writes so a repair of a
+   * missing mirror row names it, rather than falling back to the address.
+   */
+  contactDisplayName?: string;
   channelType: string;
   address: string;
   verify: boolean | undefined;
@@ -511,7 +517,14 @@ async function bindChannelToContact(args: {
   onRollback?: () => Promise<void>;
   conflictHint: string;
 }): Promise<GuardianFormWriteOutcome> {
-  const { requestId, contactId, channelType, address, onRollback } = args;
+  const {
+    requestId,
+    contactId,
+    contactDisplayName,
+    channelType,
+    address,
+    onRollback,
+  } = args;
 
   const existingChannel = findChannelByAddress(channelType, address);
   let channelId: string;
@@ -526,6 +539,7 @@ async function bindChannelToContact(args: {
     try {
       await getStore().upsertContact({
         id: contactId,
+        displayName: contactDisplayName,
         channels: [{ type: channelType, address, isPrimary: true }],
       });
     } catch (healErr) {
@@ -561,6 +575,7 @@ async function bindChannelToContact(args: {
       // and the channel, and the assistant mirror carries identity/info only.
       await getStore().upsertContact({
         id: contactId,
+        displayName: contactDisplayName,
         channels: [{ type: channelType, address, isPrimary: true }],
       });
       channelId = resolveChannelId(contactId, channelType, address);
