@@ -292,49 +292,6 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
-/* Companion bristle: the resting capsule's features growing out of its edge
-   and settling back. One shot from flat to flat, replayed by remounting; see
-   `companion-bristle.tsx` for what fires it and when.
-
-   Fast out and slow back with a little overshoot, because a creature stirring
-   is a twitch and a settle rather than a swell. `both` holds the start frame
-   through each feature's stagger delay and the end frame after, so a feature
-   that has not started yet and one that has finished are the same flat line.
-
-   `scaleY` about the base rather than a height, since the base is a point on
-   the capsule's edge and the feature has to stay attached to it. The origin is
-   the fill box's bottom, which is the base's hidden inset: a `transform-box`
-   of `fill-box` is what makes that the feature's own bottom rather than the
-   canvas's. */
-@keyframes companion-bristle {
-  0% { transform: scaleY(0); }
-  35% { transform: scaleY(1.12); }
-  50% { transform: scaleY(1); }
-  70% { transform: scaleY(1); }
-  100% { transform: scaleY(0); }
-}
-
-.companion-bristle-feature {
-  /* Flat is the resting state, and the state held when the travel cannot
-     run. */
-  transform: scaleY(0);
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-  animation: companion-bristle 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  /* Each feature starts a beat after the one before it, so the set ripples
-     rather than snapping up as one. The component states each feature's place;
-     the spacing is here beside the travel it spaces out. */
-  animation-delay: calc(var(--bristle-index, 0) * var(--bristle-stagger, 35ms));
-}
-
-/* Held flat rather than held out: a bristle is travel and nothing else, so
-   for a reader who asked for stillness it does not happen. */
-@media (prefers-reduced-motion: reduce) {
-  .companion-bristle-feature {
-    animation: none;
-  }
-}
-
 /* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
  * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
  * ActivityRunCard for active/thinking phases. */
