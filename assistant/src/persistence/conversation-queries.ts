@@ -226,7 +226,7 @@ function notBackgroundVisibilitySql(alias = "conversations"): string {
  * notification pipeline's `'notification'`, whose rows are the transactional
  * request trails (guardian approvals, confirmation / access / question /
  * tool-grant requests, channel deliveries) that belong to the bell and to
- * Chats — see {@link ASSISTANT_INITIATED_SOURCE} for the full rationale.
+ * Chats - see {@link ASSISTANT_INITIATED_SOURCE} for the full rationale.
  */
 function assistantInitiatedSql(alias = "conversations"): string {
   return `(${alias}.source = '${ASSISTANT_INITIATED_SOURCE}' AND ${ungroupedSql(alias)})`;
@@ -239,7 +239,7 @@ function assistantInitiatedSql(alias = "conversations"): string {
  * `source` is nullable and the overwhelming majority of rows carry NULL, so
  * `NOT (source = '...')` evaluates to NULL for them under SQL's three-valued
  * logic and the WHERE clause drops them. Negating the column naively would
- * therefore not withhold one section from Chats — it would empty Chats.
+ * therefore not withhold one section from Chats - it would empty Chats.
  */
 function notAssistantInitiatedSql(alias = "conversations"): string {
   return `(${alias}.source IS NULL OR ${alias}.source != '${ASSISTANT_INITIATED_SOURCE}' OR NOT ${ungroupedSql(alias)})`;

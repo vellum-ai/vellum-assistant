@@ -45,7 +45,7 @@ import { toneForBg } from "@/utils/avatar-tone";
 /**
  * The assistant section shows at most five realizations before scrolling
  * within itself: 5 rows at 30px plus the 4px gaps between them. A glanceable
- * stack rather than a feed — the section is a person's short list, not
+ * stack rather than a feed - the section is a person's short list, not
  * another Chats.
  */
 const ASSISTANT_SECTION_MAX_HEIGHT = 5 * 30 + 4 * 4;
@@ -126,7 +126,7 @@ export function SidebarSectionItem({
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
-      /* The Inbox mark in the full-accent disc — the same disc the avatar's
+      /* The Inbox mark in the full-accent disc - the same disc the avatar's
          eyes used to sit in, kept because it is what makes the header read
          as this section's own; only the occupant changed. NOT the eyes: the
          eyes are the assistant herself and stay exclusive to the cluster at
@@ -135,8 +135,8 @@ export function SidebarSectionItem({
          white on every palette entry except yellow, where white vanishes -
          not from the stricter WCAG `contrastForeground`, whose text-grade
          threshold turns mid-tone colors like the pink dark; a 16px glyph is
-         iconography, not body text. With no accent — custom-image or
-         still-loading avatar, exactly when `accentHex` is null — the disc
+         iconography, not body text. With no accent (custom-image or
+         still-loading avatar, exactly when `accentHex` is null) the disc
          falls back to the plain lifted surface and the glyph to the
          tertiary ink every other section's glyph wears. */
       iconNode={
@@ -164,7 +164,7 @@ export function SidebarSectionItem({
       }
       /* The whole header on its own surface: a deeper cut of the accent than
          the card's 18%, spanning disc, label, unread dot, and chevron edge
-         to edge — one pill, not a pill with the controls stranded outside
+         to edge - one pill, not a pill with the controls stranded outside
          it. Geometry is the Figma spec (8300:166976) at its native size: a
          32px disc inset 2px inside a 36px pill, the same height as a
          collapsed side-menu item, whose full roundness is likewise half of
@@ -187,12 +187,12 @@ export function SidebarSectionItem({
          other card paints. A `transparent` fallback would instead punch a
          hole in the card. 18% is the balance point: strong enough that the
          card reads as a different surface at a glance, short of reading as
-         selected — the rows on top still have to read as ordinary rows.
+         selected - the rows on top still have to read as ordinary rows.
 
          `mt-auto` is the anchor half of the section's bottom pin. The order
          pin (`pinAssistantSectionLast`) makes it the last card, but only the
          last *space-claiming* section grows to fill the rail, and when that
-         section is collapsed nothing does — the leftover height would open
+         section is collapsed nothing does - the leftover height would open
          below this card and float it mid-rail. Auto margin sends that
          leftover above it instead, so the card sits against the Preferences
          footer whatever the sections above are doing; when a grown section
@@ -228,7 +228,7 @@ export function SidebarSectionItem({
          reason: it keeps the absent case unambiguous. */
       children={
         isAssistantSection && conversations.length === 0 ? (
-          <AssistantSectionEmptyState assistantId={assistantId} />
+          <AssistantSectionEmptyState />
         ) : undefined
       }
     />

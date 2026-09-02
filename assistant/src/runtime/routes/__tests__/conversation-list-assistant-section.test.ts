@@ -93,7 +93,7 @@ function seedAssistantInitiated(title: string): string {
 }
 
 /**
- * A transactional notification trail — what the guardian request flows and
+ * A transactional notification trail - what the guardian request flows and
  * channel deliveries materialize (`source: 'notification'`, see
  * `notifications/conversation-pairing.ts`). Never a member of the section:
  * these belong to the bell and to Chats.

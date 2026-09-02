@@ -139,7 +139,7 @@ describe("SidebarLayoutStore", () => {
 
   test("openPrimary defaults to every primary section open when nothing is stored", () => {
     useSidebarLayoutStore.getState().setAssistantId("asst-1");
-    // `assistant` is inert until its flag-gated section renders — see
+    // `assistant` is inert until its flag-gated section renders - see
     // PRIMARY_SECTION_KEYS for why it is a default-open key regardless.
     expect(useSidebarLayoutStore.getState().openPrimary).toEqual([
       "pinned",

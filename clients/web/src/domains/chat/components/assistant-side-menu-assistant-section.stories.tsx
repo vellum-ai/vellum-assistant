@@ -15,7 +15,7 @@
  * own `useSectionConversations`, seeded the same way, and the avatar query is
  * seeded with a real character from the bundled catalog so the switcher pill
  * and the accent tint are the avatar's own. No network, no daemon, no feature
- * flag — the daemon's flag decides whether the `assistant` index row exists,
+ * flag - the daemon's flag decides whether the `assistant` index row exists,
  * and seeding it is exactly the on state.
  *
  * Every seeded value is a production type (`SidebarIndexSection`,

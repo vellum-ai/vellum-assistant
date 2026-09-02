@@ -22,16 +22,7 @@
 import { useTranslation } from "@/i18n";
 import { Typography } from "@vellumai/design-library";
 
-export interface AssistantSectionEmptyStateProps {
-  assistantId: string | null;
-}
-
-export function AssistantSectionEmptyState(
-  // The id is unused since the scene stopped carrying an avatar-derived hero,
-  // but the prop stays: the empty state belongs to one assistant's section,
-  // and the call site should keep saying whose.
-  _props: AssistantSectionEmptyStateProps,
-) {
+export function AssistantSectionEmptyState() {
   const { t } = useTranslation("chat");
 
   return (

@@ -110,7 +110,7 @@ export interface PairingOptions {
  */
 /**
  * The event the assistant emits when it has a thought worth the user's time
- * ("assistant.share" — the notifications skill's default), as opposed to a
+ * ("assistant.share" - the notifications skill's default), as opposed to a
  * transactional request or a system alert.
  */
 const ASSISTANT_SHARE_EVENT = "assistant.share";
@@ -121,21 +121,21 @@ const ASSISTANT_SHARE_EVENT = "assistant.share";
  *
  * The heartbeat's "have a thought, share it" path emits an assistant.share
  * signal from its own background conversation, and the passive-vellum rule
- * below would append the body there — a row the sidebar never shows. When the
+ * below would append the body there - a row the sidebar never shows. When the
  * section exists, that share is exactly what it is for, so the signal is
  * rewritten to materialize a fresh standard conversation stamped
  * {@link ASSISTANT_INITIATED_SOURCE}, which is the section's membership mark.
  *
  * Deliberately narrow, in every direction it can be:
- * - vellum channel only — other channels deliver the share as a native
+ * - vellum channel only: other channels deliver the share as a native
  *   message and need no in-app thread;
- * - assistant.share only — transactional events keep their own pairing
+ * - assistant.share only: transactional events keep their own pairing
  *   rules, and their threads stay out of the section by source;
  * - only when the producing conversation is a background/scheduled run (or
- *   nothing resolvable) — a share emitted from inside a user-facing thread
+ *   nothing resolvable): a share emitted from inside a user-facing thread
  *   keeps the append, since the user is already looking at that thread;
  * - never over an explicit `conversationMetadata.source` or an existing
- *   `requiresConversation` — a producer that declared its own filing wins.
+ *   `requiresConversation`: a producer that declared its own filing wins.
  *
  * Flag off, the signal passes through untouched and shares keep the passive
  * append: nothing changes for anyone outside the rollout.

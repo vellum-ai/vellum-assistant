@@ -451,11 +451,11 @@ export const PINNED_GROUP_ID = "system:pinned";
  * assistant-initiated section ({@link ASSISTANT_INITIATED_GROUP_ID}).
  *
  * Opt-in and stamped at creation, by a producer declaring "this is a thread
- * I started because it is worth the user's time" — a heartbeat realization,
+ * I started because it is worth the user's time" - a heartbeat realization,
  * an observation the user did not ask for. Deliberately NOT the notification
  * pipeline's `'notification'`: the conversations that stamp carries are the
  * transactional flows (guardian call approvals, confirmation / access /
- * question / tool-grant requests, channel delivery trails — the
+ * question / tool-grant requests, channel delivery trails - the
  * `requiresConversation` producers), which belong to the bell and to Chats,
  * and matching on it would also sweep every historical row into the section
  * the day the flag turns on. A dedicated source makes membership all-new by
