@@ -399,10 +399,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: companion-capture-pulse 700ms ease-out 1;
 }
 
-/* The call bar's own edge, lit in the assistant's colour, and the display's
- * edge, lit in the capture colour while a watch session reads the screen the
- * way a shared screen is framed. `--companion-ring-accent` is set per
- * instance by the companion's windows. */
+/* The display's edge, lit in the capture colour while a watch session reads
+ * the screen the way a shared screen is framed. `--companion-ring-accent` is
+ * set per instance by the companion's windows. The call bar's own light is the
+ * working ring above, travelling the bar's edge. */
 @keyframes companion-watch-glow-in {
   from { opacity: 0; }
 }
@@ -410,15 +410,6 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 @keyframes companion-call-breathe {
   0%, 100% { opacity: 0.72; }
   50% { opacity: 1; }
-}
-
-.companion-call-bar {
-  border-color: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 55%, transparent);
-  background: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 12%, rgb(23 24 27 / 0.95));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 25%, transparent),
-    0 0 20px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 45%, transparent),
-    0 8px 24px rgb(0 0 0 / 0.4);
 }
 
 .companion-watch-glow {

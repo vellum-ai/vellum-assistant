@@ -996,20 +996,25 @@ export function CompanionSurface({
           as the width grows is what makes the pill unfurl out of the gap
           rather than appear in it. */}
         <span
-          // The call bar carries its own edge, lit in the assistant's colour:
-          // the same light the display's edge glow throws, so the bar and the
-          // screen read as one call.
-          className={`absolute inset-0 rounded-full border transition-opacity duration-200 ${
-            inCall
-              ? "companion-call-bar"
-              : "border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40"
-          }`}
-          style={{
-            opacity: expanded ? 1 : 0,
-            ["--companion-ring-accent" as string]: accentHex,
-          }}
+          className="absolute inset-0 rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
+          style={{ opacity: expanded ? 1 : 0 }}
           aria-hidden
         />
+        {/* The call's own light: a pulse travelling the bar's edge in the
+            assistant's colour, the same ring the creature burns for a turn and
+            a watch session burns in amber. On the edge and nowhere inside it,
+            so the bar stays the pill it was and the call is the thing moving
+            around it. */}
+        {inCall && (
+          <span
+            className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full transition-opacity duration-200"
+            style={{
+              opacity: expanded ? 1 : 0,
+              ["--companion-ring-accent" as string]: accentHex,
+            }}
+            aria-hidden
+          />
+        )}
         {/* The pill's one in-flow row, and where the clearance at either end
           lives. On the row rather than on the pill, so the pill's own box
           goes to nothing at rest while the body inside it keeps being

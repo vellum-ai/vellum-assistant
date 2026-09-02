@@ -62,7 +62,9 @@ const PHASES = ["resting", "hover", "watching", "summary", "call"] as const;
  * which is where the travel and the reduced-motion fallback live.
  */
 const ringOf = (container: HTMLElement): HTMLElement | null =>
-  container.querySelector<HTMLElement>(".companion-working-ring");
+  // The creature's own ring, inside its box: the call bar burns a ring of the
+  // same class on its edge, and that one is the bar's.
+  container.querySelector<HTMLElement>(".size-11 .companion-working-ring");
 
 /** The wrapper the idle bob runs on, which sits inside the avatar's box. */
 const bobOf = (container: HTMLElement): HTMLElement | null =>
@@ -1190,7 +1192,14 @@ describe("the companion surface's call bar", () => {
     expect(row?.style.paddingInlineEnd).toBe(`${INNER_GAP}px`);
   });
 
-  test("carries the call's own lit edge", () => {
+  /**
+   * The pill's own ring, as against the creature's: the creature burns its
+   * ring for a turn, and this one is the bar's for the call.
+   */
+  const ringOf = (container: HTMLElement): HTMLElement | null =>
+    pillOf(container).querySelector<HTMLElement>(".companion-working-ring");
+
+  test("carries a pulse on its edge in the call's own colour", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -1198,23 +1207,37 @@ describe("the companion surface's call bar", () => {
         accentHex="#ff9f45"
       />,
     );
-    const body = container.querySelector<HTMLElement>(".companion-call-bar");
-    expect(body).not.toBeNull();
-    expect(body?.style.getPropertyValue("--companion-ring-accent")).toBe(
+    const ring = ringOf(container);
+    expect(ring).not.toBeNull();
+    expect(ring?.style.getPropertyValue("--companion-ring-accent")).toBe(
       "#ff9f45",
     );
+    expect(ring?.className).toContain("pointer-events-none");
+  });
+
+  test("keeps the light on the edge and out of the bar", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    const body = pillOf(container).querySelector<HTMLElement>(
+      ".bg-\\[\\#17181b\\]\\/95",
+    );
+    expect(body).not.toBeNull();
+    expect(body?.className).not.toContain("companion-working-ring");
   });
 
   test("is the plain pill again outside a call", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
-    expect(container.querySelector(".companion-call-bar")).toBeNull();
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
+    );
+    expect(ringOf(container)).toBeNull();
   });
 
-  test("lights for the dial too, which is the call's first beat", () => {
+  test("pulses for the dial too, which is the call's first beat", () => {
     const { container } = render(
       <CompanionSurface phase="call" assistantName="Ziggy" />,
     );
-    expect(container.querySelector(".companion-call-bar")).not.toBeNull();
+    expect(ringOf(container)).not.toBeNull();
     expect(pillOf(container).style.left).toBe("50%");
   });
 });
