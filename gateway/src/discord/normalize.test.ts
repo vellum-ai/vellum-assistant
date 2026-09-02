@@ -576,8 +576,8 @@ describe("normalizeDiscordMessageReaction", () => {
     );
 
     expect(event!.message.reaction!.emojiAnimated).toBe(true);
-    // The spelling has always used the non-animated form, and the dedup id
-    // embeds it, so animation is reported in the typed field instead.
+    // The dedup id embeds the spelling, so it stays the plain form and
+    // animation is reported in the typed field.
     expect(event!.message.reaction!.emoji).toBe("<:party_blob:444555666>");
   });
 

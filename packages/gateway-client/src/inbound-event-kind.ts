@@ -74,6 +74,8 @@ export function inboundEventRefersToAnotherMessage(
   return kind !== "message";
 }
 
+import { z } from "zod";
+
 /**
  * Which namespace a channel drew a reaction's emoji from, said rather than
  * inferred from how the emoji was spelled. Modelled on Zulip's
@@ -87,6 +89,26 @@ export function inboundEventRefersToAnotherMessage(
  * distinct kind from `unicode`, not a stand-in for an unknown one.
  */
 export type ReactionEmojiKind = "unicode" | "shortcode" | "custom";
+
+export const REACTION_EMOJI_KINDS = [
+  "unicode",
+  "shortcode",
+  "custom",
+] as const satisfies readonly ReactionEmojiKind[];
+
+/**
+ * The typed emoji fields every schema that carries a reaction spreads in,
+ * so the wire contract, the stored envelopes, and the response projection
+ * describe one shape. Optional throughout: a persisted row or a replayed
+ * payload may carry only the spelling, and `resolveInboundReactionPayload`
+ * recovers a kind for those.
+ */
+export const ReactionEmojiFieldsSchema = z.object({
+  emojiKind: z.enum(REACTION_EMOJI_KINDS).optional(),
+  emojiName: z.string().optional(),
+  emojiId: z.string().optional(),
+  emojiAnimated: z.boolean().optional(),
+});
 
 /** The structured payload of a reaction event. */
 export interface InboundReactionPayload {
@@ -138,8 +160,8 @@ export function resolveInboundReactionPayload(fields: {
     if (emoji.length === 0 || targetMessageId.length === 0) {
       return null;
     }
-    // A row stored before the typed fields existed carries the spelling
-    // only, so its kind is recovered the one way left: from the string.
+    // A payload carrying only the spelling has its kind recovered from
+    // the string, the one source left.
     const typed =
       fields.reaction.emojiKind !== undefined &&
       fields.reaction.emojiName !== undefined
@@ -195,9 +217,9 @@ export function parseDiscordEmojiMention(
 
 /**
  * Recover an emoji's kind from its spelling alone. This is the one inference
- * the design permits, and only for what predates the typed fields: a stored
- * row or a replayed retry payload that carries the string and nothing else.
- * New events say their kind, so nothing on the live path calls this.
+ * the design permits, reserved for a payload that carries the string and no
+ * typed fields: a persisted row or a replayed retry payload. A payload that
+ * declares its kind never reaches this.
  *
  * A mention form is unambiguous. Past that the two remaining kinds are told
  * apart by whether the string is a name at all: a channel's shortcode is

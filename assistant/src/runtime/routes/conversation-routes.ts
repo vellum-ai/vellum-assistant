@@ -1020,12 +1020,19 @@ export async function handleListMessages({
         if (msg.metadata.includes("reaction")) {
           const reactionMeta = readProviderMetadata(msg.metadata);
           if (reactionMeta?.eventKind === "reaction" && reactionMeta.reaction) {
+            const r = reactionMeta.reaction;
             reaction = {
-              emoji: reactionMeta.reaction.emoji,
-              op: reactionMeta.reaction.op,
-              targetMessageId: reactionMeta.reaction.targetMessageId,
-              ...(reactionMeta.reaction.actorDisplayName
-                ? { actorDisplayName: reactionMeta.reaction.actorDisplayName }
+              emoji: r.emoji,
+              ...(r.emojiKind !== undefined ? { emojiKind: r.emojiKind } : {}),
+              ...(r.emojiName !== undefined ? { emojiName: r.emojiName } : {}),
+              ...(r.emojiId !== undefined ? { emojiId: r.emojiId } : {}),
+              ...(r.emojiAnimated !== undefined
+                ? { emojiAnimated: r.emojiAnimated }
+                : {}),
+              op: r.op,
+              targetMessageId: r.targetMessageId,
+              ...(r.actorDisplayName
+                ? { actorDisplayName: r.actorDisplayName }
                 : {}),
               ...(msg.role === "assistant" ? { selfAuthored: true } : {}),
             };

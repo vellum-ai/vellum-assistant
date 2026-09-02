@@ -112,6 +112,7 @@ export function buildSlackReactionMeta(
     ...(facts.actorDisplayName ? { displayName: facts.actorDisplayName } : {}),
     reaction: {
       emoji: facts.emoji,
+      ...reactionEmojiFacts(facts),
       targetChannelTs: facts.targetMessageId,
       op: facts.op,
       ...(facts.actorDisplayName

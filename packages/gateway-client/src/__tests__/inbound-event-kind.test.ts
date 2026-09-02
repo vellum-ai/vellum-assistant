@@ -11,6 +11,7 @@ import {
   resolveInboundEventKind,
   resolveInboundReactionPayload,
 } from "../inbound-event-kind.js";
+import { RuntimeInboundPayloadSchema } from "../inbound-contract.js";
 
 describe("resolveInboundEventKind", () => {
   test("a stamped kind wins over every legacy field", () => {
@@ -177,5 +178,53 @@ describe("resolveInboundReactionPayload", () => {
         sourceMetadata: { messageId: "33.44" },
       }),
     ).toBeNull();
+  });
+});
+
+describe("RuntimeInboundPayloadSchema carries a reaction's typed emoji", () => {
+  const base = {
+    sourceChannel: "discord",
+    interface: "discord",
+    conversationExternalId: "chan-1",
+    externalMessageId: "msg-1:reaction:<:party_blob:111>:user-1:ingest-1",
+    content: "",
+    eventKind: "reaction",
+    actorExternalId: "user-1",
+  };
+
+  test("a custom emoji keeps all four typed fields through the wire schema", () => {
+    const parsed = RuntimeInboundPayloadSchema.parse({
+      ...base,
+      reaction: {
+        op: "added",
+        emoji: "<:party_blob:111>",
+        emojiKind: "custom",
+        emojiName: "party_blob",
+        emojiId: "111",
+        emojiAnimated: true,
+        targetMessageId: "msg-1",
+      },
+    });
+    expect(parsed.reaction).toEqual({
+      op: "added",
+      emoji: "<:party_blob:111>",
+      emojiKind: "custom",
+      emojiName: "party_blob",
+      emojiId: "111",
+      emojiAnimated: true,
+      targetMessageId: "msg-1",
+    });
+  });
+
+  test("a reaction carrying only the spelling still parses", () => {
+    const parsed = RuntimeInboundPayloadSchema.parse({
+      ...base,
+      reaction: { op: "removed", emoji: "+1", targetMessageId: "msg-1" },
+    });
+    expect(parsed.reaction).toEqual({
+      op: "removed",
+      emoji: "+1",
+      targetMessageId: "msg-1",
+    });
   });
 });

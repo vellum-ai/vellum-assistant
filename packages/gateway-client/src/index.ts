@@ -89,6 +89,8 @@ export {
   isInboundEventKind,
   resolveInboundEventKind,
   parseDiscordEmojiMention,
+  REACTION_EMOJI_KINDS,
+  ReactionEmojiFieldsSchema,
   resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";
 export type {

@@ -293,6 +293,8 @@ describe("Slack reaction event persistence", () => {
     expect(slackMeta!.actorExternalUserId).toBe(SLACK_USER_ID);
     expect(slackMeta!.reaction).toEqual({
       emoji: "thumbsup",
+      emojiKind: "shortcode",
+      emojiName: "thumbsup",
       actorDisplayName: SLACK_DISPLAY_NAME,
       targetChannelTs: "1700000000.111111",
       op: "added",

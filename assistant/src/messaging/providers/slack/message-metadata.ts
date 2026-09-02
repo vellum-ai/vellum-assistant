@@ -1,3 +1,4 @@
+import { ReactionEmojiFieldsSchema } from "@vellumai/gateway-client";
 import { z } from "zod";
 
 import type { ProviderMessageMetadata } from "../../provider-message-metadata.js";
@@ -39,6 +40,7 @@ export function isSlackDmConversation(conversationExternalId: string): boolean {
 
 const slackReactionMetadataSchema = z.object({
   emoji: z.string(),
+  ...ReactionEmojiFieldsSchema.shape,
   actorDisplayName: z.string().optional(),
   targetChannelTs: z.string(),
   op: z.enum(["added", "removed"]),
@@ -301,6 +303,24 @@ export function readSlackMetadataFromMessageMetadata(
  * stays there and is read from there by the Slack transcript renderer, which
  * is a provider renderer by design.
  */
+/** The typed emoji fields a parsed reaction carries, omitting the rest. */
+function reactionEmojiFields(
+  reaction: z.infer<typeof slackReactionMetadataSchema>,
+): z.infer<typeof ReactionEmojiFieldsSchema> {
+  return {
+    ...(reaction.emojiKind !== undefined
+      ? { emojiKind: reaction.emojiKind }
+      : {}),
+    ...(reaction.emojiName !== undefined
+      ? { emojiName: reaction.emojiName }
+      : {}),
+    ...(reaction.emojiId !== undefined ? { emojiId: reaction.emojiId } : {}),
+    ...(reaction.emojiAnimated !== undefined
+      ? { emojiAnimated: reaction.emojiAnimated }
+      : {}),
+  };
+}
+
 export function slackMetadataAsProviderMetadata(
   meta: SlackMessageMetadata,
 ): ProviderMessageMetadata {
@@ -321,6 +341,7 @@ export function slackMetadataAsProviderMetadata(
           reaction: {
             targetMessageId: meta.reaction.targetChannelTs,
             emoji: meta.reaction.emoji,
+            ...reactionEmojiFields(meta.reaction),
             op: meta.reaction.op,
             ...(meta.reaction.actorDisplayName
               ? { actorDisplayName: meta.reaction.actorDisplayName }

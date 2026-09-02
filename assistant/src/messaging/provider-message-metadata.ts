@@ -1,3 +1,4 @@
+import { ReactionEmojiFieldsSchema } from "@vellumai/gateway-client";
 import { z } from "zod";
 
 import { CHANNEL_IDS } from "../channels/types.js";
@@ -47,20 +48,14 @@ const providerReactionMetadataSchema = z.object({
    */
   emoji: z.string(),
   /**
-   * Which namespace the emoji was drawn from, as the channel said it. These
-   * are declared rather than left to the envelope's passthrough: the outer
-   * schema passes unknown keys through, but this nested one strips them, so
-   * an undeclared field here writes fine and reads back as nothing, with no
-   * error at either end.
-   *
-   * Optional because rows written before these fields exist carry only the
-   * spelling. A reader wanting the kind for such a row recovers it through
-   * `resolveInboundReactionPayload`, which owns that inference.
+   * Which namespace the emoji was drawn from, as the channel said it. Spread
+   * from the shared group rather than restated, and declared rather than
+   * left to passthrough: the outer envelope passes unknown keys through, but
+   * this nested object strips them, so an undeclared field writes fine and
+   * reads back as nothing with no error at either end. A row carrying only
+   * the spelling has its kind recovered by `resolveInboundReactionPayload`.
    */
-  emojiKind: z.enum(["unicode", "shortcode", "custom"]).optional(),
-  emojiName: z.string().optional(),
-  emojiId: z.string().optional(),
-  emojiAnimated: z.boolean().optional(),
+  ...ReactionEmojiFieldsSchema.shape,
   op: z.enum(["added", "removed"]),
   actorDisplayName: z.string().optional(),
 });
