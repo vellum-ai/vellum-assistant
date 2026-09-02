@@ -53,6 +53,7 @@ RUN apt-get update && apt-get install -y \
     bubblewrap \
     ca-certificates \
     curl \
+    dbus-x11 \
     debootstrap \
     debian-archive-keyring \
     debconf \
@@ -94,18 +95,21 @@ RUN apt-get update && apt-get install -y \
     lsof \
     make \
     mount \
+    openbox \
     openssl \
     procps \
     python3 \
     python3-pip \
     sqlite3 \
     sudo \
+    tigervnc-standalone-server \
     util-linux \
     util-linux-extra \
     unzip \
     uuid-runtime \
     vim \
     wget \
+    xauth \
     xclip \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*

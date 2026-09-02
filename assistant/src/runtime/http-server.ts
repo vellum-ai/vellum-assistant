@@ -32,6 +32,9 @@ import {
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { makeAddrInUseError } from "../daemon/startup-error.js";
+import { isPodDesktopEnabled } from "../desktop/desktop-feature.js";
+import { getDesktopSessionManager } from "../desktop/desktop-session-manager.js";
+import { DesktopStreamBridge } from "../desktop/desktop-stream-bridge.js";
 import {
   createLiveVoiceConnection,
   type LiveVoiceConnection,
@@ -196,6 +199,18 @@ interface WatchStreamWebSocketData {
   session?: WatchStreamSession;
 }
 
+/**
+ * WebSocket data attached to `/v1/desktop/stream` connections. The socket
+ * carries raw RFB bytes, bridged to the pod desktop's VNC server.
+ */
+interface DesktopStreamWebSocketData {
+  wsType: "desktop-stream";
+  /** Whether the pod desktop is enabled here; the bridge closes 1008 when not. */
+  enabled: boolean;
+  /** Bound at open time so message/close handlers reach this socket's pump. */
+  bridge?: DesktopStreamBridge;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -235,7 +250,8 @@ export class RuntimeHttpServer {
       | MediaStreamWebSocketData
       | SttStreamWebSocketData
       | LiveVoiceWebSocketData
-      | WatchStreamWebSocketData;
+      | WatchStreamWebSocketData
+      | DesktopStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -383,6 +399,18 @@ export class RuntimeHttpServer {
             void session.start();
             return;
           }
+          if (data.wsType === "desktop-stream") {
+            log.info(
+              { enabled: data.enabled },
+              "Desktop stream WebSocket opened",
+            );
+            const bridge = new DesktopStreamBridge(ws, {
+              enabled: data.enabled,
+            });
+            data.bridge = bridge;
+            void bridge.start();
+            return;
+          }
           log.warn("WebSocket opened with unknown data type — closing");
           ws.close(1008, "Unknown WebSocket type");
         },
@@ -431,6 +459,10 @@ export class RuntimeHttpServer {
             } else {
               session.handleBinaryAudio(message);
             }
+            return;
+          }
+          if (data.wsType === "desktop-stream") {
+            data.bridge?.handleClientFrame(message);
             return;
           }
           log.warn("WebSocket message on unknown data type — closing");
@@ -524,6 +556,14 @@ export class RuntimeHttpServer {
                 activeWatchStreamSessions.delete(watchData.sessionId);
               }
             }
+            return;
+          }
+          if (data.wsType === "desktop-stream") {
+            log.info(
+              { code, reason: reason?.toString() },
+              "Desktop stream WebSocket closed",
+            );
+            data.bridge?.handleClose();
             return;
           }
           log.warn(
@@ -666,6 +706,8 @@ export class RuntimeHttpServer {
     // that a socket closing just before shutdown had already under way.
     await drainWatchRetros();
 
+    getDesktopSessionManager().destroy();
+
     const liveVoiceManager = getLiveVoiceSessionManager();
     const liveVoiceSessionId = liveVoiceManager.activeSessionId;
     if (liveVoiceSessionId) {
@@ -767,6 +809,15 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleWatchStreamUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for the pod desktop RFB stream, under the same
+    // private-network restrictions and gateway-service token verification.
+    if (
+      path === "/v1/desktop/stream" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleDesktopStreamUpgrade(req, server);
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -1103,6 +1154,50 @@ export class RuntimeHttpServer {
         clientId,
         sessionId: crypto.randomUUID(),
       } satisfies WatchStreamWebSocketData,
+    });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
+    return undefined!;
+  }
+
+  /**
+   * Handle WebSocket upgrade for `/v1/desktop/stream`.
+   *
+   * Gated exactly as `/v1/watch/stream` is. A daemon without the pod desktop
+   * still upgrades and then closes the socket with 1008, so the browser sees
+   * the feature-disabled code through the gateway's pump.
+   */
+  private handleDesktopStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct desktop stream access disabled: only private network peers allowed",
+        403,
+      );
+    }
+
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) {
+      return tokenError;
+    }
+
+    let enabled = false;
+    try {
+      enabled = isPodDesktopEnabled(getConfig());
+    } catch (err) {
+      log.warn({ err }, "Failed to read config for desktop stream gate");
+    }
+
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "desktop-stream",
+        enabled,
+      } satisfies DesktopStreamWebSocketData,
     });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
