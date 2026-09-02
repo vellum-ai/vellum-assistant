@@ -363,8 +363,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archivado]",
-    "newChat": "Chat nuevo",
-    "untitled": "Sin título"
+    "newChat": "Chat nuevo"
   },
   "chatLayout": {
     "navigationAria": "Navegación"
@@ -597,9 +596,6 @@
     "heading": "Recursos",
     "label": "{count, plural, one {# recurso} other {# recursos}}"
   },
-  "conversationRow": {
-    "untitled": "Sin título"
-  },
   "conversationStarterDock": {
     "caption": "Prueba algunas sugerencias:"
   },
@@ -645,8 +641,7 @@
     "cancel": "Cancelar",
     "confirm": "Eliminar",
     "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
-    "title": "Eliminar conversación",
-    "untitled": "Sin título"
+    "title": "Eliminar conversación"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
@@ -1622,9 +1617,6 @@
     "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
     "retryFailed": "No se pudo reintentar la respuesta",
     "summarizeFailed": "No se pudo resumir la conversación"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Sin título"
   },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",

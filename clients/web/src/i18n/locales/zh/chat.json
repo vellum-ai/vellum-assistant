@@ -362,8 +362,7 @@
   },
   "chatConversationHeader": {
     "archived": "[已归档]",
-    "newChat": "新建聊天",
-    "untitled": "无标题"
+    "newChat": "新建聊天"
   },
   "chatLayout": {
     "navigationAria": "导航"
@@ -575,9 +574,6 @@
     "heading": "资产",
     "label": "{count, plural, one {# 个资产} other {# 个资产}}"
   },
-  "conversationRow": {
-    "untitled": "无标题"
-  },
   "conversationStarterDock": {
     "caption": "尝试以下建议："
   },
@@ -623,8 +619,7 @@
     "cancel": "取消",
     "confirm": "删除",
     "message": "删除“{title}”？这将永久删除对话及其消息。相关资产和记忆可能仍会保留。此操作无法撤消。",
-    "title": "删除对话",
-    "untitled": "无标题"
+    "title": "删除对话"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "下载PDF失败"
@@ -1600,9 +1595,6 @@
     "assistantBusy": "您的助手正忙。请在回复完成后重试。",
     "retryFailed": "无法重试响应",
     "summarizeFailed": "无法总结对话"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "无标题"
   },
   "useSendMessage": {
     "commandFailed": "无法运行该命令。请重试。",

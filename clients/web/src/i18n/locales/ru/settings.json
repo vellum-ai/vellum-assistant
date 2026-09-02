@@ -56,8 +56,7 @@
     "searchPlaceholder": "Поиск диалогов",
     "unarchive": "Вернуть из архива",
     "unarchiveFailed": "Не удалось вернуть диалог из архива.",
-    "unarchiving": "Возврат из архива",
-    "untitled": "Диалог без названия"
+    "unarchiving": "Возврат из архива"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Проверяем доступ к уведомлениям на этом устройстве.",
@@ -359,8 +358,7 @@
     "errorTitle": "Не удалось загрузить закладки",
     "open": "Открыть",
     "removeBookmark": "Убрать закладку",
-    "retry": "Повторить",
-    "untitledConversation": "Диалог без названия"
+    "retry": "Повторить"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# действие сейчас использует {profile}} few {# действия сейчас используют {profile}} many {# действий сейчас используют {profile}} other {# действия сейчас используют {profile}}}",

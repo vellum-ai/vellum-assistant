@@ -56,8 +56,7 @@
     "searchPlaceholder": "搜索对话",
     "unarchive": "取消归档",
     "unarchiveFailed": "未能取消归档对话。",
-    "unarchiving": "正在取消归档",
-    "untitled": "未命名对话"
+    "unarchiving": "正在取消归档"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "正在检查此设备的通知访问权限。",
@@ -373,8 +372,7 @@
     "errorTitle": "加载书签失败",
     "open": "打开",
     "removeBookmark": "移除书签",
-    "retry": "重试",
-    "untitledConversation": "无标题对话"
+    "retry": "重试"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, other {# 个操作当前使用 {profile}}}",

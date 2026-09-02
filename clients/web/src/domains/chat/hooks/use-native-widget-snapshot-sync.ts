@@ -29,6 +29,7 @@ import {
 } from "@/utils/avatar-island-encode";
 import { resolveAvatarRender, type AvatarRender } from "@/utils/avatar-render";
 import { activeConversationsByRecency } from "@/utils/conversation-order";
+import { displayConversationTitle } from "@/utils/conversation-title";
 
 /**
  * How many conversations the Home Screen widgets get. The Catch Up medium
@@ -293,13 +294,13 @@ function snapshotKey(
  * what covers the launch that reaches no sync at all, where a list that never
  * resolves would otherwise leave the departed snapshot up for the whole run.
  *
- * The fallback for a conversation with no title is serialized into the App
- * Group and drawn verbatim by the widget, so it comes from the catalog rather
- * than a literal. It is read through the reactive `useTranslation` binding,
- * not the bound `t`, because the string outlives the render that produced it:
- * a language switch has to reach a Home Screen that never reloads on its own.
- * Resolving it inside the effect is what makes that work, since the new
- * language changes the serialized payload and so the dedup key too.
+ * Title sentinels are localized before they are serialized into the App
+ * Group, because the widget draws the string verbatim. The reactive
+ * `useTranslation` binding is what the helper reads, not the bound `t`,
+ * because the string outlives the render that produced it: a language switch
+ * has to reach a Home Screen that never reloads on its own. Resolving it
+ * inside the effect is what makes that work, since the new language changes
+ * the serialized payload and so the dedup key too.
  */
 export function useNativeWidgetSnapshotSync(
   assistantId: string | null,
@@ -338,7 +339,7 @@ export function useNativeWidgetSnapshotSync(
   // a snapshot this page lifetime did not write, so one read per launch is
   // enough and the ref is authoritative from then on.
   const readPersistedOwnerRef = useRef(false);
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation();
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
 
@@ -544,7 +545,7 @@ export function useNativeWidgetSnapshotSync(
       .slice(0, MAX_SNAPSHOT_CONVERSATIONS)
       .map((conversation) => ({
         id: conversation.conversationId,
-        title: conversation.title ?? t("useNativeWidgetSnapshotSync.untitled"),
+        title: displayConversationTitle(conversation.title, t),
         subtitle:
           conversation.groupId === undefined
             ? undefined

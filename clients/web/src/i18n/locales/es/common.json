@@ -172,6 +172,10 @@
     "downloadFileAria": "Descargar archivo",
     "editFileAria": "Editar archivo"
   },
+  "conversationTitle": {
+    "generating": "Generando título...",
+    "untitled": "Sin título"
+  },
   "createAssistantDialog": {
     "cancel": "Cancelar",
     "create": "Crear",

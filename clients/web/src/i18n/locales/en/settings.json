@@ -56,8 +56,7 @@
     "searchPlaceholder": "Search conversations",
     "unarchive": "Unarchive",
     "unarchiveFailed": "Failed to unarchive conversation.",
-    "unarchiving": "Unarchiving",
-    "untitled": "Untitled conversation"
+    "unarchiving": "Unarchiving"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Checking notification access for this device.",
@@ -373,8 +372,7 @@
     "errorTitle": "Failed to load bookmarks",
     "open": "Open",
     "removeBookmark": "Remove bookmark",
-    "retry": "Retry",
-    "untitledConversation": "Untitled conversation"
+    "retry": "Retry"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# action currently uses {profile}} other {# actions currently use {profile}}}",

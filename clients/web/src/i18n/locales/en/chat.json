@@ -363,8 +363,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archived]",
-    "newChat": "New Chat",
-    "untitled": "Untitled"
+    "newChat": "New Chat"
   },
   "chatLayout": {
     "navigationAria": "Navigation"
@@ -597,9 +596,6 @@
     "heading": "Assets",
     "label": "{count, plural, one {# asset} other {# assets}}"
   },
-  "conversationRow": {
-    "untitled": "Untitled"
-  },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
   },
@@ -645,8 +641,7 @@
     "cancel": "Cancel",
     "confirm": "Delete",
     "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
-    "title": "Delete conversation",
-    "untitled": "Untitled"
+    "title": "Delete conversation"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
@@ -1673,9 +1668,6 @@
     "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
     "retryFailed": "Couldn't retry the response",
     "summarizeFailed": "Couldn't summarize the conversation"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Untitled"
   },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",

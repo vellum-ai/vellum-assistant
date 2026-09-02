@@ -842,7 +842,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       {
         id: "c-unseen",
         // The widget draws this string as sent, so the untitled fallback comes
-        // from the chat catalog. Tests run pinned to English, so it reads as
+        // from the common catalog. Tests run pinned to English, so it reads as
         // the source copy here.
         title: "Untitled",
         subtitle: undefined,

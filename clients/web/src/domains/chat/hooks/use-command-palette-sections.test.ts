@@ -156,6 +156,25 @@ describe("buildServerResultSections", () => {
     expect(nullTitleItem!.title).toBe("Untitled");
   });
 
+  test("localizes the generating-title sentinel", () => {
+    const generatingResults: GlobalSearchResponse = {
+      conversations: [
+        {
+          id: "c-generating",
+          title: "Generating title...",
+          updatedAt: 1,
+          excerpt: "",
+          matchCount: 0,
+        },
+      ],
+      memories: [],
+      schedules: [],
+      contacts: [],
+    };
+    const sections = buildServerResultSections(generatingResults, new Set());
+    expect(sections[0]!.items[0]!.title).toBe("Generating title...");
+  });
+
   test("uses contact display name as title and notes as subtitle", () => {
     const sections = buildServerResultSections(searchResults, new Set());
     const contactSection = sections.find((s) => s.id === "search-contacts")!;

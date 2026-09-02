@@ -172,6 +172,10 @@
     "downloadFileAria": "下載檔案",
     "editFileAria": "編輯檔案"
   },
+  "conversationTitle": {
+    "generating": "標題產生中...",
+    "untitled": "未命名"
+  },
   "createAssistantDialog": {
     "cancel": "取消",
     "create": "建立",

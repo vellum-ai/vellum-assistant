@@ -56,8 +56,7 @@
     "searchPlaceholder": "Buscar conversaciones",
     "unarchive": "Desarchivar",
     "unarchiveFailed": "No se pudo desarchivar la conversación.",
-    "unarchiving": "Desarchivando",
-    "untitled": "Conversación sin título"
+    "unarchiving": "Desarchivando"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Comprobando el acceso a notificaciones de este dispositivo.",
@@ -373,8 +372,7 @@
     "errorTitle": "No se pudieron cargar los marcadores",
     "open": "Abrir",
     "removeBookmark": "Eliminar marcador",
-    "retry": "Reintentar",
-    "untitledConversation": "Conversación sin título"
+    "retry": "Reintentar"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# acción usa actualmente {profile}} other {# acciones usan actualmente {profile}}}",
