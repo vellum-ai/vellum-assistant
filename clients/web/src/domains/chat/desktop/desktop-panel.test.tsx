@@ -153,12 +153,16 @@ const status = (): string | null =>
   screen.queryByTestId("desktop-panel-status")?.getAttribute("data-state") ??
   null;
 
+/** Let pending microtasks (URL resolution, clipboard promises) settle. */
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+  });
+
 /** Mount the panel and let the URL resolve, which is when noVNC attaches. */
 const mountPanel = async () => {
   render(<DesktopPanel assistantId="asst-1" />);
-  await act(async () => {
-    await Promise.resolve();
-  });
+  await flush();
 };
 
 beforeEach(() => {
@@ -311,9 +315,7 @@ describe("DesktopPanel", () => {
     act(() => socket().serverClose(1006));
 
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
 
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(FakeRFB.instances).toHaveLength(2);
@@ -345,9 +347,7 @@ describe("DesktopPanel", () => {
     await mountPanel();
 
     act(() => rfb().emit("clipboard", { text: "from the pod" }));
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
 
     expect(written).toEqual(["from the pod"]);
   });
@@ -371,9 +371,7 @@ describe("DesktopPanel", () => {
       window.dispatchEvent(new Event("focus"));
       window.dispatchEvent(new Event("copy"));
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flush();
 
     expect(rfb().pasted).toEqual([selected]);
     node.remove();

@@ -1,18 +1,13 @@
 /**
  * Transport for the pod desktop stream: which URL to dial, and what the
- * socket's close code means once it is gone. The route is a pure RFB byte
- * pipe with no control frames, so close codes are the runtime's only word.
+ * socket's close code means once it is gone.
  */
 
 import { resolveGatewayWsUrl } from "@/domains/chat/voice/live-voice/connection";
 
 const DESKTOP_STREAM_ROUTE = "/v1/desktop/stream";
 
-/**
- * Close codes the runtime uses to refuse or end a desktop session. In the
- * application range (4000+) so they cannot collide with velay's own 1013
- * tunnel-drop code or be remapped by the gateway's velay bridge.
- */
+// Mirrors the assistant's `DESKTOP_CLOSE`; the rationale is in ARCHITECTURE.md.
 const DESKTOP_CLOSE_UNAVAILABLE = 4008;
 const DESKTOP_CLOSE_FAILED = 4011;
 const DESKTOP_CLOSE_BUSY = 4013;
