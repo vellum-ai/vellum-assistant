@@ -244,21 +244,35 @@ final class MacHelper: @unchecked Sendable {
     }
 
     func emitModifierHold(state: String) {
+        var params: [String: Any] = [
+            "kind": "modifierHold",
+            "state": state,
+        ]
         if state == "down" {
             guard !isModifierHoldDown else { return }
             isModifierHoldDown = true
+            // What the user had highlighted when the keys went down travels
+            // with the edge, so the hold can be about it. The read holds the
+            // edge for as long as it takes, and the edge says how long that
+            // was. Character counts only in the log; the text itself is the
+            // user's.
+            let readStarted = Date()
+            let outcome = FrontSelection.read()
+            let heldMs = Int(Date().timeIntervalSince(readStarted) * 1000)
+            params["heldMs"] = heldMs
+            if let selection = outcome.selection {
+                params["selection"] = [
+                    "text": selection.text,
+                    "truncated": selection.truncated,
+                ]
+            }
+            log("modifier hold down: selection \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(heldMs)")
         } else if state == "up" {
             guard isModifierHoldDown else { return }
             isModifierHoldDown = false
         }
 
-        writeNotification(
-            method: "hotkey.event",
-            params: [
-                "kind": "modifierHold",
-                "state": state,
-            ]
-        )
+        writeNotification(method: "hotkey.event", params: params)
     }
 
     /// Every modifier this keyboard reports, so anything outside the configured
@@ -1156,7 +1170,26 @@ private func writePermissionStatusAndExit() {
     }
 }
 
-if CommandLine.arguments.contains("--request-speech-recognition") {
+if CommandLine.arguments.contains("--front-selection") {
+    // A probe for what the application in front exposes: run it with something
+    // highlighted and it prints what a hold would carry, then exits.
+    let outcome = FrontSelection.read()
+    var payload: [String: Any] = [
+        "trusted": outcome.trusted,
+        "promptShown": outcome.promptShown,
+        "app": outcome.bundleId ?? NSNull(),
+        "focused": outcome.focused,
+        "role": outcome.role ?? NSNull(),
+        "path": outcome.path.rawValue,
+        "chars": outcome.chars,
+    ]
+    payload["text"] = outcome.selection?.text ?? NSNull()
+    payload["truncated"] = outcome.selection?.truncated ?? false
+    let data = try! JSONSerialization.data(withJSONObject: payload, options: [])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
+    exit(0)
+} else if CommandLine.arguments.contains("--request-speech-recognition") {
     MainActor.assumeIsolated {
         NSApplication.shared.setActivationPolicy(.prohibited)
         if SFSpeechRecognizer.authorizationStatus() == .notDetermined {

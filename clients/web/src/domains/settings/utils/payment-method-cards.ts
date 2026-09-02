@@ -40,7 +40,7 @@ export function paymentMethodCards(
  * What the payment modal was opened with. Captured on the click that opens it,
  * because a successful save writes the new card into the config query cache
  * before the modal closes: derived props would flip an in-flight add into
- * replace mode and swap the card-on-file row for the card that was just saved.
+ * replace mode and name the card that was just saved in the subtitle.
  */
 export interface PaymentModalSnapshot {
   mode: PaymentMethodModalMode;

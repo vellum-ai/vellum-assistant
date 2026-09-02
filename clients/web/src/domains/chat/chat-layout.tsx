@@ -15,7 +15,9 @@ import {
 } from "react-router";
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
+import { assistantStateCanServeChat } from "@/assistant/lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   selectChatFocusActive,
   selectHeaderCenterHidden,
@@ -101,6 +103,7 @@ import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier"
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
 import { SightTile } from "@/domains/chat/sight/sight-tile";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
@@ -200,7 +203,15 @@ export function ChatLayout({
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
-  const isAssistantActive = assistantStateKind === "active";
+  const selfHostedChatEnabled =
+    useClientFeatureFlagStore.use.selfHostedAssistant();
+  // `active` and flagged `self_hosted` both serve the conversation list.
+  // Gating on `active` alone leaves self-hosted queries pending forever,
+  // so the Home Screen widgets never receive a snapshot.
+  const isAssistantActive = assistantStateCanServeChat(
+    assistantStateKind,
+    selfHostedChatEnabled,
+  );
 
   // Live-voice session controller. Owned at layout scope — not by the
   // composer — so a session survives every chat-side navigation (thread
@@ -221,8 +232,9 @@ export function ChatLayout({
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
   //
-  // `isAssistantActive` is the assistant record: does this assistant exist and
-  // is it provisioned. Whether its pod is reachable is a separate question,
+  // `isAssistantActive` is whether this assistant can serve chat: a
+  // provisioned `active` record, or a `self_hosted` one with the chat
+  // flag on. Whether its pod is reachable is a separate question,
   // answered inside the query hook itself, since these keys are shared with
   // call sites that pass no gate of their own.
   const {
@@ -1306,6 +1318,16 @@ export function ChatLayout({
               `position: fixed` and park it against `<main>`'s rectangle
               instead of the viewport. Self-gates on the camera's status. */}
           <SightTile />
+          {/* The frame gate's tuning readout for the tile above, parked beside
+              it. A sibling of `<main>` for the same reason the tile is: it is
+              also `position: fixed`, and a filtered ancestor would make that
+              ancestor its containing block. Self-gates on the readout being
+              enabled and on the composer's camera being the one feeding the
+              gate, so it is absent for everyone else. */}
+          <FrameGateHud
+            surface="composer"
+            className="fixed bottom-28 right-[17.5rem] z-30 max-h-[70vh]"
+          />
         </div>
       )}
 

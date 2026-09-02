@@ -130,6 +130,8 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 **Secrets.** For an OAuth-connected provider (google, slack, notion, …), call its API with `assistant oauth request --provider <p> <url>` — the assistant injects the token, and the script never sees it. For raw secrets with no OAuth provider (PATs, API keys), collect at install time with `assistant credentials prompt --service <s> --field <f> --label "<label>"` (secure input, never printed to chat) and read at runtime with `assistant credentials reveal --service <s> --field <f>`.
 
+When a scheduled or background run is blocked on a missing or stale credential, tell the user in the notification that the credential needs refreshing and ask them to reply in the thread so you can open the secure prompt. Never put a CLI command in the notification or the tick summary. The user cannot run those from their terminal.
+
 ## Inference Profile
 
 Every schedule carries a pinned `inference_profile` (a key from `llm.profiles`), so a recurring task keeps running on the model (and the price) it was created under even when the user later changes their default profile. Creating a schedule without `inference_profile` pins it to the user's current default; pass one explicitly when a task should run on a specific model, e.g. a cost-optimized profile for a high-frequency digest. Passing `inference_profile: null` on update re-pins the schedule to the user's current default rather than unpinning it. The pinned profile is shown on the schedule's details page in settings.

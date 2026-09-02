@@ -3,14 +3,18 @@ import type { AppIconState } from "@/runtime/app-icon";
 import type { AvatarState } from "@/types/avatar";
 
 /**
- * Maps an assistant avatar onto the name of a bundled iOS alternate app icon.
+ * Maps an assistant avatar onto the name of an alternate app icon the native
+ * mobile shells ship.
  *
- * The iOS shell ships one alternate icon per eyes-on-color combination, named
- * `avatar-eyes-<eyeStyle>-<color>` by the icon bundle generator. Body shape is
- * not part of an icon, so it is not part of the name, and every avatar that
- * shares an eye style and a color maps to the same icon. That name is the wire
- * contract between the generated bundles and the runtime, so it is composed in
- * exactly one place: `appIconNameForTraits`.
+ * Both shells carry one alternate per eyes-on-color combination, addressed as
+ * `avatar-eyes-<eyeStyle>-<color>`: the name of a bundled icon on iOS, and on
+ * Android the same name with every dash swapped for an underscore, naming an
+ * `<activity-alias>`. Body shape is not part of an icon, so it is not part of
+ * the name, and every avatar that shares an eye style and a color maps to the
+ * same icon. That name is the wire contract between the generated resources
+ * and the runtime, so it is composed in exactly one place:
+ * `appIconNameForTraits`. See `@/runtime/app-icon` for the bridge that applies
+ * one.
  */
 
 /** A resolved icon target plus whether the installed shell can apply it. */
@@ -31,10 +35,10 @@ export interface AppIconTraits {
 const AVATAR_ICON_PREFIX = "avatar-eyes-";
 
 /**
- * The pair the icon shipped as the app's default is drawn from
- * (`clients/ios/App/App/AppIcon.icon`): quirky eyes on the green field. It
- * carries no alternate-icon name of its own, so a surface previewing "no
- * alternate applied" draws this instead.
+ * The pair the icon shipped as each shell's default is drawn from: quirky eyes
+ * on the green field, held by `clients/ios/App/App/AppIcon.icon` and by the
+ * Android `ic_launcher` adaptive icon. It carries no alternate-icon name of its
+ * own, so a surface previewing "no alternate applied" draws this instead.
  */
 export const DEFAULT_APP_ICON_TRAITS: AppIconTraits = {
   eyeStyle: "quirky",
@@ -111,7 +115,7 @@ export function traitsForAppIconName(
 /**
  * Resolve the icon an avatar wants and whether the installed shell can apply
  * it. This is where version skew becomes a no-op: a web build that knows a
- * trait combination the installed binary has no bundle for, or an older shell
+ * trait combination the installed binary ships no icon for, or an older shell
  * with no alternate-icon support at all, reports `availableMatch: false` and
  * callers leave the icon alone.
  */

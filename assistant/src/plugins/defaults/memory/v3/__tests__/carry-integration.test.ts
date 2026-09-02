@@ -12,11 +12,11 @@
  *     → selectPool (real two-segment render + cache breakpoint; the PROVIDER
  *       is stubbed to return deterministic ids per scripted turn)
  *     → the real injectors (`memoryV3Injector` net-new cards + recordInjected
- *       + schedulePruneValve; `memoryV3SpotlightInjector` ephemeral window)
- *     → simulated runtime assembly (splice the card block onto the current
- *       user message; scoped spotlight strip-and-replace via the real
- *       `stripSpotlightInjections`) and metadata persistence (the
- *       user-prompt-submit hook's `memoryV3InjectedBlock` write)
+ *       + schedulePruneValve; `memoryV3SpotlightInjector` per-turn window)
+ *     → simulated runtime assembly (splice the card block and the
+ *       spotlight onto the current user message; do not rewrite historical
+ *       spotlights) and metadata persistence (the user-prompt-submit
+ *       hook's `memoryV3InjectedBlock` and `memoryV3SpotlightBlock` writes)
  *     → the real prune valve against the live history (conversation-registry
  *       stubbed to the simulated message arrays)
  *     → rehydration from the temp DB (mirroring `daemon/conversation.ts`'s
@@ -57,7 +57,6 @@ import type {
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
-import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
@@ -71,6 +70,7 @@ import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY,
   type SectionIndex,
   type Slug,
 } from "../types.js";
@@ -561,7 +561,7 @@ interface TurnRecord {
   spotlightPlacement: string;
   residentBytes: number;
   prunedSlugs: Set<string>;
-  /** JSON of the spotlight-stripped (persistent-layer) history after the turn. */
+  /** JSON of the live history after the turn (cards + spotlight persist). */
   snapshot: string;
 }
 
@@ -583,7 +583,7 @@ function insertMessageRow(
 }
 
 function persistentView(history: Message[]): string {
-  return JSON.stringify(stripSpotlightInjections(history));
+  return JSON.stringify(history);
 }
 
 async function runTurn(
@@ -646,29 +646,34 @@ async function runTurn(
   if (cards.text.length > 0) {
     const tail = history[history.length - 1]!;
     tail.content = [{ type: "text", text: cards.text }, ...tail.content];
-    testSqlite
-      .query(/*sql*/ `UPDATE messages SET metadata = ? WHERE id = ?`)
-      .run(
-        JSON.stringify({
-          [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: unwrapMemoryBlock(
-            cards.text,
-          ),
-        }),
-        userRowId,
-      );
   }
 
-  // Spotlight: scoped strip of the stale block (real assembly helper), then
-  // re-attach the fresh one. Real assembly splices it after the memory cards
-  // (after-memory-prefix); this sim appends to the tail because only the
-  // block's presence, content, placement value, and strip-and-replace are
-  // asserted here — not its exact position within the message.
+  // Spotlight splices after the frozen cards (after-memory-prefix). Historical
+  // user messages keep the spotlight they already carry.
   const spotlight = await memoryV3SpotlightInjector.produce(ctx);
-  const stripped = stripSpotlightInjections(history);
-  history.splice(0, history.length, ...stripped);
-  if (spotlight) {
+  if (spotlight && spotlight.text.length > 0) {
     const tail = history[history.length - 1]!;
-    tail.content = [...tail.content, { type: "text", text: spotlight.text }];
+    const prefixCount = cards.text.length > 0 ? 1 : 0;
+    tail.content = [
+      ...tail.content.slice(0, prefixCount),
+      { type: "text", text: spotlight.text },
+      ...tail.content.slice(prefixCount),
+    ];
+  }
+
+  const metadata: Record<string, string> = {};
+  if (cards.text.length > 0) {
+    metadata[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] = unwrapMemoryBlock(
+      cards.text,
+    );
+  }
+  if (spotlight?.text) {
+    metadata[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] = spotlight.text;
+  }
+  if (Object.keys(metadata).length > 0) {
+    testSqlite
+      .query(/*sql*/ `UPDATE messages SET metadata = ? WHERE id = ?`)
+      .run(JSON.stringify(metadata), userRowId);
   }
 
   const replyContent: ContentBlock[] = [
@@ -726,6 +731,10 @@ function rehydrateFromDb(convId: string): Message[] {
     let content = JSON.parse(row.content) as ContentBlock[];
     if (row.role === "user" && row.metadata) {
       const meta = JSON.parse(row.metadata) as Record<string, unknown>;
+      const spotlight = meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY];
+      if (typeof spotlight === "string") {
+        content = [{ type: "text", text: spotlight }, ...content];
+      }
       const block = meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
       if (typeof block === "string") {
         const resident = filterPrunedCardSections(
@@ -1014,7 +1023,7 @@ describe("memory-v3 carry integration — cache contract", () => {
 });
 
 describe("memory-v3 carry integration — spotlight contract", () => {
-  test("spotlight is present every turn, after the memory cards, bounded by n × (window + 1)", () => {
+  test("spotlight is produced every turn, spliced after cards, bounded by n × (window + 1)", () => {
     for (const record of records) {
       expect(record.spotlightText.startsWith("<memory_spotlight>\n")).toBe(
         true,
@@ -1040,12 +1049,9 @@ describe("memory-v3 carry integration — spotlight contract", () => {
     expect(records[5]!.spotlightText).not.toContain("page-a.md");
   });
 
-  test("the spotlight never reaches the persistent layer (blocks, metadata, history)", () => {
+  test("each turn persists its spotlight on that user message and keeps historical copies", () => {
     for (const record of records) {
       expect(record.blockText).not.toContain("<memory_spotlight>");
-      // The persistent-layer snapshot is spotlight-stripped by construction;
-      // the raw live history must carry exactly ONE spotlight block (the
-      // current turn's).
     }
     const metadataRows = testSqlite
       .query(
@@ -1056,9 +1062,10 @@ describe("memory-v3 carry integration — spotlight contract", () => {
       )
       .all(CONV) as Array<{ metadata: string }>;
     expect(metadataRows.length).toBeGreaterThan(0);
-    for (const row of metadataRows) {
-      expect(row.metadata).not.toContain("memory_spotlight");
-    }
+    const persistedSpotlights = metadataRows.filter((row) =>
+      row.metadata.includes(MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY),
+    );
+    expect(persistedSpotlights.length).toBeGreaterThan(1);
     const liveSpotlights = histories
       .get(CONV)!
       .flatMap((m) => m.content)
@@ -1066,7 +1073,7 @@ describe("memory-v3 carry integration — spotlight contract", () => {
         (b): b is { type: "text"; text: string } =>
           b.type === "text" && b.text.startsWith("<memory_spotlight>\n"),
       );
-    expect(liveSpotlights).toHaveLength(1);
+    expect(liveSpotlights.length).toBeGreaterThan(1);
   });
 });
 
@@ -1106,15 +1113,21 @@ describe("memory-v3 carry integration — restart contract", () => {
 
   test("pruned sections are absent from the rehydrated history (metadata stays intact)", () => {
     const rehydrated = JSON.parse(restartRehydratedJson) as Message[];
-    const allText = rehydrated
+    const cardText = rehydrated
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .filter(
+        (b) =>
+          b.text.startsWith("<memory>\n") && b.text.endsWith("\n</memory>"),
+      )
       .map((b) => b.text)
       .join("\n");
-    expect(allText).not.toContain("# memory/concepts/page-a.md");
-    expect(allText).not.toContain("# memory/concepts/page-b.md");
-    // Resident cards survive the round trip…
-    expect(allText).toContain(card("page-c"));
+    // Prune filters card sections on rehydrate. Historical spotlights stay
+    // as sent, so a pruned slug can still appear under `##` in those blocks.
+    expect(cardText).not.toContain("# memory/concepts/page-a.md");
+    expect(cardText).not.toContain("# memory/concepts/page-b.md");
+    // Resident cards survive the round trip.
+    expect(cardText).toContain(card("page-c"));
     // …and the persisted metadata still carries the pruned cards (the filter
     // is rehydration-time, never a metadata rewrite).
     const metadata = testSqlite

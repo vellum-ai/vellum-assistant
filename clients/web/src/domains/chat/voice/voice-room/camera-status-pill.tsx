@@ -53,10 +53,9 @@ import {
 import type { CameraVoiceState } from "./use-camera-voice-state";
 
 /**
- * What the camera is doing: sampling single frames, or streaming. Only `photo`
- * is reachable from the app today; `live` is the mode the design ships the pill
- * for, and the variant exists so the treatment lands with the surface rather
- * than after it.
+ * What the camera is doing: sampling single frames, or streaming. `photo` is
+ * where the viewfinder opens; `live` is what holding the shutter enters, and it
+ * is the only mode that samples.
  */
 export type CameraMode = "photo" | "live";
 

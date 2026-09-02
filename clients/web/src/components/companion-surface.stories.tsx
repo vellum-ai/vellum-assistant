@@ -21,7 +21,6 @@ import {
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import {
-  COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
   COMPANION_SIZES,
   companionBoxFor,
@@ -122,7 +121,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "watching", "call", "typing"],
+      options: ["resting", "hover", "dictating", "watching", "call"],
     },
     backdrop: {
       control: "inline-radio",
@@ -228,6 +227,79 @@ export const RestingCustomImage: Story = {
 };
 
 /**
+ * Every creature peeking out of its capsule.
+ *
+ * At rest the capsule shows the assistant's colour and nothing else, and once
+ * every few seconds the creature rises from behind it far enough to show its
+ * eyes, looks out, and ducks back. Ten capsules side by side, one per body
+ * shape in the catalog, so how far each one comes up is reviewable against
+ * the others. They fire on their own random clocks, which is the point: wait
+ * a moment and they take turns.
+ *
+ * The custom-image capsule in `RestingCustomImage` never does this. There is
+ * nobody in it to peek.
+ */
+export const RestingPeeks: Story = {
+  args: { phase: "resting" },
+  render: (args) => (
+    <div className="grid grid-cols-5 gap-x-16 gap-y-20 p-16">
+      {BUNDLED_COMPONENTS.bodyShapes.map((shape, index) => {
+        const color =
+          BUNDLED_COMPONENTS.colors[index % BUNDLED_COMPONENTS.colors.length];
+        return (
+          <div key={shape.id} className="relative size-11">
+            <CompanionSurface
+              {...args}
+              character={{
+                bodyShape: shape.id,
+                eyeStyle: "curious",
+                color: color?.id ?? "teal",
+              }}
+              accentHex={color?.hex}
+            />
+          </div>
+        );
+      })}
+    </div>
+  ),
+};
+
+/**
+ * Mid-dictation, with the words arriving.
+ *
+ * The state the surface spends a hold in: the user is talking into another
+ * application and this is the only thing on screen telling them anything is
+ * being heard.
+ */
+export const Dictating: Story = {
+  args: {
+    phase: "dictating",
+    dictating: "listening",
+    dictationText: "the quick brown fox jumps over the lazy dog",
+  },
+};
+
+/** Long enough to run past the pill, so the front of it is clipped away. */
+export const DictatingLongSentence: Story = {
+  args: {
+    phase: "dictating",
+    dictating: "listening",
+    dictationText:
+      "I was thinking we could take the whole thing apart and start again from the shape of the problem rather than the code",
+  },
+};
+
+/** Before the recogniser has produced anything to show. */
+export const DictatingSilent: Story = {
+  args: { phase: "dictating", dictating: "listening" },
+};
+
+/** The keys are up and the last of it is still being transcribed. */
+export const DictatingTranscribing: Story = {
+  args: { phase: "dictating", dictating: "transcribing" },
+};
+
+/**
  * Resting, with a turn running somewhere the user is not looking.
  *
  * The state the working ring exists for: the assistant is doing something and
@@ -248,23 +320,6 @@ export const RestingWhileWorking: Story = {
  */
 export const HoverWhileWorking: Story = {
   args: { phase: "hover", hovered: true, working: true },
-};
-
-/**
- * The reply to something typed on the surface, while the card is still open.
- *
- * The card is the tallest thing the surface draws, and the ring is still the
- * circle on the creature beside it: the widest gap between the two shapes, and
- * the clearest case that the light belongs to the creature rather than to
- * whatever is open next to it.
- */
-export const TypingWhileWorking: Story = {
-  args: {
-    phase: "typing",
-    working: true,
-    assistantName: "Ziggy",
-    turns: [{ role: "user", text: "what is on my calendar tomorrow?" }],
-  },
 };
 
 /**
@@ -395,33 +450,6 @@ export const SummaryReady: Story = {
 };
 
 /**
- * The same session, with the user mid-sentence in the composer.
- *
- * The phase the pill draws is `typing`, which outranks `watching`, and the
- * indicator survives it: the ring is the session's, not the phase's. This is
- * also the hardest geometry it has to hold, since the card is the one state
- * that is not a pill.
- *
- * The way out survives with it, in the composer's own trailing controls: the
- * idle row that carries Watch is not drawn here, and a ring the user can see
- * and cannot act on is a worse bargain than no ring at all. It sits on this row
- * rather than a row of its own because the card is already within ten points of
- * the height main sized the canvas for.
- *
- * **Turn `watching` off to see what an indicator drawn from the phase would
- * do.** The card goes dark, and the control goes with it, while the screen is
- * still being read.
- */
-export const TypingWhileWatching: Story = {
-  args: {
-    phase: "typing",
-    watching: true,
-    assistantName: "Ziggy",
-    turns: [{ role: "user", text: "what changed in this file?" }],
-  },
-};
-
-/**
  * The same session again, with a call running over it.
  *
  * Two things are live and the surface has one edge to say so with, so the
@@ -506,34 +534,8 @@ export const OnALightDesktop: Story = {
 };
 
 /**
- * Typing: the pill becomes a card with the tail of the conversation and
- * somewhere to answer it.
- *
- * Two turns at most, clamped to a few lines each, because this is a glance at
- * where the conversation got to rather than the conversation. The second turn
- * here overruns its clamp on purpose, so the cut is visible.
- */
-export const Typing: Story = {
-  args: {
-    phase: "typing",
-    assistantName: "Ziggy",
-    turns: [
-      { role: "user", text: "can you pull the deploy logs from this morning" },
-      {
-        role: "assistant",
-        text: "Found them. The 09:14 deploy rolled back on its own after the health check failed twice, and the second attempt at 09:31 went through clean. The failing check was the one that talks to the queue, which was still draining from the migration you ran the night before, so nothing was actually wrong with the build itself. Want me to pull the queue depth over that window?",
-      },
-    ],
-  },
-};
-
-/** The card before anything has been said. */
-export const TypingEmpty: Story = {
-  args: { phase: "typing", assistantName: "Ziggy", turns: [] },
-};
-
-/**
- * The card at the top of a display, where it has to unfurl downward.
+ * The surface at the top of a display, where the canvas reserves the card's
+ * height below the avatar rather than above it.
  *
  * The vertical twin of `AgainstTheRightEdge`, and the fix for JARVIS-1548. The
  * host's canvas reserves the card's height on whichever side it grows into, and
@@ -542,22 +544,14 @@ export const TypingEmpty: Story = {
  * into the top of the screen at all. It stopped 270pt short, for no reason the
  * user could see.
  *
- * **Set `cardGrowth` to `up` to see the shape this replaces.** The card runs
- * straight off the top of the stage. The avatar holds its line either way,
- * which is the property this protects, exactly as the horizontal flip does.
+ * **Set `cardGrowth` to `up` to see the shape this replaces.** The avatar holds
+ * its line either way, which is the property this protects, exactly as the
+ * horizontal flip does; what moves is the canvas around it.
  */
 export const AgainstTheTopEdge: Story = {
   args: {
-    phase: "typing",
+    phase: "hover",
     cardGrowth: "down",
-    assistantName: "Ziggy",
-    turns: [
-      { role: "user", text: "what did the deploy do" },
-      {
-        role: "assistant",
-        text: "Rolled back on its own after the health check failed twice, then went through clean at 09:31.",
-      },
-    ],
   },
   decorators: [
     (Story) => (
@@ -695,11 +689,6 @@ function HoverDrivenSurface(args: StoryArgs) {
         {
           avatar: avatar.getBoundingClientRect(),
           pill: pillRect.width > 0 ? pillRect : null,
-          // The composer row in stage pixels, which is the options box: the
-          // surface scales its own box by that size and these rects are read
-          // after the transform.
-          rowHeight: args.optionsBox ?? COMPANION_BASE_AVATAR_BOX,
-          cardGrowth: args.cardGrowth ?? "up",
         },
       ),
     );
@@ -779,21 +768,18 @@ export const DemoReel: Story = {
  * The script, in order, one line per thing the viewer should notice.
  *
  * It reads as a single gesture rather than a tour: the companion is there, you
- * reach for it, you could type, you could talk instead, a call runs, and it
- * settles back to being there. It ends where it began on purpose, so the clip
- * loops without a seam.
+ * reach for it, you talk, a call runs, and it settles back to being there. It
+ * ends where it began on purpose, so the clip loops without a seam.
  *
  * Holds are uneven because identical intervals read as a slideshow on a timer,
  * which is the opposite of the claim being made.
  */
 const DEMO_STEPS: {
   phase: CompanionSurfacePhase;
-  spotlight?: "talk" | "type";
+  spotlight?: "talk";
   hold: number;
 }[] = [
   { phase: "resting", hold: 2000 },
-  { phase: "hover", spotlight: "type", hold: 1500 },
-  { phase: "typing", hold: 2400 },
   { phase: "hover", spotlight: "talk", hold: 1500 },
   { phase: "call", hold: 3600 },
   { phase: "resting", hold: 2000 },
@@ -913,13 +899,6 @@ function DemoReelPlayer(args: StoryArgs) {
           phase={phase}
           spotlight={active?.spotlight}
           call={phase === "call" ? DEMO_CALL : undefined}
-          // No turns: Type opens on the empty composer, which is the same
-          // elongated single line as the states either side of it. Opening onto
-          // a card of history would make this the one step that changes the
-          // surface's shape, and the beat is about where you would type, not
-          // about what was said earlier.
-          turns={[]}
-          assistantName={args.assistantName ?? "Ziggy"}
         />
       </div>
 
@@ -947,8 +926,7 @@ function DemoReelPlayer(args: StoryArgs) {
             Play
           </button>
           <span className="text-white/40">
-            {shots.length} loaded. Idle, Type, typing, Talk, a running call,
-            idle.
+            {shots.length} loaded. Idle, Talk, a running call, idle.
           </span>
         </div>
       )}
@@ -1017,23 +995,4 @@ function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
 export const Introduction: Story = {
   args: { phase: "resting", introBeat: COMPANION_INTRO_BEATS[0] },
   render: (args) => <IntroWalkthrough {...args} />,
-};
-
-/**
- * The card with a reply that uses the formatting an assistant actually writes:
- * emphasis, inline code, and a short list. What the card does with markdown is
- * worth looking at rather than reasoning about, since it is a pill's width set
- * at 12px, and the primitive is authored for a full-width transcript.
- */
-export const TypingWithMarkdown: Story = {
-  args: {
-    phase: "typing",
-    turns: [
-      { role: "user", text: "how do i reset the intro?" },
-      {
-        role: "assistant",
-        text: '## Resetting it\n\nRun this with the app quit:\n\n```sh\njq \'del(.companionIntroSeen)\' "$f" > "$f.tmp" && mv "$f.tmp" "$f"\n```\n\n- It runs **once per install**\n- `companionHidden` must be `false`\n- The surface appears *after* sign-in',
-      },
-    ],
-  },
 };

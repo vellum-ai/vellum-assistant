@@ -21,8 +21,10 @@ class FakeHotkeyChild extends FakeChild {
 }
 
 const appState = { isPackaged: false, appPath: "/repo/clients/macos" };
-const handlers: Record<string, (event: unknown, ...args: unknown[]) => unknown> =
-  {};
+const handlers: Record<
+  string,
+  (event: unknown, ...args: unknown[]) => unknown
+> = {};
 const appListeners = new Map<string, () => void>();
 
 type FakeWebContents = EventEmitter & {
@@ -128,9 +130,8 @@ const {
   requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
 
-const { getMacHelperAppPath, getMacHelperPath } = await import(
-  "./sidecar/mac-helper-path"
-);
+const { getMacHelperAppPath, getMacHelperPath } =
+  await import("./sidecar/mac-helper-path");
 
 const invokeFnPushToTalk = (enable: boolean) =>
   handlers["vellum:helper:hotkey:fnPushToTalk"](
@@ -246,7 +247,7 @@ describe("permission request launchers", () => {
     expect(args[5]).toBe("--status-output");
     expect(args[6]).toBeString();
 
-    await writeFile(args[6]!, "{\"status\":\"granted\"}");
+    await writeFile(args[6]!, '{"status":"granted"}');
     lastChild?.emit("exit", 0);
     expect(await pending).toBe("granted");
   });
@@ -295,12 +296,12 @@ describe("installHotkeyHelper", () => {
     installHotkeyHelper();
     const pending = invokePing();
 
-    expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
-    expect(lastChild?.stdin.writes[0]).toContain("\"method\":\"ping\"");
+    expect(lastChild?.stdin.writes[0]).toContain('"jsonrpc":"2.0"');
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"ping"');
 
     lastChild?.stdout.emit(
       "data",
-      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":"pong"}\n'),
     );
 
     expect(await pending).toBe("pong");
@@ -326,7 +327,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokePing();
     lastChild?.stdout.emit(
       "data",
-      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":"pong"}\n'),
     );
     expect(await pending).toBe("pong");
 
@@ -381,17 +382,15 @@ describe("installHotkeyHelper", () => {
     expect(spawnCalls[0]?.[0]).toBe(
       "/repo/clients/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
-    expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
+    expect(lastChild?.stdin.writes[0]).toContain('"jsonrpc":"2.0"');
     expect(lastChild?.stdin.writes[0]).toContain(
-      "\"method\":\"hotkey.fnPushToTalk\"",
+      '"method":"hotkey.fnPushToTalk"',
     );
-    expect(lastChild?.stdin.writes[0]).toContain("\"enable\":true");
+    expect(lastChild?.stdin.writes[0]).toContain('"enable":true');
 
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
 
     expect(await pending).toEqual({ ok: true, enabled: true });
@@ -407,7 +406,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokePing();
     lastChild?.stdout.emit(
       "data",
-      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":"pong"}\n'),
     );
     expect(await pending).toBe("pong");
 
@@ -429,9 +428,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokeFnPushToTalk(true);
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
     expect(await pending).toEqual({ ok: true, enabled: true });
 
@@ -442,9 +439,9 @@ describe("installHotkeyHelper", () => {
     expect(spawnCalls).toHaveLength(2);
     expect(lastChild).not.toBe(crashed);
     expect(lastChild?.stdin.writes[0]).toContain(
-      "\"method\":\"hotkey.fnPushToTalk\"",
+      '"method":"hotkey.fnPushToTalk"',
     );
-    expect(lastChild?.stdin.writes[0]).toContain("\"enable\":true");
+    expect(lastChild?.stdin.writes[0]).toContain('"enable":true');
   });
 
   test("maps JSON-RPC helper errors to hotkey results", async () => {
@@ -454,7 +451,7 @@ describe("installHotkeyHelper", () => {
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32603,\"message\":\"Carbon failed\"}}\n",
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"Carbon failed"}}\n',
       ),
     );
 
@@ -478,14 +475,12 @@ describe("installHotkeyHelper", () => {
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"method\":\"hotkey.event\",\"params\":{\"kind\":\"fnPushToTalk\",\"state\":\"down\"}}\n",
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"fnPushToTalk","state":"down"}}\n',
       ),
     );
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
 
     expect(await pending).toEqual({ ok: true, enabled: true });
@@ -498,6 +493,32 @@ describe("installHotkeyHelper", () => {
     );
   });
 
+  test("carries the selection a hold began over through to the owner", async () => {
+    installHotkeyHelper();
+
+    const pending = invokeFnPushToTalk(true);
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down","selection":{"text":"the powerhouse","truncated":false}}}\n',
+      ),
+    );
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
+    );
+
+    expect(await pending).toEqual({ ok: true, enabled: true });
+    expect(defaultSender.send).toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      {
+        kind: "modifierHold",
+        state: "down",
+        selection: { text: "the powerhouse", truncated: false },
+      },
+    );
+  });
+
   test("keeps the helper enabled while another owner remains", async () => {
     installHotkeyHelper();
     const first = makeWebContents();
@@ -506,9 +527,7 @@ describe("installHotkeyHelper", () => {
     const firstEnable = invokeFnPushToTalkFrom(true, first);
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
     expect(await firstEnable).toEqual({ ok: true, enabled: true });
 
@@ -527,7 +546,7 @@ describe("installHotkeyHelper", () => {
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"method\":\"hotkey.event\",\"params\":{\"kind\":\"fnPushToTalk\",\"state\":\"down\"}}\n",
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"fnPushToTalk","state":"down"}}\n',
       ),
     );
     expect(first.send).toHaveBeenCalledWith("vellum:helper:hotkey:event", {
@@ -537,12 +556,10 @@ describe("installHotkeyHelper", () => {
     expect(second.send).not.toHaveBeenCalled();
 
     const firstDisable = invokeFnPushToTalkFrom(false, first);
-    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
+    expect(lastChild?.stdin.writes.at(-1)).toContain('"enable":false');
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"enabled\":false}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":2,"result":{"enabled":false}}\n'),
     );
     expect(await firstDisable).toEqual({ ok: true, enabled: false });
   });
@@ -555,33 +572,27 @@ describe("installHotkeyHelper", () => {
     const firstEnable = invokeFnPushToTalkFrom(true, first);
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
     expect(await firstEnable).toEqual({ ok: true, enabled: true });
 
     const firstDisable = invokeFnPushToTalkFrom(false, first);
-    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
+    expect(lastChild?.stdin.writes.at(-1)).toContain('"enable":false');
 
     const secondEnable = invokeFnPushToTalkFrom(true, second);
     expect(lastChild?.stdin.writes).toHaveLength(2);
 
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"enabled\":false}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":2,"result":{"enabled":false}}\n'),
     );
     await wait(0);
 
     expect(lastChild?.stdin.writes).toHaveLength(3);
-    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":true");
+    expect(lastChild?.stdin.writes.at(-1)).toContain('"enable":true');
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":3,"result":{"enabled":true}}\n'),
     );
 
     expect(await firstDisable).toEqual({ ok: true, enabled: true });
@@ -590,7 +601,7 @@ describe("installHotkeyHelper", () => {
     lastChild?.stdout.emit(
       "data",
       Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"method\":\"hotkey.event\",\"params\":{\"kind\":\"fnPushToTalk\",\"state\":\"down\"}}\n",
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"fnPushToTalk","state":"down"}}\n',
       ),
     );
     expect(second.send).toHaveBeenCalledWith("vellum:helper:hotkey:event", {
@@ -604,15 +615,13 @@ describe("installHotkeyHelper", () => {
     const pending = invokeFnPushToTalk(true);
     lastChild?.stdout.emit(
       "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
-      ),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"enabled":true}}\n'),
     );
     await pending;
 
     appListeners.get("before-quit")?.();
 
-    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
+    expect(lastChild?.stdin.writes.at(-1)).toContain('"enable":false');
     expect(lastChild?.stdin.ended).toBe(true);
   });
 
@@ -621,7 +630,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokePing();
     lastChild?.stdout.emit(
       "data",
-      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":"pong"}\n'),
     );
     await pending;
 
@@ -629,9 +638,7 @@ describe("installHotkeyHelper", () => {
     appListeners.get("before-quit")?.();
     shuttingDown?.emit("close", 0, null);
 
-    await expect(invokePing()).rejects.toThrow(
-      "mac helper is not available",
-    );
+    await expect(invokePing()).rejects.toThrow("mac helper is not available");
     expect(spawnCalls).toHaveLength(1);
   });
 });

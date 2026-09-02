@@ -15,6 +15,8 @@ import { z } from "zod";
 import { externalSourceLinkSchema } from "../messaging/channel-binding-schema.js";
 import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
 import { nonEmpty } from "./notification-utils.js";
+import type { NotificationSignal } from "./signal.js";
+import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 // ── Schema primitives ──────────────────────────────────────────────────
 
@@ -710,6 +712,149 @@ export function parseInteractiveApprovalPayload(
     return null;
   }
   return nonEmpty(parsed.requestId) ? parsed : null;
+}
+
+// ── Reply mechanics per channel ─────────────────────────────────────────
+
+/**
+ * Whether a channel's rendered guardian-request copy carries request-code
+ * reply mechanics (`Reference code: X. Reply "X <your answer>".` and its
+ * approval-mode twin). Decided by where that channel's copy is read:
+ *
+ * - `vellum`: the notification bell's detail, the OS banner, and the
+ *   delivery audit row. The conversation gets the card
+ *   (`seedContentBlocks`), which carries its own text fallback. None of
+ *   these takes a typed reply; the guardian acts through the card or the
+ *   conversation it points at.
+ * - `platform`: a push banner mirroring the vellum copy.
+ * - `slack`, for payloads that render Approve/Reject buttons
+ *   (`resolveApprovalContext` in broadcaster.ts, gated on the same
+ *   {@link parseInteractiveApprovalPayload}).
+ *
+ * Every other channel is a text chat where "CODE <reply>" is how a guardian
+ * answers, so its copy has to carry the instruction even when the composed
+ * copy left it out. A newly deliverable channel lands here by default,
+ * which keeps its text answerable until it grows a card.
+ */
+export function guardianCopyCarriesReplyMechanics(
+  channel: NotificationChannel,
+  payload: Record<string, unknown>,
+): boolean {
+  switch (channel) {
+    case "vellum":
+    case "platform":
+      return false;
+    case "slack":
+      return parseInteractiveApprovalPayload(payload) == null;
+    default:
+      return true;
+  }
+}
+
+function ensureGuardianRequestCodeInCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+  mode: GuardianQuestionInstructionMode,
+): RenderedChannelCopy {
+  const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
+
+  const ensureText = (text: string | undefined): string => {
+    const base = typeof text === "string" ? text.trim() : "";
+    const sanitized = stripConflictingGuardianRequestInstructions(
+      base,
+      requestCode,
+      mode,
+    );
+    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) {
+      return sanitized;
+    }
+    return sanitized.length > 0
+      ? `${sanitized}\n\n${instruction}`
+      : instruction;
+  };
+
+  return {
+    ...copy,
+    body: ensureText(copy.body),
+    deliveryText: copy.deliveryText
+      ? ensureText(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? ensureText(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
+}
+
+/**
+ * A field that was nothing but the instruction becomes the request's own
+ * question text, the producer's human-readable ask, so a card surface never
+ * shows the mechanics it exists to avoid. Without one it keeps its original
+ * text rather than becoming empty: downstream treats an empty body as
+ * missing copy.
+ */
+function stripGuardianRequestCodeInCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+  fallbackText: string | undefined,
+): RenderedChannelCopy {
+  const strip = (text: string): string => {
+    const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
+    return stripped.length > 0 ? stripped : (fallbackText ?? text);
+  };
+  // A title is a headline, never the ask, so a code-only title keeps its
+  // text rather than taking the question.
+  const strippedTitle = stripGuardianRequestCodeInstructions(
+    copy.title,
+    requestCode,
+  );
+
+  return {
+    ...copy,
+    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
+    body: strip(copy.body),
+    deliveryText: copy.deliveryText
+      ? strip(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? strip(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
+}
+
+/**
+ * Apply the reply-mechanics rule to one channel's copy of a
+ * `guardian.question` signal: enforce the request-code instruction into
+ * copy the guardian answers by typing, strip it (model-authored code
+ * phrasing included) from copy that acts through a card. Any other signal
+ * passes through untouched. Idempotent, so the template composer and the
+ * decision engine can both apply it and the result is the same whichever
+ * path rendered the copy.
+ */
+export function applyGuardianReplyMechanics(
+  copy: RenderedChannelCopy,
+  channel: NotificationChannel,
+  signal: Pick<NotificationSignal, "sourceEventName" | "contextPayload">,
+): RenderedChannelCopy {
+  if (signal.sourceEventName !== "guardian.question") {
+    return copy;
+  }
+  const rawCode = signal.contextPayload.requestCode;
+  if (typeof rawCode !== "string" || rawCode.trim().length === 0) {
+    return copy;
+  }
+  const requestCode = rawCode.trim().toUpperCase();
+  if (!guardianCopyCarriesReplyMechanics(channel, signal.contextPayload)) {
+    const questionText = signal.contextPayload.questionText;
+    return stripGuardianRequestCodeInCopy(
+      copy,
+      requestCode,
+      typeof questionText === "string" ? nonEmpty(questionText) : undefined,
+    );
+  }
+  const { mode } = resolveGuardianQuestionInstructionMode(
+    signal.contextPayload,
+  );
+  return ensureGuardianRequestCodeInCopy(copy, requestCode, mode);
 }
 
 /**

@@ -31,6 +31,7 @@ import type { PushNotificationSchema } from "@capacitor/push-notifications";
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
+import { t } from "@/i18n";
 import {
   ANDROID_ALERTS_CHANNEL_ID,
   ensureAndroidAlertsChannel,
@@ -54,12 +55,24 @@ export interface NotificationTapPayload {
   deliveryId?: string;
 }
 
+/**
+ * Capacitor / APNs category for the "Go to Conversation" action. Must stay
+ * aligned with `NotificationCategories.intentIdentifier` in the iOS shell and
+ * `APNS_CONVERSATION_CATEGORY` on the platform APNs sender.
+ */
+export const NOTIFICATION_INTENT_ACTION_TYPE_ID = "notificationIntent";
+
+/** Action id inside {@link NOTIFICATION_INTENT_ACTION_TYPE_ID}. */
+export const NOTIFICATION_INTENT_VIEW_ACTION_ID = "view";
+
 /** Current notification permission status, cached after first resolution. */
 type PermissionState = "granted" | "denied" | "prompt" | "unsupported";
 
 let cachedPermission: PermissionState | null = null;
 let pendingPermissionRequest: Promise<PermissionState> | null = null;
 let tapListenersRegistered = false;
+let conversationActionTypeRegistered = false;
+let conversationActionTypePromise: Promise<void> | null = null;
 let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
 const recentNativeDeliveryIds = new Set<string>();
 const nativeDeliveryPromises = new Map<string, Promise<void>>();
@@ -204,6 +217,47 @@ async function requestPermissionOnce(): Promise<PermissionState> {
   }
 }
 
+/**
+ * Register the conversation action category with the OS. Capacitor's
+ * `registerActionTypes` replaces the process-wide category set, so this
+ * must include every action type we rely on. The iOS shell also registers
+ * the same identifier at launch so remote pushes can show the action
+ * before JS loads.
+ */
+async function ensureConversationActionType(): Promise<void> {
+  if (conversationActionTypeRegistered) {
+    return;
+  }
+  if (conversationActionTypePromise) {
+    await conversationActionTypePromise;
+    return;
+  }
+  conversationActionTypePromise = (async () => {
+    try {
+      await LocalNotifications.registerActionTypes({
+        types: [
+          {
+            id: NOTIFICATION_INTENT_ACTION_TYPE_ID,
+            actions: [
+              {
+                id: NOTIFICATION_INTENT_VIEW_ACTION_ID,
+                title: t("localNotification.goToConversation"),
+                foreground: true,
+              },
+            ],
+          },
+        ],
+      });
+      conversationActionTypeRegistered = true;
+    } catch {
+      // Best-effort: banners still fire without the action button.
+    } finally {
+      conversationActionTypePromise = null;
+    }
+  })();
+  await conversationActionTypePromise;
+}
+
 async function registerTapListeners(): Promise<void> {
   if (tapListenersRegistered) {
     return;
@@ -232,6 +286,7 @@ async function registerTapListeners(): Promise<void> {
     return;
   }
   try {
+    await ensureConversationActionType();
     await LocalNotifications.addListener(
       "localNotificationActionPerformed",
       (action) => {
@@ -509,9 +564,13 @@ export async function postLocalNotification(
       title: args.title,
       body: args.body,
       extra: tapPayload,
+      ...(conversationId
+        ? { actionTypeId: NOTIFICATION_INTENT_ACTION_TYPE_ID }
+        : {}),
       ...(isNativeAndroid() ? { channelId: ANDROID_ALERTS_CHANNEL_ID } : {}),
     };
     try {
+      await ensureConversationActionType();
       const correlationId = args.correlationId ?? args.deliveryId;
       if (correlationId && isNativeAndroid()) {
         await scheduleNativeDelivery(correlationId, notification);
@@ -596,6 +655,8 @@ export function __resetNotificationsStateForTests(): void {
   cachedPermission = null;
   pendingPermissionRequest = null;
   tapListenersRegistered = false;
+  conversationActionTypeRegistered = false;
+  conversationActionTypePromise = null;
   tapHandler = null;
   recentNativeDeliveryIds.clear();
   nativeDeliveryPromises.clear();

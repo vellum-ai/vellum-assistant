@@ -259,6 +259,12 @@
     "unsupported": "This device can't open a camera.",
     "uploadFailed": "Couldn't send that photo."
   },
+  "cameraShutterHint": {
+    "live": "Live · Tap to stop",
+    "liveDescription": "Tap to stop live video.",
+    "photo": "Tap photo · Hold for live",
+    "photoDescription": "Hold to start live video."
+  },
   "cameraStatusPill": {
     "announceLive": "Live. {status}",
     "announceLiveMuted": "Live. Muted. {status}",
@@ -734,6 +740,45 @@
     "secureHint": "This value will be sent securely and will not be stored in your browser.",
     "selectPlaceholder": "Select..."
   },
+  "frameGateHud": {
+    "decisionOrder": "Decision order",
+    "detailLabel": "Detail (luma SD)",
+    "keep": "Keep",
+    "keptFrameAlt": "Kept frame",
+    "maxIntervalLabel": "Heartbeat interval",
+    "minDetailLabel": "Detail floor",
+    "minIntervalLabel": "Rate floor",
+    "motionLabel": "Motion vs previous frame",
+    "noKeeps": "No frames kept yet.",
+    "noveltyLabel": "Novelty vs last kept",
+    "noveltyThresholdLabel": "Novelty threshold",
+    "overridden": "Moved off the default",
+    "reasonFeatureless": "Too little detail to compare.",
+    "reasonFirst": "Nothing kept yet, and the view settled.",
+    "reasonHeartbeat": "Nothing changed, but the last photo is old.",
+    "reasonMoving": "The view is still moving.",
+    "reasonNovel": "Enough changed since the last photo.",
+    "reasonRateFloor": "Too soon after the last photo.",
+    "reasonUnchanged": "Settled, recent, and much the same as the last photo.",
+    "reasonWarmup": "Still inside the exposure warmup.",
+    "recentFrames": "Recent frames",
+    "recentKeeps": "Recent keeps",
+    "reset": "Reset",
+    "settleThresholdLabel": "Settle threshold",
+    "skip": "Skip",
+    "stepFeatureless": "Detail floor",
+    "stepFirst": "First keep",
+    "stepHeartbeat": "Heartbeat",
+    "stepMoving": "Settled",
+    "stepNovel": "Novelty",
+    "stepRateFloor": "Rate floor",
+    "stepUnchanged": "Unchanged",
+    "stepWarmup": "Warmup",
+    "surfaceComposer": "Composer camera",
+    "surfaceVoice": "Voice room camera",
+    "thresholds": "Thresholds",
+    "valueAbsent": "n/a"
+  },
   "groupActions": {
     "archiveAll": "Archive All…",
     "copyGroupId": "Copy group ID",
@@ -818,6 +863,7 @@
     "startVoiceMode": "Start voice mode"
   },
   "liveVoiceStatus": {
+    "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
     "connecting": "Connecting…",
     "ending": "Ending…",
     "listening": "Listening…",
@@ -1478,9 +1524,7 @@
   },
   "skillLoadOutput": {
     "output": "Output",
-    "outputFormatAria": "Output format",
-    "showLess": "Show less",
-    "showMore": "Show more"
+    "outputFormatAria": "Output format"
   },
   "skillToolList": {
     "fromSkill": "From {name}"
@@ -1594,6 +1638,8 @@
   },
   "toolDetailPanel": {
     "closeAria": "Close tool details",
+    "denied": "This tool call was not approved, so it did not run.",
+    "emptyOutput": "The tool returned no output.",
     "output": "Output",
     "riskLevel": "Risk Level",
     "running": "Running…"
@@ -1651,6 +1697,7 @@
     "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
+    "askUnavailable": "Your assistant can’t take a spoken question right now.",
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
   "voiceFirstRunCard": {
@@ -1685,6 +1732,7 @@
     "muteMicrophone": "Mute microphone",
     "mutedState": "Muted. {state}",
     "showCamera": "Show the camera",
+    "stopLive": "Stop live",
     "takePhoto": "Take a photo",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
@@ -1767,5 +1815,13 @@
     "reactionAdded": "{name} reacted with {emoji}",
     "reactionRemoved": "{name} removed their {emoji} reaction",
     "reactionSomeone": "Someone"
+  },
+  "watchRetroSurface": {
+    "discard": "Discard",
+    "next": "Next",
+    "save": "Save skill",
+    "skip": "Skip",
+    "thatsIt": "That's it",
+    "untitledTask": "What I saw"
   }
 }

@@ -200,6 +200,7 @@ const {
   cardGrowthFor,
   avatarOffsetFor,
   companionContextMenuTemplate,
+  defaultAvatarCentre,
   geometryFor,
   placeCanvas,
   callOnUpdate,
@@ -259,7 +260,6 @@ const state = (): CompanionSurfaceState => {
 /** A context as the app's window publishes one. */
 const context = (over: Record<string, unknown> = {}) => ({
   assistantName: "Ziggy",
-  turns: [],
   working: false,
   ...over,
 });
@@ -495,6 +495,24 @@ describe("placeCanvas", () => {
   });
 });
 
+describe("defaultAvatarCentre", () => {
+  test("opens at the bottom centre of the work area", () => {
+    const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
+    expect(centre.x).toBe(720);
+    expect(centre.y).toBe(25 + 875 - 24 - GEOMETRY.avatarBox / 2);
+  });
+
+  test("centres on the display it is given, not the primary one", () => {
+    const secondary = { x: 1440, y: 0, width: 2560, height: 1415 };
+    expect(defaultAvatarCentre(secondary, GEOMETRY).x).toBe(1440 + 1280);
+  });
+
+  test("lands where placeCanvas leaves it alone", () => {
+    const wanted = defaultAvatarCentre(WORK_AREA, GEOMETRY);
+    expect(centreOf(placeCanvas(wanted, WORK_AREA, GEOMETRY))).toEqual(wanted);
+  });
+});
+
 describe("cardGrowthFor", () => {
   test("grows up with room for the card above the avatar", () => {
     expect(cardGrowthFor(500, WORK_AREA, GEOMETRY)).toBe("up");
@@ -582,8 +600,7 @@ describe("the session main holds", () => {
 describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
     expect(introOnAdvance("meet", "next")).toBe("talk");
-    expect(introOnAdvance("talk", "next")).toBe("type");
-    expect(introOnAdvance("type", "next")).toBe("menu");
+    expect(introOnAdvance("talk", "next")).toBe("menu");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
@@ -594,7 +611,7 @@ describe("introOnAdvance", () => {
 
   test("dismiss ends the run from any beat", () => {
     expect(introOnAdvance("meet", "dismiss")).toBe(null);
-    expect(introOnAdvance("type", "dismiss")).toBe(null);
+    expect(introOnAdvance("talk", "dismiss")).toBe(null);
   });
 
   // A press that arrives after the run is already over. The renderer can be a
@@ -1238,23 +1255,16 @@ describe("the watch flag when the app's window goes away", () => {
   });
 
   /**
-   * The tail and the name are a record of what was said and this surface is
-   * still where it is read, the same bargain `clearCompanionWorking` makes.
+   * The name is a record of whose surface this is and the surface is still
+   * where it is read, the same bargain `clearCompanionWorking` makes.
    */
-  test("leaves the conversation and the name standing", () => {
-    send(
-      "vellum:companion:setContext",
-      context({
-        watching: true,
-        turns: [{ role: "user", text: "hello" }],
-      }),
-    );
+  test("leaves the name standing", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
 
     mainWindowOpen = false;
     fireVisibilityChange();
 
     expect(state().assistantName).toBe("Ziggy");
-    expect(state().turns).toEqual([{ role: "user", text: "hello" }]);
   });
 
   test("says nothing when no session was running", () => {
@@ -1265,6 +1275,25 @@ describe("the watch flag when the app's window goes away", () => {
     fireVisibilityChange();
 
     expect(pushes.length).toBe(before);
+  });
+
+  /**
+   * A held key's recording lives in the same window, and goes down with it
+   * the same way. Left standing, the pill would go on listening to a
+   * microphone that is no longer open, with the last words it heard in it.
+   */
+  test("gives up a dictation the same way", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ dictating: "listening", dictationText: "the quick brown" }),
+    );
+    expect(state().dictating).toBe("listening");
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().dictating).toBeUndefined();
+    expect(state().dictationText).toBeUndefined();
   });
 });
 

@@ -363,17 +363,18 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   `AppIconPlugin.swift` reads back at runtime.
 - Which alternate is showing is a user's choice, made in the web app under
   Settings -> General -> Preferences -> App icon
-  (`clients/web/src/domains/settings/components/app-icon-modal.tsx`) and gated
-  on the dark `ios-avatar-app-icon` flag. The picker cycles eyes and color over
-  the same component library the artwork is generated from, seeds its selection
-  from the assistant's avatar when that avatar is a character one, and resets
-  back to the target's primary icon. Applying is always a press: iOS puts up a
+  (`clients/web/src/domains/settings/components/app-icon-modal.tsx`), which
+  every capable iOS shell offers: a native iOS shell carrying the `AppIcon`
+  plugin is the whole gate. The picker cycles eyes and color over the same
+  component library the artwork is generated from, seeds its selection from
+  the assistant's avatar when that avatar is a character one, and resets back
+  to the target's primary icon. Applying is always a press: iOS puts up a
   system alert of its own on every icon change, so nothing swaps on its own.
   Version skew degrades in two layers, neither an error: a shell without the
   `AppIcon` plugin reports unsupported, so the picker row does not render at
   all, and on a shell that has the plugin a composed name is applied only when
-  the shell lists it in `available`, so a missing name reads as a disabled
-  Set button rather than a failed swap.
+  the shell lists it in `available`, so a missing name reads as a disabled Set
+  button rather than a failed swap.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.

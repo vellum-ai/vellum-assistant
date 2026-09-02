@@ -148,28 +148,20 @@
     "talk": {
       "body": "開始語音對話。",
       "title": "交談"
-    },
-    "type": {
-      "body": "從這裡傳送訊息，並在這裡閱讀回覆。",
-      "title": "輸入"
     }
   },
   "companionSurface": {
     "allow": "允許",
     "deny": "拒絕",
     "endSession": "結束會話",
-    "goBack": "返回",
-    "messagePlaceholder": "傳送訊息給 {name}",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
-    "send": "傳送",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
-    "type": "輸入",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"
   },
@@ -217,7 +209,9 @@
   },
   "detailPrimitives": {
     "copied": "已複製",
-    "copy": "複製"
+    "copy": "複製",
+    "showLess": "顯示較少",
+    "showMore": "顯示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止錄音"
@@ -316,6 +310,9 @@
   },
   "lazyBoundary": {
     "loadError": "此區段無法載入。請重新載入頁面再試一次。"
+  },
+  "localNotification": {
+    "goToConversation": "前往對話"
   },
   "macosAppBanner": {
     "ariaLabel": "下載 macOS 應用程式",
@@ -680,12 +677,15 @@
     "velvet": "絲絨"
   },
   "tipCard": {
+    "computerUseBodyLinux": "在這台電腦上，我可以處理檔案、終端機和瀏覽器。",
     "computerUseBodyMacos": "在此 Mac 上，我可以為您控制應用程式和桌面。",
     "computerUseBodyWindows": "在此電腦上，我可以為您控制應用程式和桌面。",
+    "computerUseTitleLinux": "讓我使用這台電腦",
     "computerUseTitleMacos": "讓我使用您的 Mac",
     "computerUseTitleWindows": "讓我使用您的電腦",
     "dismiss": "關閉",
     "nextTip": "下一個提示",
+    "pluginsBodyLinux": "從個人理財副駕駛到每日家庭簡報。",
     "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
     "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
     "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",

@@ -222,6 +222,7 @@ targets:
     sources:
       - path: AppTests
       - path: App/Attribution.swift
+      - path: App/NotificationCategories.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"

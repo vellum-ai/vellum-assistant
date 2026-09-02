@@ -54,18 +54,17 @@ vellum hatch [species] [options]
 
 #### Options
 
-| Option              | Description                                                                                                        |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `-d`                | Detached mode. Start the instance in the background without watching startup progress.                             |
-| `--name <name>`     | Use a specific instance name instead of an auto-generated one.                                                     |
-| `--remote <target>` | Where to provision the instance. One of: `local`, `docker`, `vellum`, `gcp`, `aws`, `custom`. Defaults to `local`. |
+| Option              | Description                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `-d`                | Detached mode. Start the instance in the background without watching startup progress.               |
+| `--name <name>`     | Use a specific instance name instead of an auto-generated one.                                       |
+| `--remote <target>` | Where to provision the instance. One of: `local`, `docker`, `vellum`, `custom`. Defaults to `local`. |
 
 #### Remote Targets
 
 - **`local`** -- Starts the local assistant and local gateway. Gateway source resolution order is: repo source tree, then installed `@vellumai/vellum-gateway` package.
 - **`docker`** -- Starts the assistant, gateway, and credential service in Docker containers.
 - **`vellum`** -- Hatches an assistant on the Vellum platform.
-- **`gcp`** and **`aws`** -- Recognized but not supported as provisioning targets yet. The CLI exits before creating cloud resources. To self-host on AWS/GCP, SSH into the VM and run `vellum hatch` or `vellum hatch --remote docker` there.
 - **`custom`** -- Recognized but not yet implemented.
 
 #### Environment Variables
@@ -87,7 +86,7 @@ vellum hatch --remote docker
 vellum hatch --name my-assistant --remote docker
 ```
 
-AWS and GCP hatch targets are recognized so users receive an explicit unsupported-target error instead of an unknown-option error. They currently exit without creating cloud resources; self-hosting on an AWS/GCP VM still works by running `vellum hatch` from inside that machine.
+To self-host on a cloud VM (AWS, GCP, or any other provider), SSH into the machine and run `vellum hatch` or `vellum hatch --remote docker` from inside it. The CLI does not provision cloud instances for you.
 
 ### `terminal`
 

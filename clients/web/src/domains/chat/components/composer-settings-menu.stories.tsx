@@ -3,6 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
 
+import { HoverCapabilityOverride } from "@vellumai/design-library/utils/hover-capability";
+
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -15,7 +17,7 @@ const ASSISTANT_ID = "asst-story";
  * the list is capped at about seven rows and scrolls, rather than running off
  * the top of the composer.
  */
-const PROFILE_LABELS = [
+const MANY_PROFILE_LABELS = [
   "Balanced",
   "OS Beta",
   "Quality",
@@ -30,26 +32,71 @@ const PROFILE_LABELS = [
   "Deep Research",
 ];
 
+const MANY_PROFILES: ProfileSeed[] = MANY_PROFILE_LABELS.map((label) => ({
+  label,
+}));
+
+/**
+ * The tier-named profiles Vellum seeds, paired with the model each one pins.
+ * Only these carry their model beside the row, since a tier name says nothing
+ * about what is about to run.
+ */
+const MANAGED_PROFILES: ProfileSeed[] = [
+  {
+    label: "Balanced",
+    source: "managed",
+    provider: "vellum",
+    model: "accounts/fireworks/models/glm-5p2",
+  },
+  {
+    label: "Quality",
+    source: "managed",
+    provider: "vellum",
+    model: "gpt-5.6-sol",
+  },
+  {
+    label: "Cost",
+    source: "managed",
+    provider: "vellum",
+    model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+  },
+  {
+    label: "Speed",
+    source: "managed",
+    provider: "vellum",
+    model: "gpt-5.6-luna",
+  },
+  { label: "GPT-5.6 Luna", source: "user" },
+];
+
+interface ProfileSeed {
+  label: string;
+  source?: "managed" | "user";
+  provider?: string;
+  model?: string;
+}
+
 function profileKey(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function buildConfig(labels: string[]) {
+function buildConfig(seeds: ProfileSeed[]) {
   const profiles = Object.fromEntries(
-    labels.map((label) => [
-      profileKey(label),
+    seeds.map((seed) => [
+      profileKey(seed.label),
       {
-        label,
-        provider: "anthropic",
-        model: "claude-opus-4-8",
+        label: seed.label,
+        provider: seed.provider ?? "anthropic",
+        model: seed.model ?? "claude-opus-4-8",
+        source: seed.source ?? "user",
         status: "active",
       },
     ]),
   );
   return {
     llm: {
-      activeProfile: profileKey(labels[0] ?? "balanced"),
-      profileOrder: labels.map(profileKey),
+      activeProfile: profileKey(seeds[0]?.label ?? "balanced"),
+      profileOrder: seeds.map((seed) => profileKey(seed.label)),
       profiles,
     },
   };
@@ -61,10 +108,10 @@ function buildConfig(labels: string[]) {
  * menu renders the profile segment alone, which is what these stories are of.
  */
 function SeedConfig({
-  labels,
+  seeds,
   children,
 }: {
-  labels: string[];
+  seeds: ProfileSeed[];
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
@@ -73,10 +120,10 @@ function SeedConfig({
     useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
     queryClient.setQueryData(
       configGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
-      buildConfig(labels),
+      buildConfig(seeds),
     );
     setSeeded(true);
-  }, [queryClient, labels]);
+  }, [queryClient, seeds]);
   return seeded ? children : null;
 }
 
@@ -96,7 +143,7 @@ const meta: Meta<typeof ComposerSettingsMenu> = {
   decorators: [
     (Story, context) => (
       <ProfileQuickAddProvider>
-        <SeedConfig labels={context.parameters.profileLabels ?? PROFILE_LABELS}>
+        <SeedConfig seeds={context.parameters.profileSeeds ?? MANY_PROFILES}>
           <div className="flex h-[560px] items-end justify-center p-6">
             <Story />
           </div>
@@ -131,6 +178,49 @@ export const OpenWithManyProfiles: Story = {
 
 /** A list short enough to fit needs no scrolling and shows no fade. */
 export const OpenWithFewProfiles: Story = {
-  parameters: { profileLabels: PROFILE_LABELS.slice(0, 3) },
+  parameters: { profileSeeds: MANY_PROFILES.slice(0, 3) },
   play: openProfileMenu,
+};
+
+/**
+ * The managed profiles alongside one the user made. Hovering a managed row
+ * names the model it currently pins; the user's row is already named after
+ * its own model, so it carries no label.
+ */
+export const OpenWithManagedProfiles: Story = {
+  parameters: { profileSeeds: MANAGED_PROFILES },
+  play: async (context) => {
+    await openProfileMenu();
+    const balanced = await screen.findByRole("menuitem", { name: "Balanced" });
+    await userEvent.hover(balanced);
+    await waitFor(() =>
+      expect(context.canvasElement.ownerDocument.body.textContent).toContain(
+        "GLM 5.2",
+      ),
+    );
+  },
+};
+
+/**
+ * The same menu on a device that cannot hover but is too wide for the bottom
+ * sheet, an iPad in landscape being the case in hand. A tooltip mounts nothing
+ * here, so each managed row carries its model inline instead.
+ */
+export const OpenWithManagedProfilesNoHover: Story = {
+  parameters: { profileSeeds: MANAGED_PROFILES },
+  decorators: [
+    (Story) => (
+      <HoverCapabilityOverride hoverCapable={false}>
+        <Story />
+      </HoverCapabilityOverride>
+    ),
+  ],
+  play: async (context) => {
+    await openProfileMenu();
+    await waitFor(() =>
+      expect(context.canvasElement.ownerDocument.body.textContent).toContain(
+        "GLM 5.2",
+      ),
+    );
+  },
 };

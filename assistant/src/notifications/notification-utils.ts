@@ -9,7 +9,10 @@
 import type { Root, RootContent } from "mdast";
 
 import { parseMarkdown } from "../messaging/content/parse.js";
-import { stripAnsiAndControlChars } from "../util/ansi.js";
+import {
+  stripAnsiAndControlChars,
+  stripAnsiSequences,
+} from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
@@ -235,6 +238,40 @@ export function describeMedia(labels: string[]): string {
  */
 function sanitize(value: string, maxLength: number): string {
   return truncate(stripAnsiAndControlChars(value, " ").trim(), maxLength);
+}
+
+/**
+ * Collapse horizontal whitespace and blank-line runs while keeping paragraph
+ * breaks. Tabs become spaces. Three or more consecutive newlines collapse to
+ * one blank line so padding does not eat the preview budget.
+ */
+export function collapseHorizontalWhitespace(value: string): string {
+  return value
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Sanitize a notification body that should keep its line breaks.
+ *
+ * ANSI sequences and non-newline control characters are stripped; `\r\n` and
+ * `\r` become `\n`. Horizontal whitespace is collapsed. The result is clamped
+ * to {@link MESSAGE_PREVIEW_MAX_LENGTH}.
+ *
+ * Single-line surfaces (titles, identity fields, channel previews that must
+ * not wrap) should keep using {@link sanitizeMessagePreview}.
+ */
+export function sanitizeMultilineMessagePreview(value: string): string {
+  const normalized = stripAnsiSequences(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]+/g, " ");
+  return truncate(
+    collapseHorizontalWhitespace(normalized),
+    MESSAGE_PREVIEW_MAX_LENGTH,
+  );
 }
 
 /**

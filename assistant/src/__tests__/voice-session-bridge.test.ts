@@ -89,6 +89,7 @@ function makePersistingStreamingSession(
   let turnChannelContext: TurnChannelContext | null = null;
   let turnInterfaceContext: TurnInterfaceContext | null = null;
   let processing = false;
+  let owner = 0;
   const session = {
     conversationId,
     messages: [],
@@ -99,6 +100,23 @@ function makePersistingStreamingSession(
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;
+      owner = value ? owner + 1 : 0;
+    },
+    acquireProcessingFenced: async () => {
+      if (processing) {
+        return null;
+      }
+      processing = true;
+      owner += 1;
+      return owner;
+    },
+    releaseProcessing: (claim: number) => {
+      if (claim !== owner) {
+        return false;
+      }
+      processing = false;
+      owner = 0;
+      return true;
     },
     persistUserMessage: async (
       ...args: Parameters<Conversation["persistUserMessage"]>

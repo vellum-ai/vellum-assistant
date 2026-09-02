@@ -428,7 +428,7 @@ export const memoryInjectors: Injector[] = [
   // `memory-v2-static` is FROZEN: `daemon/conversation-runtime-assembly.ts`
   // switches on it to capture the block into persisted message metadata.
   memoryV2StaticInjector,
-  // V3 — delete with v3. The frozen net-new card block and its ephemeral
+  // V3: delete with v3. The frozen net-new card block and its per-turn
   // spotlight companion; both self-gate on `memory.v3.live`.
   memoryV3Injector,
   memoryV3SpotlightInjector,

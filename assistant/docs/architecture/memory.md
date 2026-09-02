@@ -170,10 +170,14 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 
 ### Read paths
 
-- **v3 (live)**: per-turn lane selection over concept pages — dense/sparse
-  retrieval (`substrate/sim.ts` over the concept-page collection),
-  learned edges, entity/hot/fresh/core sets — rendered as the `<memory>`
-  card by `v3/injector.ts`. The static `<info>` block
+- **v3 (live)**: per-turn lane selection over concept pages (dense/sparse
+  retrieval via `substrate/sim.ts` over the concept-page collection,
+  learned edges, entity/hot/fresh/core sets) rendered as the `<memory>`
+  card by `v3/injector.ts`. Frozen cards stay on historical user messages
+  so the provider prefix stays cacheable. Each turn's `<memory_spotlight>`
+  stays on the user message that was sent with it. A new spotlight is
+  added only on the new tail, so older messages are not rewritten. The
+  static `<info>` block
   (`substrate/static-context.ts`: essentials/threads/recent/buffer) also
   injects whenever the substrate is active.
 - **v2 (transitional)**: activation/router engine in `v2/`

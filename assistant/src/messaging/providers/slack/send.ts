@@ -331,10 +331,10 @@ export async function sendSlackStreamOp(
         channel,
         threadTs: op.anchorMessageId,
         markdownText: op.appended ?? op.text,
-        // Fixed for the stream's lifetime at start, while a plan usually
-        // arrives after the first text flush has opened it. It only affects
-        // how task chunks render, so a stream that never carries a plan still
-        // reads as a plain message.
+        // Fixed for the stream's lifetime at start, so it is set
+        // unconditionally: a plan that first appears on a later append still
+        // renders as a plan. It only affects how task chunks render, so a
+        // stream that never carries one still reads as a plain message.
         taskDisplayMode: "plan",
         planTitle,
         tasks,

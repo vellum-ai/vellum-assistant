@@ -1,12 +1,19 @@
 /**
- * Sight in the voice room: the open viewfinder feeding the call what it can
- * see, without anyone pressing anything.
+ * Sight in the voice room: Live mode, where the open viewfinder feeds the call
+ * what it can see without anyone pressing anything further.
  *
- * The shutter next door answers "look at this". This answers "here is what I am
+ * A tap on the shutter answers "look at this". Live answers "here is what I am
  * holding while I talk about it", which is a different interaction and cannot
  * be built out of shutter presses: the frame has to be in hand before the
  * sentence ends, and a person describing an object is not free to also operate
  * a camera.
+ *
+ * Live is entered by holding the shutter and left by tapping it, and this hook
+ * owns the flag. It already computes the conjunction that says whether Live can
+ * be offered at all, and it is the thing that has to stop the moment the
+ * viewfinder closes; a flag kept anywhere else would be a second answer to both
+ * questions, free to disagree with the sampler it is supposed to describe. Its
+ * scope is the room's, so the mode dies with the room.
  *
  * ## The shape of it
  *
@@ -36,12 +43,21 @@
  * ## Consent
  *
  * There is no second camera and no hidden one. This samples the viewfinder the
- * room already put on screen, so frames flow exactly while the user can see
- * what is being sampled, and each one lands somewhere they can see it and
- * delete it. Closing the viewfinder stops them at once.
+ * room already put on screen, and only after the user has held the shutter to
+ * ask for it, so frames flow exactly while the user can see what is being
+ * sampled and has said to. Each one lands somewhere they can see it and delete
+ * it. Tapping the shutter again, closing the viewfinder, and putting the app
+ * away all stop them at once, and the last of those costs another hold to
+ * start again rather than resuming on the gesture that came before it.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   deleteChatAttachment,
@@ -52,16 +68,18 @@ import {
   sendLiveVoiceSightFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   isVisionModeOn,
   useVisionModeVariant,
 } from "@/hooks/use-vision-mode-flag";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
+import { type FrameGate, createFrameGate } from "@/lib/camera/frame-gate";
 import {
-  DEFAULT_FRAME_GATE_OPTIONS,
-  type FrameGate,
-  createFrameGate,
-} from "@/lib/camera/frame-gate";
+  FRAME_GATE_LIVE_OPTIONS,
+  recordFrameGateDecision,
+  recordFrameGateKeep,
+} from "@/lib/camera/frame-gate-debug";
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -110,6 +128,34 @@ export interface VoiceRoomSight {
    * the place a user deletes one from.
    */
   readonly heldFrame: VoiceRoomSightFrame | null;
+  /**
+   * Whether Live can be entered at all: the flag, an assistant, that
+   * assistant understanding the frame, a session that has not latched the
+   * frame as unsupported, and a viewfinder this can read. The room reads it to
+   * decide whether to offer the hold and the hint, so an unavailable Live is a
+   * shutter that only takes photos rather than one that takes a hold and does
+   * nothing with it.
+   */
+  readonly liveAvailable: boolean;
+  /** Whether the viewfinder is streaming. Only then is anything sampled. */
+  readonly live: boolean;
+  /**
+   * Enter or leave Live. Forced back off when the viewfinder closes, when
+   * availability goes, and when the app is put into the background, so nothing
+   * can display Live over a camera sampling nothing and no gesture carries
+   * across a backgrounding.
+   */
+  readonly setLive: (live: boolean) => void;
+  /**
+   * Withdraw consent from every frame captured but not yet shared, now.
+   *
+   * For the acts that end the viewfinder without going through `setLive`: the
+   * camera control's close is one press to the user and two facts to the app,
+   * and the mode coming down behind it is a render too late for a frame whose
+   * upload lands in between. Callers that close the camera call this first, in
+   * the same handler. Idempotent, and free when nothing is being sampled.
+   */
+  readonly revokeCaptureConsent: () => void;
 }
 
 export interface VoiceRoomSightOptions {
@@ -117,17 +163,31 @@ export interface VoiceRoomSightOptions {
   readonly cameraOpen: boolean;
   /** Which way the camera points, so a flip can invalidate the gate. */
   readonly facing: VoiceCameraFacing;
+  /**
+   * Whether the viewfinder on screen is the native shells' preview layer.
+   *
+   * It sits behind the web view and mounts no `<video>`, so there is nothing
+   * here to sample. Which preview is up is decided per acquire and can change
+   * mid-viewfinder: a shell whose native start failed runs the browser
+   * fallback, and a later flip retries the native one.
+   */
+  readonly nativePreview: boolean;
 }
 
 export function useVoiceRoomSight(
   assistantId: string | null,
   /** The room's own ref for the viewfinder `<video>`. */
   videoRef: React.RefObject<HTMLVideoElement | null>,
-  { cameraOpen, facing }: VoiceRoomSightOptions,
+  { cameraOpen, facing, nativePreview }: VoiceRoomSightOptions,
 ): VoiceRoomSight {
   const visionMode = useVisionModeVariant();
   const supportsFrames = useSupportsSightStream(assistantId);
+  // An assistant that refuses the frame at all, latched for the session. Read
+  // here rather than beside the effect that acts on it, because it is one of
+  // the terms in whether Live can be offered at all: see `liveAvailable`.
+  const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
   const [heldFrame, setHeldFrame] = useState<VoiceRoomSightFrame | null>(null);
+  const [live, setLiveState] = useState(false);
   // What the capture continuations read. The sampler outlives a render, so it
   // cannot close over a render's value.
   const heldRef = useRef<VoiceRoomSightFrame | null>(null);
@@ -153,25 +213,196 @@ export function useVoiceRoomSight(
   const nextSendSeqRef = useRef(0);
   const parkedSendsRef = useRef(new Map<number, PendingSightSend | null>());
   /**
-   * Which camera and transport this capture chain feeds. Bumped when sampling
-   * stops, when the camera flips, and when the transport drops into a
-   * reconnect, so a capture that was already encoding can tell that the world
-   * it was headed for is gone.
+   * Which camera and transport this capture chain feeds. Bumped when consent
+   * is withdrawn, when sampling stops, when the camera flips, and when the
+   * transport drops into a reconnect, so a capture that was already encoding
+   * can tell that the world it was headed for is gone.
    *
-   * The session generation covers none of the three: each leaves the logical
-   * call running, a flip deliberately keeps the sampler on the same element,
+   * The session generation covers none of them: each leaves the logical call
+   * running, a flip deliberately keeps the sampler on the same element,
    * and a reconnect deliberately keeps the generation, so a stalled upload
    * from before any of them could otherwise be persisted as a view of what the
    * call is looking at.
    */
   const captureEpochRef = useRef(0);
+  /**
+   * Whether what the loop is producing right now is still consented to.
+   *
+   * `active` says the same thing a render later, which is a render too late
+   * for a boundary: the sampler's own callbacks and the uploads it has started
+   * both run inside the gap between the tap and the effect that stops it.
+   * Raised where a sampling run starts, lowered the moment consent goes.
+   */
+  const captureConsentedRef = useRef(false);
 
-  // All three, so the feature is absent rather than half-present: no camera on
-  // screen is no consent, a flag off is not shipped, and an assistant that
-  // predates `sight_frame` answers every one with the error code the transport
-  // reads as a settings rejection.
-  const active =
-    cameraOpen && isVisionModeOn(visionMode) && supportsFrames && !!assistantId;
+  /**
+   * Take consent back from every frame the camera has produced but not yet
+   * shared, in the same tick as the act that takes it back.
+   *
+   * Ending Live only schedules a re-render, and the sampler effect's cleanup
+   * runs after it. An epoch left to that cleanup is one an upload resolving in
+   * the gap still matches, so the frame passes the guard it is checked against
+   * and is shared with the call after the user has said stop. The bump belongs
+   * here instead: every capture already started fails the guard on its way
+   * out, and the flag stops one the loop would otherwise begin before it is
+   * torn down.
+   *
+   * There are two tiers of caller, and the difference is whether a user acted.
+   * An act (the shutter's stop, the camera control's close, the app being put
+   * away) revokes in the handler itself, which is the only place with no gap
+   * at all. Everything state-derived (availability going, the preview turning
+   * native, a flip that failed its way out of the viewfinder) has no such tick
+   * to sit in, so it revokes at the earliest point a hook offers, the commit
+   * that carries the change, before paint and before the effect that lowers
+   * the mode. Neither is the user withdrawing consent, so a frame crossing
+   * that narrower window is a stale view rather than a broken promise.
+   *
+   * Parked sends are left to refuse themselves at that same guard, and the
+   * sampler cleanup behind this hands their uploads back. Nothing but a real
+   * sampling run to revoke gets past the first line, so a refused raise, a
+   * stop of something already stopped, and an ordinary re-render all cost
+   * nothing: an epoch churned for one of those would void a capture nobody
+   * withdrew.
+   */
+  const revokeCaptureConsent = useCallback(() => {
+    if (!captureConsentedRef.current) {
+      return;
+    }
+    captureConsentedRef.current = false;
+    captureEpochRef.current += 1;
+  }, []);
+
+  // All five, so the feature is absent rather than half-present: a flag off is
+  // not shipped, an assistant that predates `sight_frame` answers every keep
+  // with the error code the transport reads as a settings rejection, without an
+  // assistant there is nothing to upload against, a session that has latched
+  // the frame as unsupported drops every keep at the capture guard below, and
+  // the native preview leaves the sampler no `<video>` to read. Each belongs in
+  // the offer and not only in the state: taking Live down while leaving the
+  // hold on the shutter is a gesture that raises a pill saying Live over a
+  // camera nothing is reading. Availability is also what the mode is held to,
+  // by the effect below, so a term going false mid-viewfinder ends a Live that
+  // is already running rather than stranding it.
+  const liveAvailable =
+    isVisionModeOn(visionMode) &&
+    supportsFrames &&
+    !!assistantId &&
+    !sightFramesUnsupported &&
+    !nativePreview;
+  // The camera on screen is the consent, and Live is the ask. Nothing samples
+  // without both.
+  const active = cameraOpen && liveAvailable && live;
+
+  /**
+   * What an ask to enter Live is refused against, read when the ask arrives
+   * rather than closed over by whoever holds the setter.
+   *
+   * An ask can outlive the render that handed out the setter: the room builds
+   * the shutter's hold handler around one, and the shutter's own threshold
+   * fires that handler half a second after it was given. Availability can go
+   * inside that half second, and a setter answering from what it captured
+   * would raise Live past the effect below, which has already run for the
+   * change and does not re-run for the write.
+   *
+   * Written in a commit-phase effect rather than during render, so the answer
+   * always describes UI that was actually shown.
+   */
+  const liveAllowedRef = useRef(false);
+  useLayoutEffect(() => {
+    liveAllowedRef.current = cameraOpen && liveAvailable;
+  });
+
+  /**
+   * Enter or leave Live, where entering is refused unless it is available.
+   *
+   * The effect below cannot answer this one: its deps are the availability it
+   * watches, so a request made while Live is already unavailable changes
+   * nothing it re-runs on and would leave the flag raised until the next real
+   * transition. The refusal belongs at the ask.
+   *
+   * Leaving takes consent with it here rather than in the render that follows,
+   * for the reason `revokeCaptureConsent` gives: the tap is the boundary, not
+   * the commit after it.
+   */
+  const setLive = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        revokeCaptureConsent();
+      }
+      setLiveState(next && liveAllowedRef.current);
+    },
+    [revokeCaptureConsent],
+  );
+
+  // Live never outlives what makes it honest. The viewfinder closing takes the
+  // consent away, and availability going (a flag, an assistant, the latch, or
+  // the preview swapping to the native layer) takes the destination away, so in
+  // either case the mode goes back to photo rather than staying raised over a
+  // camera that is sampling nothing.
+  useEffect(() => {
+    if (cameraOpen && liveAvailable) {
+      return;
+    }
+    setLiveState(false);
+  }, [cameraOpen, liveAvailable]);
+
+  // The same ending, taken at the commit rather than after it. Every way the
+  // viewfinder or the destination can go without the user acting arrives as
+  // one of these two values changing: a flip that failed its way out of the
+  // camera, the preview turning native, the latch, the flag, the assistant
+  // unbinding. None has a handler to be synchronous with, so this is the
+  // earliest they can be answered, a paint and a passive flush ahead of the
+  // effect above. The user's own acts do not wait for it.
+  useLayoutEffect(() => {
+    if (cameraOpen && liveAvailable) {
+      return;
+    }
+    revokeCaptureConsent();
+  }, [cameraOpen, liveAvailable, revokeCaptureConsent]);
+
+  // Backgrounding ends Live, rather than pausing it.
+  //
+  // The hold is the consent, and it is given to a viewfinder the user is
+  // watching. The sampler only pauses while the page is hidden and picks its
+  // loop back up on the way in, so a Live that survived a backgrounding would
+  // resume sharing what the camera sees on a gesture made before the app was
+  // put away. Coming back to a viewfinder on photo costs one hold; coming back
+  // to one that is already streaming costs whatever it captured first.
+  //
+  // The bus's own edge rather than a `visibilitychange` listener here: it is
+  // published once per physical edge from the two sources that describe it,
+  // which is what the iOS shell needs (see docs/EVENT_BUS.md, and the
+  // composer's sight store, which gives its camera back on the same event).
+  useBusSubscription("app.hidden", () => {
+    revokeCaptureConsent();
+    setLiveState(false);
+  });
+
+  // Dismissing the room ends Live too, and for the same reason: the viewfinder
+  // the consent was given to is gone, and the room coming back is a fresh ask.
+  //
+  // It cannot be left to the teardown. The overlay plays an exit animation
+  // before it unmounts, so the sampler cleanup behind a dismissal is a whole
+  // animation away, and a frame whose upload lands inside it would be shared
+  // with the call after the user put the room away. Lowering the mode as well
+  // as revoking is what keeps a dismissal the user takes back mid-animation
+  // honest: the room returns on photo rather than to a stream whose consent
+  // has already been spent.
+  //
+  // The store rather than a wrapped control, which is the shape the camera's
+  // close could not have: the chevron, Escape, the sheet's own drag, an
+  // assistant-driven `minimize_room` frame and the reconnect path all reach
+  // one `set()`, and zustand runs its subscribers inside it, so this lands in
+  // the tick the user acted in with no wrapper for a caller to miss.
+  useEffect(() => {
+    return useLiveVoiceStore.subscribe((state, previous) => {
+      if (!state.roomMinimized || previous.roomMinimized) {
+        return;
+      }
+      revokeCaptureConsent();
+      setLiveState(false);
+    });
+  }, [revokeCaptureConsent]);
 
   /**
    * Replace the frame on screen, giving back whatever preview it displaced.
@@ -287,6 +518,13 @@ export function useVoiceRoomSight(
       if (!assistantId) {
         return;
       }
+      // Consent is already gone, and the loop has not been torn down yet. The
+      // epoch cannot speak for this one: a capture beginning after the bump
+      // reads the new number and would pass the guard on the way out, so a
+      // frame taken after the user said stop is refused before it is taken.
+      if (!captureConsentedRef.current) {
+        return;
+      }
       // Nothing this assistant is told about lands, and each attempt would
       // strand another upload, so the sampler runs on and every keep is
       // dropped here. See `sightFramesUnsupported` on the live-voice store.
@@ -313,6 +551,7 @@ export function useVoiceRoomSight(
         if (!frame) {
           return;
         }
+        recordFrameGateKeep("voice", frame);
 
         // The same preparation a pasted image gets, for the same reason the
         // shutter does it: a high-resolution track behaves like every other
@@ -396,12 +635,21 @@ export function useVoiceRoomSight(
     if (!video) {
       return;
     }
-    const gate = createFrameGate(DEFAULT_FRAME_GATE_OPTIONS);
+    // The run this consent was given for. Raised here rather than derived from
+    // `active`, which a capture in a torn-down loop still reads as the value of
+    // the render it started in.
+    captureConsentedRef.current = true;
+    // The live options record rather than the defaults, so the tuning readout
+    // can move a threshold without this effect rebuilding the gate. A rebuild
+    // would clear the last-keep clock and fire an immediate keep, which on
+    // this surface is an upload and a persisted transcript message.
+    const gate = createFrameGate(FRAME_GATE_LIVE_OPTIONS);
     gate.reset(performance.now());
     gateRef.current = gate;
     const sampler = createFrameSampler({
       gate,
-      onDecision: (decision) => {
+      onDecision: (decision, nowMs) => {
+        recordFrameGateDecision("voice", decision, nowMs);
         if (!decision.keep) {
           return;
         }
@@ -410,17 +658,24 @@ export function useVoiceRoomSight(
     });
     sampler.start(video);
     return () => {
-      // The epoch bump is what stops a frame from a viewfinder the user has
-      // put away being persisted when its upload lands, which is the whole of
-      // what closing has to guarantee: nothing is staged for a later turn to
-      // pick up, so there is nothing to take back.
-      captureEpochRef.current += 1;
+      // What voids the work in flight for every other way a run can end: an
+      // unmount, a closed room, a `<video>` swapped under it. The revocation
+      // is the bump, so a run the user ended finds it already spent and this
+      // is a no-op against captures that have failed their guard once already.
+      revokeCaptureConsent();
       rebaseSendOrder();
       sampler.stop();
       gateRef.current = null;
       hold(null);
     };
-  }, [active, captureAndHold, hold, rebaseSendOrder, videoRef]);
+  }, [
+    active,
+    captureAndHold,
+    hold,
+    rebaseSendOrder,
+    revokeCaptureConsent,
+    videoRef,
+  ]);
 
   // A flip points the camera somewhere else entirely and mirrors it, so every
   // score against the old baseline is meaningless and every capture still
@@ -475,7 +730,10 @@ export function useVoiceRoomSight(
   // latch rather than an event: nothing it was sent was ever shared, so there
   // is no honest version of the thumbnail to leave up, and no correlation to
   // do to know that.
-  const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
+  //
+  // Only the thumbnail here. The mode comes down through `liveAvailable`, which
+  // the latch is a term of, so a Live that is running when it rises is ended by
+  // the same effect that ends one whose flag or assistant went away.
   useEffect(() => {
     if (!sightFramesUnsupported) {
       return;
@@ -500,5 +758,5 @@ export function useVoiceRoomSight(
     invalidateCaptures();
   }, [invalidateCaptures, reconnecting]);
 
-  return { heldFrame };
+  return { heldFrame, liveAvailable, live, setLive, revokeCaptureConsent };
 }
