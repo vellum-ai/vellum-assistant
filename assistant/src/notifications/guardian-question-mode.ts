@@ -15,10 +15,9 @@ import { z } from "zod";
 import { externalSourceLinkSchema } from "../messaging/channel-binding-schema.js";
 import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
 import {
-  escapeRegExp,
   nonEmpty,
-  normalizeStrippedText,
   stripReplyMechanicsFromCopy,
+  stripRequestCodeDirectives,
 } from "./notification-utils.js";
 import type { RenderedChannelCopy } from "./types.js";
 
@@ -596,40 +595,16 @@ export function buildGuardianDisambiguationExample(
   return `For ${category}: ${replyDirective.replace(/^Reply/, "reply")}`;
 }
 
-function buildApprovalInstructionPattern(escapedCode: string): RegExp {
-  return new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
-    "ig",
-  );
-}
-
-function buildAnswerInstructionPattern(escapedCode: string): RegExp {
-  return new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
-    "ig",
-  );
-}
-
 /**
- * Remove every request-code reply instruction (both modes) plus bare
- * "Reference code: X." / "Approval code: X." mentions from copy destined
- * for a surface that renders interactive Approve/Reject buttons, where
- * code-reply instructions are redundant noise.
+ * Remove every request-code reply instruction (both modes), paraphrased or
+ * negated, plus code mentions, from a guardian question's copy. One
+ * vocabulary with the access-request strip: {@link stripRequestCodeDirectives}.
  */
 export function stripGuardianRequestCodeInstructions(
   text: string,
   requestCode: string,
 ): string {
-  const escapedCode = escapeRegExp(requestCode);
-  const next = text
-    .replace(buildApprovalInstructionPattern(escapedCode), "")
-    .replace(buildAnswerInstructionPattern(escapedCode), "")
-    .replace(
-      new RegExp(`(?:Reference|Approval)\\s+code:\\s*${escapedCode}\\.?`, "ig"),
-      "",
-    );
-
-  return normalizeStrippedText(next);
+  return stripRequestCodeDirectives(text, requestCode);
 }
 
 /**

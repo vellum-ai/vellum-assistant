@@ -140,7 +140,8 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     const textBlock = textOf(buildAccessRequestSeedContentBlocks(basePayload));
     expect(textBlock.text).toContain("requesting access to the assistant");
     expect(textBlock.text).not.toContain("ABC123");
-    expect(textBlock.text).not.toContain("open invite flow");
+    // Context, not mechanics: no surface has an invite button.
+    expect(textBlock.text).toContain('Reply "open invite flow"');
   });
 
   test("body shows fallback when no preview/warnings/permalink", () => {

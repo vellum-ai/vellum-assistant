@@ -257,7 +257,7 @@ describe("notification decision strategy", () => {
       expect(copy.telegram!.body).not.toContain("D4E5F6");
     });
 
-    test("ingress.access_request template carries no invite-flow directive", () => {
+    test("ingress.access_request template carries the invite-flow directive: no surface has a button for it", () => {
       const signal = makeSignal({
         sourceEventName: "ingress.access_request",
         contextPayload: {
@@ -267,7 +267,7 @@ describe("notification decision strategy", () => {
 
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
-      expect(copy.vellum!.body).not.toContain("open invite flow");
+      expect(copy.vellum!.body).toContain("open invite flow");
     });
 
     test("ingress.access_request template includes revoked-member context when provided", () => {
@@ -682,7 +682,7 @@ describe("notification decision strategy", () => {
   });
 
   describe("access-request context text builder", () => {
-    test("carries identity, the revoked note, and no directives", () => {
+    test("carries identity, the revoked note, and the invite directive, but no code directive", () => {
       const text = buildAccessRequestContextText({
         senderIdentifier: "Alice",
         requestCode: "D4E5F6",
@@ -692,7 +692,8 @@ describe("notification decision strategy", () => {
       expect(text).toContain("Alice");
       expect(text).toContain("previously revoked");
       expect(text).not.toContain("D4E5F6");
-      expect(text).not.toContain("open invite flow");
+      // Context, not mechanics: nothing offers an invite button anywhere.
+      expect(text).toContain('Reply "open invite flow"');
     });
 
     test("omits the revoked note when not applicable", () => {
@@ -738,7 +739,7 @@ describe("notification decision strategy", () => {
       expect(text).toContain('"D4E5F6 trust"');
       expect(text).toContain('"D4E5F6 reject"');
       expect(text).toContain('"D4E5F6 block"');
-      expect(text).toContain("open invite flow");
+      expect(text).not.toContain("open invite flow");
     });
 
     test("workspace members get no verify directive", () => {
@@ -775,10 +776,10 @@ describe("notification decision strategy", () => {
       expect(text).toContain("A1B2C3 trust");
     });
 
-    test("is the invite directive alone when there is no request code", () => {
+    test("is empty when there is no request code: nothing to type", () => {
       expect(
         buildAccessRequestReplyMechanics({ senderIdentifier: "Charlie" }),
-      ).toBe('Reply "open invite flow" to start Trusted Contacts invite flow.');
+      ).toBe("");
     });
   });
 
@@ -794,8 +795,23 @@ describe("notification decision strategy", () => {
         "She is on the design team.",
       ].join("\n");
       expect(stripAccessRequestReplyMechanics(text, payload)).toBe(
-        "Alice wants access.\nShe is on the design team.",
+        'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.\nShe is on the design team.',
       );
+    });
+
+    test("removes the whole sentence, so a negated or paraphrased directive leaves no fragment", () => {
+      expect(
+        stripAccessRequestReplyMechanics(
+          'Alice wants access. Do not reply "A1B2C3 reject" to deny. She is on the design team.',
+          payload,
+        ),
+      ).toBe("Alice wants access. She is on the design team.");
+      expect(
+        stripAccessRequestReplyMechanics(
+          'Alice wants access.\nDon\'t reply "A1B2C3 approve" yet.\nUse request code A1B2C3 when you decide.',
+          payload,
+        ),
+      ).toBe("Alice wants access.");
     });
 
     test("is case-insensitive and catches a paraphrased approve/reject directive", () => {
@@ -815,7 +831,7 @@ describe("notification decision strategy", () => {
 
     test("a field that was only mechanics becomes the requester context; a title keeps its text", () => {
       const mechanics =
-        'Reply "A1B2C3 trust" to trust them, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+        'Reply "A1B2C3 trust" to trust them, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.';
       const stripped = stripAccessRequestReplyMechanicsFromCopy(
         {
           title: "Request code: A1B2C3",
@@ -836,13 +852,13 @@ describe("notification decision strategy", () => {
       expect(stripped.title).toBe("Request code: A1B2C3");
     });
 
-    test("strips the invite directive without a request code", () => {
+    test("leaves the invite directive alone: it is context", () => {
+      const text =
+        'Someone wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.';
       expect(
-        stripAccessRequestReplyMechanics(
-          'Someone wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.',
-          { senderIdentifier: "Someone" },
-        ),
-      ).toBe("Someone wants access.");
+        stripAccessRequestReplyMechanics(text, { senderIdentifier: "Someone" }),
+      ).toBe(text);
+      expect(stripAccessRequestReplyMechanics(text, payload)).toBe(text);
     });
   });
 

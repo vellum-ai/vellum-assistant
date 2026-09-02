@@ -198,6 +198,45 @@ describe("notification decision fallback copy", () => {
     );
   });
 
+  test("a paraphrased directive and a 'use reference code' sentence are stripped too", async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "LLM decision",
+        renderedCopy: {
+          vellum: {
+            title: "Guardian Question",
+            body: 'Allow running host_bash? Reply "A1B2C3 approve" to allow it. Use reference code A1B2C3 for this request.',
+          },
+        },
+        dedupeKey: "guardian-question-paraphrase-test",
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: "req-grant-3",
+        questionText: "Allow running host_bash?",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        toolName: "host_bash",
+      },
+    });
+
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toBe("Allow running host_bash?");
+  });
+
   test("copy that was nothing but mechanics becomes the request's own question", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
@@ -478,7 +517,8 @@ describe("access-request instruction enforcement", () => {
       const body = decision.renderedCopy[channel]?.body ?? "";
       expect(body).toContain("Alice");
       expect(body).not.toContain("A1B2C3");
-      expect(body).not.toContain("open invite flow");
+      // Context, not mechanics: no surface offers an invite button.
+      expect(body).toContain('Reply "open invite flow"');
     }
   });
 
@@ -544,7 +584,7 @@ describe("access-request instruction enforcement", () => {
     expect(decision.renderedCopy.vellum?.body).toBe("Alice wants access.");
   });
 
-  test("the full contract directive pair is stripped from model copy", async () => {
+  test("the code directive is stripped from model copy and the invite directive stays", async () => {
     const fullBody =
       'Alice wants access.\nReply "A1B2C3 verify" to send them a verification code, "A1B2C3 trust" to trust them without one, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start Trusted Contacts invite flow.';
     configuredProvider = {
@@ -573,7 +613,9 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toBe("Alice wants access.");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      'Alice wants access.\nReply "open invite flow" to start Trusted Contacts invite flow.',
+    );
   });
 
   test("the strip covers deliveryText and conversationSeedMessage too", async () => {
@@ -615,7 +657,7 @@ describe("access-request instruction enforcement", () => {
     );
   });
 
-  test("the invite directive is stripped even when the request has no code", async () => {
+  test("the invite directive stays even when the request has no code", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -649,7 +691,7 @@ describe("access-request instruction enforcement", () => {
 
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.renderedCopy.vellum?.body).toBe(
-      "Someone wants access to your assistant.",
+      'Someone wants access to your assistant.\nReply "open invite flow" to start Trusted Contacts invite flow.',
     );
   });
 });

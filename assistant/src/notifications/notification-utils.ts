@@ -313,9 +313,42 @@ export function sanitizeNotificationTitle(value: string): string {
  */
 export function normalizeStrippedText(value: string): string {
   return value
+    .replace(/(?<=\S)[ \t]{2,}(?=\S)/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+const DIRECTIVE_VERBS = "approve|reject|verify|trust|block|<your\\s+answer>";
+
+/**
+ * Remove request-code reply mechanics from copy: every sentence that quotes
+ * a `"CODE verb"` directive (`Reply "X approve" or "X reject"`, a paraphrase,
+ * or a negated form like `Do not reply "X reject"`), and every sentence that
+ * names a reference, approval, or request code together with the code
+ * (`Reference code: X.`, `Use reference code X for this request.`).
+ *
+ * Whole sentences go, never a suffix from "reply" onward, so no fragment
+ * like "Alice wants access. Do not" survives. A sentence is text between
+ * line breaks or `.!?` terminators. Sentences that mention other codes or
+ * merely contain the word "reply" are untouched.
+ */
+export function stripRequestCodeDirectives(
+  text: string,
+  requestCode: string,
+): string {
+  const code = escapeRegExp(requestCode);
+  const sentence = (core: string): RegExp =>
+    new RegExp(`[^.!?\\n]*${core}[^.!?\\n]*[.!?]?(?:[ \\t]*\\n)?`, "gi");
+  const next = text
+    .replace(sentence(`"${code}\\s+(?:${DIRECTIVE_VERBS})"`), "")
+    .replace(
+      sentence(
+        `\\b(?:reference|approval|request)\\s+code\\b[^.!?\\n]*?(?<![A-Z0-9])${code}(?![A-Z0-9])`,
+      ),
+      "",
+    );
+  return normalizeStrippedText(next);
 }
 
 /** Escape a literal for use inside a `RegExp` source string. */
@@ -337,9 +370,10 @@ export function stripReplyMechanicsFromCopy(
   strip: (text: string) => string,
   ask: string | undefined,
 ): RenderedChannelCopy {
+  const fallback = ask === undefined ? undefined : nonEmpty(ask);
   const stripField = (text: string): string => {
     const stripped = strip(text);
-    return stripped.length > 0 ? stripped : (ask ?? text);
+    return stripped.length > 0 ? stripped : (fallback ?? text);
   };
   const strippedTitle = strip(copy.title);
   return {

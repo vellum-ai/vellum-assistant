@@ -746,6 +746,31 @@ describe("NotificationBroadcaster question option actions", () => {
     );
   });
 
+  test("a coded question that fails strict parsing still carries its typed-reply instruction", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "pending_question",
+        requestId: "req-lenient-1",
+        requestCode: "abc999",
+        // A null requester id fails the strict schema (string | undefined).
+        requesterExternalUserId: null,
+        questionText: "What time works?",
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.requestId).toBe("req-lenient-1");
+    expect(approval?.actions).toEqual([]);
+    expect(approval?.plainTextFallback).toBe(
+      'Reference code: ABC999. Reply "ABC999 <your answer>".',
+    );
+  });
+
   test("tool_approval payloads keep the approve/reject action pair", async () => {
     const { adapter, sends } = makeCapturingAdapter("platform");
     const broadcaster = new NotificationBroadcaster([adapter]);

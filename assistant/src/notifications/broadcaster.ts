@@ -39,6 +39,7 @@ import {
   parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
   resolveGuardianInstructionModeFromPayload,
+  resolveGuardianQuestionInstructionMode,
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
@@ -116,7 +117,7 @@ function resolveApprovalContext(
 
     const parsed = parseInteractiveApprovalPayload(payload);
     if (!parsed) {
-      return undefined;
+      return resolveCodedTextContext(payload);
     }
     const requestId = parsed.requestId;
 
@@ -158,6 +159,37 @@ function resolveApprovalContext(
   }
 
   return undefined;
+}
+
+/**
+ * A `guardian.question` payload that fails strict parsing draws no buttons
+ * anywhere, so its only way to be answered is the typed reply. When it
+ * still names a request id and code, it gets a context with no actions and
+ * the instruction for its mode, which the transports render as text plus
+ * the instruction. Without those it is undefined, as before.
+ */
+function resolveCodedTextContext(
+  payload: Record<string, unknown>,
+): ResolvedApprovalContext | undefined {
+  const requestId = nonEmpty(
+    typeof payload.requestId === "string" ? payload.requestId : undefined,
+  );
+  const requestCode = nonEmpty(
+    typeof payload.requestCode === "string" ? payload.requestCode : undefined,
+  );
+  if (!requestId || !requestCode) {
+    return undefined;
+  }
+  return {
+    approval: {
+      requestId,
+      actions: [],
+      plainTextFallback: buildGuardianRequestCodeInstruction(
+        requestCode.toUpperCase(),
+        resolveGuardianQuestionInstructionMode(payload).mode,
+      ),
+    },
+  };
 }
 
 /**

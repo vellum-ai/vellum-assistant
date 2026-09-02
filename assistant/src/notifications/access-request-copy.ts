@@ -17,12 +17,11 @@ import {
   isHandshakeOffered,
 } from "../runtime/introduction-policy.js";
 import {
-  escapeRegExp,
   nonEmpty,
-  normalizeStrippedText,
   sanitizeIdentityField,
   sanitizeMessagePreview,
   stripReplyMechanicsFromCopy,
+  stripRequestCodeDirectives,
 } from "./notification-utils.js";
 import type { RenderedChannelCopy } from "./types.js";
 
@@ -240,10 +239,13 @@ export function buildAccessRequestInviteDirective(): string {
 
 /**
  * Guardian-facing context for an access request: who is asking, what they
- * said, any warnings, and where it came from. Carries no reply mechanics.
- * Those are {@link buildAccessRequestReplyMechanics}, and only the
- * broadcaster's `plainTextFallback` holds them, so a transport appends them
- * exactly when it sends text without buttons.
+ * said, any warnings, where it came from, and the invite-flow directive.
+ * The invite directive is context rather than mechanics because no surface
+ * offers a button for it: typing "open invite flow" is the only way to start
+ * it anywhere, so every surface has to say so. The request-code directive
+ * is {@link buildAccessRequestReplyMechanics}, and only the broadcaster's
+ * `plainTextFallback` holds it, so a transport appends it exactly when it
+ * sends text without buttons.
  *
  * Channel-agnostic by design: this reads the generic `contextPayload` and
  * renders the same on every channel. When `guardianResolutionSource` is
@@ -285,6 +287,8 @@ export function buildAccessRequestContextText(
     lines.push(source);
   }
 
+  lines.push(buildAccessRequestInviteDirective());
+
   if (
     (p.guardianResolutionSource === "vellum-anchor" ||
       p.guardianResolutionSource === "none") &&
@@ -300,76 +304,36 @@ export function buildAccessRequestContextText(
 /**
  * The typed-reply mechanics for an access request: the request-code
  * directive (verify, trust, reject, block; or trust, reject, block when no
- * handshake is offered) and the invite-flow directive. This is the
- * broadcaster's `plainTextFallback` for the card, appended to a message only
- * by a transport that sends text without buttons.
+ * handshake is offered). This is the broadcaster's `plainTextFallback` for
+ * the card, appended to a message only by a transport that sends text
+ * without buttons. Empty when the request carries no code, since there is
+ * then nothing to type.
  */
 export function buildAccessRequestReplyMechanics(
   payload: Record<string, unknown>,
 ): string {
   const p = parseAccessRequestPayload(payload);
   const requestCode = nonEmpty(p.requestCode);
-  const lines: string[] = [];
-  if (requestCode) {
-    const code = requestCode.toUpperCase();
-    if (isHandshakeOfferedForPayload(p)) {
-      lines.push(
-        `Reply "${code} verify" to send them a verification code, "${code} trust" to trust them without one, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
-      );
-    } else {
-      lines.push(
-        `Reply "${code} trust" to trust them, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
-      );
-    }
+  if (!requestCode) {
+    return "";
   }
-  lines.push(buildAccessRequestInviteDirective());
-  return lines.join("\n");
+  const code = requestCode.toUpperCase();
+  return isHandshakeOfferedForPayload(p)
+    ? `Reply "${code} verify" to send them a verification code, "${code} trust" to trust them without one, "${code} reject" to leave them unverified, or "${code} block" to block them.`
+    : `Reply "${code} trust" to trust them, "${code} reject" to leave them unverified, or "${code} block" to block them.`;
 }
 
 /**
- * Remove access-request reply mechanics the model wrote into composed copy:
- * any "Reply ..." sentence naming a `"CODE verb"` directive or the invite
- * flow, and bare "Request/Reference code: X" mentions. The sentence match
- * is deliberately shaped like the directives this module writes, so a
- * paraphrase that merely mentions the requester survives.
+ * Remove request-code reply mechanics the model wrote into composed copy
+ * ({@link stripRequestCodeDirectives}). The invite-flow directive is context
+ * and stays.
  */
 export function stripAccessRequestReplyMechanics(
   text: string,
   payload: Record<string, unknown>,
 ): string {
-  return stripMechanicsFromText(text, parseAccessRequestPayload(payload));
-}
-
-function stripMechanicsFromText(
-  text: string,
-  p: ParsedAccessRequestPayload,
-): string {
-  const requestCode = nonEmpty(p.requestCode);
-  // Each pattern also eats the line break after the sentence, so a directive
-  // that sat on its own line leaves no blank line behind.
-  let next = text.replace(
-    /reply\b[^.!?\n]*?"open invite flow"[^.!?\n]*[.!?]?\n?/gi,
-    "",
-  );
-  if (requestCode) {
-    const escaped = escapeRegExp(requestCode);
-    next = next
-      .replace(
-        new RegExp(
-          `reply\\b[^.!?\\n]*?"${escaped}\\s+(?:verify|trust|reject|block|approve)"[^.!?\\n]*[.!?]?\\n?`,
-          "gi",
-        ),
-        "",
-      )
-      .replace(
-        new RegExp(
-          `(?:Request|Reference|Approval)\\s+code:\\s*${escaped}\\.?\\n?`,
-          "gi",
-        ),
-        "",
-      );
-  }
-  return normalizeStrippedText(next);
+  const requestCode = nonEmpty(parseAccessRequestPayload(payload).requestCode);
+  return requestCode ? stripRequestCodeDirectives(text, requestCode) : text;
 }
 
 /**
@@ -380,10 +344,11 @@ export function stripAccessRequestReplyMechanicsFromCopy(
   copy: RenderedChannelCopy,
   payload: Record<string, unknown>,
 ): RenderedChannelCopy {
-  const p = parseAccessRequestPayload(payload);
+  const requestCode = nonEmpty(parseAccessRequestPayload(payload).requestCode);
   return stripReplyMechanicsFromCopy(
     copy,
-    (text) => stripMechanicsFromText(text, p),
+    (text) =>
+      requestCode ? stripRequestCodeDirectives(text, requestCode) : text,
     buildAccessRequestContextText(payload),
   );
 }

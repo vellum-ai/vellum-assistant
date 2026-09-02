@@ -228,9 +228,11 @@ describe("guardian-question-mode", () => {
     );
   });
 
-  test("stripGuardianRequestCodeInstructions leaves unrelated text and other codes intact", () => {
+  test("stripGuardianRequestCodeInstructions leaves other codes intact and strips a paraphrased directive for ours", () => {
     const text = 'Approval code: ZZZZZZ. Reply "A1B2C3 approve" if you agree.';
-    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(text);
+    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(
+      "Approval code: ZZZZZZ.",
+    );
   });
 
   test("parseInteractiveApprovalPayload accepts approval-mode payloads with a requestId", () => {
@@ -295,13 +297,30 @@ describe("guardian-question-mode", () => {
     expect(stripped.deliveryText).toBe("Allow bash to run ls /tmp?");
     // A title is a headline, so a code-only one keeps its text; a body with
     // no question to fall back on keeps its text rather than going empty.
-    const bare = stripGuardianReplyMechanicsFromCopy(
-      { ...instructionOnly, title: "Approval code: A1B2C3" },
-      "A1B2C3",
-      undefined,
-    );
-    expect(bare.title).toBe("Approval code: A1B2C3");
-    expect(bare.body).toBe(instructionOnly.body);
+    for (const ask of [undefined, ""]) {
+      const bare = stripGuardianReplyMechanicsFromCopy(
+        { ...instructionOnly, title: "Approval code: A1B2C3" },
+        "A1B2C3",
+        ask,
+      );
+      expect(bare.title).toBe("Approval code: A1B2C3");
+      expect(bare.body).toBe(instructionOnly.body);
+    }
+  });
+
+  test("stripGuardianRequestCodeInstructions removes paraphrased and negated directives as whole sentences", () => {
+    expect(
+      stripGuardianRequestCodeInstructions(
+        'Allow bash? Reply "A1B2C3 approve" to allow it, or do not reply "A1B2C3 reject". Thanks.',
+        "A1B2C3",
+      ),
+    ).toBe("Allow bash? Thanks.");
+    expect(
+      stripGuardianRequestCodeInstructions(
+        "Use reference code A1B2C3 for this request.\nThe code ZZ9999 is a ticket.",
+        "A1B2C3",
+      ),
+    ).toBe("The code ZZ9999 is a ticket.");
   });
 
   test("parseInteractiveApprovalPayload rejects answer-mode and unparseable payloads", () => {
