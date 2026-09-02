@@ -105,8 +105,8 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * ## Still open
  *
  * LUM-3511 for the MCP naming, and LUM-3512 for the `web_search` kind that two
- * panels disagree about. The shared-panel states (LUM-3510) are fixed, and the
- * stories for them now document the behaviour rather than the defect.
+ * panels disagree about. Every other treatment below documents behaviour the
+ * panel has, not a gap it is waiting on.
  */
 const meta: Meta<typeof ToolDetailPanel> = {
   title: "Chat/ToolDetailPanel",

@@ -141,19 +141,17 @@ export function ToolDetailBody({
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
-  // An empty string is a result: the tool ran and returned nothing. Treating
-  // it as absent made an empty file indistinguishable from a call still in
-  // flight, and dropped the Output section entirely (LUM-3510).
+  // An empty string is a result: the tool ran and returned nothing. Only an
+  // absent result means the call has not produced one yet.
   const hasResult = result !== undefined;
   const isEmptyResult = result === "";
   const isRunning = liveTc
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
   const isError = liveTc?.isError ?? detail.status === "error";
-  // Read live like the two flags above: a confirmation declined while the
-  // drawer is open has to reach it, not wait for a reopen. `isToolCallDenied`
-  // covers a prompt that expired as well as one refused, so the copy below has
-  // to be true of both.
+  // Live, like the two flags above: the decision can be stamped on the
+  // transcript while this drawer is open. `isToolCallDenied` covers a prompt
+  // that expired as well as one refused, so the copy below is true of both.
   const isDenied = liveTc
     ? isToolCallDenied(liveTc)
     : detail.status === "denied";
@@ -167,14 +165,16 @@ export function ToolDetailBody({
   const riskHint = getRiskToleranceHint(riskLevel);
   const riskStyle = getRiskBadgeWeakStyle(riskLevel);
 
-  // What the Output section says when it has no text to show: the call was
-  // refused, it returned nothing, or it has not finished yet.
+  // What the Output section says when it has no text to show. Every terminal
+  // call that produced nothing lands on `emptyOutput`, including one that was
+  // force-completed with no result at all, so the section always answers "what
+  // came back" rather than disappearing.
   const outputNoticeKey =
     isDenied && !hasResult
       ? "toolDetailPanel.denied"
-      : isEmptyResult
-        ? "toolDetailPanel.emptyOutput"
-        : "toolDetailPanel.running";
+      : isRunning
+        ? "toolDetailPanel.running"
+        : "toolDetailPanel.emptyOutput";
 
   // Tools with purpose-built activity UI replace the generic name/activity/JSON
   // block; those that also own their output suppress the shared Output section.
@@ -234,7 +234,7 @@ export function ToolDetailBody({
       {/* Output — the final result once present, else the live streamed tail
           while running, else a bare running placeholder. Suppressed for tools
           whose renderer already presents the result itself. */}
-      {!renderer?.ownsOutput && (hasResult || isRunning || isDenied) && (
+      {!renderer?.ownsOutput && (
         <div className="mt-5">
           <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
           {hasResult && !isEmptyResult ? (

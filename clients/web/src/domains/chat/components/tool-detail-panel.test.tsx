@@ -290,15 +290,18 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Show more")).toBeNull();
   });
 
-  test("hides the Output section when result is undefined", () => {
-    const { queryByText } = render(
+  test("reports no output for a call that finished without a result", () => {
+    const { getByText, getByTestId } = render(
       <ToolDetailPanel
         detail={makeDetail({ result: undefined, status: "completed" })}
         onClose={noop}
       />,
     );
 
-    expect(queryByText("Output")).toBeNull();
+    expect(getByText("Output")).toBeDefined();
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "The tool returned no output.",
+    );
   });
 
   test("shows a Running placeholder while running with no result", () => {
