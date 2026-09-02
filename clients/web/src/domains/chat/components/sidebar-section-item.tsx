@@ -21,8 +21,9 @@
 
 import type { ReactNode } from "react";
 
+import { Inbox } from "lucide-react";
+
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
-import { AssistantEyesMark } from "@/domains/chat/components/assistant-eyes-mark";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
@@ -35,8 +36,11 @@ import {
   assistantSectionLabel,
   sectionIcon,
 } from "@/domains/chat/utils/sidebar-section-icon";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
+import { contrastForeground } from "@/utils/avatar-tone";
 
 /**
  * The assistant section shows at most five realizations before scrolling
@@ -94,6 +98,17 @@ export function SidebarSectionItem({
      wants the name, and the same store is what the layout above reads. */
   const assistantName = useAssistantIdentityStore.use.name();
   const isAssistantSection = section.type === "assistant";
+  /* The accent hex, for choosing the disc glyph's ink in JS: `color-mix`
+     can pale a color but cannot answer "is this too light for white?", and
+     the yellow palette entry is. Null keeps every other section off the
+     avatar query, and null accent (custom-image / still-loading avatar) is
+     the case where the disc falls back to the plain surface anyway. */
+  const { components, traits } = useAssistantAvatar(
+    isAssistantSection ? assistantId : null,
+  );
+  const accentHex = isAssistantSection
+    ? resolveAvatarAccentHex(components, traits)
+    : null;
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -111,22 +126,30 @@ export function SidebarSectionItem({
     <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
-      /* The assistant's own eyes stand where the topic glyph would, because
-         this section is a person rather than a category — set in a disc of
-         the full avatar accent, the same treatment the switcher pill gives
-         the avatar. No `width` override: the mark's default is the per-style
-         hand-tuned base width from `assistant-eyes.ts`, the same sizing the
-         assistant cluster's own eyes use, so this disc and the pill at the
-         top of the rail draw the eyes at one size. `AssistantEyesMark`
-         renders `null` without a character avatar (custom image, or still
-         loading); the accent var is absent in exactly those cases too, so
-         the disc falls back to the same surface the label pill resolves to
-         and the pair reads as one plain pill rather than an empty colored
-         dot. */
+      /* The Inbox mark in the full-accent disc — the same disc the avatar's
+         eyes used to sit in, kept because it is what makes the header read
+         as this section's own; only the occupant changed. NOT the eyes: the
+         eyes are the assistant herself and stay exclusive to the cluster at
+         the top of the rail, or this header reads as a second switcher. The
+         glyph's ink is contrast-picked from the accent (white on the dark
+         and saturated palette entries, near-black on yellow) rather than a
+         fixed white; with no accent — custom-image or still-loading avatar,
+         exactly when `accentHex` is null — the disc falls back to the plain
+         lifted surface and the glyph to the tertiary ink every other
+         section's glyph wears. */
       iconNode={
         isAssistantSection ? (
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent,var(--surface-lift))]">
-            <AssistantEyesMark assistantId={assistantId} />
+            <Inbox
+              size={16}
+              aria-hidden
+              className={
+                accentHex ? undefined : "text-[var(--content-tertiary)]"
+              }
+              style={
+                accentHex ? { color: contrastForeground(accentHex) } : undefined
+              }
+            />
           </span>
         ) : undefined
       }

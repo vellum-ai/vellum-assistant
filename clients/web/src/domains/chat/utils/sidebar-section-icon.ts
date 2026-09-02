@@ -11,7 +11,7 @@
  * icon a user picked for a custom group.
  */
 
-import { MessageSquare, Pin, Sparkles, type LucideIcon } from "lucide-react";
+import { Inbox, MessageSquare, Pin, type LucideIcon } from "lucide-react";
 
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import {
@@ -63,11 +63,13 @@ export function sectionIcon(section: SidebarSection): LucideIcon {
     case "pinned":
       return Pin;
     case "assistant":
-      /* The section the assistant fills itself, so it carries the assistant's
-         own mark rather than a topic glyph. Sparkles is the app's established
-         "the model did this" signal (PromptLaunchButton, the empty-state
-         recipes); the avatar eyes take over in the tinted card. */
-      return Sparkles;
+      /* The tray her threads arrive in. Deliberately NOT the eyes or the
+         brain: the eyes are the assistant herself and stay exclusive to the
+         cluster at the top of the rail, the brain belongs to that cluster's
+         menu item, and reusing either here made the section read as a second
+         switcher. Inbox frames the section from the user's side - things
+         sent to you - and no other section uses it. */
+      return Inbox;
     case "recents":
       return RECENTS_SECTION_ICON;
     case "channel":

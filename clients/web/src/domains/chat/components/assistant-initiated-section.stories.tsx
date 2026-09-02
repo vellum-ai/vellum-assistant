@@ -18,8 +18,8 @@
  * breaking in the app.
  *
  * The avatar query is seeded with a real character from the bundled catalog,
- * so the eyes come from an actual eye style and the tint from an actual
- * palette color. `--avatar-accent` is published on `<html>` by
+ * so the tint under review comes from an actual palette color.
+ * `--avatar-accent` is published on `<html>` by
  * `useAvatarAccentVar` in the real app; Storybook does not mount `RootLayout`,
  * so each story sets it on its own wrapper, derived from the same traits.
  * Change the trait `color` id to audit the tint against other palette colors;
@@ -48,9 +48,9 @@ import { listPage } from "@/utils/conversation-list.test-helper";
 const ASSISTANT_ID = "asst-storybook";
 
 /**
- * A real character avatar from the bundled catalog: the eyes render from its
- * eye style, the tint from its palette color. Swap the `color` id to audit
- * other palette entries; the accent below is derived, so they cannot drift.
+ * A real character avatar from the bundled catalog: the tint renders from its
+ * palette color. Swap the `color` id to audit other palette entries; the
+ * accent below is derived, so they cannot drift.
  */
 const AVATAR_TRAITS: CharacterTraits = {
   bodyShape: "blob",
@@ -267,8 +267,9 @@ export const Unnamed: Story = {
 
 /**
  * Nothing yet — the state the section spends its first days in, and the only
- * reason it renders at zero at all. The brain glyph above the copy takes the
- * avatar accent, so hero and card tint come from the same identity.
+ * reason it renders at zero at all. Copy alone under the header: the
+ * section's Inbox mark already stands a line above, and the eyes and brain
+ * belong to the assistant cluster at the top of the rail.
  */
 export const Empty: Story = {
   args: { threads: [], assistantName: "Ada" },
@@ -276,7 +277,7 @@ export const Empty: Story = {
 
 /**
  * The custom-image / still-loading degradation: no accent var is published,
- * so the card is untinted and the brain glyph falls back to the tertiary ink.
+ * so the card and header fall back to the plain lifted surface.
  */
 export const EmptyCustomImageAvatar: Story = {
   args: { threads: [], assistantName: "Ada", withCharacterAvatar: false },

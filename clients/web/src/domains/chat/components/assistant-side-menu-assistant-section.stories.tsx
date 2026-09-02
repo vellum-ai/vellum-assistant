@@ -13,8 +13,8 @@
  * query resolve from cache, so the section list here is the one the app
  * builds, in the order the app orders it. Each section's rows come from its
  * own `useSectionConversations`, seeded the same way, and the avatar query is
- * seeded with a real character from the bundled catalog so the header eyes and
- * the accent tint are the avatar's own. No network, no daemon, no feature
+ * seeded with a real character from the bundled catalog so the switcher pill
+ * and the accent tint are the avatar's own. No network, no daemon, no feature
  * flag — the daemon's flag decides whether the `assistant` index row exists,
  * and seeding it is exactly the on state.
  *
@@ -48,10 +48,10 @@ import { listPage } from "@/utils/conversation-list.test-helper";
 const ASSISTANT_ID = "asst-storybook";
 
 /**
- * A real character avatar from the bundled catalog, so the header eyes, the
- * pill's avatar, and the section tint all come from one identity. Swap the
- * `color` id to audit the tint against other palette entries; the accent is
- * derived from it, so the two cannot drift apart.
+ * A real character avatar from the bundled catalog, so the switcher pill's
+ * avatar and the section tint come from one identity. Swap the `color` id to
+ * audit the tint against other palette entries; the accent is derived from
+ * it, so the two cannot drift apart.
  */
 const AVATAR_TRAITS: CharacterTraits = {
   bodyShape: "blob",
@@ -164,10 +164,10 @@ function seededClient(assistantThreads: Conversation[]): QueryClient {
     listPage(PINNED),
   );
 
-  /* The avatar, so the eyes in the section header and the switcher pill's
-     character render. Both spellings of the key carry it, since the hook
-     appends its manifest-support flag and a story cannot know which way that
-     resolves (same pattern as assistant-switcher.stories). */
+  /* The avatar, so the switcher pill's character renders. Both spellings of
+     the key carry it, since the hook appends its manifest-support flag and a
+     story cannot know which way that resolves (same pattern as
+     assistant-switcher.stories). */
   for (const supportsManifest of [true, false]) {
     client.setQueryData([...avatarQueryKey(ASSISTANT_ID), supportsManifest], {
       components: BUNDLED_COMPONENTS,
