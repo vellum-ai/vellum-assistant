@@ -102,6 +102,39 @@ describe("the display's edge glow", () => {
     expect(glowOf(container)).toBeNull();
   });
 
+  /**
+   * The session's screen reads reach this window the same way the flag does,
+   * and they are the half nothing else can stand in for: the flag says a
+   * session is open and only the count says the screen has actually been read.
+   */
+  test("flashes for a capture the session reported", () => {
+    const { container } = render(<CompanionWatchGlowPage />);
+    pushState({ ...STATE, watching: true, captureCount: 3 });
+    pushState({ ...STATE, watching: true, captureCount: 4 });
+    expect(
+      container.querySelector(".companion-watch-glow-flash"),
+    ).not.toBeNull();
+  });
+
+  /**
+   * This window is opened with the session and main answers it with the total
+   * it has been keeping. That number stands for reads taken before this
+   * window existed, so drawing it would present the last of them as one
+   * happening now.
+   */
+  test("does not flash for a capture it only inherited from main", () => {
+    const { container } = render(<CompanionWatchGlowPage />);
+    pushState({ ...STATE, watching: true, captureCount: 3 });
+    expect(container.querySelector(".companion-watch-glow-flash")).toBeNull();
+  });
+
+  test("reads a state that says nothing about captures as none", () => {
+    const { container } = render(<CompanionWatchGlowPage />);
+    pushState({ ...STATE, watching: true });
+    pushState({ ...STATE, watching: true });
+    expect(container.querySelector(".companion-watch-glow-flash")).toBeNull();
+  });
+
   test("is never something to point at", () => {
     const { container } = render(<CompanionWatchGlowPage />);
     pushState({ ...STATE, watching: true });

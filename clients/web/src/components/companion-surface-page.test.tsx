@@ -775,27 +775,32 @@ describe("dragging the companion surface", () => {
 });
 
 /**
- * The working ring is fed by two independent things: a live call's own phase,
- * and the flag the window owning the conversation publishes. A typed turn has
- * no call behind it, so it rides entirely on the flag, and these cover that it
- * survives the trip through main rather than only through the component.
+ * The creature's working pose is fed by two independent things: a live call's
+ * own phase, and the flag the window owning the conversation publishes. A
+ * typed turn has no call behind it, so it rides entirely on the flag, and
+ * these cover that it survives the trip through main rather than only through
+ * the component.
  */
-describe("the working ring on the page", () => {
-  test("lights for a typed turn, with no call running", async () => {
+describe("the working pose on the page", () => {
+  const CREATURE = { bodyShape: "burst", eyeStyle: "curious", color: "orange" };
+
+  test("is held for a typed turn, with no call running", async () => {
     STATE.working = true;
+    STATE.character = CREATURE;
 
     const { container } = render(<CompanionSurfacePage />);
 
     await waitFor(() => {
-      expect(container.querySelector(".companion-working-ring")).not.toBeNull();
+      expect(container.querySelector('[data-busy="true"]')).not.toBeNull();
     });
   });
 
-  test("stays dark when nothing is running", async () => {
+  test("is dropped when nothing is running", async () => {
+    STATE.character = CREATURE;
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
 
-    expect(container.querySelector(".companion-working-ring")).toBeNull();
+    expect(container.querySelector('[data-busy="true"]')).toBeNull();
   });
 });
 
@@ -854,55 +859,6 @@ describe("the watch session on the companion surface", () => {
     await waitFor(() => {
       expect(stopOf(container)).not.toBeNull();
     });
-  });
-
-  /**
-   * The session's screen reads reach this window the same way the flag does,
-   * and they are the half nothing else can stand in for: the flag says a
-   * session is open and only the count says the screen has actually been read.
-   */
-  test("draws a capture the session reported", async () => {
-    STATE.watching = true;
-    STATE.captureCount = 3;
-    const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(stopOf(container)).not.toBeNull();
-    });
-
-    pushState({ ...STATE, captureCount: 4 });
-
-    expect(container.querySelector(".companion-capture-pulse")).not.toBeNull();
-  });
-
-  /**
-   * This window is recreated on every reload, and main answers the new one
-   * with the total it has been keeping. That number stands for reads taken
-   * before this window existed, so drawing it would present the last of them
-   * as one happening now.
-   */
-  test("does not draw a capture it only inherited from main", async () => {
-    STATE.watching = true;
-    STATE.captureCount = 3;
-    const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(stopOf(container)).not.toBeNull();
-    });
-
-    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
-  });
-
-  /**
-   * A state that cannot say how many reads a session has taken has not
-   * established that it took any, the same bargain the flag itself is given.
-   */
-  test("reads a state that says nothing about captures as none", async () => {
-    STATE.watching = true;
-    const { container } = render(<CompanionSurfacePage />);
-    await waitFor(() => {
-      expect(stopOf(container)).not.toBeNull();
-    });
-
-    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
 
   /**

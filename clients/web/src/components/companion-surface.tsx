@@ -35,7 +35,6 @@ import type {
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
-import { COMPANION_CAPTURE_ACCENT } from "@/components/companion-accent";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -226,7 +225,7 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
  * collapse reads as the creature tucking into its own width rather than as a
  * differently sized object taking its place. The height is the one authored
  * number here: thin enough to read as a marker, tall enough to see against a
- * busy desktop and to carry the working ring around.
+ * busy desktop.
  *
  * **The box it is drawn in does not shrink with it.** That box is the drag
  * handle, the point the host positions the window around, and the rect the
@@ -541,36 +540,6 @@ export interface CompanionSurfaceProps {
   onWatchRetro?: (open: boolean) => void;
 
   /**
-   * How many times the running session has read the screen.
-   *
-   * Drawn as one brief flare of the ring per read, which is the difference
-   * between a surface that says a session is on and one that shows the thing
-   * the session actually does. A session is minutes long and its reads are
-   * three or four a minute, so the state and the events inside it are separate
-   * facts and each gets its own treatment: the lit ring for the session, a
-   * flare for each capture.
-   *
-   * **A number that only goes up, and only when a capture landed.** The
-   * runtime counts a read that came back and was kept, and everything between
-   * here and there passes the count along without inventing steps in it, so a
-   * flare drawn from a step is a capture that happened. Nothing on this surface
-   * may fill the gaps in: the cadence follows what the user is doing, and a
-   * pulse on a local timer would claim the machine read a screen it did not.
-   *
-   * Zero is a session that has not captured yet, which draws the ring and no
-   * flare.
-   *
-   * **A value, not an event.** This surface can meet a session at any point in
-   * it, and on macOS it routinely does: the renderer is recreated on a reload
-   * and the main process hands the new one the state it is holding, so a count
-   * of forty can arrive standing for a read that happened a minute ago. Only a
-   * step that lands inside a session this surface was already watching is a
-   * capture happening now, so a count that arrives with the session is a
-   * baseline and draws nothing.
-   */
-  captureCount?: number;
-
-  /**
    * Whether Teach is offered on the call row at all, which is the feature flag
    * rather than any fact about a session.
    *
@@ -628,52 +597,6 @@ export interface CompanionSurfaceProps {
   dictationText?: string;
 }
 
-/**
- * How many captures this surface has watched arrive, which is not the same as
- * how many the session has taken.
- *
- * {@link CompanionSurfaceProps.captureCount} is a running total that outlives
- * any one surface reading it. The macOS renderer is recreated on every reload
- * and the main process replays its retained state into the new one, so a
- * surface routinely meets a session already forty reads in. A flare drawn off
- * the value would present the last of those as a capture happening now, which
- * is the one thing this indicator must never do: it is worth something only
- * because a flare means the screen was read at that moment.
- *
- * So a step counts only when it lands inside a session this surface was
- * already watching. That covers both ways a total arrives without a capture
- * behind it: the first render, whatever the count is by then, and the jump
- * from nothing to a session already in progress, which is what a reload looks
- * like from here. What is left is a count moving under a session that was
- * running a moment ago, which is a read that just happened.
- *
- * The result is a key rather than a flag, so each step remounts the element and
- * replays a one-shot animation instead of a single node playing once for the
- * first capture and sitting still through the rest.
- *
- * Zero is nothing observed yet, which draws no flare. It returns to zero when
- * the session ends, so the next session starts from a baseline of its own
- * rather than the last flare replaying the moment the ring comes back on.
- */
-function useObservedCaptures(captureCount: number, watching: boolean): number {
-  const seen = useRef({ captureCount, watching });
-  const [observed, setObserved] = useState(0);
-
-  useEffect(() => {
-    const previous = seen.current;
-    seen.current = { captureCount, watching };
-    if (!watching) {
-      setObserved(0);
-      return;
-    }
-    if (previous.watching && captureCount > previous.captureCount) {
-      setObserved((count) => count + 1);
-    }
-  }, [captureCount, watching]);
-
-  return observed;
-}
-
 export function CompanionSurface({
   phase,
   assistantName = "",
@@ -696,7 +619,6 @@ export function CompanionSurface({
   watching = false,
   watchRetro,
   onWatchRetro,
-  captureCount = 0,
   watchEnabled = false,
   dictating,
   dictationText = "",
@@ -766,7 +688,6 @@ export function CompanionSurface({
    */
   const assistantWorking =
     working || (call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase));
-  const observedCaptures = useObservedCaptures(captureCount, watching);
   const reduce = useReducedMotion();
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentWidth, setContentWidth] = useState<number | null>(null);
@@ -892,70 +813,6 @@ export function CompanionSurface({
   const creatureLeft = inCall
     ? `calc(50% - ${width / 2 - INNER_GAP - creatureSlot / 2}px)`
     : "50%";
-
-  /**
-   * The creature's edge, lit for something running and flared for each capture.
-   *
-   * **On the avatar in every phase.** The creature is the one thing drawn in
-   * all of them and it holds one spot in the canvas, so the light stays where
-   * the eye already looks for this surface's state, and a working creature
-   * reads perfectly well beside an open pill. Handing it to the pill while
-   * expanded would move it to a different parent every time the pointer
-   * crossed, which unmounts the one-shot flare below and replays it for a
-   * capture that never happened.
-   */
-  const edge = (
-    <>
-      {/* Something running, as a light travelling around the edge. Drawn over
-          the creature so it reads as the creature's own border, and outside
-          the creature's box by a hair so it never crowds the artwork.
-
-          A turn burns it in the assistant's colour, a watch session in amber,
-          and the session's ring is drawn in every phase rather than only the
-          one named after it. The session also takes the colour when both are
-          true: the creature already carries the turn in its own pose, and a
-          capture running with nothing drawn over it is the worse of the two
-          failures. */}
-      {(assistantWorking || watching || summarizing) && (
-        <span
-          className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full"
-          style={{
-            ["--companion-ring-accent" as string]: watching
-              ? COMPANION_CAPTURE_ACCENT
-              : accentHex,
-          }}
-          aria-hidden
-        />
-      )}
-      {/* One capture, as a single breath of light around the same edge.
-
-          The ring says a session is running, which is a state; this says the
-          screen was read just now, which is an event, and the two need
-          different treatments or the second is invisible inside the first. The
-          same edge rather than a mark of its own, because the edge is already
-          where the user looks for this surface's state and a capture is that
-          state doing something.
-
-          Keyed by the captures this surface has watched arrive, so each one
-          remounts the element and replays a one-shot animation. That is the
-          whole mechanism: a step is a read the runtime took and kept, and
-          there is no other way for this to fire. It cannot pulse in a gap, it
-          cannot pulse for a read that failed, timed out, or was cut off by the
-          session ending, because none of those advance the count, and it
-          cannot pulse for the count a reload handed it, because a first value
-          is a baseline rather than a step. */}
-      {watching && observedCaptures > 0 && (
-        <span
-          key={observedCaptures}
-          className="companion-capture-pulse pointer-events-none absolute -inset-0.5 rounded-full"
-          style={{
-            ["--companion-ring-accent" as string]: COMPANION_CAPTURE_ACCENT,
-          }}
-          aria-hidden
-        />
-      )}
-    </>
-  );
 
   return (
     // The box the whole surface is drawn in: the canvas divided by the options
@@ -1106,7 +963,7 @@ export function CompanionSurface({
         // focused, morphing pose, which is the same treatment the chat avatar
         // uses while a reply is streaming: one vocabulary for "it is working"
         // wherever the user meets it.
-        busy={assistantWorking}
+        busy={assistantWorking || watching || summarizing}
         // At rest the creature tucks into a capsule. The same answer the pill's
         // own width reads, so the two collapse together and the surface goes to
         // its resting shape as one thing.
@@ -1121,7 +978,6 @@ export function CompanionSurface({
         // what this node carries. That is the avatar's box over the authored
         // one: the options scale on the box above cancels against `avatarRel`.
         restingScale={COMPANION_BASE_AVATAR_BOX / avatarBox}
-        edge={edge}
         style={{
           left: creatureLeft,
           top: lineAt(cardGrowth, 0),
@@ -1183,7 +1039,6 @@ function Avatar({
   attentive = false,
   collapsed = false,
   restingScale = 1,
-  edge,
   label,
   style,
   elementRef,
@@ -1210,8 +1065,6 @@ function Avatar({
    * it, which is the whole point of the setting.
    */
   restingScale?: number;
-  /** What the creature's edge is drawing. See `edge` in `CompanionSurface`. */
-  edge?: ReactNode;
   style?: CSSProperties;
   elementRef?: Ref<HTMLDivElement>;
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -1238,40 +1091,6 @@ function Avatar({
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
-      {/* The box the working ring is drawn around: the creature's whole box
-        while it is being looked at, the capsule at rest.
-
-        A ring is a statement about the shape it rides, so at rest it hugs the
-        capsule rather than circling the empty box the capsule sits in.
-
-        The ring is the only thing this node carries and the node is otherwise
-        invisible, because this box grows between the two shapes and anything
-        filling it grows with it: an accent inflating to the creature's box and
-        dissolving reads as a bubble popping rather than as the creature coming
-        out of the pill. The capsule is drawn beside it, at its own size.
-
-        One node either way, never remounted, which is what keeps the one-shot
-        capture flare from replaying: see `edge` in `CompanionSurface`. */}
-      <div
-        className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,transform] duration-300"
-        style={{
-          width: collapsed ? RESTING_BOX.width : COMPANION_BASE_AVATAR_BOX,
-          height: collapsed ? RESTING_BOX.height : COMPANION_BASE_AVATAR_BOX,
-          // Centred on the anchor, then scaled about that centre. The scale is
-          // stated on both sides rather than only the collapsed one, so the two
-          // states are the same transform list and interpolate cleanly.
-          transform: `translate(-50%, -50%) scale(${collapsed ? restingScale : 1})`,
-          // The easing the pill's own width uses, so the two halves of a
-          // surface waking up settle together rather than in sequence.
-          transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
-          // Nothing travels for a reader who asked for stillness. The shape
-          // still changes, it just arrives changed: the fades below are kept,
-          // since a cross-fade is not motion across the screen.
-          transitionDuration: reduce ? "0s" : undefined,
-        }}
-      >
-        {edge}
-      </div>
       {/* The capsule itself, drawn whole in the assistant's own colour.
 
         The colour is all that is left of the creature at this size, so it is
@@ -1314,7 +1133,8 @@ function Avatar({
           character={character}
           capsule={RESTING_BOX}
           // A working creature holds a focused pose, and stops blinking for the
-          // same reason. The ring is carrying the state; nothing else should.
+          // same reason. The creature is carrying the state; nothing else
+          // should.
           enabled={collapsed && !busy}
           className="absolute top-1/2 left-1/2 transition-opacity duration-200"
           style={{

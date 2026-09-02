@@ -105,9 +105,6 @@ export function CompanionSurfacePage() {
   const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
     undefined,
   );
-  // The running session's screen reads, counted. A step is the surface's only
-  // evidence a capture happened, so it arrives with the flag it belongs to.
-  const [captureCount, setCaptureCount] = useState(0);
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -166,10 +163,6 @@ export function CompanionSurfacePage() {
       setDictating(state.dictating);
       setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
-      // Absence is no reads, for the same reason absence is no session: a
-      // state that cannot say how much of the screen was taken has not
-      // established that any of it was.
-      setCaptureCount(state.captureCount ?? 0);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -450,7 +443,6 @@ export function CompanionSurfacePage() {
         // The reads that session has taken, which is what turns a running
         // session into something the user can see happening rather than
         // something they are told is on.
-        captureCount={captureCount}
         // The flag, from main. It hides the way into a session and leaves
         // everything a running one draws alone, so a session already going
         // when the flag turns off can still be seen and still be stopped.
