@@ -5,6 +5,7 @@ import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
+import { resolveVisibleInSourceNow } from "../../notifications/resolve-visible-in-source.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
@@ -133,7 +134,9 @@ function notifyBackgroundSkillUpdate(args: {
       requiresAction: false,
       urgency: "low",
       isAsyncBackground: true,
-      visibleInSourceNow: false,
+      visibleInSourceNow: resolveVisibleInSourceNow({
+        conversationId: args.conversationId,
+      }),
     },
   }).catch((err: unknown) => {
     log.warn(
