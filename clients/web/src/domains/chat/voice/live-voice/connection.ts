@@ -41,14 +41,14 @@
  * Shared with more than live voice
  * ---------------------------------------------------------------------------
  *
- * The transport pieces here are route-agnostic and have a second caller:
+ * The transport pieces here are route-agnostic: {@link resolveGatewayWsUrl},
  * {@link buildSelfHostedGatewayWsUrl}, {@link buildVelayWsUrl}, and
- * {@link mintVelayWsToken} are what a watch session dials through as well
- * (`domains/chat/watch/watch-controller.ts`). Only the `…LiveVoiceWsUrl`
- * wrappers and {@link resolveLiveVoiceWsUrl} are live voice's own. The file
- * keeps its name and its home because live voice is where the rules were
- * worked out and is still their principal user; the alternative is a second
- * module that restates them and drifts.
+ * {@link mintVelayWsToken} are what watch (`domains/chat/watch`) and the pod
+ * desktop (`domains/chat/desktop`) dial through as well. Only the
+ * `…LiveVoiceWsUrl` wrappers are live voice's own. The file keeps its name and
+ * its home because live voice is where the rules were worked out and is still
+ * their principal user; the alternative is a second module that restates them
+ * and drifts.
  */
 
 import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
@@ -67,6 +67,9 @@ import { assertHasResponse } from "@/utils/api-errors";
  * `VITE_VELAY_HOST` override nor the platform-host derivation applies.
  */
 const DEFAULT_VELAY_HOST = "velay.vellum.ai";
+
+/** The route both transports open, on the gateway either way. */
+const LIVE_VOICE_ROUTE = "/v1/live-voice";
 
 export class VelayWsTokenError extends Error {
   readonly status: number;
@@ -250,7 +253,7 @@ export function buildLiveVoiceWsUrl({
 }: BuildLiveVoiceWsUrlArgs): string {
   return buildVelayWsUrl({
     assistantId,
-    routePath: "/v1/live-voice",
+    routePath: LIVE_VOICE_ROUTE,
     token,
     params: conversationId ? { conversationId } : undefined,
   });
@@ -391,37 +394,44 @@ export function buildSelfHostedLiveVoiceWsUrl({
 }: BuildSelfHostedLiveVoiceWsUrlArgs): string {
   return buildSelfHostedGatewayWsUrl({
     ingressUrl,
-    routePath: "/v1/live-voice",
+    routePath: LIVE_VOICE_ROUTE,
     token,
     params: conversationId ? { conversationId } : undefined,
   });
 }
 
-export interface ResolveLiveVoiceWsUrlArgs {
+export interface ResolveGatewayWsUrlArgs {
   assistantId: string;
-  /** Optional conversation to attach the live-voice session to. */
-  conversationId?: string;
+  /** Gateway route to open, e.g. `/v1/live-voice` or `/v1/watch/stream`. */
+  routePath: string;
+  /** Names the stream in the not-ready error, e.g. `live voice`. */
+  label: string;
+  /** Extra query params to append after `token`. */
+  params?: Record<string, string>;
 }
 
 /**
- * Resolve the live-voice WebSocket URL for the current assistant, choosing the
- * transport by deployment kind (see the module doc comment):
+ * Resolve a gateway WebSocket URL for `assistantId`, choosing the transport by
+ * deployment kind (see the module doc comment). Live voice, watch, and the pod
+ * desktop all route through here.
  *
- * - **Self-hosted / local** — when {@link getSelfHostedIngressUrl} is primed,
+ * - **Self-hosted / local**: when {@link getSelfHostedIngressUrl} is primed,
  *   connect straight to the user's gateway with the actor edge JWT. No velay
  *   token-exchange happens. Throws {@link VelayWsTokenError} if the ingress is
  *   known but the actor token hasn't been provisioned yet (a brief post-hatch
  *   window), so the caller surfaces a connection failure rather than dialling an
  *   unauthenticated socket. A paired ingress throws
  *   {@link PairedVoiceUnavailableError} first: the paired proxy is HTTP-only,
- *   so no live-voice transport exists and the caller surfaces the
- *   voice-unavailable reason.
- * - **Cloud** — mint a short-lived velay WS token and build the velay URL.
+ *   so no WebSocket transport exists and the caller surfaces the
+ *   unavailable reason.
+ * - **Cloud**: mint a short-lived velay WS token and build the velay URL.
  */
-export async function resolveLiveVoiceWsUrl({
+export async function resolveGatewayWsUrl({
   assistantId,
-  conversationId,
-}: ResolveLiveVoiceWsUrlArgs): Promise<string> {
+  routePath,
+  label,
+  params,
+}: ResolveGatewayWsUrlArgs): Promise<string> {
   const ingressUrl = getSelfHostedIngressUrl();
   if (ingressUrl) {
     if (isPairedGatewayIngress(ingressUrl)) {
@@ -431,12 +441,39 @@ export async function resolveLiveVoiceWsUrl({
     if (!token) {
       throw new VelayWsTokenError(
         0,
-        "Self-hosted live voice has no actor token yet; the gateway isn't ready.",
+        `Self-hosted ${label} has no actor token yet; the gateway isn't ready.`,
       );
     }
-    return buildSelfHostedLiveVoiceWsUrl({ ingressUrl, conversationId, token });
+    return buildSelfHostedGatewayWsUrl({
+      ingressUrl,
+      routePath,
+      token,
+      params,
+    });
   }
 
   const { token } = await mintVelayWsToken(assistantId);
-  return buildLiveVoiceWsUrl({ assistantId, conversationId, token });
+  return buildVelayWsUrl({ assistantId, routePath, token, params });
+}
+
+export interface ResolveLiveVoiceWsUrlArgs {
+  assistantId: string;
+  /** Optional conversation to attach the live-voice session to. */
+  conversationId?: string;
+}
+
+/**
+ * Resolve the live-voice WebSocket URL for the current assistant. Thin wrapper
+ * over {@link resolveGatewayWsUrl} for the `/v1/live-voice` route.
+ */
+export function resolveLiveVoiceWsUrl({
+  assistantId,
+  conversationId,
+}: ResolveLiveVoiceWsUrlArgs): Promise<string> {
+  return resolveGatewayWsUrl({
+    assistantId,
+    routePath: LIVE_VOICE_ROUTE,
+    label: "live voice",
+    params: conversationId ? { conversationId } : undefined,
+  });
 }

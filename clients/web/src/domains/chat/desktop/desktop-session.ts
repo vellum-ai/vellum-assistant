@@ -1,50 +1,33 @@
 /**
- * One viewing session on the pod desktop: the socket, the noVNC client on
- * top of it, and the clipboard bridge between the two machines.
- *
- * **The socket is opened here, not by noVNC.** noVNC accepts a WebSocket-like
- * object in place of a URL, and that is what lets this module see the close
- * code: its own `disconnect` event carries only `{ clean }`, and the close
- * code is the runtime's only word on why a session ended (busy, unavailable,
- * failed). The close listener is registered before noVNC attaches, so it
- * runs first and the reason it reads wins over the generic `disconnect`.
- *
- * **Resize is the protocol's, not ours.** `resizeSession` makes noVNC send
- * RFB `SetDesktopSize` whenever the container changes size, which the pod's
- * X server honors natively. No control channel exists for it.
- *
- * Framework-agnostic on purpose: the panel is a thin React wrapper, and the
- * seams in {@link DesktopSessionOptions} let a test drive every ending
- * without a socket or a display.
+ * One viewing session on the pod desktop. The socket is opened here rather
+ * than by noVNC because noVNC's `disconnect` event carries only `{ clean }`
+ * and the close code is the runtime's only word on why a session ended; the
+ * close listener is registered before noVNC attaches so the coded reason wins.
  */
 
 import RFB from "@novnc/novnc";
 
+import { PairedVoiceUnavailableError } from "@/domains/chat/voice/live-voice/connection";
+
 import {
   desktopEndReasonForClose,
-  desktopEndReasonForResolveError,
   resolveDesktopStreamWsUrl,
   type DesktopEndReason,
 } from "./desktop-connection";
+
+/** Give up on a socket that has neither opened nor been refused by then. */
+const CONNECT_TIMEOUT_MS = 15_000;
 
 export type DesktopSessionState =
   | { kind: "connecting" }
   | { kind: "connected" }
   | { kind: "ended"; reason: DesktopEndReason };
 
-/** Injection seams for tests. */
-export interface DesktopSessionOptions {
-  webSocketFactory?: (url: string) => WebSocket;
-  /** Resolves the socket URL. Defaults to {@link resolveDesktopStreamWsUrl}. */
-  resolveWsUrl?: (assistantId: string) => Promise<string>;
-}
-
 export interface OpenDesktopSessionArgs {
   assistantId: string;
   /** The element noVNC renders its canvas into. */
   container: HTMLElement;
   onState: (state: DesktopSessionState) => void;
-  options?: DesktopSessionOptions;
 }
 
 export interface DesktopSession {
@@ -54,13 +37,13 @@ export interface DesktopSession {
 
 /**
  * Open a session against `assistantId`, reporting every state change through
- * `onState`. Never reports after `close()`.
+ * `onState`. The caller owns the initial "connecting" state. Never reports
+ * after `close()`.
  */
 export function openDesktopSession({
   assistantId,
   container,
   onState,
-  options = {},
 }: OpenDesktopSessionArgs): DesktopSession {
   let done = false;
   let ws: WebSocket | null = null;
@@ -95,7 +78,7 @@ export function openDesktopSession({
   const attach = (url: string): void => {
     let client: RFB;
     try {
-      ws = (options.webSocketFactory ?? ((u: string) => new WebSocket(u)))(url);
+      ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";
       ws.addEventListener("close", (event) => {
         end(desktopEndReasonForClose(event.code));
@@ -110,7 +93,12 @@ export function openDesktopSession({
     client.scaleViewport = true;
     client.resizeSession = true;
     client.clipViewport = false;
+
+    const connectTimer = setTimeout(() => end("lost"), CONNECT_TIMEOUT_MS);
+    teardown.push(() => clearTimeout(connectTimer));
+
     client.addEventListener("connect", () => {
+      clearTimeout(connectTimer);
       if (!done) {
         onState({ kind: "connected" });
       }
@@ -125,8 +113,10 @@ export function openDesktopSession({
       void navigator.clipboard?.writeText(event.detail.text).catch(() => {});
     });
 
-    // Local copy: text copied anywhere in this window is offered to the pod's
-    // clipboard, so a paste on the desktop finds it.
+    // Local copy: text copied in this window is offered to the pod's
+    // clipboard. Only an explicit copy gesture reaches the pod; the clipboard
+    // is never read on its own, since anything copied elsewhere is readable
+    // by the assistant once it lands there.
     const onCopy = (): void => {
       const text = document.getSelection()?.toString();
       if (text) {
@@ -135,26 +125,9 @@ export function openDesktopSession({
     };
     window.addEventListener("copy", onCopy);
     teardown.push(() => window.removeEventListener("copy", onCopy));
-
-    // Text copied in another app reaches the pod when the window comes back
-    // into focus. Reading the clipboard needs a permission the browser may
-    // withhold; a refusal leaves the remote clipboard as it was.
-    const onFocus = (): void => {
-      void navigator.clipboard
-        ?.readText()
-        .then((text) => {
-          if (!done && text) {
-            client.clipboardPasteFrom(text);
-          }
-        })
-        .catch(() => {});
-    };
-    window.addEventListener("focus", onFocus);
-    teardown.push(() => window.removeEventListener("focus", onFocus));
   };
 
-  onState({ kind: "connecting" });
-  void (options.resolveWsUrl ?? resolveDesktopStreamWsUrl)(assistantId).then(
+  void resolveDesktopStreamWsUrl(assistantId).then(
     (url) => {
       if (!done) {
         attach(url);
@@ -162,7 +135,9 @@ export function openDesktopSession({
     },
     (err: unknown) => {
       console.warn("desktop-session: no desktop transport", err);
-      end(desktopEndReasonForResolveError(err));
+      end(
+        err instanceof PairedVoiceUnavailableError ? "unavailable" : "failed",
+      );
     },
   );
 

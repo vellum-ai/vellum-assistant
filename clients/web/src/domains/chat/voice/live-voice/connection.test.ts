@@ -25,6 +25,7 @@ import {
   VelayWsTokenError,
   mintVelayWsToken,
   PairedVoiceUnavailableError,
+  resolveGatewayWsUrl,
   resolveLiveVoiceWsUrl,
 } from "./connection";
 
@@ -293,6 +294,68 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
     expect(url.hash).toBe("");
     expect(url.searchParams.get("a")).toBeNull();
     expect(url.searchParams.get("token")).toBe("actor-tok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveGatewayWsUrl — the routing every gateway WS shares
+// ---------------------------------------------------------------------------
+
+describe("resolveGatewayWsUrl", () => {
+  const args = {
+    assistantId: "asst-1",
+    routePath: "/v1/desktop/stream",
+    label: "desktop",
+  };
+
+  test("self-hosted: dials the ingress directly and mints nothing", async () => {
+    setSelfHostedConnection({
+      url: "http://localhost:8500",
+      token: "actor-jwt",
+    });
+
+    const url = new URL(await resolveGatewayWsUrl(args));
+
+    expect(url.origin).toBe("ws://localhost:8500");
+    expect(url.pathname).toBe("/v1/desktop/stream");
+    expect(url.searchParams.get("token")).toBe("actor-jwt");
+    expect(captured).toBeNull();
+  });
+
+  test("self-hosted: refuses before the actor token is provisioned, naming the stream", async () => {
+    setSelfHostedConnection({ url: "http://localhost:8500", token: null });
+
+    await expect(resolveGatewayWsUrl(args)).rejects.toThrow(
+      /Self-hosted desktop has no actor token yet/,
+    );
+    expect(captured).toBeNull();
+  });
+
+  test("paired: refuses outright rather than dialling an HTTP-only proxy", async () => {
+    setSelfHostedConnection({
+      url: "http://localhost:3000/assistant/__gateway-paired/asst-1",
+      token: "actor-jwt",
+    });
+
+    await expect(resolveGatewayWsUrl(args)).rejects.toBeInstanceOf(
+      PairedVoiceUnavailableError,
+    );
+    expect(captured).toBeNull();
+  });
+
+  test("managed: mints a velay token and dials velay with it, params included", async () => {
+    const url = new URL(
+      await resolveGatewayWsUrl({ ...args, params: { sampleRate: "16000" } }),
+    );
+
+    expect(captured?.body).toEqual({ assistantId: "asst-1" });
+    expect(url.protocol).toBe("wss:");
+    expect(url.host).toBe("velay.vellum.ai");
+    // The `/<assistantId>` prefix selects the tunnel; velay strips it to
+    // recover the upstream path it matches its allowlist against.
+    expect(url.pathname).toBe("/asst-1/v1/desktop/stream");
+    expect(url.searchParams.get("token")).toBe("tok-abc");
+    expect(url.searchParams.get("sampleRate")).toBe("16000");
   });
 });
 
