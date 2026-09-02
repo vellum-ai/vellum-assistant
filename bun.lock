@@ -564,6 +564,7 @@
         "@vellumai/electron-utils": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
+        "@vellumai/service-contracts": "workspace:*",
         "electron-store": "11.0.2",
         "jszip": "3.10.1",
       },
