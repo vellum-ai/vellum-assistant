@@ -352,6 +352,39 @@ describe("guardian-question-mode", () => {
     ).toEqual(copy);
   });
 
+  test("applyGuardianReplyMechanics replaces an instruction-only field with the question text on a card surface", () => {
+    const signal = {
+      sourceEventName: "guardian.question",
+      contextPayload: {
+        requestId: "req-3",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        questionText: "Allow bash to run ls /tmp?",
+        toolName: "bash",
+      },
+    } as const;
+    const instructionOnly = {
+      title: "Tool Grant Request",
+      body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+      deliveryText: "Approval code: A1B2C3",
+    };
+    const vellum = applyGuardianReplyMechanics(
+      instructionOnly,
+      "vellum",
+      signal,
+    );
+    expect(vellum.body).toBe("Allow bash to run ls /tmp?");
+    expect(vellum.deliveryText).toBe("Allow bash to run ls /tmp?");
+
+    // With no question text to fall back on, the field keeps its text rather
+    // than becoming empty copy the broadcaster would skip.
+    const bare = applyGuardianReplyMechanics(instructionOnly, "vellum", {
+      ...signal,
+      contextPayload: { ...signal.contextPayload, questionText: "" },
+    });
+    expect(bare.body).toBe(instructionOnly.body);
+  });
+
   test("parseInteractiveApprovalPayload rejects answer-mode and unparseable payloads", () => {
     // Answer mode: free-text questions get no Approve/Reject buttons.
     expect(

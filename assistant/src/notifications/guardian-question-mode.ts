@@ -786,16 +786,20 @@ function ensureGuardianRequestCodeInCopy(
 }
 
 /**
- * Instruction-only fields keep their original text rather than becoming
- * empty: downstream treats an empty body as missing copy.
+ * A field that was nothing but the instruction becomes the request's own
+ * question text, the producer's human-readable ask, so a card surface never
+ * shows the mechanics it exists to avoid. Without one it keeps its original
+ * text rather than becoming empty: downstream treats an empty body as
+ * missing copy.
  */
 function stripGuardianRequestCodeInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
+  fallbackText: string | undefined,
 ): RenderedChannelCopy {
   const strip = (text: string): string => {
     const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
-    return stripped.length > 0 ? stripped : text;
+    return stripped.length > 0 ? stripped : (fallbackText ?? text);
   };
 
   return {
@@ -833,7 +837,12 @@ export function applyGuardianReplyMechanics(
   }
   const requestCode = rawCode.trim().toUpperCase();
   if (!guardianCopyCarriesReplyMechanics(channel, signal.contextPayload)) {
-    return stripGuardianRequestCodeInCopy(copy, requestCode);
+    const questionText = signal.contextPayload.questionText;
+    return stripGuardianRequestCodeInCopy(
+      copy,
+      requestCode,
+      typeof questionText === "string" ? nonEmpty(questionText) : undefined,
+    );
   }
   const { mode } = resolveGuardianQuestionInstructionMode(
     signal.contextPayload,
