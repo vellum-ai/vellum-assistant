@@ -365,39 +365,38 @@ async function runAddressPrompt(
 }
 
 /**
- * Whether the address is free to bind to this contact.
+ * Say so when the address looks like somebody else's, without refusing.
  *
- * Advisory: the guardian can edit the address in the form, and the gateway
- * checks again before writing. This only saves opening a form that would be
- * refused. A failed lookup is not a refusal.
+ * This search reads the assistant mirror rather than the gateway, so a contact
+ * write whose mirror update failed can name a holder the gateway no longer has.
+ * The gateway checks again against its own rows and refuses there, so warning
+ * here surfaces the likely conflict without a stale read blocking a bind that
+ * would succeed.
  */
-async function addressIsBindable(
+async function warnIfAddressLooksTaken(
   channelType: string,
   address: string,
   targetContactId: string,
-  cmd: Command,
-): Promise<boolean> {
+): Promise<void> {
   const r = await cliIpcCall<{ ok: boolean; contacts: ContactWithChannels[] }>(
     "listContacts",
     { queryParams: { channelAddress: address, channelType } },
   );
   if (!r.ok) {
-    return true;
+    return;
   }
 
   const holder = (r.result?.contacts ?? []).find(
     (c) => c.id !== targetContactId,
   );
   if (!holder) {
-    return true;
+    return;
   }
 
-  writeError(
-    cmd,
-    `That ${channelType} address is already bound to "${holder.displayName}" (${holder.id}). Run 'assistant contacts merge <keepId> <donorId>' if they are the same person.`,
+  process.stderr.write(
+    `Warning: that ${channelType} address looks like it is already bound to "${holder.displayName}" (${holder.id}). ` +
+      `Submitting the form will be refused if it still is. Run 'assistant contacts merge <keepId> <donorId>' if they are the same person.\n`,
   );
-  process.exitCode = 1;
-  return false;
 }
 
 /**
@@ -781,16 +780,12 @@ export function registerContactsCommand(program: Command): void {
           if (!current) {
             return;
           }
-          if (
-            opts.address !== undefined &&
-            !(await addressIsBindable(
+          if (opts.address !== undefined) {
+            await warnIfAddressLooksTaken(
               opts.channel,
               opts.address,
               contactId,
-              cmd,
-            ))
-          ) {
-            return;
+            );
           }
           await runAddressPrompt(
             {

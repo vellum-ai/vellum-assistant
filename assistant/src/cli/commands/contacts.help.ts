@@ -370,8 +370,11 @@ see where the channel is going. Whatever address they submit binds to that
 contact, and no second contact is created. Unlike 'contacts prompt', the target
 is fixed by the id, not matched from the address.
 
-An address already held by a different contact is refused as a conflict naming
-that contact, and nothing is written. Two contacts cannot share one address.
+Two contacts cannot share one address. An address already held by a different
+contact is refused when the form is submitted, naming that contact, and nothing
+is written. Passing --address also checks up front and warns when it looks
+taken, without refusing: that check reads the local mirror, so only the refusal
+on submit is authoritative.
 
 ${FORM_NOTE}
 

@@ -262,9 +262,9 @@ describe("contacts channels add", () => {
     expect(stderr).toContain("assistant contacts list");
   });
 
-  test("an address another contact holds is refused before the form opens", async () => {
-    // The gateway would refuse this submission, so opening a form for it would
-    // spend a confirmation on a write that cannot land.
+  test("an address another contact holds is flagged, and the form still opens", async () => {
+    // This search reads the assistant mirror, so a stale row must not block a
+    // bind the gateway would accept. The gateway is what refuses.
     addressHolders = [{ id: "ct_2", displayName: "Bob" }];
 
     const { stderr } = await runAssistantCommandFull(
@@ -278,10 +278,10 @@ describe("contacts channels add", () => {
       "bob@example.com",
     );
 
-    expect(promptWasOpened()).toBe(false);
     expect(stderr).toContain('already bound to "Bob" (ct_2)');
     expect(stderr).toContain("assistant contacts merge");
-    expect(process.exitCode).toBe(1);
+    expect(promptWasOpened()).toBe(true);
+    expect(process.exitCode).toBeFalsy();
   });
 
   test("an address the target already holds is not a conflict", async () => {
