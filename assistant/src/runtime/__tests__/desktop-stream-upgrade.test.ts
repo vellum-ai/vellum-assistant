@@ -1,57 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
-import { mintToken } from "../auth/token-service.js";
 import { RuntimeHttpServer } from "../http-server.js";
-
-const savedAuthEnv = process.env.DISABLE_HTTP_AUTH;
-
-function mintGatewayToken(): string {
-  return mintToken({
-    aud: "vellum-daemon",
-    sub: "svc:gateway:self",
-    scope_profile: "gateway_ingress_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 3600,
-  });
-}
-
-function mintActorToken(): string {
-  return mintToken({
-    aud: "vellum-daemon",
-    sub: "actor:self:user-123",
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 3600,
-  });
-}
-
-const upgradeHeaders = {
-  Upgrade: "websocket",
-  Connection: "Upgrade",
-  "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-  "Sec-WebSocket-Version": "13",
-};
-
-function waitForClose(ws: WebSocket): Promise<CloseEvent> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("Timed out waiting for close")),
-      2000,
-    );
-    ws.addEventListener("close", (event) => {
-      clearTimeout(timer);
-      resolve(event);
-    });
-  });
-}
+import {
+  mintActorToken,
+  mintGatewayToken,
+  requireHttpAuth,
+  upgradeHeaders,
+  waitForClose,
+} from "./runtime-ws-test-utils.js";
 
 describe("RuntimeHttpServer /v1/desktop/stream upgrade", () => {
   let server: RuntimeHttpServer;
   let baseUrl: string;
+  let restoreAuthEnv: () => void;
 
   beforeEach(async () => {
-    delete process.env.DISABLE_HTTP_AUTH;
+    restoreAuthEnv = requireHttpAuth();
     const port = 21400 + Math.floor(Math.random() * 300);
     server = new RuntimeHttpServer({ port, hostname: "127.0.0.1" });
     await server.start();
@@ -60,11 +24,7 @@ describe("RuntimeHttpServer /v1/desktop/stream upgrade", () => {
 
   afterEach(async () => {
     await server.stop();
-    if (savedAuthEnv === undefined) {
-      delete process.env.DISABLE_HTTP_AUTH;
-    } else {
-      process.env.DISABLE_HTTP_AUTH = savedAuthEnv;
-    }
+    restoreAuthEnv();
   });
 
   test("refuses a non-private origin with 403", async () => {
