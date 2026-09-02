@@ -1054,4 +1054,151 @@ describe("useWebPresenceReport: Electron renderer", () => {
       focusedConversationId: "conv-1",
     });
   });
+
+  // The window keeps reporting visible, focused and unminimized from behind
+  // the lock screen, so every writer has to consult the latch instead. Without
+  // it the lock buys one report and the next tick hands suppression back.
+  describe("locked screen", () => {
+    test("a tick after a lock reports nothing", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    test("a tick after a suspend reports nothing", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.suspend", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    // Waking is not unlocking: the machine wakes to its lock screen.
+    test("a power resume behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("power.resume", {});
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // `app.attention` answers from the edge payload rather than from the
+    // presence read, so the latch has to reach it too.
+    test("an attention edge behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("app.attention", { attended: true });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // So does `app.resume`, which answers from the window signal.
+    test("a foreground edge behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("app.resume", { signal: "visibility" });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    // A fresh SSE open proves the transport, never where the user is.
+    test("an SSE reopen behind the lock screen stays invisible", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("sse.opened", { assistantId: "assistant-1", cause: "error" });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    test("an unlock lets reconciliation report visible again", async () => {
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      act(() => {
+        publish("power.lock", {});
+      });
+      await flushPresence();
+      act(() => {
+        publish("power.unlock", {});
+      });
+      await flushPresence();
+      postCalls.length = 0;
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+  });
 });
