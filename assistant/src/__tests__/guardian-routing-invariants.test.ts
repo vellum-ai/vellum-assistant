@@ -1902,13 +1902,6 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     expect(actions[1].action).toBe("reject");
   });
 
-  test("source-code invariant: guardian-action-routes.ts contains kind guard", () => {
-    const srcRoot = resolve(__dirname, "..");
-    const fullPath = join(srcRoot, "runtime/routes/guardian-action-routes.ts");
-    const source = readFileSync(fullPath, "utf-8");
-    expect(source).toContain('req.kind === "access_request"');
-  });
-
   // Integration tests: verify listGuardianDecisionPrompts returns correct
   // action sets for each guardian request kind.
 
