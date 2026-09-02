@@ -1785,9 +1785,9 @@ describe("the avatar's resting collapse", () => {
     expect(bobOf(container)?.parentElement?.style.opacity).toBe("1");
   });
 
-  /** The box the words are drawn in, which is the one with a live region. */
+  /** The box the words are drawn in, the one that takes its direction from them. */
   const transcriptBox = (container: HTMLElement) =>
-    container.querySelector<HTMLElement>("[aria-live][dir]");
+    container.querySelector<HTMLElement>("[dir=auto]");
 
   /**
    * The words are the point of the state. A speaker dictating into another
@@ -1846,6 +1846,8 @@ describe("the avatar's resting collapse", () => {
     expect(box?.className).toContain("overflow-hidden");
     expect(box?.getAttribute("dir")).toBe("auto");
     expect(box?.style.direction).toBe("");
+    // Revised several times a second; a live region would read every guess.
+    expect(box?.getAttribute("aria-live")).toBeNull();
   });
 
   /**

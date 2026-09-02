@@ -1639,12 +1639,16 @@ function DictatingBody({
            there were any, so the pill takes its dictating width once and
            holds it while the words change underneath. A box that grew with
            its words would be re-measured on every partial, and the pill's
-           width transition would run for as long as the speaker talked. */
+           width transition would run for as long as the speaker talked.
+ 
+           Not a live region. A recogniser revises its guess several times a
+           second, and a screen reader that announced each revision would be
+           reading the whole line over and over behind a user who is already
+           saying it. */
         <span
           dir="auto"
           className="flex justify-end overflow-hidden text-[12px] whitespace-nowrap text-white/85"
           style={{ width: TRANSCRIPT_WIDTH }}
-          aria-live="polite"
         >
           <span className="shrink-0">{words}</span>
         </span>
