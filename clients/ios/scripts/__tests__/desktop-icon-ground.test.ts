@@ -5,13 +5,14 @@
  * and a hand edit to one mirror leaves the two platforms shipping different
  * greens. The manifests also carry the same Display P3 encoding the iOS bundles
  * do, so an environment's ground is one value across every client. Windows has
- * no manifest to pin: it ships committed per-environment ICO assets, and their
- * parity is held by generating them from these strings plus the `clients/windows`
- * identity test, which asserts a distinct valid ICO per environment.
+ * no manifest to pin: it ships hand-rendered per-environment ICO assets, so
+ * this guard decodes each one and reads its ground back rather than trusting
+ * that whoever changed the palette also re-rendered the icons.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { inflateSync } from "node:zlib";
 
 const CLIENTS_DIR = join(import.meta.dir, "../../..");
 
@@ -51,6 +52,170 @@ function readIosFill(icon: string): string {
   return [...solids][0] as string;
 }
 
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+interface DecodedPng {
+  width: number;
+  height: number;
+  /** Row-major RGBA bytes. */
+  pixels: Buffer;
+}
+
+/** The ICO entries are all 32bpp PNGs, so the smallest one decodes the fastest. */
+function readSmallestIcoEntry(environment: string): Buffer {
+  const ico = readFileSync(
+    join(CLIENTS_DIR, "windows/build-resources/icons", environment, "icon.ico"),
+  );
+  const entries = Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
+    const record = 6 + index * 16;
+    return {
+      width: ico[record] || 256,
+      length: ico.readUInt32LE(record + 8),
+      offset: ico.readUInt32LE(record + 12),
+    };
+  }).sort((left, right) => left.width - right.width);
+  const smallest = entries[0] as { length: number; offset: number };
+  const entry = ico.subarray(
+    smallest.offset,
+    smallest.offset + smallest.length,
+  );
+  expect([...entry.subarray(0, 8)]).toEqual(PNG_SIGNATURE);
+  return entry;
+}
+
+/** The bytes an unfiltered scanline adds back, Paeth included. */
+function unfilter(
+  filter: number,
+  left: number,
+  up: number,
+  upLeft: number,
+): number {
+  if (filter === 0) {
+    return 0;
+  }
+  if (filter === 1) {
+    return left;
+  }
+  if (filter === 2) {
+    return up;
+  }
+  if (filter === 3) {
+    return (left + up) >> 1;
+  }
+  if (filter !== 4) {
+    throw new Error(`unknown PNG scanline filter ${filter}`);
+  }
+  const estimate = left + up - upLeft;
+  const toLeft = Math.abs(estimate - left);
+  const toUp = Math.abs(estimate - up);
+  const toUpLeft = Math.abs(estimate - upLeft);
+  if (toLeft <= toUp && toLeft <= toUpLeft) {
+    return left;
+  }
+  return toUp <= toUpLeft ? up : upLeft;
+}
+
+/** Enough of the PNG spec to read an 8-bit RGBA entry: no palette, no interlace. */
+function decodePng(png: Buffer): DecodedPng {
+  let width = 0;
+  let height = 0;
+  const deflated: Buffer[] = [];
+  for (let cursor = 8; cursor < png.length;) {
+    const length = png.readUInt32BE(cursor);
+    const type = png.toString("ascii", cursor + 4, cursor + 8);
+    const data = png.subarray(cursor + 8, cursor + 8 + length);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      expect([data[8], data[9], data[12]]).toEqual([8, 6, 0]);
+    } else if (type === "IDAT") {
+      deflated.push(data);
+    }
+    cursor += length + 12;
+  }
+  const raw = inflateSync(Buffer.concat(deflated));
+  const stride = width * 4;
+  const pixels = Buffer.alloc(stride * height);
+  for (let row = 0; row < height; row += 1) {
+    const filter = raw[row * (stride + 1)] as number;
+    const scanline = row * (stride + 1) + 1;
+    for (let byte = 0; byte < stride; byte += 1) {
+      const left = byte >= 4 ? (pixels[row * stride + byte - 4] as number) : 0;
+      const up = row > 0 ? (pixels[(row - 1) * stride + byte] as number) : 0;
+      const upLeft =
+        byte >= 4 && row > 0
+          ? (pixels[(row - 1) * stride + byte - 4] as number)
+          : 0;
+      pixels[row * stride + byte] =
+        ((raw[scanline + byte] as number) +
+          unfilter(filter, left, up, upLeft)) &
+        0xff;
+    }
+  }
+  return { width, height, pixels };
+}
+
+/** The V mark covers part of every entry, so the ground is the modal pixel. */
+function dominantOpaqueColor({ width, height, pixels }: DecodedPng): number[] {
+  const counts = new Map<number, number>();
+  for (let index = 0; index < width * height * 4; index += 4) {
+    if (pixels[index + 3] !== 0xff) {
+      continue;
+    }
+    const packed =
+      ((pixels[index] as number) << 16) |
+      ((pixels[index + 1] as number) << 8) |
+      (pixels[index + 2] as number);
+    counts.set(packed, (counts.get(packed) ?? 0) + 1);
+  }
+  let dominant = 0;
+  let seen = 0;
+  for (const [packed, count] of counts) {
+    if (count > seen) {
+      seen = count;
+      dominant = packed;
+    }
+  }
+  expect(seen).toBeGreaterThan(0);
+  return [(dominant >> 16) & 0xff, (dominant >> 8) & 0xff, dominant & 0xff];
+}
+
+function linearize(component: number): number {
+  return component <= 0.04045
+    ? component / 12.92
+    : ((component + 0.055) / 1.055) ** 2.4;
+}
+
+function quantize(component: number): number {
+  const clamped = Math.min(1, Math.max(0, component));
+  const encoded =
+    clamped <= 0.0031308
+      ? clamped * 12.92
+      : 1.055 * clamped ** (1 / 2.4) - 0.055;
+  return Math.round(encoded * 255);
+}
+
+/**
+ * The same rotation `clients/linux/scripts/generate-icon.sh` renders through:
+ * both spaces share the sRGB transfer pair, so only the primaries move.
+ */
+function p3ToSrgb(fill: string): number[] {
+  const [r = 0, g = 0, b = 0] = fill
+    .replace("display-p3:", "")
+    .split(",")
+    .map((component) => linearize(Number(component)));
+  const x =
+    0.4865709486482162 * r + 0.26566769316909306 * g + 0.1982172852343625 * b;
+  const y =
+    0.2289745640697488 * r + 0.6917385218365064 * g + 0.079286914093745 * b;
+  const z = 0.04511338185890264 * g + 1.043944368900976 * b;
+  return [
+    3.2409699419045226 * x - 1.537383177570094 * y - 0.4986107602930034 * z,
+    -0.9692436362808796 * x + 1.8759675015077202 * y + 0.04155505740717559 * z,
+    0.05563007969699366 * x - 0.20397695888897652 * y + 1.0569715142428786 * z,
+  ].map(quantize);
+}
+
 describe("desktop icon ground", () => {
   for (const environment of ENVIRONMENTS) {
     test(`${environment} reads the same on macOS and Linux`, () => {
@@ -63,6 +228,13 @@ describe("desktop icon ground", () => {
   for (const { environment, icon } of STANDARDIZED) {
     test(`${environment} matches ${icon}`, () => {
       expect(readDesktopFill("macos", environment)).toBe(readIosFill(icon));
+    });
+  }
+
+  for (const { environment, icon } of STANDARDIZED) {
+    test(`the ${environment} Windows ICO renders ${icon}'s ground`, () => {
+      const decoded = decodePng(readSmallestIcoEntry(environment));
+      expect(dominantOpaqueColor(decoded)).toEqual(p3ToSrgb(readIosFill(icon)));
     });
   }
 

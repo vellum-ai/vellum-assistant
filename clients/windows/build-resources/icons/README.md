@@ -12,6 +12,9 @@ cover installed shortcuts, Explorer, the taskbar, and high-DPI displays.
 The three shipped grounds are the same palette the macOS, Linux, and iOS icon
 manifests carry. Windows has no generator in the tree, so an environment's ICO
 has to be re-rendered by hand when its ground changes.
+`clients/ios/scripts/__tests__/desktop-icon-ground.test.ts` decodes each of
+those ICOs and holds its ground to the matching iOS bundle, so a palette change
+that skips the re-render fails there.
 `scripts/identity-assets.test.ts` holds the size set and the
 one-ICO-per-environment guarantee.
 

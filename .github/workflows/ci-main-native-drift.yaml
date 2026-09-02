@@ -26,6 +26,9 @@ on:
       - 'clients/ios/App/App/Config/**'
       - 'clients/macos/build-resources/icons/**'
       - 'clients/linux/build-resources/icons/**'
+      # Windows ships rendered ICOs instead of a manifest, and the drift guard
+      # decodes their grounds.
+      - 'clients/windows/build-resources/icons/**'
       # Both native shells embed the web layer's marketing attribution
       # allowlist; the same drift tests pin the two copies to it.
       - 'clients/web/src/domains/account/social-auth.ts'
