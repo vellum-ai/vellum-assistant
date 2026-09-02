@@ -5,8 +5,9 @@
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, and webhook secret. (Velay tunnel status
  *     lives on the gateway — see gateway_status.)
- *   - platform_connect (POST platform/connect): checks existing credentials
- *     and emits the show_platform_login signal to connected clients.
+ *   - platform_connect (POST platform/connect): reports whether the stored
+ *     credentials still connect, and when the stored key has been rejected,
+ *     says so, so the caller can tell the user what replaces it.
  *   - platform_disconnect (POST platform/disconnect): deletes stored platform
  *     credentials and emits platform_disconnected signal.
  *   - platform_callback_routes_register (POST platform/callback-routes/register):
@@ -24,6 +25,11 @@
  *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
+import {
+  type PlatformCredentialVerificationStatus,
+  type PlatformVerifyCredentialResponse,
+  PlatformVerifyCredentialResponseSchema,
+} from "@vellumai/service-contracts/platform-credential";
 import { z } from "zod";
 
 import { isPlatformRemote } from "../../config/env-registry.js";
@@ -80,8 +86,16 @@ const PlatformConnectResponseSchema = z.object({
   alreadyConnected: z.boolean().optional(),
   baseUrl: z.string().optional(),
   showPlatformLogin: z.boolean().optional(),
+  /**
+   * The stored managed credential exists but the platform rejects it. Distinct
+   * from "nothing stored": the user is not setting up, they are recovering,
+   * and what replaces the key is a fresh sign-in, not a first one.
+   */
+  credentialRejected: z.boolean().optional(),
 });
-type PlatformConnectResponse = z.infer<typeof PlatformConnectResponseSchema>;
+export type PlatformConnectResponse = z.infer<
+  typeof PlatformConnectResponseSchema
+>;
 
 const PlatformDisconnectResponseSchema = z.object({
   disconnected: z.literal(true),
@@ -249,17 +263,72 @@ async function handlePlatformConnect(
     ),
   ]);
 
+  // Stored credentials only count as a connection while they still
+  // authenticate. Answering "already connected" for a key the platform has
+  // rejected would report nothing to do about the one thing that needs doing,
+  // and no client would get the signal to rotate it.
+  //
+  // Checked here rather than read from a cache: connect is a deliberate user
+  // action, so one request is affordable, and an answer computed now cannot go
+  // stale between the check and the answer. An unreachable platform leaves the
+  // stored credentials counting as a connection, so a network problem never
+  // strands a working install by reporting it disconnected.
+  let credentialRejected = false;
   if (existingUrl && existingApiKey) {
-    return {
-      alreadyConnected: true,
-      baseUrl: existingUrl,
-    };
+    const verified = await verifyStoredCredential();
+    if (verified !== "rejected") {
+      return {
+        alreadyConnected: true,
+        baseUrl: existingUrl,
+      };
+    }
+    credentialRejected = true;
   }
 
-  // Emit signal for connected clients to show the platform login UI
+  // The outcome travels in the response, where the CLI reads it and tells the
+  // user what to do. Nothing shipped consumes the signal below, so the
+  // response is the only path the answer reaches anyone by.
   broadcastMessage({ type: "show_platform_login" });
 
-  return { showPlatformLogin: true };
+  return credentialRejected
+    ? { showPlatformLogin: true, credentialRejected: true }
+    : { showPlatformLogin: true };
+}
+
+/**
+ * Ask the platform whether the stored managed credential authenticates.
+ * Nothing is stored: each caller that needs the answer asks, so there is no
+ * verdict to go stale.
+ *
+ * Shared by the verification route and by connect, so the two cannot disagree
+ * about what "connected" means. Never throws: an unsettled answer is
+ * `"unknown"`, which no caller treats as evidence of a dead credential.
+ */
+async function verifyStoredCredential(): Promise<PlatformCredentialVerificationStatus> {
+  try {
+    const { checkAssistantApiKey } =
+      await import("../../credential-health/credential-health-service.js");
+    const result = await checkAssistantApiKey();
+    if (result === null) {
+      // No platform identity at all, so there is nothing to verify.
+      return "unknown";
+    }
+    if (result.status === "healthy") {
+      return "valid";
+    }
+    if (result.status === "revoked" || result.status === "missing_token") {
+      return "rejected";
+    }
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function handlePlatformVerifyCredential(
+  _args: RouteHandlerArgs,
+): Promise<PlatformVerifyCredentialResponse> {
+  return { status: await verifyStoredCredential() };
 }
 
 async function handlePlatformDisconnect(
@@ -711,10 +780,30 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Connect to the Vellum Platform",
     description:
-      "Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.",
+      "Checks whether the stored platform credentials still connect. Reports a stored key the platform rejects as credentialRejected, so the caller can direct the user to sign in again and replace it.",
     tags: ["platform"],
     handler: handlePlatformConnect,
     responseBody: PlatformConnectResponseSchema,
+  },
+  {
+    operationId: "platform_verify_credential",
+    endpoint: "platform/verify-credential",
+    method: "POST",
+    // The in-app repair calls this through the gateway with an actor token,
+    // the same caller shape as platform_status, so it takes that route's
+    // principal bundle. A local-only policy would 403 every browser repair
+    // after it had already rotated and stored the replacement. Read scope:
+    // the route performs a check and mutates nothing.
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Verify the Vellum-managed credential against the platform",
+    description:
+      "Asks the platform whether the stored assistant API key authenticates. POST because it performs a check; the result is returned, not stored.",
+    tags: ["platform"],
+    handler: handlePlatformVerifyCredential,
+    responseBody: PlatformVerifyCredentialResponseSchema,
   },
   {
     operationId: "platform_disconnect",

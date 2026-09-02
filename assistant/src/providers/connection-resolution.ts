@@ -387,9 +387,23 @@ export async function tryResolveProviderForConnectionName(
     });
     return attachProviderRoute(provider, connection);
   } catch (err) {
+    if (err instanceof ConnectionResolutionError) {
+      throw err;
+    }
+    if (
+      err instanceof Error &&
+      /unresolved routing identity/.test(err.message)
+    ) {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "adapter_unavailable",
+        err.message,
+        { cause: err, model },
+      );
+    }
     log.warn(
       { err, connectionName },
-      "provider_connection auth resolution failed transiently — returning null",
+      "provider_connection auth resolution failed transiently: returning null",
     );
     return null;
   }
@@ -457,6 +471,20 @@ async function resolveThroughPlatform(
       { model, providerOverride: upstream },
     );
   } catch (err) {
+    if (err instanceof ConnectionResolutionError) {
+      throw err;
+    }
+    if (
+      err instanceof Error &&
+      /unresolved routing identity/.test(err.message)
+    ) {
+      throw new ConnectionResolutionError(
+        VELLUM_MANAGED_CONNECTION_NAME,
+        "adapter_unavailable",
+        err.message,
+        { cause: err, model },
+      );
+    }
     log.warn({ err }, "Platform fallback auth resolution failed transiently");
     return null;
   }

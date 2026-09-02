@@ -414,3 +414,80 @@ describe("unsendable-image notice", () => {
     );
   });
 });
+
+describe("resolveMediaReferences file workspace_ref stay-on-disk", () => {
+  beforeEach(resetTables);
+
+  test("does not inline over-cap text or extracted_text", async () => {
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "oversized-content.txt",
+      "text/plain",
+      Buffer.from("hello-over-cap").toString("base64"),
+    );
+    const messages: Message[] = [
+      userMessage([
+        {
+          type: "file",
+          source: {
+            type: "workspace_ref",
+            media_type: "text/plain",
+            attachmentId: stored.id,
+            sizeBytes: 8_000_001,
+            filename: "oversized-content.txt",
+          },
+          extracted_text: "this dump must not be resent",
+        },
+      ]),
+    ];
+
+    const resolved = await resolveMediaReferences(messages);
+    const block = resolved[0]!.content[0]!;
+    expect(block.type).toBe("file");
+    if (block.type !== "file") {
+      throw new Error("expected a file block");
+    }
+    expect(block.source.type).toBe("workspace_ref");
+    expect(block.extracted_text).toBeUndefined();
+    expect(JSON.stringify(resolved)).not.toContain("this dump must not be resent");
+    expect(JSON.stringify(resolved)).not.toContain("hello-over-cap");
+  });
+
+  test("does not inline video bytes or extracted_text", async () => {
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "clip.mp4",
+      "video/mp4",
+      Buffer.from("not-a-real-video").toString("base64"),
+    );
+    const messages: Message[] = [
+      userMessage([
+        {
+          type: "file",
+          source: {
+            type: "workspace_ref",
+            media_type: "video/mp4",
+            attachmentId: stored.id,
+            sizeBytes: stored.sizeBytes,
+            filename: "clip.mp4",
+          },
+          extracted_text: "dump of the video as text",
+        },
+      ]),
+    ];
+
+    const resolved = await resolveMediaReferences(messages);
+    const block = resolved[0]!.content[0]!;
+    expect(block.type).toBe("file");
+    if (block.type !== "file") {
+      throw new Error("expected a file block");
+    }
+    expect(block.source.type).toBe("workspace_ref");
+    expect(block.extracted_text).toBeUndefined();
+    expect(JSON.stringify(resolved)).not.toContain("dump of the video");
+  });
+});

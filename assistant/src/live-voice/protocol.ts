@@ -272,7 +272,9 @@ export interface LiveVoiceClientAttachFrameFrame {
  * "sight_frame"` and `recoverable: true`: the session is fine and only this
  * frame failed. Attributing it is what lets the client retract the preview it
  * already showed instead of filing the error with the transient transcriber
- * and TTS blips that share `recoverable`.
+ * and TTS blips that share `recoverable`. The refusal echoes the frame's
+ * `attachmentId` too, because keeps overlap: see that field on
+ * {@link LiveVoiceErrorServerFrame}.
  */
 export interface LiveVoiceClientSightFrameFrame {
   readonly type: "sight_frame";
@@ -602,6 +604,23 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    * from older daemons) means the error is terminal for the session.
    */
   readonly recoverable?: boolean;
+  /**
+   * The attachment the refused frame named, present on `sight_frame`
+   * rejections so the client can retire the exact keep that failed.
+   *
+   * `frameType` alone only narrows a rejection to the keep stream, and that
+   * stream is the one place several sends are routinely outstanding at once:
+   * the camera keeps shooting while a persist waits out a running turn, so a
+   * client holding three unacknowledged keeps cannot tell which of them this
+   * error is about. Naming the id is what turns "a frame failed" into "this
+   * preview comes down".
+   *
+   * Optional, and no other error path populates it: a parse failure has no
+   * id to name, and the other frames carrying an attachment have at most one
+   * in flight, which `frameType` already identifies. Clients must tolerate
+   * an absent id and must not gate any behavior on its presence.
+   */
+  readonly attachmentId?: string;
 }
 
 export type LiveVoiceServerFrame =

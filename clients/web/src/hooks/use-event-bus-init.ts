@@ -34,6 +34,7 @@ import { setupQueryFocusManager } from "@/lib/query-focus-manager";
 import { subscribeSwitchTelemetry } from "@/lib/telemetry/switch-telemetry";
 import { publishCapacitorAppStateSource } from "@/runtime/event-sources/capacitor-app-state";
 import { publishCapacitorDeepLinksSource } from "@/runtime/event-sources/capacitor-deep-links";
+import { publishShareInboxSource } from "@/runtime/share-inbox";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
 import { publishElectronConnectivitySource } from "@/runtime/event-sources/electron-connectivity";
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
@@ -72,6 +73,7 @@ export function useEventBusInit({
       publishWindowOnlineSource(),
       publishCapacitorAppStateSource(),
       publishCapacitorDeepLinksSource(),
+      publishShareInboxSource(),
       publishElectronPowerSource(),
       publishElectronDeepLinksSource(),
       publishElectronDownloadsSource(),

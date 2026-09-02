@@ -15,12 +15,14 @@
  * the way `watch-session-manager.ts` holds one: a second session would compete
  * for the same microphone and interleave two unrelated timelines.
  *
- * **The microphone has one owner, in both directions.** A live-voice call is
- * the other thing on this client that opens it. A toggle that lands while a
- * call is running is refused rather than queued, and a call that starts while
- * a session is running or pending ends that session. The call wins because it
- * is interactive where watching is ambient, which is the precedence the
- * companion surface already draws: its `call` phase outranks `watching`.
+ * **A call and a watch session run side by side.** A live-voice call is the
+ * other thing on this client that opens the microphone, and each opens its
+ * own capture of it: the call hears the narration and answers it, the watch
+ * records it against the screen and writes it up afterwards. Neither refuses
+ * the other and neither ends the other, so a user teaching the assistant can
+ * ask it questions as they go, and a user on a call can start showing it
+ * their screen. The companion surface draws the two together for the same
+ * reason: Teach rides its call row.
  *
  * **An attempt is a session for the purpose of stopping it.** A start is
  * registered in the slot before it resolves the version gate, so the ordinary
@@ -85,10 +87,6 @@ import {
   PairedVoiceUnavailableError,
   VelayWsTokenError,
 } from "@/domains/chat/voice/live-voice/connection";
-import {
-  isLiveVoiceSessionActive,
-  useLiveVoiceStore,
-} from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   LiveVoiceAudioCapture,
   isSupported as isPcmCaptureSupported,
@@ -478,8 +476,8 @@ function openSession(
    * Every ending that is not the user's own stop lands here directly, and the
    * user's stop lands here once the runtime has answered or the drain has run
    * out of patience. None of those endings owes anyone a flush: a socket that
-   * dropped, a call taking the microphone, a window being destroyed, and a
-   * runtime reporting an error are all already over.
+   * dropped, a window being destroyed, and a runtime reporting an error are
+   * all already over.
    */
   const finish = (): void => {
     if (phase === "done") {
@@ -653,34 +651,6 @@ function openSession(
   }, options.readyTimeoutMs ?? READY_TIMEOUT_MS);
 
   /**
-   * A call takes the microphone, and this session gives it up.
-   *
-   * The refusal in `toggleWatch` covers one direction only: Watch pressed
-   * during a call. The other direction has its own doors, and they do not
-   * consult this module. The companion surface's Talk and the composer's voice
-   * button both start a session without asking whether one is watching, and
-   * two controllers holding the same microphone stream the same audio into two
-   * unrelated sessions.
-   *
-   * Ending here rather than teaching every live-voice entry point to refuse,
-   * for two reasons. A call is interactive and immediate where a watch session
-   * is ambient, so the call is the one that should win. And the surface already
-   * says so: its `call` phase outranks `watching`, so this is the controller
-   * agreeing with what the user is already being shown, rather than a rule
-   * that has to be repeated at each new door somebody adds.
-   */
-  subscriptions.push(
-    useLiveVoiceStore.subscribe((state) => {
-      if (isLiveVoiceSessionActive(state.state)) {
-        console.info(
-          "watch-controller: ending the session, a call has taken the microphone",
-        );
-        finish();
-      }
-    }),
-  );
-
-  /**
    * The session belongs to the assistant it was started for, and ends when
    * that stops being the active one.
    *
@@ -825,10 +795,6 @@ function openSession(
  * stretch can, and so a press cannot be lost to a resolution that outlives the
  * page. Only the start edge resolves anything.
  *
- * A live-voice call refuses the start outright. Both sessions are driven by
- * the one microphone the machine has, and the call is the one the user is
- * already in, so the press is spent rather than queued behind it.
- *
  * An assistant too old to serve `/v1/watch/stream` refuses it too, before any
  * state moves. Without that the press would flip `watching` and then fail the
  * handshake, lighting the surface's capture ring for a session that never
@@ -842,10 +808,6 @@ export async function toggleWatch(
 ): Promise<void> {
   if (session !== null) {
     session.stop();
-    return;
-  }
-  if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
-    console.info("watch-controller: refusing to start while a call is running");
     return;
   }
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
@@ -950,16 +912,12 @@ export async function toggleWatch(
   if (cancelled) {
     return;
   }
-  // Re-read across the awaits. A call can have started, and the active
-  // assistant can have moved out from under the gate that just passed. Taken
-  // after the transport resolves rather than before, so the check that decides
-  // is the one nearest the dial; the cost is a minted token spent on a start
-  // that is then discarded, and a single-use token nobody presents just
-  // expires.
-  if (
-    isLiveVoiceSessionActive(useLiveVoiceStore.getState().state) ||
-    useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
-  ) {
+  // Re-read across the awaits: the active assistant can have moved out from
+  // under the gate that just passed. Taken after the transport resolves rather
+  // than before, so the check that decides is the one nearest the dial; the
+  // cost is a minted token spent on a start that is then discarded, and a
+  // single-use token nobody presents just expires.
+  if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) {
     releaseAttempt();
     return;
   }

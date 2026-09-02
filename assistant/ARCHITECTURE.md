@@ -120,7 +120,7 @@ Scoped approval grants allow a guardian's approval decision on one channel (e.g.
 
 ### Guardian Decision Primitive
 
-All guardian approval decisions — regardless of how they arrive — route through a single primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel reactions/text.
+All guardian approval decisions, regardless of how they arrive, route through a single primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel text replies.
 
 **Core API:**
 
@@ -146,7 +146,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 **Text fallback path (always available):**
 
 - Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel.
-- `access_request` prompts additionally embed explicit text directives in `questionText`: the request-code approve/reject directive and the `"open invite flow"` phrase for starting the Trusted Contacts invite flow.
+- `access_request` prompts carry the request-code verify/trust/reject/block directive in the card's `plainTextFallback`, appended by a transport only when it sends text without buttons; the `"open invite flow"` phrase for starting the Trusted Contacts invite flow stays in the text on every surface because nothing offers a button for it.
 - `pending_question` prompts (voice-originated) support `<requestCode> <your answer>` for free-text answers.
 - The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyGuardianDecision`.
 

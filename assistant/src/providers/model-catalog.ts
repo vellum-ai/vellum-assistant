@@ -194,6 +194,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "claude-fable-5-1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
+      {
         id: "claude-fable-5",
         displayName: "Claude Fable 5",
         contextWindowTokens: 1000000,
@@ -988,28 +1006,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.06,
         },
       },
+      // MiniMax M2.7 (accounts/fireworks/models/minimax-m2p7) is
+      // intentionally absent: Fireworks has no serverless deployment for
+      // it (the model page claims serverless support, but the serving API
+      // returns 404).
       {
-        id: "accounts/fireworks/models/minimax-m2p7",
-        displayName: "MiniMax M2.7",
-        contextWindowTokens: 196608,
-        maxOutputTokens: 25000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
-      },
-      {
-        id: "accounts/fireworks/models/deepseek-v4-pro",
+        id: "accounts/fireworks/models/deepseek-v4-pro-0813",
         displayName: "DeepSeek V4 Pro",
         contextWindowTokens: 1040000,
         maxOutputTokens: 131072,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
         maxEffort: "max",
-        pricing: { inputPer1mTokens: 1.74, outputPer1mTokens: 3.48 },
+        pricing: {
+          inputPer1mTokens: 1.32,
+          outputPer1mTokens: 3.96,
+          cacheReadPer1mTokens: 0.044,
+        },
       },
       {
         id: "accounts/fireworks/models/deepseek-v4-flash-0731",
@@ -1086,6 +1101,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // OpenRouter proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5.1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
       {
         id: "anthropic/claude-fable-5",
         displayName: "Claude Fable 5",
@@ -1934,6 +1967,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // The gateway proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5.1",
+        displayName: "Claude Fable 5.1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
       {
         id: "anthropic/claude-fable-5",
         displayName: "Claude Fable 5",

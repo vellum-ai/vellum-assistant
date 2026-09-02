@@ -101,6 +101,13 @@
     "renameErrorToast": "El cambio de nombre no se completó. Vuelve a intentarlo.",
     "renameSuccessToast": "¡Saluda a {newName}!",
     "scheduleCadence": "{cadence} · próxima {nextRun}",
+    "scheduleGhosts": {
+      "inboxTriageCadence": "Cada 2 horas",
+      "inboxTriageName": "Revisión del buzón",
+      "morningBriefingCadence": "Cada día laborable a las 8:00",
+      "morningBriefingName": "Resumen matutino"
+    },
+    "setUpSchedule": "Crear una",
     "updateAvatarAndName": "Actualizar avatar y nombre",
     "viewMoreSchedules": "{count, plural, one {Ver # más…} other {Ver # más…}}"
   },

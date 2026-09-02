@@ -5,8 +5,8 @@ reader, or a real OS setting, so it runs by hand.
 
 Surface under test: the voice room with the viewfinder up, under
 `src/domains/chat/voice/voice-room/` (the camera paths of `voice-room.tsx`,
-`camera-status-pill.tsx`, `camera-flash-control.tsx`, and
-`voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
+`camera-status-pill.tsx`, `camera-shutter-hint.tsx`, `camera-flash-control.tsx`,
+and `voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
 outside that directory and are in scope with it: the shutter at
 `src/domains/chat/voice/camera-shutter.tsx`, which the room shares with the
 deep-link capture overlay, and that overlay itself in
@@ -19,10 +19,11 @@ scrim.
       the mobile sheet, on a notched device and on a Dynamic Island device. The
       pill sits below the island, on the minimize control's line, and never
       behind it.
-- [ ] The pill clears the corner control. Give the assistant a name of 40
+- [ ] The pill clears both corner controls. Give the assistant a name of 40
       characters or more and open the camera at portrait phone width. The name
       truncates to an ellipsis, the dot and "Photo" stay whole, and the pill's
-      edge never reaches the minimize control.
+      edge never reaches the view-options button or the minimize control behind
+      it.
 - [ ] The pill clears the grabber. In the mobile sheet, the pill sits below the
       grabber and the grabber still takes the pull-down.
 - [ ] The sheet goes full-bleed for the camera. Open the camera in the mobile
@@ -50,9 +51,27 @@ scrim.
       spoken once, as "Photo. Listening" or "Photo. {name} speaking". Mute the
       mic mid-turn and the announcement carries "Muted". Nothing says the state
       a second time.
-- [ ] VoiceOver reaches every control. Swipe through the chrome: minimize,
-      flash, shutter, flip, mic, speaker, camera, end. Each name matches what a
-      press does, and the flash names the state it is in rather than the act.
+- [ ] VoiceOver reaches every control. Swipe through the chrome: view options,
+      minimize, flash, shutter, flip, mic, speaker, camera, end. Each name
+      matches what a press does, and the flash names the state it is in rather
+      than the act.
+- [ ] View options opens as a panel, not a sheet. Tap the sliders button in the
+      corner with the camera up. The panel opens anchored under the button, its
+      switches take a tap, and tapping the feed outside it dismisses it. It is
+      never announced as a modal dialog that traps VoiceOver, and it never
+      arrives dead to touch.
+- [ ] The kept-frame switch reaches the thumbnail. Enter Live, wait for the
+      crimson thumbnail beside the photo strip, then turn "Kept frame" off. The
+      thumbnail goes, the row it sat in goes with it when no photos are in the
+      strip, and the assistant keeps answering questions about what the camera
+      is pointed at. Turn it back on and the next keep draws again.
+- [ ] Both switches survive a reload and a second tab. Set them, background and
+      relaunch the app: they come back as set. With two web tabs open, a change
+      in one is reflected in the other's panel.
+- [ ] The readout row appears only where the readout does. On a staff or
+      flagged session the panel has two rows; on an ordinary session it has one.
+      This panel is the only place the readout is switched on and off, so check
+      Settings, Debug, General carries no row for it.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
@@ -60,6 +79,111 @@ scrim.
       nothing flashes the whole screen.
 - [ ] Fat fingers. Hold the phone one-handed and take five photos in a row. No
       press lands on flip, on flash, or on end session.
+- [ ] iOS does not take the press. Holding never raises the text-selection
+      callout, the magnifier, or a share sheet over the viewfinder.
+- [ ] The native preview offers Live. In the installed app, with the plugin
+      drawing the preview, press and keep pressing the shutter. At half a second
+      the pill says Live and the hint changes to "Live · Tap to stop", the same
+      as in the browser, and letting go takes no photo. Tap to stop and the
+      shutter takes ordinary photos again.
+- [ ] Keeps pulse behind the native preview. With Live running, hold the phone
+      steady on a subject. Within a few seconds the crimson held-frame thumbnail
+      appears beside the photo strip and a frame lands in the transcript; move
+      to a new subject and another follows. Nothing ever pulsing is the
+      slow-bridge case in the section below, not a hang.
+
+### Live on iPhone
+
+Live runs behind either viewfinder. In mobile Safari it samples the room's own
+`<video>`; in the installed app, where the Capacitor plugin draws its preview
+behind the web view and there is no element to read, it polls the plugin for a
+sample instead. Run this section in both: they are two different samplers
+feeding one gate, and only the installed app exercises the bridge.
+
+The native path takes a PAIR of samples about 60ms apart on every poll. The
+first is only a motion baseline and is never kept; the second is the one judged
+and, on a keep, the exact frame uploaded. That is what lets the gate tell a
+steady camera from a moving one, which on a handheld phone is also the blur
+check. It costs two bridge round trips a second for as long as the hold lasts,
+which is the thing to watch for battery and heat below.
+
+- [ ] **Slow-bridge signature, if Live keeps nothing.** A pair whose two
+      captures land further apart than the gate's motion window is discarded
+      rather than offered, because a frame with no motion reading is keepable
+      while the camera is still moving. On a device that never manages the
+      window this looks like a Live session that runs and never pulses: pill on,
+      no held-frame thumbnail, nothing new in the transcript, and a tuning
+      readout whose decision count sits still while the camera is plainly open.
+      That is the expected refusal, not a hang. Each discarded pair logs
+      `[native-frame-source] pair outside the motion window, skipped:` with the
+      gap it measured and the limit; capture that number in the report, since it
+      is what decides whether the pairing needs retuning or the poll needs a
+      native sampler.
+- [ ] **Battery and thermals over a ten-minute call.** Hold Live for a sustained
+      stretch and note case temperature and battery drain against the same call
+      without Live. Two captures a second is the cost being measured.
+
+- [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
+      second the haptic fires, the ring goes crimson, the pill says Live and the
+      hint changes to "Live · Tap to stop". Letting go takes no photo, so
+      nothing joins the strip and nothing new lands in the transcript.
+- [ ] Every keep is felt. With Live running on a subject the gate keeps from,
+      one light tap lands with each crimson thumbnail and no others: a scene the
+      gate skips is silent, and so is a keep that never reaches the call. Turn
+      the phone to airplane mode mid-Live and hold it on a new subject: through
+      the reconnect gap nothing taps, because nothing was shared. The tap is
+      what the feature has instead of a screen the user is looking at, since
+      Live is aimed at the thing being talked about.
+- [ ] The tap is not the shutter's. Take ordinary photos: no haptic fires on a
+      tap, only on the hold that enters Live and on the keeps that follow.
+- [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
+      small wobble still enters Live. Slide the thumb off the shutter, or more
+      than a finger's width across it, and nothing happens: no photo either,
+      including when the thumb is still on the shutter as it lifts.
+- [ ] Flipping while live. Enter Live, flip the camera. The pill stays Live, the
+      thumbnail clears, and a new keep appears from the new camera within a few
+      seconds.
+- [ ] Stopping while flipping. Enter Live, flip, and tap the shutter while the
+      flip is still going. It stops: the shutter is never refused while live,
+      so a slow flip cannot strand the user in it.
+- [ ] Backgrounding while live. Background the app with Live running. The camera
+      indicator goes out. Foreground it: the viewfinder returns on photo, not
+      streaming, and nothing was sent while the app was away.
+- [ ] VoiceOver says the mode. With Live running, VoiceOver reads "Live.
+      Listening" on the next state change, and the shutter is named "Stop live".
+      Back on photo it reads "Photo. Listening" and "Take a photo".
+
+## Small screens and rotation
+
+Both shells. Live reaches a phone through the native frame source, so the kept
+frame and the photo strip share a floor at widths no desktop imposes on them,
+and every check here is about what that floor does as it runs out of room.
+
+Handsets, not simulators: the iOS Simulator provides no camera feed, so it
+answers nothing here.
+
+- [ ] The capture row fits the narrowest phone. On a 320pt-wide device, take
+      three photos and then hold for Live: the three receipts and the crimson
+      kept frame sit in one row above the shutter. Nothing is clipped at the
+      right edge, nothing scrolls or wraps, and the row is on its own line
+      rather than reaching the shutter or the flip control. Storybook's
+      Chat/Voice/CameraModeScreen, story "NarrowPhoneCaptureRow", is the same
+      composition at the same width to check it against.
+- [ ] The row clears the sensor housing in landscape. Rotate to landscape with
+      photos on the floor: the first thumbnail starts inboard of the notch on
+      the notched side, on the same left edge the tuning readout uses.
+- [ ] The landscape floor still reads. Rotate with the camera up. The bottom
+      scrim's 15rem floor is most of a short viewport, so check that the
+      shutter, the hint, the capture row and the session row are all on screen
+      and legible over a bright frame, and that the scrim does not reach the
+      status pill at the top.
+- [ ] Rotating with Live running. Enter Live, rotate the device, rotate back.
+      Android recreates the camera fragment on rotation, and no automated test
+      covers a rotation with sampling active, so watch for all of: the pill
+      stays Live or drops cleanly back to photo (never Live over a dead poll),
+      the tuning readout's decision rate is unchanged rather than doubled, no
+      keep from before the rotation lands in the transcript after one from
+      after it, and the viewfinder is live video rather than a frozen frame.
 
 ## Android
 
@@ -76,6 +200,17 @@ scrim.
 - [ ] The scrims reach the native preview. Point at a white wall: the top and
       bottom bands darken enough to read the pill and the row, and the middle of
       the frame stays untinted.
+- [ ] Live behind the native preview. Android runs the same poll as iOS, so run
+      the "Live on iPhone" section here too: the hold enters Live, keeps pulse
+      and land in the transcript, and a device that keeps nothing shows the
+      slow-bridge signature rather than hanging.
+- [ ] Haptics on Android. The light impact is the only effect this shell fires,
+      so it is the whole surface to check. Hold the shutter: a tap at half a
+      second, then one per keep, the same as iPhone. Then the gesture that has
+      an effect at each end: pull the transcript to refresh and feel exactly one
+      tap, as it crosses the threshold. Its completion is a heavier impact or a
+      notification, neither of which Android fires, so a second tap there is the
+      regression to watch for.
 - [ ] TalkBack says it once. Same check as VoiceOver above.
 
 ## Desktop web and macOS
@@ -88,9 +223,22 @@ scrim.
       Display), reload, open the camera. The status dot holds still and fully
       lit. The shutter's capture pulse still fires and is shorter. The core's
       morph has no overshoot.
-- [ ] Keyboard walk. Tab from the top of the room: minimize, shutter, flip, mic,
-      speaker, camera, end. Every focus ring is a white outline legible over the
-      feed, including over a white frame.
+- [ ] Keyboard walk. Tab from the top of the room: view options, minimize,
+      shutter, flip, mic, speaker, camera, end. Every focus ring is a white
+      outline legible over the feed, including over a white frame.
+- [ ] Escape closes the panel before it minimizes the room. With the view
+      options open, one Escape closes the panel and leaves the room up; a second
+      minimizes the room.
+- [ ] A mouse can hold. Press and keep the button down on the shutter for half a
+      second: Live starts, and releasing takes no photo. Press and drag off the
+      button before the half second and nothing happens at all.
+- [ ] Space holds. Focus the shutter and hold Space: Live starts, and the
+      release takes no photo. Tap Space and one photo is taken, the same as a
+      click. The page never scrolls under either.
+- [ ] Leaving and re-entering Live quickly shows nothing for a few seconds. Stop
+      Live and start it again: the first keep can take up to five seconds. That
+      is the gate's rate floor, which survives the reset by design; it is not a
+      stall.
 - [ ] Escape minimizes the room from camera mode, and the camera releases.
 - [ ] Locale sweep. Switch the app to Spanish and then to Russian, open the
       camera, and deny the permission in the browser. The pill, every control
@@ -125,6 +273,17 @@ the redesign is called shipped.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber
       and end session as exits. The build keeps the top-right minimize control,
       which is the only discoverable exit on desktop. Confirm.
+- [ ] Pill centring with two corner controls. The design centres the pill on the
+      screen against a single corner control. The build centres it in the band
+      the corner cluster leaves, so it sits a little left of screen centre: with
+      two 52px controls there, a screen-centred pill reaches under them at phone
+      width before its own floor width is spent. Confirm the band centring, or
+      ask for a pill that may narrow past its floor instead.
+- [ ] View options as a panel on touch. The chat column's other panels open as a
+      bottom sheet on a phone. This one stays anchored on every form factor: the
+      room is itself a sheet whose flush camera state inerts the overlay host it
+      shares, so a nested sheet arrives inert. Confirm the anchored panel on a
+      phone, or ask for the sheet and the room's inerting reworked with it.
 - [ ] Capture feedback reaches the deep-link overlay too. The shutter is shared,
       so dimming the core while a frame uploads restyles the overlay's shutter
       as well as the room's, and it is an opacity dip rather than the core

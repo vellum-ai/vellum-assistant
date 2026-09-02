@@ -1,10 +1,10 @@
 /**
  * Tests for the `AppIcon` bridge.
  *
- * The contract under test is skew-safety: the iOS shell ships through App
- * Store review while this bundle deploys continuously, so an arbitrarily old
+ * The contract under test is skew-safety: each mobile shell ships through a
+ * store review while this bundle deploys continuously, so an arbitrarily old
  * shell can host it with no such plugin compiled in. Every degrade path
- * (non-iOS platform, missing plugin, a rejecting bridge) must resolve the
+ * (non-mobile platform, missing plugin, a rejecting bridge) must resolve the
  * feature-off state without throwing and without touching the bridge.
  *
  * Self-contained mocks: run this file solo (`mock.module` leaks across a
@@ -13,11 +13,11 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let onNativeIOS = true;
+let onNativeMobile = true;
 let pluginAvailable = true;
 
 mock.module("@/runtime/platform-detection", () => ({
-  isNativeIOS: () => onNativeIOS,
+  isNativeMobile: () => onNativeMobile,
 }));
 
 interface NativeState {
@@ -65,7 +65,7 @@ const { getAppIconState, setAppIcon } = await import("@/runtime/app-icon");
 const OFF = { supported: false, current: null, available: [] };
 
 beforeEach(() => {
-  onNativeIOS = true;
+  onNativeMobile = true;
   pluginAvailable = true;
   stateResult = {
     supported: true,
@@ -95,8 +95,8 @@ describe("getAppIconState", () => {
     });
   });
 
-  test("degrades to feature-off without calling the bridge off iOS", async () => {
-    onNativeIOS = false;
+  test("degrades to feature-off without calling the bridge off native mobile", async () => {
+    onNativeMobile = false;
 
     expect(await getAppIconState()).toEqual(OFF);
     expect(getStateMock).not.toHaveBeenCalled();
@@ -149,11 +149,11 @@ describe("setAppIcon", () => {
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
   });
 
-  test("resolves false without calling the bridge off iOS or with no plugin", async () => {
-    onNativeIOS = false;
+  test("resolves false without calling the bridge off native mobile or with no plugin", async () => {
+    onNativeMobile = false;
     expect(await setAppIcon("avatar-a")).toBe(false);
 
-    onNativeIOS = true;
+    onNativeMobile = true;
     pluginAvailable = false;
     expect(await setAppIcon("avatar-a")).toBe(false);
 

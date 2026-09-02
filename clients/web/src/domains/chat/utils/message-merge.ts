@@ -1,4 +1,5 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 
 export function messagesEqual(
   a: DisplayMessage[],
@@ -209,17 +210,21 @@ function canFoldAdjacentAssistant(
     return false;
   }
   // Standalone display turns, mirroring the daemon's
-  // `isStandaloneAssistantRow` (message-consolidation.ts): system cards and
-  // provider-error notices never merge with adjacent assistant rows. The fold
-  // keeps only the survivor's metadata, so merging would either drop the
-  // donor's marker (a credits-exhausted row silently loses its upsell card)
-  // or stamp the survivor's marker onto a bubble holding the donor's real
-  // assistant text (the transcript substitution would then hide that text).
+  // `isStandaloneAssistantRow` (message-consolidation.ts): system cards,
+  // provider-error notices, and rows deleted on their channel never merge
+  // with adjacent assistant rows. The fold keeps only the survivor's
+  // metadata, so merging would either drop the donor's marker (a
+  // credits-exhausted row silently loses its upsell card, a deleted row its
+  // tombstone) or stamp the survivor's marker onto a bubble holding the
+  // donor's real assistant text (the transcript substitution would then hide
+  // that text).
   if (
     survivor.isSystemCard ||
     donor.isSystemCard ||
     survivor.providerError ||
-    donor.providerError
+    donor.providerError ||
+    isChannelDeleted(survivor) ||
+    isChannelDeleted(donor)
   ) {
     return false;
   }

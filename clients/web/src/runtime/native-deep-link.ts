@@ -481,6 +481,63 @@ export function parseOpenConversationsDeepLink(
   return parseCommandDeepLink(rawUrl, CONVERSATIONS_DEEP_LINK_HOST, options);
 }
 
+/** Host segment shared with `ShareDeepLink.swift` on the native side. */
+export const SHARE_DEEP_LINK_HOST = "share";
+
+/**
+ * Inbox-id shape accepted in the path. Matches `ShareInbox.isSafeItemId`:
+ * alphanumerics and hyphens, at most 64 characters (a UUID fits).
+ */
+const SHARE_INBOX_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
+/**
+ * What a `<scheme>://share/<id>` deep link asks the app to do: consume the
+ * App Group inbox item named `inboxId`. The URL is a pointer, not the
+ * payload. Shared text and files live in the inbox; a forged id finds
+ * nothing and is a no-op.
+ */
+export interface ShareDeepLinkPayload {
+  inboxId: string;
+}
+
+/**
+ * Parse a `vellum-assistant://share/<id>` deep link, produced by the iOS
+ * share extension after it writes the App Group inbox. Strict like the
+ * sibling parsers: exact scheme allowlist, exact host, and a single
+ * well-formed path segment for the id.
+ */
+export function parseShareDeepLink(
+  rawUrl: string,
+): ShareDeepLinkPayload | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_NATIVE_URL_PROTOCOLS.has(url.protocol)) {
+    return null;
+  }
+  if (url.host !== SHARE_DEEP_LINK_HOST) {
+    return null;
+  }
+
+  // Read the path from the raw URL. `new URL` resolves `..` segments, so
+  // `://share/../x` would otherwise parse as id `x`.
+  const hostPrefix = `://${SHARE_DEEP_LINK_HOST}/`;
+  const hostAt = rawUrl.indexOf(hostPrefix);
+  if (hostAt < 0) {
+    return null;
+  }
+  const inboxId = rawUrl.slice(hostAt + hostPrefix.length).split(/[?#]/, 1)[0];
+  if (!inboxId || !SHARE_INBOX_ID_RE.test(inboxId)) {
+    return null;
+  }
+
+  return { inboxId };
+}
+
 export function buildOAuthCompleteDeepLink(
   scheme: string,
   payload: OAuthCompleteDeepLinkPayload,

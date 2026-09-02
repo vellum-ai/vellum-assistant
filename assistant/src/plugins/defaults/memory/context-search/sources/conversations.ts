@@ -4,7 +4,7 @@ import {
   searchMessageIdsLexical,
 } from "@vellumai/plugin-api";
 
-import { readSlackMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
+import { readSlackMetadataFromMessageMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
 import { isLexicalBackfillComplete } from "../../../../../persistence/checkpoints.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
@@ -296,25 +296,23 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
     return null;
   }
 
+  const slackMeta = readSlackMetadataFromMessageMetadata(rawMetadata);
+  if (!slackMeta) {
+    return null;
+  }
+  // The trust class sits beside the envelope, on the row's top-level
+  // metadata. Parsed here rather than through the host's JSON helper, which
+  // is outside the plugin's import boundary.
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawMetadata);
   } catch {
-    return null;
+    parsed = null;
   }
-
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
-  }
-
-  const metadata = parsed as Record<string, unknown>;
-  if (typeof metadata.slackMeta !== "string") {
-    return null;
-  }
-  const slackMeta = readSlackMetadata(metadata.slackMeta);
-  if (!slackMeta) {
-    return null;
-  }
+  const metadata =
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
 
   return {
     ...(slackMeta.displayName ? { displayName: slackMeta.displayName } : {}),

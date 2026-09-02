@@ -21,10 +21,14 @@ describe("constants", () => {
 
   test("VALID_REMOTE_HOSTS includes expected hosts", () => {
     expect(VALID_REMOTE_HOSTS).toContain("local");
-    expect(VALID_REMOTE_HOSTS).toContain("gcp");
-    expect(VALID_REMOTE_HOSTS).toContain("aws");
     expect(VALID_REMOTE_HOSTS).toContain("docker");
     expect(VALID_REMOTE_HOSTS).toContain("custom");
+    expect(VALID_REMOTE_HOSTS).toContain("vellum");
+  });
+
+  test("VALID_REMOTE_HOSTS excludes cloud provisioning targets", () => {
+    expect(VALID_REMOTE_HOSTS).not.toContain("gcp");
+    expect(VALID_REMOTE_HOSTS).not.toContain("aws");
   });
 
   test("VALID_SPECIES includes expected species", () => {

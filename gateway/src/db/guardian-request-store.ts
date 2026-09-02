@@ -755,42 +755,6 @@ function pendingRequestsForDeliveries(
 }
 
 /**
- * Find the pending request whose guardian-facing delivery landed on a
- * specific channel message (channel + chat + message id) — the addressing
- * key for emoji-reaction decisions. Returns null when no delivery matches
- * or the matched request is no longer pending.
- */
-export function getPendingByDestinationMessage(
-  destinationChannel: string,
-  destinationChatId: string,
-  destinationMessageId: string,
-): GuardianRequest | null {
-  const db = getGatewayDb();
-
-  const delivery = db
-    .select()
-    .from(guardianRequestDeliveries)
-    .where(
-      and(
-        eq(guardianRequestDeliveries.destinationChannel, destinationChannel),
-        eq(guardianRequestDeliveries.destinationChatId, destinationChatId),
-        eq(
-          guardianRequestDeliveries.destinationMessageId,
-          destinationMessageId,
-        ),
-      ),
-    )
-    .get();
-
-  if (!delivery) {
-    return null;
-  }
-
-  const request = getGuardianRequest(delivery.requestId);
-  return request && request.status === "pending" ? request : null;
-}
-
-/**
  * List pending requests that were delivered to a specific destination chat
  * (channel + chatId pair) — the chat-level addressing channel transports
  * natively provide, critical for voice-originated `pending_question`

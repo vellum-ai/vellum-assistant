@@ -13,7 +13,7 @@ import { normalizeTitle } from "../util/short-title.js";
 import { truncate } from "../util/truncate.js";
 import {
   accessRequestCardTitle,
-  buildAccessRequestContractText,
+  buildAccessRequestContextText,
   isAdmittedIntroduction,
 } from "./access-request-copy.js";
 import {
@@ -21,10 +21,8 @@ import {
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
 import {
-  buildGuardianRequestCodeInstruction,
+  applyGuardianReplyMechanics,
   parseGuardianQuestionPayload,
-  resolveGuardianInstructionModeFromPayload,
-  resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
@@ -231,34 +229,12 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
         ? buildToolApprovalSeedContentBlocks(parsed)
         : buildToolApprovalSeedContentBlocks(payload)) ?? undefined;
 
-    const requestCode = parsed
-      ? nonEmpty(parsed.requestCode)
-      : nonEmpty(
-          typeof payload.requestCode === "string"
-            ? payload.requestCode
-            : undefined,
-        );
-
-    if (!requestCode) {
-      return {
-        title: "Guardian Question",
-        body: question,
-        conversationSeedMessage,
-        seedContentBlocks,
-      };
-    }
-
-    const normalizedCode = requestCode.toUpperCase();
-    const modeResolution = parsed
-      ? resolveGuardianInstructionModeFromPayload(parsed)
-      : resolveGuardianQuestionInstructionMode(payload);
-    const instruction = buildGuardianRequestCodeInstruction(
-      normalizedCode,
-      modeResolution.mode,
-    );
+    // The request-code reply instruction is not part of the template: whether
+    // a channel's copy carries it is decided per channel by
+    // `applyGuardianReplyMechanics` when the copy is composed.
     return {
       title: "Guardian Question",
-      body: `${question}\n\n${instruction}`,
+      body: question,
       conversationSeedMessage,
       seedContentBlocks,
     };
@@ -275,7 +251,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
 
   "ingress.access_request": (payload) => ({
     title: accessRequestCardTitle(isAdmittedIntroduction(payload)),
-    body: buildAccessRequestContractText(payload),
+    body: buildAccessRequestContextText(payload),
     seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),
 
@@ -438,7 +414,12 @@ export function composeFallbackCopy(
 
   const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
   for (const ch of channels) {
-    result[ch] = applyChannelDefaults(ch, baseCopy);
+    // Mechanics first, so a chat channel's derived deliveryText inherits the
+    // instruction the rule adds to the body.
+    result[ch] = applyChannelDefaults(
+      ch,
+      applyGuardianReplyMechanics(baseCopy, ch, signal),
+    );
   }
   return result;
 }

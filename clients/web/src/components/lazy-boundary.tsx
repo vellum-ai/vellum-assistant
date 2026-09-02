@@ -62,7 +62,7 @@ export function LazyBoundary({
         errorFallback ?? (
           <div
             role="alert"
-            className="p-3 text-body-small-default text-[var(--content-tertiary)]"
+            className="p-3 text-body-small-lighter text-[var(--content-tertiary)]"
           >
             {t("lazyBoundary.loadError")}
           </div>

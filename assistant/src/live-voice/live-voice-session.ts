@@ -112,8 +112,8 @@ import {
   type VoiceEndpointSource,
 } from "./live-voice-metrics.js";
 import {
+  persistAmbientSightFrame,
   persistLiveVoicePhoto,
-  persistLiveVoiceSightFrame,
 } from "./live-voice-photo.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
@@ -1694,9 +1694,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * same fact.
    */
   private persistSightFrame(frame: LiveVoiceClientSightFrameFrame): void {
-    void persistLiveVoiceSightFrame(
+    void persistAmbientSightFrame(
       this.conversationId,
       frame.attachmentId,
+      "voice",
     ).then((result) => {
       if (!result.ok && !this.isClosed) {
         void this.sendFrame({
@@ -1707,6 +1708,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // preview it already showed, rather than filing this with the
           // transient transcriber and TTS blips that share `recoverable`.
           frameType: "sight_frame",
+          // Which keep, not just which stream: several can be outstanding
+          // while a persist waits out a turn.
+          attachmentId: frame.attachmentId,
           // The session is fine; only this frame failed.
           recoverable: true,
         });

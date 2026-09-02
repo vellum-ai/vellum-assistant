@@ -22,9 +22,12 @@ import { describe, expect, test } from "bun:test";
 import {
   createFrameGate,
   DEFAULT_FRAME_GATE_OPTIONS,
+  frameGateDecisionPath,
   FRAME_GRID_CELLS,
   FRAME_GRID_SIZE,
+  type FrameGateDecision,
   type FrameGateOptions,
+  type FrameGateReason,
   type FrameGrid,
 } from "./frame-gate";
 
@@ -85,13 +88,7 @@ function clampLuma(value: number): number {
  * `panX` slides the sampling window horizontally, which is how a pan is
  * simulated without needing a larger source image.
  */
-function scene({
-  seed,
-  panX = 0,
-}: {
-  seed: number;
-  panX?: number;
-}): FrameGrid {
+function scene({ seed, panX = 0 }: { seed: number; panX?: number }): FrameGrid {
   const grid = new Uint8Array(FRAME_GRID_CELLS);
   for (let y = 0; y < FRAME_GRID_SIZE; y++) {
     for (let x = 0; x < FRAME_GRID_SIZE; x++) {
@@ -204,9 +201,7 @@ describe("frame gate invariance", () => {
     const darker = exposed(base, { gain: 0.85, offset: -18 });
 
     expect(noveltyBetween(base, brighter)).toBeLessThan(NUISANCE_CEILING);
-    expect(noveltyBetween(base, darker)).toBeLessThan(
-      NUISANCE_CEILING,
-    );
+    expect(noveltyBetween(base, darker)).toBeLessThan(NUISANCE_CEILING);
   });
 
   test("sensor noise alone is not novelty", () => {
@@ -349,7 +344,10 @@ describe("frame gate settle behaviour", () => {
         scene({ seed: 8, panX: Math.round(time / 20) }),
         time,
       );
-      if (decision.keep && (decision.motion ?? 0) >= TEST_OPTIONS.settleThreshold) {
+      if (
+        decision.keep &&
+        (decision.motion ?? 0) >= TEST_OPTIONS.settleThreshold
+      ) {
         keptWhileMoving = true;
         break;
       }
@@ -372,10 +370,7 @@ describe("frame gate keep policy", () => {
     let kept = false;
     for (let step = 1; step <= 60; step++) {
       // A quarter cell per frame: below any sane settle threshold.
-      const decision = gate.offer(
-        scene({ seed: 9, panX: step * 0.25 }),
-        time,
-      );
+      const decision = gate.offer(scene({ seed: 9, panX: step * 0.25 }), time);
       if (decision.keep) {
         kept = true;
         expect(decision.reason).toBe("novel");
@@ -490,5 +485,245 @@ describe("frame gate reset", () => {
     expect(firstKeepAtMs!).toBeGreaterThanOrEqual(
       TEST_OPTIONS.minIntervalMs + TEST_OPTIONS.settleGraceMs,
     );
+  });
+});
+
+/**
+ * The readout draws the checks a frame was put through, and claims everything
+ * above the deciding one passed. That claim is only true if the list is the
+ * branch `offer` actually took, so these tests hold the published path against
+ * decisions a real gate produced rather than against a second reading of the
+ * control flow.
+ */
+describe("frame gate decision path", () => {
+  /**
+   * Spelled as a full record rather than a list so a reason added to the gate
+   * fails to compile here instead of quietly going untested.
+   */
+  const ALL_REASONS = Object.keys({
+    warmup: true,
+    featureless: true,
+    first: true,
+    "rate-floor": true,
+    moving: true,
+    heartbeat: true,
+    novel: true,
+    unchanged: true,
+  } satisfies Record<FrameGateReason, true>) as FrameGateReason[];
+
+  /** The checks that need a kept frame to score against. */
+  const BASELINE_ONLY_REASONS = [
+    "heartbeat",
+    "novel",
+    "unchanged",
+  ] as const satisfies readonly FrameGateReason[];
+
+  /**
+   * One scripted camera session that reaches every check, on both branches.
+   *
+   * The timings are chosen against {@link TEST_OPTIONS} to walk the gate
+   * through warmup, a wall, a swing, a settle, the floor, a repeat view, a new
+   * view, a long idle, and a second swing, then a flip that drops the baseline
+   * while the floor's clock survives it.
+   */
+  function collectDecisions(): FrameGateDecision[] {
+    const wall = flatWall(makeRandom(7));
+    const decisions: FrameGateDecision[] = [];
+
+    const gate = createFrameGate({ ...TEST_OPTIONS, warmupMs: 600 });
+    gate.reset(0);
+    decisions.push(gate.offer(scene({ seed: 1 }), 0));
+    decisions.push(gate.offer(wall, 600));
+    decisions.push(gate.offer(scene({ seed: 1 }), 700));
+    decisions.push(gate.offer(scene({ seed: 1 }), 900));
+    decisions.push(gate.offer(scene({ seed: 1 }), 950));
+    decisions.push(gate.offer(scene({ seed: 1 }), 1_100));
+    decisions.push(gate.offer(scene({ seed: 9 }), 1_250));
+    decisions.push(gate.offer(scene({ seed: 9 }), 2_300));
+    decisions.push(gate.offer(scene({ seed: 9 }), 2_400));
+    decisions.push(gate.offer(scene({ seed: 3 }), 2_450));
+
+    const flipped = createFrameGate(TEST_OPTIONS);
+    flipped.reset(0);
+    decisions.push(flipped.offer(scene({ seed: 1 }), 0));
+    flipped.reset(10);
+    decisions.push(flipped.offer(scene({ seed: 1 }), 50));
+
+    return decisions;
+  }
+
+  test("the scripted session reaches every check the gate can decide on", () => {
+    const reached = new Set(collectDecisions().map((d) => d.reason));
+
+    expect([...reached].sort()).toEqual([...ALL_REASONS].sort());
+  });
+
+  test("every decision names a check on the path it was judged against", () => {
+    for (const decision of collectDecisions()) {
+      expect(frameGateDecisionPath(decision)).toContain(decision.reason);
+    }
+  });
+
+  test("a frame judged with no baseline lists no check that needs one", () => {
+    const withoutBaseline = collectDecisions().filter(
+      (d) => d.novelty === null,
+    );
+    expect(withoutBaseline.length).toBeGreaterThan(0);
+
+    for (const decision of withoutBaseline) {
+      const path = frameGateDecisionPath(decision);
+      for (const reason of BASELINE_ONLY_REASONS) {
+        expect(path).not.toContain(reason);
+      }
+    }
+  });
+
+  test("the first keep is only ever on the path taken without a baseline", () => {
+    const decisions = collectDecisions();
+    expect(decisions.some((d) => d.reason === "first")).toBe(true);
+
+    for (const decision of decisions) {
+      if (decision.reason === "first") {
+        expect(decision.novelty).toBeNull();
+      }
+      if (decision.novelty !== null) {
+        expect(frameGateDecisionPath(decision)).not.toContain("first");
+      }
+    }
+  });
+
+  test("the floor is checked before the first keep, not after it", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
+
+    // A flip drops the baseline and keeps the floor's clock, so the next frame
+    // is turned away by the floor with nothing kept to score it against.
+    gate.reset(10);
+    const decision = gate.offer(scene({ seed: 1 }), 50);
+    expect(decision.reason).toBe("rate-floor");
+    expect(decision.novelty).toBeNull();
+
+    const path = frameGateDecisionPath(decision);
+    expect(path.indexOf("rate-floor")).toBeLessThan(path.indexOf("first"));
+  });
+});
+
+/**
+ * The record-only primer.
+ *
+ * A sampler polling once a second cannot produce two frames close enough
+ * together for motion to mean anything, so it takes a pair and primes the gate
+ * with the first. That makes `observe` a second entry point into a shared
+ * engine, and the property that matters is that it is inert: it moves the
+ * motion baseline and nothing else, so no existing decision path can be
+ * reached differently because a caller primed a frame first.
+ */
+describe("frame gate primer", () => {
+  test("gives the next offer a motion reading it would not otherwise have", () => {
+    const still = scene({ seed: 4 });
+    const panned = scene({ seed: 4, panX: 3 });
+
+    const unprimed = createFrameGate(TEST_OPTIONS);
+    unprimed.reset(0);
+    // A whole poll interval apart, which is what the native cadence produces.
+    unprimed.offer(still, 1_000);
+    expect(unprimed.offer(panned, 2_000).motion).toBeNull();
+
+    const primed = createFrameGate(TEST_OPTIONS);
+    primed.reset(0);
+    primed.offer(still, 1_000);
+    primed.observe(still, 2_000);
+    // The pair's spacing, well inside `motionMaxAgeMs`.
+    const decision = primed.offer(panned, 2_060);
+    expect(decision.motion).not.toBeNull();
+    expect(decision.motion).toBeGreaterThan(0);
+  });
+
+  test("measures motion against the primed frame, not the last offered one", () => {
+    const first = scene({ seed: 7 });
+    const second = scene({ seed: 12 });
+
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(first, 100);
+    // Primed with the frame the next offer is identical to. Measured against
+    // the offer before it instead, this would be a large number.
+    gate.observe(second, 200);
+    expect(gate.offer(second, 220).motion).toBe(0);
+  });
+
+  test("never keeps the frame it is given, and does not move the rate floor", () => {
+    const view = scene({ seed: 3 });
+    const other = scene({ seed: 21 });
+
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    // Two frames primed where a keep would otherwise be due. The last one is
+    // the view about to be offered, so the settle check passes and what is
+    // left to decide the outcome is whether a primer ever counted as a keep.
+    gate.observe(view, 100);
+    gate.observe(other, 200);
+    const decision = gate.offer(other, 220);
+    // "first" is the proof: had either primer kept, this would be an ordinary
+    // offer inside the rate floor instead.
+    expect(decision.keep).toBe(true);
+    expect(decision.reason).toBe("first");
+    // And the floor runs from the offer, not from either primed frame.
+    expect(gate.offer(other, 250).reason).toBe("rate-floor");
+  });
+
+  test("does not become the novelty baseline", () => {
+    const kept = scene({ seed: 5 });
+    const primed = scene({ seed: 40 });
+
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(kept, 0);
+    const withoutPrimer = gate.offer(kept, 10_000).novelty;
+
+    const primedGate = createFrameGate(TEST_OPTIONS);
+    primedGate.reset(0);
+    primedGate.offer(kept, 0);
+    primedGate.observe(primed, 9_980);
+    // Novelty is scored against the last KEPT frame, which a primed frame
+    // never becomes, so the same candidate scores the same either way.
+    expect(primedGate.offer(kept, 10_000).novelty).toBe(withoutPrimer!);
+  });
+
+  test("does not end warmup", () => {
+    const view = scene({ seed: 9 });
+    const gate = createFrameGate({ ...TEST_OPTIONS, warmupMs: 500 });
+    gate.reset(0);
+
+    gate.observe(view, 100);
+    gate.observe(view, 200);
+    // Warmup covers the badly exposed frames a camera opens with. A primer is
+    // one of those frames too, and passing it must not spend the window.
+    expect(gate.offer(view, 300).reason).toBe("warmup");
+    expect(gate.offer(scene({ seed: 10 }), 600).keep).toBe(true);
+  });
+
+  test("judges the offered frame on its own detail, not the primer's", () => {
+    const view = scene({ seed: 11 });
+    const flat = flatWall(makeRandom(2));
+
+    // Settle raised out of reach, so the only thing left to reject this frame
+    // is the detail check the primer must not have poisoned. A flat primer
+    // against a textured frame is otherwise a large motion reading, which is
+    // the gate working and would hide what this case is about.
+    const gate = createFrameGate({ ...TEST_OPTIONS, settleThreshold: 100 });
+    gate.reset(0);
+    gate.observe(flat, 100);
+    const decision = gate.offer(view, 120);
+    expect(decision.detail).toBeGreaterThan(TEST_OPTIONS.minDetail);
+    expect(decision.reason).toBe("first");
+    expect(decision.keep).toBe(true);
+  });
+
+  test("rejects a grid of the wrong size, exactly as an offer does", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(() => gate.observe(new Uint8Array(4), 0)).toThrow();
   });
 });

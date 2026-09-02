@@ -6,9 +6,12 @@ import {
   resolveDefinitions,
 } from "@/utils/avatar-svg-compositor";
 import type {
+  BodyShapeDefinition,
   CharacterComponents,
   CharacterTraits,
+  ColorDefinition,
   EyePathDefinition,
+  EyeStyleDefinition,
 } from "@/types/avatar";
 
 interface AnimatedAvatarProps {
@@ -128,23 +131,48 @@ function precomputeWobbledPaths(
  *   - Blink + twitch paused
  *
  * All animations respect `prefers-reduced-motion`.
+ *
+ * Trait ids missing from `components` render nothing. Unknown ids are a
+ * fallback, not an exception: this avatar is mounted on identity and chat.
  */
-export function AnimatedAvatar({
-  components,
-  traits,
-  size,
-  isAssistantBusy = false,
-  attentive = false,
-  breathe = true,
-}: AnimatedAvatarProps) {
-  const reduce = useReducedMotion();
-
-  const { bodyShape, eyeStyle, color } = resolveDefinitions(
+export function AnimatedAvatar(props: AnimatedAvatarProps) {
+  const { components, traits } = props;
+  const resolved = resolveDefinitions(
     components,
     traits.bodyShape,
     traits.eyeStyle,
     traits.color,
   );
+  if (!resolved || !resolved.eyeStyle) {
+    return null;
+  }
+  return (
+    <AnimatedAvatarResolved
+      {...props}
+      bodyShape={resolved.bodyShape}
+      eyeStyle={resolved.eyeStyle}
+      color={resolved.color}
+    />
+  );
+}
+
+interface AnimatedAvatarResolvedProps extends AnimatedAvatarProps {
+  bodyShape: BodyShapeDefinition;
+  eyeStyle: EyeStyleDefinition;
+  color: ColorDefinition;
+}
+
+function AnimatedAvatarResolved({
+  components,
+  size,
+  isAssistantBusy = false,
+  attentive = false,
+  breathe = true,
+  bodyShape,
+  eyeStyle,
+  color,
+}: AnimatedAvatarResolvedProps) {
+  const reduce = useReducedMotion();
   const { bodyTransform, eyeTransform } = computeTransforms(
     bodyShape,
     eyeStyle,
@@ -355,6 +383,10 @@ export function AnimatedAvatar({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
+      // The morph is written straight to the DOM (see below), so this is the
+      // one place the busy state is legible from outside: a test, or a reader
+      // of the tree, cannot see a path wobble.
+      data-busy={isAssistantBusy ? "true" : undefined}
       style={{
         animation: breatheAnimation,
         transformOrigin: "center",

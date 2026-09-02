@@ -23,6 +23,7 @@ const entries = Object.entries(MODELS_BY_PROVIDER) as [
 
 /** The member that leads each line, and so the one a picker shows. */
 const NEWEST_IN_FAMILY: Record<string, string> = {
+  "claude-fable": "Claude Fable 5.1",
   "claude-opus": "Claude Opus 5",
   "claude-sonnet": "Claude Sonnet 5",
   "gpt-5": "GPT-5.5",

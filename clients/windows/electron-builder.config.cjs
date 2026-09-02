@@ -139,12 +139,18 @@ module.exports = {
   directories: {
     output: "dist",
   },
+  // Only the electron-vite output belongs in app.asar. Without this allowlist
+  // electron-builder packs the whole project dir, shipping resources/ (the
+  // ~1GB cli-runtime included) a second time inside the asar. Production
+  // node_modules are collected from the dependency tree regardless of these
+  // patterns.
+  files: ["out/main/**", "out/preload/**", "package.json"],
   // Requires `bun run build:web` (resources/web-dist), `bun run build:runtime`
   // (resources/cli-runtime), `bun run build:native-helper` (resources/
   // native-helper/<arch>), and `bun run build:preview-handler` (native COM
-  // build output) to exist before packing.
+  // build output) to exist before packing. The renderer bundle ships once,
+  // inside cli-runtime/web-dist.
   extraResources: [
-    { from: "resources/web-dist", to: "web-dist" },
     {
       from: `resources/native-helper/${targetArch}`,
       to: `native-helper/${targetArch}`,

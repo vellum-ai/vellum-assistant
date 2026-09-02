@@ -220,10 +220,9 @@ describe("stripExistingMemoryInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripSpotlightInjections — the memory-v3 ephemeral spotlight is the ONLY
-// block strip-and-replaced across every user message each turn. Frozen
-// `<memory>` card blocks must never be touched by it (the cache contract);
-// the old whole-layer stripAllMemoryInjections replace is gone.
+// stripSpotlightInjections: leftover memory-v3 spotlight blocks are removed
+// from every user message (compaction leftover cleanup). Frozen `<memory>`
+// card blocks must never be touched (the cache contract).
 // ---------------------------------------------------------------------------
 
 const spotlightBlock = (inner: string): ContentBlock => ({

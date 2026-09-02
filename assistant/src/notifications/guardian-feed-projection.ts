@@ -13,13 +13,11 @@
  * daemon updates it wherever `withdrawGuardianRequestCards` settles the
  * other surfaces.
  */
-import { z } from "zod";
 
 import {
   type FeedItem,
   type FeedItemGuardianIntent,
   type FeedItemGuardianRequest,
-  FeedItemGuardianStatusSchema,
   isPendingGuardianFeedItem,
 } from "../api/responses/home.js";
 import {
@@ -28,42 +26,24 @@ import {
   type GuardianRequestWire,
   listGuardianRequests,
 } from "../channels/gateway-guardian-requests.js";
-import { getConfig } from "../config/loader.js";
 import {
   appendFeedItem,
   patchFeedItemContent,
   readHomeFeed,
 } from "../home/feed-writer.js";
-import { buildSlackMessageDeepLinks } from "../messaging/providers/slack/deep-link.js";
-import {
-  DEFAULT_USER_REFERENCE,
-  resolveGuardianName,
-} from "../prompts/user-reference.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildToolApprovalSourceView,
+  describeSlackChatLabel,
   type GuardianQuestionRequestKind,
   LenientToolApprovalPayloadSchema,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
+  type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
 import { readPayloadString } from "./notification-utils.js";
-import type { NotificationDeliveryResult } from "./types.js";
 
 const log = getLogger("guardian-feed-projection");
-
-// The wire enum in `api/responses/home.ts` cannot import the gateway
-// contract (the api directory is copied verbatim into client packages),
-// so it mirrors `GuardianRequestStatusSchema` by value. This assignment
-// fails to compile if the enums ever diverge in either direction.
-type FeedStatus = z.infer<typeof FeedItemGuardianStatusSchema>;
-type StatusEnumsAligned = [GuardianRequestStatus] extends [FeedStatus]
-  ? [FeedStatus] extends [GuardianRequestStatus]
-    ? true
-    : never
-  : never;
-const _statusEnumsAligned: StatusEnumsAligned = true;
-void _statusEnumsAligned;
 
 /**
  * The signal events that carry a guardian request. `guardian.question`
@@ -91,28 +71,12 @@ export function requestIdFromGuardianFeedItemId(itemId: string): string | null {
 }
 
 /**
- * Guardian display name for receipt copy, or undefined when only the
- * prompt-voice fallback ("my human") is available. A receipt with no
- * decider label renders as the bare status word.
- */
-function guardianReceiptName(): string | undefined {
-  const name = resolveGuardianName();
-  return name === DEFAULT_USER_REFERENCE ? undefined : name;
-}
-
-/**
  * Build the pending `guardianRequest` projection for a `guardian.question`
  * signal's feed item. Returns null when the payload does not carry the
  * request id the projection is keyed by.
- *
- * `slackDelivery` is the signal's Slack delivery outcome, when one
- * shipped: its destination chat + message ts locate the guardian-DM
- * approval card, and the derived deep links are what the client's
- * "Open in Slack" affordance opens.
  */
 export function buildPendingGuardianProjection(
   contextPayload: unknown,
-  slackDelivery?: NotificationDeliveryResult,
   fallbackKind?: GuardianQuestionRequestKind,
 ): FeedItemGuardianRequest | null {
   // Access-request payloads predate the kind registry and carry no
@@ -140,7 +104,6 @@ export function buildPendingGuardianProjection(
   );
 
   const sourceView = buildToolApprovalSourceView(payload);
-  const slackLinks = buildSlackCardLinks(slackDelivery);
   // Access-request payloads name their requester differently.
   const requesterLabel =
     payload.requesterIdentifier?.trim() ||
@@ -159,8 +122,6 @@ export function buildPendingGuardianProjection(
       ? { sourceContextLabel: describeApprovalSourceContext(sourceView) }
       : {}),
     ...(sourceView?.permalink ? { sourceUrl: sourceView.permalink } : {}),
-    ...(slackLinks?.webUrl ? { slackCardUrl: slackLinks.webUrl } : {}),
-    ...(slackLinks?.appUrl ? { slackCardAppUrl: slackLinks.appUrl } : {}),
   };
 }
 
@@ -177,41 +138,16 @@ function intentFromInstructionMode(
 }
 
 /**
- * Display label for the originating chat, mirroring the wording the
- * in-app approval card's source row uses (`sourceMetadataRow` in
- * `approval-card-data.ts`): Slack chats are named, other channels fall
- * back to the channel id.
+ * Display label for the originating chat: the bare chat label from the
+ * shared derivation (the bell's context line joins it with the tool, so
+ * the channel word would be noise), or the channel id for channels the
+ * view carries no chat facts for.
  */
-function describeApprovalSourceContext(view: {
-  channel: string;
-  chatId?: string | null;
-  isSlackDm: boolean;
-}): string {
-  if (view.channel === "slack" && view.chatId) {
-    return view.isSlackDm ? "Slack direct message" : `Slack #${view.chatId}`;
+function describeApprovalSourceContext(view: ToolApprovalSourceView): string {
+  if (view.channel === "slack") {
+    return describeSlackChatLabel(view) || view.channel;
   }
   return view.channel;
-}
-
-/** Deep links to the Slack guardian-DM approval card, when one shipped. */
-function buildSlackCardLinks(
-  slackDelivery?: NotificationDeliveryResult,
-): { appUrl?: string; webUrl?: string } | undefined {
-  if (
-    !slackDelivery ||
-    slackDelivery.status !== "sent" ||
-    !slackDelivery.destination ||
-    !slackDelivery.messageId
-  ) {
-    return undefined;
-  }
-  const slackConfig = getConfig().slack;
-  return buildSlackMessageDeepLinks({
-    teamId: slackConfig?.teamId,
-    teamUrl: slackConfig?.teamUrl,
-    channelId: slackDelivery.destination,
-    messageTs: slackDelivery.messageId,
-  });
 }
 
 export interface GuardianFeedReceiptParams {
@@ -267,13 +203,6 @@ export async function writeGuardianFeedReceipt(
         ...(params.decidedAction
           ? { decidedAction: params.decidedAction }
           : {}),
-        // A decider label only when a person decided: a non-decision
-        // terminal (superseded, expired) must not read as the guardian's
-        // own rejection.
-        ...((params.status === "approved" || params.status === "denied") &&
-        !params.terminalReason
-          ? decidedByLabelPatch()
-          : {}),
         decidedAt: new Date(params.decidedAtMs ?? Date.now()).toISOString(),
         ...(params.terminalReason
           ? { terminalReason: params.terminalReason }
@@ -295,15 +224,6 @@ export async function writeGuardianFeedReceipt(
     );
     return false;
   }
-}
-
-/** `{ decidedByLabel }` when a real display name exists, `{}` otherwise. */
-function decidedByLabelPatch(): Pick<
-  Partial<FeedItemGuardianRequest>,
-  "decidedByLabel"
-> {
-  const name = guardianReceiptName();
-  return name === undefined ? {} : { decidedByLabel: name };
 }
 
 /**

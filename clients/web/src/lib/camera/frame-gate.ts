@@ -248,6 +248,24 @@ export interface FrameGate {
    */
   offer(grid: FrameGrid, nowMs: number): FrameGateDecision;
   /**
+   * Record one frame as the motion baseline, without judging it.
+   *
+   * {@link FrameGateDecision.motion} is only computed against a frame that
+   * arrived within {@link FrameGateOptions.motionMaxAgeMs}, which a sampler
+   * polling once a second cannot produce out of consecutive offers: every
+   * offer would report no motion, and the settle check would never run. Such a
+   * sampler takes a PAIR instead. The first frame comes in here, the second is
+   * offered, and the offer's motion is measured across the pair's spacing
+   * rather than across the poll interval.
+   *
+   * This does exactly what every {@link FrameGate.offer} already does on its
+   * way out, and nothing else. A frame passed here can never be kept, does not
+   * become the novelty baseline, does not move the rate floor, does not end
+   * warmup, and does not start the settle grace. The only thing it can change
+   * about the next offer is that offer's motion.
+   */
+  observe(grid: FrameGrid, nowMs: number): void;
+  /**
    * Drop all comparison history: no last-kept baseline, no previous frame,
    * and a fresh warmup window starting at `nowMs`. The one survivor is the
    * rate floor's clock: a keep made just before the reset still counts
@@ -310,6 +328,52 @@ function meanAbsoluteDifference(a: Float32Array, b: Float32Array): number {
     total += Math.abs(a[i]! - b[i]!);
   }
   return total / FRAME_GRID_CELLS;
+}
+
+/**
+ * The checks `offer` runs before it has a kept frame to compare against, in
+ * the order it runs them. Ends at the keep that establishes the baseline.
+ */
+const FIRST_KEEP_PATH = [
+  "warmup",
+  "featureless",
+  "rate-floor",
+  "moving",
+  "first",
+] as const satisfies readonly FrameGateReason[];
+
+/** The checks `offer` runs once a baseline exists, in the order it runs them. */
+const BASELINE_PATH = [
+  "warmup",
+  "featureless",
+  "rate-floor",
+  "moving",
+  "heartbeat",
+  "novel",
+  "unchanged",
+] as const satisfies readonly FrameGateReason[];
+
+/**
+ * The checks that were on the table for one decision, in the order `offer`
+ * runs them, ending at the one that could not be got past.
+ *
+ * `offer` is not a single list of checks: it branches on whether a kept frame
+ * exists, and the two branches share only their first four steps. A reader
+ * needs the branch that was actually taken, because "the checks above the
+ * highlighted one all passed" is the whole value of seeing the order, and a
+ * flattened list makes that claim about checks the frame never reached.
+ *
+ * The decision identifies its own branch. `offer` computes
+ * {@link FrameGateDecision.novelty} as the difference from the last kept frame
+ * before any check runs, so it is null on exactly the frames judged without a
+ * baseline. Reading the branch back off the decision is what keeps this
+ * function honest: there is no second copy of the control flow to forget to
+ * update, only the same condition `offer` itself branched on.
+ */
+export function frameGateDecisionPath(
+  decision: Pick<FrameGateDecision, "novelty">,
+): readonly FrameGateReason[] {
+  return decision.novelty === null ? FIRST_KEEP_PATH : BASELINE_PATH;
 }
 
 /**
@@ -449,6 +513,19 @@ export function createFrameGate(
         return keepFrame(nowMs, "novel", motion, novelty);
       }
       return skipFrame(nowMs, "unchanged", motion, novelty);
+    },
+
+    observe(grid: FrameGrid, nowMs: number): void {
+      if (grid.length !== FRAME_GRID_CELLS) {
+        throw new Error(
+          `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
+        );
+      }
+      // `current` is scratch that every offer normalizes into again before
+      // reading, and `detail` is deliberately left alone: it describes the
+      // frame being decided, and this one is not being decided.
+      normalizeGrid(grid, current);
+      rememberPrevious(nowMs);
     },
 
     reset(nowMs: number): void {

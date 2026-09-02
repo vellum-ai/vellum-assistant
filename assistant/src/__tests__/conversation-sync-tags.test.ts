@@ -85,9 +85,7 @@ describe("conversation sync tags", () => {
     // (`patchConversation` in `metadata-handlers.ts`) and the per-
     // conversation `sync_changed` metadata tag is included as a belt-and-
     // suspenders signal for sibling-tab consumers that missed the typed
-    // event. The legacy `conversation_list_invalidated` broadcast is
-    // scoped to `targetInterfaceId: "macos"` and therefore not visible to
-    // this process-type subscriber.
+    // event. No `conversation_list_invalidated` broadcast is emitted.
     const conversation = createConversation("Old title");
     const route = findRoute(
       CONVERSATION_MANAGEMENT_ROUTES,
@@ -115,13 +113,6 @@ describe("conversation sync tags", () => {
     expect((received[1]!.message as { tags: string[] }).tags).not.toContain(
       SYNC_TAGS.conversationsList,
     );
-    // The legacy invalidation broadcast is macOS-scoped and must not
-    // reach this process-type subscriber.
-    expect(
-      received.some(
-        (event) => event.message.type === "conversation_list_invalidated",
-      ),
-    ).toBe(false);
   });
 
   test("auto-title generation emits the typed title event and a metadata-only sync tag (no list umbrella)", async () => {
@@ -159,8 +150,7 @@ describe("conversation sync tags", () => {
     // fetched). The umbrella `conversationsList` tag is the signal for
     // that redrain. Per-conversation metadata is included so any future
     // single-row consumer can patch the freshly added row in place
-    // without an extra GET. The legacy macOS-only invalidation broadcast
-    // is not visible to process subscribers.
+    // without an extra GET.
     const route = findRoute(
       CONVERSATION_MANAGEMENT_ROUTES,
       "createConversation",
@@ -185,11 +175,6 @@ describe("conversation sync tags", () => {
         conversationMetadataSyncTag(conversationId!),
       ],
     });
-    expect(
-      received.some(
-        (event) => event.message.type === "conversation_list_invalidated",
-      ),
-    ).toBe(false);
   });
 
   test("reorder emits a sync_changed with the umbrella tag and per-conversation metadata tags", async () => {
@@ -228,11 +213,6 @@ describe("conversation sync tags", () => {
         conversationMetadataSyncTag(second.id),
       ],
     });
-    expect(
-      received.some(
-        (event) => event.message.type === "conversation_list_invalidated",
-      ),
-    ).toBe(false);
   });
 
   test("record seen emits only a per-conversation metadata sync tag (no list umbrella)", async () => {
@@ -245,11 +225,6 @@ describe("conversation sync tags", () => {
     // single `sync_changed` with only the per-conversation
     // `conversation:<id>:metadata` tag, which web consumes by GET-and-
     // patching the single cached row via `refreshConversationRow`.
-    //
-    // The legacy `conversation_list_invalidated` broadcast is still
-    // emitted for macOS (which has no per-row patcher) but is scoped
-    // to `targetInterfaceId: "macos"` and therefore not visible to
-    // this process-type subscriber.
     const conversation = createConversation("Attention");
     projectAssistantMessage({
       conversationId: conversation.id,
@@ -283,11 +258,6 @@ describe("conversation sync tags", () => {
     expect((received[0]!.message as { tags: string[] }).tags).not.toContain(
       SYNC_TAGS.conversationsList,
     );
-    expect(
-      received.some(
-        (event) => event.message.type === "conversation_list_invalidated",
-      ),
-    ).toBe(false);
   });
 
   test("mark unread emits only a per-conversation metadata sync tag (no list umbrella)", async () => {
@@ -327,11 +297,6 @@ describe("conversation sync tags", () => {
     expect((received[0]!.message as { tags: string[] }).tags).not.toContain(
       SYNC_TAGS.conversationsList,
     );
-    expect(
-      received.some(
-        (event) => event.message.type === "conversation_list_invalidated",
-      ),
-    ).toBe(false);
   });
 
   test("addMessage('assistant') emits a metadata sync tag when attention state transitions", async () => {

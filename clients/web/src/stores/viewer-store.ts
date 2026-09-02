@@ -297,6 +297,13 @@ export function isChannelSetupType(value: string): value is ChannelSetupType {
   return CHANNEL_SETUP_TYPES.some((id) => id === value);
 }
 
+/**
+ * What the user did to end a channel-setup session, when they did something
+ * more specific than dismissing the drawer. Read at close time to pick which
+ * marker the auto-notify sends, so one close is one message.
+ */
+export type ChannelSetupOutcome = "verify_requested";
+
 export interface ChannelSetupPayload {
   channel: ChannelSetupType;
   assistantId: string;
@@ -308,6 +315,12 @@ export interface ChannelSetupPayload {
    * the panel was opened outside an assistant conversation.
    */
   conversationId?: string;
+  /**
+   * Set by the wizard just before it closes itself. Absent for a plain
+   * dismissal, and never carried between sessions: opening the wizard
+   * replaces this payload wholesale.
+   */
+  outcome?: ChannelSetupOutcome;
 }
 
 /**
@@ -620,6 +633,11 @@ export interface ViewerActions {
 
   // --- Channel setup ---
   openChannelSetup: (payload: ChannelSetupPayload) => void;
+  /**
+   * Record how the open session is ending, for the close auto-notify to read.
+   * Call immediately before `closeChannelSetup`.
+   */
+  markChannelSetupOutcome: (outcome: ChannelSetupOutcome) => void;
   closeChannelSetup: () => void;
 
   // --- Channel transcript (external-channel sidecar) ---
@@ -1011,6 +1029,14 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         "viewBeforeChannelSetup",
       ),
     });
+  },
+
+  markChannelSetupOutcome: (outcome) => {
+    const active = get().activeChannelSetup;
+    if (!active) {
+      return;
+    }
+    set({ activeChannelSetup: { ...active, outcome } });
   },
 
   closeChannelSetup: () => {

@@ -501,7 +501,7 @@ describe("the model list", () => {
     // offers, whatever it holds behind it.
     expect(sectionRowLabels("Anthropic")).toEqual([
       "See more",
-      "Claude Fable 5",
+      "Claude Fable 5.1",
       "Claude Opus 5",
       "Claude Sonnet 5",
     ]);
@@ -525,7 +525,7 @@ describe("the model list", () => {
     clickModelOption("See less");
     expect(sectionRowLabels("Anthropic")).toEqual([
       "See more",
-      "Claude Fable 5",
+      "Claude Fable 5.1",
       "Claude Opus 5",
       "Claude Sonnet 5",
     ]);

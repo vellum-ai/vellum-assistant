@@ -17,6 +17,10 @@
  * (web client, gateway, evals) import via `@vellumai/assistant-api`.
  */
 
+import {
+  type GuardianRequestStatus,
+  GuardianRequestStatusSchema,
+} from "@vellumai/service-contracts/guardian-requests";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -107,24 +111,9 @@ export const FeedItemDetailPanelSchema = z.object({
 });
 export type FeedItemDetailPanel = z.infer<typeof FeedItemDetailPanelSchema>;
 
-/**
- * Canonical guardian-request status projected onto a feed item.
- *
- * Values mirror `GuardianRequestStatusSchema` in
- * `@vellumai/gateway-client` (this file is copied verbatim into client
- * packages, so it cannot import the contract; the daemon's projection
- * writer asserts the two stay aligned at compile time).
- */
-export const FeedItemGuardianStatusSchema = z.enum([
-  "pending",
-  "approved",
-  "denied",
-  "expired",
-  "cancelled",
-]);
-export type FeedItemGuardianStatus = z.infer<
-  typeof FeedItemGuardianStatusSchema
->;
+/** Canonical guardian-request status projected onto a feed item. */
+export const FeedItemGuardianStatusSchema = GuardianRequestStatusSchema;
+export type FeedItemGuardianStatus = GuardianRequestStatus;
 
 /** Whether the guardian is being asked to approve or to answer. */
 export const FeedItemGuardianIntentSchema = z.enum(["approval", "question"]);
@@ -164,14 +153,8 @@ export const FeedItemGuardianRequestSchema = z.object({
   sourceContextLabel: z.string().optional(),
   /** Permalink to the originating channel message, when derivable. */
   sourceUrl: z.string().optional(),
-  /** Web URL of the Slack guardian-DM approval card ("Open in Slack"). */
-  slackCardUrl: z.string().optional(),
-  /** slack:// deep link for the same card, preferred on devices with the app. */
-  slackCardAppUrl: z.string().optional(),
   /** Action that resolved the request, for terminal statuses. */
   decidedAction: z.string().optional(),
-  /** Display label of the decider, when the decision came from a person. */
-  decidedByLabel: z.string().optional(),
   /** ISO-8601 time the request reached its terminal status. */
   decidedAt: z.string().optional(),
   /**

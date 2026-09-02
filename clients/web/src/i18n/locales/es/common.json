@@ -103,6 +103,14 @@
   "byoVoiceNote": {
     "body": "Tu asistente habla a través de un proveedor que configuraste tú. Define su voz en <settingsLink>Modelos y servicios</settingsLink>."
   },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "Último paso: confirma que eres tú",
+    "verifyAction": "Verificarme",
+    "verifyBody": "Tu asistente aún no sabe cuál cuenta de {channel} es la tuya, así que no te responderá. Di \"verifícame en {channel}\" en el chat para terminar.",
+    "verifyActionBody": "Tu asistente aún no sabe cuál cuenta de {channel} es la tuya, así que no te responderá. Lo termina contigo en el chat.",
+    "verifiedTitle": "Identidad verificada",
+    "verifiedBody": "Tu asistente conoce tu cuenta de {channel} y te responderá. Todo listo."
+  },
   "chatAvatar": {
     "alt": "Avatar del asistente",
     "fallbackLetter": "V"
@@ -140,28 +148,23 @@
     "talk": {
       "body": "Inicia una conversación por voz.",
       "title": "Talk"
-    },
-    "type": {
-      "body": "Envía un mensaje desde aquí y lee la respuesta aquí también.",
-      "title": "Type"
     }
   },
   "companionSurface": {
     "allow": "Permitir",
+    "calling": "Llamando…",
+    "callingNamed": "Llamando a {name}…",
     "deny": "Denegar",
     "endSession": "Finalizar sesión",
-    "goBack": "Volver",
-    "messagePlaceholder": "Mensaje a {name}",
     "muteAssistant": "Silenciar asistente",
     "muteMicrophone": "Silenciar micrófono",
     "notNow": "Ahora no",
-    "send": "Enviar",
+    "openVellum": "Abrir Vellum",
     "showSummary": "Mostrar resumen",
     "stopTeaching": "Dejar de enseñar",
     "summarizing": "Resumiendo",
     "talk": "Hablar",
     "teach": "Enseñar",
-    "type": "Escribir",
     "unmuteAssistant": "Activar sonido del asistente",
     "unmuteMicrophone": "Activar micrófono"
   },
@@ -209,7 +212,9 @@
   },
   "detailPrimitives": {
     "copied": "Copiado",
-    "copy": "Copiar"
+    "copy": "Copiar",
+    "showLess": "Mostrar menos",
+    "showMore": "Mostrar más"
   },
   "dictationOverlayPage": {
     "stopRecording": "Detener grabación"
@@ -223,29 +228,43 @@
     "title": "¡Únete a nuestra comunidad!"
   },
   "discordSetupConnectStep": {
-    "instructions": "Pega el token del bot que copiaste de la pagina Bot.",
+    "instructions": "Pega el token del bot que copiaste de la página Bot.",
+    "verificationNoticeTitle": "Ignora la página \"Verify your App\"",
+    "verificationNoticeBody": "Discord la muestra a cada app nueva. Solo importa a partir de 100 servidores.",
     "botTokenLabel": "Token del bot",
     "save": "Conectar",
     "saving": "Conectando...",
-    "saved": "Conectado. Ahora anade el bot a un servidor.",
+    "saved": "Conectado. Ahora añade el bot a un servidor.",
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
-    "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "inPortal": "En el portal de desarrolladores de Discord:",
+    "stepCreateApp": "Pulsa <strong>New Application</strong> y ponle a la app el nombre de tu asistente:",
+    "copyName": "Copiar nombre",
+    "copied": "¡Copiado!",
+    "stepAppIcon": "Opcional: descarga el avatar y súbelo en <strong>General Information</strong> como icono de la app.",
+    "stepResetToken": "Ve a la página <strong>Bot</strong> en el menú de la app, pulsa <strong>Reset Token</strong> y copia el token de inmediato. Discord solo lo muestra una vez.",
+    "stepIntentsOff": "En la misma página, deja apagados los tres interruptores de <strong>Privileged Gateway Intents</strong>. Tu asistente no los necesita: solo lee mensajes directos y mensajes que lo mencionan.",
     "openPortal": "Abrir el portal de Discord",
     "continue": "Ya tengo mi token"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "Bot añadido",
+    "connectedBody": "El token está guardado y el bot ya está en tu servidor. La parte de Discord está lista."
+  },
   "discordSetupInviteStep": {
-    "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
-    "openInvite": "Anadir a un servidor",
-    "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."
+    "instructions": "Tu bot no puede ver ni responder nada hasta que entre en un servidor. Abre el enlace, elige tu servidor y aprueba.",
+    "openInvite": "Añadir a un servidor",
+    "confirmJoined": "Ya añadí el bot",
+    "noAppId": "Conecta primero un token del bot y vuelve para añadirlo a un servidor."
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "Crear app",
     "stepConnect": "Conectar",
-    "stepInvite": "Anadir al servidor"
+    "stepInvite": "Añadir al servidor",
+    "stepFinish": "Finalizar",
+    "copyError": "No se pudo copiar el nombre. Escríbelo en Discord en su lugar."
   },
   "diskPressureBanner": {
     "acknowledge": "Reconocer",
@@ -295,6 +314,9 @@
   "lazyBoundary": {
     "loadError": "Esta sección no se pudo cargar. Recarga la página para intentarlo de nuevo."
   },
+  "localNotification": {
+    "goToConversation": "Ir a la conversación"
+  },
   "macosAppBanner": {
     "ariaLabel": "Descargar la app de macOS",
     "ctaAriaLabel": "Descargar la app de macOS",
@@ -311,9 +333,6 @@
     "subtitle": "Notificaciones push · inicio biométrico · háptica",
     "title": "Obtén la app de {appName}",
     "titleGeneric": "Obtén la app de Vellum"
-  },
-  "nativeSplash": {
-    "logoAlt": "Vellum"
   },
   "notFound": {
     "backToAssistant": "Volver a tu asistente",
@@ -513,9 +532,10 @@
     "botTokenLabel": "Token del bot",
     "connectSlack": "Conectar Slack",
     "connecting": "Conectando…",
-    "credentialsSaved": "Credenciales guardadas.",
+    "credentialsSaved": "Credenciales guardadas",
     "instructions": "En la pantalla de confirmación de Slack, expande <credentials>Your app credentials</credentials> y copia ambos tokens.",
-    "skipNotice": "Esa pantalla también ofrece una guía por línea de comandos y un botón <download>Download app files</download>. Omite ambos. Configuran una app local aparte, y este asistente solo necesita los dos tokens."
+    "skipNotice": "Esa pantalla también ofrece una guía por línea de comandos y un botón <download>Download app files</download>. Omite ambos. Configuran una app local aparte, y este asistente solo necesita los dos tokens.",
+    "savedBody": "Ambos tokens están guardados. La parte de Slack está lista."
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -592,7 +612,8 @@
     "connectTelegram": "Conectar Telegram",
     "instructions": "Pega el token de la respuesta de BotFather. Es la línea completa después de <tokenLine>Use this token to access the HTTP API</tokenLine>.",
     "saving": "Guardando…",
-    "successNotice": "Token guardado. El resto termina solo. Tu asistente confirmará que Telegram entrega la próxima vez que chatees, y se asegurará de poder alcanzarte."
+    "savedTitle": "Token guardado",
+    "savedBody": "El token del bot está guardado. La parte de Telegram está lista."
   },
   "telegramSetupCreateStep": {
     "copied": "¡Copiado!",
@@ -659,8 +680,19 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyLinux": "En este ordenador puedo trabajar con archivos, el terminal y el navegador.",
+    "computerUseBodyMacos": "En este Mac puedo controlar aplicaciones y el escritorio por ti.",
+    "computerUseBodyWindows": "En este PC puedo controlar aplicaciones y el escritorio por ti.",
+    "computerUseTitleLinux": "Déjame usar este ordenador",
+    "computerUseTitleMacos": "Déjame usar tu Mac",
+    "computerUseTitleWindows": "Déjame usar tu PC",
     "dismiss": "Descartar",
     "nextTip": "Consejo siguiente",
+    "pluginsBodyLinux": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
+    "pluginsBodyMacos": "Desde un copiloto de finanzas personales hasta un modo que vive en la muesca de tu MacBook.",
+    "pluginsBodyWindows": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
+    "quickInputBody": "Pulsa {shortcut} para enviarme un mensaje rápido desde cualquier aplicación.",
+    "quickInputBodyWithoutShortcut": "Envíame un mensaje rápido desde cualquier aplicación usando Entrada rápida.",
     "previousTip": "Consejo anterior"
   },
   "ttsProviderForm": {

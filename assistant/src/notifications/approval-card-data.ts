@@ -17,7 +17,7 @@ import {
   accessRequestCardSubtitle,
   accessRequestCardTitle,
   buildAccessRequestCardView,
-  buildAccessRequestContractText,
+  buildAccessRequestTextFallback,
   buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
@@ -31,6 +31,7 @@ import {
   buildGuardianRequestCodeInstruction,
   buildQuestionDeliveryText,
   buildToolApprovalSourceView,
+  describeSlackChatLabel,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
   LenientToolApprovalPayloadSchema,
@@ -151,12 +152,17 @@ function sourceMetadataRow(
   channel: string | undefined,
   slackChatId: string | undefined,
   isSlackDm: boolean,
+  chatName?: string,
 ): { label: string; value: string } | undefined {
-  if (channel === "slack" && slackChatId) {
-    return {
-      label: "Source",
-      value: isSlackDm ? "Slack — Direct message" : `Slack — #${slackChatId}`,
-    };
+  if (channel === "slack") {
+    const chat = describeSlackChatLabel({
+      chatId: slackChatId,
+      chatName,
+      isSlackDm,
+    });
+    if (chat) {
+      return { label: "Source", value: `Slack · ${chat}` };
+    }
   }
   if (channel) {
     return { label: "Source", value: channel };
@@ -232,7 +238,10 @@ function resolveAccessRequestCard(
     metadata,
     requestId: view.requestId,
     actions,
-    fallbackText: buildAccessRequestContractText(payload),
+    // The card's text sibling is what a client without buttons sees (the
+    // CLI, search, the model), so it is the one place the card itself
+    // carries the typed directive beside the context.
+    fallbackText: buildAccessRequestTextFallback(payload),
   };
 }
 
@@ -298,6 +307,7 @@ function extractToolApprovalCard(
     nonEmpty(p.sourceChannel),
     sourceView?.chatId,
     sourceView?.isSlackDm ?? false,
+    sourceView?.chatName,
   );
   if (sourceRow) {
     metadata.push(sourceRow);
@@ -364,6 +374,7 @@ function extractQuestionCard(
     nonEmpty(p.sourceChannel),
     sourceView?.chatId,
     sourceView?.isSlackDm ?? false,
+    sourceView?.chatName,
   );
   if (sourceRow) {
     metadata.push(sourceRow);

@@ -7,6 +7,7 @@
     "cli",
     "clients/docs",
     "clients/macos",
+    "clients/linux",
     "clients/windows",
     "clients/web",
     "credential-executor",

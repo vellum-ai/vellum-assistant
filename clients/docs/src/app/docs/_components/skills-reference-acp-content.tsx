@@ -37,7 +37,8 @@ export function SkillsReferenceACPContent() {
             Claude Code that is everything: sign-in runs through an in-app Connect card, so there is
             nothing to install yourself. Codex additionally needs the Codex CLI (version 0.111 or
             higher) already on your PATH, since its adapter calls that CLI and inherits its
-            sign-in. Say &ldquo;Set up ACP&rdquo; to walk through it.
+            sign-in. Say &ldquo;Set up ACP&rdquo; to walk through it. Naming Claude Code or Codex is
+            also enough: the assistant offers once to connect it here, then continues.
           </p>
         </section>
 
@@ -67,6 +68,14 @@ export function SkillsReferenceACPContent() {
                 </tr>
               </thead>
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
+                <tr>
+                  <td className="px-3 py-2">
+                    &ldquo;Claude Code will do it&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Offers once to connect Claude Code here, then continues
+                  </td>
+                </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Use Claude Code to fix the bug in server.ts&rdquo;
@@ -114,6 +123,11 @@ export function SkillsReferenceACPContent() {
             Tips &amp; gotchas
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
+            <li>
+              <strong>Name it to connect.</strong> Mentioning Claude Code or Codex is enough for a
+              one-time offer to connect and run it here. The assistant does not start the agent
+              unless you accept.
+            </li>
             <li>
               <strong>Fully independent.</strong> ACP agents are separate processes with their own
               context window and tools.

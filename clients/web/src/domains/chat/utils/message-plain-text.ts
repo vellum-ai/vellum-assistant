@@ -1,4 +1,5 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 
 /**
  * Join ordered text parts into a flat plain-text body.
@@ -58,4 +59,16 @@ export function messagePlainText(
     }
   }
   return joinWithSpacing(parts);
+}
+
+/**
+ * The text the Copy actions offer for a message: its plain text, or nothing
+ * for a row deleted on its channel. The row keeps its content for Inspect,
+ * but a one-click copy of text the channel no longer shows is not what a
+ * person who deleted it expects.
+ */
+export function messageCopyText(
+  message: Pick<DisplayMessage, "contentBlocks" | "deletedAt">,
+): string {
+  return isChannelDeleted(message) ? "" : messagePlainText(message);
 }

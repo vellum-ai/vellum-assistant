@@ -7,6 +7,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Categories persist across launches, so remote pushes can show the
+        // action after the first open even when JS has not yet registered.
+        NotificationCategories.register()
+
         // A QR scan that launches the terminated app delivers the connect URL
         // here as well as through `application(_:open:)`. Persist the origin
         // now, synchronously, so the bridge boots straight to it — by the time

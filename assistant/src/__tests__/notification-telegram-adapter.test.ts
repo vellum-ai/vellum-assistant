@@ -323,6 +323,42 @@ describe("TelegramAdapter", () => {
     expect(call.text).toContain("XYZW");
   });
 
+  test("a question with no options is sent as text with its typed-reply instruction", async () => {
+    const adapter = new TelegramAdapter();
+    const payload = makePayload({
+      sourceEventName: "guardian.question",
+      copy: {
+        title: "Question",
+        body: "What time works?",
+        deliveryText: "What time works?",
+      },
+      contextPayload: {
+        requestId: "req-voice-1",
+        requestCode: "DEF456",
+        requestKind: "pending_question",
+        questionText: "What time works?",
+      },
+      approvalContext: {
+        requestId: "req-voice-1",
+        actions: [],
+        plainTextFallback:
+          'Reference code: DEF456. Reply "DEF456 <your answer>".',
+        intent: "question",
+      },
+    });
+
+    const result = await adapter.send(payload, makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(sendCalls).toHaveLength(1);
+    // No buttons to draw, so no keyboard is attempted and the instruction
+    // joins the text: this is the only place the guardian learns the code.
+    expect(sendCalls[0]?.approval).toBeUndefined();
+    expect(sendCalls[0]?.text).toBe(
+      'What time works?\n\nReference code: DEF456. Reply "DEF456 <your answer>".',
+    );
+  });
+
   describe("update", () => {
     test("edits the delivered message in place and keeps its id", async () => {
       const adapter = new TelegramAdapter();

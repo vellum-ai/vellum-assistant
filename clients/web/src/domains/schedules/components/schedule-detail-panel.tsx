@@ -140,7 +140,7 @@ function ScheduleModelProfileField({
           label={t("scheduleDetail.modelProfile")}
           value={t("scheduleDetail.notUsedForWorkflow")}
         />
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
+        <p className="text-body-small-lighter text-[var(--content-tertiary)]">
           {t("scheduleDetail.modelProfileWorkflowNote")}
         </p>
       </>

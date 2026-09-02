@@ -312,6 +312,45 @@ describe("mergeConsecutiveAssistantMessages", () => {
     expect(mergedIdMap.get("anchor")).toEqual(["tail"]);
   });
 
+  test("a row deleted on its channel never merges, in either direction", () => {
+    // The deletion lives in the provider envelope, not in `messageKind`, and
+    // a merged run keeps the anchor's metadata: folding would drop the
+    // deletion or claim it over text the channel still shows.
+    const deleted = makeMsg(
+      "assistant",
+      JSON.stringify([{ type: "text", text: "gone from Slack" }]),
+      {
+        id: "deleted",
+        metadata: JSON.stringify({
+          slackMeta: JSON.stringify({
+            source: "slack",
+            channelId: "C1",
+            channelTs: "1725100000.000100",
+            eventKind: "message",
+            deletedAt: 1725100001000,
+          }),
+        }),
+      },
+    );
+    const { messages, mergedIdMap } = mergeConsecutiveAssistantMessages([
+      makeMsg("user", "hi"),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "A" }]), {
+        id: "before",
+      }),
+      deleted,
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "B" }]), {
+        id: "after",
+      }),
+    ]);
+    expect(messages.map((m) => m.id)).toEqual([
+      messages[0].id,
+      "before",
+      "deleted",
+      "after",
+    ]);
+    expect(mergedIdMap.size).toBe(0);
+  });
+
   test("leaves a single assistant row unchanged", () => {
     const messages = [
       makeMsg("user", "hi"),

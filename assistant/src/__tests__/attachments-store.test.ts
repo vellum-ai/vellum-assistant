@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  offloadOversizedText,
+  OVERSIZED_CONTENT_FILENAME,
+} from "../daemon/port-oversized-content.js";
+import {
   attachInlineAttachmentToMessage,
   AttachmentUploadError,
   createInlineAttachment,
@@ -455,6 +459,25 @@ describe("createInlineAttachment (workspace_ref persistence)", () => {
     expect(getAttachmentsForMessage(msg.id).map((a) => a.id)).toEqual([
       stored.id,
     ]);
+  });
+
+  test("offloadOversizedText writes the original bytes next to the conversation", async () => {
+    const conv = createConversation();
+    const original = "x".repeat(32);
+    const result = await offloadOversizedText(
+      original,
+      {
+        conversationId: conv.id,
+        conversationCreatedAt: conv.createdAt,
+      },
+      16,
+    );
+
+    expect(result.attachmentId).toBeDefined();
+    const filePath = getFilePathForAttachment(result.attachmentId!);
+    expect(filePath).toBeTruthy();
+    expect(filePath!.endsWith(OVERSIZED_CONTENT_FILENAME)).toBe(true);
+    expect(readFileSync(filePath!).toString("utf8")).toBe(original);
   });
 });
 

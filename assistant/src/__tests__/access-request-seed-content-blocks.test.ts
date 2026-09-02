@@ -90,7 +90,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     });
     expect(data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — #C01ABC",
+      value: "Slack · #C01ABC",
     });
   });
 
@@ -101,7 +101,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     });
     expect(surfaceOf(blocks).data.metadata).toContainEqual({
       label: "Source",
-      value: "Slack — Direct message",
+      value: "Slack · Direct message",
     });
   });
 
@@ -136,10 +136,13 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     );
   });
 
-  test("text fallback block contains contract text", () => {
+  test("text fallback block is the text-only rendering: context, invite directive, and the typed directive", () => {
     const textBlock = textOf(buildAccessRequestSeedContentBlocks(basePayload));
     expect(textBlock.text).toContain("requesting access to the assistant");
-    expect(textBlock.text).toContain("ABC123");
+    expect(textBlock.text).toContain('Reply "open invite flow"');
+    // A client that cannot draw the card's buttons still gets the directive.
+    expect(textBlock.text).toContain('"ABC123 trust"');
+    expect(textBlock.text).toContain('"ABC123 block"');
   });
 
   test("body shows fallback when no preview/warnings/permalink", () => {
