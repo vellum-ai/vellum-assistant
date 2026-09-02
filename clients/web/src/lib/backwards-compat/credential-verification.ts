@@ -17,13 +17,17 @@
  * New behavior (>= MIN_VERSION): the route exists and the repair confirms the
  * replacement before reporting success.
  *
- * The floor is the dev version of the commit that landed the route, per
- * BACKWARDS_COMPAT.md: nothing is predicted, every later release satisfies it,
- * and dev builds cut from `main` after that commit light up.
+ * The floor is one published build's whole version string: `main` carries
+ * 0.11.8 as its base, so a build with the route and one from before it are
+ * both named `0.11.8-dev.*`, and dev floors compare by their stamped minute.
+ * It names dev-release run 33678256215 on head 7bd8f872d1, the first success
+ * after the route merged (f7c85e7bba), rather than a computed minute, since a
+ * version is stamped when a run computes it and a run queued for a pre-merge
+ * sha can emerge stamped later.
  */
 import { assistantScopedSupports, whenAssistantVersionKnownFor } from "./utils";
 
-export const MIN_VERSION = "0.11.8-dev.202609011855.a4d8c71";
+export const MIN_VERSION = "0.11.8-dev.202609022016.7bd8f87";
 
 /**
  * Snapshot variant, for non-hook contexts. Scoped to the assistant being

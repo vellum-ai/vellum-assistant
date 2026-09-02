@@ -31,6 +31,34 @@ afterEach(() => {
 // route, every build after it, and the plain release it was cut from, which
 // does NOT carry the route) and that a version held for a different assistant
 // cannot vouch for the one being repaired.
+
+/**
+ * A dev version `minutes` away from the floor's stamped minute, same base and
+ * a different sha, so the cases stay tied to `MIN_VERSION` rather than to a
+ * literal that silently crosses it when the floor moves.
+ */
+function devVersionFromFloor(minutes: number): string {
+  const match = /^(.+)-dev\.(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})\./.exec(
+    MIN_VERSION,
+  );
+  if (!match) {
+    throw new Error(`MIN_VERSION is not a dev floor: ${MIN_VERSION}`);
+  }
+  const [, base, y, mo, d, h, mi] = match;
+  const at = new Date(
+    Date.UTC(
+      Number(y),
+      Number(mo) - 1,
+      Number(d),
+      Number(h),
+      Number(mi) + minutes,
+    ),
+  );
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${at.getUTCFullYear()}${pad(at.getUTCMonth() + 1)}${pad(at.getUTCDate())}${pad(at.getUTCHours())}${pad(at.getUTCMinutes())}`;
+  return `${base}-dev.${stamp}.abc1234`;
+}
+
 describe("supportsCredentialVerification", () => {
   test("false when version is unknown", () => {
     setVersion(null);
@@ -43,7 +71,7 @@ describe("supportsCredentialVerification", () => {
   });
 
   test("false for a dev build stamped before the route landed", () => {
-    setVersion("0.11.8-dev.202609011800.0000000");
+    setVersion(devVersionFromFloor(-1));
     expect(supportsCredentialVerification(OWNER)).toBe(false);
   });
 
@@ -53,7 +81,7 @@ describe("supportsCredentialVerification", () => {
   });
 
   test("true for a later dev build and for later releases", () => {
-    setVersion("0.11.8-dev.202609020000.abc1234");
+    setVersion(devVersionFromFloor(1));
     expect(supportsCredentialVerification(OWNER)).toBe(true);
     setVersion("0.11.9");
     expect(supportsCredentialVerification(OWNER)).toBe(true);

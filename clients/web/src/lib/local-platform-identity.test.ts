@@ -172,11 +172,11 @@ beforeEach(() => {
   selfHostedActorToken = "actor-token";
   browserDeviceId = null;
   statusBody = {
-    assistant_id: PLATFORM_ASSISTANT_ID,
+    assistantId: PLATFORM_ASSISTANT_ID,
     baseUrl: STATUS_PLATFORM_BASE_URL,
-    organization_id: ORGANIZATION_ID,
-    has_assistant_api_key: true,
-    client_installation_id: HOST_INSTALLATION_ID,
+    organizationId: ORGANIZATION_ID,
+    hasAssistantApiKey: true,
+    clientInstallationId: HOST_INSTALLATION_ID,
   };
   ensureRegistrationBody = {
     assistant: { id: PLATFORM_ASSISTANT_ID },
@@ -276,10 +276,10 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
   test("falls back to the configured platform URL when status omits its base URL", async () => {
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: true,
-      client_installation_id: HOST_INSTALLATION_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: true,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     const platformAssistantId =
@@ -300,11 +300,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
    * a replacement. */
   function seedRejectedCredential() {
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: true,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: true,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
     ensureRegistrationBody = {
       assistant: { id: PLATFORM_ASSISTANT_ID },
@@ -468,11 +468,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   // leaves it alone, whatever state it is in.
   test("resolution alone never rotates a stored key", async () => {
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: true,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: true,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
@@ -482,11 +482,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: false,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
     ensureRegistrationBody = {
       assistant: { id: OTHER_PLATFORM_ASSISTANT_ID },
@@ -556,11 +556,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     electronHostOS = "windows";
     electronSessionToken = "electron-session-token";
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: false,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
@@ -581,11 +581,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     navigatorPlatform = "Win32";
     electronSessionToken = "electron-session-token";
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: false,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
@@ -674,7 +674,7 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
   function simulateDaemonRestartWithMissingApiKey(): void {
     statusBody = {
       ...(statusBody as Record<string, unknown>),
-      has_assistant_api_key: false,
+      hasAssistantApiKey: false,
     };
     secretsUnavailable = true;
   }

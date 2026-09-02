@@ -1,3 +1,7 @@
+import type {
+  PlatformStatusGetResponses,
+  PlatformVerifycredentialPostResponses,
+} from "@/generated/daemon/types.gen";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import { resolveSupportsCredentialVerification } from "@/lib/backwards-compat/credential-verification";
 import {
@@ -29,19 +33,6 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
-
-type PlatformStatusBody = {
-  assistantId?: unknown;
-  assistant_id?: unknown;
-  baseUrl?: unknown;
-  base_url?: unknown;
-  organizationId?: unknown;
-  organization_id?: unknown;
-  hasAssistantApiKey?: unknown;
-  has_assistant_api_key?: unknown;
-  clientInstallationId?: unknown;
-  client_installation_id?: unknown;
-};
 
 type LocalPlatformStatus = {
   assistantId: string | null;
@@ -312,6 +303,10 @@ async function verifyPlatformCredential(
     const gateway = await ensureGatewayAccess(assistant, {
       allowGatewayRepair: false,
     });
+    // Addressed to this assistant's gateway with the token minted for it,
+    // like the status read above, rather than through the daemon client: the
+    // client routes to whichever assistant the app is connected to, and a
+    // repair can run for an assistant before that connection is primed.
     const response = await fetch(
       gatewayUrl(gateway.gatewayUrl, "/v1/platform/verify-credential"),
       {
@@ -326,7 +321,11 @@ async function verifyPlatformCredential(
     if (!response.ok) {
       return "unknown";
     }
-    const body = (await response.json()) as { status?: unknown };
+    // The route's own response shape; the value check keeps a malformed body
+    // from being read as a verdict.
+    const body = (await response.json()) as Partial<
+      PlatformVerifycredentialPostResponses[200]
+    >;
     return body.status === "valid" || body.status === "rejected"
       ? body.status
       : "unknown";
@@ -599,21 +598,18 @@ export async function fetchPlatformStatus(
     return null;
   }
 
-  const body = (await response
-    .json()
-    .catch(() => null)) as PlatformStatusBody | null;
+  // The daemon's own response shape. Partial because this bundle serves
+  // daemons of any age, and a field the current schema requires may be absent
+  // from an older one; absent reads as null, which the gates treat as unknown.
+  const body = (await response.json().catch(() => null)) as Partial<
+    PlatformStatusGetResponses[200]
+  > | null;
   return {
-    assistantId: firstString(body?.assistantId, body?.assistant_id),
-    baseUrl: firstString(body?.baseUrl, body?.base_url),
-    organizationId: firstString(body?.organizationId, body?.organization_id),
-    hasAssistantApiKey: firstBoolean(
-      body?.hasAssistantApiKey,
-      body?.has_assistant_api_key,
-    ),
-    clientInstallationId: firstString(
-      body?.clientInstallationId,
-      body?.client_installation_id,
-    ),
+    assistantId: body?.assistantId ?? null,
+    baseUrl: body?.baseUrl ?? null,
+    organizationId: body?.organizationId ?? null,
+    hasAssistantApiKey: body?.hasAssistantApiKey ?? null,
+    clientInstallationId: body?.clientInstallationId ?? null,
   };
 }
 
@@ -854,13 +850,4 @@ function firstString(...values: unknown[]): string | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function firstBoolean(...values: unknown[]): boolean | null {
-  for (const value of values) {
-    if (typeof value === "boolean") {
-      return value;
-    }
-  }
-  return null;
 }
