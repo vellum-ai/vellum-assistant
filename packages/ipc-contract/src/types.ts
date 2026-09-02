@@ -606,6 +606,21 @@ export interface NotificationActionEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Window attention
+// ---------------------------------------------------------------------------
+
+/**
+ * Main → renderer: authoritative main-window state. Kept as three
+ * independent booleans so consumers pick their own strictness without
+ * another contract change.
+ */
+export interface WindowAttentionPayload {
+  visible: boolean;
+  focused: boolean;
+  minimized: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Bundles
 // ---------------------------------------------------------------------------
 
