@@ -170,6 +170,8 @@ things a release number cannot:
   dogfooders on the old path until the cut lands, which is exactly when you
   most want the new one exercised.
 
+**Land the assistant side first when the gate targets a route from the same effort.** A dev floor can only name a build that carries the route, and a build is stamped when its run computes the version, so a floor set before the route is on `main` names a minute that routeless builds also pass. Split the work: the route merges, the first dev-release run on `main` that carries it names the floor, then the gate merges (the sight-stream and credential-verification rows are examples).
+
 Use the commit's timestamp, not `dev.0`. If the assistant-side change landed
 after the current version was tagged, dev builds from earlier in the same
 window do **not** carry it, and `dev.0` would wrongly light up for them.
