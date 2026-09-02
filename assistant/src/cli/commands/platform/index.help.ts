@@ -85,6 +85,7 @@ Fields:
   stale                  True when pending-charge data may be stale or unavailable
   as_of                  When this balance was read (response receipt time)
   daily_spend            Today's (UTC) spend counted against the daily limit, in USD
+                         (excludes spend covered by plan-included credits)
   daily_limit            Daily credit limit in USD, or null when none is set
   daily_limit_reached    True when today's spend has hit the limit and it is enforced
   daily_limit_snoozed    True when the limit is skipped for the rest of today

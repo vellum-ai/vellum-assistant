@@ -30,29 +30,29 @@ This skill contains zero static information — only pointers to where the truth
 
 The CLI is the single source of truth for anything about the running assistant's current state.
 
-| Question type                             | Command                                                                    |
-| ----------------------------------------- | -------------------------------------------------------------------------- |
-| Current model, provider, config           | `assistant config get llm`                                                 |
-| Full config                               | `assistant config list`                                                    |
-| Config schema (what's configurable)       | `assistant config schema [path]`                                           |
-| Available/installed skills                | `assistant skills list --json`                                             |
-| Platform connection                       | `assistant platform status --json`                                         |
-| Credit balance, spend today, daily limit  | `assistant platform credits --json`                                        |
-| Plan and subscription status              | `assistant platform subscription --json`                                   |
-| Plan catalog and pricing                  | `assistant platform plans --json`                                          |
-| Invoices                                  | `assistant platform invoices list --json`                                  |
-| Auth/identity                             | `assistant auth info --json`                                               |
-| Which providers exist, and in which sense | `assistant oauth providers list --json`                                    |
-| Whether one is actually connected         | `assistant oauth status <provider>`                                        |
-| Channel delivery health                   | `assistant channels list`                                                  |
-| Connected clients                         | `assistant clients list --json`                                            |
-| Trust rules                               | `assistant trust list`                                                     |
-| Stored credentials                        | `assistant credentials list`                                               |
-| API keys                                  | `assistant keys list`                                                      |
-| MCP servers                               | `assistant mcp list`                                                       |
-| Watchers                                  | `assistant watchers list`                                                  |
-| Token usage/costs                         | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
-| Version                                   | `assistant --version`                                                      |
+| Question type                                 | Command                                                                    |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| Current model, provider, config               | `assistant config get llm`                                                 |
+| Full config                                   | `assistant config list`                                                    |
+| Config schema (what's configurable)           | `assistant config schema [path]`                                           |
+| Available/installed skills                    | `assistant skills list --json`                                             |
+| Platform connection                           | `assistant platform status --json`                                         |
+| Credit balance, daily limit, spend against it | `assistant platform credits --json`                                        |
+| Plan and subscription status                  | `assistant platform subscription --json`                                   |
+| Plan catalog and pricing                      | `assistant platform plans --json`                                          |
+| Invoices                                      | `assistant platform invoices list --json`                                  |
+| Auth/identity                                 | `assistant auth info --json`                                               |
+| Which providers exist, and in which sense     | `assistant oauth providers list --json`                                    |
+| Whether one is actually connected             | `assistant oauth status <provider>`                                        |
+| Channel delivery health                       | `assistant channels list`                                                  |
+| Connected clients                             | `assistant clients list --json`                                            |
+| Trust rules                                   | `assistant trust list`                                                     |
+| Stored credentials                            | `assistant credentials list`                                               |
+| API keys                                      | `assistant keys list`                                                      |
+| MCP servers                                   | `assistant mcp list`                                                       |
+| Watchers                                      | `assistant watchers list`                                                  |
+| Token usage/costs                             | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
+| Version                                       | `assistant --version`                                                      |
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
 
@@ -76,16 +76,18 @@ recall which they did.
 probe, which is not all of them. It answers whether a channel is working, not
 whether something is connected.
 
-Credit balance, plan, and today's spend come from the platform's billing
-ledger through `platform credits` and `platform subscription`, never from an
-estimate. `platform credits` reports today's (UTC) spend only. For spend over
-any other period, such as this week or this month, say that you cannot see it
-and point to Settings > Billing; do not substitute today's figure or `usage
-totals`, which is a local token-cost estimate, not the ledger. When `platform
-credits` fails or the assistant is not connected to the platform, say plainly
-that you cannot see the balance and point to Settings > Billing. Do not guess
-a number, an allowance model, or a reset schedule, and never imply you checked
-when you did not.
+Credit balance and plan come from the platform's billing ledger through
+`platform credits` and `platform subscription`, never from an estimate. The
+only spend figure `platform credits` reports is `daily_spend`: today's (UTC)
+spend counted against the daily credit limit, which excludes spend covered by
+plan-included credits. Present it as exactly that. For total spend today, or
+spend over any other period, say that you cannot see it and point to
+Settings > Billing; do not substitute `daily_spend` or `usage totals`, which is
+a local token-cost estimate, not the ledger. When `platform credits` fails or
+the assistant is not connected to the platform, say plainly that you cannot
+see the balance and point to Settings > Billing. Do not guess a number, an
+allowance model, or a reset schedule, and never imply you checked when you did
+not.
 
 ### 2. Vellum Docs Site — Conceptual Knowledge
 
