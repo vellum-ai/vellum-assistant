@@ -5,6 +5,7 @@ import {
   addMessage,
   createConversation,
   getConversation,
+  getMessages,
   PROVIDER_ERROR_MESSAGE_KIND,
 } from "../../persistence/conversation-crud.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -88,8 +89,12 @@ function recordObservation(axTree: string): {
  * tool before stopping looks like from the conversation's side.
  */
 function recordingDispatch(
-  reply: string | null = "Here is what I understood.",
+  reply: string | null = null,
   metadata?: Record<string, unknown>,
+  report: Record<string, unknown> | null = {
+    task: "Filing the receipt",
+    steps: ["Open the inbox", "Save the attachment"],
+  },
 ) {
   const calls: { conversationId: string; prompt: string }[] = [];
   const dispatch = async (
@@ -97,8 +102,20 @@ function recordingDispatch(
     prompt: string,
   ): Promise<WatchRetroDispatchResult> => {
     calls.push({ conversationId, prompt });
+    const blocks: Record<string, unknown>[] = [];
     if (reply !== null) {
-      await addMessage(conversationId, "assistant", reply, {
+      blocks.push({ type: "text", text: reply });
+    }
+    if (report !== null) {
+      blocks.push({
+        type: "tool_use",
+        id: `toolu_${randomUUID()}`,
+        name: "watch_retro_report",
+        input: report,
+      });
+    }
+    if (blocks.length > 0) {
+      await addMessage(conversationId, "assistant", JSON.stringify(blocks), {
         skipIndexing: true,
         ...(metadata ? { metadata } : {}),
       });
@@ -108,51 +125,14 @@ function recordingDispatch(
   return { calls, dispatch };
 }
 
-/**
- * A dispatcher standing in for the turn the retro actually asks for: one
- * `ui_show` of the card, and no prose at all.
- *
- * Shaped the way the real turn persists (the `tool_use` for the call plus the
- * `ui_surface` block appended beside it, see `buildPersistedAssistantContent`)
- * because "no text block" is the whole point and an all-surface message is
- * rejected outright by the model-invisible-content guard in
- * `conversation-crud`. This is the ordinary path, not an edge case, which is
- * why it gets a helper of its own: `recordingDispatch` leaves a text message,
- * so every test built on it would pass whether or not the card counts.
- */
-function cardOnlyDispatch(template: string | undefined = "watch_retro") {
-  const calls: { conversationId: string; prompt: string }[] = [];
-  const dispatch = async (
-    conversationId: string,
-    prompt: string,
-  ): Promise<WatchRetroDispatchResult> => {
-    calls.push({ conversationId, prompt });
-    const surfaceId = `watch-retro-${randomUUID()}`;
-    const data = {
-      title: "Filing the receipt",
-      ...(template === undefined ? {} : { template }),
-      templateData: {
-        task: "Filing the receipt",
-        steps: ["Open the inbox", "Save the attachment"],
-      },
-    };
-    await addMessage(
-      conversationId,
-      "assistant",
-      JSON.stringify([
-        {
-          type: "tool_use",
-          id: `toolu_${randomUUID()}`,
-          name: "ui_show",
-          input: { surface_type: "card", data },
-        },
-        { type: "ui_surface", surfaceId, surfaceType: "card", data },
-      ]),
-      { skipIndexing: true },
-    );
-    return { invoked: true };
-  };
-  return { calls, dispatch };
+/** A turn that ran and left nothing behind at all. */
+function emptyDispatch() {
+  return recordingDispatch(null, undefined, null);
+}
+
+/** A turn that ran and wrote prose but never called the report tool. */
+function proseOnlyDispatch(reply = "Here is what I understood.") {
+  return recordingDispatch(reply, undefined, null);
 }
 
 describe("watch retrospective", () => {
@@ -198,7 +178,7 @@ describe("watch retrospective", () => {
     // that loads `skill-management` and then stops or errors looks invoked and
     // has said nothing.
     const result = await runWatchRetro(summary, {
-      dispatch: recordingDispatch(null).dispatch,
+      dispatch: emptyDispatch().dispatch,
     });
 
     expect(result).toEqual({ status: "failed", reason: "no_report" });
@@ -211,9 +191,11 @@ describe("watch retrospective", () => {
     // A failed LLM call persists an assistant row and returns normally, so the
     // thread has assistant text in it and still holds no account of anything.
     const result = await runWatchRetro(summary, {
-      dispatch: recordingDispatch("The model call failed.", {
-        messageKind: PROVIDER_ERROR_MESSAGE_KIND,
-      }).dispatch,
+      dispatch: recordingDispatch(
+        "The model call failed.",
+        { messageKind: PROVIDER_ERROR_MESSAGE_KIND },
+        null,
+      ).dispatch,
     });
 
     expect(result).toEqual({ status: "failed", reason: "no_report" });
@@ -233,7 +215,7 @@ describe("watch retrospective", () => {
     );
 
     const result = await runWatchRetro(summary, {
-      dispatch: recordingDispatch(null).dispatch,
+      dispatch: emptyDispatch().dispatch,
     });
 
     expect(result).toEqual({ status: "failed", reason: "no_report" });
@@ -244,7 +226,7 @@ describe("watch retrospective", () => {
     const summary = recordSession(["filing the receipt"]);
 
     const result = await runWatchRetro(summary, {
-      dispatch: recordingDispatch("   \n  ").dispatch,
+      dispatch: proseOnlyDispatch("   \n  ").dispatch,
     });
 
     expect(result).toEqual({ status: "failed", reason: "no_report" });
@@ -275,8 +257,7 @@ describe("watch retrospective", () => {
     // One card, and the record is its first page. Order carries no priority
     // once each question owns a page, so the record leads without costing the
     // questions anything.
-    expect(prompt).toContain('surface_type: "card"');
-    expect(prompt).toContain('data.template: "watch_retro"');
+    expect(prompt).toContain("`watch_retro_report`");
     expect(prompt).toContain("`steps`");
     expect(prompt.indexOf("`steps`")).toBeLessThan(
       prompt.indexOf("`questions`"),
@@ -352,13 +333,13 @@ describe("watch retrospective", () => {
     expect(prompt).toContain("Load the `skill-management` skill first");
     expect(
       prompt.indexOf("Load the `skill-management` skill first"),
-    ).toBeLessThan(prompt.indexOf('surface_type: "card"'));
+    ).toBeLessThan(prompt.indexOf("`watch_retro_report`"));
     expect(prompt).toContain("That call is the last thing you do this turn");
     expect(prompt).toContain("no sign-off");
     expect(prompt).toContain("no further tool call");
     // One card, not a card per question: a second `ui_show` would replace the
     // paging with a stack of surfaces, which is the shape this replaced.
-    expect(prompt).toContain("exactly one `ui_show` call");
+    expect(prompt).toContain("exactly one `watch_retro_report` call");
   });
 
   test("shows the card even when the skill it hands off to will not load", async () => {
@@ -374,7 +355,7 @@ describe("watch retrospective", () => {
     // gives an inline-command load, land before the user has been told
     // anything. Neither may become the retro: the session is recorded and the
     // account of it is what the user is owed.
-    expect(prompt).toContain("Show the card whether or not the skill loaded");
+    expect(prompt).toContain("Report whether or not the skill loaded");
     // The failure is still named, so a missing handoff does not read as a
     // report that simply chose not to ask about authoring.
     expect(prompt).toContain("could not open the skill-authoring flow");
@@ -393,36 +374,108 @@ describe("watch retrospective", () => {
     expect(prompt).not.toContain("scaffold_managed_skill");
   });
 
-  test("counts a turn that produced only the card as a report", async () => {
+  test("draws the card from the turn's report call", async () => {
     const summary = recordSession(["filing the receipt"]);
-    const { dispatch } = cardOnlyDispatch();
+    const { dispatch } = recordingDispatch();
 
     const result = await runWatchRetro(summary, { dispatch });
 
-    // The retro's whole output is one `ui_show`, which persists as a
-    // `ui_surface` block and leaves no text behind. A report test that only
-    // looked for prose would read every successful retro as having produced
-    // nothing: the dispatch would fail, the conversation would stay hidden,
-    // and the user who pressed stop would be told there is nothing to show
-    // while the card sits in a thread they cannot reach.
     expect(result).toEqual({
       status: "dispatched",
       conversationId: summary.conversationId,
     });
     expect(getConversation(summary.conversationId)!.surfacedAt).not.toBeNull();
+
+    // The card is appended by the daemon, not by the turn: nothing the model
+    // can call renders a surface in a clientless wake.
+    const appended = getMessages(summary.conversationId).at(-1)!;
+    const surface = appended.content.find(
+      (block) => block.type === "ui_surface",
+    ) as { surfaceType: string; data: Record<string, unknown> } | undefined;
+    expect(surface?.surfaceType).toBe("card");
+    expect(surface?.data.template).toBe("watch_retro");
+    expect((surface?.data.templateData as { task: string }).task).toBe(
+      "Filing the receipt",
+    );
+
+    // `title`, `subtitle` and `body` are the whole report for a renderer too
+    // old to know the template, so they are derived here rather than left to
+    // the model to remember.
+    expect(surface?.data.title).toBe("Filing the receipt");
+    expect(surface?.data.body).toContain("1. Open the inbox");
+
+    // Providers drop `ui_surface` when serializing history, so without the
+    // fallback sibling the model's next turn would not know what it showed.
+    const fallback = appended.content.find(
+      (block) =>
+        block.type === "text" &&
+        (block as { _surfaceFallback?: boolean })._surfaceFallback === true,
+    );
+    expect(fallback).toBeDefined();
   });
 
-  test("does not count some other card as the report", async () => {
+  test("a turn that wrote prose but never reported is not a report", async () => {
     const summary = recordSession(["filing the receipt"]);
-    const { dispatch } = cardOnlyDispatch("task_progress");
 
-    // A turn that put up a progress card and then stopped has told the user
-    // nothing about their session. The retro rides an ordinary `card`, so the
-    // template is what has to be matched: counting the surface type would make
-    // this a check that the turn drew any card at all.
-    const result = await runWatchRetro(summary, { dispatch });
+    // Prose is no longer the report, so a turn that narrates the session and
+    // never calls the tool has produced nothing the user can be shown. Left
+    // counting, it would surface a thread with an account in it that no card
+    // backs and no answer can be given to.
+    const result = await runWatchRetro(summary, {
+      dispatch: proseOnlyDispatch("Here is what I saw. You filed a receipt.")
+        .dispatch,
+    });
+
     expect(result).toEqual({ status: "failed", reason: "no_report" });
     expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
+  });
+
+  test("a report call with no task is not a report", async () => {
+    const summary = recordSession(["filing the receipt"]);
+    const { dispatch } = recordingDispatch(null, undefined, {
+      task: "   ",
+      steps: ["Open the inbox"],
+    });
+
+    // The payload schema is tolerant by design, so an empty task parses. A
+    // card whose first page has no title is not an account of anything, and
+    // the append is the report test, so it has to reject here.
+    const result = await runWatchRetro(summary, { dispatch });
+    expect(result).toEqual({ status: "failed", reason: "no_report" });
+  });
+
+  test("the newest report call wins", async () => {
+    const summary = recordSession(["filing the receipt"]);
+    const conversationId = summary.conversationId;
+    const dispatch = async (): Promise<WatchRetroDispatchResult> => {
+      // A model that corrects itself calls again rather than editing.
+      for (const task of ["First reading", "Corrected reading"]) {
+        await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify([
+            {
+              type: "tool_use",
+              id: `toolu_${randomUUID()}`,
+              name: "watch_retro_report",
+              input: { task, steps: ["Open the inbox"] },
+            },
+          ]),
+          { skipIndexing: true },
+        );
+      }
+      return { invoked: true };
+    };
+
+    await runWatchRetro(summary, { dispatch });
+
+    const appended = getMessages(conversationId).at(-1)!;
+    const surface = appended.content.find(
+      (block) => block.type === "ui_surface",
+    ) as { data: Record<string, unknown> } | undefined;
+    expect((surface?.data.templateData as { task: string }).task).toBe(
+      "Corrected reading",
+    );
   });
 
   test("says so when the render was bounded", async () => {

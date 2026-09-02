@@ -22,9 +22,15 @@
  * everything it recorded, and the timeline outlives the turn.
  */
 
+import { randomUUID } from "node:crypto";
+
 import {
+  type WatchRetroSurfaceData,
+  WatchRetroSurfaceDataSchema,
+} from "../api/surfaces.js";
+import {
+  addMessage,
   getMessages,
-  isStandaloneAssistantMessage,
   setConversationSurfaced,
 } from "../persistence/conversation-crud.js";
 import type { WakeOptions } from "../runtime/agent-wake.js";
@@ -50,9 +56,26 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
 /**
  * What the retro reports, and the shape it reports in.
  *
- * **It is a card, not a turn of prose.** The turn ends in one `ui_show` of a
- * `card` surface under the `watch_retro` template, which the client draws as a
- * paged card: the record on the first page, one question per page after it.
+ * **It is a card, not a turn of prose.** The turn ends by calling
+ * `watch_retro_report`, and this module turns that call into a `card` surface
+ * under the `watch_retro` template, which the client draws as a paged card: the
+ * record on the first page, one question per page after it.
+ *
+ * **The daemon appends the card; the model never reaches `ui_show`.** This wake
+ * is `clientless`, and `conversation-tool-setup` gates the whole `ui_surface`
+ * family on a client being present, so `ui_show` is absent from this turn's
+ * tool set rather than merely denied. A retrospective told to call it can only
+ * report that it cannot. `watch_retro_report` is an ordinary tool and passes
+ * that gate, and the surface is appended here, the way the memory
+ * retrospective's `skill_card` is appended by the daemon rather than requested
+ * by the model.
+ *
+ * **The append waits for the turn to end.** A `ui_surface` row written mid-turn
+ * can land between a persisted `tool_use` and its `tool_result`, an ordering
+ * strict OpenAI-compatible backends reject; the skill card defers around it,
+ * and running after `dispatch` resolves avoids it outright. The report survives
+ * the wait in the transcript, as the tool call's own input, so nothing is held
+ * in memory between the call and the append.
  *
  * **A template rather than a surface type of its own, so an older client still
  * gets the report.** The macOS app ships its own renderer and floats its CLI to
@@ -134,19 +157,17 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * prevent. So the instructions show the card either way and say the handoff did
  * not happen in the card's own coverage line, rather than reporting on the load.
  */
-const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you do anything else, and follow it. Do not author or scaffold a skill yet: the card below is the alignment its first step calls for, and the answers come back before anything is written.
+const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you do anything else, and follow it. Do not author or scaffold a skill yet: the report below is the alignment its first step calls for, and the answers come back before anything is written.
 
-Then make exactly one \`ui_show\` call, with \`surface_type: "card"\` and \`data.template: "watch_retro"\`, and \`await_action: false\`. That call is the last thing you do this turn. Nothing follows it: no prose, no sign-off, no note about what you loaded, no further tool call. Show the card whether or not the skill loaded; if it did not, add one short sentence to \`templateData.coverage\` saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
+Then make exactly one \`watch_retro_report\` call. That call is the last thing you do this turn. Nothing follows it: no prose, no sign-off, no note about what you loaded, no further tool call. The report is drawn as a card in the conversation once this turn ends, so writing the same thing again in prose would show the user two of it. Report whether or not the skill loaded; if it did not, add one short sentence to \`coverage\` saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
 
-\`data.templateData\` carries the report:
+The payload:
 
 - \`task\`: the task in one line, named the way the user would name it.
 - \`purpose\`: one sentence on what it is for. This is the only sentence on the card.
 - \`steps\`: the steps in order, as short imperative fragments: "Open the Sentry issue", not "You opened the Sentry issue from the alert email". Three to eight of them. Concrete enough to follow, carrying no purpose of their own.
 - \`eyebrow\`: the session's own facts, e.g. "Watched 4 min, 11 screens".
 - \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything. Give each one an \`id\` no other question on this card uses.
-
-Set \`data.title\`, \`data.subtitle\` and \`data.body\` as well, from the same material: the task, its purpose, and the steps as a numbered list. A client too old to know this template renders those three and nothing else, so they are the whole report for that reader. Keep them consistent with \`templateData\`; do not put the questions in \`body\`, which that reader has no way to answer.
 
 Every question is answerable in one tap and every one is skippable, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
 
@@ -183,6 +204,9 @@ function coverageNotice(render: WatchTimelineRender): string {
 
 /** The card template the retro reports through. */
 const WATCH_RETRO_TEMPLATE = "watch_retro";
+
+/** The tool a retrospective hands its report to. */
+const WATCH_RETRO_TOOL_NAME = "watch_retro_report";
 
 /** The element the recording is fenced in. */
 const TIMELINE_TAG = "watch-timeline";
@@ -404,7 +428,15 @@ async function dispatchWatchRetro(
     if (!dispatched.invoked) {
       return { status: "failed", reason: dispatched.reason ?? "unknown" };
     }
-    if (!hasReport(summary.conversationId, priorMessageIds)) {
+    // The card is what the user is owed, so a turn that made no usable report
+    // call has produced nothing regardless of what else it wrote. Appending is
+    // also the test: there is no separate "did it report" check that could
+    // disagree with whether a card actually landed.
+    const surfaceId = await appendRetroCard(
+      summary.conversationId,
+      priorMessageIds,
+    );
+    if (surfaceId === null) {
       return { status: "failed", reason: "no_report" };
     }
 
@@ -435,49 +467,87 @@ function messageIds(conversationId: string): ReadonlySet<string> {
 }
 
 /**
- * Whether the turn left the user something to read.
+ * Turn the turn's `watch_retro_report` call into the card the user is shown.
  *
- * Asked of the conversation rather than of the dispatch result, because a wake
- * reports invocation and a report is a stronger thing. `inspectWakeOutput`
- * counts a `tool_use` block as output, so a retro whose first act is loading
- * the `skill-management` skill has already "produced output" before it has
- * said anything, and a run that then stops or errors still returns
- * `invoked: true`. Surfacing on that gives the user a thread of tool plumbing
- * with no report and no question in it.
+ * **Read back out of history rather than handed over.** The tool records and
+ * returns; nothing is kept in memory between the call and this append, so a
+ * crash in between loses no report that was actually made. The turn's own
+ * `tool_use` block is the record, and its `input` is the payload.
  *
- * Standalone assistant rows are not reports either: that is the shape a
- * provider error takes, which persists as an assistant message and returns
- * normally, and a system card is machinery rather than an account of the
- * session.
+ * **The newest call wins.** A model that corrects itself calls again rather
+ * than editing, so the last call in the turn is the one it stands behind.
  *
- * **The card counts, and on the ordinary path it is the only thing that does.**
- * The retro's whole output is one `ui_show`, which persists as a `ui_surface`
- * block and leaves no prose behind, so a text-only test would read every
- * successful retro as having produced nothing, fail the dispatch, and leave the
- * conversation unsurfaced: the user presses stop, waits out the turn, and is
- * told there is nothing to show while the report sits in a thread they cannot
- * see. The template is what is matched on rather than the surface type, since
- * the retro rides an ordinary `card` and a `card` alone says nothing about
- * whether this session was reported on. Text still counts on its own.
+ * **Parsed again here.** A tool result is a promise about validation, not about
+ * what was persisted, and the block this reads has been through the provider
+ * and the message store since. The card's own schema is what the renderer
+ * trusts, so it is what the payload is held to before a row is written.
+ *
+ * Returns the appended surface id, or null when the turn made no usable call.
  */
-function hasReport(
+async function appendRetroCard(
   conversationId: string,
   priorMessageIds: ReadonlySet<string>,
-): boolean {
-  return getMessages(conversationId).some((message) => {
+): Promise<string | null> {
+  let payload: WatchRetroSurfaceData | null = null;
+  for (const message of getMessages(conversationId)) {
     if (priorMessageIds.has(message.id) || message.role !== "assistant") {
-      return false;
+      continue;
     }
-    if (isStandaloneAssistantMessage(message.role, message.metadata)) {
-      return false;
+    for (const block of message.content) {
+      if (block.type !== "tool_use" || block.name !== WATCH_RETRO_TOOL_NAME) {
+        continue;
+      }
+      const parsed = WatchRetroSurfaceDataSchema.safeParse(block.input);
+      // A call whose payload cannot be drawn is not a report. The schema is
+      // tolerant, so this only rejects what is not an object at all; the task
+      // check below is what rejects an empty one.
+      if (parsed.success && parsed.data.task.trim().length > 0) {
+        payload = parsed.data;
+      }
     }
-    return message.content.some(
-      (block) =>
-        (block.type === "text" && block.text.trim().length > 0) ||
-        (block.type === "ui_surface" &&
-          block.data?.template === WATCH_RETRO_TEMPLATE),
-    );
-  });
+  }
+  if (payload === null) {
+    return null;
+  }
+
+  const surfaceId = `${WATCH_RETRO_TEMPLATE}-${randomUUID()}`;
+  const steps = payload.steps;
+  // `title`, `subtitle` and `body` are what a renderer too old to know the
+  // template draws, and they are the whole report for that reader. Derived here
+  // rather than asked of the model, so the degraded view cannot drift from the
+  // structured one or be forgotten. Questions stay out of it: that reader has
+  // no way to answer them.
+  const body = steps.map((step, index) => `${index + 1}. ${step}`).join("\n");
+  const surfaceBlock = {
+    type: "ui_surface",
+    surfaceId,
+    surfaceType: "card",
+    title: payload.task,
+    display: "inline",
+    data: {
+      title: payload.task,
+      ...(payload.purpose ? { subtitle: payload.purpose } : {}),
+      body,
+      template: WATCH_RETRO_TEMPLATE,
+      templateData: payload,
+    },
+  };
+  // Plain-text sibling, the approval-card pattern: providers drop `ui_surface`
+  // when serializing history, so without this the model's next turn would have
+  // no idea what it just showed the user, and the CLI, search and channel
+  // replies would render the session as nothing at all.
+  const fallbackBlock = {
+    type: "text",
+    text: `Here is what I saw: ${payload.task}${body ? `\n\n${body}` : ""}`,
+    _surfaceFallback: true,
+  };
+  await addMessage(
+    conversationId,
+    "assistant",
+    JSON.stringify([surfaceBlock, fallbackBlock]),
+    { skipIndexing: true, clientMessageId: surfaceId },
+  );
+  return surfaceId;
 }
 
 /**
