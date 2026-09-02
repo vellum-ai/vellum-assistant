@@ -10,6 +10,7 @@ import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitBackgroundFailureSignal } from "../notifications/background-failure-signal.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { resolveVisibleInSourceNow } from "../notifications/resolve-visible-in-source.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
@@ -130,7 +131,11 @@ async function emitScheduleNotifySignal(payload: {
       requiresAction: true,
       urgency: "high",
       isAsyncBackground: false,
-      visibleInSourceNow: false,
+      // The source-active pre-gate runs ahead of the high-urgency channel
+      // force-add, so a watched conversation suppresses this signal too.
+      visibleInSourceNow: resolveVisibleInSourceNow({
+        conversationId: payload.deepLinkConversationId,
+      }),
     },
     contextPayload: {
       scheduleId: payload.id,

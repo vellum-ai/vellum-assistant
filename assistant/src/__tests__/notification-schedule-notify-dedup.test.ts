@@ -1,23 +1,64 @@
 /**
- * Regression test: recurring `schedule.notify` firings must not be
- * deduplicated against prior firings of the same schedule.
+ * Two guarantees for the `schedule.notify` producer.
  *
- * The scheduler supplies a unique per-firing dedupeKey
- * (`schedule:notify:<id>:<timestamp>`) so `setEventDedupeKey` is never
- * called for schedule signals and `checkDedupe` never finds a matching
- * row when the LLM decision engine generates a stable key like
- * `schedule:notify:<id>`.
+ * 1. Recurring firings must not be deduplicated against prior firings of the
+ *    same schedule. The scheduler supplies a unique per-firing dedupeKey
+ *    (`schedule:notify:<id>:<timestamp>`) so `setEventDedupeKey` is never
+ *    called for schedule signals and `checkDedupe` never finds a matching
+ *    row when the LLM decision engine generates a stable key like
+ *    `schedule:notify:<id>`.
+ * 2. `visibleInSourceNow` is resolved from the schedule's originating
+ *    conversation, so a reminder is not pushed into the conversation the user
+ *    is already reading.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { runDeterministicChecks } from "../notifications/deterministic-checks.js";
 import { createEvent } from "../notifications/events-store.js";
-import type { NotificationSignal } from "../notifications/signal.js";
+import type {
+  AttentionHints,
+  NotificationSignal,
+} from "../notifications/signal.js";
 import type { NotificationDecision } from "../notifications/types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { notificationEvents } from "../persistence/schema/index.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+interface CapturedEmit {
+  sourceEventName: string;
+  attentionHints: AttentionHints;
+  contextPayload: Record<string, unknown>;
+}
+
+const emitCalls: CapturedEmit[] = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (params: CapturedEmit) => {
+    emitCalls.push(params);
+  },
+}));
+
+let webFocused = false;
+let webPresenceShouldThrow = false;
+const webPresenceArgs: unknown[][] = [];
+const realWebPresence = await import("../runtime/web-presence.js");
+mock.module("../runtime/web-presence.js", () => ({
+  ...realWebPresence,
+  isWebConversationFocused: (...args: unknown[]) => {
+    webPresenceArgs.push(args);
+    if (webPresenceShouldThrow) {
+      throw new Error("simulated presence read failure");
+    }
+    return webFocused;
+  },
+}));
+
+const { createSchedule } = await import("../schedule/schedule-store.js");
+const { runDueSchedulesOnce } = await import("../schedule/scheduler.js");
+
+const PRESENCE_FLAG = "activity-presence-suppression";
+const SCHEDULE_CONVERSATION_ID = "conv-schedule-1";
 
 await initializeDb();
 
@@ -97,5 +138,85 @@ describe("recurring schedule.notify dedup", () => {
     });
 
     expect(result.passed).toBe(true);
+  });
+});
+
+describe("schedule.notify source-active suppression", () => {
+  beforeEach(() => {
+    emitCalls.length = 0;
+    webFocused = false;
+    webPresenceShouldThrow = false;
+    webPresenceArgs.length = 0;
+    setOverridesForTesting({ [PRESENCE_FLAG]: true });
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  async function fireDueNotifySchedule(
+    createdFromConversationId: string | null,
+  ): Promise<void> {
+    await createSchedule({
+      name: "Drink water",
+      cronExpression: null,
+      message: "ping",
+      mode: "notify",
+      nextRunAt: Date.now() - 1000,
+      createdFromConversationId,
+    });
+    await runDueSchedulesOnce();
+  }
+
+  test("suppresses when the originating conversation is focused", async () => {
+    webFocused = true;
+
+    await fireDueNotifySchedule(SCHEDULE_CONVERSATION_ID);
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].sourceEventName).toBe("schedule.notify");
+    expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+    expect(emitCalls[0].attentionHints.urgency).toBe("high");
+    expect(webPresenceArgs).toEqual([[SCHEDULE_CONVERSATION_ID]]);
+  });
+
+  test("notifies when the originating conversation is not focused", async () => {
+    webFocused = false;
+
+    await fireDueNotifySchedule(SCHEDULE_CONVERSATION_ID);
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    expect(webPresenceArgs).toEqual([[SCHEDULE_CONVERSATION_ID]]);
+  });
+
+  test("never reads presence while the flag is off", async () => {
+    webFocused = true;
+    setOverridesForTesting({ [PRESENCE_FLAG]: false });
+
+    await fireDueNotifySchedule(SCHEDULE_CONVERSATION_ID);
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("fails open when the presence read throws", async () => {
+    webPresenceShouldThrow = true;
+
+    await fireDueNotifySchedule(SCHEDULE_CONVERSATION_ID);
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+  });
+
+  test("a schedule with no originating conversation keeps notifying", async () => {
+    webFocused = true;
+
+    await fireDueNotifySchedule(null);
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload.deepLinkConversationId).toBeUndefined();
+    expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    expect(webPresenceArgs).toEqual([]);
   });
 });
