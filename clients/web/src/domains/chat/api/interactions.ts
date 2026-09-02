@@ -188,7 +188,7 @@ export async function submitContactRecord(
   requestId: string,
   input:
     | {
-        operation: "create" | "update" | "delete";
+        operation: "create" | "update" | "delete" | "merge";
         contactId?: string;
         displayName?: string;
         notes?: string;

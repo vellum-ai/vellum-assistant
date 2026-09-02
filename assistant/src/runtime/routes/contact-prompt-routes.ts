@@ -4,7 +4,7 @@
  * Two commands park on the guardian-form rail:
  *   - `contacts/prompt` collects a channel address and binds a channel.
  *   - `contacts/record-prompt` confirms a contact record write the assistant
- *     proposed (create, update, delete). No channel is touched.
+ *     proposed (create, update, delete, merge). No address is bound.
  *
  * Flow, identical for both:
  *   1. CLI calls the IPC route with what the assistant proposes.
@@ -165,12 +165,14 @@ const ContactPromptParams = z.object({
 
 const ContactRecordPromptParams = z.object({
   operation: z
-    .enum(["create", "update", "delete"])
+    .enum(["create", "update", "delete", "merge"])
     .describe("Which record write the guardian is being asked to confirm."),
   contactId: z
     .string()
     .optional()
-    .describe("Target contact. Required for update and delete."),
+    .describe(
+      "Target contact. Required for update, delete and merge (the survivor).",
+    ),
   currentDisplayName: z
     .string()
     .optional()
@@ -189,6 +191,21 @@ const ContactRecordPromptParams = z.object({
     .describe(
       "The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show what access is about to be lost.",
     ),
+
+  donorContactId: z
+    .string()
+    .optional()
+    .describe("The contact being merged away. Present only on a merge."),
+  donorDisplayName: z
+    .string()
+    .optional()
+    .describe(
+      "That contact's name, so the confirmation can say who is being absorbed.",
+    ),
+  donorChannels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
+    .optional()
+    .describe("The channels moving to the survivor."),
 
   displayName: z
     .string()
@@ -304,6 +321,9 @@ async function handleContactRecordPrompt({
     currentDisplayName,
     currentNotes,
     channels,
+    donorContactId,
+    donorDisplayName,
+    donorChannels,
     displayName,
     notes,
     notesProposed,
@@ -314,6 +334,15 @@ async function handleContactRecordPrompt({
 
   if (operation !== "create" && !contactId) {
     return { ok: false, error: `contactId is required to ${operation}` };
+  }
+
+  if (operation === "merge") {
+    if (!donorContactId) {
+      return { ok: false, error: "donorContactId is required to merge" };
+    }
+    if (donorContactId === contactId) {
+      return { ok: false, error: "Cannot merge a contact with itself" };
+    }
   }
 
   // Clients hold one contact card at a time, so a second broadcast replaces the
@@ -331,7 +360,7 @@ async function handleContactRecordPrompt({
   return openGuardianForm<ContactPromptResult>({
     kind: RECORD_FORM,
     timeoutMs,
-    logContext: { operation, contactId },
+    logContext: { operation, contactId, donorContactId },
     broadcast: {
       open: (requestId) =>
         broadcastMessage({
@@ -342,6 +371,9 @@ async function handleContactRecordPrompt({
           currentDisplayName,
           currentNotes,
           channels,
+          donorContactId,
+          donorDisplayName,
+          donorChannels,
           displayName,
           notes,
           notesProposed,

@@ -69,14 +69,14 @@ export interface PendingContactRequestState {
 }
 
 /**
- * A contact record write (create, update, delete) the assistant proposed and
- * the guardian has not answered yet. The proposed values seed the form; what
- * the guardian submits is what gets written.
+ * A contact record write (create, update, delete, merge) the assistant proposed
+ * and the guardian has not answered yet. The proposed values seed the form;
+ * what the guardian submits is what gets written.
  */
 export interface PendingContactRecordRequestState {
   requestId: string;
-  operation: "create" | "update" | "delete";
-  /** Target of an update or delete. Absent on create. */
+  operation: "create" | "update" | "delete" | "merge";
+  /** Target of an update or delete, and the survivor of a merge. */
   contactId?: string;
   /** The target's current name, so the form can show what is changing. */
   currentDisplayName?: string;
