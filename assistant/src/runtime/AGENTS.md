@@ -214,7 +214,7 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   an outbound assistant reply is stamped with a partial envelope at reserve
   time (`buildAssistantChannelMetadata`) whose `messageId` (and, for a reply
   split into several posts, `additionalMessageIds`) the post-send
-  reconciliation in `channel-reply-delivery.ts` back-fills from the
+  reconciliation in `outbound-post-reconciliation.ts` back-fills from the
   transport's delivery results, the assistant's own reaction rows write it
   (`daemon/reaction-record.ts`), and bot-authored Slack backfill rows write
   it. Every channel except Slack writes it for inbound rows too: a reaction
