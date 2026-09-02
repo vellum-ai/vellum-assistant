@@ -6,8 +6,8 @@ the wire contracts the assistant exposes: schemas, types, and pure helpers.
 
 Internal assistant code imports the files in this directory via relative paths
 (e.g. `../../api/events/open-url.js`). External consumers import the
-materialized npm-style package `@vellumai/assistant-api`, regenerated into
-`clients/web/node_modules/` by `clients/web/scripts/postinstall.ts`.
+materialized npm-style package `@vellumai/assistant-api`, a workspace member linked into
+`clients/web/node_modules/` by `bun install`.
 
 ## Architecture
 
@@ -110,8 +110,8 @@ Handler-level tests in the consuming domain modules typically need no change
 Run before push, in order:
 
 ```bash
-# In clients/web — regenerate the @vellumai/assistant-api bundle
-bun run scripts/postinstall.ts
+# Link workspace members, @vellumai/assistant-api among them
+bun install
 
 # Type-check both packages
 ( cd assistant && bunx tsc --noEmit )

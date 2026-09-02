@@ -23,7 +23,8 @@
     "./secret-detection": "./src/secret-detection.ts",
     "./stripe-currency": "./src/stripe-currency.ts",
     "./error": "./src/error.ts",
-    "./reactions": "./src/reactions.ts"
+    "./reactions": "./src/reactions.ts",
+    "./guardian-requests": "./src/guardian-requests.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
