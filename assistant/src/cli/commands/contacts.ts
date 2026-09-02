@@ -400,6 +400,39 @@ async function warnIfAddressLooksTaken(
 }
 
 /**
+ * Bind an address to a contact the caller named. The contact is read first, so
+ * a bad id fails here rather than in front of the guardian, and the form names
+ * it so they can see where the channel is going.
+ */
+async function runTargetedAddressPrompt(
+  contactId: string,
+  opts: AddressPromptOptions,
+  cmd: Command,
+): Promise<void> {
+  const current = await readContactForPrompt(contactId, cmd);
+  if (!current) {
+    return;
+  }
+  if (opts.channel !== undefined && opts.defaultValue !== undefined) {
+    await warnIfAddressLooksTaken(opts.channel, opts.defaultValue, contactId);
+  }
+  const defaultLabel = opts.channel
+    ? `Add ${opts.channel} channel for ${current.displayName}`
+    : undefined;
+  await runAddressPrompt(
+    {
+      ...opts,
+      contactId,
+      contactDisplayName: current.displayName,
+      // The target is fixed by the id, so the role hint has nothing to select.
+      role: undefined,
+      label: opts.label ?? defaultLabel,
+    },
+    cmd,
+  );
+}
+
+/**
  * Park on the guardian's answer to a contact-record form, then report what was
  * actually written. The submitted values can differ from the proposed ones, so
  * the result is re-read rather than echoed back from the request.
@@ -627,12 +660,49 @@ export function registerContactsCommand(program: Command): void {
           opts: {
             name?: string;
             notes?: string;
+            channel?: string;
+            address?: string;
+            verify?: boolean;
             label?: string;
             description?: string;
             timeout?: string;
           },
           cmd: Command,
         ) => {
+          if (opts.address !== undefined && !opts.channel) {
+            writeError(
+              cmd,
+              "--address needs --channel: an address binds as a (channel type, address) pair. Pass --channel, or drop --address.",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          // A channel makes this the address form, which writes the record and
+          // binds the channel under one confirmation.
+          if (opts.channel) {
+            if (!opts.name) {
+              writeError(
+                cmd,
+                "--channel needs --name: the contact is created under that name. Pass --name, or run 'assistant contacts prompt' to create a contact named after the address.",
+              );
+              process.exitCode = 1;
+              return;
+            }
+            await runAddressPrompt(
+              {
+                displayName: opts.name,
+                notes: opts.notes,
+                channel: opts.channel,
+                defaultValue: opts.address,
+                verify: opts.verify,
+                label: opts.label,
+                description: opts.description,
+                timeout: opts.timeout,
+              },
+              cmd,
+            );
+            return;
+          }
           await runRecordPrompt(
             {
               operation: "create",
@@ -745,9 +815,24 @@ export function registerContactsCommand(program: Command): void {
             description?: string;
             timeout?: string;
             verify?: boolean;
+            contactId?: string;
           },
           cmd: Command,
         ) => {
+          if (opts.contactId && opts.role === "guardian") {
+            writeError(
+              cmd,
+              "--contact-id and --role guardian cannot be combined: --role guardian binds to the guardian contact, so there is no target to choose. Drop --contact-id, or drop --role.",
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          if (opts.contactId) {
+            await runTargetedAddressPrompt(opts.contactId, opts, cmd);
+            return;
+          }
+
           // The form seeds a role either way, so an unstated one is stated
           // here rather than left for the daemon to pick.
           await runAddressPrompt(
@@ -776,27 +861,13 @@ export function registerContactsCommand(program: Command): void {
           },
           cmd: Command,
         ) => {
-          const current = await readContactForPrompt(contactId, cmd);
-          if (!current) {
-            return;
-          }
-          if (opts.address !== undefined) {
-            await warnIfAddressLooksTaken(
-              opts.channel,
-              opts.address,
-              contactId,
-            );
-          }
-          await runAddressPrompt(
+          await runTargetedAddressPrompt(
+            contactId,
             {
-              contactId,
-              contactDisplayName: current.displayName,
               channel: opts.channel,
               defaultValue: opts.address,
               verify: opts.verify,
-              label:
-                opts.label ??
-                `Add ${opts.channel} channel for ${current.displayName}`,
+              label: opts.label,
               description: opts.description,
               timeout: opts.timeout,
             },

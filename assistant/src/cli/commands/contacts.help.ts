@@ -23,10 +23,14 @@ Writes are split in two, and both need the guardian at the app:
 
   create/update/delete  the record: who someone is (name, notes). Opens a
                         form in the guardian's app; nothing is written until
-                        they submit it. A record has no channel, so it grants
-                        no access on its own.
+                        they submit it. A record on its own has no channel, so
+                        it grants no access.
   prompt                the channel: an address the guardian types, bound to
                         a contact. This is what makes someone reachable.
+
+Both at once is one form: 'create --name <name> --channel <type>' confirms the
+record and the channel together. To extend a contact that already exists, run
+'channels add <contactId>'.
 
 Granting someone access to message the assistant is 'contacts invites create'.
 
@@ -113,6 +117,21 @@ Examples:
           description: "Proposed notes, prefilled into the form",
         },
         {
+          flags: "--channel <channel>",
+          description:
+            "Also bind a channel on the same form (email, phone, telegram, whatsapp, slack). Requires --name.",
+        },
+        {
+          flags: "--address <address>",
+          description:
+            "Address to pre-fill; the guardian can edit it before submitting. Requires --channel.",
+        },
+        {
+          flags: "--verify",
+          description:
+            "Pre-check the form's 'mark verified' box. The guardian decides: unchecked, the channel stays unverified.",
+        },
+        {
           flags: "--label <label>",
           description: "Display label shown on the form",
         },
@@ -132,16 +151,23 @@ Opens an add-contact form in the guardian's app, prefilled with --name and
 --notes. The guardian can edit either field before submitting, and the values
 they submit are what gets written. Nothing is written if they dismiss the form.
 
-The new contact has no channels, so it cannot message the assistant and the
-assistant cannot reach it. It is a name to hang notes on and to address an
-invite to. Use 'contacts prompt' to bind an address, or
+Without --channel the new contact has no channels, so it cannot message the
+assistant and the assistant cannot reach it. It is a name to hang notes on and
+to address an invite to. Use 'contacts prompt' to bind an address later, or
 'contacts invites create' to let someone bind their own.
+
+With --channel the record and the channel are one form and one confirmation:
+the guardian confirms the name and the address together, and the contact is
+created with that channel attached. --name is required in that mode, since the
+contact is created under it. Every other flag behaves as it does without
+--channel.
 
 ${FORM_NOTE}
 
 Examples:
   $ assistant contacts create --name "Alice"
   $ assistant contacts create --name "Alice" --notes "Dentist, referred by Bob"
+  $ assistant contacts create --name "Alice" --channel email --address alice@example.com
   $ assistant contacts create --name "Alice" --json`,
     },
     {
@@ -248,6 +274,11 @@ Examples:
             "Suggested address to pre-fill the input with (user can edit before submitting)",
         },
         {
+          flags: "--contact-id <id>",
+          description:
+            "Bind to this existing contact instead of matching by address. Run 'assistant contacts list' to find ids.",
+        },
+        {
           flags: "--role <role>",
           description:
             "Intended role: guardian, trusted-contact, or unknown (default: unknown)",
@@ -276,20 +307,28 @@ Examples:
 Opens an address form in the guardian's app. They enter a channel address
 (phone number, email, Telegram ID, etc.) and it is bound as a channel.
 
-Which contact it binds to depends on --role:
+Which contact it binds to depends on --contact-id and --role:
 
+  --contact-id <id>  Binds to that contact, which the form names, whatever
+                     address the guardian submits. Cannot be combined with
+                     --role guardian, which picks its contact by role.
   --role guardian    Binds to the guardian contact. An address already bound
                      to a different contact is rejected as a conflict.
-  anything else      Looks up the submitted (channel type, address). A match
+  neither            Looks up the submitted (channel type, address). A match
                      reuses that contact and channel; no match creates a new
                      contact named after the address. Other --role values are
                      form hints only: the contact is created with role
                      "contact" either way.
 
-To add a channel to a contact that already exists, run
-'contacts channels add <contactId>': it names the contact on the form and binds
-to it instead of matching by address. To let someone bind their own address,
-use 'contacts invites create'.
+Two contacts cannot share one address, so a --contact-id bind is refused when
+the form is submitted if the address is by then held by a different contact.
+The refusal names that contact and nothing is written. Pre-filling --channel and
+--default-value alongside --contact-id also checks up front and warns when the
+address looks taken, without refusing: that check reads the local mirror, so
+only the refusal on submit is authoritative.
+
+'contacts channels add <contactId>' is the same targeted bind under its own
+verb. To let someone bind their own address, use 'contacts invites create'.
 
 The channel is saved unverified unless the guardian leaves the form's "mark
 verified" box checked, which attests it the same way Contacts Verify me does.
@@ -300,6 +339,7 @@ ${FORM_NOTE}
 Examples:
   $ assistant contacts prompt --channel phone --role guardian
   $ assistant contacts prompt --channel email --label "Alice's email address"
+  $ assistant contacts prompt --contact-id abc-123 --channel email
   $ assistant contacts prompt --channel imessage --role guardian --verify \\
       --label "Your iMessage number" --placeholder "+15555550142"`,
     },
