@@ -822,5 +822,9 @@
     "reactionAdded": "{name} отреагировал(а) {emoji}",
     "reactionRemoved": "{name} убрал(а) свою реакцию {emoji}",
     "reactionSomeone": "Кто-то"
+  },
+  "toolDetailPanel": {
+    "denied": "Этот вызов инструмента не был одобрен, поэтому он не выполнился.",
+    "emptyOutput": "Инструмент не вернул никаких данных."
   }
 }

@@ -24,7 +24,6 @@ const STATE: CompanionSurfaceState = {
   optionsBox: 44,
   call: null,
   assistantName: "Ziggy",
-  turns: [],
   working: false,
   // Watch offered, which is what every case below except the flag's own is
   // about. The flag is main's answer and arrives on the state like everything
@@ -44,7 +43,6 @@ const resetState = () => {
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
-  STATE.turns = [];
   delete STATE.character;
 };
 
@@ -89,12 +87,9 @@ mock.module("@/runtime/companion-surface", () => ({
   // Stubbed rather than omitted: the page statically imports it, and a
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
-  submitCompanionMessage: () => undefined,
-  setCompanionComposing: () => undefined,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
   showCompanionContextMenu: contextMenuMock,
-  openCompanionLink: () => undefined,
 }));
 
 mock.module("@/runtime/desktop-voice-activity", () => ({
@@ -654,68 +649,6 @@ describe("dragging the companion surface", () => {
   });
 
   /**
-   * Capture retargets the click to whatever holds it, so a press that armed the
-   * drag from a control is a click that control never sees. The surface's own
-   * controls stop the press, but the card draws the assistant's markdown and
-   * the copy affordance on a code block belongs to the design library.
-   */
-  test("a press on a control the card's markdown draws is not a grab", async () => {
-    const { container } = render(<CompanionSurfacePage />);
-    const { pill } = await pinSurface(container);
-    const canvas = canvasOf(container);
-    const capture = spyOn(pill, "setPointerCapture").mockImplementation(
-      () => undefined,
-    );
-
-    // The turns are drawn on the card Type opens, and only once the exchange on
-    // it is this composer's own: send a message, then let the reply arrive the
-    // way main pushes it.
-    const type = Array.from(pill.querySelectorAll("button")).find(
-      (button) => button.getAttribute("aria-label") === "Type",
-    );
-    fireEvent.click(type as HTMLElement);
-    const field = await waitFor(() => {
-      const found = container.querySelector("input");
-      if (!found) {
-        throw new Error("Expected the composer field to render");
-      }
-      return found;
-    });
-    fireEvent.change(field, { target: { value: "hello" } });
-    fireEvent.keyDown(field, { key: "Enter" });
-    STATE.turns = [
-      { role: "assistant", text: "Try this:\n\n```ts\nconst a = 1;\n```" },
-    ];
-    pushState();
-
-    const copy = await waitFor(() => {
-      const found = pill.querySelector<HTMLElement>("[data-copy-control]");
-      if (!found) {
-        throw new Error("Expected the code block's copy control to render");
-      }
-      return found;
-    });
-
-    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.pointerDown(copy, {
-      button: 0,
-      pointerId: 1,
-      screenX: 500,
-      screenY: 500,
-    });
-    fireEvent.mouseMove(canvas, {
-      clientX: 120,
-      clientY: 120,
-      screenX: 540,
-      screenY: 520,
-      buttons: 1,
-    });
-
-    expect(capture).not.toHaveBeenCalled();
-    expect(moveByMock).not.toHaveBeenCalled();
-  });
-
-  /**
    * The host can take the pointer away mid-drag, which releases the capture and
    * sends no `mouseup` after it. Nothing else reports that press: a leave that
    * came while the drag was live deferred to it and does not come again, so
@@ -899,42 +832,6 @@ describe("the watch session on the companion surface", () => {
     await waitFor(() => {
       expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
     });
-  });
-
-  /**
-   * The stop control has to reach as far as the indicator does, and the
-   * indicator outlives the phase: a session still running under a half-typed
-   * sentence that the user cannot end is worse than no indicator at all.
-   */
-  test("keeps a way out of the session while the composer is open", async () => {
-    STATE.watching = true;
-    const { container } = render(<CompanionSurfacePage />);
-    await pinSurface(container);
-    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
-    fireEvent.click(
-      await waitFor(() => {
-        const type = container.querySelector<HTMLButtonElement>(
-          'button[aria-label="Type"]',
-        );
-        if (!type) {
-          throw new Error("Expected Type to render");
-        }
-        return type;
-      }),
-    );
-
-    const stop = await waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Stop teaching"]',
-      );
-      if (!found) {
-        throw new Error("Expected the stop control to render");
-      }
-      return found;
-    });
-    fireEvent.click(stop);
-
-    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1218,33 +1115,6 @@ describe("the companion's own menu", () => {
    * window: the surface would follow the pointer afterwards with no button
    * held, which is the stuck-drag bug with a different trigger.
    */
-  /**
-   * The card carries a composer and selectable prose, and the host's own text
-   * menu is the only way to copy either. Replacing it with "Small / Medium /
-   * Large" would take Cut, Copy, Paste and the spelling suggestions away.
-   */
-  test("leaves the native text menu alone inside the composer", async () => {
-    const { container } = render(<CompanionSurfacePage />);
-    const { pill } = await pinSurface(container);
-
-    // Open the composer, which is what puts a field on the card.
-    const type = Array.from(pill.querySelectorAll("button")).find(
-      (button) => button.getAttribute("aria-label") === "Type",
-    );
-    fireEvent.click(type as HTMLElement);
-    const field = await waitFor(() => {
-      const found = container.querySelector("input");
-      if (!found) {
-        throw new Error("Expected the composer field to render");
-      }
-      return found;
-    });
-
-    fireEvent.contextMenu(field);
-
-    expect(contextMenuMock).not.toHaveBeenCalled();
-  });
-
   test("a right-press does not start a drag", async () => {
     const { container } = render(<CompanionSurfacePage />);
     const { pill } = await pinSurface(container);

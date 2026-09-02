@@ -15,6 +15,19 @@ mock.module("@/runtime/companion-surface", () => ({
     published.push(context);
   },
   clearCompanionWorking: clearWorkingMock,
+  // The targeted path the running dictation's words take, which reuses the
+  // last context rather than rebuilding one. Recorded the same way, since what
+  // matters to these cases is what reached the surface.
+  setCompanionDictation: (
+    dictating: CompanionContext["dictating"],
+    dictationText: string,
+  ) => {
+    const last = published[published.length - 1];
+    if (last === undefined) {
+      return;
+    }
+    published.push({ ...last, dictating, dictationText });
+  },
 }));
 
 let isPopout = false;
@@ -70,14 +83,14 @@ const captureLanded = () => {
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 // The summary store is the real one: it holds nothing but a value and a timer,
 // and what this hook owns is publishing the phase it reports.
-const { beginWatchRetro, clearWatchRetro, settleWatchRetro } = await import(
-  "@/domains/chat/watch/watch-retro"
-);
+const { beginWatchRetro, clearWatchRetro, settleWatchRetro } =
+  await import("@/domains/chat/watch/watch-retro");
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -98,6 +111,7 @@ afterEach(() => {
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
   useChatSessionStore.setState({ snapshot: null } as never);
+  useVoiceRecordingStore.getState().reset();
 });
 
 /** The most recent push, which is what the surface would be drawing. */
@@ -204,7 +218,6 @@ describe("the working flag the companion mirror publishes", () => {
     await waitFor(() => {
       expect(published.length).toBeGreaterThan(before);
     });
-    expect(latest().turns).toEqual([]);
   });
 });
 
@@ -488,4 +501,68 @@ describe("the watch session at teardown", () => {
 
     expect(published.length).toBe(count);
   });
+});
+
+/**
+ * The dictation, which is the surface's business only when a held key started
+ * it. The recording store is the real one and is shared with the composer's
+ * microphone; it carries which of the two opened it.
+ */
+describe("dictating", () => {
+  const recording = useVoiceRecordingStore.getState;
+
+  /**
+   * A recording begun from the composer is already visible where it was
+   * begun; the surface saying so too would be the same fact drawn twice.
+   */
+  test("says nothing for a recording the composer started", () => {
+    render(<Mirror />);
+    recording().startRecording();
+    recording().setInterimTranscript("typed into the composer");
+
+    expect(latest().dictating).toBeUndefined();
+    expect(latest().dictationText ?? "").toBe("");
+  });
+
+  test("draws a hold's words as they arrive", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().setInterimTranscript("the quick brown");
+
+    expect(latest().dictating).toBe("listening");
+    expect(latest().dictationText).toBe("the quick brown");
+  });
+
+  /**
+   * The keys come up before the recording is over, and the wait after them is
+   * the stretch with nothing else on screen to explain it.
+   */
+  test("stays with the hold through the wait after the keys come up", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().stopRecording();
+
+    expect(latest().dictating).toBe("transcribing");
+
+    recording().reset();
+
+    expect(latest().dictating).toBeUndefined();
+  });
+});
+
+/**
+ * The mount itself, with nothing arranged around it.
+ *
+ * The effect publishes once before wiring any subscription, so anything the
+ * first publish reads has to exist by then. A binding declared later in the
+ * effect body is in its dead zone at that point and throws, which takes the
+ * mirror down and the layout with it, and no case about what gets published
+ * would notice because nothing gets published at all.
+ */
+test("mounts and publishes without throwing", () => {
+  expect(() => {
+    render(<Mirror />);
+  }).not.toThrow();
+
+  expect(published.length).toBeGreaterThan(0);
 });

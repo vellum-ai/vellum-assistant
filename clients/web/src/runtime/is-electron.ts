@@ -381,12 +381,9 @@ declare global {
         toggleWatch?(): void;
         answerWatchRetro?(open: boolean): void;
         activate?(): void;
-        setComposing?(composing: boolean): void;
-        submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
         showContextMenu?(): void;
-        openLink?(url: string): void;
       };
     };
   }

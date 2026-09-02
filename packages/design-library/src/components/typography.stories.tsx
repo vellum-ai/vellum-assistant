@@ -29,6 +29,10 @@ const meta: Meta<typeof Typography> = {
       control: "select",
       options: ["span", "p", "div", "label", "h1", "h2", "h3", "h4", "h5", "h6"],
     },
+    // Slot prop: toggling it against string `children` leaves Radix nothing
+    // to clone and blanks the canvas. Demonstrated by the AsChild story
+    // instead, which supplies a real element.
+    asChild: { control: false },
   },
 };
 
@@ -80,5 +84,14 @@ export const AllVariants: Story = {
         </Typography>
       ))}
     </div>
+  ),
+};
+
+export const AsChild: Story = {
+  args: { variant: "label-small-default" },
+  render: (args) => (
+    <Typography {...args} asChild>
+      <th className="px-4 py-2 text-left">Source</th>
+    </Typography>
   ),
 };
