@@ -29,6 +29,10 @@ enum FrontSelection {
     struct Selection {
         let text: String
         let truncated: Bool
+        /// Whether the control the selection sits in takes text, so a hold
+        /// asked to change the selection can put the result back over it.
+        /// See `isEditable`.
+        let editable: Bool
     }
 
     /// Where the text came from, for the log. `copySkipped` is a copy that was
@@ -66,7 +70,7 @@ enum FrontSelection {
         var selection: Selection?
 
         var logLine: String {
-            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars)"
+            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars) editable=\(selection?.editable ?? false)"
         }
     }
 
@@ -132,15 +136,39 @@ enum FrontSelection {
 
         outcome.path = path
         outcome.chars = text.count
+        // Only a selection Accessibility handed over directly is one a result
+        // can be put back over. The copy proves a selection by leaving it
+        // where it was, and an editor that copies the current line on an
+        // empty selection (VS Code) would report a selection nothing is over;
+        // a paste there would insert beside the line rather than replace it.
+        let editable = path == .copy ? false : isEditable(focused)
         // Whitespace decides only whether anything is selected. What is
         // selected travels as it is: the indentation of a selected snippet is
         // part of what the user is asking about.
         if text.count > maxChars {
-            outcome.selection = Selection(text: String(text.prefix(maxChars)), truncated: true)
+            outcome.selection = Selection(
+                text: String(text.prefix(maxChars)), truncated: true, editable: editable
+            )
         } else {
-            outcome.selection = Selection(text: text, truncated: false)
+            outcome.selection = Selection(text: text, truncated: false, editable: editable)
         }
         return outcome
+    }
+
+    /// Whether the focused element takes text: its value or its selected text
+    /// is reported settable. Text fields and text views say so; static text,
+    /// web pages outside a contenteditable and read-only views do not. Asked
+    /// rather than inferred from the role because a text view can be
+    /// read-only and a web area can be an editor.
+    private static func isEditable(_ element: AXUIElement) -> Bool {
+        for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
+            var settable = DarwinBoolean(false)
+            if AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success,
+               settable.boolValue {
+                return true
+            }
+        }
+        return false
     }
 
     private static func isBlank(_ text: String) -> Bool {

@@ -11067,7 +11067,9 @@ paths:
                     description: Processed text output
                   mode:
                     type: string
-                    description: "Detected mode: dictation, command, or action"
+                    description:
+                      "Detected mode: dictation, command, action, or question (selected text the words asked about rather than
+                      changed; text is the transcription)"
                   actionPlan:
                     description: Action plan (only when mode is action)
                     type: string

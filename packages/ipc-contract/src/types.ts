@@ -189,6 +189,18 @@ export type HotkeyEventKind =
 export interface HotkeySelection {
   text: string;
   truncated: boolean;
+  /**
+   * Whether the control the selection sits in takes text: a field or a text
+   * view whose value Accessibility reports as settable, and whose selection
+   * Accessibility read directly. False for selections that had to be copied
+   * out (see `FrontSelection.selectionFromCopy` in the helper), since a copy
+   * proves the selection only by leaving it where it was, and editors that
+   * copy the current line on an empty selection would otherwise report a
+   * selection nothing is over. A hold that is asked to change an editable
+   * selection can put the result back in its place; over anything else the
+   * words are a question.
+   */
+  editable: boolean;
 }
 
 export interface HotkeyEvent {
