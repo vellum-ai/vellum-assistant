@@ -30,6 +30,8 @@ export interface NotificationDeliveryRow {
   sentAt: number | null;
   conversationId: string | null;
   messageId: string | null;
+  /** Assistant row a successful channel delivery was recorded as. */
+  canonicalMessageId: string | null;
   conversationStrategy: string | null;
   conversationAction: string | null;
   conversationTargetId: string | null;
@@ -58,6 +60,7 @@ function rowToDelivery(
     sentAt: row.sentAt,
     conversationId: row.conversationId,
     messageId: row.messageId,
+    canonicalMessageId: row.canonicalMessageId,
     conversationStrategy: row.conversationStrategy,
     conversationAction: row.conversationAction,
     conversationTargetId: row.conversationTargetId,
@@ -111,6 +114,7 @@ export function createDelivery(
     sentAt: params.sentAt ?? null,
     conversationId: params.conversationId ?? null,
     messageId: params.messageId ?? null,
+    canonicalMessageId: null,
     conversationStrategy: params.conversationStrategy ?? null,
     conversationAction: params.conversationAction ?? null,
     conversationTargetId: params.conversationTargetId ?? null,
@@ -137,7 +141,7 @@ export function updateDeliveryStatus(
   id: string,
   status: NotificationDeliveryStatus,
   error?: { code?: string; message?: string },
-  patch?: { messageId?: string },
+  patch?: { messageId?: string; canonicalMessageId?: string },
 ): boolean {
   const db = getDb();
   const now = Date.now();
@@ -154,6 +158,9 @@ export function updateDeliveryStatus(
   }
   if (patch?.messageId !== undefined) {
     updates.messageId = patch.messageId;
+  }
+  if (patch?.canonicalMessageId !== undefined) {
+    updates.canonicalMessageId = patch.canonicalMessageId;
   }
 
   db.update(notificationDeliveries)

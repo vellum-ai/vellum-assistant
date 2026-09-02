@@ -18,7 +18,6 @@ import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 const log = getLogger("recall-conversations-source");
 
 const SUBAGENT_SOURCE = "subagent";
-const NOTIFICATION_SOURCE = "notification";
 
 interface ConversationEvidenceRow {
   message_id: string;
@@ -36,7 +35,7 @@ interface ConversationEvidenceRow {
  * The read fetches ranked message-id candidates first and filters them in SQL
  * afterwards (Qdrant has no visibility filtering), so it must over-fetch
  * enough candidates that excluded rows (the active conversation,
- * subagent/auto-analysis/notification sources, private history) don't starve
+ * subagent/auto-analysis sources, private history) don't starve
  * the post-filter pool. A generous candidate pool is cheap — the final
  * consumer takes top-N after the app-side scorer anyway.
  *
@@ -251,7 +250,7 @@ function searchByIds(
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.id IN (${placeholders})
-      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
+      AND (c.source IS NULL OR c.source NOT IN (?, ?))
       AND c.id != ?
       AND c.conversation_type != 'private'
     ORDER BY m.created_at DESC
@@ -260,7 +259,6 @@ function searchByIds(
     ...messageIds,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
-    NOTIFICATION_SOURCE,
     excludedConversationId,
     limit,
   );

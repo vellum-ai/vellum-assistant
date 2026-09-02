@@ -133,6 +133,7 @@ function makeDelivery(
     errorCode: null,
     errorMessage: null,
     sentAt: 1700000000000,
+    canonicalMessageId: null,
     conversationId: null,
     messageId: "1700000000.0001",
     conversationStrategy: null,

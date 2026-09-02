@@ -14,6 +14,8 @@ import {
   type FeedItemUrgency,
 } from "../home/feed-types.js";
 import { patchFeedItemContent } from "../home/feed-writer.js";
+import { updateMessageContent } from "../persistence/conversation-crud.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { findLatestDecisionByEventId } from "./decisions-store.js";
 import {
@@ -212,6 +214,14 @@ async function updateChannelDeliveries(
       });
       if (patch.body !== undefined && result.messageId) {
         rewrittenMessageIds.add(result.messageId);
+      }
+      // The channel has the new body; the row that records this delivery
+      // follows it, so the two cannot disagree.
+      if (patch.body !== undefined && delivery.canonicalMessageId) {
+        updateMessageContent(delivery.canonicalMessageId, patch.body);
+        if (delivery.conversationId) {
+          publishConversationMessagesChanged(delivery.conversationId);
+        }
       }
       results.push({
         channel,
