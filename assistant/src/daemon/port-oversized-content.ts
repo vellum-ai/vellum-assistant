@@ -4,6 +4,8 @@
  * in the message. The full text stays on disk, off the model prompt.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { createInlineAttachment } from "../persistence/attachments-store.js";
 import {
   MAX_PROVIDER_STRING_BYTES,
@@ -11,10 +13,15 @@ import {
 } from "../providers/content-block-size.js";
 import type { ContentBlock } from "../providers/types.js";
 
-export const OVERSIZED_CONTENT_FILENAME = "oversized-content.txt";
+export const OVERSIZED_CONTENT_FILENAME_PREFIX = "oversized-content";
 
 export const OVERSIZED_CONTENT_NOTE =
   "Content exceeded the provider size limit and was saved as a workspace file.";
+
+/** Unique per offload so two oversized payloads in one conversation do not share a name. */
+export function oversizedContentFilename(id: string = randomUUID()): string {
+  return `${OVERSIZED_CONTENT_FILENAME_PREFIX}-${id}.txt`;
+}
 
 export interface PortOversizedContext {
   conversationId: string;
@@ -25,6 +32,7 @@ export interface OffloadOversizedTextResult {
   text: string;
   fileBlock?: Extract<ContentBlock, { type: "file" }>;
   attachmentId?: string;
+  filename?: string;
 }
 
 export async function offloadOversizedText(
@@ -36,10 +44,11 @@ export async function offloadOversizedText(
     return { text };
   }
 
+  const filename = oversizedContentFilename();
   const stored = await createInlineAttachment(
     ctx.conversationId,
     ctx.conversationCreatedAt,
-    OVERSIZED_CONTENT_FILENAME,
+    filename,
     "text/plain",
     Buffer.from(text, "utf8").toString("base64"),
     { skipSizeLimit: true },
@@ -54,10 +63,11 @@ export async function offloadOversizedText(
         media_type: "text/plain",
         attachmentId: stored.id,
         sizeBytes: stored.sizeBytes,
-        filename: OVERSIZED_CONTENT_FILENAME,
+        filename,
       },
     },
     attachmentId: stored.id,
+    filename,
   };
 }
 

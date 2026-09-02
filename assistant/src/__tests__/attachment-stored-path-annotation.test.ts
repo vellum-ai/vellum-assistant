@@ -8,6 +8,7 @@
  * stays bound to the oldest upload.
  */
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { reinjectAttachmentPathAnnotations } from "../daemon/conversation-lifecycle.js";
@@ -135,12 +136,14 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     };
     const storedPaths = Object.values(meta.attachmentStoredPaths ?? {});
     expect(storedPaths).toHaveLength(1);
-    expect(storedPaths[0]!.endsWith("oversized-content.txt")).toBe(true);
+    const filename = basename(storedPaths[0]!);
+    expect(filename.startsWith("oversized-content-")).toBe(true);
+    expect(filename.endsWith(".txt")).toBe(true);
     expect(readFileSync(storedPaths[0]!).toString("utf8")).toBe(original);
 
     const annotation = lastAnnotationBlock(ctx);
     expect(annotation.text).toBe(
-      `[Attachment "oversized-content.txt" is stored at: ${storedPaths[0]}]`,
+      `[Attachment "${filename}" is stored at: ${storedPaths[0]}]`,
     );
 
     const persisted = JSON.parse(row!.content) as ContentBlock[];
@@ -151,6 +154,24 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     );
     const rebuiltBlock = rebuilt.at(-1) as { type: "text"; text: string };
     expect(rebuiltBlock.text).toBe(annotation.text);
+  });
+
+  test("two oversized messages in one conversation get distinct filenames", async () => {
+    const conv = createConversation();
+    const ctx = makeCtx(conv.id);
+
+    await persistQueuedMessageBody(ctx, { content: "a".repeat(8_000_001) });
+    await persistQueuedMessageBody(ctx, { content: "b".repeat(8_000_001) });
+
+    const first = (ctx.messages[0].content as ContentBlock[]).at(-1) as {
+      text: string;
+    };
+    const second = (ctx.messages[1].content as ContentBlock[]).at(-1) as {
+      text: string;
+    };
+    expect(first.text).toContain("oversized-content-");
+    expect(second.text).toContain("oversized-content-");
+    expect(first.text).not.toBe(second.text);
   });
 
   test("display-only offload is not named on the model-facing list", async () => {
@@ -164,7 +185,7 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     });
 
     const llmContent = ctx.messages[0].content as ContentBlock[];
-    expect(JSON.stringify(llmContent)).not.toContain("oversized-content.txt");
+    expect(JSON.stringify(llmContent)).not.toContain("oversized-content-");
     expect(JSON.stringify(llmContent)).toContain("fenced model copy");
     expect(JSON.stringify(llmContent)).not.toContain(display);
 

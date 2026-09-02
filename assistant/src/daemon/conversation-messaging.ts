@@ -79,7 +79,6 @@ import {
   assembleUserContentBlocks,
   offloadLinkPlan,
   offloadOversizedText,
-  OVERSIZED_CONTENT_FILENAME,
   type PortOversizedContext,
 } from "./port-oversized-content.js";
 import type { TrustContext } from "./trust-context-types.js";
@@ -1501,9 +1500,12 @@ export async function persistQueuedMessageBody(
         const storedPath = getFilePathForAttachment(scopedId) ?? undefined;
         // Display-only offloads stay linked (GC + persisted workspace_ref)
         // but must not be named on the model-facing list.
-        if (offloadPlan.modelFacingIds.has(attachmentId)) {
+        if (
+          offloadPlan.modelFacingIds.has(attachmentId) &&
+          liveOffload.filename
+        ) {
           sentAttachments.push({
-            filename: OVERSIZED_CONTENT_FILENAME,
+            filename: liveOffload.filename,
             mimeType: "text/plain",
             data: "",
             storedPath,
