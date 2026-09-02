@@ -248,6 +248,19 @@ export function CameraShutter({
     pressPointerIdRef.current !== null;
 
   /**
+   * Whether this pointer is the one whose press has the shutter.
+   *
+   * Every per-press pointer handler asks first, so a second finger cannot
+   * abandon the first one's press by wandering, cancel it by leaving, or hand
+   * its ownership back by lifting. A press with nothing armed owns nothing and
+   * answers false to every pointer, which is what leaves the plain photo
+   * shutter to the browser's own handling of a second touch.
+   */
+  const ownsPress = (pointerId: number) =>
+    pressPointerIdRef.current !== null &&
+    pointerId === pressPointerIdRef.current;
+
+  /**
    * Nothing of the last press is left to answer for.
    *
    * Both flags exist for the click a release produces, so an end of press that
@@ -384,14 +397,15 @@ export function CameraShutter({
         // The Space press ended at whatever took focus. No repeat of it can
         // reach this button either, so its suspension ends with it.
         spacePressRef.current = false;
-      } else if (
-        pressPointerIdRef.current === null ||
         // The DOM's, qualified because this module's `PointerEvent` is the
         // React synthetic one it takes in its own handlers.
-        (event as globalThis.PointerEvent).pointerId !==
-          pressPointerIdRef.current
-      ) {
+      } else if (!ownsPress((event as globalThis.PointerEvent).pointerId)) {
         return;
+      } else {
+        // The owning pointer is up wherever it landed, so the press it made
+        // gives the shutter back. Here rather than with the flags below, so a
+        // press that raised none still hands its ownership over.
+        pressPointerIdRef.current = null;
       }
       if (!heldRef.current && !abandonedRef.current) {
         return;
@@ -427,6 +441,17 @@ export function CameraShutter({
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     onPointerDown?.(event);
+    // One gesture at a time, the rule Enter answers to as well. A press has the
+    // shutter, so a second finger landing on it begins nothing: beginning one
+    // here would settle the bookkeeping of a press whose finger is still down,
+    // and the release of a hold that entered Live would then stop it.
+    //
+    // The owning pointer coming down again is the exception. Its release
+    // cannot have reached this button, so that press is over whatever became
+    // of it, and this is a new one rather than a shutter stuck owned.
+    if (pressUnderway() && event.pointerId !== pressPointerIdRef.current) {
+      return;
+    }
     beginPress();
     if (!holdOffered || disabled) {
       return;
@@ -448,6 +473,9 @@ export function CameraShutter({
 
   const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     onPointerMove?.(event);
+    if (!ownsPress(event.pointerId)) {
+      return;
+    }
     const origin = holdOriginRef.current;
     if (!origin) {
       return;
@@ -570,6 +598,9 @@ export function CameraShutter({
       onPointerMove={handlePointerMove}
       onPointerUp={(event) => {
         onPointerUp?.(event);
+        if (!ownsPress(event.pointerId)) {
+          return;
+        }
         // Recorded, not settled. Nothing is ever captured, so a release
         // reaching this handler is one that happened over the button, and a
         // down and an up that both landed on it fire the click the suppression
@@ -585,6 +616,9 @@ export function CameraShutter({
       }}
       onPointerCancel={(event) => {
         onPointerCancel?.(event);
+        if (!ownsPress(event.pointerId)) {
+          return;
+        }
         cancelHold();
         // The one end of a press this element hears that is certain to produce
         // no click: a pointer the browser has taken back fires none. Both
@@ -599,6 +633,9 @@ export function CameraShutter({
       }}
       onPointerLeave={(event) => {
         onPointerLeave?.(event);
+        if (!ownsPress(event.pointerId)) {
+          return;
+        }
         // The whole press, not just the threshold: a pointer that leaves can
         // come back and lift over the button, and a click fires for a down and
         // an up that both landed on it however far it went in between.
@@ -617,6 +654,13 @@ export function CameraShutter({
         // a press aimed at a control that no longer has it: the same reading,
         // and the same suppression of the click it may still end with.
         abandonPress();
+        // A Space press needs this button focused, so focus leaving takes its
+        // release with it, and a window losing focus or a tab going away reach
+        // it here too. The suspension ends now rather than at a keyup that
+        // never arrives: left raised it goes on answering that a press has the
+        // shutter, and every later press, finger or key, is turned away by a
+        // gesture long over.
+        spacePressRef.current = false;
       }}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}

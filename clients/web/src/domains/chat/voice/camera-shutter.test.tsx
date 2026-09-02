@@ -1514,6 +1514,197 @@ describe("CameraShutter: holding it", () => {
     });
   });
 
+  /**
+   * A second finger arriving while a press is underway.
+   *
+   * The press that started owns the shutter, and what it owns has to reach its
+   * own release: the suppression that keeps its ending from turning into a
+   * photo, and the pointer it is recorded under. A second touch that took
+   * either would leave the first one's release to stop the Live its own hold
+   * had just started.
+   */
+  describe("a second finger", () => {
+    /** Land another pointer on the shutter, id of a finger that is not the press. */
+    function secondFingerDown(): void {
+      fireEvent.pointerDown(shutter(), {
+        button: 0,
+        pointerId: 2,
+        clientX: 0,
+        clientY: 0,
+      });
+    }
+
+    function renderLiveCapableShutter(counts: {
+      onTap: () => void;
+      onHold: () => void;
+    }) {
+      return render(
+        <CameraShutter
+          onClick={counts.onTap}
+          onHold={counts.onHold}
+          ariaLabel="Take photo"
+          testId="s"
+        />,
+      );
+    }
+
+    test("takes no photo from the press that entered Live", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        const onTap = () => {
+          taps += 1;
+        };
+        const { rerender } = renderLiveCapableShutter({
+          onTap,
+          onHold: () => {
+            holds += 1;
+          },
+        });
+
+        press();
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+        rerender(
+          <CameraShutter
+            onClick={onTap}
+            ariaLabel="Stop live"
+            testId="s"
+            mode="live"
+          />,
+        );
+
+        // The first finger is still down, so this one begins nothing.
+        secondFingerDown();
+        release();
+        expect(taps).toBe(0);
+        expect(pulse()).toBeNull();
+
+        // The press after it is the user asking for something, and it lands.
+        fireEvent.click(shutter());
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("cannot wander, leave or lift the press out from under it", () => {
+      withFakeTimers((advanceBy) => {
+        let holds = 0;
+        renderLiveCapableShutter({
+          onTap: noop,
+          onHold: () => {
+            holds += 1;
+          },
+        });
+
+        // Everything a finger that is not the press can do to the button. None
+        // of it is this press's movement, this press's leaving, or this
+        // press's release.
+        press();
+        secondFingerDown();
+        fireEvent.pointerMove(shutter(), {
+          pointerId: 2,
+          clientX: 200,
+          clientY: 200,
+        });
+        fireEvent.pointerLeave(shutter(), { pointerId: 2 });
+        fireEvent.pointerUp(shutter(), { button: 0, pointerId: 2 });
+        fireEvent.pointerCancel(shutter(), { pointerId: 2 });
+
+        advanceBy(HOLD_MS);
+        expect(holds).toBe(1);
+      });
+    });
+
+    test("begins nothing while a Space press has the shutter", () => {
+      withFakeTimers((advanceBy) => {
+        let taps = 0;
+        let holds = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={() => {
+              holds += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // The key is down, so the shutter is taken. A finger landing on it
+        // does not re-arm around itself and does not settle the press it found.
+        fireEvent.keyDown(shutter(), { key: " " });
+        advanceBy(HOLD_MS - 1);
+        press();
+        advanceBy(1);
+        expect(holds).toBe(1);
+        expect(taps).toBe(0);
+
+        fireEvent.keyUp(shutter(), { key: " " });
+        expect(taps).toBe(0);
+
+        // And the pointer path is itself again on the press after it.
+        press();
+        release();
+        expect(taps).toBe(1);
+      });
+    });
+
+    test("is an ordinary press once the one before it has ended", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            onHold={noop}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // Sequential taps, and the second one is a different finger. Ownership
+        // ends with the release, so nothing of the first is still holding it.
+        press();
+        release();
+        expect(taps).toBe(1);
+
+        secondFingerDown();
+        fireEvent.pointerUp(shutter(), { button: 0, pointerId: 2 });
+        fireEvent.click(shutter());
+        expect(taps).toBe(2);
+      });
+    });
+
+    test("leaves a plain photo shutter to the browser", () => {
+      withFakeTimers(() => {
+        let taps = 0;
+        render(
+          <CameraShutter
+            onClick={() => {
+              taps += 1;
+            }}
+            ariaLabel="Take photo"
+            testId="s"
+          />,
+        );
+
+        // Nothing arms with no hold on offer, so no press is recorded and no
+        // finger owns anything. A second touch changes nothing about the one
+        // click the browser makes from the primary pointer.
+        press();
+        secondFingerDown();
+        fireEvent.pointerUp(shutter(), { button: 0, pointerId: 2 });
+        release();
+
+        expect(taps).toBe(1);
+        expect(pulse()).not.toBeNull();
+      });
+    });
+  });
+
   test("advertises the hold to a screen reader, and only when offered", () => {
     const { rerender } = render(
       <CameraShutter
