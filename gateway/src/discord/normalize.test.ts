@@ -522,6 +522,8 @@ describe("normalizeDiscordMessageReaction", () => {
     expect(event!.message.reaction).toEqual({
       op: "added",
       emoji: "\u{1F44D}",
+      emojiKind: "unicode",
+      emojiName: "\u{1F44D}",
       targetMessageId: "msg-1",
     });
     expect(event!.message.externalMessageId).toBe(
@@ -545,26 +547,57 @@ describe("normalizeDiscordMessageReaction", () => {
     );
   });
 
-  test("a custom emoji forwards its mention form, never its bare name", () => {
+  test("a custom emoji carries its structure beside the spelling", () => {
     const event = normalizeDiscordMessageReaction(
       thumbsUp({ emoji: { id: "111222333", name: "party_blob" } }),
       { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
+    expect(event!.message.reaction).toMatchObject({
+      emojiKind: "custom",
+      emojiName: "party_blob",
+      emojiId: "111222333",
+      emojiAnimated: false,
+    });
+    // The spelling is unchanged: the outbound route parses it back to
+    // `name:id`, and the dedup id embeds it byte for byte.
     expect(event!.message.reaction!.emoji).toBe("<:party_blob:111222333>");
+    expect(event!.message.externalMessageId).toBe(
+      `msg-1:reaction:<:party_blob:111222333>:user-1:${INGEST_ID}`,
+    );
   });
 
-  test("a custom emoji squatting on approval vocabulary stays inert", () => {
-    // A guild can name a custom emoji anything, including a Slack decision
-    // name. The mention form is what keeps it out of the approval map.
+  test("an animated custom emoji says so without changing its spelling", () => {
     const event = normalizeDiscordMessageReaction(
-      thumbsUp({ emoji: { id: "999888777", name: "white_check_mark" } }),
+      thumbsUp({
+        emoji: { id: "444555666", name: "party_blob", animated: true },
+      }),
       { op: "added", ingestId: INGEST_ID, raw: {} },
     );
 
-    expect(event!.message.reaction!.emoji).toBe(
-      "<:white_check_mark:999888777>",
+    expect(event!.message.reaction!.emojiAnimated).toBe(true);
+    // The dedup id embeds the spelling, so it stays the plain form and
+    // animation is reported in the typed field.
+    expect(event!.message.reaction!.emoji).toBe("<:party_blob:444555666>");
+  });
+
+  test("a guild emoji named like a standard one is told apart by kind", () => {
+    // A guild can name a custom emoji anything, `white_check_mark` included.
+    // A reader tells the two apart by asking the kind, never by matching the
+    // shape of the spelling.
+    const squatter = normalizeDiscordMessageReaction(
+      thumbsUp({ emoji: { id: "999888777", name: "white_check_mark" } }),
+      { op: "added", ingestId: INGEST_ID, raw: {} },
     );
+    const standard = normalizeDiscordMessageReaction(
+      thumbsUp({ emoji: { id: null, name: "\u2705" } }),
+      { op: "added", ingestId: INGEST_ID, raw: {} },
+    );
+
+    expect(squatter!.message.reaction!.emojiKind).toBe("custom");
+    expect(squatter!.message.reaction!.emojiName).toBe("white_check_mark");
+    expect(standard!.message.reaction!.emojiKind).toBe("unicode");
+    expect(standard!.message.reaction!.emojiName).toBe("\u2705");
   });
 
   test("an emoji with no name cannot be expressed and drops", () => {

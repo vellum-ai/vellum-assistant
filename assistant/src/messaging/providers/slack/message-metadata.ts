@@ -1,3 +1,7 @@
+import {
+  pickReactionEmojiFields,
+  ReactionEmojiFieldsSchema,
+} from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import type { ProviderMessageMetadata } from "../../provider-message-metadata.js";
@@ -39,6 +43,7 @@ export function isSlackDmConversation(conversationExternalId: string): boolean {
 
 const slackReactionMetadataSchema = z.object({
   emoji: z.string(),
+  ...ReactionEmojiFieldsSchema.shape,
   actorDisplayName: z.string().optional(),
   targetChannelTs: z.string(),
   op: z.enum(["added", "removed"]),
@@ -321,6 +326,7 @@ export function slackMetadataAsProviderMetadata(
           reaction: {
             targetMessageId: meta.reaction.targetChannelTs,
             emoji: meta.reaction.emoji,
+            ...pickReactionEmojiFields(meta.reaction),
             op: meta.reaction.op,
             ...(meta.reaction.actorDisplayName
               ? { actorDisplayName: meta.reaction.actorDisplayName }

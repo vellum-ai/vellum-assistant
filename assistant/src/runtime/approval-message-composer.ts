@@ -41,11 +41,6 @@ export function composeApprovalMessage(
 }
 
 /** @internal Exported for use by the daemon-injected generator implementation. */
-export function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** @internal Exported for use by the daemon-injected generator implementation. */
 export function includesRequiredKeywords(
   text: string,
   requiredKeywords: string[] | undefined,
@@ -54,7 +49,7 @@ export function includesRequiredKeywords(
     return true;
   }
   return requiredKeywords.every((keyword) => {
-    const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
+    const re = new RegExp(`\\b${RegExp.escape(keyword)}\\b`, "i");
     return re.test(text);
   });
 }

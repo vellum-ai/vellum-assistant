@@ -90,6 +90,7 @@
       "name": "@vellumai/assistant-api",
       "version": "0.0.0-source",
       "dependencies": {
+        "@vellumai/service-contracts": "workspace:*",
         "zod": "4.3.6",
       },
     },

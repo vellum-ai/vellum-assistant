@@ -126,6 +126,16 @@ export interface VoicePrefsState {
    * silently picked for them.
    */
   flashMode: FlashMode;
+  /**
+   * Whether the viewfinder draws the accented thumbnail of the newest frame
+   * Live gave the call.
+   *
+   * A view preference, not a capture one: sampling, sending and the
+   * transcript record of every kept frame are the same either way. On by
+   * default, because the thumbnail is the only place the surface itself says
+   * a frame just went.
+   */
+  showKeptFrame: boolean;
 }
 
 export interface VoicePrefsActions {
@@ -139,6 +149,8 @@ export interface VoicePrefsActions {
   setInterruptSensitivity: (next: InterruptSensitivity | null) => void;
   /** Record the flash mode the user picked. See {@link VoicePrefsState.flashMode}. */
   setFlashMode: (next: FlashMode) => void;
+  /** Show or hide the kept-frame thumbnail. See {@link VoicePrefsState.showKeptFrame}. */
+  setShowKeptFrame: (next: boolean) => void;
 }
 
 export type VoicePrefsStore = VoicePrefsState & VoicePrefsActions;
@@ -156,6 +168,7 @@ const INITIAL_STATE: VoicePrefsState = {
   pauseBeforeReplyMs: null,
   interruptSensitivity: null,
   flashMode: "off",
+  showKeptFrame: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -186,6 +199,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
       setInterruptSensitivity: (next: InterruptSensitivity | null) =>
         set({ interruptSensitivity: next }),
       setFlashMode: (next: FlashMode) => set({ flashMode: next }),
+      setShowKeptFrame: (next: boolean) => set({ showKeptFrame: next }),
     }),
     {
       name: VOICE_PREFS_STORE_KEY,
@@ -197,6 +211,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         pauseBeforeReplyMs: state.pauseBeforeReplyMs,
         interruptSensitivity: state.interruptSensitivity,
         flashMode: state.flashMode,
+        showKeptFrame: state.showKeptFrame,
       }),
     },
   ),

@@ -278,6 +278,14 @@
     "photo": "Photo",
     "yourAssistant": "Your assistant"
   },
+  "cameraViewOptions": {
+    "buttonAria": "Camera view options",
+    "gateHudDescription": "The tuning readout for what Live keeps.",
+    "gateHudTitle": "Frame gate readout",
+    "keptFrameDescription": "The last frame Live sent, beside your photos. Live keeps sending either way.",
+    "keptFrameTitle": "Kept frame",
+    "title": "Show"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },

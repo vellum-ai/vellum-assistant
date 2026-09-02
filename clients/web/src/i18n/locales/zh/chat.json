@@ -277,6 +277,14 @@
     "photo": "照片",
     "yourAssistant": "您的助手"
   },
+  "cameraViewOptions": {
+    "buttonAria": "相机显示选项",
+    "gateHudDescription": "用于调整实时模式保留哪些画面的面板。",
+    "gateHudTitle": "帧筛选读数",
+    "keptFrameDescription": "实时模式发送的最近一帧，显示在照片旁边。无论是否显示，都会继续发送。",
+    "keptFrameTitle": "最近一帧",
+    "title": "显示"
+  },
   "cardSurface": {
     "tasksProgress": "已完成 {completed} / 共 {total} 个任务"
   },
