@@ -31,7 +31,11 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
-import { appendPlainTextFallback, resolveMessageText } from "./shared.js";
+import {
+  appendPlainTextFallback,
+  rendersActions,
+  resolveMessageText,
+} from "./shared.js";
 
 const log = getLogger("notif-adapter-discord");
 
@@ -60,7 +64,7 @@ export class DiscordAdapter implements ChannelAdapter {
     try {
       const channelId = await openDiscordDmChannel(guardianUserId);
 
-      if (approval) {
+      if (rendersActions(approval)) {
         // Attempt rich delivery with component buttons; on failure, fall
         // back to the plain-text card below.
         try {
@@ -108,8 +112,8 @@ export class DiscordAdapter implements ChannelAdapter {
         }
       }
 
-      // When falling back from rich delivery, append the plain-text
-      // instructions so the guardian still knows how to approve/reject.
+      // Text without buttons carries the typed-reply instructions, whether
+      // the rich delivery failed or the request never had buttons to draw.
       const sent = await sendDiscordReply(
         { channelId },
         appendPlainTextFallback(messageText, approval),
