@@ -284,10 +284,15 @@ describe("camera gate readout access", () => {
       await Promise.resolve();
     }
 
-    /** Announce a payload this tab could not read even if it wanted to. */
-    async function arriveUnreadable(newValue: string | null): Promise<void> {
+    /** Leave the key holding something this tab could not read, and announce it. */
+    async function arriveUnreadable(raw: string | null): Promise<void> {
+      if (raw === null) {
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        localStorage.setItem(STORAGE_KEY, raw);
+      }
       window.dispatchEvent(
-        new StorageEvent("storage", { key: STORAGE_KEY, newValue }),
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue: raw }),
       );
       await Promise.resolve();
       await Promise.resolve();
@@ -351,59 +356,68 @@ describe("camera gate readout access", () => {
 
       const foreign = payloadFrom(OTHER_STAFF_USER.id ?? "", 42);
       localStorage.setItem(STORAGE_KEY, foreign);
-      const writes: string[] = [];
-      const setItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = (key: string, value: string) => {
-        writes.push(key);
-        setItem(key, value);
-      };
-      try {
-        window.dispatchEvent(
-          new StorageEvent("storage", { key: STORAGE_KEY, newValue: foreign }),
-        );
-        await Promise.resolve();
-        await Promise.resolve();
-      } finally {
-        localStorage.setItem = setItem;
-      }
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue: foreign }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
 
       // Nothing of this tab's moved, and nothing of this tab's was written:
-      // the key still holds the other account's payload, which is theirs until
-      // somebody's next boot claims it.
+      // the key still holds the other account's payload byte for byte, which
+      // is theirs until somebody's next boot claims it. A correction would
+      // have replaced it with one owned by this account, which is the write
+      // the other tab would have answered.
       const state = useCameraGateDebugStore.getState();
       expect(state.hudEnabled).toBe(true);
       expect(state.overrides.minDetail).toBe(30);
       expect(state.ownerUserId).toBe(STAFF_USER.id);
       expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(30);
-      expect(writes).toEqual([]);
       expect(localStorage.getItem(STORAGE_KEY)).toBe(foreign);
     });
 
     test("that cannot be read is left alone", async () => {
-      // A removal, a hand-edited value, and a payload with no state in it.
-      // None of them says whose preference this is, so none of them is acted
-      // on, and none of them throws out of the handler. The key is left
-      // holding something this tab would otherwise have taken, so an event
-      // that was acted on anyway would show up here.
+      // A key that was removed, a hand-edited value, and a payload with no
+      // state in it. None of them says whose preference this is, so none is
+      // acted on, and none throws out of the handler. The last shape is the
+      // one a restore would visibly take: it parses, so a handler that went
+      // ahead would merge it and put this session's switch out.
       useAuthStore.setState({ user: STAFF_USER });
       useCameraGateDebugStore.getState().setHudEnabled(true);
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          state: {
-            hudEnabled: false,
-            ownerUserId: STAFF_USER.id,
-            overrides: defaultFrameGateOverrides(),
-          },
-          version: 0,
-        }),
-      );
 
       await arriveUnreadable(null);
       await arriveUnreadable("not json at all");
       await arriveUnreadable(JSON.stringify({ version: 0 }));
 
       expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
+    });
+
+    test("is checked against the key as it stands, not the value it announced", async () => {
+      // A third window replaces the key between this event being queued and
+      // this handler running. The event still names this account, and the
+      // restore would take the key, so trusting the event would smuggle the
+      // other account's payload in behind a check that passed.
+      useAuthStore.setState({ user: STAFF_USER });
+      const store = useCameraGateDebugStore.getState();
+      store.setHudEnabled(true);
+      store.setOverride("minDetail", 30);
+
+      const announced = payloadFrom(STAFF_USER.id ?? "", 42);
+      const onDiskNow = payloadFrom(OTHER_STAFF_USER.id ?? "", 99);
+      localStorage.setItem(STORAGE_KEY, onDiskNow);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue: announced }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(true);
+      expect(state.overrides.minDetail).toBe(30);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(30);
+      // Byte for byte what the third window left, so this tab wrote nothing.
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(onDiskNow);
     });
 
     test("under another key is not this store's to answer", async () => {

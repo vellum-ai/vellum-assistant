@@ -209,7 +209,7 @@ export const useCameraGateDebugStore = createSelectors(
 // ---------------------------------------------------------------------------
 
 /**
- * The account a payload another tab wrote belongs to, or nothing readable.
+ * The account the payload on the key belongs to, or nothing readable.
  *
  * A `null` owner is a real answer: a slice written before any account claimed
  * it names none, and the claim that follows a restore is what settles those.
@@ -257,6 +257,14 @@ function readPersistedOwner(
  * the owner is parsed here; whether that owner is the one this tab is signed
  * in as is the caller's, so it answers `shouldAccept`. `onRestored` then runs
  * for an accepted payload only.
+ *
+ * What is checked is the key as it stands, not the value the event carried.
+ * Those differ whenever a third write lands between an event being queued and
+ * this handler running, and the restore below takes the key rather than the
+ * event, so checking the event would be checking something else. Both reads
+ * sit in one synchronous block: `persist.rehydrate()` calls `getItem` on a
+ * synchronous storage and settles before it returns, so nothing can replace
+ * the key between the answer and the restore.
  */
 export function watchCameraGateDebugStorage(
   shouldAccept: (ownerUserId: string | null) => boolean,
@@ -269,7 +277,9 @@ export function watchCameraGateDebugStorage(
     if (event.key !== CAMERA_GATE_DEBUG_STORE_KEY) {
       return;
     }
-    const owner = readPersistedOwner(event.newValue);
+    const owner = readPersistedOwner(
+      localStorage.getItem(CAMERA_GATE_DEBUG_STORE_KEY),
+    );
     if (!owner.readable || !shouldAccept(owner.ownerUserId)) {
       return;
     }
