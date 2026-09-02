@@ -134,9 +134,7 @@ describe("CSP_POLICY", () => {
   });
 
   test("frame-src is a superset of the web bundle's frame-src meta", () => {
-    // The packaged app serves clients/web over app:// and applies both
-    // policies, and CSP intersects: a host the meta allows but this policy
-    // omits is blocked in the desktop app. Link drifted exactly that way.
+    // See the superset note in csp.ts. Link drifted exactly this way once.
     const indexHtml = readFileSync(
       join(import.meta.dir, "../../../clients/web/index.html"),
       "utf8",

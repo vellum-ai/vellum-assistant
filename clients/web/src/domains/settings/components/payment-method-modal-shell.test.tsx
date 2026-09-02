@@ -100,10 +100,8 @@ describe("PaymentMethodModalShell", () => {
   });
 
   test("add mode ignores a card on file in the subtitle", () => {
-    const { getByText } = renderShell({ cardOnFile: VISA_ON_FILE });
-    expect(
-      getByText("Kept on file for auto-reload and your Pro plan."),
-    ).not.toBeNull();
+    const { queryByText } = renderShell({ cardOnFile: VISA_ON_FILE });
+    expect(queryByText(/Replacing/)).toBeNull();
   });
 
   test("showTerms toggles the terms line", () => {
@@ -220,13 +218,13 @@ describe("PaymentMethodModalShell", () => {
     expect(panel.textContent).not.toContain("Auto-reload is active again");
   });
 
-  test("saved falls back to the generic title for a brand Stripe could not name", () => {
+  test("saved keeps the digits for a brand Stripe could not name", () => {
     const { getByTestId } = renderShell({
       state: "saved",
       savedCard: { brand: "unknown", last4: "1881" },
     });
     const panel = getByTestId("payment-method-modal-saved");
-    expect(panel.textContent).toContain("Card saved");
+    expect(panel.textContent).toContain("Card ending in 1881 saved");
     expect(panel.textContent).not.toContain("unknown");
   });
 

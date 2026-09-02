@@ -293,6 +293,7 @@
     "savedSubtitle": "自动充值已重新启用",
     "savedTitle": "{brand} •••• {last4} 已保存",
     "savedTitleGeneric": "银行卡已保存",
+    "savedTitleNoBrand": "尾号为 {last4} 的银行卡已保存",
     "setupError": "未能启动银行卡设置。请重试。",
     "termsAdd": "Vellum 可以使用这张卡收取自动充值和订阅续费的费用。您可以随时在账单设置中移除它。",
     "termsReplace": "在您从账单设置中移除之前，旧卡会保留在 Stripe；Vellum 现在起不再从旧卡扣款。",

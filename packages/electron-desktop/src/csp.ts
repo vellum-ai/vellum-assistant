@@ -45,9 +45,11 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // and confirms SetupIntents against api.stripe.com (connect-src).
 // hooks.stripe.com hosts the 3D Secure challenge frame. link.com /
 // *.link.com host the Link wallet frames the payment element mounts while
-// `wallets.link` is enabled (the banner, the OTP sheet, the saved-card panel)
-// and the requests those frames issue, so they appear in frame-src and
-// connect-src alike. Together that covers the frame and connection halves of
+// `wallets.link` is enabled (the banner, the OTP sheet, the saved-card panel),
+// which is what puts them in frame-src. They are in connect-src because
+// Stripe.js itself runs in the top-level document and reaches those hosts
+// directly; a cross-origin frame's own requests answer to its own policy,
+// never to this one. Together that covers the frame and connection halves of
 // Stripe's documented CSP set for Stripe.js
 // (https://docs.stripe.com/security/guide); its img-src hosts already fall
 // under the broad `https:` in img-src below, and maps.googleapis.com applies
