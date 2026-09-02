@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Select } from "@vellumai/design-library/components/select";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -6,8 +8,10 @@ import { useTranslation } from "@/i18n";
 import {
   getDefaultModelForProvider,
   getModelsForProvider,
+  getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type {
   CallSiteOverrideDraft,
   ProviderConnection,
@@ -30,6 +34,7 @@ import {
   connectionServesProvider,
   useSelectableInferenceProviders,
 } from "@/domains/settings/ai/provider-availability";
+import { useProviderPickerAvailability } from "@/domains/settings/ai/provider-picker-availability";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,6 +82,8 @@ export function CallSiteOverrideRow({
   onToggle,
 }: CallSiteOverrideRowProps) {
   const { t } = useTranslation("settings");
+  const developerMode =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const overrideOn = isDraftActive(draft);
 
   const profileVal = (() => {
@@ -91,6 +98,7 @@ export function CallSiteOverrideRow({
 
   const isCustom = profileVal === CUSTOM_SENTINEL;
   const selectableInferenceProviders = useSelectableInferenceProviders();
+  const providerAvailability = useProviderPickerAvailability();
   // The chatgpt identity joins the picker when the workspace holds the
   // subscription row (provider "chatgpt"; only daemons that understand the
   // identity return that shape). Migration 144 also writes chatgpt drafts,
@@ -99,17 +107,19 @@ export function CallSiteOverrideRow({
   const hasSubscription = (connections ?? []).some(
     (c) => c.provider === CHATGPT_CONNECTION_PROVIDER,
   );
+  // The full catalog is offered; a provider this assistant cannot reach is
+  // disabled with the reason rather than dropped. A new pin still has to be
+  // dispatchable, so the default comes from the selectable set.
   const pickableProviders: PickableProvider[] = [
-    ...selectableInferenceProviders,
+    ...INFERENCE_PROVIDERS,
     ...(hasSubscription ? ([CHATGPT_CONNECTION_PROVIDER] as const) : []),
   ];
   const defaultProvider =
     selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
-  // Show what is actually pinned, even when this assistant cannot select it
-  // (an `ollama` pin on a platform-hosted assistant, say). Substituting a
-  // selectable provider for display would show one thing while saving
-  // another, and picking the shown value could not repair it: it is already
-  // the value, so the change never fires.
+  // Show what is actually pinned, even when this assistant cannot select it.
+  // Substituting a selectable provider for display would show one thing while
+  // saving another, and picking the shown value could not repair it: it is
+  // already the value, so the change never fires.
   //
   // `LlmProvider` is wider than the picker's domain (it also carries the
   // `openai-compatible` and `vellum` routing sentinels), so a pin outside
@@ -124,7 +134,7 @@ export function CallSiteOverrideRow({
     : draftProvider === CHATGPT_CONNECTION_PROVIDER
       ? CHATGPT_CONNECTION_PROVIDER
       : undefined;
-  const storedProviderIsSelectable =
+  const storedProviderIsOffered =
     storedProvider !== undefined &&
     pickableProviders.some((p) => p === storedProvider);
   const currentProvider = storedProvider ?? defaultProvider;
@@ -142,7 +152,7 @@ export function CallSiteOverrideRow({
     connectionsForProvider,
   )
     ? codexServableModels(currentProvider)
-    : getModelsForProvider(currentProvider);
+    : getVisibleModelsForProvider(currentProvider, developerMode);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
@@ -161,15 +171,22 @@ export function CallSiteOverrideRow({
     });
   }
   const hasModelError = !!draft?.provider && !draft?.model;
-  const providerOptions: { value: PickableProvider; label: string }[] = [
+  const providerOptions: {
+    value: PickableProvider;
+    label: string;
+    disabled?: boolean;
+    tooltip?: ReactNode;
+    suffix?: ReactNode;
+  }[] = [
     ...pickableProviders.map((p) => ({
       value: p,
       label: PROVIDER_DISPLAY_NAMES[p] ?? p,
+      ...providerAvailability(p),
     })),
     // Keeps the trigger honest and gives the user a way out: the row
     // renders its real pin, and choosing any other provider is a genuine
     // change that fires.
-    ...(storedProvider && !storedProviderIsSelectable
+    ...(storedProvider && !storedProviderIsOffered
       ? [
           {
             value: storedProvider,

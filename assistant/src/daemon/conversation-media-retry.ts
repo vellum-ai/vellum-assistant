@@ -4,11 +4,17 @@
  * When the provider rejects a request because the context is too large,
  * this module replaces older image and file content blocks with lightweight
  * text stubs to shrink the payload before retrying.
+ *
+ * The proactive counterpart, applied on every assembly and only to ambient
+ * camera frames, is `stripAgedSightFrames` in `conversation-sight-frames.ts`.
+ * Both paths name what they dropped through `mediaSourceDescriptor`, so the
+ * stubs describe media identically. A block that path already stubbed is plain
+ * text here, so it is neither counted as media nor stubbed twice.
  */
 
 import { estimateContentBlockTokens } from "../context/token-estimator.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
-import { mediaSourceByteLength } from "../providers/media-resolve.js";
+import { mediaSourceDescriptor } from "../providers/media-resolve.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 export interface StripMediaOptions {
@@ -219,17 +225,16 @@ export function estimateUnconditionalStubTokens(
 function imageBlockToStub(
   block: Extract<ContentBlock, { type: "image" }>,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = mediaSourceByteLength(block.source);
   return {
     type: "text",
-    text: `[Image omitted from retry context: ${block.source.media_type}, ${sizeBytes} bytes]`,
+    text: `[Image omitted from retry context: ${mediaSourceDescriptor(block.source)}]`,
   };
 }
 
 function fileBlockToStub(
   block: Extract<ContentBlock, { type: "file" }>,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = mediaSourceByteLength(block.source);
+  const descriptor = mediaSourceDescriptor(block.source);
   const extracted = (block.extracted_text ?? "").trim();
   const preview =
     extracted.length > MAX_MEDIA_STUB_TEXT
@@ -239,8 +244,8 @@ function fileBlockToStub(
     type: "text",
     text:
       preview.length > 0
-        ? `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]\n${preview}`
-        : `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]`,
+        ? `[File omitted from retry context: ${block.source.filename} (${descriptor})]\n${preview}`
+        : `[File omitted from retry context: ${block.source.filename} (${descriptor})]`,
   };
 }
 

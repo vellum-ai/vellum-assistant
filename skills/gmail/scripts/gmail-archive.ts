@@ -66,7 +66,11 @@ async function requestConfirmation(opts: {
     "--json",
   ];
 
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(args, {
+    windowsHide: true,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
 
@@ -318,6 +322,7 @@ async function archiveByCacheKey(
 
   try {
     const proc = Bun.spawn(["assistant", "cache", "get", cacheKey, "--json"], {
+      windowsHide: true,
       stdout: "pipe",
       stderr: "pipe",
     });

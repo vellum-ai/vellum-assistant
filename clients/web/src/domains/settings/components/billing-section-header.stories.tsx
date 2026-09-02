@@ -33,8 +33,8 @@ export const WithSubtitle: Story = {
 
 export const WithActions: Story = {
   args: {
-    title: "Credits",
-    subtitle: "Quick overview of your balances and other things",
+    title: "Extra Usage Credits",
+    subtitle: "Credits used when usage limit is reached",
     actions: (
       <>
         <Button

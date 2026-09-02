@@ -6,36 +6,20 @@
  * submit/dismiss lifecycle for multi-field question prompts.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  clearSubmissionFailure,
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+  stillOwnsSubmission,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
-
-/**
- * Whether `requestId` still owns the shared question state.
- *
- * `isSubmittingQuestion` and the session error are single slots on the store,
- * not per-request. Only one in-flight submission may write them, and that is
- * whichever request the currently pending prompt belongs to. A request whose
- * prompt has since been replaced must leave both alone.
- *
- * This handoff is the norm rather than a rare race. The daemon supersedes an
- * open prompt with a newer one, and `showQuestion` clears
- * `isSubmittingQuestion` when the newer prompt arrives, so the user can answer
- * it while the older request is still in flight. Every completion path of the
- * older request then lands after ownership has already moved.
- *
- * A null pending prompt reads as still-owned: the card is simply gone (retired
- * by `interaction_resolved`, or by this request's own success), and the
- * leftover submitting/error state is this request's to clean up.
- */
-function stillOwnsQuestionState(requestId: string): boolean {
-  const { pendingQuestion } = useInteractionStore.getState();
-  return !pendingQuestion || pendingQuestion.requestId === requestId;
-}
 
 /**
  * Clear a question prompt the daemon has already discarded.
@@ -57,34 +41,41 @@ function stillOwnsQuestionState(requestId: string): boolean {
  *
  * Bails entirely when a newer prompt has taken over: clearing there would
  * reopen the double-submit guard and erase a real failure the user needs to
- * see. See {@link stillOwnsQuestionState}.
+ * see. See {@link stillOwnsSubmission}.
  */
 function clearStaleQuestion(requestId: string): void {
-  if (!stillOwnsQuestionState(requestId)) {
+  if (!stillOwnsSubmission("question", requestId)) {
     return;
   }
   useInteractionStore.getState().dismissQuestionIfMatches(requestId);
-  useInteractionStore.getState().submitQuestionEnd();
-  useChatSessionStore.getState().setError(null);
+  // Before the release, which is what the clear's own door reads. Retiring
+  // this prompt first is what lets the door open when nothing replaced it.
+  clearSubmissionFailure("question", requestId);
+  useInteractionStore.getState().releaseSubmission("question", requestId);
 }
 
 /**
  * Submit the user's answers to a pending question prompt.
  *
- * A new SSE-driven `question_request` can arrive mid-flight and take over the
- * shared submitting/error state, so every path that resumes after the POST
- * checks {@link stillOwnsQuestionState} before writing to it. Everything before
- * the POST runs synchronously, so ownership cannot change there.
+ * A new SSE-driven `question_request` can arrive mid-flight and be answered
+ * while this one is still on the wire, so every path that resumes after the
+ * POST goes through the doors in `prompt-submission.ts` before writing shared
+ * state. Everything before the POST runs synchronously, so ownership cannot
+ * change there.
  */
 export async function handleQuestionResponse(
   responses: QuestionResponseEntry[],
 ): Promise<void> {
-  const { pendingQuestion: snapshot, isSubmittingQuestion } =
+  const { pendingQuestion: snapshot, submittingByKind } =
     useInteractionStore.getState();
-  if (!snapshot || isSubmittingQuestion) {
+  // Guards double-submitting this prompt, not any prompt; see
+  // `prompt-submission.ts` for why that is not "anything in flight".
+  if (!snapshot || submittingByKind.question === snapshot.requestId) {
     return;
   }
-  useInteractionStore.getState().submitQuestionStart();
+  useInteractionStore
+    .getState()
+    .claimSubmission("question", snapshot.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
@@ -93,8 +84,10 @@ export async function handleQuestionResponse(
     // guard above, so no newer prompt can have arrived yet.
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
-    useInteractionStore.getState().submitQuestionEnd();
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    useInteractionStore
+      .getState()
+      .releaseSubmission("question", snapshot.requestId);
     return;
   }
 
@@ -109,35 +102,41 @@ export async function handleQuestionResponse(
         clearStaleQuestion(snapshot.requestId);
         return;
       }
-      // A retryable failure, so the card stays and the user is told. Both
-      // writes belong to whoever owns the state now.
-      if (stillOwnsQuestionState(snapshot.requestId)) {
-        useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore.getState().submitQuestionEnd();
-      }
+      // The assistant's own message describes a body this client built, so it
+      // goes to Sentry rather than in front of the user, who never chose the
+      // payload and cannot correct it.
+      captureSubmissionRejection("submit_question_response", result);
+      reportSubmissionFailure(
+        "question",
+        snapshot.requestId,
+        "questionActions.submitFailed",
+      );
+      useInteractionStore
+        .getState()
+        .releaseSubmission("question", snapshot.requestId);
       return;
     }
-    // Success. Retire the card this answer belongs to; if it is already gone,
-    // release the submitting flag. When a newer prompt holds it instead, leave
-    // it running: releasing here would reopen the double-submit guard while
-    // that prompt's own request is still in flight.
-    const { pendingQuestion } = useInteractionStore.getState();
-    if (pendingQuestion?.requestId === snapshot.requestId) {
-      useInteractionStore.getState().dismissQuestion();
-    } else if (!pendingQuestion) {
-      useInteractionStore.getState().submitQuestionEnd();
-    }
+    // Success. Both writes name this request, so neither can reach a prompt or
+    // a submission that is not this one, and the card being gone already (its
+    // `interaction_resolved` having arrived first) needs no special case.
+    useInteractionStore.getState().dismissQuestionIfMatches(snapshot.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("question", snapshot.requestId);
   } catch (err) {
     // Transport failure (network drop, abort, malformed response). Always
-    // report it, but only surface it to the user when this request still owns
-    // the banner, so a dead request cannot mask a live one's failure.
+    // recorded; only shown while its own prompt is the one on screen, so a
+    // dead request cannot explain itself over a question it does not belong
+    // to.
     captureError(err, { context: "submit_question_response" });
-    if (stillOwnsQuestionState(snapshot.requestId)) {
-      useChatSessionStore
-        .getState()
-        .setError({ message: "Failed to submit response. Please try again." });
-      useInteractionStore.getState().submitQuestionEnd();
-    }
+    reportSubmissionFailure(
+      "question",
+      snapshot.requestId,
+      "questionActions.submitFailed",
+    );
+    useInteractionStore
+      .getState()
+      .releaseSubmission("question", snapshot.requestId);
   }
 }
 
@@ -147,10 +146,10 @@ export async function handleQuestionResponse(
  */
 export function handleDismissPendingQuestion(): void {
   const snapshot = useInteractionStore.getState().pendingQuestion;
-  useInteractionStore.getState().dismissQuestion();
   if (!snapshot) {
     return;
   }
+  useInteractionStore.getState().dismissQuestionIfMatches(snapshot.requestId);
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
     return;

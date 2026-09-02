@@ -1,4 +1,9 @@
-import { BrowserWindow, screen } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  screen,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { z } from "zod";
 
 import {
@@ -6,25 +11,37 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
-  COMPANION_BASE_AVATAR_BOX,
-  COMPANION_BASE_CANVAS_PAD,
-  COMPANION_NEAR_EDGE,
-  COMPANION_SIZE_BOXES,
+  COMPANION_BASE_MAX_PILL_WIDTH,
+  COMPANION_INTRO_ACTIONS,
+  COMPANION_INTRO_BEATS,
+  companionBoxFor,
+  companionCardSideFor,
+  companionGapFor,
+  companionNearEdgeFor,
+  companionPadFor,
+  companionScaleFor,
+  WATCH_FLAG,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
+  type CompanionIntroAction,
+  type CompanionIntroBeat,
   type CompanionSize,
+  type CompanionSizeAxis,
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
+import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 import {
   onSettingChange,
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 import {
   readCompanionHidden,
+  readCompanionIntroSeen,
   readCompanionSize,
+  writeCompanionIntroSeen,
   writeCompanionSize,
   writeCompanionHidden,
 } from "@vellumai/electron-desktop/window-state";
@@ -35,6 +52,10 @@ import {
   onAvatarChange,
 } from "@vellumai/electron-desktop/avatar";
 import {
+  getName as getAssistantName,
+  onNameChange,
+} from "@vellumai/electron-desktop/identity";
+import {
   createFloatingWindow,
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
@@ -43,42 +64,43 @@ import {
   current as currentMainWindow,
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
+  onMainWindowVisibilityChange,
 } from "./main-window";
 
 /**
- * The flag the whole surface is behind, evaluated for the signed-in user and
- * written into settings by the app's window (`useElectronFeatureFlagBridge`).
- *
- * Absent means off, which is the answer for every state that is not a positive
- * evaluation: a fresh install whose window has not synced yet, and an
- * environment where the flag was never provisioned. An avatar that appears
- * over everything the user is doing is the most conspicuous thing this app
- * ships, so the state of not knowing has to be the state of not showing it.
- */
-const SURFACE_FLAG = "companion-surface";
-
-export const isCompanionSurfaceEnabled = (): boolean =>
-  readSetting("featureFlags")?.[SURFACE_FLAG] === true;
-
 /**
- * Whether the surface belongs on screen, given the flag and the user's own
- * choice from the tray.
+ * The flag Watch is behind.
  *
- * The flag is a floor and the tray preference is a veto, so both have to say
- * yes. Exported for its tests, as `callOnUpdate` is: it is the rule that decides
- * whether the most conspicuous window this app has appears at all.
+ * Its own flag rather than a share of whatever gates the surface, because the
+ * surface is a place to talk to the assistant from and Watch is a session that
+ * reads the user's screen. They are ready to be offered to people at different
+ * moments, and folding one into the other would mean shipping the second the
+ * day the first goes out.
+ *
+ * Absent means off. A fresh install whose window has not synced yet and an
+ * environment where the flag was never provisioned both arrive here as
+ * nothing, and the thing on the other side of this answer is a control that
+ * starts reading the screen: an affordance offered on a guess is one a user
+ * can press before anyone has decided they should have it.
+ *
+ * Read here rather than in the window that draws the control. That window is a
+ * floating route with no auth and no flag store that ever settles, so main is
+ * the only side of the surface holding a real evaluation, and it travels down
+ * on the state push as {@link CompanionSurfaceState.watchEnabled}.
+ *
+ * The key itself comes from the contract package, because the web app's
+ * `toggleWatch` command reads the same evaluation to decide whether a press may
+ * start a session. See {@link WATCH_FLAG}.
  */
-export const shouldShowCompanionSurface = (
-  enabled: boolean,
-  hidden: boolean,
-): boolean => enabled && !hidden;
+const isWatchEnabled = (): boolean =>
+  readSetting("featureFlags")?.[WATCH_FLAG] === true;
 
 /**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
- * launch, expanding on hover into a pill with the voice and type-chat options,
- * and holding that expansion for as long as a call runs. It stays on screen
+ * launch, expanding on hover into a pill carrying the ways to reach it, and
+ * holding that expansion for as long as a call runs. It stays on screen
  * for the app's whole run unless the user hides it via the tray's "Show
- * Floating Companion" item, a choice that persists across launches
+ * Companion" item, a choice that persists across launches
  * (`readCompanionHidden` in `window-state.ts`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
@@ -112,59 +134,52 @@ const COMPANION_KIND = "companion";
 const COMPANION_ROUTE = "/floating/companion";
 
 /**
- * The widest the pill gets at {@link COMPANION_BASE_AVATAR_BOX}, matching
- * `FALLBACK_WIDTHS.call` in the renderer.
- *
- * A ceiling rather than a width: the pill measures its own content, so this is
- * what the canvas is sized to hold, and content wider than it is clipped by the
- * window. The call's approval row is the widest thing the surface renders.
- */
-const BASE_MAX_PILL_WIDTH = 360;
-
-/**
- * The tallest the surface gets, which is the typing card.
- *
- * Every other state is a pill exactly {@link COMPANION_BASE_AVATAR_BOX} tall. The card
- * stacks the conversation on top of that row, in a viewport that scrolls once
- * it is full, so the card has a ceiling rather than growing with the exchange:
- * the renderer's `TURNS_MAX_HEIGHT` (220) and its padding, over the composer.
- * Rounded up from what that comes to, because the text is laid out in the
- * renderer and a canvas a few points short clips the top of the card off.
- *
- * Matched to `CompanionSurface`'s card in `companion-surface.tsx`, the way
- * {@link BASE_MAX_PILL_WIDTH} is matched to its widths.
- */
-const BASE_MAX_CARD_HEIGHT = 290;
-
-/**
- * Everything the window's placement depends on, for one companion size.
+ * Everything the window's placement depends on, for one pair of companion
+ * sizes.
  *
  * A record rather than a set of module constants because the user picks the
- * size and the whole canvas follows it. Passed to the placement
+ * sizes and the whole canvas follows them. Passed to the placement
  * rules explicitly rather than read off the module, so they stay pure functions
  * of their inputs and every size is a case a test can state.
  */
 export interface CompanionGeometry {
-  /** The avatar's box, and the scale: this over {@link COMPANION_BASE_AVATAR_BOX}. */
+  /** The creature's box, which is the whole of its own scale. */
   avatarBox: number;
+  /**
+   * The pill's box, which is the scale of everything that is not the creature.
+   */
+  optionsBox: number;
   /** The canvas, sized to hold the largest state in either direction. */
   canvasWidth: number;
   canvasHeight: number;
   /** How much canvas the card's side of the avatar needs, shadow included. */
   riseAbove: number;
-  /** How much the other side needs: the avatar and its shadow, and no more. */
+  /**
+   * How much the other side needs: the avatar, whatever of the pill reaches
+   * back past it, and the shadow.
+   */
   dropBelow: number;
-  /** What {@link growthFor} measures the room against. */
-  maxPillWidth: number;
+  /**
+   * The pill's far edge at its widest, measured from the avatar's centre.
+   *
+   * Whole points, as every number here is: the window is placed and sized in
+   * them, and the avatar stands on the line between the two offsets and on the
+   * canvas's own centre line.
+   */
+  maxReach: number;
 }
 
 /**
- * The canvas for a named size.
+ * The canvas for a pair of named sizes.
+ *
+ * Each name goes through its own axis's table ({@link companionBoxFor}), so the
+ * same name on both axes is a creature and a pill a notch apart rather than two
+ * boxes of one size.
  *
  * The asymmetry between {@link CompanionGeometry.riseAbove} and `dropBelow` is
  * the point of the shape. Sizing both sides for the card, which is what pinning
  * the avatar to the canvas's centre amounts to, spends the card's whole height
- * on a side that never draws anything taller than the avatar, and macOS
+ * on a side that never draws anything taller than the pill, and macOS
  * refuses a window origin above the top of the work area, so that spend is
  * exactly how far short of the top the avatar would stop.
  *
@@ -172,35 +187,59 @@ export interface CompanionGeometry {
  * the same bargain the width makes. A canvas that grew with the card would move
  * the window under the pointer mid-press and put the expansion back on the main
  * process, which is what the fixed canvas exists to avoid. It *is* resized when
- * the user picks a different size, which is a deliberate, one-off event rather
- * than something that happens mid-gesture.
+ * the user picks a different size on either axis, which is a deliberate,
+ * one-off event rather than something that happens mid-gesture.
  */
-export const geometryFor = (size: CompanionSize): CompanionGeometry => {
-  const avatarBox = COMPANION_SIZE_BOXES[size];
-  const scale = avatarBox / COMPANION_BASE_AVATAR_BOX;
-  const pad = COMPANION_BASE_CANVAS_PAD * scale;
-  const maxPillWidth = BASE_MAX_PILL_WIDTH * scale;
-  // The avatar holds its place and the body runs off one side of it, so the
-  // reach is almost the pill's whole width. The canvas has to hold it in
-  // whichever direction main later picks, so it is sized for both sides.
-  const maxReach = maxPillWidth - avatarBox / 2;
-  const riseAbove = BASE_MAX_CARD_HEIGHT * scale - avatarBox / 2 + pad;
-  // The invariant the renderer anchors by, at this size. Scaled rather than
-  // recomputed, so the formula lives in one place for both processes.
-  const dropBelow = COMPANION_NEAR_EDGE * scale;
+export const geometryFor = (
+  avatar: CompanionSize,
+  options: CompanionSize,
+): CompanionGeometry => {
+  const avatarBox = companionBoxFor("avatar", avatar);
+  const optionsBox = companionBoxFor("options", options);
+  const pad = companionPadFor(avatarBox, optionsBox);
+  const gap = companionGapFor(avatarBox, optionsBox);
+  const maxPillWidth =
+    COMPANION_BASE_MAX_PILL_WIDTH * companionScaleFor(optionsBox);
+  // The avatar holds its place and the pill hangs off one side of it across the
+  // gap, so the reach is the avatar's half box, the gap, and the widest pill.
+  // The canvas has to hold it in whichever direction main later picks, so it is
+  // sized for both sides, and `growthFor` picks that direction by the same
+  // number. Whole points like everything else published here: the options
+  // sizes below the authored box are not whole multiples of it, and a reach
+  // carrying a repeating fraction is a canvas edge that lands between points.
+  const maxReach = Math.round(avatarBox / 2 + gap + maxPillWidth);
+  // Both distances come from the contract, which is where the renderer reads
+  // them too: main places the window by them and the renderer anchors the
+  // surface by them, so a second copy of either is the avatar drawn somewhere
+  // main did not put it. Each already answers for both card directions, which
+  // is what lets a flip move the canvas rather than resize it.
+  const dropBelow = companionNearEdgeFor(avatarBox, optionsBox);
+  const canvasHeight = Math.round(
+    companionCardSideFor(avatarBox, optionsBox) + dropBelow,
+  );
+  // The near edge is taken exactly as the contract states it and the card's
+  // side absorbs the rounding, because the renderer names the card's edge with
+  // `100%` and steps back from it by that near edge. Rounding the other way
+  // round would leave main placing the window by one line and the renderer
+  // drawing the creature on another, and a card side is a ceiling with slack in
+  // it where a near edge is the line itself.
+  const riseAbove = canvasHeight - dropBelow;
   return {
     avatarBox,
-    canvasWidth: Math.round(maxReach * 2 + pad * 2),
-    canvasHeight: Math.round(riseAbove + dropBelow),
+    optionsBox,
+    // Twice a whole half rather than a whole total. The renderer puts the
+    // avatar on the canvas's centre line, so an odd width would stand the
+    // creature on a half point and a resize would not land back on it.
+    canvasWidth: Math.round(maxReach + pad) * 2,
+    canvasHeight,
     riseAbove,
     dropBelow,
-    maxPillWidth,
+    maxReach,
   };
 };
 
-/** Gap from the work area's bottom-right on the first ever launch. */
+/** Gap from the work area's bottom edge on the first ever launch. */
 const DEFAULT_MARGIN = 24;
-
 
 let growth: CompanionGrowth = "right";
 
@@ -221,7 +260,60 @@ let cardGrowth: CompanionCardGrowth = "up";
  * computed here is measured in, and reading the store on each mouse-move of a
  * drag would be a file read per frame.
  */
-let geometry: CompanionGeometry = geometryFor(readCompanionSize());
+let geometry: CompanionGeometry = geometryFor(
+  readCompanionSize("avatar"),
+  readCompanionSize("options"),
+);
+
+/**
+ * The beat of the one-time introduction the surface is on, or `null` when it is
+ * not running.
+ *
+ * Held here rather than in the surface's renderer for the reason the session is:
+ * that renderer can reload, be recreated, or load its route late, and a run
+ * anchored in it would begin again from the first beat every time it did. Main
+ * is also the side holding the "already seen" record, so the two cannot
+ * disagree about whether a run is due.
+ */
+let intro: CompanionIntroBeat | null = null;
+
+/**
+ * The introduction after a press, which is `null` once it is over.
+ *
+ * `dismiss` ends it wherever it is; `next` walks to the following beat and
+ * falls off the end into `null`. Resolved against the beat main is actually on
+ * rather than one the renderer names, so a press from a renderer a beat behind
+ * lands where the user could see that it would.
+ *
+ * Exported for its tests, as `callOnUpdate` is.
+ */
+export const introOnAdvance = (
+  current: CompanionIntroBeat | null,
+  action: CompanionIntroAction,
+): CompanionIntroBeat | null => {
+  if (current === null || action === "dismiss") {
+    return null;
+  }
+  const next =
+    COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
+  return next ?? null;
+};
+
+/**
+ * End the introduction and record that it happened.
+ *
+ * One way only. Every path out of a run goes through here, including the ones
+ * that are not a press on it: hiding the surface from the tray is an answer to
+ * the introduction as much as skipping it is, and a user who has just put the
+ * thing away must not be introduced to it again when they bring it back.
+ */
+const finishIntro = (): void => {
+  if (intro === null) {
+    return;
+  }
+  intro = null;
+  writeCompanionIntroSeen();
+};
 
 /**
  * The running live-voice session, or `null` when none is.
@@ -234,17 +326,18 @@ let geometry: CompanionGeometry = geometryFor(readCompanionSize());
 let call: VoiceActivityState | null = null;
 
 /**
- * The assistant and the conversation's tail, as the window holding them last
- * published.
+ * What the app's window last published about the assistant: its name, whether
+ * a turn is running, and the sessions it holds.
  *
  * Held here for the same reason the session is: the surface's renderer reloads,
- * and a card that came back empty would read as the exchange the user just had
- * on it having been thrown away.
+ * and a surface that came back with no name and no session would read as both
+ * having been lost.
  */
 let context: CompanionContext = {
   assistantName: "",
-  turns: [],
   working: false,
+  watching: false,
+  captureCount: 0,
 };
 
 /**
@@ -261,12 +354,35 @@ const currentState = (): CompanionSurfaceState => {
     growth,
     cardGrowth,
     avatarBox: geometry.avatarBox,
+    optionsBox: geometry.optionsBox,
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    intro,
     assistantName: context.assistantName,
-    turns: context.turns,
     working: context.working,
+    // `CompanionContext.watching` is optional, so a publisher that omits it is
+    // reporting no session of its own. Settled to a boolean here rather than
+    // passed through, so the surface reads one shape whatever arrived.
+    watching: context.watching === true,
+    // Passed through as it arrived, absence included: unlike `watching` this
+    // has no resting value to settle to, since every value it can hold is a
+    // claim that something is happening.
+    watchRetro: context.watchRetro,
+    // Settled the same way, and to zero rather than to anything carried over:
+    // a publisher that reports no count has taken no reads this surface can
+    // vouch for.
+    captureCount: context.captureCount ?? 0,
+    // Passed through as it arrived, for the reason `watchRetro` is: every value
+    // it can hold claims a microphone is doing something.
+    dictating: context.dictating,
+    // Passed through as it arrived. Bounded by the publisher and again by the
+    // schema, so nothing here has to decide how much of it is too much.
+    dictationText: context.dictationText,
+    // Read on every rebuild rather than captured once, because the evaluation
+    // lands after launch: the app's window has to sign in and fetch it first,
+    // and a targeting change can move it again while the app runs.
+    watchEnabled: isWatchEnabled(),
   };
 };
 
@@ -287,10 +403,13 @@ export const callOnUpdate = (
 /**
  * Which way the pill grows, from where the avatar actually sits.
  *
- * The body needs `maxPillWidth - avatarBox` of clearance on the side it
- * grows into. Rightward is the default and leftward is what it flips to when
- * the right edge is too close, so the avatar stays exactly where the user put
- * it instead of the controls running off the display.
+ * The room on each side is measured from the avatar's centre, so the clearance
+ * the pill needs is measured from there too: the avatar's half box, then the
+ * gap, then the widest the pill draws, which is
+ * {@link CompanionGeometry.maxReach}.
+ * Rightward is the default and leftward is what it flips to when the right edge
+ * is too close, so the avatar stays exactly where the user put it instead of
+ * the controls running off the display.
  *
  * A display too narrow for either direction still grows right, because the
  * clipping is then unavoidable and the user can drag the surface somewhere it
@@ -301,7 +420,7 @@ export const growthFor = (
   workArea: { x: number; width: number },
   geometry: CompanionGeometry,
 ): CompanionGrowth => {
-  const needed = geometry.maxPillWidth - geometry.avatarBox;
+  const needed = geometry.maxReach;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
   const roomLeft = avatarCentreX - workArea.x;
   if (roomRight < needed && roomLeft >= needed) {
@@ -404,9 +523,24 @@ export const placeCanvas = (
 };
 
 /**
- * Where the surface opens with no remembered position: the bottom-right of the
- * display under the cursor, near where the Dock usually is and clear of the
- * window the user is working in.
+ * Where the avatar's centre goes with no remembered position: the bottom
+ * centre of the work area, a margin up from its edge. Centred so the pill has
+ * room to grow either way, and low so it sits under the window the user is
+ * working in rather than over it.
+ *
+ * Exported for its tests and pure for the same reason as {@link placeCanvas}.
+ */
+export const defaultAvatarCentre = (
+  workArea: { x: number; y: number; width: number; height: number },
+  geometry: CompanionGeometry,
+): { x: number; y: number } => ({
+  x: workArea.x + workArea.width / 2,
+  y: workArea.y + workArea.height - DEFAULT_MARGIN - geometry.avatarBox / 2,
+});
+
+/**
+ * Where the surface opens with no remembered position: the bottom centre of
+ * the display under the cursor.
  *
  * The canvas is much larger than the visible circle, so the position is
  * computed for the avatar and then backed out to the canvas origin. Getting
@@ -415,12 +549,8 @@ export const placeCanvas = (
 const defaultCanvasOrigin = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const { workArea } = screen.getDisplayNearestPoint(cursor);
-  const half = geometry.avatarBox / 2;
   const placed = placeCanvas(
-    {
-      x: workArea.x + workArea.width - DEFAULT_MARGIN - half,
-      y: workArea.y + workArea.height - DEFAULT_MARGIN - half,
-    },
+    defaultAvatarCentre(workArea, geometry),
     workArea,
     geometry,
   );
@@ -533,6 +663,47 @@ export const dispatchWithoutRaising = (command: VellumCommand): void => {
 
 let installed = false;
 
+/**
+ * The surface's own menu, on a right-click.
+ *
+ * **Because the tray is the wrong place to look.** The two things a user
+ * wants from a floating avatar are to resize it and to make it go away, and the
+ * tray offers both from a menu-bar icon that says nothing about the thing they
+ * are actually looking at. A press on the object itself is where people reach
+ * first.
+ *
+ * Built in main rather than in the renderer: a menu is a native window, and
+ * main is the side that owns both the sizes and the visibility. The size
+ * pickers come from the same builder the tray reads, so the two menus cannot
+ * drift into describing the same surface differently.
+ *
+ * A pure template, separately from the press that pops it, because the menu
+ * itself is a native window and what is worth stating is the wording and which
+ * radio is marked.
+ */
+export const companionContextMenuTemplate = (
+  current: Record<CompanionSizeAxis, CompanionSize>,
+  actions: {
+    setSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
+    hide: () => void;
+  },
+): MenuItemConstructorOptions[] => [
+  // The size pickers the tray offers too, from the one builder both read. They
+  // leave the top level short enough to read at a glance: two headings, and the
+  // one item that is not a size.
+  ...companionSizeSubmenus(current, actions.setSize),
+  { type: "separator" as const },
+  {
+    // Named for what it does to the thing under the cursor. The tray's item is
+    // a checkbox because it is also the way back; here there is a surface in
+    // front of the user, so this only has to take it away.
+    label: "Hide Companion",
+    click: () => {
+      actions.hide();
+    },
+  },
+];
+
 export const installCompanionWindow = (): void => {
   if (installed) {
     return;
@@ -606,31 +777,57 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
-   * Type, sent: the message goes to the same renderer Talk's press goes to, and
-   * lands in the conversation that renderer has open.
+   * Watch, delivered to the same renderer Talk's press goes to.
    *
-   * The surface holds no conversation and no transport, only the words. What
-   * comes back is the reply, in the app or as a notification, the same as any
-   * other message the user sends.
+   * One command for both edges rather than a start and a stop. The surface
+   * draws a single toggle and holds no session, so the window that owns the
+   * session is the only side that can tell which edge a press is; main forwards
+   * the press and lets it answer.
+   *
+   * This does not raise the app, for a sharper version of Talk's reason. The
+   * user reached for a floating surface because they are working somewhere
+   * else, and here that work is the subject of the session: bringing Vellum
+   * forward would cover the very thing the session exists to watch.
    */
-  on(
-    "vellum:companion:submit",
-    z.tuple([z.string(), z.boolean()]),
-    ([message, startsConversation]) => {
-      dispatchWithoutRaising({
-        kind: "companionSubmit",
-        message,
-        startsConversation,
-      });
-    },
-  );
+  on("vellum:companion:toggleWatch", z.tuple([]), () => {
+    dispatchWithoutRaising({ kind: "toggleWatch" });
+  });
 
   /**
-   * The assistant and the conversation's tail, from the window holding them.
+   * The answer to the summary question, delivered to the window that asked it.
+   *
+   * The one companion press that may raise the app, and only on a yes. Watch's
+   * press is kept behind the user's work because that work is the session's
+   * subject; by the time this is pressed the session is over, and the report is
+   * a thing to read rather than a thing to avoid covering. A dismissal still
+   * travels and still leaves the window where it is: the question lives in the
+   * renderer that ran the retrospective, and the answer has to reach it either
+   * way or it will ask again on its next push.
+   */
+  on("vellum:companion:answerWatchRetro", z.tuple([z.boolean()]), ([open]) => {
+    if (!open) {
+      dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
+      return;
+    }
+    // The same shape `activate` takes, because it is the same request: bring
+    // the app forward first, then tell it where to go. Dispatching before the
+    // window is visible would navigate a page the user is not looking at.
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "answerWatchRetro", open: true });
+    });
+  });
+
+  /**
+   * The assistant's name and what the window holding it knows about the turn
+   * and the sessions it is running.
    *
    * Published rather than fetched, because main has no conversation of its own
-   * and no transport to fetch one with. The turns arrive already condensed to a
-   * side and some text: see `companionContextSchema`.
+   * and no transport to fetch one with: see `companionContextSchema`.
+   *
+   * One channel for the whole snapshot rather than one per fact. They describe
+   * the same assistant at the same moment, and a surface drawing a stale
+   * `watching` beside a fresh name is exactly the skew independently-pushed
+   * facts would produce.
    */
   on(
     "vellum:companion:setContext",
@@ -640,38 +837,6 @@ export const installCompanionWindow = (): void => {
       pushState();
     },
   );
-
-  /**
-   * The composer, opened and closed: the window may hold the keyboard for
-   * exactly that long.
-   *
-   * The counterpart to `setInteractive` above. The window is created
-   * unfocusable so an ordinary press on the pill leaves the keyboard with
-   * whatever app the user is working in, and this is what lends it out.
-   *
-   * **`setFocusable` both ways, and never `blur`.** `blur` is the only call
-   * that makes this window resign key status outright, and on macOS it is
-   * `orderOut` followed by `orderBack`: the surface is taken off screen and put
-   * back at the bottom of its level. That reads exactly as it sounds, as a
-   * flash, and the window comes back without the mouse forwarding that makes it
-   * hit-testable, so the avatar is left sitting there dead. A surface that
-   * breaks itself every time the user backs out of Type is far worse than the
-   * one thing `setFocusable(false)` does not do, which is hand key status back
-   * the instant the composer closes rather than the next time the user clicks
-   * into the app they are working in.
-   */
-  on("vellum:companion:setComposing", z.tuple([z.boolean()]), ([composing]) => {
-    const win = getFloatingWindow(COMPANION_KIND);
-    if (!win || win.isDestroyed()) {
-      return;
-    }
-    if (composing) {
-      win.setFocusable(true);
-      win.focus();
-      return;
-    }
-    win.setFocusable(false);
-  });
 
   /**
    * The avatar, pressed: come forward on the conversation the user was last in.
@@ -688,6 +853,49 @@ export const installCompanionWindow = (): void => {
    * This *does* raise the app, unlike Talk. It is the one press on the surface
    * whose entire purpose is to go back to Vellum.
    */
+  // The introduction's two presses. Main resolves them rather than taking a
+  // beat from the renderer, so a press that arrives from a renderer showing a
+  // beat main has already left is the no-op the guard makes it, not a jump
+  // backwards.
+  on(
+    "vellum:companion:advanceIntro",
+    z.tuple([z.enum(COMPANION_INTRO_ACTIONS)]),
+    ([action]) => {
+      if (intro === null) {
+        return;
+      }
+      const next = introOnAdvance(intro, action);
+      if (next === null) {
+        finishIntro();
+      } else {
+        intro = next;
+      }
+      pushState();
+    },
+  );
+
+  on("vellum:companion:contextMenu", z.tuple([]), () => {
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+    const menu = Menu.buildFromTemplate(
+      companionContextMenuTemplate(
+        {
+          avatar: readCompanionSize("avatar"),
+          options: readCompanionSize("options"),
+        },
+        {
+          setSize: setCompanionSurfaceSize,
+          hide: () => {
+            setCompanionSurfaceVisible(false);
+          },
+        },
+      ),
+    );
+    menu.popup({ window: win });
+  });
+
   on("vellum:companion:activate", z.tuple([]), () => {
     void ensureMainWindowVisible().then(() => {
       dispatchToMain({ kind: "currentConversation" });
@@ -765,16 +973,65 @@ export const installCompanionWindow = (): void => {
     },
   );
 
+  /**
+   * The window that publishes `watching` is gone, so stop claiming a screen is
+   * being read.
+   *
+   * The session lives in the app's window: the socket and the microphone go
+   * down with the renderer when it is destroyed, which is exactly why nothing
+   * is left to report it. The renderer's own teardown cannot cover this, since
+   * a destroyed document does not reliably run React cleanup, and this surface
+   * outlives that window by design. Left alone the last context stands and the
+   * pill goes on drawing a capture indicator over a machine nothing is
+   * capturing, until some later window happens to publish over it.
+   *
+   * Fired on show, hide, and destroy alike, so the destroyed case is the one
+   * where `currentMainWindow()` has already been cleared. Hiding the window
+   * leaves the renderer alive and its session running, and must not clear
+   * anything.
+   *
+   * The watch flag and the dictation, which are the two things in the context
+   * that claim a microphone or a socket is open in that window. The name and
+   * the tail are a record of what was said and this surface is still where it
+   * is read, the same bargain `working` is given by `clearCompanionWorking`.
+   */
+  onMainWindowVisibilityChange(() => {
+    if (currentMainWindow() !== null) {
+      return;
+    }
+    const claiming =
+      context.watching === true || context.dictating !== undefined;
+    if (!claiming) {
+      return;
+    }
+    context = {
+      ...context,
+      watching: false,
+      dictating: undefined,
+      dictationText: undefined,
+    };
+    pushState();
+  });
+
   // One avatar feeds every surface, so a change to the Dock icon is a change
-  // here too.
+  // here too. Repaint only: whether there is a surface to repaint is a question
+  // about the assistant, not about its picture.
   onAvatarChange(pushState);
 
-  // The flag arrives after launch, not before it: main reads it from settings
-  // and the app's window is what puts it there, once it has signed in and
-  // fetched an evaluation. So the surface cannot be decided once at startup.
-  // This is what opens it when the answer finally lands, and closes it if the
-  // answer changes.
-  onSettingChange("featureFlags", syncCompanionSurface);
+  // The assistant arriving or going away, which is what decides whether the
+  // surface belongs on screen at all. The name is published after sign-in and
+  // blanked on sign-out, so this is both edges.
+  onNameChange(syncCompanionSurface);
+
+  // Watch's flag arrives after launch, not before it: main reads it from
+  // settings and the app's window is what puts it there, once it has signed in
+  // and fetched an evaluation. A surface that is already open has to hear that
+  // Watch became available, or stopped being, without waiting for something
+  // else to move the state. It pushes rather than syncing, because whether the
+  // surface is on screen is no longer this flag's business.
+  onSettingChange("featureFlags", () => {
+    pushState();
+  });
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
@@ -795,6 +1052,15 @@ export const openCompanionWindow = (): void => {
     return;
   }
 
+  // A run is due the first time the surface actually reaches the screen, which
+  // is later than launch and later than sign-in: it is the moment the thing
+  // being introduced is there to be pointed at. Set before the window is
+  // created so the state its route pulls on mount already carries the beat,
+  // rather than the surface appearing plain and being annotated a frame later.
+  if (!readCompanionIntroSeen()) {
+    intro = COMPANION_INTRO_BEATS[0];
+  }
+
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
     route: COMPANION_ROUTE,
@@ -808,16 +1074,18 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
-      // **Unfocusable at rest, like the dictation overlay, but only at rest.**
-      // `type: "panel"` already makes the window non-activating, so clicking it
-      // never brings Vellum forward; this goes further and stops it taking key
-      // status, because a panel that becomes key on any press would hold the
-      // keyboard after a press on Talk and swallow whatever the user typed next
-      // into the app they are actually working in. The surface does host a text
-      // field, and a window that cannot become key cannot receive a keystroke,
-      // so key status is granted for exactly as long as that field is open
-      // (`setComposing`), the way mouse events are granted for exactly as long
-      // as the pointer is on the pill.
+      // **Unfocusable, like the dictation overlay.** `type: "panel"` already
+      // makes the window non-activating, so clicking it never brings Vellum
+      // forward; this goes further and stops it taking key status, because a
+      // panel that becomes key on any press would hold the keyboard after a
+      // press on Talk and swallow whatever the user typed next into the app
+      // they are actually working in. Nothing on the surface takes a
+      // keystroke, so there is no moment key status is owed to it.
+      //
+      // Should that change, lend it with `setFocusable` both ways and never
+      // `blur()`: on macOS `blur` is `orderOut` then `orderBack`, which flashes
+      // the window and brings it back without the mouse forwarding that makes
+      // it hit-testable, leaving the avatar sitting there dead.
       focusable: false,
       movable: true,
       minimizable: false,
@@ -855,14 +1123,20 @@ const closeCompanionWindow = (): void => {
 export const setCompanionSurfaceVisible = (visible: boolean): void => {
   writeCompanionHidden(!visible);
   if (visible) {
-    openCompanionWindow();
-  } else {
-    closeCompanionWindow();
+    // Through the same decision every other path uses, never straight to
+    // `openCompanionWindow`. The tray item survives a sign-out, so a user who
+    // had the surface hidden and then signed out could otherwise tick it and
+    // get a blank disc floating over a signed-out app: the one state the
+    // assistant gate exists to prevent, reached around the side.
+    syncCompanionSurface();
+    return;
   }
+  // Putting the surface away mid-introduction is an answer to it. Recorded, so
+  // bringing it back later does not start explaining it again to someone who
+  // has already decided what they think.
+  finishIntro();
+  closeCompanionWindow();
 };
-
-/** Which size the surface is currently drawn at, for the tray's radio items. */
-export const readCompanionSurfaceSize = (): CompanionSize => readCompanionSize();
 
 /**
  * Draw the surface at a different size, keeping the avatar where it is.
@@ -878,10 +1152,21 @@ export const readCompanionSurfaceSize = (): CompanionSize => readCompanionSize()
  * hundreds of points, and the user would watch the thing they were trying to
  * enlarge walk off across the desktop. So the centre is read in the old
  * geometry, and the window placed in the new one around the same point.
+ *
+ * Both axes take this same path. Sizing the options alone leaves the creature
+ * exactly as it was and still moves every edge around it: the pill's reach and
+ * the card's height are stated in the options size, so the canvas has to be
+ * built again for them.
  */
-export const setCompanionSurfaceSize = (size: CompanionSize): void => {
-  writeCompanionSize(size);
-  const next = geometryFor(size);
+export const setCompanionSurfaceSize = (
+  axis: CompanionSizeAxis,
+  size: CompanionSize,
+): void => {
+  writeCompanionSize(axis, size);
+  const next = geometryFor(
+    readCompanionSize("avatar"),
+    readCompanionSize("options"),
+  );
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     geometry = next;
@@ -909,21 +1194,54 @@ export const setCompanionSurfaceSize = (size: CompanionSize): void => {
 };
 
 /**
+ * Whether there is an assistant for the surface to be.
+ *
+ * The published identity, not the avatar. Main's avatar cache is empty for an
+ * assistant whose avatar is simply unconfigured (`resolveAvatarRender` answers
+ * `none` and the renderer publishes null for both the image and the traits), so
+ * reading it here would keep the surface shut for exactly the users who never
+ * picked one, and the surface has a fallback disc for that case. It is also
+ * empty in the wrong direction: signing out clears the name and leaves the
+ * cached avatar behind, which would leave a pill floating over the login
+ * screen.
+ *
+ * The name is the identity signal, held in main by `identity.ts`, blank until
+ * the renderer has fetched one and blanked again on sign-out and on an
+ * assistant switch. An assistant the user is signed in to has one whatever its
+ * avatar looks like.
+ */
+const hasAssistant = (): boolean => getAssistantName() !== null;
+
+/**
+ * Whether the surface belongs on screen, given an assistant to draw and the
+ * user's own choice from the tray.
+ *
+ * The assistant is a floor and the tray preference is a veto, so both have to
+ * say yes. Exported for its tests, as `callOnUpdate` is: it is the rule that
+ * decides whether the most conspicuous window this app has appears at all.
+ */
+export const shouldShowCompanionSurface = (
+  assistant: boolean,
+  hidden: boolean,
+): boolean => assistant && !hidden;
+
+/**
  * Open or close the surface to match the two things that decide whether it
- * belongs on screen: the flag, and the user's own choice from the tray.
+ * belongs on screen: whether there is an assistant to draw, and the user's own
+ * choice from the tray.
  *
  * The single place that decision is made, called at launch and again whenever
- * the flags in settings change. Two call sites reading the same pair of
- * conditions is how they come to disagree, and disagreeing here means either a
- * floating avatar nobody was meant to have or a missing one the user turned on.
+ * either input changes. Two call sites reading the same pair of conditions is
+ * how they come to disagree, and disagreeing here means either a floating
+ * avatar nobody asked for or a missing one the user turned on.
  *
- * **The flag never writes the tray preference.** Losing the flag has to leave
- * the user's choice exactly as they left it, so that being targeted again
- * restores the surface for someone who wanted it and leaves it hidden for
- * someone who did not.
+ * **Neither input ever writes the other.** Signing out has to leave the tray
+ * preference exactly as the user left it, so that signing back in restores the
+ * surface for someone who wanted it and leaves it hidden for someone who did
+ * not.
  */
 export const syncCompanionSurface = (): void => {
-  if (shouldShowCompanionSurface(isCompanionSurfaceEnabled(), readCompanionHidden())) {
+  if (shouldShowCompanionSurface(hasAssistant(), readCompanionHidden())) {
     openCompanionWindow();
     return;
   }

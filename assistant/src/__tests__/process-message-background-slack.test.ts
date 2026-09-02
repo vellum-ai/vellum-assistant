@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
-  getSourcePathsForAttachments: () => new Map<string, string>(),
+  resolveAttachmentsForPersist: () => [],
 }));
 
 mock.module("../channels/gateway-guardian-requests.js", () => ({

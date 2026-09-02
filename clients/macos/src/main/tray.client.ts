@@ -9,6 +9,7 @@ import {
 } from "@vellumai/electron-desktop/tray-model";
 import {
   readCompanionHidden,
+  readCompanionSize,
   readOnboardingActive,
 } from "@vellumai/electron-desktop/window-state";
 
@@ -23,8 +24,6 @@ import {
 } from "./assets/menu-icons";
 import { acceleratorOption } from "./commands.client";
 import {
-  isCompanionSurfaceEnabled,
-  readCompanionSurfaceSize,
   setCompanionSurfaceSize,
   setCompanionSurfaceVisible,
 } from "./companion-window";
@@ -49,9 +48,12 @@ export { __resetForTesting };
 export const installTray = (handlers: TrayHandlers): void => {
   configureTrayModel({
     accelerator: acceleratorOption,
-    companionEnabled: isCompanionSurfaceEnabled,
+    // macOS is the platform that has the surface. Flat `true` rather than a
+    // read of anything: every macOS build has one, and the tray preference
+    // below is the only thing that turns it off.
+    companionSupported: () => true,
     companionHidden: readCompanionHidden,
-    companionSize: readCompanionSurfaceSize,
+    companionSize: readCompanionSize,
     dispatch: dispatchToMain,
     featureEnabled: (flag) => readSetting("featureFlags")?.[flag] === true,
     getLockfile: getWatchedLockfile,

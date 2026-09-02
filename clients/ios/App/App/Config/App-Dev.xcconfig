@@ -2,6 +2,10 @@
 
 #include "Base.xcconfig"
 
+// Alternate app icons compiled from App/App/AvatarIcons.xcassets.
+#include "AvatarIcons.xcconfig"
+
+APP_GROUP_ID = group.ai.vocify-inc.vellum-assistant-ios.dev
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
 ASSOCIATED_DOMAIN = dev-assistant.vellum.ai
 BUNDLE_DISPLAY_NAME = Vellum Dev

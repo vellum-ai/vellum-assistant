@@ -1,8 +1,8 @@
 /**
  * Gateway client for authenticated requests to a hatched assistant's runtime.
  *
- * Encapsulates lockfile reading, guardian-token resolution, and
- * authenticated fetch so callers can simply do:
+ * Encapsulates lockfile reading, credential resolution, and authenticated
+ * fetch so callers can simply do:
  *
  * ```ts
  * const client = new AssistantClient();                          // active / latest
@@ -10,6 +10,11 @@
  * await client.get("/healthz");
  * await client.post("/messages/", { content: "hi" });
  * ```
+ *
+ * The auth scheme follows the assistant's topology, so callers never pick it.
+ * Platform-managed entries in particular have no local guardian token: they
+ * authenticate against the wildcard runtime proxy at
+ * `{platformUrl}/v1/assistants/<id>/<rest>` with the stored platform credential.
  */
 
 import { resolveAssistant } from "./assistant-config.js";
@@ -20,9 +25,24 @@ import {
   guardianTokenDueForRenewal,
 } from "./guardian-token.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
+import {
+  authHeaders,
+  invalidateOrgIdCache,
+  readPlatformToken,
+} from "./platform-client.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
+
+/**
+ * - `guardian`: `Authorization: Bearer <guardian JWT>`, refreshable on a 401.
+ * - `session`: caller-supplied `X-Session-Token` + explicit org id.
+ * - `platform`: `cloud: "vellum"` entry; headers resolved lazily from the
+ *   stored platform token (org id needs a network lookup).
+ */
+type AuthMode = "guardian" | "session" | "platform";
+
+const stripTrailingSlashes = (url: string): string => url.replace(/\/+$/, "");
 
 export interface AssistantClientOpts {
   assistantId?: string;
@@ -32,6 +52,9 @@ export interface AssistantClientOpts {
    * session token instead of a guardian token.  The session token is
    * sent as `X-Session-Token: <sessionToken>` and the org id is
    * sent via the `Vellum-Organization-Id` header.
+   *
+   * Platform-managed assistants do NOT need this: they are detected from the
+   * lockfile entry and authenticated from the stored platform token.
    */
   sessionToken?: string;
   /** Required when `sessionToken` is provided. */
@@ -49,11 +72,16 @@ export class AssistantClient {
   readonly runtimeUrl: string;
 
   private readonly _assistantId: string;
-  /** Mutable: a 401 on the guardian path refreshes this in place (see request). */
+  /**
+   * The credential for the current mode. Mutable: a 401 on the guardian path
+   * refreshes it in place (see request), and the platform path fills it in on
+   * first use (see resolveAuthHeaders).
+   */
   private token: string | undefined;
-  /** True when token is a platform session token (X-Session-Token), false for guardian JWT (Authorization: Bearer). */
-  private readonly isSessionAuth: boolean;
+  private readonly authMode: AuthMode;
   private readonly orgId: string | undefined;
+  /** Cached in-flight/resolved platform auth headers; cleared to force a re-resolve. */
+  private platformHeaders: Promise<Record<string, string>> | undefined;
 
   /**
    * Resolves an assistant entry from the lockfile and loads auth credentials.
@@ -73,25 +101,106 @@ export class AssistantClient {
       );
     }
 
-    this.runtimeUrl = (
-      opts?.runtimeUrl ||
-      entry.localUrl ||
-      entry.runtimeUrl ||
-      FALLBACK_RUNTIME_URL
-    ).replace(/\/+$/, "");
     this._assistantId = entry.assistantId;
+    const platformManaged = !opts?.sessionToken && entry.cloud === "vellum";
+    const platformHost = stripTrailingSlashes(entry.runtimeUrl);
+
+    // SECURITY: a platform credential is account-scoped, far broader than the
+    // per-assistant guardian JWT, so its origin is pinned to the host recorded in
+    // the lockfile. Honoring a URL override here would hand the caller's session
+    // token or `vak_` key to whatever host they named.
+    if (
+      platformManaged &&
+      opts?.runtimeUrl &&
+      stripTrailingSlashes(opts.runtimeUrl) !== platformHost
+    ) {
+      throw new Error(
+        `Refusing to send platform credentials to '${opts.runtimeUrl}': ` +
+          `assistant '${entry.assistantId}' is hosted at ${platformHost}.`,
+      );
+    }
+
+    this.runtimeUrl = platformManaged
+      ? platformHost
+      : stripTrailingSlashes(
+          opts?.runtimeUrl ||
+            entry.localUrl ||
+            entry.runtimeUrl ||
+            FALLBACK_RUNTIME_URL,
+        );
 
     if (opts?.sessionToken) {
-      // Platform assistant: use X-Session-Token + Vellum-Organization-Id.
+      // Caller supplied the credential: X-Session-Token + Vellum-Organization-Id.
       this.token = opts.sessionToken;
-      this.isSessionAuth = true;
+      this.authMode = "session";
       this.orgId = opts.orgId;
+    } else if (platformManaged) {
+      // Platform-managed: no guardian token exists locally, so authenticate with
+      // the stored platform credential. Resolved on first use because the org id
+      // behind it needs a network lookup.
+      this.token = undefined;
+      this.authMode = "platform";
+      this.orgId = undefined;
     } else {
       this.token =
         loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
-      this.isSessionAuth = false;
+      this.authMode = "guardian";
       this.orgId = undefined;
     }
+  }
+
+  /**
+   * Platform token for a `cloud: "vellum"` entry. Throws the actionable login
+   * error rather than letting an anonymous request fall through to a bare 403.
+   */
+  private requirePlatformToken(): string {
+    const token = readPlatformToken();
+    if (!token) {
+      throw new Error(
+        "Not logged in. Run `vellum login` first to authenticate with the platform.",
+      );
+    }
+    return token;
+  }
+
+  /**
+   * Auth headers for the current mode. `authHeaders` picks the right scheme for
+   * the platform credential (`Authorization: Bearer` for `vak_` API keys,
+   * `X-Session-Token` + `Vellum-Organization-Id` for session tokens) and caches
+   * the org-id lookup, so the result is memoized per client and a failure is
+   * never cached.
+   */
+  private async resolveAuthHeaders(): Promise<Record<string, string>> {
+    if (this.authMode !== "platform") {
+      const headers: Record<string, string> = {};
+      if (this.token) {
+        if (this.authMode === "session") {
+          headers["X-Session-Token"] = this.token;
+        } else {
+          headers["Authorization"] = `Bearer ${this.token}`;
+        }
+      }
+      if (this.orgId) {
+        headers["Vellum-Organization-Id"] = this.orgId;
+      }
+      return headers;
+    }
+
+    if (!this.platformHeaders) {
+      this.token = this.requirePlatformToken();
+      this.platformHeaders = authHeaders(this.token, this.runtimeUrl)
+        .then((resolved) => {
+          // request() owns Content-Type (bodyless requests must not carry one).
+          const headers = { ...resolved };
+          delete headers["Content-Type"];
+          return headers;
+        })
+        .catch((err: unknown) => {
+          this.platformHeaders = undefined;
+          throw err;
+        });
+    }
+    return this.platformHeaders;
   }
 
   /** GET request to the gateway. Auth headers are added automatically. */
@@ -185,17 +294,13 @@ export class AssistantClient {
     const jsonBody = body !== undefined ? JSON.stringify(body) : undefined;
 
     // Headers are built per-attempt so a refreshed token is picked up on retry.
-    const buildHeaders = (): Record<string, string> => {
+    // Caller-supplied headers win over the resolved auth headers.
+    const buildHeaders = async (): Promise<Record<string, string>> => {
       const headers: Record<string, string> = { ...opts?.headers };
-      if (this.token) {
-        if (this.isSessionAuth) {
-          headers["X-Session-Token"] ??= this.token;
-        } else {
-          headers["Authorization"] ??= `Bearer ${this.token}`;
-        }
-      }
-      if (this.orgId) {
-        headers["Vellum-Organization-Id"] ??= this.orgId;
+      for (const [name, value] of Object.entries(
+        await this.resolveAuthHeaders(),
+      )) {
+        headers[name] ??= value;
       }
       if (body !== undefined) {
         headers["Content-Type"] = "application/json";
@@ -203,8 +308,8 @@ export class AssistantClient {
       return headers;
     };
 
-    const doFetch = (): Promise<Response> => {
-      const headers = buildHeaders();
+    const doFetch = async (): Promise<Response> => {
+      const headers = await buildHeaders();
       if (opts?.signal) {
         return loopbackSafeFetch(url, {
           method,
@@ -226,11 +331,20 @@ export class AssistantClient {
 
     const response = await doFetch();
 
-    // Reactive auto-refresh on a 401 for the guardian (non-session) path.
-    // Ephemeral (`--token`) and access-only sessions have no stored refresh
-    // credential and just see the original 401; the platform session-auth path
-    // is never refreshed here (its token is managed by the Vellum platform).
-    if (response.status === 401 && !this.isSessionAuth) {
+    // A stale cached Vellum-Organization-Id is the usual cause of a 401 on the
+    // platform path (e.g. the user switched orgs elsewhere). Drop it and retry
+    // once. Mirrors localRuntimeIdentity in local-runtime-client.ts.
+    if (response.status === 401 && this.authMode === "platform" && this.token) {
+      invalidateOrgIdCache(this.token, this.runtimeUrl);
+      this.platformHeaders = undefined;
+      return doFetch();
+    }
+
+    // Reactive auto-refresh on a 401 for the guardian path only. Ephemeral
+    // (`--token`) and access-only sessions have no stored refresh credential and
+    // just see the original 401; session and platform credentials are managed by
+    // the Vellum platform and are never refreshed here.
+    if (response.status === 401 && this.authMode === "guardian") {
       const stored = loadGuardianToken(this._assistantId);
 
       // Another process may have already rotated and persisted a fresh access

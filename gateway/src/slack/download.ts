@@ -1,13 +1,10 @@
-import { fileTypeFromBuffer } from "file-type";
-import { validateDownloadedContent } from "../download-validation.js";
+import {
+  finalizeDownloadedAttachment,
+  readLimitedAttachmentResponse,
+} from "../attachments/download.js";
+import type { DownloadedAttachment } from "../attachments/ingest.js";
 import { fetchImpl } from "../fetch.js";
 import type { SlackFile } from "./message-schemas.js";
-
-export interface DownloadedFile {
-  filename: string;
-  mimeType: string;
-  data: string; // base64-encoded
-}
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
@@ -18,7 +15,8 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 export async function downloadSlackFile(
   file: SlackFile,
   botToken: string,
-): Promise<DownloadedFile> {
+  maxBytes: number,
+): Promise<DownloadedAttachment> {
   const url = file.url_private_download || file.url_private;
   if (!url) {
     throw new Error(`Slack file ${file.id} has no download URL`);
@@ -54,19 +52,14 @@ export async function downloadSlackFile(
     );
   }
 
-  const buffer = await response.arrayBuffer();
-  const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
-
-  const mimeType =
-    file.mimetype ||
-    detected?.mime ||
-    response.headers.get("Content-Type")?.split(";")[0].trim() ||
-    "application/octet-stream";
-
-  await validateDownloadedContent(new Uint8Array(buffer), mimeType, file.id);
-
-  const filename = file.name || `slack_file_${file.id}`;
-  const data = Buffer.from(buffer).toString("base64");
-
-  return { filename, mimeType, data };
+  return finalizeDownloadedAttachment(
+    await readLimitedAttachmentResponse(response, maxBytes, file.id),
+    {
+      attachmentId: file.id,
+      mimeTypeCandidatesBeforeDetection: [file.mimetype],
+      responseContentType: response.headers.get("Content-Type"),
+      filename: file.name,
+      fallbackFilename: () => `slack_file_${file.id}`,
+    },
+  );
 }

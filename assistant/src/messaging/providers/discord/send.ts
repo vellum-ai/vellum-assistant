@@ -5,6 +5,11 @@
  * attachments, by calling the Discord REST API directly via ./api.ts.
  */
 
+import type {
+  ApprovalUIMetadata,
+  ChannelDeliveryResult,
+} from "@vellumai/gateway-client";
+
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
@@ -42,6 +47,90 @@ const DISCORD_ALLOWED_MENTIONS = { parse: ["users"] } as const;
  */
 const DISCORD_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
+// Component wire values, from Discord's message-components table.
+const DISCORD_COMPONENT_ACTION_ROW = 1;
+const DISCORD_COMPONENT_BUTTON = 2;
+const DISCORD_BUTTON_STYLE_PRIMARY = 1;
+const DISCORD_BUTTON_STYLE_SECONDARY = 2;
+const DISCORD_BUTTON_STYLE_DANGER = 4;
+/** Discord caps a component `custom_id` at 100 characters. */
+const DISCORD_MAX_CUSTOM_ID_CHARS = 100;
+/** Discord caps a button label at 80 characters. */
+const DISCORD_MAX_BUTTON_LABEL_CHARS = 80;
+/** Discord caps an action row at five buttons. */
+const DISCORD_MAX_BUTTONS_PER_ROW = 5;
+
+interface DiscordButtonComponent {
+  type: typeof DISCORD_COMPONENT_BUTTON;
+  style: number;
+  label: string;
+  custom_id: string;
+}
+
+interface DiscordActionRow {
+  type: typeof DISCORD_COMPONENT_ACTION_ROW;
+  components: DiscordButtonComponent[];
+}
+
+/** Translate a surface-agnostic emphasis into Discord's button style value. */
+function discordStyleForEmphasis(
+  emphasis: "primary" | "secondary" | "destructive",
+): number {
+  switch (emphasis) {
+    case "primary":
+      return DISCORD_BUTTON_STYLE_PRIMARY;
+    case "destructive":
+      return DISCORD_BUTTON_STYLE_DANGER;
+    case "secondary":
+      return DISCORD_BUTTON_STYLE_SECONDARY;
+  }
+}
+
+/**
+ * Build the action rows for an approval card. Each button's `custom_id` is
+ * the shared `apr:<requestId>:<action>` callback convention, which the
+ * gateway forwards verbatim as the button event's `callbackData`. Styling
+ * mirrors the Slack card: an action's own `emphasis` wins, otherwise the
+ * first action is primary and `reject` is danger. Discord requires a style
+ * on every button, so the remainder are explicitly secondary.
+ *
+ * Throws when a `custom_id` would exceed Discord's cap: the caller falls
+ * back to the plain-text card rather than sending a button that could not
+ * round-trip its request id.
+ */
+function buildDiscordApprovalComponents(
+  approval: ApprovalUIMetadata,
+): DiscordActionRow[] {
+  const buttons = approval.actions.map((action, index) => {
+    const customId = `apr:${approval.requestId}:${action.id}`;
+    if (customId.length > DISCORD_MAX_CUSTOM_ID_CHARS) {
+      throw new Error(
+        `custom_id for action "${action.id}" is ${customId.length} characters, exceeding Discord's ${DISCORD_MAX_CUSTOM_ID_CHARS}-character limit`,
+      );
+    }
+    return {
+      type: DISCORD_COMPONENT_BUTTON,
+      style: action.emphasis
+        ? discordStyleForEmphasis(action.emphasis)
+        : action.id === "reject"
+          ? DISCORD_BUTTON_STYLE_DANGER
+          : index === 0
+            ? DISCORD_BUTTON_STYLE_PRIMARY
+            : DISCORD_BUTTON_STYLE_SECONDARY,
+      label: action.label.slice(0, DISCORD_MAX_BUTTON_LABEL_CHARS),
+      custom_id: customId,
+    } satisfies DiscordButtonComponent;
+  });
+  const rows: DiscordActionRow[] = [];
+  for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
+    rows.push({
+      type: DISCORD_COMPONENT_ACTION_ROW,
+      components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
+    });
+  }
+  return rows;
+}
+
 /** Send target for one Discord delivery. */
 export interface DiscordSendTarget {
   /**
@@ -56,6 +145,38 @@ function messagesRoute(target: DiscordSendTarget): string {
   return `/channels/${encodeURIComponent(target.channelId)}/messages`;
 }
 
+/**
+ * A multi-chunk send that failed after at least one chunk was posted. The
+ * already-delivered chunks cannot be unsent, so a caller with a fallback
+ * must not replay the whole text; the undelivered remainder is what is
+ * still owed to the reader.
+ */
+export class DiscordPartialSendError extends Error {
+  readonly chunksSent: number;
+  readonly remainingText: string;
+  readonly lastMessageId?: string;
+
+  constructor(
+    cause: unknown,
+    chunksSent: number,
+    remainingText: string,
+    lastMessageId?: string,
+  ) {
+    super(
+      `Discord send failed after ${chunksSent} chunk(s): ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "DiscordPartialSendError";
+    this.chunksSent = chunksSent;
+    this.remainingText = remainingText;
+    if (lastMessageId !== undefined) {
+      this.lastMessageId = lastMessageId;
+    }
+  }
+}
+
 /** Outcome of a Discord reply send. */
 export interface DiscordSendResult {
   /**
@@ -66,29 +187,108 @@ export interface DiscordSendResult {
 }
 
 /**
+ * Discord's rendering of a settled message.
+ *
+ * `-# ` is Discord's subtext markdown, which it describes as the same size and
+ * colour as the dismiss line under a bot message. It is the closest thing
+ * Discord has to Slack's context block, and it applies per line, so every line
+ * carries the marker rather than only the first.
+ *
+ * @see https://support.discord.com/hc/en-us/articles/210298617
+ */
+function mutedText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line.trim().length === 0 ? line : `-# ${line}`))
+    .join("\n");
+}
+
+/**
+ * Replace a message the assistant already sent.
+ *
+ * Never posts. A failed edit throws so the original stands alone rather than
+ * gaining a duplicate beside it, which is the whole reason editing is its own
+ * capability.
+ *
+ * Deliberately does not chunk. An edit addresses one message, and a
+ * replacement too long for one is a condition the caller has to know about
+ * rather than one this can paper over by dropping the tail. Discord rejects an
+ * over-length body and that rejection propagates.
+ *
+ * @see https://discord.com/developers/docs/resources/message#edit-message
+ */
+export async function editDiscordMessage(
+  target: DiscordSendTarget,
+  messageId: string,
+  text: string,
+  options?: { emphasis?: "muted" },
+): Promise<void> {
+  await callDiscordApi<DiscordMessage>(
+    "PATCH",
+    `${messagesRoute(target)}/${encodeURIComponent(messageId)}`,
+    {
+      content: options?.emphasis === "muted" ? mutedText(text) : text,
+      allowed_mentions: DISCORD_ALLOWED_MENTIONS,
+      // A PATCH that omits `components` keeps whatever the message carries,
+      // and every edit through this path states a final text: a card that
+      // has been answered or withdrawn must not keep live buttons. Always
+      // stripping makes that an invariant rather than a caller's chore.
+      components: [],
+    },
+  );
+  log.debug(
+    { channelId: target.channelId, messageId },
+    "Discord message edited",
+  );
+}
+
+/**
  * Send a text reply, split across as many messages as Discord's content cap
  * requires. Chunks post in order so the reply reads top to bottom.
  */
 export async function sendDiscordReply(
   target: DiscordSendTarget,
   text: string,
+  approval?: ApprovalUIMetadata,
 ): Promise<DiscordSendResult> {
   const chunks = renderDiscordMessages(text);
   if (chunks.length === 0) {
     return {};
   }
 
+  // Buttons ride the final chunk: its id is the one recorded on the delivery
+  // row, so the message a press arrives on is the message the row can find.
+  const components = approval ? buildDiscordApprovalComponents(approval) : [];
+
   let lastMessageId: string | undefined;
-  for (const chunk of chunks) {
-    const sent = await callDiscordApi<DiscordMessage>(
-      "POST",
-      messagesRoute(target),
-      {
-        content: chunk,
-        allowed_mentions: DISCORD_ALLOWED_MENTIONS,
-      },
-    );
-    lastMessageId = typeof sent?.id === "string" ? sent.id : undefined;
+  for (const [index, chunk] of chunks.entries()) {
+    try {
+      const sent = await callDiscordApi<DiscordMessage>(
+        "POST",
+        messagesRoute(target),
+        {
+          content: chunk,
+          allowed_mentions: DISCORD_ALLOWED_MENTIONS,
+          ...(components.length > 0 && index === chunks.length - 1
+            ? { components }
+            : {}),
+        },
+      );
+      lastMessageId = typeof sent?.id === "string" ? sent.id : undefined;
+    } catch (err) {
+      // Nothing posted yet propagates plainly; a caller may retry or fall
+      // back with the full text. Past the first chunk the delivered prefix
+      // cannot be unsent, so the error names what is still owed.
+      if (index === 0) {
+        throw err;
+      }
+      throw new DiscordPartialSendError(
+        err,
+        index,
+        chunks.slice(index).join("\n"),
+        lastMessageId,
+      );
+    }
   }
 
   log.debug(
@@ -217,6 +417,44 @@ export async function sendDiscordAttachments(
  * Discord expires it after about ten seconds, so a caller that wants it to
  * persist re-sends on a timer rather than clearing it; there is no stop route.
  */
+/**
+ * The REST path spelling of a reaction emoji: a custom emoji arrives in its
+ * mention form (`<:name:id>` / `<a:name:id>`, the shape inbound forwards)
+ * and the route wants the bare `name:id`; a unicode emoji rides URL-encoded
+ * as itself.
+ */
+function discordReactionPathEmoji(emoji: string): string {
+  const custom = /^<a?:([^:>]+):(\d+)>$/.exec(emoji);
+  return encodeURIComponent(custom ? `${custom[1]}:${custom[2]}` : emoji);
+}
+
+/**
+ * Add or remove the bot's own emoji reaction on a message.
+ *
+ * `PUT`/`DELETE .../reactions/{emoji}/@me` are idempotent (204 either way
+ * when the end state already holds), so no already-reacted special case
+ * exists. Guild channels need the `Add Reactions` permission for `PUT`;
+ * a rejection reports `ok: false` rather than throwing.
+ */
+export async function sendDiscordReaction(
+  chatId: string,
+  emoji: string,
+  messageId: string,
+  action: "add" | "remove",
+): Promise<ChannelDeliveryResult> {
+  const route = `/channels/${chatId}/messages/${messageId}/reactions/${discordReactionPathEmoji(emoji)}/@me`;
+  try {
+    await callDiscordApi(action === "add" ? "PUT" : "DELETE", route);
+    return { ok: true };
+  } catch (err) {
+    log.warn(
+      { err, chatId, messageId, action },
+      "Failed to deliver Discord reaction",
+    );
+    return { ok: false };
+  }
+}
+
 export async function sendDiscordTypingIndicator(
   target: DiscordSendTarget,
 ): Promise<void> {

@@ -56,6 +56,7 @@ function readWindowsProcesses(pid?: number): TasklistProcess[] {
     ? ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]
     : ["/FO", "CSV", "/NH"];
   const output = execFileSync("tasklist.exe", args, {
+    windowsHide: true,
     encoding: "utf-8",
     timeout: 5000,
     stdio: ["ignore", "pipe", "ignore"],
@@ -75,12 +76,22 @@ export function windowsCommandLineLookupArgs(pid: number): string[] {
   ];
 }
 
-function readWindowsCommandLine(pid: number): string {
-  return execFileSync("powershell.exe", windowsCommandLineLookupArgs(pid), {
+/** Read a process command line using the platform's process inspection tool. */
+export function readProcessCommandLine(
+  pid: number,
+  hostPlatform: NodeJS.Platform = platform(),
+): string {
+  const command = hostPlatform === "win32" ? "powershell.exe" : "ps";
+  const args =
+    hostPlatform === "win32"
+      ? windowsCommandLineLookupArgs(pid)
+      : ["-p", String(pid), "-o", "command="];
+  return execFileSync(command, args, {
+    windowsHide: true,
     encoding: "utf8",
     timeout: 3000,
     stdio: ["ignore", "pipe", "ignore"],
-  });
+  }).trim();
 }
 
 export function isVellumWindowsProcess(
@@ -100,6 +111,21 @@ export function isVellumWindowsProcess(
   return /^bun\.exe$/i.test(imageName) && isVellumCommandLine(commandLine);
 }
 
+/**
+ * The POSIX command line for `pid`, or null when it cannot be read.
+ *
+ * Used to prove a PID still names the same process across an awaited gap. The
+ * Windows path never needs it: `taskkill /T` already terminates the tree, so
+ * no group escalation happens there.
+ */
+export function readPosixCommandLine(pid: number): string | null {
+  try {
+    return readProcessCommandLine(pid, platform());
+  } catch {
+    return null;
+  }
+}
+
 export function isVellumProcess(
   pid: number,
   hostPlatform: NodeJS.Platform = platform(),
@@ -108,15 +134,11 @@ export function isVellumProcess(
     if (hostPlatform === "win32") {
       const imageName = readWindowsProcesses(pid)[0]?.imageName ?? "";
       const commandLine = /^(?:bun|qdrant)\.exe$/i.test(imageName)
-        ? readWindowsCommandLine(pid)
+        ? readProcessCommandLine(pid, hostPlatform)
         : "";
       return isVellumWindowsProcess(imageName, commandLine);
     }
-    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    const output = readProcessCommandLine(pid, hostPlatform);
     return isVellumCommandLine(output);
   } catch {
     return false;
@@ -276,6 +298,15 @@ export async function resolveProcessState(
 }
 
 /**
+ * SIGKILL ceiling for stopping the assistant daemon.
+ *
+ * Defined in `@vellumai/local-mode` because the host wrappers that spawn these
+ * commands derive their own timeouts from it: a wrapper that expires first
+ * kills the CLI before this ceiling is ever reached.
+ */
+export { DAEMON_STOP_TIMEOUT_MS } from "@vellumai/local-mode";
+
+/**
  * Stop a process by PID: SIGTERM, wait up to `timeoutMs`, then SIGKILL if still alive.
  * Returns true if the process was stopped, false if it wasn't alive or
  * termination failed.
@@ -287,16 +318,23 @@ export async function stopProcess(
   hostPlatform: NodeJS.Platform = platform(),
   runTaskkill: (args: string[], timeout: number) => void = (args, timeout) => {
     execFileSync("taskkill.exe", args, {
+      windowsHide: true,
       timeout,
       stdio: "ignore",
     });
   },
+  readIdentity: (pid: number) => string | null = readPosixCommandLine,
 ): Promise<boolean> {
   try {
     process.kill(pid, 0);
   } catch {
     return false;
   }
+
+  // Snapshot who this PID is before any waiting, so the group escalation below
+  // can prove it is still the same process rather than a recycled PID.
+  const identityBeforeWait =
+    hostPlatform === "win32" ? null : readIdentity(pid);
 
   console.log(`Stopping ${label} (pid ${pid})...`);
   let waitForGracefulExit = true;
@@ -340,6 +378,32 @@ export async function stopProcess(
     }
   }
   console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
+  // Kill the process group, not just the process. Daemons are spawned
+  // `detached: true` (a session and group leader), and their worker
+  // subprocesses inherit that group, so a single-PID SIGKILL here is what
+  // orphans workers onto init running a stale runtime. Group-kill takes the
+  // whole tree at once, which is what the Windows branch above already does
+  // via `taskkill /T`. Tool subprocesses run in their own groups (see
+  // assistant orphan-reaper), so they are unaffected. SIGTERM above stays
+  // single-PID on purpose: graceful shutdown is the daemon's to orchestrate,
+  // and a group-wide SIGTERM would kill the route host mid-HTTP-drain.
+  //
+  // Widening a signal to a whole group demands more than liveness: the target
+  // may have exited during the wait and the OS may have handed its PID to an
+  // unrelated group leader. Escalate only while the command line still matches
+  // the one captured before the wait; otherwise fall through to the
+  // single-PID kill this function has always sent.
+  const identityHolds =
+    identityBeforeWait != null && readIdentity(pid) === identityBeforeWait;
+  if (identityHolds) {
+    try {
+      process.kill(-pid, "SIGKILL");
+      return true;
+    } catch {
+      // `pid` does not lead a group (or the group is already gone). Fall back
+      // to the single-PID kill.
+    }
+  }
   try {
     process.kill(pid, "SIGKILL");
     return true;
@@ -425,7 +489,7 @@ export async function stopOrphanedDaemonProcesses(
               (/^vellum-daemon\.exe$/i.test(imageName) ||
                 (/^bun\.exe$/i.test(imageName) &&
                   /vellum-daemon|[\\/]assistant[\\/]src[\\/](?:index|daemon[\\/]main)\.ts/i.test(
-                    readWindowsCommandLine(pid),
+                    readProcessCommandLine(pid, hostPlatform),
                   ))),
           )
           .map(({ pid }) =>
@@ -443,6 +507,7 @@ export async function stopOrphanedDaemonProcesses(
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
   } catch {
     return false;

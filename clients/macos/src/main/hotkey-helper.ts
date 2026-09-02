@@ -5,6 +5,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
+import {
+  HELPER_DICTATION_FINALIZED_EVENT,
+  HELPER_DICTATION_PARTIAL_EVENT,
+  HELPER_DICTATION_SET_PARTIALS,
+  HELPER_DICTATION_TRANSCRIBE,
+  HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_SET_MODIFIER_HOLD,
+} from "@vellumai/ipc-contract";
+import {
+  DICTATION_PUSH_SAMPLE_RATE,
+  dictationPartialsHelperResultSchema,
+  DictationOwnerRouter,
+  requestDictationTranscription,
+  toAudioBuffer,
+} from "@vellumai/electron-desktop/dictation-routing";
 import type {
   DictationPartialEvent,
   DictationPartialsResult,
@@ -13,6 +28,8 @@ import type {
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
 
 import { handle } from "./ipc";
@@ -35,11 +52,11 @@ export type {
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
 };
 
-export type MacHelperPermissionKind =
-  | "speechRecognition"
-  | "inputMonitoring";
+export type MacHelperPermissionKind = "speechRecognition" | "inputMonitoring";
 
 export type MacHelperPermissionStatus =
   | "unknown"
@@ -49,8 +66,15 @@ export type MacHelperPermissionStatus =
   | "granted";
 
 const HOTKEY_EVENT_SCHEMA = z.object({
-  kind: z.literal("fnPushToTalk"),
+  kind: z.enum(["fnPushToTalk", "modifierHold"]),
   state: z.enum(["down", "up"]),
+  selection: z
+    .object({
+      text: z.string(),
+      truncated: z.boolean(),
+    })
+    .optional(),
+  heldMs: z.number().optional(),
 });
 
 const HOTKEY_RESULT_SCHEMA = z.object({
@@ -75,18 +99,6 @@ const DICTATION_ERROR_SCHEMA = z.object({
   message: z.string(),
   onDevice: z.boolean(),
   willRetryServer: z.boolean(),
-});
-
-const DICTATION_TRANSCRIBE_RESULT_SCHEMA = z.object({
-  ok: z.boolean(),
-  reason: z.string().optional(),
-});
-
-const DICTATION_RESULT_SCHEMA = z.object({
-  enabled: z.boolean(),
-  reason: z.string().optional(),
-  // Which input device the helper's recognizer tap actually captures.
-  tap: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -115,9 +127,82 @@ const makeClient = (): MacHelperClient =>
 
 let client = makeClient();
 
-const fnPushToTalk = async (
-  enable: boolean,
-): Promise<FnPushToTalkResult> => {
+/**
+ * Point the helper's hold detector at a modifier set, or clear it.
+ *
+ * The set crosses as names rather than a mask: the helper owns which bits a
+ * modifier is, left and right hand alike, and neither side should hold a second
+ * copy of that table.
+ */
+/**
+ * The binding the helper is currently holding, so a clear that has nothing to
+ * clear stays off the wire. Teardown runs on paths the hold was never used on,
+ * and the helper's stdin is shared with the Fn binding and dictation.
+ */
+let modifierHoldBinding: ModifierHold = { kind: "off" };
+
+/**
+ * The binding the caller last asked for, and the call carrying one to the
+ * helper, so the last word wins.
+ *
+ * Registrations arrive in bursts: a renderer that reloads tears its binding
+ * down and puts it back, and both are calls over the same pipe. Run
+ * concurrently they can land in the other order, leaving the helper cleared
+ * while the app believes it is armed, which reads as the keys going dead until
+ * the next restart. Chaining is what keeps the order the caller's.
+ */
+let desiredModifierHold: ModifierHold = { kind: "off" };
+let modifierHoldInFlight: Promise<ModifierHoldRegistrationResult> | null = null;
+
+const setModifierHold = async (
+  hold: ModifierHold,
+): Promise<ModifierHoldRegistrationResult> => {
+  desiredModifierHold = hold;
+  const run = async (): Promise<ModifierHoldRegistrationResult> => {
+    await modifierHoldInFlight?.catch(() => undefined);
+    // Whatever was asked for last, which may no longer be what this call
+    // carried: a burst collapses to one registration rather than a queue of
+    // them fighting.
+    return applyModifierHold(desiredModifierHold);
+  };
+  const call = run();
+  modifierHoldInFlight = call;
+  void call.finally(() => {
+    if (modifierHoldInFlight === call) {
+      modifierHoldInFlight = null;
+    }
+  });
+  return call;
+};
+
+const applyModifierHold = async (
+  hold: ModifierHold,
+): Promise<ModifierHoldRegistrationResult> => {
+  if (hold.kind === "off" && modifierHoldBinding.kind === "off") {
+    return { ok: true, enabled: false };
+  }
+  modifierHoldBinding = hold;
+  try {
+    const result = await client.call(
+      "hotkey.modifierHold",
+      hold.kind === "off"
+        ? { enable: false }
+        : { enable: true, modifiers: hold.modifiers },
+    );
+    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      return { ok: false, reason: "mac helper returned invalid hotkey result" };
+    }
+    return { ok: true, enabled: parsed.data.enabled };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+const fnPushToTalk = async (enable: boolean): Promise<FnPushToTalkResult> => {
   try {
     const result = await client.call("hotkey.fnPushToTalk", { enable });
     const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
@@ -174,30 +259,21 @@ const queryBundledMacHelperPermission = async (
   const outputPath = path.join(tempDir, "status.json");
 
   try {
-    await openMacHelperApp(
-      [
-        "--permission-status",
-        kind,
-        "--status-output",
-        outputPath,
-      ],
-    );
+    await openMacHelperApp([
+      "--permission-status",
+      kind,
+      "--status-output",
+      outputPath,
+    ]);
     return await readPermissionStatusFile(outputPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 };
 
-const openMacHelperApp = async (
-  helperArgs: string[],
-): Promise<void> => {
+const openMacHelperApp = async (helperArgs: string[]): Promise<void> => {
   await new Promise<void>((resolve, reject) => {
-    const args = [
-      "-n",
-      getMacHelperAppPath(),
-      "--args",
-      ...helperArgs,
-    ];
+    const args = ["-n", getMacHelperAppPath(), "--args", ...helperArgs];
     const child = spawn("open", args, { stdio: "ignore" });
     let settled = false;
 
@@ -247,14 +323,20 @@ interface HotkeyOwner {
   cleanup: () => void;
 }
 
-// The renderer that most recently enabled dictation partials — the recording
-// session's host. Partial notifications route only there.
-let dictationPartialsOwner: WebContents | null = null;
+const MODIFIER_HOLD_SCHEMA = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("off") }),
+  z.object({
+    kind: z.literal("modifierOnly"),
+    modifiers: z
+      .array(z.enum(["function", "control", "shift", "option", "command"]))
+      .min(1),
+  }),
+]);
+
+const dictationOwners = new DictationOwnerRouter();
 
 // The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
 // pcm-downsample worklet contract).
-const DICTATION_PUSH_SAMPLE_RATE = 16000;
-
 const setDictationPartials = async (
   webContents: WebContents,
   enable: boolean,
@@ -269,7 +351,7 @@ const setDictationPartials = async (
         ? { pushAudio: true, sampleRate: DICTATION_PUSH_SAMPLE_RATE }
         : {}),
     });
-    const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
+    const parsed = dictationPartialsHelperResultSchema.safeParse(result);
     if (!parsed.success) {
       return {
         ok: false,
@@ -282,17 +364,15 @@ const setDictationPartials = async (
       );
       return { ok: false, reason: parsed.data.reason ?? "unavailable" };
     }
-    const previousOwner = dictationPartialsOwner;
-    dictationPartialsOwner = enable ? webContents : null;
-    // The finalized transcript (and the final partial flush) arrive AFTER
-    // disable — keep routing to the window that just stopped recording.
-    dictationFinalOwner = webContents;
+    const previousOwner = dictationOwners.setOwner(webContents, enable);
     if (enable) {
       forwardedPartialCount = 0;
       audioChunkCount = 0;
     }
     const replaced =
-      previousOwner && previousOwner !== webContents && !previousOwner.isDestroyed()
+      previousOwner &&
+      previousOwner !== webContents &&
+      !previousOwner.isDestroyed()
         ? ` (replaced wc=${previousOwner.id})`
         : "";
     const tap = enable && parsed.data.tap ? ` tap=${parsed.data.tap}` : "";
@@ -310,52 +390,43 @@ const setDictationPartials = async (
 
 let forwardedPartialCount = 0;
 let audioChunkCount = 0;
-// The window that should receive post-disable dictation events (the final
-// partial flush and `dictation.finalized`) — survives the owner being
-// nulled by the disable call.
-let dictationFinalOwner: WebContents | null = null;
-
-const toAudioBuffer = (chunk: unknown): Buffer | null => {
-  if (Buffer.isBuffer(chunk)) return chunk;
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
-  if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
-  return null;
-};
-
-const dictationEventTarget = (): WebContents | null => {
-  if (dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()) {
-    return dictationPartialsOwner;
-  }
-  if (dictationFinalOwner && !dictationFinalOwner.isDestroyed()) {
-    return dictationFinalOwner;
-  }
-  return null;
-};
 
 const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   forwardedPartialCount += 1;
-  const owner = dictationEventTarget();
+  const owner = dictationOwners.target();
   if (forwardedPartialCount === 1 || forwardedPartialCount % 25 === 0) {
     // Count/length only — transcript content must never be logged.
     log.info(
       `[mac-helper] dictation partial #${forwardedPartialCount} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
     );
   }
-  if (!owner) return;
-  owner.send("vellum:helper:dictation:partial", event);
+  if (!owner) {
+    return;
+  }
+  owner.send(HELPER_DICTATION_PARTIAL_EVENT, event);
 };
 
 const sendDictationTextEventToOwner = (
   kind: "finalized" | "transcribed",
   event: DictationPartialEvent,
 ): void => {
-  const owner = dictationEventTarget();
-  // Length only — transcript content must never be logged.
+  const owner =
+    kind === "transcribed"
+      ? dictationOwners.takeTranscriptionTarget()
+      : dictationOwners.target();
+  // Length only; transcript content must never be logged.
   log.info(
-    `[mac-helper] dictation ${kind} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    `[mac-helper] dictation ${kind} chars=${event.text.length} -> ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
   );
-  if (!owner) return;
-  owner.send(`vellum:helper:dictation:${kind}`, event);
+  if (!owner) {
+    return;
+  }
+  owner.send(
+    kind === "finalized"
+      ? HELPER_DICTATION_FINALIZED_EVENT
+      : HELPER_DICTATION_TRANSCRIBED_EVENT,
+    event,
+  );
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -391,7 +462,12 @@ const disableFnPushToTalkForOwner = async (
 ): Promise<FnPushToTalkResult> => {
   removeHotkeyOwner(webContents.id);
 
-  if (hotkeyOwners.size === 0) restoreHotkeyAfterRestart = false;
+  if (hotkeyOwners.size === 0) {
+    restoreHotkeyAfterRestart = false;
+    // Nothing is left to receive the edges, so a hold still armed in the
+    // helper would open a microphone into a window that is gone.
+    void setModifierHold({ kind: "off" });
+  }
   return syncFnPushToTalkRegistration();
 };
 
@@ -430,9 +506,7 @@ const enableFnPushToTalkForOwner = async (
 
   const result = await syncFnPushToTalkRegistration();
   if (!result.ok) {
-    log.warn(
-      `[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`,
-    );
+    log.warn(`[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`);
     removeHotkeyOwner(webContents.id);
     void syncFnPushToTalkRegistration();
   }
@@ -547,8 +621,7 @@ const handleHelperState = (state: MacHelperState): void => {
   helperRegistered = false;
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
-  dictationPartialsOwner = null;
-  dictationFinalOwner = null;
+  dictationOwners.clear();
   sendSyntheticHotkeyUpIfNeeded();
 };
 
@@ -632,7 +705,28 @@ export const installHotkeyHelper = (): void => {
   );
 
   handle(
-    "vellum:helper:dictation:setPartials",
+    HELPER_HOTKEY_SET_MODIFIER_HOLD,
+    z.tuple([MODIFIER_HOLD_SCHEMA]),
+    ([hold], event) => {
+      // The edges reach whichever window asked for the binding, the way the
+      // Fn ones do: a microphone bracketed by them belongs to the window that
+      // opened it. Clearing the binding leaves the ownership alone, since Fn
+      // may still be riding it.
+      if (hold.kind === "off") {
+        return setModifierHold(hold);
+      }
+      // The binding is inert without Input Monitoring, and the grant is asked
+      // for where the user turns the feature on rather than here: a press
+      // cannot be the moment to ask, since noticing the press is the thing
+      // being asked for, and asking on registration would prompt at launch for
+      // something they may not have switched on.
+      addHotkeyOwner(event.sender);
+      return setModifierHold(hold);
+    },
+  );
+
+  handle(
+    HELPER_DICTATION_SET_PARTIALS,
     z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
     ([enable, deviceName, pushAudio], event) =>
       setDictationPartials(event.sender, enable, deviceName, pushAudio),
@@ -641,7 +735,7 @@ export const installHotkeyHelper = (): void => {
   // High-frequency fire-and-forget PCM from the partials owner — plain
   // `on`, not `handle`: a round-trip per ~100ms chunk buys nothing.
   ipcMain.on("vellum:helper:dictation:audio", (event, chunk: unknown) => {
-    if (event.sender !== dictationPartialsOwner) {
+    if (!dictationOwners.ownsPartials(event.sender)) {
       audioChunkCount += 1;
       if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
         log.warn(
@@ -667,32 +761,15 @@ export const installHotkeyHelper = (): void => {
   });
 
   handle(
-    "vellum:helper:dictation:transcribe",
+    HELPER_DICTATION_TRANSCRIBE,
     z.tuple([z.unknown()]),
-    async ([audio], event): Promise<{ ok: boolean; reason?: string }> => {
-      const buf = toAudioBuffer(audio);
-      if (!buf || buf.length === 0) {
-        return { ok: false, reason: "empty audio" };
-      }
-      // Route the upcoming `dictation.transcribed` to the requester.
-      dictationFinalOwner = event.sender;
-      try {
-        const result = await client.call("dictation.transcribe", {
-          audio: buf.toString("base64"),
-          sampleRate: DICTATION_PUSH_SAMPLE_RATE,
-        });
-        const parsed = DICTATION_TRANSCRIBE_RESULT_SCHEMA.safeParse(result);
-        if (!parsed.success) {
-          return { ok: false, reason: "invalid transcribe result" };
-        }
-        return parsed.data;
-      } catch (err) {
-        return {
-          ok: false,
-          reason: err instanceof Error ? err.message : String(err),
-        };
-      }
-    },
+    ([audio], event) =>
+      requestDictationTranscription({
+        audio,
+        sender: event.sender,
+        owners: dictationOwners,
+        client,
+      }),
   );
 
   app.on("before-quit", () => {
@@ -725,8 +802,7 @@ export const __resetForTesting = (): void => {
   unsubscribeDictationFinalized = null;
   unsubscribeDictationTranscribed?.();
   unsubscribeDictationTranscribed = null;
-  dictationPartialsOwner = null;
-  dictationFinalOwner = null;
+  dictationOwners.clear();
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

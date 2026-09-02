@@ -53,6 +53,10 @@ mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => fakeProvider,
   isVisionNotSupportedError,
   lastToolResultUserMessageIndex,
+  // The module registry is process-wide, so this surface covers every
+  // plugin-api export the plugin's hooks import, including the transcript
+  // notice only the sibling test file exercises.
+  persistSystemCard: async () => "card-1",
 }));
 
 mock.module("../src/image-persist.js", () => ({

@@ -4,6 +4,8 @@ import { EventEmitter } from "node:events";
 import {
   ensureProviderApiKey,
   injectGatewayApiKey,
+  promptLine,
+  promptProviderChoice,
   promptSecret,
   readGatewayApiKey,
   type ProviderSecretFetch,
@@ -49,6 +51,7 @@ class FakePromptInput extends EventEmitter {
   private paused = false;
   pauseCount = 0;
   rawModes: boolean[] = [];
+  events: string[] = [];
 
   isPaused(): boolean {
     return this.paused;
@@ -68,6 +71,7 @@ class FakePromptInput extends EventEmitter {
   setRawMode(value: boolean): this {
     this.isRaw = value;
     this.rawModes.push(value);
+    this.events.push(`raw:${value}`);
     return this;
   }
 }
@@ -228,6 +232,7 @@ describe("provider secret helpers", () => {
     let outputText = "";
     const output = {
       write: (text: string) => {
+        input.events.push(`write:${text}`);
         outputText += text;
         return true;
       },
@@ -243,7 +248,38 @@ describe("provider secret helpers", () => {
     expect(input.pauseCount).toBe(1);
     expect(input.listenerCount("data")).toBe(0);
     expect(input.rawModes).toEqual([true, false]);
+    expect(input.events[0]).toBe("raw:true");
+    expect(input.events[1]).toBe("write:Enter key: ");
     expect(outputText).toBe("Enter key: \n");
+  });
+
+  test("refuses to read a secret when hidden input is unavailable", async () => {
+    const input = new FakePromptInput();
+    input.isTTY = false;
+
+    await expect(
+      promptSecret("Enter key: ", {
+        input: input as unknown as NodeJS.ReadStream,
+      }),
+    ).rejects.toThrow("requires an interactive terminal");
+    expect(input.listenerCount("data")).toBe(0);
+  });
+
+  test("restores terminal mode when the prompt cannot be written", async () => {
+    const input = new FakePromptInput();
+    const output = {
+      write: () => {
+        throw new Error("output unavailable");
+      },
+    };
+
+    await expect(
+      promptSecret("Enter key: ", {
+        input: input as unknown as NodeJS.ReadStream,
+        output: output as unknown as NodeJS.WriteStream,
+      }),
+    ).rejects.toThrow("output unavailable");
+    expect(input.rawModes).toEqual([true, false]);
   });
 
   test("returns a missing-key result in non-interactive shells", async () => {
@@ -286,5 +322,161 @@ describe("provider secret helpers", () => {
     expect(result.status).toBe("failed");
     expect(prompted).toBe(false);
     expect(calls).toHaveLength(1);
+  });
+});
+
+function fakeOutput(): { write: (text: string) => boolean; text: string } {
+  const state = { write: (_text: string) => true, text: "" };
+  state.write = (text: string) => {
+    state.text += text;
+    return true;
+  };
+  return state;
+}
+
+describe("promptLine", () => {
+  test("resolves on newline", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptLine("Pick one: ", {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    });
+    input.emit("data", Buffer.from("2\n"));
+
+    await expect(resultPromise).resolves.toBe("2");
+    expect(output.text).toBe("Pick one: ");
+    expect(input.rawModes).toEqual([]);
+  });
+
+  test("buffers across multiple data chunks", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptLine("Pick one: ", {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    });
+    input.emit("data", Buffer.from("1"));
+    input.emit("data", Buffer.from("0"));
+    input.emit("data", Buffer.from("\n"));
+
+    await expect(resultPromise).resolves.toBe("10");
+    expect(input.rawModes).toEqual([]);
+  });
+
+  test("resolves to an empty string on EOF instead of hanging", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptLine("Pick one: ", {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    });
+    input.emit("end");
+
+    await expect(resultPromise).resolves.toBe("");
+  });
+});
+
+describe("promptProviderChoice", () => {
+  const choices = ["anthropic", "openai", "gemini"] as const;
+
+  test("resolves the selected provider immediately", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    input.emit("data", Buffer.from("2\n"));
+
+    await expect(resultPromise).resolves.toBe("openai");
+    expect(output.text).toContain("1) Anthropic (default)");
+    expect(output.text).toContain("2) OpenAI");
+  });
+
+  test("re-prompts on invalid input before accepting a valid choice", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    input.emit("data", Buffer.from("nope\n"));
+    input.emit("data", Buffer.from("99\n"));
+    input.emit("data", Buffer.from("3\n"));
+
+    await expect(resultPromise).resolves.toBe("gemini");
+    expect(output.text).toContain(
+      "Please enter a number between 1 and 3, or press Enter to skip.",
+    );
+  });
+
+  test("does not lose lines pasted in a single chunk ahead of a retry", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    // A paste can deliver several lines in one "data" event, all before the
+    // retry loop has re-registered for the next answer.
+    input.emit("data", Buffer.from("99\n3\n"));
+
+    await expect(resultPromise).resolves.toBe("gemini");
+  });
+
+  test("resolves null on blank input", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    input.emit("data", Buffer.from("\n"));
+
+    await expect(resultPromise).resolves.toBeNull();
+  });
+
+  test("resolves null instead of hanging when input hits EOF (Ctrl-D)", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    input.emit("end");
+
+    await expect(resultPromise).resolves.toBeNull();
+  });
+
+  test("validates against a custom, shorter choice list", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices: ["anthropic", "openai"],
+    });
+    input.emit("data", Buffer.from("3\n"));
+    input.emit("data", Buffer.from("1\n"));
+
+    await expect(resultPromise).resolves.toBe("anthropic");
+    expect(output.text).toContain(
+      "Please enter a number between 1 and 2, or press Enter to skip.",
+    );
   });
 });

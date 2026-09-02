@@ -9,6 +9,8 @@
  * `(prev: DisplayMessage[], ...args) => DisplayMessage[]`.
  */
 
+import { isNoResponseOnlyText } from "@vellumai/service-contracts/no-response";
+
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
@@ -399,6 +401,14 @@ export function finalizeMessageComplete(
       ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
       ...(attachments ? { attachments } : {}),
       ...(finalized ?? {}),
+      // Deliberate silence, derived at fold time from the shared sentinel
+      // contract: the daemon stamps the durable row after the turn, but the
+      // live bubble would otherwise render the raw sentinel until a refetch.
+      // Deriving here from the same predicate keeps the live view truthful
+      // even if that refetch never lands.
+      ...(isNoResponseOnlyText((last.textSegments ?? []).join("\n").trim())
+        ? { isNoResponse: true }
+        : {}),
     },
   ];
 }

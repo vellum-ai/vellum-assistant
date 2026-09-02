@@ -7,7 +7,7 @@ import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isAppMainView } from "@/stores/pane-presentation";
+import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
@@ -88,9 +88,7 @@ export function navigateToConversation(
   // a same-conversation navigation kills the inline cards for subagents
   // that are still running: the store repopulates only from live SSE
   // events, so the spawned entries can't come back mid-run (LUM-2875).
-  if (
-    conversationId !== useConversationStore.getState().activeConversationId
-  ) {
+  if (conversationId !== useConversationStore.getState().activeConversationId) {
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();
     useViewerStore.getState().clearTranscriptPanelPayloads();
@@ -103,6 +101,37 @@ export function navigateToConversation(
   );
 }
 
+/**
+ * Mint a fresh draft conversation, select it, and put the surface in the state
+ * a new chat expects. Returns the draft's id.
+ *
+ * Three things have to happen together, which is why they live here rather
+ * than at each entry point:
+ *
+ * - **The per-conversation process stores are cleared.** Subagent rows and
+ *   workflow runs are keyed by run, not by conversation, and they repopulate
+ *   only from live SSE. Left behind, the previous conversation's active run
+ *   renders on the new chat and its controls (abort, journal) reach the run
+ *   that is still going.
+ * - **The transcript side-panel payloads are cleared.** A files or tool-detail
+ *   panel is about one message, and a draft has none of them.
+ * - **The chat is brought on screen.** A draft minted behind the fullscreen
+ *   app viewer has no composer to speak into; `revealConversationView` keeps
+ *   an app open beside it on a wide viewport instead of dismissing it.
+ *
+ * Every entry that opens a fresh conversation goes through this, so none of
+ * them can be missing one of the three.
+ */
+export function prepareFreshConversation(): string {
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  useViewerStore.getState().clearTranscriptPanelPayloads();
+  const draftId = createDraftConversationId();
+  revealConversationView(draftId);
+  useConversationStore.getState().setActiveConversationId(draftId);
+  return draftId;
+}
+
 export interface NavigateToNewConversationOptions {
   silent?: boolean;
   /** When provided, auto-sends this message in the new conversation. */
@@ -112,9 +141,9 @@ export interface NavigateToNewConversationOptions {
 /**
  * Create a fresh draft conversation and navigate to it.
  *
- * Always resets subagent state and the transcript side-panel payloads (a
- * subagent detail or files panel from a prior conversation must not persist
- * into the new draft). When `silent` is true
+ * The draft and the state it opens into come from
+ * {@link prepareFreshConversation}, shared with every other fresh-conversation
+ * entry; all this adds is the navigation. When `silent` is true
  * (e.g. fallback after archiving the active conversation), the haptic tap
  * is suppressed.
  *
@@ -122,22 +151,21 @@ export interface NavigateToNewConversationOptions {
  * `useAutoSendEffects` picks up to fire the message once the conversation is
  * mounted.
  *
+ * Returns the draft's id, for callers that have to address something at the
+ * conversation being navigated to before its route mounts (the camera deep
+ * link parks a request for that conversation's composer).
+ *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
 export function navigateToNewConversation(
   navigate: NavigateFunction,
   options?: NavigateToNewConversationOptions,
-): void {
+): string {
   if (!options?.silent) {
     haptic.light();
     void getSoundManager().play("new_conversation");
   }
-  useSubagentStore.getState().reset();
-  useWorkflowStore.getState().reset();
-  useViewerStore.getState().clearTranscriptPanelPayloads();
-  const draftId = createDraftConversationId();
-  revealConversationView(draftId);
-  useConversationStore.getState().setActiveConversationId(draftId);
+  const draftId = prepareFreshConversation();
 
   let path: string = routes.conversation(draftId);
   if (options?.prompt) {
@@ -146,4 +174,5 @@ export function navigateToNewConversation(
   }
   void navigate(path);
   requestComposerFocus();
+  return draftId;
 }

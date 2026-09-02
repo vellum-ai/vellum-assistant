@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { PendingToolQuestionSchema } from "../../api/responses/conversation-message.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import type {
   SecretDelivery,
@@ -46,8 +47,6 @@ function canonicalizeConfirmDecision(params: {
 function handleConfirm({ body }: RouteHandlerArgs) {
   const requestId = body?.requestId as string | undefined;
   const decision = body?.decision as string | undefined;
-  const selectedPattern = body?.selectedPattern as string | undefined;
-  const selectedScope = body?.selectedScope as string | undefined;
 
   if (!requestId || typeof requestId !== "string") {
     throw new BadRequestError("requestId is required");
@@ -93,6 +92,14 @@ function handleConfirm({ body }: RouteHandlerArgs) {
       effectiveDecision === "allow" ? "approved" : "rejected",
     );
     interaction.directResolve(effectiveDecision as UserDecision);
+    // When a guardian request was promoted for this confirmation, bring its
+    // row to the matching terminal status and withdraw its cards; with no
+    // such row the CAS misses and this is a no-op.
+    void syncTerminalGuardianRequestStatus({
+      requestId,
+      status: effectiveDecision === "allow" ? "approved" : "denied",
+      syncContext: "confirm-direct-resolve",
+    });
     return { accepted: true };
   }
 
@@ -107,8 +114,6 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     requestId,
     effectiveDecision as UserDecision,
     {
-      selectedPattern,
-      selectedScope,
       emissionContext: { source: "button" },
     },
   );
@@ -342,14 +347,6 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       requestId: z.string().describe("Pending interaction request ID"),
       decision: z.string().describe("One of: allow, deny"),
-      selectedPattern: z
-        .string()
-        .describe("Allowlist pattern for persistent decisions")
-        .optional(),
-      selectedScope: z
-        .string()
-        .describe("Scope for persistent decisions")
-        .optional(),
     }),
     responseBody: z.object({
       accepted: z.boolean(),

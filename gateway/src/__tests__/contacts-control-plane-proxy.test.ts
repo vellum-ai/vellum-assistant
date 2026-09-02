@@ -87,6 +87,7 @@ const DEFAULT_MOCK_CONTACT = {
   updatedAt: 1000000,
   interactionCount: 0,
   lastInteraction: null as number | null,
+  autoApproveThreshold: null as string | null,
   channels: [] as unknown[],
   assistantMetadata: null as Record<string, unknown> | null,
 };
@@ -128,7 +129,11 @@ type ChannelAcl = {
   revokedReason: string | null;
   blockedReason: string | null;
 };
-type ContactAcl = { role: string; channels: Map<string, ChannelAcl> };
+type ContactAcl = {
+  role: string;
+  autoApproveThreshold?: string | null;
+  channels: Map<string, ChannelAcl>;
+};
 type GetAclFn = (ids: string[]) => Promise<Map<string, ContactAcl>>;
 let contactStoreGetAclMock: ReturnType<typeof mock<GetAclFn>> = mock(
   async () => new Map<string, ContactAcl>(),
@@ -655,6 +660,134 @@ describe("handleUpsertContact (gateway-native)", () => {
       Record<string, unknown>,
     ];
     expect(params.displayName).toBe("Alice");
+    expect(params.autoApproveThreshold).toBeUndefined();
+  });
+
+  test("externalChatId boundary: omitted preserves, legacy null normalizes to omitted, malformed is rejected", async () => {
+    // Omit-vs-null is load-bearing: syncChannels preserves the stored
+    // delivery chat id when the field is undefined and writes when it is
+    // not, so conflating an omitted field with null makes every channel
+    // upsert that never mentions the chat id (e.g. link-account) blank it.
+    // A legacy explicit null (the published contract once admitted one) is
+    // accepted for external-consumer compatibility but treated as omitted:
+    // a stored null is indistinguishable from never-learned, so no reader
+    // could tell a deliberate clear from a gap. Anything else non-string
+    // must never reach persistence.
+    contactStoreUpsertMock = mock(async () => ({
+      contact: DEFAULT_MOCK_CONTACT,
+      created: false,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const upsert = (channel: Record<string, unknown>) =>
+      handler.handleUpsertContact(
+        new Request("http://localhost:7830/v1/contacts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            displayName: "Alice",
+            channels: [{ type: "slack", address: "U123", ...channel }],
+          }),
+        }),
+      );
+    const storeChannel = (call: number) => {
+      const [params] = contactStoreUpsertMock.mock.calls[call] as [
+        { channels: Array<Record<string, unknown>> },
+      ];
+      return params.channels[0];
+    };
+
+    expect((await upsert({})).status).toBe(200);
+    expect(storeChannel(0).externalChatId).toBeUndefined();
+
+    expect((await upsert({ externalChatId: null })).status).toBe(200);
+    expect(storeChannel(1).externalChatId).toBeUndefined();
+
+    const rejected = await upsert({ externalChatId: 42 });
+    expect(rejected.status).toBe(400);
+    const body = await rejected.json();
+    expect(body.error.message).toContain("must be a string");
+    expect(contactStoreUpsertMock.mock.calls).toHaveLength(2);
+  });
+
+  test("passes a valid autoApproveThreshold through to the store", async () => {
+    const mockContact = {
+      ...DEFAULT_MOCK_CONTACT,
+      id: "ct_high",
+      displayName: "Alice",
+      autoApproveThreshold: "high",
+    };
+    contactStoreUpsertMock = mock(async () => ({
+      contact: mockContact,
+      created: false,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "ct_high",
+          displayName: "Alice",
+          autoApproveThreshold: "high",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contact.autoApproveThreshold).toBe("high");
+    const [params] = contactStoreUpsertMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(params.autoApproveThreshold).toBe("high");
+  });
+
+  test("clears autoApproveThreshold when the body sends null", async () => {
+    contactStoreUpsertMock = mock(async () => ({
+      contact: { ...DEFAULT_MOCK_CONTACT, displayName: "Alice" },
+      created: false,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "ct_high",
+          displayName: "Alice",
+          autoApproveThreshold: null,
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const [params] = contactStoreUpsertMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(params.autoApproveThreshold).toBeNull();
+  });
+
+  test("returns 400 for an invalid autoApproveThreshold", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Alice",
+          autoApproveThreshold: "full",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/autoApproveThreshold/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
   });
 
   test("strips role and principalId from request body (privilege escalation guard)", async () => {
@@ -907,6 +1040,7 @@ describe("handleListContacts (gateway-native)", () => {
     expect(body.contacts).toHaveLength(2);
     expect(body.contacts[0].id).toBe("c1");
     expect(body.contacts[0].displayName).toBe("Alice");
+    expect(body.contacts[0].autoApproveThreshold).toBeNull();
     // Compat: externalUserId = address on each channel.
     // (DEFAULT_MOCK_CONTACT has empty channels, so this is vacuous here.)
     expect(contactStoreListMock).toHaveBeenCalledTimes(1);
@@ -1305,6 +1439,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
             "c1",
             {
               role: "guardian",
+              autoApproveThreshold: "high",
               channels: new Map<string, ChannelAcl>([
                 [
                   "ch1",
@@ -1334,6 +1469,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.contacts[0].role).toBe("guardian");
+    expect(body.contacts[0].autoApproveThreshold).toBe("high");
     const ch = body.contacts[0].channels[0];
     expect(ch.status).toBe("active");
     expect(ch.policy).toBe("deny");

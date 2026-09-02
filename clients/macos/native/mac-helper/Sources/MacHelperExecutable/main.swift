@@ -23,16 +23,18 @@ private func hotkeyEventHandler(
     switch GetEventKind(event) {
     case UInt32(kEventRawKeyModifiersChanged):
         helper.handleRawKeyModifiersChanged(event)
+    case UInt32(kEventRawKeyDown):
+        helper.handleRawKeyDown()
     case UInt32(kEventHotKeyPressed):
         guard isFnHotkeyEvent(event) else {
             return OSStatus(eventNotHandledErr)
         }
-        helper.emitHotkey(state: "down")
+        helper.handleFnExactMatchHotkey(state: "down")
     case UInt32(kEventHotKeyReleased):
         guard isFnHotkeyEvent(event) else {
             return OSStatus(eventNotHandledErr)
         }
-        helper.emitHotkey(state: "up")
+        helper.handleFnExactMatchHotkey(state: "up")
     default:
         return CallNextEventHandler(nextHandler, event)
     }
@@ -63,6 +65,21 @@ final class MacHelper: @unchecked Sendable {
     private var hotkeyRef: EventHotKeyRef?
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
+    private var fnTapDetector = FnTapDetector()
+    private var modifierHoldDetector = ModifierHoldDetector()
+    /// One mask per modifier of the configured set, each of which must be
+    /// present in the flags for the set to count as held. A modifier is a pair
+    /// of masks on this keyboard (left and right Control are different bits),
+    /// so "held" is per modifier rather than per bit.
+    private var modifierHoldMasks: [UInt32] = []
+    private var isModifierHoldDown = false
+    /// Whether Fn is registered, which `hotkeyRef` does not answer:
+    /// `RegisterEventHotKey` can fail while the raw monitor stays active.
+    private var fnHotkeyActive = false
+    /// Whether the raw monitor-target handlers are actually receiving events.
+    /// Delivery needs Input Monitoring, and installation succeeds either way,
+    /// so the only proof is an event arriving.
+    private var rawMonitorLive = false
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -115,6 +132,21 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setFnPushToTalk(enable: enable)
+        }
+        router.register("hotkey.modifierHold") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.modifierHold requires enable"
+                )
+            }
+            let modifiers = object["modifiers"] as? [String] ?? []
+            return try self.setModifierHold(enable: enable, modifiers: modifiers)
         }
         router.register("permission.status") { [weak self] params in
             guard let self else {
@@ -211,7 +243,75 @@ final class MacHelper: @unchecked Sendable {
         )
     }
 
+    func emitModifierHold(state: String) {
+        var params: [String: Any] = [
+            "kind": "modifierHold",
+            "state": state,
+        ]
+        if state == "down" {
+            guard !isModifierHoldDown else { return }
+            isModifierHoldDown = true
+            // What the user had highlighted when the keys went down travels
+            // with the edge, so the hold can be about it. The read holds the
+            // edge for as long as it takes, and the edge says how long that
+            // was. Character counts only in the log; the text itself is the
+            // user's.
+            let readStarted = Date()
+            let outcome = FrontSelection.read()
+            let heldMs = Int(Date().timeIntervalSince(readStarted) * 1000)
+            params["heldMs"] = heldMs
+            if let selection = outcome.selection {
+                params["selection"] = [
+                    "text": selection.text,
+                    "truncated": selection.truncated,
+                ]
+            }
+            log("modifier hold down: selection \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(heldMs)")
+        } else if state == "up" {
+            guard isModifierHoldDown else { return }
+            isModifierHoldDown = false
+        }
+
+        writeNotification(method: "hotkey.event", params: params)
+    }
+
+    /// Every modifier this keyboard reports, so anything outside the configured
+    /// set reads as a chord. Latched state (Caps Lock, Num Lock) is absent on
+    /// purpose: it stays set for whole sessions and would disqualify every hold.
+    private static let everyModifierMask: UInt32 =
+        UInt32(cmdKey | shiftKey | optionKey | controlKey)
+        | UInt32(rightShiftKey | rightOptionKey | rightControlKey)
+        | UInt32(kEventKeyModifierFnMask)
+
+    /// The masks a modifier name is held by, left and right hand alike.
+    private static func masks(forModifier name: String) -> UInt32? {
+        switch name {
+        case "command": return UInt32(cmdKey)
+        case "shift": return UInt32(shiftKey | rightShiftKey)
+        case "option": return UInt32(optionKey | rightOptionKey)
+        case "control": return UInt32(controlKey | rightControlKey)
+        case "function": return UInt32(kEventKeyModifierFnMask)
+        default: return nil
+        }
+    }
+
+    private func feedModifierHold(modifiers: UInt32) {
+        guard !modifierHoldMasks.isEmpty else { return }
+
+        let targetUnion = modifierHoldMasks.reduce(UInt32(0)) { $0 | $1 }
+        let edges = modifierHoldDetector.flagsChanged(
+            targetHeld: modifierHoldMasks.allSatisfy { (modifiers & $0) != 0 },
+            anyTargetHeld: (modifiers & targetUnion) != 0,
+            extraModifiersHeld: (modifiers & Self.everyModifierMask & ~targetUnion) != 0,
+            ordinaryKeyHeld: { self.anyOrdinaryKeyIsDown() }
+        )
+        for edge in edges {
+            emitModifierHold(state: edge.rawValue)
+        }
+    }
+
     func handleRawKeyModifiersChanged(_ event: EventRef) {
+        rawMonitorLive = true
         var modifiers: UInt32 = 0
         let status = GetEventParameter(
             event,
@@ -227,9 +327,64 @@ final class MacHelper: @unchecked Sendable {
             return
         }
 
-        emitHotkey(
-            state: (modifiers & UInt32(kEventKeyModifierFnMask)) != 0 ? "down" : "up"
+        // Held modifiers only. Latched state (Caps Lock `alphaLock`, Num
+        // Lock) stays set across whole sessions and must not read as a chord.
+        let chordMask = UInt32(cmdKey | shiftKey | optionKey | controlKey)
+            | UInt32(rightShiftKey | rightOptionKey | rightControlKey)
+        let edges = fnTapDetector.flagsChanged(
+            fnHeld: (modifiers & UInt32(kEventKeyModifierFnMask)) != 0,
+            otherModifiersHeld: (modifiers & chordMask) != 0,
+            ordinaryKeyHeld: { anyOrdinaryKeyIsDown() }
         )
+        for edge in edges {
+            emitHotkey(state: edge.rawValue)
+        }
+        feedModifierHold(modifiers: modifiers)
+    }
+
+    /// Whether any non-modifier key is down right now, per the session's
+    /// aggregate keyboard state. Polled only when Fn goes down alone, to
+    /// catch a chord whose ordinary key was pressed first (Delete held,
+    /// then Fn tapped): the key-down handler only sees presses that happen
+    /// while Fn is already held. A poll of current state rather than
+    /// tracked down/up events, so a missed event can never wedge the
+    /// detector with a phantom held key.
+    private func anyOrdinaryKeyIsDown() -> Bool {
+        // Virtual keycodes 0x36...0x3F are the modifier block (Cmd, Shift,
+        // Caps Lock, Option, Control, Fn, and right-hand variants); held
+        // modifiers are already visible in the event flags.
+        for keycode in 0..<128 where !(0x36...0x3F).contains(keycode) {
+            if CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keycode)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// A key went down somewhere while the raw monitor is watching. Only its
+    /// existence is consumed, never its identity: the one fact needed is
+    /// that the current Fn hold is a chord (Fn+Delete, Fn+arrow), not a tap.
+    func handleRawKeyDown() {
+        rawMonitorLive = true
+        for edge in fnTapDetector.keyDown() {
+            emitHotkey(state: edge.rawValue)
+        }
+        for edge in modifierHoldDetector.keyDown() {
+            emitModifierHold(state: edge.rawValue)
+        }
+    }
+
+    /// The Carbon hotkey on `kVK_Function` matches a bare-Fn press exactly,
+    /// but it reports at press time, before a chord forming around Fn can
+    /// disqualify the hold. Once the raw monitor is proven live its
+    /// release-time verdicts are authoritative and this path stands down;
+    /// without Input Monitoring the raw monitor never delivers and this
+    /// stays the only way Fn is seen at all.
+    func handleFnExactMatchHotkey(state: String) {
+        guard !rawMonitorLive else {
+            return
+        }
+        emitHotkey(state: state)
     }
 
     private func readCommands() {
@@ -679,6 +834,52 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
+    private func setModifierHold(
+        enable: Bool,
+        modifiers: [String]
+    ) throws -> [String: Any] {
+        guard enable else {
+            cancelModifierHold()
+            modifierHoldMasks = []
+            releaseMonitorIfUnused()
+            return ["enabled": false]
+        }
+
+        let masks = try modifiers.map { name -> UInt32 in
+            guard let mask = Self.masks(forModifier: name) else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.modifierHold does not know the modifier \(name)"
+                )
+            }
+            return mask
+        }
+        guard !masks.isEmpty else {
+            throw JsonRpcDispatchError.invalidParams(
+                "hotkey.modifierHold requires at least one modifier"
+            )
+        }
+
+        cancelModifierHold()
+        modifierHoldMasks = masks
+        modifierHoldDetector = ModifierHoldDetector()
+        do {
+            try ensureMonitorInstalled()
+        } catch {
+            modifierHoldMasks = []
+            releaseMonitorIfUnused()
+            throw error
+        }
+        return ["enabled": true]
+    }
+
+    /// Close an open hold, so a binding that goes away does not stand a
+    /// microphone open with nothing left to close it.
+    private func cancelModifierHold() {
+        for edge in modifierHoldDetector.cancel() {
+            emitModifierHold(state: edge.rawValue)
+        }
+    }
+
     private enum PermissionKind: String {
         case speechRecognition
         case inputMonitoring
@@ -743,17 +944,39 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    private func registerFnHotkey() throws {
-        if !handlerRefs.isEmpty {
+    /// The raw keyboard monitor both detectors read.
+    ///
+    /// Shared, because Fn taps and modifier holds are two readings of the same
+    /// stream: it is installed for whichever of them asks first and removed
+    /// only once neither wants it.
+    private func ensureMonitorInstalled() throws {
+        guard handlerRefs.isEmpty else {
             return
         }
-
+        rawMonitorLive = false
         do {
             try installEventHandlers()
         } catch {
             removeEventHandlers()
             throw error
         }
+    }
+
+    private func releaseMonitorIfUnused() {
+        guard fnHotkeyActive == false, modifierHoldMasks.isEmpty else {
+            return
+        }
+        removeEventHandlers()
+    }
+
+    private func registerFnHotkey() throws {
+        if fnHotkeyActive {
+            return
+        }
+
+        fnTapDetector = FnTapDetector()
+        try ensureMonitorInstalled()
+        fnHotkeyActive = true
 
         var registeredHotkey: EventHotKeyRef?
         let status = RegisterEventHotKey(
@@ -775,23 +998,31 @@ final class MacHelper: @unchecked Sendable {
         if isFnDown {
             emitHotkey(state: "up")
         }
+        fnTapDetector = FnTapDetector()
+        fnHotkeyActive = false
         if let ref = hotkeyRef {
             UnregisterEventHotKey(ref)
             hotkeyRef = nil
         }
-        removeEventHandlers()
+        releaseMonitorIfUnused()
     }
 
     private func installEventHandlers() throws {
-        let rawModifierEvents = [
+        let monitorEvents = [
             EventTypeSpec(
                 eventClass: OSType(kEventClassKeyboard),
                 eventKind: UInt32(kEventRawKeyModifiersChanged)
             ),
+            // Key presses are observed only to disqualify a chord
+            // (`handleRawKeyDown`); the events' contents are never read.
+            EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventRawKeyDown)
+            ),
         ]
         try installHandler(
             target: GetEventMonitorTarget(),
-            eventTypes: rawModifierEvents,
+            eventTypes: monitorEvents,
             operation: "InstallEventHandler(GetEventMonitorTarget)"
         )
 
@@ -858,6 +1089,10 @@ final class MacHelper: @unchecked Sendable {
         transcribeSession = nil
         dictationSession?.stop()
         dictationSession = nil
+        // Both bindings, so a hold open at shutdown gets its closing edge and
+        // the monitor comes down with the last of them.
+        cancelModifierHold()
+        modifierHoldMasks = []
         unregisterFnHotkey()
     }
 
@@ -935,7 +1170,26 @@ private func writePermissionStatusAndExit() {
     }
 }
 
-if CommandLine.arguments.contains("--request-speech-recognition") {
+if CommandLine.arguments.contains("--front-selection") {
+    // A probe for what the application in front exposes: run it with something
+    // highlighted and it prints what a hold would carry, then exits.
+    let outcome = FrontSelection.read()
+    var payload: [String: Any] = [
+        "trusted": outcome.trusted,
+        "promptShown": outcome.promptShown,
+        "app": outcome.bundleId ?? NSNull(),
+        "focused": outcome.focused,
+        "role": outcome.role ?? NSNull(),
+        "path": outcome.path.rawValue,
+        "chars": outcome.chars,
+    ]
+    payload["text"] = outcome.selection?.text ?? NSNull()
+    payload["truncated"] = outcome.selection?.truncated ?? false
+    let data = try! JSONSerialization.data(withJSONObject: payload, options: [])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
+    exit(0)
+} else if CommandLine.arguments.contains("--request-speech-recognition") {
     MainActor.assumeIsolated {
         NSApplication.shared.setActivationPolicy(.prohibited)
         if SFSpeechRecognizer.authorizationStatus() == .notDetermined {

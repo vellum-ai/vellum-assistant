@@ -5,7 +5,10 @@
  * and typing indicators by calling the Telegram Bot API directly via ./api.ts.
  */
 
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
+import type {
+  ApprovalUIMetadata,
+  ChannelDeliveryResult,
+} from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
@@ -137,6 +140,49 @@ export interface TelegramSendResult {
  * Send a Telegram text reply, splitting long messages and optionally
  * attaching inline keyboard buttons for approval prompts.
  */
+/**
+ * Replace a Telegram message in place.
+ *
+ * Telegram rejects an edit whose text already matches the message. That is the
+ * request having been satisfied rather than a failure, so it resolves. Every
+ * other rejection throws: an edit that quietly became a new message would
+ * leave the original sitting beside it, which reads as answering twice.
+ *
+ * Unlike a send, this cannot split long text across messages, because an edit
+ * addresses exactly one. Telegram rejects text past its limit, and that
+ * rejection reaches the caller rather than being papered over.
+ *
+ * The empty `reply_markup` is load-bearing. `editMessageText` leaves an
+ * existing inline keyboard alone when the field is omitted, so a message
+ * revised to read as settled would keep its live buttons beside that text.
+ * Every caller here edits a message into a settled state, and the approval
+ * interception path says so outright, so the keyboard goes with the revision.
+ */
+export async function editTelegramMessage(
+  chatId: string,
+  messageId: string,
+  text: string,
+): Promise<void> {
+  try {
+    await callTelegramBotApi<TelegramMessage>("editMessageText", {
+      chat_id: chatId,
+      message_id: Number(messageId),
+      text,
+      reply_markup: { inline_keyboard: [] },
+    });
+  } catch (err) {
+    if (
+      err instanceof TelegramNonRetryableError &&
+      err.description?.includes("message is not modified")
+    ) {
+      log.debug({ chatId, messageId }, "Telegram edit already applied");
+      return;
+    }
+    throw err;
+  }
+  log.debug({ chatId, messageId }, "Telegram message edited");
+}
+
 export async function sendTelegramReply(
   chatId: string,
   text: string,
@@ -345,6 +391,43 @@ export async function sendTelegramAttachments(
  * Send a typing indicator ("chat action") to a Telegram chat.
  * Returns true on success, false on failure (non-throwing).
  */
+/**
+ * Set or clear the bot's emoji reaction on a message.
+ *
+ * `setMessageReaction` semantics (Bot API): a bot holds at most one
+ * reaction per message, so `add` replaces any prior one and `remove`
+ * clears it by sending the empty reaction list. `emoji` is the unicode
+ * emoji itself, and Telegram accepts only its allowed set (the standard
+ * reaction emoji, narrowed further by a chat's allowed-reactions
+ * setting); a rejected emoji reports `ok: false` rather than throwing.
+ */
+export async function sendTelegramReaction(
+  chatId: string,
+  emoji: string,
+  messageId: string,
+  action: "add" | "remove",
+): Promise<ChannelDeliveryResult> {
+  const messageIdNum = Number.parseInt(messageId, 10);
+  if (!Number.isFinite(messageIdNum)) {
+    log.warn({ chatId, messageId }, "Non-numeric Telegram reaction target");
+    return { ok: false };
+  }
+  try {
+    await callTelegramBotApi("setMessageReaction", {
+      chat_id: chatId,
+      message_id: messageIdNum,
+      reaction: action === "add" ? [{ type: "emoji", emoji }] : [],
+    });
+    return { ok: true };
+  } catch (err) {
+    log.warn(
+      { err, chatId, messageId, action },
+      "Failed to deliver Telegram reaction",
+    );
+    return { ok: false };
+  }
+}
+
 export async function sendTelegramTypingIndicator(
   chatId: string,
   opts?: TelegramSendOptions,

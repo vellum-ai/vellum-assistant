@@ -1,7 +1,4 @@
-import {
-  DOCUMENT_EDIT_TOOL_NAMES,
-  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
-} from "@vellumai/assistant-api";
+import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 import {
   isAcpSpawnCall,
   isBackgroundBashCall,
@@ -17,7 +14,6 @@ import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-ca
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -30,7 +26,6 @@ export interface OpenRuleEditorContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
 }
 
 /**
@@ -43,6 +38,11 @@ export interface TranscriptMessageBodyProps {
   /** Conversation the message belongs to. Forwarded to the hover actions so
    *  the bookmark toggle can key on (messageId, conversationId). */
   conversationId?: string | null;
+  /** Tool call the inline Connect card renders under, or `null` when the card
+   *  belongs above the composer instead. Resolved once by `Transcript`: a
+   *  per-row read would subscribe every row to the whole transcript and
+   *  defeat `TranscriptRow`'s memo boundary on every streaming delta. */
+  acpConnectInlineToolUseId?: string | null;
   assistantDisplayName?: string | null;
 
   onSurfaceAction: (
@@ -85,13 +85,13 @@ export interface TranscriptMessageBodyProps {
   /** Callback to abort/stop a running workflow from an inline card. */
   onStopWorkflow?: (runId: string) => void;
   /**
-   * Ids of the documents this message's whole response changed, resolved by
-   * `Transcript` (see `resolveResponseDocumentIds`) and set only on the message
-   * that ends a completed response. Each one renders a reopen link below the
-   * message body, so a response closes with one link per document however many
+   * The assets this message's whole response touched (its documents and apps),
+   * resolved by `Transcript` (see `resolveResponseArtifacts`) and set only on
+   * the message that ends a completed response. Each one renders a card below
+   * the message body, so a response closes with one card per asset however many
    * of its messages wrote to it.
    */
-  changedDocumentIds?: string[];
+  responseArtifacts?: ResponseArtifact[];
   /**
    * True when this message belongs to the turn that is actively streaming.
    * Set by `LatestTurnRow` for the in-progress response cluster; history
@@ -436,135 +436,6 @@ export function resolveBackgroundTaskIds(
   return ids;
 }
 
-/** The mutating document tools that leave the document openable. */
-const DOCUMENT_MUTATION_TOOLS: ReadonlySet<string> = new Set(
-  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
-);
-
-/** The mutating document tools that write into an already-created document. */
-const DOCUMENT_EDIT_TOOLS: ReadonlySet<string> = new Set(
-  DOCUMENT_EDIT_TOOL_NAMES,
-);
-
-/**
- * Detect a call to one of `tools`. Document tools ship in the bundled
- * `document-editor` skill, so a call arrives either under its raw tool name or
- * inside a `skill_execute` envelope whose `input.tool` names it.
- */
-function isDocumentToolCall(
-  toolCall: ChatMessageToolCall,
-  tools: ReadonlySet<string>,
-): boolean {
-  if (tools.has(toolCall.name)) {
-    return true;
-  }
-  if (toolCall.name !== "skill_execute") {
-    return false;
-  }
-  const input = toolCall.input;
-  if (input == null || typeof input !== "object") {
-    return false;
-  }
-  const tool = (input as Record<string, unknown>).tool;
-  return typeof tool === "string" && tools.has(tool);
-}
-
-/**
- * Extract the `surface_id` a call to one of `tools` wrote to. The executors
- * return `JSON.stringify({ ..., surface_id })` (see
- * `assistant/src/tools/document/document-tool.ts`). Returns `undefined` for a
- * call outside `tools`, a call that failed, a replace that matched nothing, or
- * a non-JSON/malformed result, so callers anchor only on documents that really
- * changed.
- *
- * Only `document_replace_text` reports `content_changed`, and it succeeds with
- * `content_changed: false` when `find` matched nothing. `document_create` and
- * `document_update` omit the field and always write, so an absent field reads
- * as changed and only an explicit `false` rejects the call. That matches the
- * daemon, which emits `document_editor_update` on the same condition.
- */
-function extractDocumentSurfaceIdFromResult(
-  toolCall: ChatMessageToolCall,
-  tools: ReadonlySet<string>,
-): string | undefined {
-  if (!isDocumentToolCall(toolCall, tools) || toolCall.isError === true) {
-    return undefined;
-  }
-  if (typeof toolCall.result !== "string" || !toolCall.result) {
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(toolCall.result) as {
-      surface_id?: unknown;
-      content_changed?: unknown;
-    };
-    if (parsed.content_changed === false) {
-      return undefined;
-    }
-    return typeof parsed.surface_id === "string" && parsed.surface_id !== ""
-      ? parsed.surface_id
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Resolve the ids of the documents `toolCalls` changed, in first-changed order.
- * Each id rides on its call's persisted `result`, so it survives a history
- * reseed, unlike the ephemeral `document_editor_update` event.
- *
- * The caller owns the `claimed` Set so it persists across every invocation
- * within a single response. That collapses repeated edits of one document into
- * a single entry, whether they ran in one message or spread across several.
- */
-export function resolveChangedDocuments(
-  toolCalls: ChatMessageToolCall[],
-  claimed: Set<string>,
-): string[] {
-  const surfaceIds: string[] = [];
-
-  for (const tc of toolCalls) {
-    const surfaceId = extractDocumentSurfaceIdFromResult(
-      tc,
-      DOCUMENT_MUTATION_TOOLS,
-    );
-    if (surfaceId && !claimed.has(surfaceId)) {
-      surfaceIds.push(surfaceId);
-      claimed.add(surfaceId);
-    }
-  }
-
-  return surfaceIds;
-}
-
-/**
- * The ids of the documents `toolCalls` wrote into with `document_update` or
- * `document_replace_text`, ignoring the create that opened them.
- *
- * An inline `document_preview` card renders where its tool ran, so it stands in
- * for the end-of-response reopen link only on a document the response leaves
- * alone afterwards. A document the response keeps writing to is changed below
- * its card and still owes a link at the end.
- */
-export function resolveEditedDocuments(
-  toolCalls: ChatMessageToolCall[],
-): Set<string> {
-  const surfaceIds = new Set<string>();
-
-  for (const tc of toolCalls) {
-    const surfaceId = extractDocumentSurfaceIdFromResult(
-      tc,
-      DOCUMENT_EDIT_TOOLS,
-    );
-    if (surfaceId) {
-      surfaceIds.add(surfaceId);
-    }
-  }
-
-  return surfaceIds;
-}
-
 /**
  * The `acpSessionId` a single `acp_spawn` tool call resolves to — its
  * `byToolUseId` anchor (from the `acp_session_spawned` event), else the id
@@ -694,6 +565,29 @@ export function SlackMessageAttribution({
  * Compact inline rendering of a Slack reaction event. Shows the emoji
  * character (or `:shortcode:` fallback) plus the actor name and verb.
  */
+/**
+ * Display form of a reaction emoji, shared by every reaction line. A unicode
+ * emoji renders as itself; a shortcode resolves through the catalog with the
+ * ":shortcode:" fallback while it lazy-loads. A custom-emoji mention form
+ * (Discord's `<:name:id>`) renders as its bare ":name:" and never consults
+ * the catalog: custom names are arbitrary guild identities, and a name that
+ * collides with a catalog shortcode must not swap into the unrelated
+ * standard emoji.
+ */
+export function displayReactionEmoji(
+  raw: string,
+  lookup: (shortcode: string) => string | undefined,
+): string {
+  const customMention = /^<a?:([^:>]+):\d+>$/.exec(raw);
+  if (customMention) {
+    return `:${customMention[1]!}:`;
+  }
+  if (/^[\w+'-]+$/.test(raw)) {
+    return lookup(raw) ?? `:${raw}:`;
+  }
+  return raw;
+}
+
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {
   const lookupEmoji = useEmojiLookup();
   const reaction = message.slackMessage?.reaction;
@@ -701,8 +595,7 @@ export function SlackReactionLine({ message }: { message: DisplayMessage }) {
     return null;
   }
 
-  const emojiChar = lookupEmoji(reaction.emoji);
-  const emojiDisplay = emojiChar ?? `:${reaction.emoji}:`;
+  const emojiDisplay = displayReactionEmoji(reaction.emoji, lookupEmoji);
   const actor =
     reaction.actorDisplayName ??
     message.slackMessage?.sender?.displayName ??

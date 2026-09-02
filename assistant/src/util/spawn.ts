@@ -2,6 +2,8 @@
  * Shared spawn-with-timeout helper used by media-processing and transcribe tools.
  */
 
+import { delimiter } from "node:path";
+
 /** Full video preprocessing: mpdecimate analysis, frame extraction, palette analysis. Longest operation. */
 export const FFMPEG_PREPROCESS_TIMEOUT_MS = 600_000;
 
@@ -27,11 +29,17 @@ export function spawnWithTimeout(
     const proc = Bun.spawn(cmd, {
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
       env: {
         ...process.env,
-        PATH: [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin"]
+        PATH: [
+          process.env.PATH,
+          ...(process.platform === "darwin"
+            ? ["/opt/homebrew/bin", "/usr/local/bin"]
+            : []),
+        ]
           .filter(Boolean)
-          .join(":"),
+          .join(delimiter),
       },
     });
     const timer = setTimeout(() => {

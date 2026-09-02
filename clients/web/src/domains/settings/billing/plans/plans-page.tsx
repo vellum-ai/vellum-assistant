@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import {
   isCleanPin,
   PACKAGE_ORDER,
@@ -17,10 +16,7 @@ import {
   machineLabel,
 } from "@/domains/settings/billing/plan-spec";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import {
-  FREE_CREDITS_USD,
-  FREE_STORAGE_GIB,
-} from "@/domains/settings/billing/plan-tier-meta";
+import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
   type CustomPlanSeed,
@@ -31,9 +27,7 @@ import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
-import {
-  getPlanTierCopy,
-} from "@/domains/settings/billing/plans/plans-copy";
+import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { Trans, useTranslation } from "@/i18n";
 import {
   BillingOnboardingModal,
@@ -47,12 +41,11 @@ import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   extractMutationError,
+  isDirectCancelEligible,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
-import {
-  formatDollars,
-  priceLabelFromCents,
-} from "@/domains/settings/components/tier-pricing";
+import { priceLabelFromCents } from "@/domains/settings/components/tier-pricing";
+import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
 import {
   buildPortalReturnSnapshot,
   useBillingPortalSession,
@@ -75,11 +68,13 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { lowersMachineCeiling } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
@@ -124,13 +119,14 @@ function packageFeatures(
   extra: readonly string[],
   translate: SettingsTranslate,
 ): string[] {
-  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   return [
     machineComputerLabel(pkg, translate),
     translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
-    translate("plansPage.featureCreditsIncluded", {
-      amount: formatDollars(credits * 100),
-    }),
+    // The bundle row never names a credit amount: it reads as the package's
+    // own usage allowance, derived from the package name the way the plan
+    // card's chip is, so it holds even when the catalog carries no
+    // `usage_label`.
+    translate("plansPage.featureUsage", { name: pkg.name }),
     ...extra,
   ];
 }
@@ -268,13 +264,24 @@ function PlansPageContent() {
         ? subscription.package.key
         : null;
 
-  // Pro → Free is a cancellation: after a confirm step it opens the Stripe
-  // billing portal (the same destination as the adjust-plan modal's "Downgrade
-  // to Base") so the user can cancel there. Snapshot the pre-redirect state for
-  // the post-return toast.
+  // Pro to Free is a cancellation: after a confirm step it posts the
+  // subscription-cancel endpoint (the same action as the adjust-plan modal's
+  // "Downgrade to Base"), which schedules the sub to end at the period
+  // boundary. No Stripe portal round-trip for an active Pro sub.
+  const { cancelSubscription, isPending: cancelPending } =
+    useCancelSubscription();
+  // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps the
+  // Stripe portal handoff, which can still cancel it. Snapshot the
+  // pre-redirect state for the post-return toast.
+  const canCancelDirectly = isDirectCancelEligible(subscription);
   const portalMutation = useBillingPortalSession(
     buildPortalReturnSnapshot(subscription),
   );
+
+  // Native Android shows the takeover exactly as iOS does, but every plan CTA
+  // hands off to this same page on the web app instead of starting an in-app
+  // billing flow.
+  const isNativeAndroid = useIsNativeAndroid();
 
   // Pro features lost by downgrading to Free — the confirm dialog lists these.
   const baseFeatureSet = new Set(
@@ -285,11 +292,11 @@ function PlansPageContent() {
     (f) => !baseFeatureSet.has(f),
   );
 
-  // Any billing action in flight — a checkout, a package switch, or the Stripe
-  // portal opening — disables every plan CTA (and Configure) so a second click
+  // Any billing action in flight (a checkout, a package switch, or a
+  // cancellation) disables every plan CTA (and Configure) so a second click
   // can't start a competing billing operation before the first resolves.
   const billingActionPending =
-    pending || changePackagePending || portalMutation.isPending;
+    pending || changePackagePending || cancelPending || portalMutation.isPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -380,10 +387,7 @@ function PlansPageContent() {
       }
     } catch (error) {
       toast.error(
-        extractMutationError(
-          error,
-          t("plansPage.checkoutFailedToast"),
-        ),
+        extractMutationError(error, t("plansPage.checkoutFailedToast")),
       );
     } finally {
       setPending(false);
@@ -401,18 +405,22 @@ function PlansPageContent() {
       return;
     }
     // A billing action is already in flight (checkout / package switch /
-    // portal opening) — ignore the click. The CTAs are also disabled; this
+    // cancellation): ignore the click. The CTAs are also disabled; this
     // guards against a race between the click and the disabled re-render.
     if (billingActionPending) {
       return;
     }
+    if (isNativeAndroid) {
+      openBillingPathInBrowser(routes.plans);
+      return;
+    }
     if (isProUser) {
       if (tierKey === "free") {
-        // Pro → Free is a subscription cancellation, not a package switch.
-        // Confirm first (which Pro features are lost), then open the Stripe
-        // billing portal — the same destination as the adjust-plan modal's
-        // "Downgrade to Base" — where the user actually cancels. The
-        // package-only change-package endpoint 400s on non-package keys.
+        // Pro to Free is a subscription cancellation, not a package switch.
+        // Confirm first (which Pro features are lost), then post the
+        // subscription-cancel endpoint, the same action as the adjust-plan
+        // modal's "Downgrade to Base". The package-only change-package
+        // endpoint 400s on non-package keys.
         setFreeDowngradeOpen(true);
         return;
       }
@@ -566,11 +574,20 @@ function PlansPageContent() {
       ? customCurrentSummary(current, proPlan)
       : undefined;
 
-    // Confirmed Pro → Free cancellation: close the confirm and hand off to the
-    // Stripe billing portal, where the actual cancellation happens.
-    const confirmFreeDowngrade = () => {
-      setFreeDowngradeOpen(false);
-      portalMutation.mutate({});
+    // Confirmed Pro → Free cancellation: schedule it server-side. Success
+    // closes the confirm (the hook's toast names the end date); failure keeps
+    // it open for a retry (the hook already toasted the error). A sub the
+    // endpoint would reject hands off to the Stripe portal instead.
+    const confirmFreeDowngrade = async () => {
+      if (!canCancelDirectly) {
+        setFreeDowngradeOpen(false);
+        portalMutation.mutate({});
+        return;
+      }
+      const result = await cancelSubscription();
+      if (result) {
+        setFreeDowngradeOpen(false);
+      }
     };
 
     /**
@@ -712,6 +729,10 @@ function PlansPageContent() {
       if (billingActionPending) {
         return;
       }
+      if (isNativeAndroid) {
+        openBillingPathInBrowser(routes.plans);
+        return;
+      }
       // A Pro sub's current tiers load after the page renders; the modal seeds
       // from them, so hold the click until that first load settles (the CTA is
       // also held disabled meanwhile — see `configureDisabled`).
@@ -769,7 +790,9 @@ function PlansPageContent() {
             name="Base"
             tagline={freeCopy?.tagline ?? ""}
             priceLabel={t("plansPage.freePriceLabel")}
-            priceCaption={freeCopy?.priceCaption ?? t("plansPage.foreverCaption")}
+            priceCaption={
+              freeCopy?.priceCaption ?? t("plansPage.foreverCaption")
+            }
             ctaLabel={
               freeRelation === "downgrade"
                 ? t("plansPage.downgradeTo", { name: "Base" })
@@ -851,9 +874,10 @@ function PlansPageContent() {
         <FreeDowngradeConfirmModal
           open={freeDowngradeOpen}
           lostFeatures={freeDowngradeLostFeatures}
-          pending={portalMutation.isPending}
+          viaPortal={!canCancelDirectly}
+          pending={cancelPending || portalMutation.isPending}
           onCancel={() => setFreeDowngradeOpen(false)}
-          onConfirm={confirmFreeDowngrade}
+          onConfirm={() => void confirmFreeDowngrade()}
         />
 
         <BillingOnboardingModal
@@ -930,9 +954,5 @@ function PlansPageContent() {
 }
 
 export function PlansPage() {
-  return (
-    <AndroidBillingGate redirectToBilling>
-      <PlansPageContent />
-    </AndroidBillingGate>
-  );
+  return <PlansPageContent />;
 }

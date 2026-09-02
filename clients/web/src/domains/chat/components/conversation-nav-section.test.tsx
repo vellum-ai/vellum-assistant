@@ -38,12 +38,27 @@ const ROWS: Conversation[] = [
   { conversationId: "c2", title: "Two" },
 ];
 
-function renderList(onEndReached?: () => void) {
+function renderList(
+  onEndReached?: () => void,
+  extras?: {
+    overlayCards?: boolean;
+    isLast?: boolean;
+  },
+) {
   const { container } = render(
     createElement(
       ConversationListProvider,
-      { value: { onSelect: () => {} } },
-      createElement(ConversationRowList, { items: ROWS, onEndReached }),
+      {
+        value: {
+          onSelect: () => {},
+          overlayCards: extras?.overlayCards,
+        },
+      },
+      createElement(ConversationRowList, {
+        items: ROWS,
+        onEndReached,
+        isLast: extras?.isLast,
+      }),
     ),
   );
   return container;
@@ -70,5 +85,23 @@ describe("ConversationRowList load-more seam", () => {
     expect(
       container.querySelectorAll('[data-slot="load-more-sentinel"]'),
     ).toHaveLength(0);
+  });
+});
+
+describe("ConversationRowList overlay scroll", () => {
+  test("overlay cards grow with the drawer body instead of nesting a scroller", () => {
+    const container = renderList(undefined, {
+      overlayCards: true,
+      isLast: true,
+    });
+
+    expect(container.querySelector(".overflow-y-auto")).toBeNull();
+    expect(container.querySelectorAll('[data-testid="row"]')).toHaveLength(2);
+  });
+
+  test("a rail last-section still owns an inner scroller", () => {
+    const container = renderList(undefined, { isLast: true });
+
+    expect(container.querySelector(".overflow-y-auto")).not.toBeNull();
   });
 });

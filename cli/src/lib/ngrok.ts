@@ -36,6 +36,7 @@ export function getNgrokVersion(): string | null {
       encoding: "utf-8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     return output.trim();
   } catch {
@@ -152,6 +153,7 @@ export function startNgrokProcess(
   const child = spawn("ngrok", args, {
     detached: true,
     stdio,
+    windowsHide: true,
   });
 
   // The child process inherits a duplicate of the fd via dup2, so the
@@ -203,10 +205,13 @@ export function hasWebhookIntegrations(
 }
 
 /**
- * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
- * configured that require a public ingress URL.
+ * Check whether the workspace at `workspaceDir` configures any webhook-based
+ * integrations that require a public ingress URL. False when the config cannot
+ * be read, so an unreadable workspace never blocks a caller.
  */
-function hasWebhookIntegrationsConfigured(workspaceDir: string): boolean {
+export function hasWebhookIntegrationsConfigured(
+  workspaceDir: string,
+): boolean {
   try {
     return hasWebhookIntegrations(loadRawConfig(workspaceDir));
   } catch {
@@ -235,11 +240,15 @@ function hasNonNgrokIngressUrl(workspaceDir: string): boolean {
  * non-ngrok ingress URL is present. Designed to be called during daemon/gateway
  * startup. Non-fatal: if ngrok is unavailable or fails, startup continues.
  *
+ * `assistantId` records what the tunnel fronts. Without it, an automatic start
+ * would leave `ingress.assistantId` absent or stale from an earlier run.
+ *
  * Returns the spawned ngrok child process (for PID tracking) or null.
  */
 export async function maybeStartNgrokTunnel(
   targetPort: number,
   workspaceDir: string,
+  assistantId?: string,
 ): Promise<ChildProcess | null> {
   // Managed/containerized deployments route webhooks through the platform's
   // callback proxy. ngrok is not needed and would not be reachable from the
@@ -270,7 +279,7 @@ export async function maybeStartNgrokTunnel(
       return null;
     }
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl);
+    saveIngressUrl(workspaceDir, existingUrl, assistantId, "ngrok");
     return null;
   }
   if (runningTunnels.length > 0) {
@@ -297,7 +306,7 @@ export async function maybeStartNgrokTunnel(
 
   try {
     const publicUrl = await waitForNgrokUrl(targetPort, savedDomain);
-    saveIngressUrl(workspaceDir, publicUrl);
+    saveIngressUrl(workspaceDir, publicUrl, assistantId, "ngrok");
     console.log(`   Tunnel established: ${publicUrl}`);
 
     return ngrokProcess;
@@ -384,7 +393,7 @@ export async function runNgrokTunnel(
       process.exit(1);
     }
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
+    saveIngressUrl(workspaceDir, existingUrl, opts.assistantId, "ngrok");
     if (opts.domain) {
       saveNgrokDomain(workspaceDir, opts.domain);
     }
@@ -468,7 +477,7 @@ export async function runNgrokTunnel(
 
   // The domain is standing intent, not tunnel state: cleanup clears the
   // ingress URL but leaves the domain saved for wake/daemon restores.
-  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "ngrok");
   if (opts.domain) {
     saveNgrokDomain(workspaceDir, opts.domain);
   }

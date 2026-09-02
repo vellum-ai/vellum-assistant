@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { useTranslation } from "@/i18n";
 
 export interface DocumentCommentFormProps {
   onSubmit: (content: string) => Promise<void>;
@@ -24,6 +25,7 @@ export function DocumentCommentForm({
   placeholder = "Add a comment…",
   autoFocus = false,
 }: DocumentCommentFormProps) {
+  const { t } = useTranslation("chat");
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -81,7 +83,7 @@ export function DocumentCommentForm({
           leftIcon={<Send />}
           disabled={!canSubmit}
         >
-          {submitting ? "Sending…" : "Send"}
+          {submitting ? t("documentCommentForm.sending") : t("documentCommentForm.send")}
         </Button>
       </div>
     </form>

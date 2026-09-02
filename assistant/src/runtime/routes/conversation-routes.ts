@@ -23,8 +23,9 @@ import {
   type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
+import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
-  decideGuardianRequest,
   expireGuardianRequest,
   listGuardianRequestsOrEmpty,
   listPendingRequestsByScopeOrEmpty,
@@ -39,7 +40,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -48,7 +49,10 @@ import {
 } from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
-import { persistQueuedMessageBody } from "../../daemon/conversation-messaging.js";
+import {
+  isConversationBusyError,
+  persistQueuedMessageBody,
+} from "../../daemon/conversation-messaging.js";
 import {
   buildModelInfoEvent,
   formatCleanResult,
@@ -97,13 +101,14 @@ import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { readProviderMetadata } from "../../messaging/read-provider-metadata.js";
 import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.js";
 import {
   classifyKind,
   getAttachmentById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
-  getSourcePathsForAttachments,
+  resolveAttachmentsForPersist,
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
@@ -127,6 +132,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
@@ -163,6 +169,7 @@ import {
   resolveActorPrincipalIdForLocalGuardian,
 } from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
+import { stripNoResponseMarkers } from "../no-response.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   publishConversationListAndMetadataChanged,
@@ -194,8 +201,6 @@ import { RouteResponse } from "./types.js";
 
 const log = getLogger("conversation-routes");
 
-/** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
 
 /** Rewrites a rendered `contentOrder` to reflect attachment alignment. */
@@ -597,7 +602,6 @@ async function tryConsumeGuardianReply(params: {
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
-    channel: sourceChannel,
     actor: {
       actorPrincipalId: verifiedActorPrincipalId,
       actorExternalUserId: verifiedActorExternalUserId,
@@ -997,6 +1001,8 @@ export async function handleListMessages({
       {};
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
+    let noResponse: boolean | undefined;
+    let reaction: ConversationMessage["reaction"];
     let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
@@ -1008,6 +1014,25 @@ export async function handleListMessages({
         // render as standalone system notices, not persona speech.
         if (isSystemCardMetadata(meta)) {
           systemCard = true;
+        }
+        if (isNoResponseMetadata(meta)) {
+          noResponse = true;
+        }
+        // A reaction row, either direction, projects its structured fact so
+        // clients never render the stored "[reaction]" sentinel.
+        if (msg.metadata.includes("reaction")) {
+          const reactionMeta = readProviderMetadata(msg.metadata);
+          if (reactionMeta?.eventKind === "reaction" && reactionMeta.reaction) {
+            reaction = {
+              emoji: reactionMeta.reaction.emoji,
+              op: reactionMeta.reaction.op,
+              targetMessageId: reactionMeta.reaction.targetMessageId,
+              ...(reactionMeta.reaction.actorDisplayName
+                ? { actorDisplayName: reactionMeta.reaction.actorDisplayName }
+                : {}),
+              ...(msg.role === "assistant" ? { selfAuthored: true } : {}),
+            };
+          }
         }
         // Daemon-persisted provider-failure notices carry the classified
         // error code/category so clients can render a themed card instead
@@ -1061,6 +1086,8 @@ export async function handleListMessages({
       backgroundEventNotification: notifications.backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
+      noResponse,
+      reaction,
       providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -1175,9 +1202,7 @@ export async function handleListMessages({
         const keepIndices: number[] = [];
         const filteredSegments: string[] = [];
         for (let i = 0; i < rendered.textSegments.length; i++) {
-          const cleaned = rendered.textSegments[i]
-            .replace(NO_RESPONSE_INLINE_RE, "")
-            .trim();
+          const cleaned = stripNoResponseMarkers(rendered.textSegments[i]);
           if (cleaned.length > 0) {
             keepIndices.push(i);
             filteredSegments.push(cleaned);
@@ -1201,7 +1226,7 @@ export async function handleListMessages({
             block.type === "text"
               ? {
                   type: "text" as const,
-                  text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+                  text: stripNoResponseMarkers(block.text),
                 }
               : block,
           )
@@ -1236,12 +1261,10 @@ export async function handleListMessages({
 
       const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
-      // Use sentAt (actual event time) for the display timestamp when available,
-      // falling back to createdAt (persistence time). Clients use this display
-      // timestamp as their pagination cursor after memory-pressure trimming,
-      // while server-side pagination filters on createdAt. The mismatch is
-      // benign: it may return slightly extra data on a page boundary but never
-      // loses messages.
+      // Use sentAt (actual event time) for the display timestamp when
+      // available, falling back to createdAt (persistence time). Pagination
+      // is unaffected: the cursor is `oldestTimestamp`, built from
+      // `createdAt` on both ends.
       const displayTimestamp = m.sentAt ?? m.createdAt;
       return {
         id: m.id ?? "",
@@ -1273,6 +1296,8 @@ export async function handleListMessages({
           ? { backgroundToolCompletion: m.backgroundToolCompletion }
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
+        ...(m.noResponse ? { noResponse: true } : {}),
+        ...(m.reaction ? { reaction: m.reaction } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
       };
@@ -1561,7 +1586,7 @@ export async function handleSendMessage(
   }
   if (requestedInferenceProfile !== undefined) {
     const { llm } = getConfig();
-    const profiles = getEffectiveProfilesForProvider(
+    const profiles = getUserSelectableProfilesForProvider(
       llm.profiles,
       llm.defaultProvider ?? null,
     );
@@ -2020,23 +2045,15 @@ export async function handleSendMessage(
     ? buildSelfIntroMessage(body.onboarding ?? undefined)
     : undefined;
 
-  let effectiveContent: string | undefined;
-  if (isScanPath) {
-    const scanVariant = websiteUrl
-      ? ("website" as const)
-      : ("content-source" as const);
-    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
-    // Fall through to normal inference path below
-  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
-    effectiveContent = body.onboarding.initialMessage;
-  } else if (isWakeUp && selfIntro) {
-    // Rewrite to the self-introduction and fall through to real inference
-    // (mirrors the scan path above).
-    effectiveContent = selfIntro;
-  } else if (isWakeUp) {
-    const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
-
-    conversation.setProcessing(true);
+  /**
+   * Answer a first wake-up with the canned greeting, under a claim the caller
+   * already holds. Its own function so the branch below can decline the claim
+   * and fall through to the ordinary path instead.
+   */
+  const serveCannedFirstGreeting = async (
+    cannedGreeting: string,
+    greetingOwner: number,
+  ) => {
     let cleanupDeferred = false;
     try {
       const rawContent = content ?? "";
@@ -2099,6 +2116,7 @@ export async function handleSendMessage(
 
       scheduleCannedReplyRelease({
         conversation,
+        owner: greetingOwner,
         origin: "canned_greeting",
         emit: () => {
           broadcastMessage({
@@ -2136,11 +2154,41 @@ export async function handleSendMessage(
       cleanupDeferred = true;
       return response;
     } finally {
-      if (!cleanupDeferred && conversation.isProcessing()) {
-        conversation.setProcessing(false);
+      if (!cleanupDeferred && conversation.releaseProcessing(greetingOwner)) {
         void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
+  };
+
+  let effectiveContent: string | undefined;
+  if (isScanPath) {
+    const scanVariant = websiteUrl
+      ? ("website" as const)
+      : ("content-source" as const);
+    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
+    // Fall through to normal inference path below
+  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
+    effectiveContent = body.onboarding.initialMessage;
+  } else if (isWakeUp && selfIntro) {
+    // Rewrite to the self-introduction and fall through to real inference
+    // (mirrors the scan path above).
+    effectiveContent = selfIntro;
+  } else if (isWakeUp) {
+    const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
+
+    // Taken rather than set. The idle read behind this branch is several
+    // awaits old, so a hold taken since belongs to a real turn, and greeting
+    // over it would run two operations into one history. Declining and
+    // falling through is what the sibling branches above already do, and the
+    // gate below turns that into the queued answer a busy conversation owes.
+    const greetingOwner = await conversation.acquireProcessingFenced();
+    if (greetingOwner !== null) {
+      return serveCannedFirstGreeting(cannedGreeting, greetingOwner);
+    }
+    log.info(
+      { conversationId: mapping.conversationId },
+      "Canned first greeting yielded: the conversation is already held",
+    );
   }
 
   if (isFirstOnboarding) {
@@ -2213,11 +2261,23 @@ export async function handleSendMessage(
     );
   }
 
-  if (conversation.isProcessing()) {
+  /**
+   * Put the message on the conversation's queue and answer with the
+   * accepted-and-queued shape.
+   *
+   * Reached from the check just below, and again from every point past it that
+   * finds the conversation busy after all. That check and the acquire which
+   * actually starts a turn are separated by guardian cleanup, history scoping
+   * and slash resolution, so anything taking the flag inside those awaits
+   * leaves a send that has to queue rather than fail. Answering the same way
+   * from both means a client cannot tell which side of the awaits the
+   * conversation went busy on.
+   */
+  const queueSend = async (content: string) => {
     // Queue the message so it's processed when the current turn completes
     const requestId = uuidv7();
     const enqueueResult = conversation.enqueueMessage({
-      content: contentAfterScan,
+      content,
       attachments,
       onEvent: broadcastMessage,
       requestId,
@@ -2302,6 +2362,10 @@ export async function handleSendMessage(
       conversationId: mapping.conversationId,
       requestId,
     };
+  };
+
+  if (conversation.isProcessing()) {
+    return queueSend(contentAfterScan);
   }
 
   // Auto-deny pending confirmations for idle conversations. The legacy
@@ -2325,18 +2389,16 @@ export async function handleSendMessage(
           source: "auto_deny" as const,
         });
         // Sync the gateway request status so stale "pending" records don't
-        // get matched by later guardian reply routing. Fire-and-forget: the
+        // get matched by later guardian reply routing, and withdraw the
+        // request's delivered approval cards so no surface keeps offering a
+        // decision that can no longer resolve anything. Fire-and-forget: the
         // in-memory denial is authoritative here; a CAS miss (already
         // decided elsewhere) or a lost sync is reaped by the orphan sweep.
-        void decideGuardianRequest({
-          id: interaction.requestId,
-          expectedStatus: "pending",
+        void syncTerminalGuardianRequestStatus({
+          requestId: interaction.requestId,
           status: "denied",
-        }).catch((err) => {
-          log.warn(
-            { err, requestId: interaction.requestId },
-            "Auto-deny guardian request status sync failed",
-          );
+          syncContext: "auto-deny-idle-send",
+          terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
         });
       }
     }
@@ -2384,7 +2446,10 @@ export async function handleSendMessage(
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    conversation.setProcessing(true);
+    const slashOwner = await conversation.acquireProcessingFenced();
+    if (slashOwner === null) {
+      return queueSend(rawContent);
+    }
     let cleanupDeferred = false;
     try {
       const slashMeta = {
@@ -2449,6 +2514,7 @@ export async function handleSendMessage(
       const message = slashResult.message;
       scheduleCannedReplyRelease({
         conversation,
+        owner: slashOwner,
         origin: "slash_command",
         emit: () => {
           broadcastMessage({
@@ -2482,15 +2548,17 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && conversation.isProcessing()) {
-        conversation.setProcessing(false);
+      if (!cleanupDeferred && conversation.releaseProcessing(slashOwner)) {
         void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
 
   if (slashResult.kind === "compact") {
-    conversation.setProcessing(true);
+    const compactOwner = await conversation.acquireProcessingFenced();
+    if (compactOwner === null) {
+      return queueSend(rawContent);
+    }
     const slashMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
@@ -2511,12 +2579,12 @@ export async function handleSendMessage(
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
-      conversation.setProcessing(false);
+      conversation.releaseProcessing(compactOwner);
       void conversation.kickDrainQueue("loop_complete", "compact_command");
       throw err;
     }
     if (persisted.deduplicated) {
-      conversation.setProcessing(false);
+      conversation.releaseProcessing(compactOwner);
       void conversation.kickDrainQueue("loop_complete", "compact_dedup");
       return {
         accepted: true,
@@ -2568,7 +2636,7 @@ export async function handleSendMessage(
           retryable: true,
         });
       } finally {
-        conversation.setProcessing(false);
+        conversation.releaseProcessing(compactOwner);
         void conversation.kickDrainQueue("loop_complete", "compact_command");
       }
     })();
@@ -2581,7 +2649,10 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "clean") {
-    conversation.setProcessing(true);
+    const cleanOwner = await conversation.acquireProcessingFenced();
+    if (cleanOwner === null) {
+      return queueSend(rawContent);
+    }
     const conversationId = mapping.conversationId;
     // Outer try/finally guarantees the processing flag is cleared (and the
     // queue drained) on every failure path — including a throw from the
@@ -2647,7 +2718,7 @@ export async function handleSendMessage(
         conversationId,
       };
     } finally {
-      conversation.setProcessing(false);
+      conversation.releaseProcessing(cleanOwner);
       void conversation.kickDrainQueue("loop_complete", "clean_command");
     }
   }
@@ -2655,23 +2726,35 @@ export async function handleSendMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = uuidv7();
-  const persistResult = await conversation.persistUserMessage({
-    content: resolvedContent,
-    attachments,
-    requestId,
-    metadata: withClientMetadata(
-      body.automated === true || body.hidden === true
-        ? {
-            ...(body.automated === true ? { automated: true } : {}),
-            ...(body.hidden === true ? { hidden: true } : {}),
-          }
-        : undefined,
-      clientMetadata,
-    ),
-    scripted: body.scripted,
-    clientMessageId,
-    ...(clientOs ? { requestClientOs: clientOs } : {}),
-  });
+  let persistResult: Awaited<
+    ReturnType<typeof conversation.persistUserMessage>
+  >;
+  try {
+    persistResult = await conversation.persistUserMessage({
+      content: resolvedContent,
+      attachments,
+      requestId,
+      metadata: withClientMetadata(
+        body.automated === true || body.hidden === true
+          ? {
+              ...(body.automated === true ? { automated: true } : {}),
+              ...(body.hidden === true ? { hidden: true } : {}),
+            }
+          : undefined,
+        clientMetadata,
+      ),
+      scripted: body.scripted,
+      clientMessageId,
+      ...(clientOs ? { requestClientOs: clientOs } : {}),
+    });
+  } catch (err) {
+    if (isConversationBusyError(err)) {
+      // The flag went to someone else inside the awaits above. This is the
+      // same message the check at the top would have queued, so queue it.
+      return queueSend(resolvedContent);
+    }
+    throw err;
+  }
 
   const messageId = persistResult.id;
 
@@ -3029,20 +3112,6 @@ async function handleSearchConversations({
 const suggestionCache = new Map<string, string>();
 const suggestionInFlight = new Map<string, Promise<string | null>>();
 
-function resolveAttachments(attachmentIds: string[]) {
-  const resolved = getAttachmentsByIds(attachmentIds, {
-    hydrateFileData: true,
-  });
-  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-  return resolved.map((a) => ({
-    id: a.id,
-    filename: a.originalFilename,
-    mimeType: a.mimeType,
-    data: a.dataBase64,
-    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -3262,7 +3331,7 @@ export const ROUTES: RouteDefinition[] = [
         sendMessageDeps: {
           getOrCreateConversation: getOrCreateConversationInstance,
           assistantEventHub,
-          resolveAttachments,
+          resolveAttachments: resolveAttachmentsForPersist,
         },
         approvalConversationGenerator: createApprovalConversationGenerator(),
       }),

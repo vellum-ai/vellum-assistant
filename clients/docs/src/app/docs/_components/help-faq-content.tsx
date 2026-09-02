@@ -129,13 +129,13 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href="/docs/hosting-options/advanced-options"
+                  href="/docs/hosting-options#user-hosted-remote"
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   User-Hosted Remote
                 </Link>
-              </strong>{" "}
-              (coming soon). Your own GCP, AWS, or a Mac Mini at home.
+              </strong>
+              . Your own GCP project or a Mac Mini at home.
               You get 24/7 availability and full data ownership, but you
               manage the infrastructure. The right pick if you&apos;re
               comfortable running cloud yourself and want neither party

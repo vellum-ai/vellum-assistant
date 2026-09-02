@@ -16,6 +16,10 @@ export interface DeviceRecord {
   issuedAt: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  /** Raw User-Agent observed when this device paired, or null. */
+  pairingUserAgent?: string | null;
+  /** Name the device reported for itself when pairing, or null. */
+  clientReportedName?: string | null;
   /** True when this row is the hosting machine's own guardian credential. */
   isCurrentHost?: boolean;
 }
@@ -53,7 +57,7 @@ function runDevicesCli(
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, ...args],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     );
 
     let stdout = "";
@@ -104,6 +108,10 @@ function toTimestamp(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function toText(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 function parseDeviceRecords(stdout: string): DeviceRecord[] | null {
   let parsed: unknown;
   try {
@@ -130,6 +138,8 @@ function parseDeviceRecords(stdout: string): DeviceRecord[] | null {
       issuedAt,
       expiresAt,
       lastUsedAt,
+      pairingUserAgent,
+      clientReportedName,
       isCurrentHost,
     } = entry as Record<string, unknown>;
     if (typeof hashedDeviceId !== "string" || typeof platform !== "string") {
@@ -141,6 +151,8 @@ function parseDeviceRecords(stdout: string): DeviceRecord[] | null {
       issuedAt: toTimestamp(issuedAt),
       expiresAt: toTimestamp(expiresAt),
       lastUsedAt: toTimestamp(lastUsedAt),
+      pairingUserAgent: toText(pairingUserAgent),
+      clientReportedName: toText(clientReportedName),
       // Tolerant passthrough: only a literal `true` survives.
       ...(isCurrentHost === true ? { isCurrentHost: true } : {}),
     });

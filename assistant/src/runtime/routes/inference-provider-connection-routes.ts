@@ -39,6 +39,10 @@ import {
   MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import {
+  EndpointCheckSchema,
+  testInferenceConnection,
+} from "../../providers/inference/endpoint-probe.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import {
   isVellumManagedConnection,
@@ -64,6 +68,16 @@ const log = getLogger("routes/inference-provider-connections");
 
 const providerConnectionResponseSchema = ProviderConnectionSchema;
 
+/**
+ * Create/update responses carry the save-time endpoint probe result for
+ * connections with a custom base URL. Advisory only: a failed probe never
+ * fails the save (some endpoints legitimately reject unauthenticated or
+ * minimal requests); clients render `hint` as a warning.
+ */
+const savedConnectionResponseSchema = ProviderConnectionSchema.extend({
+  endpoint_check: EndpointCheckSchema.optional(),
+}).meta({ id: "SavedProviderConnection" });
+
 // ---------------------------------------------------------------------------
 // Custom provider field parsing (openai-compatible base_url + models)
 // ---------------------------------------------------------------------------
@@ -72,7 +86,7 @@ const providerConnectionResponseSchema = ProviderConnectionSchema;
  * Parse and validate `base_url` and `models` from the request body.
  *
  * `base_url` is only accepted for providers in
- * `PROVIDERS_ALLOWING_CUSTOM_BASE_URL` (openai-compatible and ollama).
+ * `PROVIDERS_ALLOWING_CUSTOM_BASE_URL` (openai-compatible, ollama, opencode).
  * For all other providers, supplying `base_url` returns a 400. This prevents
  * API-key exfiltration: an attacker cannot create an `anthropic` connection
  * with a `base_url` pointing to their own server, which would redirect all
@@ -105,7 +119,7 @@ async function parseCustomProviderFields(
       !PROVIDERS_ALLOWING_CUSTOM_BASE_URL.has(provider)
     ) {
       throw new BadRequestError(
-        `base_url is only valid for openai-compatible and ollama providers. Remove base_url or use a provider that accepts a custom endpoint.`,
+        `base_url is only valid for openai-compatible, ollama, and opencode providers. Remove base_url or use a provider that accepts a custom endpoint.`,
       );
     }
 
@@ -428,7 +442,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError("Invalid auth configuration.");
   }
 
-  return result.connection;
+  const endpointCheck = await testInferenceConnection(result.connection);
+  return endpointCheck
+    ? { ...result.connection, endpoint_check: endpointCheck }
+    : result.connection;
 }
 
 async function handleUpdateConnection({
@@ -547,7 +564,10 @@ async function handleUpdateConnection({
     throw new BadRequestError("Invalid auth configuration.");
   }
 
-  return result.connection;
+  const endpointCheck = await testInferenceConnection(result.connection);
+  return endpointCheck
+    ? { ...result.connection, endpoint_check: endpointCheck }
+    : result.connection;
 }
 
 async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
@@ -751,7 +771,7 @@ export const ROUTES: RouteDefinition[] = [
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
-    responseBody: providerConnectionResponseSchema,
+    responseBody: savedConnectionResponseSchema,
     responseStatus: "201",
     additionalResponses: {
       "400": { description: "Invalid provider or auth schema" },
@@ -779,7 +799,7 @@ export const ROUTES: RouteDefinition[] = [
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
-    responseBody: providerConnectionResponseSchema,
+    responseBody: savedConnectionResponseSchema,
     additionalResponses: {
       "400": {
         description:

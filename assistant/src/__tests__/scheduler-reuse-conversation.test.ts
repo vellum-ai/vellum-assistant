@@ -456,7 +456,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     runBackgroundJobBootstrapFails = false;
   });
 
-  test("talk-mode propagates conversationType=scheduled, scheduleJobId, and quiet=>suppressFailureNotifications", async () => {
+  test("talk-mode propagates conversationType=scheduled and scheduleJobId", async () => {
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = await createSchedule({
       name: "Quiet Talk Mode",
@@ -475,10 +475,12 @@ describe("scheduler talk-mode runner option propagation", () => {
     expect(opts.conversationType).toBe("scheduled");
     expect(opts.scheduleJobId).toBe(schedule.id);
     expect(opts.groupId).toBe("system:scheduled");
-    expect(opts.suppressFailureNotifications).toBe(true);
   });
 
-  test("talk-mode without quiet leaves suppressFailureNotifications=false", async () => {
+  test("talk-mode always suppresses the runner's per-attempt failure emission", async () => {
+    // The retry policy owns the single user-facing alert for a failing
+    // schedule (fired once, at exhaustion), so the runner must stay quiet
+    // per attempt whether or not the schedule itself is quiet.
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = await createSchedule({
       name: "Loud Talk Mode",
@@ -493,9 +495,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     await runDueSchedulesOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
-    expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(
-      false,
-    );
+    expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(true);
   });
 
   test("talk-mode bootstrap failure writes sentinel conversationId, not empty string", async () => {

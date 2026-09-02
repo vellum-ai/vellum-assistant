@@ -124,6 +124,7 @@ async function installPackage(
       cwd: cacheDir,
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
     });
 
     // Race against timeout

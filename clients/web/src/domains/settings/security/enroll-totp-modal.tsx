@@ -9,6 +9,7 @@ import {
   useUserMfaFactorsVerifyCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { userMfaFactorsDestroy } from "@/generated/api/sdk.gen";
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -27,6 +28,7 @@ interface EnrollTotpModalProps {
  * Closing before verification best-effort deletes the unverified factor.
  */
 export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const [enrollment, setEnrollment] = useState<MfaEnrollResponse | null>(null);
   const [code, setCode] = useState("");
@@ -57,17 +59,13 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
     onError: (error) => {
       const code = mfaErrorCode(error);
       if (code === "no_workos_account") {
-        toast.error(
-          "Two-factor authentication is only available for Vellum platform accounts.",
-        );
+        toast.error(t("enrollTotpModal.toastNoWorkosAccount"));
       } else if (code === "throttled" || code === "workos_rate_limited") {
-        toast.error("Too many attempts. Try again in a minute.");
+        toast.error(t("enrollTotpModal.toastThrottled"));
       } else if (code === "factor_limit_reached") {
-        toast.error(
-          "An authenticator app is already set up. Remove it before adding another.",
-        );
+        toast.error(t("enrollTotpModal.toastFactorLimitReached"));
       } else {
-        toast.error("Failed to start setup. Please try again.");
+        toast.error(t("enrollTotpModal.toastStartFailed"));
       }
       onOpenChange(false);
     },
@@ -77,20 +75,18 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
     onSuccess: (data) => {
       if (data.valid) {
         completedRef.current = true;
-        toast.success("Two-factor authentication is on.");
+        toast.success(t("enrollTotpModal.toastEnabled"));
         void invalidateFactors();
         onOpenChange(false);
       } else {
-        setInlineError(
-          "That code didn't match. Check your authenticator app and try again.",
-        );
+        setInlineError(t("enrollTotpModal.errorCodeMismatch"));
       }
     },
     onError: (error) => {
       const errorCode = mfaErrorCode(error);
       if (errorCode === "challenge_already_verified") {
         completedRef.current = true;
-        toast.success("Two-factor authentication is on.");
+        toast.success(t("enrollTotpModal.toastEnabled"));
         void invalidateFactors();
         onOpenChange(false);
         return;
@@ -104,17 +100,15 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
         }
         setEnrollment(null);
         setCode("");
-        setInlineError(
-          "This setup session expired. Scan the new QR code and try again.",
-        );
+        setInlineError(t("enrollTotpModal.errorSessionExpired"));
         enrollMutation.mutate({});
         return;
       }
       if (errorCode === "throttled" || errorCode === "workos_rate_limited") {
-        setInlineError("Too many attempts. Wait a minute and try again.");
+        setInlineError(t("enrollTotpModal.errorThrottledInline"));
         return;
       }
-      setInlineError("Couldn't verify the code. Wait a moment and try again.");
+      setInlineError(t("enrollTotpModal.errorVerifyFailed"));
     },
   });
 
@@ -149,8 +143,8 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
       return;
     }
     copyToClipboard(enrollment.secret, {
-      successMessage: "Setup key copied.",
-      errorMessage: "Couldn't copy the setup key.",
+      successMessage: t("enrollTotpModal.copySuccess"),
+      errorMessage: t("enrollTotpModal.copyError"),
     });
   };
 
@@ -168,11 +162,8 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
     <Modal.Root open={open} onOpenChange={handleOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Set up authenticator app</Modal.Title>
-          <Modal.Description>
-            Scan the QR code with an authenticator app such as Google
-            Authenticator or 1Password, then enter the 6-digit code it shows.
-          </Modal.Description>
+          <Modal.Title>{t("enrollTotpModal.title")}</Modal.Title>
+          <Modal.Description>{t("enrollTotpModal.description")}</Modal.Description>
         </Modal.Header>
         <Modal.Body>
           {enrollment === null ? (
@@ -189,12 +180,12 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
             >
               <img
                 src={enrollment.qr_code}
-                alt="QR code for your authenticator app"
+                alt={t("enrollTotpModal.qrCodeAlt")}
                 className="h-44 w-44 rounded-lg bg-white p-2"
               />
               <div className="flex w-full flex-col gap-1">
                 <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  Can&apos;t scan it? Enter this setup key manually:
+                  {t("enrollTotpModal.manualKeyHint")}
                 </span>
                 <button
                   type="button"
@@ -212,14 +203,14 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
                   htmlFor="totp-code"
                   className="text-body-small-default text-[var(--content-tertiary)]"
                 >
-                  6-digit code
+                  {t("enrollTotpModal.codeLabel")}
                 </label>
                 <Input
                   id="totp-code"
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   maxLength={6}
-                  placeholder="123456"
+                  placeholder={t("enrollTotpModal.codePlaceholder")}
                   value={code}
                   onChange={(event) =>
                     setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
@@ -243,7 +234,7 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
             onClick={() => handleOpenChange(false)}
             disabled={verifyMutation.isPending}
           >
-            Cancel
+            {t("enrollTotpModal.cancel")}
           </Button>
           <Button
             onClick={submitCode}
@@ -253,7 +244,9 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
               verifyMutation.isPending
             }
           >
-            {verifyMutation.isPending ? "Verifying…" : "Verify"}
+            {verifyMutation.isPending
+              ? t("enrollTotpModal.verifying")
+              : t("enrollTotpModal.verify")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

@@ -1,8 +1,12 @@
 import type {
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
   LocalListDevicesResult,
   LocalPairedDeviceRecord,
+  LocalPairingFailure,
+  LocalPairingFailureReason,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
@@ -88,9 +92,12 @@ export interface LocalUpgradeResult {
 }
 
 export type { LocalAssistantStatusResult };
-export type { LocalConnectImportResult };
 export type { LocalListDevicesResult };
 export type { LocalPairedDeviceRecord };
+export type { LocalPairingFailure };
+export type { LocalPairingFailureReason };
+export type { LocalPairingPollResult };
+export type { LocalPairingStartResult };
 export type { LocalRevokeDeviceResult };
 export type { LocalUpgradeOptions };
 
@@ -171,6 +178,19 @@ export function isLocalModeHostAvailable(): boolean {
 }
 
 /**
+ * Whether this host serves `/assistant/__local/avatar/{id}`: the Electron main
+ * process and the Vite dev server do; the packaged `vellum client` web host
+ * deliberately does not (its `.vellum` boundary), and its SPA fallback would
+ * answer the request with HTML. `import.meta.env.DEV` is what separates the
+ * dev server from a served build.
+ */
+export function canReadAvatarFromLocalHost(): boolean {
+  return (
+    isLocalModeHostAvailable() && (isElectron() || Boolean(import.meta.env.DEV))
+  );
+}
+
+/**
  * POST a local-mode command and read back its `{ ok, ... }` result. Always
  * resolves, never throws: an unavailable host (no request sent) and a non-JSON
  * response both resolve to `{ ok: false }`.
@@ -180,16 +200,28 @@ async function postLocalCommand<T extends { ok: boolean }>(
   body: unknown,
   unavailableError: string,
 ): Promise<T | { ok: false; error: string }> {
+  return requestLocalCommand<T>(
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    unavailableError,
+  );
+}
+
+async function requestLocalCommand<T extends { ok: boolean }>(
+  path: string,
+  init: RequestInit,
+  unavailableError: string,
+): Promise<T | { ok: false; error: string }> {
   if (!isLocalModeHostAvailable()) {
     return { ok: false, error: unavailableError };
   }
   let res: Response;
   try {
-    res = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    res = await fetch(path, init);
   } catch {
     return { ok: false, error: unavailableError };
   }
@@ -295,6 +327,36 @@ export async function renameLockfileAssistantHost(
 }
 
 /**
+ * Stamp `onboardedAt` on an existing lockfile entry through the host's
+ * update-only operation, for the same reason {@link renameLockfileAssistantHost}
+ * exists: a completion racing a retire must not resurrect the entry from a
+ * stale renderer snapshot. Older Electron hosts that predate the channel
+ * degrade to a structured failure; the stamp still lands in the renderer's
+ * device-scoped record, which is what the routing guards read.
+ */
+export async function stampLockfileAssistantOnboardedHost(
+  assistantId: string,
+  onboardedAt: string,
+): Promise<LockfileWriteResult> {
+  if (isElectron()) {
+    const stamp = window.vellum!.localMode.stampLockfileAssistantOnboarded;
+    if (!stamp) {
+      return {
+        ok: false,
+        error: "Recording onboarding is not supported by this app version",
+      };
+    }
+    return stamp(assistantId, onboardedAt);
+  }
+
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/lockfile",
+    { onboarded: { assistantId, onboardedAt } },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
  * Replace the platform (`cloud === "vellum"`) assistants in the lockfile with
  * the provided set, preserving local assistants. When `organizationId` is
  * given, only that org's platform entries are replaced — other orgs' entries
@@ -368,34 +430,75 @@ export async function unpairAssistantHost(
   );
 }
 
+/** Shared fallback for Electron preloads that predate the pairing channels. */
+const PAIRING_UNSUPPORTED_ERROR =
+  "Connecting a paired assistant is not supported by this app version";
+
 /**
- * Register a pairing bundle printed by `vellum pair` on another machine:
- * persist its guardian token and create a `cloud: "paired"` lockfile entry on
- * this machine, the write counterpart of {@link unpairAssistantHost}. Both
- * hosts run the shared package's `pairAssistant` in a trusted process and
- * return the same `{ ok, assistantId, accessOnly }` contract. Older Electron
- * hosts that predate the IPC channel degrade to a structured unsupported
- * error, mirroring {@link unpairAssistantHost}.
+ * Begin pairing with the assistant at `address`, a pairing link copied from
+ * its "Pair a device" card or a bare `https://host` URL. The device-code
+ * exchange runs in the trusted host, so the renderer holds only the opaque
+ * `handle` (and the approval code to display, when the address carried no
+ * approved code of its own). Older Electron hosts that predate the IPC
+ * channel degrade to a structured unsupported error, mirroring
+ * {@link unpairAssistantHost}.
  */
-export async function connectImportHost(
-  bundle: string,
-  name?: string,
-): Promise<LocalConnectImportResult> {
+export async function pairingStartHost(
+  address: string,
+): Promise<LocalPairingStartResult> {
   if (isElectron()) {
-    const connectImport = window.vellum!.localMode.connectImport;
-    if (!connectImport) {
-      return {
-        ok: false,
-        error:
-          "Connecting a paired assistant is not supported by this app version",
-      };
+    const pairingStart = window.vellum!.localMode.pairingStart;
+    if (!pairingStart) {
+      return { ok: false, error: PAIRING_UNSUPPORTED_ERROR };
     }
-    return connectImport(bundle, name);
+    return pairingStart(address);
   }
 
-  return postLocalCommand<LocalConnectImportResult>(
-    "/assistant/__local/connect-import",
-    { bundle, name },
+  return postLocalCommand<LocalPairingStartResult>(
+    "/assistant/__local/pairing-start",
+    { address },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * One exchange attempt for a live pairing session. An approved code persists
+ * the guardian token and creates a `cloud: "paired"` lockfile entry in the
+ * same call, the write counterpart of {@link unpairAssistantHost}; a still
+ * pending one carries the cadence to wait before the next attempt.
+ */
+export async function pairingPollHost(
+  handle: string,
+  name?: string,
+): Promise<LocalPairingPollResult> {
+  if (isElectron()) {
+    const pairingPoll = window.vellum!.localMode.pairingPoll;
+    if (!pairingPoll) {
+      return { ok: false, error: PAIRING_UNSUPPORTED_ERROR };
+    }
+    return pairingPoll(handle, name);
+  }
+
+  return postLocalCommand<LocalPairingPollResult>(
+    "/assistant/__local/pairing-poll",
+    { handle, name },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * Forget a pending pairing session. Fire-and-forget: a host that never had
+ * the session, or is too old to know the channel, has nothing to drop.
+ */
+export async function pairingCancelHost(handle: string): Promise<void> {
+  if (isElectron()) {
+    await window.vellum!.localMode.pairingCancel?.(handle);
+    return;
+  }
+
+  await postLocalCommand<{ ok: boolean }>(
+    "/assistant/__local/pairing-cancel",
+    { handle },
     LOCAL_HOST_UNAVAILABLE_ERROR,
   );
 }
@@ -478,15 +581,18 @@ export async function sleepLocalAssistantHost(
 }
 
 /**
- * Wake (start/restart) a local assistant's daemon and gateway, re-seeding its
- * guardian token. Both hosts drive the Vellum CLI's `wake` in a trusted
- * process and return the same `{ ok, error }` contract.
+ * Wake (start/restart) a local assistant's daemon and gateway. Both hosts
+ * drive the Vellum CLI's `wake` in a trusted process and return the same
+ * `{ ok, error }` contract.
  *
  * This is the non-destructive repair primitive: it revives a stopped or
- * mis-seeded assistant in place without touching its data or identity, the
+ * unresolved assistant in place without touching its data or identity, the
  * counterpart to {@link retireLocalAssistantHost}'s destructive removal.
- * A plain wake (no options) is the safe auto-repair primitive. Passing
- * `repairGuardian: true` re-provisions the guardian token and revokes the
+ * A plain wake (no options) is the safe auto-repair primitive. It restores a
+ * guardian token only when the current environment's config dir has none
+ * (copied from a sibling environment); a token the gateway rejects at the
+ * `/auth/token` mint survives it untouched, and only `repairGuardian: true`
+ * clears that. That option re-provisions the guardian token and revokes the
  * assistant's other device-bound tokens, so it must only be passed from
  * explicitly user-confirmed flows — never from silent auto-repair paths.
  * Older Electron hosts that predate this IPC channel resolve `wake` as
@@ -579,6 +685,43 @@ export async function getLocalAssistantStatusHost(
       status: res.status,
       error: LOCAL_HOST_UNAVAILABLE_ERROR,
     }
+  );
+}
+
+/**
+ * Read a local assistant's avatar straight off its workspace on disk, so a
+ * sleeping sibling still has an avatar in the chooser. The Electron main
+ * process serves it behind `window.vellum.localMode.readAssistantAvatar`, the
+ * Vite dev server behind `/assistant/__local/avatar/{id}`; both return the
+ * ipc-contract shape. Never throws: an older Electron shell without the
+ * channel, a rejected bridge call, and a host that cannot serve the read
+ * ({@link canReadAvatarFromLocalHost}) all resolve `{ ok: false }`.
+ */
+export async function readAssistantAvatarHost(
+  assistantId: string,
+): Promise<LocalReadAssistantAvatarResult> {
+  if (isElectron()) {
+    const readAssistantAvatar = window.vellum!.localMode.readAssistantAvatar;
+    if (!readAssistantAvatar) {
+      return {
+        ok: false,
+        error: "Assistant avatars are not supported by this app version",
+      };
+    }
+    try {
+      return await readAssistantAvatar(assistantId);
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  }
+
+  if (!canReadAvatarFromLocalHost()) {
+    return { ok: false, error: LOCAL_HOST_UNAVAILABLE_ERROR };
+  }
+  return requestLocalCommand<LocalReadAssistantAvatarResult>(
+    `/assistant/__local/avatar/${encodeURIComponent(assistantId)}`,
+    { method: "GET" },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
   );
 }
 

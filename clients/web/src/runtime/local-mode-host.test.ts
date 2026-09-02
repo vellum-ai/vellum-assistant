@@ -15,14 +15,19 @@ const {
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   unpairAssistantHost,
-  connectImportHost,
+  pairingStartHost,
+  pairingPollHost,
+  pairingCancelHost,
   listPairedDevicesHost,
   revokePairedDeviceHost,
   upgradeLocalAssistantHost,
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
+  readAssistantAvatarHost,
   fetchGuardianTokenHost,
   isLocalModeHostAvailable,
+  canReadAvatarFromLocalHost,
+  requiresGuardianReprovision,
 } = await import("./local-mode-host");
 
 const realFetch = globalThis.fetch;
@@ -38,8 +43,14 @@ beforeEach(() => {
   (window as WindowWithConfig).__VELLUM_CONFIG__ = {};
 });
 
+/** bun aliases `import.meta.env` to `process.env`, so this is the Vite dev flag. */
+function onViteDevHost() {
+  process.env.DEV = "true";
+}
+
 afterEach(() => {
   runningInElectron = false;
+  delete process.env.DEV;
   globalThis.fetch = realFetch;
   delete (window as { vellum?: unknown }).vellum;
   delete (window as WindowWithConfig).__VELLUM_CONFIG__;
@@ -425,26 +436,49 @@ describe("unpairAssistantHost", () => {
   });
 });
 
-describe("connectImportHost", () => {
-  test("web/dev host POSTs the bundle and name to the connect-import middleware", async () => {
-    const fetchMock = mock(async () => ({
-      json: async () => ({ ok: true, assistantId: "desk", accessOnly: false }),
-    }));
+describe("pairing hosts", () => {
+  const started = {
+    ok: true as const,
+    handle: "handle-1",
+    userCode: "ABCD-EFGH",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    intervalSeconds: 5,
+  };
+
+  test("web/dev host POSTs the address to the pairing-start middleware", async () => {
+    const fetchMock = mock(async () => ({ json: async () => started }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    expect(await connectImportHost("eyJnYXRld2F5", "desk")).toEqual({
-      ok: true,
-      assistantId: "desk",
-      accessOnly: false,
-    });
+    expect(await pairingStartHost("https://gw.example.com")).toEqual(started);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
       RequestInit,
     ];
-    expect(url).toBe("/assistant/__local/connect-import");
+    expect(url).toBe("/assistant/__local/pairing-start");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({
-      bundle: "eyJnYXRld2F5",
+      address: "https://gw.example.com",
+    });
+  });
+
+  test("web/dev host POSTs the handle and name to the pairing-poll middleware", async () => {
+    const imported = {
+      ok: true as const,
+      status: "imported" as const,
+      assistantId: "desk",
+      accessOnly: false,
+    };
+    const fetchMock = mock(async () => ({ json: async () => imported }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await pairingPollHost("handle-1", "desk")).toEqual(imported);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/pairing-poll");
+    expect(JSON.parse(init.body as string)).toEqual({
+      handle: "handle-1",
       name: "desk",
     });
   });
@@ -453,45 +487,92 @@ describe("connectImportHost", () => {
     globalThis.fetch = mock(async () => ({
       json: async () => ({
         ok: false,
-        error: "An assistant named 'desk' already exists",
+        reason: "expired",
+        error: "The pairing code expired or was denied.",
       }),
     })) as unknown as typeof fetch;
 
-    expect(await connectImportHost("eyJnYXRld2F5", "desk")).toEqual({
+    expect(await pairingStartHost("https://gw.example.com")).toEqual({
       ok: false,
-      error: "An assistant named 'desk' already exists",
+      reason: "expired",
+      error: "The pairing code expired or was denied.",
     });
   });
 
-  test("Electron host imports through the bridge and never touches fetch", async () => {
-    const connectImport = mock(async () => ({
-      ok: true,
-      assistantId: "paired-dev-1",
-      accessOnly: true,
+  // The renderer localizes a refused address off `rejection`, so the seam has
+  // to carry it rather than leaving only the host's English behind.
+  test("web/dev host carries the address rejection across the seam", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({
+        ok: false,
+        reason: "invalid-address",
+        error: "That address points back at this machine.",
+        rejection: "loopback",
+      }),
+    })) as unknown as typeof fetch;
+
+    expect(await pairingStartHost("https://localhost:7830")).toMatchObject({
+      reason: "invalid-address",
+      rejection: "loopback",
+    });
+  });
+
+  test("Electron host carries the address rejection across the bridge", async () => {
+    setElectronBridge({
+      pairingStart: mock(async () => ({
+        ok: false as const,
+        reason: "invalid-address" as const,
+        error: "That address points back at this machine.",
+        rejection: "loopback" as const,
+      })),
+    });
+
+    expect(await pairingStartHost("https://localhost:7830")).toMatchObject({
+      rejection: "loopback",
+    });
+  });
+
+  test("Electron host pairs through the bridge and never touches fetch", async () => {
+    const pairingStart = mock(async () => started);
+    const pairingPoll = mock(async () => ({
+      ok: true as const,
+      status: "pending" as const,
+      expiresAt: started.expiresAt,
+      intervalSeconds: 5,
     }));
+    const pairingCancel = mock(async () => ({ ok: true }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    setElectronBridge({ connectImport });
+    setElectronBridge({ pairingStart, pairingPoll, pairingCancel });
 
-    expect(await connectImportHost("eyJnYXRld2F5")).toEqual({
-      ok: true,
-      assistantId: "paired-dev-1",
-      accessOnly: true,
+    expect(await pairingStartHost("https://gw.example.com")).toEqual(started);
+    expect(await pairingPollHost("handle-1")).toMatchObject({
+      status: "pending",
     });
-    expect(connectImport).toHaveBeenCalledWith("eyJnYXRld2F5", undefined);
+    await pairingCancelHost("handle-1");
+
+    expect(pairingStart).toHaveBeenCalledWith("https://gw.example.com");
+    expect(pairingPoll).toHaveBeenCalledWith("handle-1", undefined);
+    expect(pairingCancel).toHaveBeenCalledWith("handle-1");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("older Electron shell without the connectImport channel reports an unsupported failure", async () => {
+  test("older Electron shell without the pairing channels reports an unsupported failure", async () => {
     setElectronBridge({});
 
-    expect(await connectImportHost("eyJnYXRld2F5")).toEqual({
-      ok: false,
+    const unsupported = {
+      ok: false as const,
       error:
         "Connecting a paired assistant is not supported by this app version",
-    });
+    };
+    expect(await pairingStartHost("https://gw.example.com")).toEqual(
+      unsupported,
+    );
+    expect(await pairingPollHost("handle-1")).toEqual(unsupported);
+    // Cancelling has nothing to drop on a host that never held the session.
+    expect(await pairingCancelHost("handle-1")).toBeUndefined();
   });
 });
 
@@ -757,6 +838,107 @@ describe("getLocalAssistantStatusHost", () => {
   });
 });
 
+describe("readAssistantAvatarHost", () => {
+  test("web/dev host GETs the avatar middleware and returns its JSON", async () => {
+    onViteDevHost();
+    const avatar = {
+      kind: "character" as const,
+      traits: { bodyShape: "round", eyeStyle: "dot", color: "#123456" },
+    };
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, avatar }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await readAssistantAvatarHost("a 1")).toEqual({ ok: true, avatar });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/avatar/a%201");
+    expect(init.method).toBe("GET");
+  });
+
+  test("Electron host reads the avatar through the bridge and never touches fetch", async () => {
+    const readAssistantAvatar = mock(async () => ({
+      ok: true,
+      avatar: { kind: "image", imageBase64: "AAAA" },
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ readAssistantAvatar });
+
+    expect(await readAssistantAvatarHost("a-1")).toEqual({
+      ok: true,
+      avatar: { kind: "image", imageBase64: "AAAA" },
+    });
+    expect(readAssistantAvatar).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the channel resolves ok:false without throwing", async () => {
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({});
+
+    const result = await readAssistantAvatarHost("a-1");
+
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a rejected Electron bridge call resolves ok:false instead of throwing", async () => {
+    setElectronBridge({
+      readAssistantAvatar: mock(async () => {
+        throw new Error("ipc channel closed");
+      }),
+    });
+
+    expect(await readAssistantAvatarHost("a-1")).toEqual({
+      ok: false,
+      error: "Error: ipc channel closed",
+    });
+  });
+
+  test("the packaged CLI web host issues no request: it has no avatar endpoint", async () => {
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the CLI host");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await readAssistantAvatarHost("a-1");
+
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("canReadAvatarFromLocalHost", () => {
+  test("is true on the Electron host", () => {
+    runningInElectron = true;
+    expect(canReadAvatarFromLocalHost()).toBe(true);
+  });
+
+  test("is true on the Vite dev host", () => {
+    onViteDevHost();
+    expect(canReadAvatarFromLocalHost()).toBe(true);
+  });
+
+  test("is false on the packaged CLI web host", () => {
+    expect(canReadAvatarFromLocalHost()).toBe(false);
+  });
+
+  test("is false when no local-mode host is available", () => {
+    onViteDevHost();
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    expect(canReadAvatarFromLocalHost()).toBe(false);
+  });
+});
+
 describe("fetchGuardianTokenHost", () => {
   test("web/dev host GETs the guardian-token middleware and returns the access token", async () => {
     const fetchMock = mock(async () => ({
@@ -811,6 +993,30 @@ describe("fetchGuardianTokenHost", () => {
     expect(err).toBeInstanceOf(GuardianTokenError);
     expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(500);
     expect((err as Error).message).toBe("refresh failed");
+  });
+});
+
+describe("requiresGuardianReprovision", () => {
+  test("true only for a missing (404) or spent (401) guardian token", () => {
+    expect(requiresGuardianReprovision(new GuardianTokenError(401, "x"))).toBe(
+      true,
+    );
+    expect(requiresGuardianReprovision(new GuardianTokenError(404, "x"))).toBe(
+      true,
+    );
+  });
+
+  test("false for an unreachable gateway or a loopback-boundary refusal", () => {
+    expect(requiresGuardianReprovision(new GuardianTokenError(503, "x"))).toBe(
+      false,
+    );
+    expect(requiresGuardianReprovision(new GuardianTokenError(500, "x"))).toBe(
+      false,
+    );
+    expect(requiresGuardianReprovision(new GuardianTokenError(403, "x"))).toBe(
+      false,
+    );
+    expect(requiresGuardianReprovision(new Error("x"))).toBe(false);
   });
 });
 
@@ -879,6 +1085,25 @@ describe("web/dev transport resilience", () => {
     globalThis.fetch = nonJsonResponse();
     const result = await getLocalAssistantStatusHost("a-1");
     expect(result.ok).toBe(false);
+  });
+
+  test("avatar returns a failure result instead of throwing on a non-JSON body", async () => {
+    onViteDevHost();
+    globalThis.fetch = nonJsonResponse();
+    const result = await readAssistantAvatarHost("a-1");
+    expect(result.ok).toBe(false);
+  });
+
+  test("avatar short-circuits without a request when no local-mode host is available", async () => {
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run when the host is unavailable");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await readAssistantAvatarHost("a-1");
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("status short-circuits without a request when no local-mode host is available", async () => {

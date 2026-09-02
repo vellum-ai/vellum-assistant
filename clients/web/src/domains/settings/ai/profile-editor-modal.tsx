@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -11,7 +13,7 @@ import {
   type ProfileEditorMode,
 } from "@/domains/settings/ai/use-profile-editor";
 import type {
-  ProfilePatchEntry,
+  ProfilePatchEntryWritable,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
@@ -44,7 +46,7 @@ export interface ProfileEditorModalProps {
   /** See `UseProfileEditorArgs.onSave` for the merge/replace contract. */
   onSave: (
     name: string,
-    entry: ProfilePatchEntry,
+    entry: ProfilePatchEntryWritable,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   onCancel: () => void;
@@ -105,6 +107,11 @@ function ProfileEditorModalInner({
   onCancel,
 }: ProfileEditorModalInnerProps) {
   const { t } = useTranslation("settings");
+  // The model-first list is portaled, so the dialog holds it by saying where
+  // it ends rather than by where the list is rendered. The body is the box to
+  // name: its bottom edge is the footer's top, so a list kept inside it is a
+  // list kept off Cancel and Save.
+  const [bodyElement, setBodyElement] = useState<HTMLDivElement | null>(null);
   const editor = useProfileEditor({
     mode,
     profileName,
@@ -117,7 +124,7 @@ function ProfileEditorModalInner({
 
   const modalTitle =
     editor.effectiveMode === "create"
-      ? t("profileEditorModal.newProfileTitle")
+      ? t("profileEditorModal.createTitle")
       : editor.effectiveMode === "edit"
         ? t("profileEditorModal.editProfileTitle")
         : (initialValues?.label ??
@@ -137,12 +144,13 @@ function ProfileEditorModalInner({
         )}
       </Modal.Header>
 
-      <Modal.Body>
+      <Modal.Body ref={setBodyElement}>
         <ProfileEditorFields
           editor={editor}
           assistantId={assistantId}
           connections={connections}
           variant="modal"
+          menuBoundary={bodyElement}
         />
       </Modal.Body>
 

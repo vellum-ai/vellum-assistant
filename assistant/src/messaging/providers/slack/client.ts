@@ -22,7 +22,6 @@ import type {
   SlackConversationsListResponse,
   SlackConversationsOpenResponse,
   SlackPostMessageResponse,
-  SlackReactionsAddResponse,
   SlackSearchMessagesResponse,
   SlackUserInfoResponse,
   SlackUsersListResponse,
@@ -219,20 +218,6 @@ export async function searchMessages(
       count: String(count),
       page: String(page),
     },
-  );
-}
-
-export async function addReaction(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-  timestamp: string,
-  name: string,
-): Promise<SlackReactionsAddResponse> {
-  return request<SlackReactionsAddResponse>(
-    connectionOrToken,
-    "reactions.add",
-    undefined,
-    { channel, timestamp, name },
   );
 }
 

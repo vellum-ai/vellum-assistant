@@ -41,7 +41,10 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { VALID_CONNECTION_PROVIDERS } from "./inference/auth.js";
+import {
+  ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
+} from "./inference/auth.js";
 import {
   canonicalVellumConnection,
   getConnection,
@@ -49,6 +52,7 @@ import {
 } from "./inference/connections.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
+import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import {
@@ -64,6 +68,7 @@ import {
 } from "./vellum-model-routing.js";
 
 export { ConnectionResolutionError, resolveRoutingIdentity };
+export { dispatchProviderResolvable } from "./provider-resolvability.js";
 
 const log = getLogger("providers/connection-resolution");
 
@@ -113,23 +118,6 @@ export function writableProfileProviderIssue(provider: string): string | null {
     // Unverifiable: fall through to the rejection.
   }
   return `Invalid provider "${provider}". Use a known provider or the name of an existing connection.`;
-}
-
-/**
- * Selection-time predicate for `ResolveCallSiteOpts.isResolvableProvider`:
- * a provider value dispatches when it is a known vendor/identity or names a
- * connection entry row. Permissive on DB unavailability so a transient blip
- * never heals away a valid entry profile; dispatch soft-fails on its own.
- */
-export function dispatchProviderResolvable(provider: string): boolean {
-  if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
-    return true;
-  }
-  try {
-    return getConnection(getDb(), provider) != null;
-  } catch {
-    return true;
-  }
 }
 
 /**
@@ -191,6 +179,25 @@ export function resolveEntryProviderKind(
 ): string | null {
   const entryName = resolveEntryConnectionName(provider);
   return entryName ? connectionProviderKind(entryName, model) : null;
+}
+
+/**
+ * The catalog provider whose model limits judge a profile's (provider,
+ * model) pair: routing identities translate to their concrete upstream
+ * (chatgpt serves the OpenAI catalog; a vellum profile's bare native model
+ * names its managed owner), and an entry-name label resolves to its row's
+ * dispatchable kind. Null when no upstream is derivable (the pair stays
+ * unjudged). Shared by the profile-route budget validation and profile
+ * materialization so the two cannot drift.
+ */
+export function catalogProviderForProfile(
+  provider: string,
+  model: string,
+): string | null {
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    return provider === "chatgpt" ? "openai" : getManagedUpstream(model);
+  }
+  return resolveEntryProviderKind(provider, model) ?? provider;
 }
 
 /**
@@ -380,9 +387,23 @@ export async function tryResolveProviderForConnectionName(
     });
     return attachProviderRoute(provider, connection);
   } catch (err) {
+    if (err instanceof ConnectionResolutionError) {
+      throw err;
+    }
+    if (
+      err instanceof Error &&
+      /unresolved routing identity/.test(err.message)
+    ) {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "adapter_unavailable",
+        err.message,
+        { cause: err, model },
+      );
+    }
     log.warn(
       { err, connectionName },
-      "provider_connection auth resolution failed transiently — returning null",
+      "provider_connection auth resolution failed transiently: returning null",
     );
     return null;
   }
@@ -450,6 +471,20 @@ async function resolveThroughPlatform(
       { model, providerOverride: upstream },
     );
   } catch (err) {
+    if (err instanceof ConnectionResolutionError) {
+      throw err;
+    }
+    if (
+      err instanceof Error &&
+      /unresolved routing identity/.test(err.message)
+    ) {
+      throw new ConnectionResolutionError(
+        VELLUM_MANAGED_CONNECTION_NAME,
+        "adapter_unavailable",
+        err.message,
+        { cause: err, model },
+      );
+    }
     log.warn({ err }, "Platform fallback auth resolution failed transiently");
     return null;
   }
@@ -706,7 +741,8 @@ export async function preflightResolvedConfig(
 
   switch (connection.auth.type) {
     case "api_key":
-    case "oauth_subscription": {
+    case "oauth_subscription":
+    case "service_account": {
       const presence = await checkCredentialPresence(
         connection.auth.credential,
       );

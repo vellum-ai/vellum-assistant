@@ -17,7 +17,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Brain, Loader2, MoreHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { Button, Menu, Typography } from "@vellumai/design-library";
 
@@ -34,7 +34,11 @@ import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
-import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
+import {
+  invalidateSkillsList,
+  isRemovableSkill,
+  skillDetailBackState,
+} from "@/utils/skills";
 
 interface SkillDetailPanelProps {
   skillId: string;
@@ -44,6 +48,7 @@ interface SkillDetailPanelProps {
 export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
@@ -108,8 +113,8 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
           ) : undefined
         }
         Glyph={Brain}
-        title={skill?.name ?? "Skill"}
-        closeLabel="Close skill details"
+        title={skill?.name ?? t("skillDetailPanel.titleFallback")}
+        closeLabel={t("skillDetailPanel.closeDetails")}
         onClose={onClose}
         headerActions={
           removable ? (
@@ -131,7 +136,7 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
                   leftIcon={<Trash2 size={14} />}
                   onSelect={() => setConfirmingRemoval(true)}
                 >
-                  Remove skill
+                  {t("skillDetailPanel.removeSkill")}
                 </Menu.Item>
               </Menu.Content>
             </Menu.Root>
@@ -139,8 +144,17 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
         }
         footer={
           <div className="flex justify-end">
-            <Button onClick={() => navigate(routes.skills.detail(skillId))}>
-              Go to Skill
+            <Button
+              onClick={() => {
+                // Close the in-place panel before handing off to the
+                // dedicated page, which supersedes it.
+                onClose();
+                navigate(routes.skills.detail(skillId), {
+                  state: skillDetailBackState(location),
+                });
+              }}
+            >
+              {t("skillDetailPanel.goToSkill")}
             </Button>
           </div>
         }
@@ -156,7 +170,7 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
             as="p"
             className="py-8 text-center text-[var(--content-tertiary)]"
           >
-            This skill could not be loaded. It may have been removed.
+            {t("skillDetailPanel.loadError")}
           </Typography>
         ) : isLoading ? (
           <div className="flex items-center justify-center py-8">

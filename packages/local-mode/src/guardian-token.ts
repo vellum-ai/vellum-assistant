@@ -2,6 +2,11 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  isDnsIndependentLoopbackUrl,
+  isLoopbackPublicUrl,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import { guardianTokenPath, resolveConfigDirPaths } from "./config";
 import type { CliInvocation } from "./util";
 
@@ -51,54 +56,42 @@ export function saveGuardianToken(
 
 /**
  * The guardian refresh token is long-lived and replayable, so it is only
- * transmitted over a confidential channel: HTTPS, or a loopback host (local
- * dev, or a same-host reverse proxy / tunnel agent). Refreshing against a
- * non-loopback plaintext `http://` URL is refused; an on-path attacker could
- * otherwise capture the refresh token and rotate it into fresh credentials.
+ * transmitted over a confidential channel: HTTPS, or a host that stays on this
+ * machine whatever DNS answers (local dev, or a same-host reverse proxy /
+ * tunnel agent). Refreshing against any other plaintext `http://` URL is
+ * refused; an on-path attacker could otherwise capture the refresh token and
+ * rotate it into fresh credentials.
  *
  * A user-chosen malicious `https://` destination is intentionally out of
  * scope: HTTPS protects the channel, and the access token already goes
  * wherever the configured URL points. This guard targets the
  * plaintext-interception vector.
  */
-function isLoopbackHostname(hostname: string): boolean {
-  // Strip URL brackets so IPv6 forms compare on the bare address.
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return (
-    h === "localhost" ||
-    h === "::1" ||
-    h === "0:0:0:0:0:0:0:1" ||
-    /^127(?:\.\d{1,3}){3}$/.test(h) ||
-    // Wildcard hosts reach a local listener when dialed (0.0.0.0 / ::), so
-    // they count as local for both the refresh-channel and pairing guards.
-    h === "0.0.0.0" ||
-    h === "0" ||
-    h === "::" ||
-    h === "0:0:0:0:0:0:0:0" ||
-    // IPv4-mapped loopback and wildcard, in dotted and hex encodings.
-    /^(?:0:0:0:0:0|:):ffff:127(?:\.\d{1,3}){3}$/.test(h) ||
-    /^(?:0:0:0:0:0|:):ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(h) ||
-    /^(?:0:0:0:0:0|:):ffff:0\.0\.0\.0$/.test(h) ||
-    /^(?:0:0:0:0:0|:):ffff:0:0$/.test(h)
-  );
-}
-
 export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
   try {
-    const url = new URL(gatewayUrl);
-    return url.protocol === "https:" || isLoopbackHostname(url.hostname);
+    return (
+      new URL(gatewayUrl).protocol === "https:" ||
+      // The narrow loopback set, not {@link isLoopbackUrl}: this grants a
+      // plaintext channel the trust of an encrypted one, and a reserved
+      // `*.localhost` name resolves to whatever DNS says on a resolver that
+      // does not implement RFC 6761, which would put the refresh token on the
+      // wire to an arbitrary address.
+      isDnsIndependentLoopbackUrl(gatewayUrl)
+    );
   } catch {
     return false;
   }
 }
 
-/** Whether a URL's host is loopback; false for unparseable URLs. */
+/**
+ * Whether a URL's host is loopback, judged wide; false for unparseable URLs.
+ * Delegates to the shared pairing predicate so this package's refusals and the
+ * address checks in `@vellumai/service-contracts` judge a host by the same
+ * rules. Callers refuse what this matches; a caller granting loopback a
+ * privilege reads `isDnsIndependentLoopbackUrl` instead.
+ */
 export function isLoopbackUrl(url: string): boolean {
-  try {
-    return isLoopbackHostname(new URL(url).hostname);
-  } catch {
-    return false;
-  }
+  return isLoopbackPublicUrl(url);
 }
 
 function isAccessTokenExpired(data: GuardianTokenData): boolean {
@@ -116,6 +109,71 @@ function isRefreshTokenExpired(data: GuardianTokenData): boolean {
 export type TokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; status: number; error: string };
+
+/**
+ * Prefix of the machine-readable line `vellum gateway token refresh` writes
+ * to stderr on failure so hosts can distinguish a spent credential (401)
+ * from an unreachable gateway (503) without scraping the human message.
+ */
+export const GUARDIAN_REFRESH_ERROR_PREFIX = "VELLUM_REFRESH_ERROR=";
+
+/** Encode a structured refresh failure for the CLI's stderr. */
+export function formatGuardianRefreshCliFailure(
+  status: number,
+  error: string,
+): string {
+  return `${GUARDIAN_REFRESH_ERROR_PREFIX}${JSON.stringify({ status, error })}`;
+}
+
+/**
+ * Read the structured status out of a failed `vellum gateway token refresh`.
+ * An unlabeled non-zero exit defaults to 503: this spawn only runs when the
+ * on-disk refresh token is still unexpired, so a bare CLI failure is an
+ * unreachable or still-starting gateway, not a spent credential.
+ */
+export function parseGuardianRefreshCliFailure(
+  stdout: string,
+  stderr: string,
+): TokenResult {
+  const blob = `${stderr}\n${stdout}`;
+  for (const line of blob.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(GUARDIAN_REFRESH_ERROR_PREFIX)) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(
+        trimmed.slice(GUARDIAN_REFRESH_ERROR_PREFIX.length),
+      );
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        !("status" in parsed) ||
+        typeof (parsed as { status: unknown }).status !== "number"
+      ) {
+        continue;
+      }
+      const status = (parsed as { status: number }).status;
+      if (status < 400 || status > 599) {
+        continue;
+      }
+      const errorText =
+        "error" in parsed &&
+        typeof (parsed as { error: unknown }).error === "string" &&
+        (parsed as { error: string }).error.trim() !== ""
+          ? (parsed as { error: string }).error
+          : "Failed to refresh guardian token";
+      return { ok: false, status, error: errorText };
+    } catch {
+      // Keep scanning; a later well-formed line still wins.
+    }
+  }
+  return {
+    ok: false,
+    status: 503,
+    error: "Failed to refresh guardian token",
+  };
+}
 
 export interface GuardianTokenOptions {
   /**
@@ -277,14 +335,21 @@ function refreshToken(
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, "gateway", "token", "refresh", assistantId],
-      { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: { ...process.env, ...env },
+      },
     );
 
     let stdout = "";
+    let stderr = "";
     let done = false;
 
     const finish = (result: TokenResult) => {
-      if (done) return;
+      if (done) {
+        return;
+      }
       done = true;
       clearTimeout(timeout);
       resolve(result);
@@ -303,6 +368,10 @@ function refreshToken(
       stdout += chunk.toString();
     });
 
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
     child.on("close", (code) => {
       if (code === 0) {
         const accessToken = stdout.trim();
@@ -312,11 +381,11 @@ function refreshToken(
           finish({ ok: false, status: 500, error: "CLI returned empty token" });
         }
       } else {
-        finish({
-          ok: false,
-          status: 401,
-          error: "Failed to refresh guardian token",
-        });
+        // This spawn only runs when the on-disk refresh token is still
+        // unexpired. A non-zero CLI exit is therefore a transport or
+        // gateway-availability failure unless the CLI labels a spent
+        // credential (401) or a local confidentiality refusal (403).
+        finish(parseGuardianRefreshCliFailure(stdout, stderr));
       }
     });
 

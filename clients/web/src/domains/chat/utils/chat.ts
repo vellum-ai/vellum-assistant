@@ -18,6 +18,11 @@ import {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { PendingToolConfirmation } from "@vellumai/assistant-api";
 import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
+import { t } from "@/i18n";
+import {
+  clientOsDisplayName,
+  detectClientOs,
+} from "@/runtime/platform-detection";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
@@ -55,6 +60,12 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // the wire payload has no `conversationId` and the conversation gate
   // would drop it.
   "contact_request",
+  // Same for the record form: the CLI can propose a contact write from a
+  // settings or skill flow with no conversation binding.
+  "contact_record_request",
+  // Retires whichever contact form timed out; global for the same reason the
+  // forms themselves are.
+  "contact_form_closed",
   // Subagent lifecycle events route by `subagentId` into the global subagent
   // store, not by the parent stream's `conversationId`. They carry
   // `parentConversationId` (spawn) or nothing (`subagent_status_changed`) at the
@@ -142,6 +153,11 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // *different* conversation), so gate them as global rather than through the
   // conversation-id filter.
   "notification_conversation_created",
+  // A watch session's retrospective finishing announces a conversation other
+  // than the active one: the report lands in the session's own background
+  // thread, and the user is by definition working somewhere else when a session
+  // ends. Routed by session id rather than against the open conversation.
+  "watch_retro_completed",
   "recording_start",
   "recording_stop",
   "recording_pause",
@@ -260,8 +276,6 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "stt-unavailable":
     "Speech-to-text is temporarily unavailable. Try again in a moment.",
   "stt-timeout": "Transcription took too long. Try a shorter recording.",
-  "native-stt-no-transcript":
-    "macOS dictation didn’t return a transcript. Make sure Dictation is turned on in System Settings → Keyboard → Dictation, then try again.",
   "dictation-automation-denied":
     "Dictation needs Automation permission to paste into other apps.",
   "dictation-paste-blocked":
@@ -269,6 +283,14 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 export function formatVoiceError(code: string): string {
+  if (code === "native-stt-no-transcript") {
+    return t("chat:voiceErrors.nativeSttNoTranscript", {
+      clientName: clientOsDisplayName(detectClientOs()),
+    });
+  }
+  if (code === "voice-ask-unavailable") {
+    return t("chat:voiceErrors.askUnavailable");
+  }
   return (
     VOICE_ERROR_MESSAGES[code] ??
     `Voice input failed (${code}). Try again or type your message.`
@@ -529,7 +551,6 @@ export function toolCallToRuleContext(
     input: tc.input ?? {},
     allowlistOptions: tc.riskAllowlistOptions ?? [],
     scopeOptions: tc.scopeOptions ?? [],
-    directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
     matchedTrustRuleId: tc.matchedTrustRuleId,
   };
 }

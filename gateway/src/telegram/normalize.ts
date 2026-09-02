@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ChannelConversationType } from "@vellumai/gateway-client";
+
 import type {
   Audio,
   CallbackQuery,
@@ -18,6 +20,30 @@ import type {
   ModeledKeysAreOfficial,
   OfficialValueSatisfiesOurs,
 } from "../webhook-crosscheck.js";
+
+/**
+ * How visible a Telegram chat is, on the permission matrix's axis.
+ *
+ * `channel` is Telegram's word for a broadcast feed rather than a room, and it
+ * is deliberately unmapped: nothing in the product addresses one yet, and
+ * calling it public would let a rule written for conversational rooms govern a
+ * surface that is not a conversation.
+ *
+ * @see https://core.telegram.org/bots/api#chat
+ */
+export function telegramConversationType(
+  chatType: string | undefined,
+): ChannelConversationType | undefined {
+  switch (chatType) {
+    case "private":
+      return "dm";
+    case "group":
+    case "supergroup":
+      return "private";
+    default:
+      return undefined;
+  }
+}
 
 // Telegram webhook payloads are untrusted external input (Telegram Bot API).
 // These schemas validate the *types* of the nested fields the normalizer reads
@@ -176,6 +202,7 @@ export function normalizeTelegramUpdate(
       sourceChannel: "telegram",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "button",
         content: cbq.data,
         conversationExternalId: chatId,
         externalMessageId: String(updateId),
@@ -198,6 +225,13 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
+        // Non-private chats were rejected above, so one human reader is proven.
+        isDirectMessage: true,
+        ...(telegramConversationType(cbq.message.chat.type)
+          ? {
+              conversationType: telegramConversationType(cbq.message.chat.type),
+            }
+          : {}),
         ...(callbackThreadId ? { threadId: callbackThreadId } : {}),
       },
       raw: payload,
@@ -287,11 +321,11 @@ export function normalizeTelegramUpdate(
     sourceChannel: "telegram",
     receivedAt: new Date().toISOString(),
     message: {
+      eventKind: isEdit ? "edit" : "message",
       content,
       conversationExternalId: String(message.chat.id),
       externalMessageId: String(updateId),
       ...(attachments.length > 0 ? { attachments } : {}),
-      ...(isEdit ? { isEdit: true } : {}),
     },
     actor: {
       actorExternalId,
@@ -307,6 +341,11 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
+      // Non-private chats were rejected above, so one human reader is proven.
+      isDirectMessage: true,
+      ...(telegramConversationType(message.chat.type)
+        ? { conversationType: telegramConversationType(message.chat.type) }
+        : {}),
       ...(topicThreadId ? { threadId: topicThreadId } : {}),
     },
     raw: payload,

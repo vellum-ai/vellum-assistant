@@ -1,12 +1,25 @@
-import { describe, test, expect, mock } from "bun:test";
+import { afterEach, describe, test, expect, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
-import {
-  createSttStreamWebsocketHandler,
-  getSttStreamWebsocketHandlers,
-  type SttStreamSocketData,
-} from "../http/routes/stt-stream-websocket.js";
+
+// Dictation is NOT a guardian-only surface. The binding lookup is mocked to a
+// principal that no token below matches, so any consultation of it would
+// refuse every case in this file. Mocked before the module under test is
+// imported, the way the guardian-only handlers' tests do it.
+const mockFindVellumGuardian = mock(
+  async (): Promise<{ principalId: string } | null> => ({
+    principalId: "somebody-who-is-not-the-caller",
+  }),
+);
+mock.module("../auth/guardian-bootstrap.js", () => ({
+  findVellumGuardian: () => mockFindVellumGuardian(),
+}));
+
+const { createSttStreamWebsocketHandler, getSttStreamWebsocketHandlers } =
+  await import("../http/routes/stt-stream-websocket.js");
+import type { SttStreamSocketData } from "../http/routes/stt-stream-websocket.js";
+import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -385,5 +398,152 @@ describe("getSttStreamWebsocketHandlers", () => {
     handlers.close(ws as never, 1000, "normal");
 
     expect(fakeUpstream.close).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The regression guard for the watch stream's guardian pin.
+ *
+ * `/v1/watch/stream` opts into `guardian-pin` because it reads the owner's
+ * screen. Dictation is the user's own words going to a transcriber and back,
+ * so it takes any valid actor, and the shared authorization the two routes
+ * share must not quietly acquire the pin on this one's behalf.
+ *
+ * The mock at the top of this file binds the guardian to a principal none of
+ * these tokens carry, so a pin appearing here would turn every upgrade into a
+ * 403 and this describe into a wall of failures.
+ */
+describe("dictation is not a guardian-only surface", () => {
+  test("admits an actor who is not the bound guardian", async () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${mintEdgeToken("some-other-actor")}&mimeType=audio/webm`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+
+    expect(handler(req, server)).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("never consults the guardian binding at all", async () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${mintEdgeToken("some-other-actor")}&mimeType=audio/webm`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    handler(req, makeFakeServer());
+
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The upgrade handler stays synchronous. Awaiting a binding lookup is what
+   * would make it async, so the signature is itself evidence of the posture.
+   */
+  test("stays a synchronous upgrade handler", () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${mintEdgeToken()}&mimeType=audio/webm`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    const result = handler(req, makeFakeServer());
+
+    expect(result).not.toBeInstanceOf(Promise);
+  });
+});
+
+/**
+ * The managed path, where velay validated the browser's own token and
+ * attested the caller to the bridge. There is no edge JWT on it, so requiring
+ * one rejected every managed caller: the socket opened at velay and closed at
+ * the loopback with an open failure, which the browser saw as a 1014.
+ *
+ * No guardian cross-check, unlike live voice and watch. Dictation admits any
+ * valid actor, and velay only mints a token for a user with access to this
+ * assistant, which is the same standing an actor token proves.
+ */
+describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
+  const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+  const VELAY_ORG_ID = "22222222-2222-2222-2222-222222222222";
+
+  afterEach(() => {
+    delete process.env.IS_PLATFORM;
+  });
+
+  const managedUpgrade = ({
+    bridgeProof = true,
+    orgId = VELAY_ORG_ID as string | null,
+    token,
+    managed = true,
+  }: {
+    bridgeProof?: boolean;
+    orgId?: string | null;
+    token?: string;
+    managed?: boolean;
+  }) => {
+    if (managed) {
+      process.env.IS_PLATFORM = "true";
+    } else {
+      delete process.env.IS_PLATFORM;
+    }
+    const headers = new Headers({
+      upgrade: "websocket",
+      "x-velay-user-id": VELAY_USER_ID,
+      "x-velay-actor": "user",
+    });
+    if (orgId !== null) {
+      headers.set("x-velay-org-id", orgId);
+    }
+    if (bridgeProof) {
+      setVelayBridgeAuthHeader(headers);
+    }
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const query = token ? `&token=${token}` : "";
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?mimeType=audio/pcm${query}`,
+      { headers },
+    );
+    const server = makeFakeServer();
+    return { res: handler(req, server), server };
+  };
+
+  test("admits an attested caller with the bridge proof and no token", () => {
+    const { res, server } = managedUpgrade({});
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A direct request to a reachable gateway can spoof the header names. It
+   * cannot know the process-local bridge proof, which is what says the request
+   * really arrived through this gateway's own loopback bridge.
+   */
+  test("ignores spoofed velay headers with no bridge proof", () => {
+    const { res, server } = managedUpgrade({ bridgeProof: false });
+
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("falls through to the token path on an incomplete attestation", () => {
+    const { res, server } = managedUpgrade({
+      orgId: null,
+      token: mintEdgeToken(),
+    });
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  /** The attestation means nothing off the platform: only the token does. */
+  test("ignores velay headers on a self-hosted gateway", () => {
+    const { res, server } = managedUpgrade({ managed: false });
+
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
   });
 });

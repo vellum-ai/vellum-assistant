@@ -61,6 +61,14 @@ export const ApprovalUIMetadataSchema = z.object({
   actions: z.array(ApprovalActionOptionSchema),
   plainTextFallback: z.string(),
   permissionDetails: PermissionRequestDetailsSchema.optional(),
+  /**
+   * What the recipient is being asked to do, so a renderer can head the card
+   * with the right verb. Resolved once by the producer; a renderer that reads
+   * the actions to work it out would be parsing a payload it is meant only to
+   * draw. Absent means an approval, which is what every existing producer
+   * sends and what a renderer without this field already assumes.
+   */
+  intent: z.enum(["approval", "question"]).optional(),
 });
 
 export type ApprovalUIMetadata = z.infer<typeof ApprovalUIMetadataSchema>;
@@ -86,75 +94,155 @@ export const SlackStreamTaskSchema = z.object({
 
 export type SlackStreamTask = z.infer<typeof SlackStreamTaskSchema>;
 
+// ---------------------------------------------------------------------------
+// Audience
+// ---------------------------------------------------------------------------
+
 /**
- * A single Slack streaming operation, mapping directly onto the
- * `chat.startStream` / `chat.appendStream` / `chat.stopStream` Web API methods.
+ * Restricts a message to a single reader in a room that has more.
  *
- * `start` opens a streamed reply on a thread and returns the stream `ts`;
- * `append` adds markdown (and optional task cards) to that stream; `stop`
- * finalizes it, optionally rendering rich Block Kit blocks below the streamed
- * body. Blocks are only accepted on `stop` — during the stream, Slack renders
- * the `markdownText` natively.
- *
- * @see https://docs.slack.dev/reference/methods/chat.startStream/
- * @see https://docs.slack.dev/reference/methods/chat.appendStream/
- * @see https://docs.slack.dev/reference/methods/chat.stopStream/
+ * A single object rather than a flag beside an id, because the two are only
+ * meaningful together: a channel cannot address one reader without knowing
+ * which. Slack reads this as `chat.postEphemeral`; a channel whose rooms hold
+ * one reader already has nothing to do.
  */
-export const SlackStreamOpSchema = z
+export const MessageAudienceSchema = z.object({
+  kind: z.literal("oneReader"),
+  /** The reader, in the channel's own id space. */
+  userId: z.string(),
+  /**
+   * The organization the reader belongs to, for a channel whose user ids are
+   * only unique within one.
+   *
+   * Not every channel federates. Telegram and Discord user ids are global and
+   * ignore this; Slack ids are scoped to a workspace, and a guest reaching a
+   * shared channel from another one is only identified by the pair. A channel
+   * that needs it and does not get it cannot address the reader, so it treats
+   * the audience as unexpressible rather than guessing.
+   */
+  userOrgId: z.string().optional(),
+});
+
+export type MessageAudience = z.infer<typeof MessageAudienceSchema>;
+
+// ---------------------------------------------------------------------------
+// Streaming a reply that grows
+// ---------------------------------------------------------------------------
+
+/**
+ * One step of a plan carried alongside a growing reply: an ordered,
+ * status-bearing unit of work the assistant reports while a turn runs.
+ *
+ * The vocabulary is the assistant's own `task_progress` surface rather than any
+ * channel's, so a channel that renders plans natively converts on its way out
+ * and a channel that cannot writes them as text. Slack's `task_update` chunk
+ * spells two of these statuses differently and its transport translates.
+ */
+export const StreamPlanStepSchema = z.object({
+  label: z.string(),
+  status: z.enum(["pending", "in_progress", "completed", "failed"]),
+  detail: z.string().optional(),
+});
+
+export type StreamPlanStep = z.infer<typeof StreamPlanStepSchema>;
+
+/** A plan shown with a growing reply: an optional title over ordered steps. */
+export const StreamPlanSchema = z.object({
+  title: z.string().optional(),
+  steps: z.array(StreamPlanStepSchema),
+});
+
+export type StreamPlan = z.infer<typeof StreamPlanSchema>;
+
+/**
+ * One operation on a reply that grows while the turn runs.
+ *
+ * Channels that can do this disagree on what the growing thing *is*, and the
+ * split is preview versus persist. Slack streams the reply itself:
+ * `chat.startStream` opens the message that will remain, and `chat.stopStream`
+ * finalizes it in place. Telegram streams a live draft, which is ephemeral,
+ * expires on its own, and never becomes the reply; the reply is persisted
+ * afterwards by an ordinary send. Discord has no primitive for either and
+ * omits `streamReply`, so the caller sends the finished reply and nothing is
+ * simulated on its behalf.
+ *
+ * That is why every operation carries both `text`, the whole of what the reply
+ * now reads as, and `appended`, only what is new since the last operation.
+ * Slack's append takes the delta; Telegram's draft takes the partial text and
+ * lets its clients animate the difference. Neither channel has to know which
+ * kind the other is, and a third can read whichever it needs.
+ *
+ * `text` is required on every operation because a channel that rewrites needs
+ * it on every one, and it is what the reply reads as rather than what this
+ * operation changed: absent is never the right answer, where empty can be.
+ * `appended` is what moved, so it is absent when only the plan did.
+ *
+ * `start` opens the growing reply and returns a `streamId` in the channel's
+ * own id space; `append` advances it; `stop` ends it. What `stop` leaves
+ * behind differs by channel, which is why it carries the complete reply rather
+ * than a remainder: a channel that finalized in place has already shown it,
+ * and a channel whose preview evaporates needs it to send the real message.
+ */
+export const StreamOpSchema = z
   .discriminatedUnion("action", [
     z.object({
       action: z.literal("start"),
-      threadTs: z.string(),
-      markdownText: z.string().optional(),
-      taskDisplayMode: z.literal("plan").optional(),
-      /** Title of the plan block, serialized as a `plan_update` chunk. */
-      planTitle: z.string().optional(),
-      tasks: z.array(SlackStreamTaskSchema).optional(),
       /**
-       * Slack user ID of the reader the stream targets. Required by
-       * `chat.startStream` when streaming into a channel; omitted for DMs.
+       * The message this reply grows under, in the channel's own id space.
+       *
+       * Slack requires one: `chat.startStream` streams into a thread, and
+       * omitting it is only accepted where a whole channel is one session. A
+       * channel that threads nothing ignores it.
        */
-      recipientUserId: z.string().optional(),
+      anchorMessageId: z.string().optional(),
+      text: z.string(),
+      appended: z.string().optional(),
+      plan: StreamPlanSchema.optional(),
       /**
-       * Slack team ID the recipient belongs to. Required alongside
-       * `recipientUserId` when streaming into a channel; omitted for DMs.
+       * Who may see the growing reply. Absent means everyone in the room, the
+       * same reading the finished reply gives it.
        */
-      recipientTeamId: z.string().optional(),
+      audience: MessageAudienceSchema.optional(),
     }),
     z.object({
       action: z.literal("append"),
-      streamTs: z.string(),
-      markdownText: z.string().optional(),
-      /** Title of the plan block, serialized as a `plan_update` chunk. */
-      planTitle: z.string().optional(),
-      tasks: z.array(SlackStreamTaskSchema).optional(),
+      /** The open reply, in the channel's own id space. */
+      streamId: z.string(),
+      text: z.string(),
+      appended: z.string().optional(),
+      plan: StreamPlanSchema.optional(),
     }),
     z.object({
       action: z.literal("stop"),
-      streamTs: z.string(),
-      markdownText: z.string().optional(),
-      blocks: z.array(z.custom<KnownBlock>()).optional(),
-      /** Title of the plan block, serialized as a `plan_update` chunk. */
-      planTitle: z.string().optional(),
-      tasks: z.array(SlackStreamTaskSchema).optional(),
+      streamId: z.string(),
+      /**
+       * The complete reply, not the remainder. A channel whose preview
+       * evaporates sends this as the message that stays; one that finalizes
+       * its stream in place has already shown it and appends `appended`.
+       */
+      text: z.string(),
+      appended: z.string().optional(),
+      plan: StreamPlanSchema.optional(),
     }),
   ])
   .superRefine((op, ctx) => {
-    // Slack requires either `markdown_text` or `chunks` on `start`/`append`; a
-    // task-only operation advances the plan block without new body text.
+    // An operation has to move something: new words, or the plan beside them.
+    // `text` alone cannot, since it restates what the reply already reads as.
+    // Slack rejects a start or append carrying neither, and a channel that
+    // rewrites would spend an edit redrawing what is already on screen.
     if (
       (op.action === "start" || op.action === "append") &&
-      op.markdownText === undefined &&
-      op.tasks === undefined
+      op.appended === undefined &&
+      op.plan === undefined
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${op.action} requires markdownText or tasks`,
+        message: `${op.action} requires appended or plan`,
       });
     }
   });
 
-export type SlackStreamOp = z.infer<typeof SlackStreamOpSchema>;
+export type StreamOp = z.infer<typeof StreamOpSchema>;
 
 // ---------------------------------------------------------------------------
 // Channel reply payload — the full outbound wire format
@@ -163,34 +251,21 @@ export type SlackStreamOp = z.infer<typeof SlackStreamOpSchema>;
 export const ChannelReplyPayloadSchema = z.object({
   chatId: z.string(),
   text: z.string().optional(),
-  /** Pre-formatted Block Kit blocks for Slack delivery. */
-  blocks: z.array(z.custom<KnownBlock>()).optional(),
   assistantId: z.string().optional(),
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
   /**
-   * When true, deliver via `chat.postEphemeral` so only the target `user`
-   * sees the message.
+   * Who may see this message. Absent means everyone in the room, which is the
+   * only safe reading of an absent value: a message meant for one reader that
+   * loses its audience must not become a public one.
    */
-  ephemeral: z.boolean().optional(),
-  /** Slack user ID — required when `ephemeral` is true. */
-  user: z.string().optional(),
-  /** When provided, update an existing message instead of posting a new one. */
-  messageTs: z.string().optional(),
-  /** When true, the daemon generates Block Kit blocks from the text before delivery. */
-  useBlocks: z.boolean().optional(),
-  /** When provided, set or clear the Slack Assistants API thread status. */
-  assistantThreadStatus: z
-    .object({
-      channel: z.string(),
-      threadTs: z.string(),
-      status: z.string(),
-      /** Serialized to Slack as `loading_messages`. */
-      loadingMessages: z.array(z.string()).optional(),
-    })
-    .optional(),
-  /** When provided, perform one Slack streaming operation (start/append/stop). */
-  slackStream: SlackStreamOpSchema.optional(),
+  audience: MessageAudienceSchema.optional(),
+  /**
+   * Asks the channel to render the text richly rather than as plain text.
+   * Each channel decides what that means, and one that cannot ignores it.
+   * Slack is the only channel acting on it today, where it becomes Block Kit.
+   */
+  renderRichly: z.boolean().optional(),
 });
 
 export type ChannelReplyPayload = z.infer<typeof ChannelReplyPayloadSchema>;

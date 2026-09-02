@@ -15,9 +15,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  __resetAvatarEncodeMemoForTesting,
   encodeAvatarForIsland,
   ISLAND_AVATAR_MAX_BYTES,
+  memoizedAvatarEncode,
 } from "@/utils/avatar-island-encode";
+import type { AvatarRender } from "@/utils/avatar-render";
 
 /** Recorded rasterize attempts, in order, so the ladder's walk is assertable. */
 let attempts: Array<{ size: number; type: string; quality?: number }> = [];
@@ -70,7 +73,9 @@ describe("encodeAvatarForIsland", () => {
     byteSizes["128:image/png"] = 900;
 
     expect(await encode(CHARACTER)).not.toBeNull();
-    expect(attempts).toEqual([{ size: 128, type: "image/png", quality: undefined }]);
+    expect(attempts).toEqual([
+      { size: 128, type: "image/png", quality: undefined },
+    ]);
   });
 
   // The measured shape for the default character avatar: 128px PNG is 6860
@@ -140,11 +145,30 @@ describe("encodeAvatarForIsland", () => {
   });
 
   // An undrawable source fails identically at every size, so retrying the
-  // whole ladder would just be five more failures.
+  // whole ladder would just be seven more failures.
   test("gives up immediately when the source will not draw", async () => {
     throwOnDraw = true;
 
-    expect(await encode(IMAGE)).toBeNull();
+    await expect(encode(IMAGE)).rejects.toThrow("source failed to load");
+    expect(attempts).toHaveLength(1);
+  });
+
+  // The line the memo's caching depends on. Null is a fact about the avatar
+  // (nothing to draw, nothing that fits), and only a fact may be cached; a draw
+  // that failed says nothing about the avatar, so it has to arrive as a
+  // rejection or one bad canvas pins "no avatar" for the whole session.
+  test("rejects a failed draw rather than reporting it as nothing to send", async () => {
+    throwOnDraw = true;
+
+    await expect(encode(CHARACTER)).rejects.toThrow();
+  });
+
+  // The rasterizer's other failure: a 2d context the shell would not give up,
+  // or a `toBlob` that produced no blob. Same class as a throw, and no later
+  // rung draws on a canvas the first one could not get.
+  test("rejects when the rasterizer hands back no bytes", async () => {
+    // `byteSizes` is empty, so the stub returns null for the first rung.
+    await expect(encode(CHARACTER)).rejects.toThrow();
     expect(attempts).toHaveLength(1);
   });
 
@@ -154,5 +178,171 @@ describe("encodeAvatarForIsland", () => {
   test("stays under the measured ActivityKit ceiling, not the documented one", () => {
     expect(ISLAND_AVATAR_MAX_BYTES).toBeLessThan(3366);
     expect(ISLAND_AVATAR_MAX_BYTES).toBeGreaterThanOrEqual(1997);
+  });
+});
+
+/**
+ * The memo both native surfaces read through: the Live Activity at
+ * ActivityKit's ceiling and the Home Screen widget snapshot at its own, larger
+ * one. The encoder is injected here the way the rasterizer is above, so these
+ * cases are about what is cached rather than about the ladder.
+ */
+describe("memoizedAvatarEncode", () => {
+  /** A fresh character render, so each case starts on a cache miss. */
+  const source = (): AvatarRender => ({
+    kind: "character",
+    svg: "<svg/>",
+    dataUri: "data:image/svg+xml,%3Csvg/%3E",
+  });
+
+  const WIDGET_BUDGET = 64_000;
+
+  let encodeCalls = 0;
+  let encodeOutcome: "bytes" | "nothing-fits" | "throws" = "bytes";
+
+  const encode = async (): Promise<string | null> => {
+    encodeCalls += 1;
+    if (encodeOutcome === "throws") {
+      throw new Error("canvas unavailable");
+    }
+    return encodeOutcome === "bytes" ? "Zm9vYmFy" : null;
+  };
+
+  const memo = (render: AvatarRender, maxBytes = ISLAND_AVATAR_MAX_BYTES) =>
+    memoizedAvatarEncode(render, maxBytes, encode);
+
+  beforeEach(() => {
+    __resetAvatarEncodeMemoForTesting();
+    encodeCalls = 0;
+    encodeOutcome = "bytes";
+  });
+
+  test("encodes an avatar once however many surfaces ask for it", async () => {
+    const render = source();
+
+    const first = memo(render);
+    expect(await first.pending).toBe("Zm9vYmFy");
+
+    const second = memo(render);
+    expect(second.pending).toBeNull();
+    expect(second.base64).toBe("Zm9vYmFy");
+    expect(second.revision).toBe(first.revision);
+    expect(encodeCalls).toBe(1);
+  });
+
+  test("gives each budget its own slot", async () => {
+    // One slot for both would let a widget-sized encode reach the island, which
+    // is not a larger avatar but an activity that never starts.
+    const render = source();
+
+    const island = memo(render);
+    const widget = memo(render, WIDGET_BUDGET);
+    await Promise.all([island.pending, widget.pending]);
+
+    expect(encodeCalls).toBe(2);
+    expect(widget.revision).not.toBe(island.revision);
+    // And the island's slot survived the widget's, so neither evicts the other.
+    expect(memo(render).revision).toBe(island.revision);
+    expect(encodeCalls).toBe(2);
+  });
+
+  test("a new avatar is a new encode with an identity of its own", async () => {
+    const first = memo(source());
+    await first.pending;
+    const second = memo(source());
+    await second.pending;
+
+    expect(encodeCalls).toBe(2);
+    expect(second.revision).not.toBe(first.revision);
+  });
+
+  test("caches an avatar that fits no rung, which is a fact about the source", async () => {
+    encodeOutcome = "nothing-fits";
+    const render = source();
+
+    expect(await memo(render).pending).toBeNull();
+    expect(memo(render).base64).toBeNull();
+    expect(encodeCalls).toBe(1);
+  });
+
+  test("never reaches the encoder for an assistant with no avatar", () => {
+    const render: AvatarRender = { kind: "none" };
+
+    const result = memo(render);
+
+    // Settled on the spot, so a caller with nothing to draw stays synchronous.
+    expect(result.pending).toBeNull();
+    expect(result.base64).toBeNull();
+    expect(encodeCalls).toBe(0);
+  });
+
+  test("retries an encode that threw instead of caching the failure", async () => {
+    // The encoder failing (a canvas the shell would not hand over, a blob URL
+    // revoked mid-draw) is transient, and cached it would leave every later
+    // payload in the session avatar-less.
+    encodeOutcome = "throws";
+    const render = source();
+
+    const failed = memo(render);
+    // Resolved rather than rejected: a surface is worth more than the face on
+    // it, so callers get an avatar-less payload rather than an error.
+    expect(await failed.pending).toBeNull();
+
+    encodeOutcome = "bytes";
+    const retried = memo(render);
+    expect(await retried.pending).toBe("Zm9vYmFy");
+    expect(encodeCalls).toBe(2);
+    // A fresh identity, so a caller keying a payload on the avatar can tell the
+    // retry apart from the attempt that carried nothing.
+    expect(retried.revision).not.toBe(failed.revision);
+  });
+
+  /**
+   * The two halves meeting. The cases above stub the encoder, so they pin the
+   * memo's rule and nothing else; the memo's rule is only worth as much as the
+   * encoder's classification of what happened, so these run the REAL ladder
+   * over the stub rasterizer at the top of this file.
+   */
+  const realMemo = (render: AvatarRender) =>
+    memoizedAvatarEncode(render, ISLAND_AVATAR_MAX_BYTES, (r, maxBytes) =>
+      encodeAvatarForIsland(r, maxBytes, rasterize as never),
+    );
+
+  test("drops the slot when the rasterizer fails, so the next read draws again", async () => {
+    // The whole point of the classification: one transient canvas failure used
+    // to resolve null, which the memo cached, and the session went avatar-less
+    // from there.
+    const render = source();
+    throwOnDraw = true;
+
+    const failed = realMemo(render);
+    // Still resolved rather than rejected at the caller: the payload goes out
+    // without a face rather than not at all.
+    expect(await failed.pending).toBeNull();
+    expect(attempts).toHaveLength(1);
+
+    throwOnDraw = false;
+    byteSizes["128:image/png"] = 900;
+    const retried = realMemo(render);
+    expect(await retried.pending).not.toBeNull();
+    expect(retried.revision).not.toBe(failed.revision);
+  });
+
+  test("keeps the slot for an avatar that fits no rung, which is not a failure", async () => {
+    const render = source();
+    for (const size of [128, 96, 64, 48, 40, 32]) {
+      byteSizes[`${size}:image/png`] = 99000;
+    }
+    byteSizes["64:image/jpeg"] = 99000;
+    byteSizes["48:image/jpeg"] = 99000;
+
+    expect(await realMemo(render).pending).toBeNull();
+    expect(attempts).toHaveLength(8);
+
+    const cached = realMemo(render);
+    expect(cached.pending).toBeNull();
+    expect(cached.base64).toBeNull();
+    // No second walk of the ladder: the verdict is a fact about the source.
+    expect(attempts).toHaveLength(8);
   });
 });

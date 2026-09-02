@@ -46,6 +46,8 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import type { PendingFlowStatus } from "./oauth-pending-flows.js";
+import { createPendingFlowRegistry } from "./oauth-pending-flows.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("acp-claude-auth");
@@ -58,53 +60,24 @@ const CLAUDE_LOOPBACK_CALLBACK_PATH = "/callback";
 // Pending-flow tracking (shared by the loopback + manual/cloud branches)
 // ---------------------------------------------------------------------------
 
-type FlowStatus = "pending" | "connected" | "error";
-
-interface PendingFlow {
-  status: FlowStatus;
-  error?: string;
-  createdAt: number;
-  /**
-   * Cloud/manual path only: the PKCE verifier + redirect the pasted code is
-   * exchanged with. Absent on loopback flows (the daemon exchanges those
-   * itself), which also keeps loopback entries from being exchangeable via the
-   * manual `exchange` route.
-   */
-  codeVerifier?: string;
-  redirectUri?: string;
-}
-
 interface StartResponse {
   mode: "loopback" | "manual";
   authorize_url: string;
   state: string;
 }
 
-const pendingFlows = new Map<string, PendingFlow>();
-
-const PENDING_FLOW_TTL_MS = 10 * 60 * 1000; // 10 minutes
-
-/** Remove entries older than the TTL so the map can't grow unbounded. */
-function cleanupExpiredFlows(): void {
-  const cutoff = Date.now() - PENDING_FLOW_TTL_MS;
-  for (const [state, flow] of pendingFlows) {
-    if (flow.createdAt < cutoff) {
-      pendingFlows.delete(state);
-    }
-  }
+/**
+ * The extra state a manual/cloud flow carries: the PKCE verifier + redirect the
+ * pasted code is exchanged with. Absent on loopback flows (the daemon exchanges
+ * those itself), which also keeps loopback entries from being exchangeable via
+ * the manual `exchange` route.
+ */
+interface ClaudeFlowState {
+  codeVerifier?: string;
+  redirectUri?: string;
 }
 
-/** Update a tracked flow's status in place, if it still exists. */
-function markFlow(state: string, status: FlowStatus, error?: string): void {
-  const flow = pendingFlows.get(state);
-  if (!flow) {
-    return;
-  }
-  flow.status = status;
-  if (error !== undefined) {
-    flow.error = error;
-  }
-}
+const pendingFlows = createPendingFlowRegistry<ClaudeFlowState>();
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -125,7 +98,7 @@ function markFlow(state: string, status: FlowStatus, error?: string): void {
  * asked to serve them.
  */
 async function handleStartAuth(args: RouteHandlerArgs): Promise<StartResponse> {
-  cleanupExpiredFlows();
+  pendingFlows.cleanupExpired();
 
   const preferManual = Boolean(
     (args.body as { preferManual?: boolean } | undefined)?.preferManual,
@@ -146,7 +119,7 @@ async function handleStartLocalAuth(): Promise<StartResponse> {
     loopbackCallbackPath: CLAUDE_LOOPBACK_CALLBACK_PATH,
   });
 
-  pendingFlows.set(flow.state, { status: "pending", createdAt: Date.now() });
+  pendingFlows.start(flow.state, {});
 
   // The capture + token exchange happen inside `completion`; persist the token
   // when it resolves and flip the flow status so the web client's status poll
@@ -154,12 +127,12 @@ async function handleStartLocalAuth(): Promise<StartResponse> {
   void flow.completion
     .then(async (result) => {
       await storeAcpClaudeToken(result.tokens.accessToken);
-      markFlow(flow.state, "connected");
+      pendingFlows.mark(flow.state, "connected");
       log.info("ACP Claude local OAuth flow connected");
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
-      markFlow(flow.state, "error", message);
+      pendingFlows.mark(flow.state, "error", { error: message });
       log.error({ err: message }, "ACP Claude local OAuth flow failed");
     });
 
@@ -180,9 +153,7 @@ function handleStartManualAuth(): StartResponse {
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = generateState();
 
-  pendingFlows.set(state, {
-    status: "pending",
-    createdAt: Date.now(),
+  pendingFlows.start(state, {
     codeVerifier,
     redirectUri: CLAUDE_MANUAL_REDIRECT_URI,
   });
@@ -228,7 +199,7 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
     );
   }
 
-  if (Date.now() - pending.createdAt > PENDING_FLOW_TTL_MS) {
+  if (pendingFlows.isExpired(pending)) {
     pendingFlows.delete(state);
     throw new BadRequestError(
       "Connect Claude flow expired. Restart the Connect Claude flow.",
@@ -248,7 +219,7 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
     await storeAcpClaudeToken(result.tokens.accessToken);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    markFlow(state, "error", message);
+    pendingFlows.mark(state, "error", { error: message });
     log.error({ err: message }, "ACP Claude manual OAuth flow failed");
     throw new BadRequestError(
       `Failed to exchange Claude authorization code: ${message}`,
@@ -271,21 +242,21 @@ async function handleAuthConnected(): Promise<{ connected: boolean }> {
 }
 
 function handleAuthStatus({ pathParams }: RouteHandlerArgs): {
-  status: FlowStatus;
+  status: PendingFlowStatus;
   error?: string;
 } {
   const { state } = pathParams as { state: string };
-  const flow = pendingFlows.get(state);
+  const report = pendingFlows.readStatus(state);
 
-  if (!flow) {
+  if (!report) {
     throw new NotFoundError(
       "No active Claude auth flow for the given state. Restart the connect flow.",
     );
   }
 
-  return flow.error
-    ? { status: flow.status, error: flow.error }
-    : { status: flow.status };
+  return report.error !== undefined
+    ? { status: report.status, error: report.error }
+    : { status: report.status };
 }
 
 // ---------------------------------------------------------------------------

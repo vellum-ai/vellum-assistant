@@ -5,7 +5,11 @@ import { useHoverCapable } from "@/hooks/use-hover-affordance";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import {
+  isPendingGuardianFeedItem,
+  type FeedItem,
+  type FeedItemStatus,
+} from "@vellumai/assistant-api";
 import {
   cn,
   CrossfadeStack,
@@ -14,7 +18,7 @@ import {
 } from "@vellumai/design-library";
 
 import { FeedCategoryChip } from "./feed-category-chip";
-import { resolvePreview } from "./feed-preview";
+import { flattenSummary, resolvePreview } from "./feed-preview";
 import {
   buildRecapActions,
   RecapActionButtons,
@@ -23,7 +27,7 @@ import {
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
 } from "./home-recap-actions";
-import { resolveFeedItemTitle } from "./utils";
+import { guardianLabelKey, resolveFeedItemTitle } from "./utils";
 
 /**
  * Marks the card's own click target, the one control a long press may arm on:
@@ -133,21 +137,34 @@ export function HomeRecapRow({
   const longPress = useLongPressSheet({ shouldSkip: skipRowControls });
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
+  const needsAttention = isPendingGuardianFeedItem(item);
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
       ? item.sourceLabel
       : null;
 
+  /* A waiting request takes the row's two lines like any other item, with
+     different content in them: it is named by what it asks of the user,
+     since its own title is the generic name of the kind of request, and
+     the ask itself (which lives in the body) reads underneath. */
+  const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
+
   // Both memoized: each parses the summary as markdown, and the feed re-renders
   // every card whenever its filter changes.
   const title = useMemo(
-    () => resolveFeedItemTitle({ title: item.title, summary: item.summary }),
-    [item.title, item.summary],
+    () =>
+      attentionLabelKey
+        ? t(attentionLabelKey)
+        : resolveFeedItemTitle({ title: item.title, summary: item.summary }),
+    [attentionLabelKey, t, item.title, item.summary],
   );
 
   const preview = useMemo(
-    () => resolvePreview(title, item.summary),
-    [title, item.summary],
+    () =>
+      attentionLabelKey
+        ? flattenSummary(item.summary)
+        : resolvePreview(title, item.summary),
+    [attentionLabelKey, title, item.summary],
   );
 
   // leading-snug: the title-small token is line-height:1, and line-clamp's
@@ -185,15 +202,24 @@ export function HomeRecapRow({
   const card = (
     <div
       data-reveal-row=""
+      data-needs-attention={needsAttention ? "" : undefined}
       className={cn(
         "group relative flex w-full items-start gap-[var(--app-spacing-sm)]",
-        "rounded-[var(--radius-lg)] border border-[var(--border-base)]",
+        "rounded-[var(--radius-lg)] border",
         "transition-[background-color,opacity] duration-150",
         densityStyle.card,
-        isActive
-          ? "bg-[var(--surface-active)]"
-          : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-hover)]",
-        !isUnread && !isActive && "opacity-70",
+        // A row waiting on the user carries the attention hue, so it reads as
+        // the one thing to act on among rows that only report. It never dims
+        // on read: the request is outstanding whether or not it has been seen.
+        needsAttention
+          ? "border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)]"
+          : cn(
+              "border-[var(--border-base)]",
+              isActive
+                ? "bg-[var(--surface-active)]"
+                : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-hover)]",
+              !isUnread && !isActive && "opacity-70",
+            ),
       )}
     >
       {/* Stretched link: the card's single click target. Everything else stacks

@@ -29,73 +29,92 @@ describe("freePlanSpecs", () => {
     ]);
     expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
   });
+
+  test("gives the credits chip a row of its own", () => {
+    // The machine and storage chips are short enough to share a row; the
+    // credits chip is a phrase, so the wrapped layout drops it onto its own.
+    expect(freePlanSpecs().map((s) => s.ownRow)).toEqual([
+      undefined,
+      undefined,
+      true,
+    ]);
+  });
 });
 
 describe("packageSpecs", () => {
   test("reads a machine-less Pro package (Mighty) at the small baseline", () => {
-    const specs = packageSpecs({
-      key: "mighty",
-      name: "Mighty",
-      machine_size: null,
-      credits_usd: 25,
-      storage_gib: 10,
-    } as ProPackage);
+    const specs = packageSpecs(
+      {
+        key: "mighty",
+        name: "Mighty",
+        machine_size: null,
+        credits_usd: 25,
+        storage_gib: 10,
+      } as ProPackage,
+      "Mighty usage, reset monthly",
+    );
     expect(specs.map((s) => s.label)).toEqual([
       "Small Machine",
       "10 GB Storage",
-      "$25 in credits included",
+      "Mighty usage, reset monthly",
     ]);
     expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
   });
 
   test("reads a package with an explicit machine size", () => {
-    const specs = packageSpecs({
-      key: "unknown",
-      machine_size: "medium",
-      credits_usd: 45,
-      storage_gib: 30,
-    } as ProPackage);
+    const specs = packageSpecs(
+      {
+        key: "unknown",
+        machine_size: "medium",
+        credits_usd: 45,
+        storage_gib: 30,
+      } as ProPackage,
+      "Unknown usage, reset monthly",
+    );
     expect(specs.map((s) => s.label)).toEqual([
       "Medium Machine",
       "30 GB Storage",
-      "$45 in credits included",
+      "Unknown usage, reset monthly",
     ]);
   });
 
   test("appends the tier copy's extra feature rows with the Mail icon", () => {
-    const specs = packageSpecs({
-      key: "super",
-      machine_size: "medium",
-      credits_usd: 45,
-      storage_gib: 30,
-    } as ProPackage);
+    const specs = packageSpecs(
+      {
+        key: "super",
+        machine_size: "medium",
+        credits_usd: 45,
+        storage_gib: 30,
+      } as ProPackage,
+      "Super usage, reset monthly",
+    );
     expect(specs.map((s) => s.label)).toEqual([
       "Medium Machine",
       "30 GB Storage",
-      "$45 in credits included",
+      "Super usage, reset monthly",
       "Assistant email and subdomain",
     ]);
     expect(specs[3].icon).toBe(Mail);
   });
 
-  test("falls back to $0 when credits_usd is null", () => {
-    const specs = packageSpecs({
-      key: "unknown",
-      machine_size: "small",
-      credits_usd: null,
-      storage_gib: 8,
-    } as ProPackage);
-    expect(specs[2].label).toBe("$0 in credits included");
-  });
-
-  test("formats a sub-dollar credit amount cents-aware", () => {
-    const specs = packageSpecs({
-      key: "unknown",
-      machine_size: "small",
-      credits_usd: 0.5,
-      storage_gib: 8,
-    } as ProPackage);
-    expect(specs[2].label).toBe("$0.50 in credits included");
+  test("gives the usage chip and every extra a row of its own", () => {
+    const specs = packageSpecs(
+      {
+        key: "super",
+        machine_size: "medium",
+        credits_usd: 45,
+        storage_gib: 30,
+      } as ProPackage,
+      "Super usage, reset monthly",
+    );
+    // Machine and storage share the wrapping row; the usage phrase and the
+    // email/subdomain extra each take a full row below it.
+    expect(specs.map((s) => s.ownRow)).toEqual([
+      undefined,
+      undefined,
+      true,
+      true,
+    ]);
   });
 });
 
@@ -198,10 +217,12 @@ describe("currentTierRows", () => {
   });
 
   test("labels all three dimensions from the sub's own tiers", () => {
+    // The credit row is the catalog label verbatim (the bundle's Stripe
+    // product name), so the card matches the subscriber's invoice line.
     expect(currentTierRows(tiers(), proPlan)).toEqual([
       "Large Machine",
       "30 GB",
-      "50 credits/mo",
+      "50 credits",
     ]);
   });
 
@@ -214,7 +235,7 @@ describe("currentTierRows", () => {
   test("drops storage rather than guessing when the GiB is unresolved", () => {
     expect(currentTierRows(tiers({ storageGib: null }), proPlan)).toEqual([
       "Large Machine",
-      "50 credits/mo",
+      "50 credits",
     ]);
   });
 
@@ -233,29 +254,30 @@ describe("currentTierRows", () => {
     ).toBe("115 credits/mo");
   });
 
-  test("ignores a catalog label that already carries a cadence", () => {
-    // The row is composed from `credits_usd`, so a server label formatted as
-    // "$50 credits/mo" cannot double up into "50 credits/mo/mo".
+  test("renders the catalog label verbatim, cadence included", () => {
+    // The label is server-owned copy rendered as-is (it is the bundle's
+    // Stripe product name), so a label that carries its own cadence cannot
+    // double up, because nothing is composed onto it.
     const cadenced = {
       id: "pro",
       credit_tiers: [
         { tier: "credits_50", label: "$50 credits/mo", credits_usd: 50 },
       ],
     } as unknown as ProPlan;
-    expect(currentTierRows(tiers(), cadenced)[2]).toBe("50 credits/mo");
+    expect(currentTierRows(tiers(), cadenced)[2]).toBe("$50 credits/mo");
   });
 
   test("renders a zero-credit bundle rather than treating it as absent", () => {
     const freeBundle = {
       id: "pro",
-      credit_tiers: [{ tier: "credits_0", label: "None", credits_usd: 0 }],
+      credit_tiers: [{ tier: "credits_0", label: "$0 usage", credits_usd: 0 }],
     } as unknown as ProPlan;
     expect(
       currentTierRows(
         tiers({ creditTier: "credits_0" as CurrentTiers["creditTier"] }),
         freeBundle,
       )[2],
-    ).toBe("0 credits/mo");
+    ).toBe("$0 usage");
   });
 
   test("falls back to a generic bundle label for an unparseable tier key", () => {
@@ -319,7 +341,7 @@ describe("currentPlanFeatures", () => {
     expect(currentPlanFeatures(full, proPlan)).toEqual([
       "Large Machine",
       "30 GB",
-      "50 credits/mo",
+      "50 credits",
       "Assistant email & subdomain",
     ]);
   });
@@ -338,7 +360,7 @@ describe("currentPlanFeatures", () => {
   test("keeps the storage row when the GiB is unresolved", () => {
     expect(currentPlanFeatures({ ...full, storageGib: null }, proPlan)).toEqual([
       "Large Machine",
-      "50 credits/mo",
+      "50 credits",
       "Configurable storage",
       "Assistant email & subdomain",
     ]);

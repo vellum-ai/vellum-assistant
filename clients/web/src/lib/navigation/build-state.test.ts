@@ -33,6 +33,9 @@ const { useAuthStore } = await import("@/stores/auth-store");
 const { useOrganizationStore } = await import("@/stores/organization-store");
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
+const { clearSelectedAssistantId, writeSelectedAssistantId } = await import(
+  "@/assistant/selected-assistant-storage"
+);
 
 const initialAuthState = useAuthStore.getState();
 
@@ -49,6 +52,7 @@ beforeEach(() => {
     assistants: [],
     activeAssistantId: null,
   });
+  clearSelectedAssistantId();
 });
 
 afterEach(() => {
@@ -198,5 +202,61 @@ describe("buildNavigationState — hasPlatformHostedAssistant", () => {
     useOrganizationStore.setState({ persistedOrganizationId: ORG_B });
 
     expect(buildNavigationState().hasPlatformHostedAssistant).toBe(false);
+  });
+});
+
+describe("buildNavigationState — onboarding scoping", () => {
+  const FRESH = new Date().toISOString();
+  const WEEK_OLD = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  const row = (id: string, hatchedAt: string) => ({
+    id,
+    hatchedAt,
+    isLocal: false,
+    isPlatformHosted: true,
+    isPaired: false,
+  });
+
+  test("false on both when no assistant is a week old", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [row("asst-fresh", FRESH)],
+    });
+    writeSelectedAssistantId("asst-fresh");
+
+    const state = buildNavigationState();
+    expect(state.userHasOnboardedAssistant).toBe(false);
+    expect(state.selectedAssistantOnboarded).toBe(false);
+  });
+
+  test("true on both when the selected assistant is a week old", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [row("asst-old", WEEK_OLD)],
+    });
+    writeSelectedAssistantId("asst-old");
+
+    const state = buildNavigationState();
+    expect(state.userHasOnboardedAssistant).toBe(true);
+    expect(state.selectedAssistantOnboarded).toBe(true);
+  });
+
+  // The chooser loop: a week-old sibling must not answer for a fresh
+  // selection, or every new-assistant walk is bounced back to the chooser.
+  test("a week-old sibling does not make a fresh selection onboarded", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [row("asst-old", WEEK_OLD), row("asst-fresh", FRESH)],
+    });
+    writeSelectedAssistantId("asst-fresh");
+
+    const state = buildNavigationState();
+    expect(state.userHasOnboardedAssistant).toBe(true);
+    expect(state.selectedAssistantOnboarded).toBe(false);
+  });
+
+  test("selectedAssistantOnboarded is false with nothing selected", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [row("asst-old", WEEK_OLD)],
+    });
+    clearSelectedAssistantId();
+
+    expect(buildNavigationState().selectedAssistantOnboarded).toBe(false);
   });
 });

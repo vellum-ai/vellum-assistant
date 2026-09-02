@@ -7,6 +7,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Categories persist across launches, so remote pushes can show the
+        // action after the first open even when JS has not yet registered.
+        NotificationCategories.register()
+
         // A QR scan that launches the terminated app delivers the connect URL
         // here as well as through `application(_:open:)`. Persist the origin
         // now, synchronously, so the bridge boots straight to it — by the time
@@ -278,10 +282,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ///
     /// Called only by the App Intents (the voice intents via
     /// `VoiceModeDeepLink.route()`, `SendMessageToChatIntent` via
-    /// `ThreadDeepLink.route()`), which run in-process and therefore never
-    /// pass through `application(_:open:)`. That exclusivity is load-bearing:
-    /// it is what lets this method vouch for the URL by adding the provenance
-    /// marker the external entry points strip (see `CommandURLProvenance`).
+    /// `ThreadDeepLink.route()`, and `OpenCameraIntent` / `OpenNewChatIntent`
+    /// via `CommandDeepLink.route(host:)`), which run in-process and therefore
+    /// never pass through `application(_:open:)`. A widget tap is no exception:
+    /// those intents declare `openAppWhenRun`, so the system performs them in
+    /// the app process rather than in the appex. That exclusivity is
+    /// load-bearing: it is what lets this method vouch for the URL by adding
+    /// the provenance marker the external entry points strip (see
+    /// `CommandURLProvenance`).
     /// Do not route anything that arrived from outside the process through
     /// here; the terminated-launch path in `didFinishLaunchingWithOptions`
     /// deliberately stashes into `pendingCommandURL` directly instead.

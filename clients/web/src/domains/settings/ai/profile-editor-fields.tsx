@@ -9,25 +9,27 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
-import {
-  PickerMeta,
-  ProfileEditorProviderSection,
-} from "@/domains/settings/ai/profile-editor-provider-section";
+import { ProfileCreateModelFirst } from "@/domains/settings/ai/profile-create-model-first";
+import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import {
   entryPickerValue,
   expandEndpointEntries,
   parseEntryPickerValue,
   providersServedByConnections,
-  unconnectedSelectableProviders,
+  unconnectedProviders,
 } from "@/domains/settings/ai/provider-availability";
+import {
+  PickerMeta,
+  useProviderPickerAvailability,
+} from "@/domains/settings/ai/provider-picker-availability";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { connectionAuthTypeForProvider } from "@/domains/settings/ai/provider-editor-constants";
+import { useModelFirstProfileCreate } from "@/domains/settings/ai/use-model-first-profile-create-flag";
 import type { ProfileEditor } from "@/domains/settings/ai/use-profile-editor";
 import type {
   ConnectionProvider,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 import { useTranslation, Trans } from "@/i18n";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
@@ -42,39 +44,52 @@ export interface ProfileEditorFieldsProps {
   connections: ProviderConnection[] | undefined;
   /**
    * Host chrome the fields render into:
-   * - `"modal"`: the legacy modal layouts - create keeps Key + advanced
-   *   params behind a collapsed Advanced disclosure, edit/view shows the
-   *   inline Active toggle.
+   * - `"modal"`: the modal layouts - create keeps Description, Name and the
+   *   advanced params behind a collapsed Advanced disclosure.
    * - `"panel"`: the settings sidepanel (Figma 7412:134288) - every field
-   *   is flat and always visible, and enable/disable lives on the row's
-   *   kebab menu instead of an inline toggle.
+   *   is flat and always visible.
    */
   variant: "modal" | "panel";
+  /**
+   * Box the model-first create flow keeps its open list inside, and which it
+   * then keeps tall enough to hold it. The modal host passes its own body;
+   * the sidepanel is already full height and passes nothing.
+   */
+  menuBoundary?: Element | null;
 }
 
 /**
  * The profile editor's field stack, shared by the modal host (composer
  * quick-add) and the settings sidepanel. All state lives in the
  * `useProfileEditor` hook; this component only arranges fields per
- * mode/variant. The Name field leads every create layout - it must stay
- * top-level, never inside the Advanced disclosure (LUM-2881).
+ * mode/variant.
+ *
+ * Creating a profile asks two questions: which provider, and which model.
+ * Everything the model can answer for itself - the Name, and the parameters
+ * that model supports - sits under Advanced for the minority who want to
+ * change it. The Key is not asked at all: it is always the slug of the Name.
+ * Enabling and disabling is not asked either; a new profile is active, and the
+ * row's kebab menu turns one off later.
  */
 export function ProfileEditorFields({
   editor,
   assistantId,
   connections,
   variant,
+  menuBoundary,
 }: ProfileEditorFieldsProps) {
   const { t } = useTranslation("settings");
-  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const providerAvailability = useProviderPickerAvailability();
+  const modelFirstCreate = useModelFirstProfileCreate();
   const isCreate = editor.effectiveMode === "create";
   const flat = variant === "panel";
 
   // Create-mode Advanced disclosure (modal variant only). Local state is
   // fine: hosts remount the fields on each open, matching the old reset.
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
-  const createAdvancedOpen =
-    advancedExpanded || (Boolean(editor.keyError) && editor.getDirty());
+  // The Name lives under Advanced, so a Name the user has to fix cannot be
+  // left hidden behind a collapsed disclosure.
+  const createAdvancedOpen = advancedExpanded || Boolean(editor.nameError);
 
   const displayNameField = (
     <div className="space-y-1">
@@ -87,8 +102,10 @@ export function ProfileEditorFields({
         type="text"
         value={editor.label}
         onChange={(e) => editor.handleLabelChange(e.target.value)}
+        onBlur={editor.handleLabelBlur}
         placeholder={t("profileEditorFields.displayNamePlaceholder")}
         disabled={editor.isReadOnly}
+        errorText={editor.isReadOnly ? undefined : editor.nameError}
         fullWidth
       />
     </div>
@@ -117,27 +134,20 @@ export function ProfileEditorFields({
     />
   );
 
-  const keyField = (
-    <Input
-      label={t("profileEditorFields.keyLabel")}
-      type="text"
-      value={editor.key}
-      onChange={(e) => editor.handleKeyChange(e.target.value)}
-      placeholder={t("profileEditorFields.keyPlaceholder")}
-      disabled={editor.isReadOnly || editor.effectiveMode === "edit"}
-      errorText={editor.isReadOnly ? undefined : editor.keyError}
-      fullWidth
-    />
-  );
-
-  // An active read-only (managed) profile shows no status toggle (it cannot
-  // be disabled); a disabled one keeps an enable-only toggle. The panel
-  // variant never shows the toggle - enable/disable lives on the row's kebab.
+  // Enabling and disabling a profile the user owns lives on its row's kebab
+  // menu, so the editor does not ask: a new profile is active, and an existing
+  // one keeps whatever the row set. The one case the row cannot serve is a
+  // managed profile opened read-only and already disabled, where this
+  // enable-only toggle is the whole reason the form can be saved at all. The
+  // panel variant never shows it - it reaches managed profiles through
+  // "Save As New".
   const activeToggle =
-    !flat && (!editor.isReadOnly || editor.status !== "active") ? (
+    !flat && editor.isReadOnly && editor.status === "disabled" ? (
       <Toggle
-        checked={editor.status === "active"}
-        onChange={(v) => editor.setStatus(v ? "active" : "disabled")}
+        // Enable-only: the flip is what arms Save, and it unmounts the toggle
+        // with it, because a managed profile cannot be disabled from here.
+        checked={false}
+        onChange={() => editor.setStatus("active")}
         label={t("profileEditorFields.activeLabel")}
         className="touch-mobile:mt-2 touch-mobile:[&_button]:h-7 touch-mobile:[&_button]:w-10 touch-mobile:[&_button>span]:h-6 touch-mobile:[&_button>span]:w-6"
       />
@@ -192,37 +202,38 @@ export function ProfileEditorFields({
 
   // ---- Create-mode: provider-first picker with inline create ----
 
-  // Supported providers with no connection yet. Listed after the connected
-  // entries so a ready-to-use provider is never buried, and routed into the
-  // inline create form on selection.
-  const unconnectedProviders = useMemo(
-    () =>
-      unconnectedSelectableProviders(
-        editor.effectiveConnections,
-        activeAssistantIsSelfHosted,
-      ),
-    [editor.effectiveConnections, activeAssistantIsSelfHosted],
+  // Providers with no connection yet. Listed after the connected entries so a
+  // ready-to-use provider is never buried, and routed into the inline create
+  // form on selection.
+  const providersNeedingSetup = useMemo(
+    () => unconnectedProviders(editor.effectiveConnections),
+    [editor.effectiveConnections],
   );
 
-  // Every provider this assistant can dispatch through, connected ones first,
-  // then the rest annotated with what they still need, then the always-present
-  // "+ Create new provider" sentinel for custom endpoints.
+  // Every provider the catalog knows, connected ones first, then the rest
+  // annotated with what they still need, then the always-present "+ Create new
+  // provider" sentinel for custom endpoints. A provider this assistant cannot
+  // reach keeps its row, disabled and annotated with why.
   const createModeProviderOptions = useMemo(() => {
-    const opts: { value: string; label: string; suffix?: ReactNode }[] =
-      expandEndpointEntries(
-        providersServedByConnections(
-          editor.effectiveConnections,
-          activeAssistantIsSelfHosted,
-        ),
-        editor.effectiveConnections,
-        (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-        t("aiProviderPicker.defaultEntryMeta"),
-      ).map(({ value, label, meta }) => ({
-        value,
-        label,
-        suffix: meta ? <PickerMeta text={meta} /> : undefined,
-      }));
-    for (const unconnected of unconnectedProviders) {
+    const opts: {
+      value: string;
+      label: string;
+      suffix?: ReactNode;
+      sticky?: boolean;
+      disabled?: boolean;
+      tooltip?: ReactNode;
+    }[] = expandEndpointEntries(
+      providersServedByConnections(editor.effectiveConnections),
+      editor.effectiveConnections,
+      (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+      t("aiProviderPicker.defaultEntryMeta"),
+    ).map(({ value, label, meta }) => ({
+      value,
+      label,
+      suffix: meta ? <PickerMeta text={meta} /> : undefined,
+      ...providerAvailability(value),
+    }));
+    for (const unconnected of providersNeedingSetup) {
       const meta =
         connectionAuthTypeForProvider(unconnected) === "api_key"
           ? t("profileEditorFields.addApiKey")
@@ -231,17 +242,21 @@ export function ProfileEditorFields({
         value: unconnected,
         label: PROVIDER_DISPLAY_NAMES[unconnected] ?? unconnected,
         suffix: <PickerMeta text={meta} />,
+        ...providerAvailability(unconnected),
       });
     }
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: t("profileEditorFields.createNewProvider"),
+      // The catalog grows past the menu's height, so the escape hatch is
+      // pinned rather than left at the end of a scroll.
+      sticky: true,
     });
     return opts;
   }, [
-    activeAssistantIsSelfHosted,
     editor.effectiveConnections,
-    unconnectedProviders,
+    providerAvailability,
+    providersNeedingSetup,
     t,
   ]);
 
@@ -298,7 +313,7 @@ export function ProfileEditorFields({
               return;
             }
             const picked = next as ConnectionProvider;
-            if (unconnectedProviders.includes(picked)) {
+            if (providersNeedingSetup.includes(picked)) {
               // Nothing to dispatch through yet — hand the user straight to
               // the create form for that provider instead of a dead selection.
               editor.setCreatingProvider(true);
@@ -372,16 +387,21 @@ export function ProfileEditorFields({
   );
 
   if (isCreate) {
-    // Advanced only surfaces once a model is chosen: the Key derives from
+    // Advanced only surfaces once a model is chosen: the Name derives from
     // the model, and the model controls the available advanced parameters.
     const modelChosen = editor.model !== "";
+    // Description first, then Name, then the model's parameters. Name sits
+    // below Description because the model has already filled it in: it is the
+    // field most people scroll past, not the one they came here to set.
+    const advancedFields = (
+      <>
+        {descriptionField}
+        {displayNameField}
+        {advancedParamsNode}
+      </>
+    );
     const createAdvanced = flat
-      ? modelChosen && (
-          <div className="space-y-4">
-            {keyField}
-            {advancedParamsNode}
-          </div>
-        )
+      ? modelChosen && <div className="space-y-4">{advancedFields}</div>
       : modelChosen && (
           <div>
             <button
@@ -396,34 +416,38 @@ export function ProfileEditorFields({
               <span>{t("profileEditorFields.advanced")}</span>
             </button>
             {createAdvancedOpen ? (
-              <div className="mt-4 space-y-4">
-                {keyField}
-                {advancedParamsNode}
-              </div>
+              <div className="mt-4 space-y-4">{advancedFields}</div>
             ) : null}
           </div>
         );
 
-    // Create is provider-first, with the Name leading the form (LUM-2881).
+    // Create asks two questions: which provider, and which model. Everything
+    // else has an answer the model supplies, so it waits under Advanced. The
+    // `model-first-profile-create` flag decides the order the two are asked
+    // in; both fill the same editor state.
     return (
       <div className="space-y-4">
-        {displayNameField}
-        {createProviderSection}
-        {descriptionField}
-        {activeToggle}
+        {modelFirstCreate ? (
+          <ProfileCreateModelFirst
+            editor={editor}
+            assistantId={assistantId}
+            menuBoundary={menuBoundary}
+          />
+        ) : (
+          createProviderSection
+        )}
         {createAdvanced}
         {saveErrorNode}
       </div>
     );
   }
 
-  // Edit / view: Display Name -> Description -> Key -> Active (modal only)
-  // -> Provider -> Model -> always-visible advanced params.
+  // Edit / view: Display Name -> Description -> Provider -> Model ->
+  // always-visible advanced params.
   return (
     <div className="space-y-4">
       {displayNameField}
       {descriptionField}
-      {keyField}
       {activeToggle}
 
       <ProfileEditorProviderSection

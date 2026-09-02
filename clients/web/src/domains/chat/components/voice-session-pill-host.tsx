@@ -81,18 +81,19 @@ import {
 } from "@/domains/chat/components/voice-session-pill";
 import { useComposerOnScreen } from "@/domains/chat/hooks/use-composer-on-screen";
 import {
-  LIVE_VOICE_STATE_LABELS,
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   isLiveVoiceSessionActive,
+  liveVoiceSurfaceLabelKey,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-surface-paint";
+import { useTranslation } from "@/i18n";
 
 export interface VoiceSessionPillHostProps {
   /**
@@ -130,12 +131,22 @@ function useVoiceSessionPillPresence(): {
 export function VoiceSessionPillHost({
   variant = "header",
 }: VoiceSessionPillHostProps) {
+  const { t } = useTranslation("chat");
   const state = useLiveVoiceStore.use.state();
   const error = useLiveVoiceStore.use.error();
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
   const muted = useLiveVoiceStore.use.muted();
   const outputMuted = useLiveVoiceStore.use.outputMuted();
+
+  // The session's own word, taken as a catalog key so the pill reads in the
+  // user's language. This host observes neither the reconnect flag nor whether
+  // assistant audio is flowing, so those two remaps are handed the values that
+  // leave them unfired and what comes back is the phase's own word. Mute keeps
+  // the branch below rather than being passed in: the pill says "Muted" in
+  // every phase, not only the one the session relabels for it.
+  const stateKey = liveVoiceSurfaceLabelKey(state, false, true, false);
+  const stateLabel = stateKey ? t(stateKey) : "";
 
   const navigate = useNavigate();
 
@@ -179,7 +190,7 @@ export function VoiceSessionPillHost({
   } else if (visible) {
     content = (
       <VoiceSessionPill
-        primaryLabel={muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
+        primaryLabel={muted ? t("voiceSessionPillHost.muted") : stateLabel}
         state={state}
         getAmplitude={getLiveVoiceInputAmplitude}
         getOutputAmplitude={getLiveVoiceOutputAmplitude}

@@ -47,7 +47,10 @@ import {
 import { hatchLocal } from "../lib/hatch-local.js";
 import { retireLocal } from "../lib/retire-local.js";
 import { validateAssistantName } from "../lib/retire-archive.js";
-import { stopProcessByPidFile } from "../lib/process.js";
+import {
+  DAEMON_STOP_TIMEOUT_MS,
+  stopProcessByPidFile,
+} from "../lib/process.js";
 import {
   fetchAssistantIngressUrl,
   fetchCurrentVersion,
@@ -1497,6 +1500,8 @@ export async function teleport(): Promise<void> {
       await stopProcessByPidFile(
         getDaemonPidPath(fromEntry.resources),
         "assistant",
+        undefined,
+        DAEMON_STOP_TIMEOUT_MS,
       );
       await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
     }

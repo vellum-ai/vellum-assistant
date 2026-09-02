@@ -76,7 +76,11 @@ export type LiveVoiceCredentialReadiness =
  *   configured `referenceId` — live voice supplies no per-request voiceId).
  */
 export async function resolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCredentialReadiness> {
-  const effective = await resolveEffectiveSpeechProviders();
+  // Readiness must ask about the same provider the session will dial, so it
+  // reads the live-voice role rather than the global setting.
+  const effective = await resolveEffectiveSpeechProviders(undefined, {
+    role: "liveVoice",
+  });
   const gaps = (
     await Promise.all([
       resolveSttGap(effective.stt),

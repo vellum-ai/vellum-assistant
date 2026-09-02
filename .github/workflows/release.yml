@@ -1042,6 +1042,8 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
 
       - name: Login to Docker Hub
         env:
@@ -1786,7 +1788,7 @@ jobs:
     needs: [extract-version, publish-npm-staging, publish-web-staging]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -1807,50 +1809,10 @@ jobs:
             .dependencies["@vellumai/vellum-gateway"] = $v |
             .dependencies["@vellumai/web"] = $v
           ' package.json > tmp && mv tmp package.json
-      # The meta package was just stamped to depend on freshly published
-      # @vellumai/* versions. npm's read path (CDN/replicas) lags the publish
-      # by seconds-to-minutes, so a shrinkwrap install kicked off right after
-      # the last dependency publish can hit ETARGET. Wait until every dep is
-      # resolvable before installing.
       - name: Wait for dependencies to propagate
-        working-directory: meta
-        run: |
-          node -e '
-            const deps = require("./package.json").dependencies || {};
-            for (const [name, version] of Object.entries(deps)) {
-              if (name.startsWith("@vellumai/")) console.log(`${name}@${version}`);
-            }
-          ' > /tmp/vellum-meta-deps.txt
-          deadline=$((SECONDS + 300))
-          while read -r spec; do
-            [ -z "$spec" ] && continue
-            until npm view "$spec" version >/dev/null 2>&1; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "::error::$spec still not resolvable on the registry after waiting ~5m"
-                exit 1
-              fi
-              echo "  $spec not yet available; retrying in 10s..."
-              sleep 10
-            done
-            echo "  ✓ $spec available"
-          done < /tmp/vellum-meta-deps.txt
-      # npm only honors "overrides" in the root package.json, so they are
-      # ignored when end users run `npm install -g vellum`. Shipping an
-      # npm-shrinkwrap.json generated with the overrides applied makes npm
-      # follow the same resolution for installed copies of the package.
+        run: ./scripts/npm-wait-for-meta-deps.sh
       - name: Generate npm-shrinkwrap.json
-        working-directory: meta
-        run: |
-          for attempt in 1 2 3; do
-            npm install --package-lock-only && break
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::npm install --package-lock-only failed after 3 attempts"
-              exit 1
-            fi
-            echo "npm install failed (attempt $attempt); retrying in 15s..."
-            sleep 15
-          done
-          npm shrinkwrap
+        run: ./scripts/npm-generate-meta-shrinkwrap.sh
       - name: Publish
         working-directory: meta
         env:
@@ -2041,7 +2003,7 @@ jobs:
     needs: [extract-version, publish-npm-prod, publish-web-prod]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -2052,50 +2014,10 @@ jobs:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
 
-      # The meta package depends on freshly published @vellumai/* versions.
-      # npm's read path (CDN/replicas) lags the publish by seconds-to-minutes,
-      # so a shrinkwrap install kicked off right after the last dependency
-      # publish can hit ETARGET. Wait until every dep is resolvable first.
       - name: Wait for dependencies to propagate
-        working-directory: meta
-        run: |
-          node -e '
-            const deps = require("./package.json").dependencies || {};
-            for (const [name, version] of Object.entries(deps)) {
-              if (name.startsWith("@vellumai/")) console.log(`${name}@${version}`);
-            }
-          ' > /tmp/vellum-meta-deps.txt
-          deadline=$((SECONDS + 300))
-          while read -r spec; do
-            [ -z "$spec" ] && continue
-            until npm view "$spec" version >/dev/null 2>&1; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "::error::$spec still not resolvable on the registry after waiting ~5m"
-                exit 1
-              fi
-              echo "  $spec not yet available; retrying in 10s..."
-              sleep 10
-            done
-            echo "  ✓ $spec available"
-          done < /tmp/vellum-meta-deps.txt
-
-      # npm only honors "overrides" in the root package.json, so they are
-      # ignored when end users run `npm install -g vellum`. Shipping an
-      # npm-shrinkwrap.json generated with the overrides applied makes npm
-      # follow the same resolution for installed copies of the package.
+        run: ./scripts/npm-wait-for-meta-deps.sh
       - name: Generate npm-shrinkwrap.json
-        working-directory: meta
-        run: |
-          for attempt in 1 2 3; do
-            npm install --package-lock-only && break
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::npm install --package-lock-only failed after 3 attempts"
-              exit 1
-            fi
-            echo "npm install failed (attempt $attempt); retrying in 15s..."
-            sleep 15
-          done
-          npm shrinkwrap
+        run: ./scripts/npm-generate-meta-shrinkwrap.sh
 
       - name: Publish meta-package
         env:
@@ -2592,18 +2514,17 @@ jobs:
             --head "$BRANCH")
 
           # Try the normal merge first. If it fails (e.g. due to cherry-picked
-          # commits causing conflicts), rebase onto main with `-X theirs` to
-          # auto-resolve textual conflicts in favor of the release branch and
-          # retry. The release branch is the source of truth for the version
-          # being shipped, so taking its side is the safe default.
+          # commits causing conflicts), rebase onto main with `-X ours` to
+          # auto-resolve textual conflicts in favor of main and retry. During a
+          # rebase, ours is the new base, so `-X ours` keeps main's side.
           if ! gh pr merge "$PR_URL" --squash --admin --delete-branch; then
-            echo "Merge failed — rebasing with -X theirs to resolve cherry-pick conflicts"
+            echo "Merge failed - rebasing with -X ours to keep main on conflicts"
 
             git config user.name "vellum-automation[bot]"
             git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
 
             git fetch origin main
-            git rebase -X theirs origin/main
+            git rebase -X ours origin/main
 
             # Append [skip ci] so the force-push doesn't re-trigger this workflow
             git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
@@ -2724,6 +2645,32 @@ jobs:
       version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
 
+  # Gated on the channel's meta publish like upload-electron-updates: never
+  # offer a Windows auto-update for a release that didn't publish.
+  release-windows:
+    needs: [extract-version, publish-meta-prod, publish-meta-staging, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    if: >-
+      ${{
+        (
+          (needs.extract-version.outputs.is_staging == 'true' && vars.WINDOWS_STAGING_RELEASE_ENABLED == 'true')
+          || (needs.extract-version.outputs.is_staging != 'true' && vars.WINDOWS_PRODUCTION_RELEASE_ENABLED == 'true')
+        )
+        && always() && !cancelled()
+        && needs.extract-version.result == 'success'
+        && needs.push-assistant-manifest.result == 'success'
+        && needs.push-gateway-manifest.result == 'success'
+        && needs.push-credential-executor-manifest.result == 'success'
+        && (needs.publish-meta-prod.result == 'success' || needs.publish-meta-staging.result == 'success')
+      }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-windows.yaml
+    with:
+      environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+      version: ${{ needs.extract-version.outputs.version }}
+    secrets: inherit
+
   # ci-assistant runs lint/typecheck/test for the assistant service. It also
   # transitively gates the release pipeline because push-assistant-image and
   # push-dockerhub-image depend on it — a failure here blocks Docker image
@@ -2799,7 +2746,7 @@ jobs:
   ci-gateway:
     needs: extract-version
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -2882,7 +2829,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, release-android, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, release-android, release-windows, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2921,7 +2868,9 @@ jobs:
             || [ "${{ needs.publish-meta-prod.result }}" != "success" ] \
             || [ "${{ needs.publish-plugin-api-prod.result }}" != "success" ] \
             || { [ "${{ needs.release-android.result }}" != "success" ] \
-              && [ "${{ needs.release-android.result }}" != "skipped" ]; }; }; then
+              && [ "${{ needs.release-android.result }}" != "skipped" ]; } \
+            || { [ "${{ needs.release-windows.result }}" != "success" ] \
+              && [ "${{ needs.release-windows.result }}" != "skipped" ]; }; }; then
             RELEASE_FAILED="true"
           fi
 
@@ -2964,6 +2913,10 @@ jobs:
               && [ "${{ needs.release-android.result }}" != "skipped" ]; then
               STAGING_READY="false"
             fi
+            if [ "${{ needs.release-windows.result }}" != "success" ] \
+              && [ "${{ needs.release-windows.result }}" != "skipped" ]; then
+              STAGING_READY="false"
+            fi
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
@@ -3000,6 +2953,7 @@ jobs:
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
           DI=$(ci_icon "${{ needs.release-ios.result }}")
           DA=$(ci_icon "${{ needs.release-android.result }}")
+          DW=$(ci_icon "${{ needs.release-windows.result }}")
           CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
           CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
           MERGE_OUTCOME="${{ needs.merge-release-branch.outputs.outcome || needs.merge-release-branch.result }}"
@@ -3007,7 +2961,7 @@ jobs:
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s web\n• %s desktop-electron\n• %s release-ios\n• %s release-android\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$W" "$DE" "$DI" "$DA" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s web\n• %s desktop-electron\n• %s release-ios\n• %s release-android\n• %s release-windows\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$W" "$DE" "$DI" "$DA" "$DW" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"

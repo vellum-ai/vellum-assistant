@@ -28,6 +28,10 @@ import {
 } from "../channels/types.js";
 import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
+  type ProviderMessageMetadata,
+  providerMessageMetadataSchema,
+} from "../messaging/provider-message-metadata.js";
+import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -37,6 +41,7 @@ import {
   attachmentExists,
   AttachmentUploadError,
   createInlineAttachment,
+  deleteOrphanAttachments,
   getAttachmentContent,
   getFilePathForAttachment,
   linkAttachmentToMessage,
@@ -59,16 +64,21 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../persistence/conversation-disk-view.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import { SIGHT_FRAME_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
+import {
+  attachmentIdFragment,
+  type ContentBlock,
+  type Message,
+} from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
+import { postUnsendableImageNotice } from "./unsendable-image-notice.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -210,6 +220,8 @@ export interface MessagingConversationContext {
   messages: Message[];
   isProcessing(): boolean;
   setProcessing(value: boolean): void;
+  acquireProcessingFenced(): Promise<number | null>;
+  releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
@@ -429,37 +441,234 @@ async function prepareUserAttachmentReferences(
   attachments: MessageAttachmentInput[],
 ): Promise<PreparedUserAttachment[]> {
   const prepared: PreparedUserAttachment[] = [];
-  for (let i = 0; i < attachments.length; i++) {
-    const a = attachments[i];
-    const outcome = await materializeUserAttachment(
-      conversationId,
-      conversationCreatedAt,
-      a,
-    );
-    if (outcome.kind === "stored") {
-      prepared.push({
-        position: i,
-        block: await referenceBlockForAttachment(a, outcome.stored),
-        link: { attachmentId: outcome.stored.id },
-      });
-      continue;
-    }
-    if (outcome.kind === "rejected") {
-      continue;
-    }
-    // transient: keep the upload by inlining its bytes (dropped only when the
-    // recoverable failure left us with no bytes to inline).
-    const inline = await inlineBlockForAttachment(a);
-    if (inline) {
-      prepared.push({ position: i, block: inline });
-    } else {
-      log.warn(
-        { filename: a.filename },
-        "Dropping user attachment: store write failed and no inline bytes",
+  // Rows this call brought into being, tracked as they are made rather than
+  // read back off `prepared`: building a reference block is awaited between
+  // creating the row and recording it, so a throw there leaves a row nothing
+  // else knows about. The caller only ever sees a returned array, so a throw
+  // out of here makes this the one place that can still give them up.
+  const created: string[] = [];
+  try {
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      const outcome = await materializeUserAttachment(
+        conversationId,
+        conversationCreatedAt,
+        a,
       );
+      if (outcome.kind === "stored") {
+        if (outcome.stored.id !== a.id) {
+          created.push(outcome.stored.id);
+        }
+        prepared.push({
+          position: i,
+          block: await referenceBlockForAttachment(a, outcome.stored),
+          link: { attachmentId: outcome.stored.id },
+        });
+        continue;
+      }
+      if (outcome.kind === "rejected") {
+        continue;
+      }
+      // transient: keep the upload by inlining its bytes (dropped only when the
+      // recoverable failure left us with no bytes to inline).
+      const inline = await inlineBlockForAttachment(a);
+      if (inline) {
+        prepared.push({ position: i, block: inline });
+      } else {
+        log.warn(
+          { filename: a.filename },
+          "Dropping user attachment: store write failed and no inline bytes",
+        );
+      }
     }
+  } catch (err) {
+    discardAttemptAttachments(created);
+    throw err;
   }
   return prepared;
+}
+
+/**
+ * Give up attachment rows a failed persist attempt created for itself.
+ *
+ * Conversation scoping CLONES an attachment already linked to another
+ * conversation, and an inline upload creates a fresh row under an id of its
+ * own. Either way the row is an artifact of this attempt that nothing else can
+ * reach: no message names it, and the caller still holds the id it sent or the
+ * bytes behind it. An attempt that dies before its message row exists has to
+ * take those with it, or the row and its copied file stay for good.
+ *
+ * Never the id the caller handed in. When materialization stored the
+ * attachment under that same id, the row IS the caller's upload, and deleting
+ * it would break the retry they are about to make.
+ *
+ * Routed through {@link deleteOrphanAttachments} so link-awareness stays the
+ * backstop, and swallowed on failure: cleaning up must never mask the error
+ * that caused it.
+ */
+function discardAttemptAttachments(attachmentIds: string[]): string[] {
+  if (attachmentIds.length === 0) {
+    return [];
+  }
+  try {
+    deleteOrphanAttachments(attachmentIds);
+    return [];
+  } catch (err) {
+    log.warn(
+      { err, attachmentIds },
+      "Could not discard the attachments of a failed persist attempt",
+    );
+    return attachmentIds;
+  }
+}
+
+/**
+ * Materialized ids that differ from the id their input arrived with, which is
+ * what separates a row this attempt made from the caller's own upload.
+ */
+function attemptCreatedAttachmentIds(
+  attachmentInputs: MessageAttachmentInput[],
+  prepared: PreparedUserAttachment[],
+): string[] {
+  const created: string[] = [];
+  for (const p of prepared) {
+    if (!p.link) {
+      continue;
+    }
+    if (p.link.attachmentId !== attachmentInputs[p.position]?.id) {
+      created.push(p.link.attachmentId);
+    }
+  }
+  return created;
+}
+
+/** One requested camera frame: the id the caller held, and what was stored. */
+interface SightFrameEntry {
+  inputId: string;
+  storedId: string;
+}
+
+/**
+ * Pair each requested ambient camera frame with the id its persisted block is
+ * attributable by, walking every materialized attachment back to the input it
+ * came from.
+ *
+ * Which id that is depends on how the attachment landed. A stored one is named
+ * by its linked row, which is also what its `workspace_ref` block carries. One
+ * that fell back to inline base64 has no row, and its block carries the
+ * caller's own id on `_attachmentId`, so that is the id to name: retention
+ * reads both shapes through `mediaBlockAttachmentId`, and an inline frame is
+ * the heaviest thing in every later request precisely because its bytes are in
+ * the row.
+ */
+function requestedSightFrameEntries(
+  requestedIds: readonly string[] | undefined,
+  attachmentInputs: MessageAttachmentInput[],
+  prepared: PreparedUserAttachment[],
+): SightFrameEntry[] {
+  if (!requestedIds || requestedIds.length === 0) {
+    return [];
+  }
+  const requested = new Set(requestedIds);
+  const entries: SightFrameEntry[] = [];
+  for (const p of prepared) {
+    const inputId = attachmentInputs[p.position]?.id;
+    if (inputId === undefined || !requested.has(inputId)) {
+      continue;
+    }
+    entries.push({
+      inputId,
+      storedId: p.link ? p.link.attachmentId : inputId,
+    });
+  }
+  return entries;
+}
+
+/**
+ * The ids to tag the row with.
+ *
+ * Exactly one id per frame, never both. A stored attachment's pre-clone id
+ * belongs to a DIFFERENT conversation's row, so naming it as well would mark
+ * that attachment as an ambient frame if it ever entered this lineage and stub
+ * an image someone deliberately attached. That is what separates this from a
+ * fork's widened tag (`widenForkSightFrameTags`), where the two ids are two
+ * names for the same image.
+ */
+function sightFrameTagIds(entries: SightFrameEntry[]): string[] {
+  return [...new Set(entries.map((entry) => entry.storedId))];
+}
+
+/**
+ * Frames whose stored id differs from the one the caller handed in, by the
+ * caller's id. Empty unless conversation scoping cloned a row.
+ */
+function sightFrameBlockRenames(
+  entries: SightFrameEntry[],
+): Map<string, string> {
+  return new Map(
+    entries
+      .filter((entry) => entry.storedId !== entry.inputId)
+      .map((entry) => [entry.inputId, entry.storedId]),
+  );
+}
+
+/**
+ * Point an inline media block at the id its attachment was stored under.
+ *
+ * Only the inline shape is restamped. A `workspace_ref` names its row inside
+ * `source`, which materialization already filled with the stored id, so there
+ * is nothing to correct and rewriting `_attachmentId` alone would leave the two
+ * halves disagreeing.
+ */
+function restampInlineAttachmentId(
+  block: ContentBlock,
+  renames: ReadonlyMap<string, string>,
+): ContentBlock {
+  if (block.type !== "image" && block.type !== "file") {
+    return block;
+  }
+  if (block.source.type === "workspace_ref") {
+    return block;
+  }
+  const renamed =
+    block._attachmentId === undefined
+      ? undefined
+      : renames.get(block._attachmentId);
+  if (renamed === undefined) {
+    return block;
+  }
+  return { ...block, ...attachmentIdFragment(renamed) };
+}
+
+/**
+ * Rewrite the live message's camera-frame blocks to the ids their rows were
+ * stored under.
+ *
+ * The in-memory message is built from the attachments the caller handed in, so
+ * its blocks name the ids the caller held while the tag names what
+ * materialization stored. Those differ whenever conversation scoping cloned a
+ * row, and retention walking the live history would then find no frame to age:
+ * the tag matches nothing until a reload rebuilds the blocks from the persisted
+ * content. Restamping is what makes the array a turn actually sends agree with
+ * the tag, so a cloned frame is bounded on the turn that created it rather than
+ * only after a restart.
+ *
+ * Matched by id, never by position: `attachmentsToContentBlocks` emits nothing
+ * for an attachment it cannot turn into a block, so positions do not line up.
+ */
+function restampInlineAttachmentIds(
+  message: Message,
+  renames: ReadonlyMap<string, string>,
+): Message {
+  if (renames.size === 0) {
+    return message;
+  }
+  return {
+    ...message,
+    content: message.content.map((block) =>
+      restampInlineAttachmentId(block, renames),
+    ),
+  };
 }
 
 function extractTurnChannelContext(
@@ -544,6 +753,37 @@ export function buildSlackMetaForPersistence(params: {
     ...buildSlackTimezoneMetadata(candidate),
   };
   return writeSlackMetadata(slackMeta);
+}
+
+/**
+ * Build the neutral channel envelope persisted under the `providerMeta` key
+ * on a user message's `metadata` JSON, the non-Slack counterpart of
+ * {@link buildSlackMetaForPersistence}. Returns `null` (do not include the
+ * key) when the turn channel does not match the envelope's own `source`, so
+ * a stale plumbing field can never tag a row with another channel's
+ * identity. Slack turns also return `null`: Slack still writes `slackMeta`,
+ * which `readProviderMetadata` maps onto the neutral shape on read, and a
+ * `providerMeta` key on a Slack row would shadow that richer envelope.
+ *
+ * TRANSITIONAL: the Slack exclusion exists only while Slack writes its own
+ * envelope; do not extend it.
+ */
+export function buildProviderMetaForPersistence(params: {
+  channelInbound: ProviderMessageMetadata | undefined;
+  turnChannel: string | undefined;
+}): string | null {
+  const inbound = params.channelInbound;
+  if (!inbound) {
+    return null;
+  }
+  if (params.turnChannel !== inbound.source || inbound.source === "slack") {
+    return null;
+  }
+  const parsed = providerMessageMetadataSchema.safeParse(inbound);
+  if (!parsed.success) {
+    return null;
+  }
+  return JSON.stringify(parsed.data);
 }
 
 // ── EnqueueMessageOptions ────────────────────────────────────────────
@@ -735,6 +975,54 @@ export interface PersistMessageOptions {
    * what a consumer that must not misattribute a turn to a surface needs.
    */
   requestClientOs?: string;
+  /**
+   * Which of `attachments`, by the id the caller holds, arrived as ambient
+   * camera frames rather than files the user picked. Stamps
+   * `SIGHT_FRAME_ATTACHMENT_IDS_KEY` on the persisted row, which is what the
+   * retention pass reads to decide which images a later turn still sends in
+   * full and which become timestamped stubs.
+   *
+   * Named through this option rather than written into `metadata` by the
+   * caller because only the persist knows the id the row ends up linked to.
+   * A pre-uploaded attachment already linked to another conversation is
+   * CLONED into this one under a fresh id, and both the persisted content
+   * block and the `message_attachments` row carry the clone. A tag composed
+   * ahead of that names a row the retention pass can never match, and the
+   * frame then rides every later request forever.
+   *
+   * The tag names whatever id the persisted block is attributable by: the
+   * linked row's id for a materialized attachment, and the caller's own id
+   * for one a recoverable store failure left as inline base64, which is the
+   * id `attachmentsToContentBlocks` stamps on that block. The inline case is
+   * the one that matters most, because such a block carries its full bytes in
+   * `messages.content`, so the frame heaviest in every later request is
+   * exactly the one retention has to be able to stub.
+   */
+  sightFrameAttachmentIds?: readonly string[];
+  /**
+   * Answered synchronously at the top of every insert attempt, immediately
+   * before that attempt's statement. False aborts the persist with a
+   * `MessageInsertPreconditionError` and inserts nothing.
+   *
+   * For a caller whose right to write can lapse while this persist runs.
+   * Everything ahead of the insert (attachment materialization, content
+   * building) is awaited, and the insert retries itself on contention across
+   * an awaited backoff, so a caller that answered before calling has only
+   * answered for the moment it called. Threaded down to the insert rather
+   * than checked here, so each attempt asks for itself.
+   */
+  insertPrecondition?: () => boolean;
+  /**
+   * Told the ids this attempt materialized for itself and then could not
+   * delete, so a caller that owns the cleanup can come back to them.
+   *
+   * An attachment already linked to another conversation is CLONED into this
+   * one under a fresh id, and only this function knows that id. A caller
+   * retrying the delete under the id it handed in would reclaim nothing: that
+   * row is still linked where it came from, and the clone nobody names
+   * survives every pass.
+   */
+  onUndiscardedAttachments?: (attachmentIds: readonly string[]) => void;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -776,38 +1064,46 @@ export async function persistUserMessage(
   ctx.currentRequestId = reqId;
   ctx.abortController = new AbortController();
 
+  let owner: number | null = null;
   try {
-    // `setProcessing(true)` persists the flag and can throw (e.g.
-    // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
-    // the request-id/abort bookkeeping below rather than stranding it.
-    //
-    // This is the first DB write on the message-send path — it precedes the
-    // (already retried) message insert — so under transient WAL contention it
-    // must retry too, or the turn dies here before the insert is ever reached.
-    // `setProcessing` reverts its in-memory flag when its persist throws, so
-    // each attempt is safe to re-run.
-    await withSqliteRetry(() => ctx.setProcessing(true), {
-      op: "conversation:setProcessing",
-      context: { conversationId: ctx.conversationId },
-    });
+    // Taking the flag rather than setting it: the read and the take are one
+    // step, so nothing can claim it in between, and the hold is released only
+    // by the claim that took it. Its advisory mirror write is detached, which
+    // is what closes the window a retry around a strict set used to open. That
+    // retry re-ran the set after an awaited backoff, and the set reverted the
+    // in-memory flag before rethrowing, so the conversation read idle for the
+    // length of the sleep and anything waiting for idle could take the flag
+    // while this turn was still starting.
+    // Fenced: the flag is taken and its marker is durable before anything
+    // this turn writes, because a reconnecting client and the out-of-process
+    // retrospective worker read that marker to decide a turn is live. Null is
+    // a conversation that belongs to someone else, whether it was already held
+    // or was claimed away while the marker landed. A throw is the marker
+    // refusing to persist, with the claim already given back.
+    owner = await ctx.acquireProcessingFenced();
+    if (owner === null) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
       requestId: reqId,
     });
     if (result.deduplicated) {
-      ctx.setProcessing(false);
+      ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
     }
     return result;
   } catch (err) {
-    // Clear the flag, but never let a clear failure mask the original error
-    // or skip the bookkeeping reset. `setProcessing(false)` releases in memory
-    // regardless of its advisory mirror write, so the guard here is purely
-    // defensive against future changes.
+    // Release this turn's own hold, but never let a failure there mask the
+    // original error or skip the bookkeeping reset. A hold another caller
+    // claimed since is left alone, and one this call never took is nothing to
+    // release.
     try {
-      ctx.setProcessing(false);
+      if (owner !== null) {
+        ctx.releaseProcessing(owner);
+      }
     } catch (clearErr) {
       log.error(
         { err: clearErr, conversationId: ctx.conversationId },
@@ -855,8 +1151,14 @@ export async function persistQueuedMessageBody(
       filePath: attachment.filePath,
     }),
   );
-  const cleanMessage = await createUserMessage(content, attachmentInputs);
   let pushedToHistory = false;
+  // Hoisted so the failure path can tell which rows this attempt made, and
+  // whether its message ever landed. From the insert onward the persisted
+  // content references those rows while no link yet protects them, which is
+  // exactly the shape a link-aware delete reads as collectible, so the cleanup
+  // must stop at the insert.
+  let preparedAttachments: PreparedUserAttachment[] = [];
+  let messageInserted = false;
 
   try {
     const turnCtx =
@@ -887,16 +1189,22 @@ export async function persistQueuedMessageBody(
     // never reported.
     const {
       slackInbound: rawSlackInbound,
+      channelInbound: rawChannelInbound,
       scripted: rawScriptedFromMetadata,
       clientOsFromRequest: _rawClientOsFromRequest,
       ...metadataWithoutSlackInbound
     } = (metadata ?? {}) as Record<string, unknown> & {
       slackInbound?: SlackInboundMessageMetadata;
+      channelInbound?: ProviderMessageMetadata;
       scripted?: unknown;
       clientOsFromRequest?: unknown;
     };
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: rawSlackInbound,
+      turnChannel: turnCtx?.userMessageChannel,
+    });
+    const providerMeta = buildProviderMetaForPersistence({
+      channelInbound: rawChannelInbound,
       turnChannel: turnCtx?.userMessageChannel,
     });
 
@@ -978,6 +1286,7 @@ export async function persistQueuedMessageBody(
       ...(clientOsFromRequest ? { clientOsFromRequest: true } : {}),
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
+      ...(providerMeta ? { providerMeta } : {}),
       // Scripted-turn marker, forwarded by `turn-events-store` onto
       // `TurnTelemetryEvent.scripted`. Written LAST so it cannot be
       // half-overwritten by the raw metadata spread above.
@@ -1009,10 +1318,29 @@ export async function persistQueuedMessageBody(
     // once the message id exists.
     const conversationCreatedAt =
       getConversation(ctx.conversationId)?.createdAt ?? Date.now();
-    const preparedAttachments = await prepareUserAttachmentReferences(
+    preparedAttachments = await prepareUserAttachmentReferences(
       ctx.conversationId,
       conversationCreatedAt,
       attachmentInputs,
+    );
+
+    // The turn sees exactly what was persisted: an attachment rejected during
+    // materialization is absent from both, so a file the store refused cannot
+    // reach the model through the in-memory message.
+    const sentAttachments = preparedAttachments.map(
+      (p) => attachmentInputs[p.position],
+    );
+    const sightFrameEntries = requestedSightFrameEntries(
+      options.sightFrameAttachmentIds,
+      attachmentInputs,
+      preparedAttachments,
+    );
+    const sightFrameRenames = sightFrameBlockRenames(sightFrameEntries);
+    // The blocks are built from the ids the caller held, so a cloned frame is
+    // pointed at its stored row before the message reaches the live history.
+    const cleanMessage = restampInlineAttachmentIds(
+      await createUserMessage(content, sentAttachments),
+      sightFrameRenames,
     );
 
     // When displayContent is provided (e.g. original text before recording
@@ -1024,17 +1352,31 @@ export async function persistQueuedMessageBody(
       displayContent,
       preparedAttachments.map((p) => p.block),
     );
+    // Composed here rather than with the rest of the metadata above, because
+    // materialization is what decides the id each frame is stored under.
+    const sightFrameIds = sightFrameTagIds(sightFrameEntries);
+    const metadataToPersist =
+      sightFrameIds.length > 0
+        ? { ...mergedMetadata, [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: sightFrameIds }
+        : mergedMetadata;
+
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
       contentToPersist,
       {
-        metadata: mergedMetadata,
+        metadata: metadataToPersist,
         clientMessageId,
         id: requestId,
         ...(skipIndexing ? { skipIndexing: true } : {}),
+        // Handed down rather than answered here: the insert retries itself on
+        // contention, so the question belongs where each attempt can ask it.
+        ...(options.insertPrecondition
+          ? { insertPrecondition: options.insertPrecondition }
+          : {}),
       },
     );
+    messageInserted = true;
 
     if (persistedUserMessage.deduplicated) {
       return { id: persistedUserMessage.id, deduplicated: true };
@@ -1098,7 +1440,13 @@ export async function persistQueuedMessageBody(
         );
         if (inline) {
           repairedBlocks ??= preparedAttachments.map((pp) => pp.block);
-          repairedBlocks[idx] = inline;
+          // Rebuilt from the caller's attachment, so it names the id the
+          // caller held while the tag written above names the stored row.
+          // Restamping keeps a repaired frame matchable by retention.
+          repairedBlocks[idx] = restampInlineAttachmentId(
+            inline,
+            sightFrameRenames,
+          );
         }
       }
     }
@@ -1119,7 +1467,7 @@ export async function persistQueuedMessageBody(
 
     const llmMessage = enrichMessageWithSourcePaths(
       cleanMessage,
-      attachmentInputs,
+      sentAttachments,
     );
     log.info(
       {
@@ -1144,10 +1492,30 @@ export async function persistQueuedMessageBody(
       );
     }
 
+    // Read after the content is final (including any link-failure repair), so
+    // the notice describes the blocks the send boundary will actually see.
+    const persistedImages = preparedAttachments.flatMap((p, idx) => {
+      const block = repairedBlocks?.[idx] ?? p.block;
+      if (block.type !== "image") {
+        return [];
+      }
+      const { filename } = attachmentInputs[p.position];
+      return [{ filename, source: block.source }];
+    });
+    await postUnsendableImageNotice(ctx.conversationId, persistedImages);
+
     return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {
     if (pushedToHistory) {
       ctx.messages.pop();
+    }
+    if (!messageInserted) {
+      const undiscarded = discardAttemptAttachments(
+        attemptCreatedAttachmentIds(attachmentInputs, preparedAttachments),
+      );
+      if (undiscarded.length > 0) {
+        options.onUndiscardedAttachments?.(undiscarded);
+      }
     }
     throw err;
   }

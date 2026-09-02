@@ -160,14 +160,13 @@ export interface ChannelApprovalPrompt {
 // Decision result (daemon-internal)
 // ---------------------------------------------------------------------------
 
-/** How the user communicated their decision. */
-export type ApprovalDecisionSource =
-  | "telegram_button"
-  | "whatsapp_button"
-  | "slack_button"
-  | "slack_reaction"
-  | "vellum_surface"
-  | "plain_text";
+/**
+ * How the user communicated their decision: the modality, never the channel.
+ * A channel-prefixed value here would misattribute the next channel that
+ * joins (every channel's buttons ride the same `apr:` callback), and no
+ * consumer reads a channel off this field.
+ */
+export type ApprovalDecisionSource = "button" | "vellum_surface" | "plain_text";
 
 /** The structured result of a user's approval decision. */
 export interface ApprovalDecisionResult {

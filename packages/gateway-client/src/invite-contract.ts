@@ -84,6 +84,7 @@ export const INVITE_CODE_REDEMPTION_CHANNELS: ReadonlySet<string> = new Set([
   "whatsapp",
   "slack",
   "email",
+  "discord",
 ]);
 
 /** Whether invite code redemption is enabled for the given channel. */

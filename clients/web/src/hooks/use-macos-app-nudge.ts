@@ -8,6 +8,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
+import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 import {
   getLocalBool,
   setLocalBool,
@@ -36,12 +38,6 @@ export const KEY_MAC_APP_FIRST_SEEN_AT = "app.macOsNudge.firstSeenAt";
 
 /** Minimum age (ms since first seen) before the banner is eligible. 24 hours. */
 export const MAC_APP_BANNER_MIN_AGE_MS = 24 * 60 * 60 * 1000;
-
-/**
- * macOS app download URL. Replace with the canonical CDN or marketing
- * page URL before shipping.
- */
-export const MACOS_DOWNLOAD_URL = "https://vellum.ai/download";
 
 // ---------------------------------------------------------------------------
 // Public readers / writers
@@ -129,12 +125,14 @@ export function useMacOsNudgeState(): {
   }, [firstSeenAt, ageEligible]);
 
   const handleDownload = useCallback(() => {
+    emitNativeAppNudgeEvent("click", "banner", "macos");
     openMacOsDownload();
     writeMacOsAppDownloaded();
     setDownloaded(true);
   }, []);
 
   const handleBannerDismiss = useCallback(() => {
+    emitNativeAppNudgeEvent("dismiss", "banner", "macos");
     writeMacOsAppBannerDismissed();
     setBannerDismissed(true);
   }, []);
@@ -167,7 +165,7 @@ export function useMacOsNudgeState(): {
 // ---------------------------------------------------------------------------
 
 export function openMacOsDownload(): void {
-  window.open(MACOS_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+  window.open(VELLUM_DOWNLOADS_URL, "_blank", "noopener,noreferrer");
 }
 
 // ---------------------------------------------------------------------------

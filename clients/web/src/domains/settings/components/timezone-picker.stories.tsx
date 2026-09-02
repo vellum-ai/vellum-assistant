@@ -4,7 +4,7 @@ import { useArgs } from "storybook/preview-api";
 import { TimezonePicker } from "./timezone-picker";
 
 /**
- * The "Closest city" row of Settings → General: a search field over the IANA
+ * The "Timezone" row of Settings → General: a search field over the IANA
  * zone list, with the resolved zone name shown underneath.
  *
  * The list is a combobox. Focus stays in the field, ArrowDown/ArrowUp move the

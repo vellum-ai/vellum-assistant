@@ -379,6 +379,108 @@ export function parseOpenThreadDeepLink(
   };
 }
 
+/** Host segment shared with `CameraDeepLink.swift` on the native side. */
+const CAMERA_DEEP_LINK_HOST = "camera";
+
+/** Host segment shared with `NewChatDeepLink.swift` on the native side. */
+const NEW_CHAT_DEEP_LINK_HOST = "new-chat";
+
+/** Host segment shared with `ConversationsDeepLink.swift` on the native side. */
+const CONVERSATIONS_DEEP_LINK_HOST = "conversations";
+
+/**
+ * What a `<scheme>://camera`, `<scheme>://new-chat` or
+ * `<scheme>://conversations` deep link asks for.
+ *
+ * The host is the whole request, so there is nothing on the payload but where
+ * the link came from. `provenance` is carried for parity with the sibling
+ * parsers rather than because a consumer gates on it today: neither command
+ * moves untrusted content into the app, so neither has a decision to make
+ * about who sent it. It is the field a future gate would read.
+ */
+interface CommandDeepLinkPayload {
+  /** See {@link CommandUrlProvenance}; `null` unless the caller opted in. */
+  provenance: CommandUrlProvenance;
+}
+
+/**
+ * The shared body of the parameterless command parsers: exact scheme
+ * allowlist, exact host, empty path, provenance. Strict like the sibling
+ * parsers, and for the same reason: a `startsWith` scheme check would let
+ * `vellum-assistant-evil://camera` through.
+ *
+ * The host is the whole request, so a path makes the URL a different link that
+ * merely shares the host: `<scheme>://camera/unrelated` must reach
+ * `deeplink.unknown` rather than open the camera, which is also what leaves the
+ * path free for a future path-bearing contract on the same host. Query
+ * parameters stay ignored rather than rejected, so a producer that grows one
+ * later degrades to the plain command on an older bundle instead of being
+ * dropped.
+ */
+function parseCommandDeepLink(
+  rawUrl: string,
+  host: string,
+  options: DeepLinkParseOptions | undefined,
+): CommandDeepLinkPayload | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_NATIVE_URL_PROTOCOLS.has(url.protocol)) {
+    return null;
+  }
+  if (url.host !== host) {
+    return null;
+  }
+  // A bare `<scheme>://camera` parses with an empty pathname and a trailing
+  // slash parses as "/"; both are the plain command. Anything else is a path.
+  if (url.pathname !== "" && url.pathname !== "/") {
+    return null;
+  }
+
+  return { provenance: readProvenance(url, options) };
+}
+
+/**
+ * Parse a `vellum-assistant://camera` deep link, produced by the Home Screen
+ * widget's camera button (`CameraDeepLink.swift`). The consumer parks the
+ * request and the composer's attachment layer opens the camera once it is on
+ * screen, so a cold launch works the same as a tap into a running app.
+ */
+export function parseOpenCameraDeepLink(
+  rawUrl: string,
+  options?: DeepLinkParseOptions,
+): CommandDeepLinkPayload | null {
+  return parseCommandDeepLink(rawUrl, CAMERA_DEEP_LINK_HOST, options);
+}
+
+/**
+ * Parse a `vellum-assistant://new-chat` deep link, produced by the Home Screen
+ * widgets' New Chat buttons (`NewChatDeepLink.swift`). The consumer navigates
+ * to a fresh draft conversation.
+ */
+export function parseNewChatDeepLink(
+  rawUrl: string,
+  options?: DeepLinkParseOptions,
+): CommandDeepLinkPayload | null {
+  return parseCommandDeepLink(rawUrl, NEW_CHAT_DEEP_LINK_HOST, options);
+}
+
+/**
+ * Parse a `vellum-assistant://conversations` deep link, produced by the Home
+ * Screen widgets' unread affordances (`ConversationsDeepLink.swift`). The
+ * consumer brings up the conversation list.
+ */
+export function parseOpenConversationsDeepLink(
+  rawUrl: string,
+  options?: DeepLinkParseOptions,
+): CommandDeepLinkPayload | null {
+  return parseCommandDeepLink(rawUrl, CONVERSATIONS_DEEP_LINK_HOST, options);
+}
+
 export function buildOAuthCompleteDeepLink(
   scheme: string,
   payload: OAuthCompleteDeepLinkPayload,

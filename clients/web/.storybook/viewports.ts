@@ -18,6 +18,16 @@ export const SB_VIEWPORTS = {
     styles: { width: "390px", height: "844px" },
     type: "mobile" as const,
   },
+  /**
+   * A desktop window too short for what it holds. Height is the whole point:
+   * a dialog that keeps room for an open menu has to give that room back
+   * here, and a story pinned to it shows whether the footer survives.
+   */
+  sbShort: {
+    name: "Desktop (short)",
+    styles: { width: "1280px", height: "500px" },
+    type: "desktop" as const,
+  },
 };
 
 /** The width stories start at. See `preview.tsx` for why it is not pinned. */

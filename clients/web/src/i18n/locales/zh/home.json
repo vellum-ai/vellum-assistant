@@ -1,0 +1,73 @@
+{
+  "actions": {
+    "markAsRead": "标记为已读",
+    "markAsUnread": "标记为未读",
+    "restore": "恢复",
+    "dismiss": "忽略",
+    "goToThread": "前往会话",
+    "goToConversation": "前往对话",
+    "viewSchedule": "查看日程",
+    "viewSkill": "查看技能",
+    "markAllAsRead": "全部标记为已读",
+    "clearAll": "全部清除"
+  },
+  "category": {
+    "security": "安全",
+    "email": "电子邮件",
+    "scheduling": "日程安排",
+    "background": "后台",
+    "system": "系统",
+    "guardianAction": "需要监护人操作",
+    "guardianQuestion": "监护人问题",
+    "guardianRequest": "监护人请求"
+  },
+  "homeRecapRow": {
+    "actionsTitle": "更新操作"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "缺少范围",
+    "status": {
+      "revoked": "已撤销",
+      "expired": "已过期",
+      "missingScopes": "缺少范围",
+      "missingToken": "缺少令牌",
+      "pingFailed": "Ping 失败",
+      "unreachable": "无法访问"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "通知",
+    "ariaLabelUnread": "通知 (未读)",
+    "heading": "通知",
+    "loadFailed": "无法加载通知。",
+    "actionFailed": "无法开始该对话。请重试。"
+  },
+  "notificationsBellDetail": {
+    "back": "返回通知"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "批准",
+    "reject": "拒绝",
+    "answerHint": "前往对话回答这个问题。",
+    "decisionFailed": "无法提交决定。请重试。",
+    "receipt": {
+      "approved": "请求已批准",
+      "rejected": "请求已拒绝",
+      "expired": "请求已过期",
+      "superseded": "请求已被取代",
+      "leftUnverified": "未验证",
+      "cancelled": "请求已取消",
+      "alreadyResolved": "已处理"
+    },
+    "viewSourceThread": "查看来源消息串",
+    "toolRequested": "已请求运行 <code>{toolName}</code>",
+    "toolRequesting": "请求运行 <code>{toolName}</code>"
+  },
+  "notificationsBellEmptyState": {
+    "title": "暂无内容。",
+    "briefingRecipeTitle": "设置晨间简报",
+    "briefingRecipeMeta": "每日",
+    "briefingRecipeDescription": "你的第一条通知，明天早上送达。",
+    "briefingRecipePrompt": "帮我设置晨间简报。在创建任何内容之前，先看看我的哪些账户已连接，然后给我几个选项，说明简报可以包含哪些内容、在什么时间发送。等我选好之后再进行设置。"
+  }
+}

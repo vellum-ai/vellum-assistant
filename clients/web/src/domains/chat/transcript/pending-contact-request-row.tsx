@@ -3,7 +3,10 @@
  * interaction-store state directly — no render-prop relay from the parent.
  */
 
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  useInteractionStore,
+  useSubmittingRequestId,
+} from "@/domains/chat/interaction-store";
 import {
   handleContactPromptSubmit,
   handleContactPromptCancel,
@@ -12,12 +15,15 @@ import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card
 
 export function PendingContactRequestRow() {
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-  const isSubmitting = useInteractionStore.use.isSubmittingContactRequest();
+  const submittingRequestId = useSubmittingRequestId("contactRequest");
   const accepted = useInteractionStore.use.contactRequestAccepted();
 
   if (!pendingContactRequest) {
     return null;
   }
+
+  // This card's own submission, not any submission.
+  const isSubmitting = submittingRequestId === pendingContactRequest.requestId;
 
   return (
     <ContactPromptCard

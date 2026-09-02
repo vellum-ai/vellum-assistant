@@ -318,6 +318,18 @@ describe("non-member access request notification", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
+
+    // A pending row past its deadline never dedupes: it can sit pending
+    // until the sweep expires it, it is already undecidable, and absorbing
+    // the fresh attempt would silently drop the new guardian notification.
+    pending[0].expiresAt = Date.now() - 1000;
+    const req3 = buildInboundRequest({
+      externalMessageId: `msg-third-${Date.now()}`,
+      content: "Still hoping to get access.",
+    });
+    await handleChannelInbound(req3, undefined, TEST_BEARER_TOKEN);
+
+    expect(emitSignalCalls.length).toBe(2);
   });
 
   // A bare guardian deny (a `denied` request with no durable contact seeded)

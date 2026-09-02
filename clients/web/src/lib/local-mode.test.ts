@@ -47,16 +47,29 @@ const unpairAssistantHost = mock(
   }),
 );
 
-const connectImportHost = mock(
-  async (
-    _bundle: string,
-    _name?: string,
-  ): Promise<localModeHost.LocalConnectImportResult> => ({
+const pairingStartHost = mock(
+  async (_address: string): Promise<localModeHost.LocalPairingStartResult> => ({
     ok: true as const,
+    handle: "handle-1",
+    userCode: null,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    intervalSeconds: 5,
+  }),
+);
+
+const pairingPollHost = mock(
+  async (
+    _handle: string,
+    _name?: string,
+  ): Promise<localModeHost.LocalPairingPollResult> => ({
+    ok: true as const,
+    status: "imported" as const,
     assistantId: "paired-new",
     accessOnly: false,
   }),
 );
+
+const pairingCancelHost = mock(async (_handle: string): Promise<void> => {});
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
@@ -66,7 +79,9 @@ mock.module("@/runtime/local-mode-host", () => ({
   saveLockfileAssistantHost,
   fetchGuardianTokenHost,
   unpairAssistantHost,
-  connectImportHost,
+  pairingStartHost,
+  pairingPollHost,
+  pairingCancelHost,
 }));
 
 import {
@@ -80,13 +95,16 @@ import {
   getPlatformRuntimeUrl,
   getRemoteAssistantDisplayName,
   getSelectedAssistant,
-  importPairedAssistantBundle,
+  cancelAssistantPairing,
+  pollAssistantPairing,
+  startAssistantPairing,
   isCliWakeableAssistant,
   isLocalAssistant,
   isLocalGatewayAssistant,
   isPairedAssistant,
   isPlatformAssistant,
   isRemoteGatewayMode,
+  isRetryablePairingFailure,
   loadLockfile,
   LOCAL_GATEWAY_STARTUP_RETRY,
   primeLocalGatewayConnection,
@@ -169,7 +187,9 @@ afterEach(() => {
   saveLockfileAssistantHost.mockClear();
   fetchGuardianTokenHost.mockClear();
   unpairAssistantHost.mockClear();
-  connectImportHost.mockClear();
+  pairingStartHost.mockClear();
+  pairingPollHost.mockClear();
+  pairingCancelHost.mockClear();
   clearGatewayToken();
   setSelfHostedConnection(null);
   useAssistantIdentityStore.getState().clearIdentity();
@@ -531,18 +551,27 @@ describe("removePairedAssistantFromLockfile", () => {
   });
 });
 
-describe("importPairedAssistantBundle", () => {
-  test("registers the bundle through the host and reloads the lockfile", async () => {
+describe("assistant pairing", () => {
+  test("starts the attempt through the host without touching the lockfile", async () => {
+    const result = await startAssistantPairing("https://gw.example.com");
+
+    expect(pairingStartHost).toHaveBeenCalledWith("https://gw.example.com");
+    expect(result).toMatchObject({ ok: true, handle: "handle-1" });
+    expect(loadLockfileHost).not.toHaveBeenCalled();
+  });
+
+  test("an imported poll registers the pairing and reloads the lockfile", async () => {
     loadLockfileHost.mockImplementationOnce(async () => ({
       assistants: [pairedEntry],
       activeAssistant: null,
     }));
 
-    const result = await importPairedAssistantBundle("bundle-data", "desk");
+    const result = await pollAssistantPairing("handle-1", "desk");
 
-    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", "desk");
+    expect(pairingPollHost).toHaveBeenCalledWith("handle-1", "desk");
     expect(result).toEqual({
       ok: true,
+      status: "imported",
       assistantId: "paired-new",
       accessOnly: false,
     });
@@ -555,33 +584,138 @@ describe("importPairedAssistantBundle", () => {
     expect(useLockfileStore.getState().committed).toBe(true);
   });
 
-  test("passes accessOnly through on an access-only pairing", async () => {
-    connectImportHost.mockResolvedValueOnce({
+  test("a pending poll passes the cadence through without reloading", async () => {
+    pairingPollHost.mockResolvedValueOnce({
       ok: true as const,
+      status: "pending" as const,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      intervalSeconds: 3,
+    });
+
+    const result = await pollAssistantPairing("handle-1");
+
+    expect(result).toMatchObject({ status: "pending", intervalSeconds: 3 });
+    expect(loadLockfileHost).not.toHaveBeenCalled();
+  });
+
+  test("passes accessOnly through on an access-only pairing", async () => {
+    pairingPollHost.mockResolvedValueOnce({
+      ok: true as const,
+      status: "imported" as const,
       assistantId: "paired-new",
       accessOnly: true,
     });
 
-    const result = await importPairedAssistantBundle("bundle-data");
+    const result = await pollAssistantPairing("handle-1");
 
-    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", undefined);
-    expect(result).toEqual({
-      ok: true,
-      assistantId: "paired-new",
-      accessOnly: true,
-    });
+    expect(result).toMatchObject({ accessOnly: true });
   });
 
   test("returns the host error without reloading on failure", async () => {
-    connectImportHost.mockResolvedValueOnce({
+    pairingPollHost.mockResolvedValueOnce({
       ok: false,
-      error: "invalid pairing bundle",
+      reason: "expired",
+      error: "The pairing code expired or was denied.",
     });
 
-    const result = await importPairedAssistantBundle("nope");
+    const result = await pollAssistantPairing("handle-1");
 
-    expect(result).toEqual({ ok: false, error: "invalid pairing bundle" });
+    expect(result).toEqual({
+      ok: false,
+      reason: "expired",
+      error: "The pairing code expired or was denied.",
+    });
     expect(loadLockfileHost).not.toHaveBeenCalled();
+  });
+
+  // The dialog renders its own catalog copy for a refused address, so the
+  // structured reason has to survive the wrapper.
+  test("a refused address keeps its rejection reason", async () => {
+    pairingStartHost.mockResolvedValueOnce({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address points back at this machine.",
+      rejection: "loopback",
+    });
+
+    const result = await startAssistantPairing("https://localhost:7830");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address points back at this machine.",
+      rejection: "loopback",
+    });
+  });
+
+  test("a rejection reason with no copy degrades to the host's message", async () => {
+    pairingStartHost.mockResolvedValueOnce({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address is not usable.",
+      rejection: "reason-from-a-newer-host",
+    } as unknown as localModeHost.LocalPairingStartResult);
+
+    const result = await startAssistantPairing("https://gw.example.com");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address is not usable.",
+      rejection: undefined,
+    });
+  });
+
+  test("an error-less host failure still reports something displayable", async () => {
+    pairingStartHost.mockResolvedValueOnce({ ok: false, error: "" });
+
+    const result = await startAssistantPairing("https://gw.example.com");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Failed to connect to that assistant.",
+    });
+  });
+
+  test("cancelling forwards the handle to the host", async () => {
+    await cancelAssistantPairing("handle-1");
+
+    expect(pairingCancelHost).toHaveBeenCalledWith("handle-1");
+  });
+
+  test("cancelling a session the host rejects resolves quietly", async () => {
+    pairingCancelHost.mockRejectedValueOnce(new Error("no such session"));
+
+    expect(await cancelAssistantPairing("handle-1")).toBeUndefined();
+  });
+
+  test.each([
+    // Nothing reached the assistant, so the code is untouched.
+    "unreachable",
+    // The assistant refused with a status that released the code.
+    "gateway-retryable",
+  ] as const)("a %s failure is worth polling through", (reason) => {
+    expect(
+      isRetryablePairingFailure({ ok: false, reason, error: "not yet" }),
+    ).toBe(true);
+  });
+
+  test.each([
+    "invalid-address",
+    "unknown-session",
+    "expired",
+    // The assistant answered with something unusable, past which the code is
+    // spent rather than released.
+    "gateway",
+    "import",
+  ] as const)("a %s failure ends the attempt", (reason) => {
+    expect(isRetryablePairingFailure({ ok: false, reason, error: "no" })).toBe(
+      false,
+    );
+  });
+
+  test("a host too old to name a reason ends the attempt", () => {
+    expect(isRetryablePairingFailure({ ok: false, error: "no" })).toBe(false);
   });
 });
 

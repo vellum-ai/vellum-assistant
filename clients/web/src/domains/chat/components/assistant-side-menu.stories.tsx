@@ -9,9 +9,9 @@
  * and the channel-`Grouped` one.
  *
  * The view lives in the sidebar's layout store, keyed per assistant, so each
- * story seeds its own assistant id before mounting. Pinned apps come from a
- * store too rather than from a prop, so they are seeded the same way: a story
- * that does not seed it renders the rail without its pinned-app cluster.
+ * story seeds its own assistant id before mounting. Pinned apps arrive on the
+ * daemon's app list rather than as a prop, so each story also gets a query
+ * client carrying that list for the assistant it renders.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -27,9 +27,10 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
+import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useAuthStore } from "@/stores/auth-store";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import { savePinnedApps } from "@/utils/app-pin-storage";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { AppSummary } from "@/types/app-types";
 import {
   saveViewMode,
   type SidebarViewMode,
@@ -108,10 +109,69 @@ const LONG_CONVERSATIONS: Conversation[] = [
    a tint of the pill it sits on rather than as a different component, and what
    shows the two of them still reading as quieter than the assistant identity
    pill above them. */
-const PINNED_APPS = [
-  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops", color: "teal" },
-  { appId: "app-inbox", pinnedOrder: 1, name: "Inbox Triage" },
+/* Pins ride on the app list the daemon serves, so the fixture is apps rather
+   than a separate pin record. */
+const PINNED_APPS: AppSummary[] = [
+  {
+    id: "app-ops",
+    name: "Vex Ops",
+    createdAt: 0,
+    updatedAt: 0,
+    version: "1",
+    contentId: "content-ops",
+    origin: "workspace",
+    pinSortPosition: 1,
+    pinColor: "teal",
+  },
+  {
+    id: "app-inbox",
+    name: "Inbox Triage",
+    createdAt: 0,
+    updatedAt: 0,
+    version: "1",
+    contentId: "content-inbox",
+    origin: "workspace",
+    pinSortPosition: 2,
+  },
 ];
+
+/**
+ * Seed the app list the sidebar's pinned block reads, and the capability that
+ * decides it reads from there at all. Without the capability the sidebar falls
+ * back to the browser-local pin list, so these stories would document a path
+ * they do not mean to show.
+ */
+function seedApps(client: QueryClient, assistantId: string): QueryClient {
+  client.setQueryData(
+    appsGetQueryKey({ path: { assistant_id: assistantId } }),
+    {
+      apps: PINNED_APPS,
+    },
+  );
+  client.setQueryData(["assistant-capability", "appPins", assistantId], true);
+  return client;
+}
+
+/**
+ * One client per story assistant, kept across re-renders so a seeded list is
+ * not rebuilt (and refetched) underneath the story on every render.
+ */
+const storyClients = new Map<string, QueryClient>();
+
+function storyClient(assistantId: string): QueryClient {
+  const existing = storyClients.get(assistantId);
+  if (existing) {
+    return existing;
+  }
+  const client = seedApps(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    }),
+    assistantId,
+  );
+  storyClients.set(assistantId, client);
+  return client;
+}
 
 const GROUPS: ConversationGroup[] = [
   {
@@ -156,20 +216,14 @@ const GROUPS: ConversationGroup[] = [
 function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
   saveViewMode(assistantId, mode);
   useSidebarLayoutStore.setState({ assistantId: null });
-  /* Persisted as well as set, because the store mirrors storage rather than
-     owning the pins: every pin action writes through and then re-reads. Seeded
-     in memory alone, the list is a state the app cannot actually be in, and
-     the first Unpin or colour pick re-reads an empty key and clears both
-     entries in front of whoever is reviewing the story. */
-  savePinnedApps(PINNED_APPS);
-  usePinnedAppsStore.setState({
-    pinnedApps: PINNED_APPS,
-    pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
-  });
   /* `PreferencesMenu` renders nothing for a signed-out user and a story has no
      session of its own, so the sidebar's footer entry only appears in these
      stories once one is seeded. */
   useAuthStore.setState({ sessionStatus: "authenticated" });
+  /* `useAssistantCapability` keys on the active assistant from this store, not
+     on the id the story passes as a prop, so the seeded `appPins` answer is
+     only found once the store agrees which assistant is active. */
+  useResolvedAssistantsStore.setState({ activeAssistantId: assistantId });
 }
 
 /**
@@ -198,7 +252,7 @@ function seededAvatarClient(
       data,
     );
   }
-  return client;
+  return seedApps(client, assistantId);
 }
 
 /* A stand-in for an uploaded photo, inline so the story needs no network and
@@ -262,6 +316,7 @@ const SHARED_ARGS = {
   onMarkConversationUnread: () => {},
   onPinConversation: () => {},
   onArchiveConversation: () => {},
+  onDeleteConversation: () => {},
   /* The real `PreferencesMenu`, not a stand-in: it is the sidebar's bottom
      entry, and without it these stories show every part of the rail except
      the one at its foot. `chat-layout` passes it the same way. */
@@ -284,6 +339,13 @@ const meta: Meta<typeof AssistantSideMenu> = {
      type and row metrics switch at `md`; the desktop width every story
      starts at holds these above that breakpoint. */
   decorators: [
+    (Story, context) => (
+      <QueryClientProvider
+        client={storyClient(String(context.args.assistantId ?? ""))}
+      >
+        <Story />
+      </QueryClientProvider>
+    ),
     (Story) => (
       <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
         <aside className="w-fit shrink-0 overflow-hidden">
@@ -432,9 +494,9 @@ export const CharacterAvatar: Story = {
 /**
  * The mobile drawer (Figma 7842-83305). Its own decorator, because the
  * overlay's shell is not the desktop one: `chat-layout` mounts it as a
- * full-bleed sheet over the chat, and the sheet's surface thins toward the
- * chat edge, so the page behind it has to be there for the gradient to mean
- * anything. The frame is a 402x874 phone.
+ * full-bleed sheet over the chat, and the page behind it has to be there to
+ * confirm the sheet's opaque surface fully covers it. The frame is a
+ * 402x874 phone.
  */
 export const OverlayDrawer: Story = {
   name: "Overlay drawer (mobile)",
@@ -443,8 +505,8 @@ export const OverlayDrawer: Story = {
   decorators: [
     (Story) => (
       <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
-        {/* Stand-in for the chat the drawer covers: only its legibility
-            through the sheet is under test, not its own layout. */}
+        {/* Stand-in for the chat the drawer covers: only whether the sheet
+            fully hides it is under test, not its own layout. */}
         <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
           <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
           <p>

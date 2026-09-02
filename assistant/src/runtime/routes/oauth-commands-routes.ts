@@ -19,6 +19,7 @@ import {
   ServicesSchema,
 } from "../../config/schemas/services.js";
 import type { OAuthConnectionRequest } from "../../oauth/connection.js";
+import { isBinaryOAuthBody, jsonSafeOAuthBody } from "../../oauth/connection.js";
 import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
@@ -39,6 +40,11 @@ import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  findContentTypeHeader,
+  parseRequestBodyBytes,
+  parseRequestBodyData,
+} from "../../util/oauth-request-body.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -721,15 +727,13 @@ async function handleToken({ body = {} }: RouteHandlerArgs) {
 // Request handler
 // ---------------------------------------------------------------------------
 
-function tryJsonParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
-
-function readBodyData(data: string): unknown {
+/**
+ * Resolve a raw `data` string into a request body. A non-JSON Content-Type
+ * keeps the payload as the caller's exact string so multipart and other
+ * byte-sensitive payloads survive. Files are read as raw bytes: valid UTF-8
+ * stays text, and anything else stays a Buffer.
+ */
+function readBodyData(data: string, contentType: string | undefined): unknown {
   if (data === "@-") {
     // This handler runs inside the daemon, whose stdin is a supervisor pipe
     // or /dev/null — never the caller's terminal. Stdin-based body input is
@@ -742,14 +746,13 @@ function readBodyData(data: string): unknown {
 
   if (data.startsWith("@")) {
     const filePath = data.slice(1);
-    const raw = readFileSync(filePath, "utf-8");
-    return tryJsonParse(raw);
+    return parseRequestBodyBytes(readFileSync(filePath), contentType);
   }
 
-  return tryJsonParse(data);
+  return parseRequestBodyData(data, contentType);
 }
 
-async function handleRequest({ body = {} }: RouteHandlerArgs) {
+export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const b = body as {
     provider: string;
     url: string;
@@ -759,6 +762,8 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     parsed_data?: unknown;
     /** Raw data string (for direct API callers, not the CLI). */
     data?: string;
+    /** When set to base64, `parsed_data` / `data` is a base64 string of raw bytes. */
+    body_encoding?: "base64";
     force_get?: boolean;
     head?: boolean;
     account?: string;
@@ -852,16 +857,26 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
   let reqBody: unknown = undefined;
   const query: Record<string, string | string[]> = { ...queryFromUrl };
 
-  // Use pre-parsed data from CLI, or fall back to raw data string for direct API callers
+  // Use pre-parsed data from CLI, or fall back to raw data string for direct
+  // API callers. A string here (a multipart or form-encoded payload) stays a
+  // string all the way to the provider; only objects are serialized as JSON.
   const resolvedData =
     b.parsed_data !== undefined
       ? b.parsed_data
       : b.data !== undefined
-        ? readBodyData(b.data)
+        ? readBodyData(b.data, findContentTypeHeader(b.headers))
         : undefined;
 
   if (resolvedData !== undefined) {
-    const rawBody = resolvedData;
+    let rawBody = resolvedData;
+    if (b.body_encoding === "base64") {
+      if (typeof rawBody !== "string") {
+        throw new BadRequestError(
+          "body_encoding=base64 requires a string body",
+        );
+      }
+      rawBody = Buffer.from(rawBody, "base64");
+    }
 
     if (b.force_get) {
       if (typeof rawBody === "string") {
@@ -879,7 +894,8 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
       } else if (
         rawBody !== null &&
         typeof rawBody === "object" &&
-        !Array.isArray(rawBody)
+        !Array.isArray(rawBody) &&
+        !isBinaryOAuthBody(rawBody)
       ) {
         for (const [key, value] of Object.entries(
           rawBody as Record<string, unknown>,
@@ -924,16 +940,20 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
   };
 
   const response = await connection.request(req);
+  const encodedBody = jsonSafeOAuthBody(response.body);
 
   const result: Record<string, unknown> = {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
     headers: response.headers,
-    body: response.body,
+    body: encodedBody.body,
     // Which connected account actually served the request, so the caller can
     // tell whether the intended account was used.
     account: connection.accountInfo,
   };
+  if (encodedBody.bodyEncoding) {
+    result.bodyEncoding = encodedBody.bodyEncoding;
+  }
 
   // Surface a caller-visible warning when the provider had several active
   // connections and no account was pinned — the model must see that a

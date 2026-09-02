@@ -43,7 +43,7 @@ import { createSelectors } from "@/utils/create-selectors";
  *   turn-boundary `ptt_release` frame in manual mode. Distinct from `thinking`
  *   because it stamps end-of-speech latency and gates the
  *   `utterance_discarded` return to `listening`, though the two share a label
- *   (see {@link LIVE_VOICE_STATE_LABELS}).
+ *   (see {@link LIVE_VOICE_STATE_KEYS}).
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
@@ -60,88 +60,93 @@ export type LiveVoiceSessionState =
   | "failed";
 
 /**
- * User-facing activity label per session state, shared by every surface that
- * shows session activity (the composer's voice bar and the title-bar session
- * pill), so the two always agree.
+ * Catalog key for a session's status word, in the `chat` namespace.
+ */
+export type LiveVoiceStatusKey =
+  | "liveVoiceStatus.connecting"
+  | "liveVoiceStatus.reconnecting"
+  | "liveVoiceStatus.listening"
+  | "liveVoiceStatus.thinking"
+  | "liveVoiceStatus.speaking"
+  | "liveVoiceStatus.ending"
+  | "liveVoiceStatus.muted";
+
+/**
+ * The status key each session state carries, before the surface remaps in
+ * {@link liveVoiceSurfaceLabelKey}. `null` is a phase with no word at all:
+ * hosts unmount their voice UI in `idle` and `failed`.
  *
  * Deliberately minimal treatment (decided 2026-07-06): assistant output
  * streams into the thread transcript like text chat, so surfaces only carry a
- * small label. `idle`/`failed` map to an empty label — hosts unmount their
- * voice UI in those states.
+ * small label.
  *
- * `transcribing` and `thinking` share one label (JARVIS-1559).
+ * `transcribing` and `thinking` share one key (JARVIS-1559).
  * `toVoiceAvatarVisual` collapses both phases to a single visual, so wording
  * unique to `transcribing` puts two words for one phase on screen at once,
  * across a window that is usually under a second and that offers the user
- * nothing to act on. The pairing belongs in this table rather than in
- * {@link liveVoiceSurfaceLabel}: the session pill and the composer's voice bar
- * read the table directly, so it is the only layer every surface shares.
+ * nothing to act on.
+ *
+ * A phase and its wording are paired here and nowhere else. The wording itself
+ * is `liveVoiceStatus` in the `chat` catalog, and every surface resolves the
+ * key through it, so each of them says the same thing in the reader's own
+ * language.
  */
-export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
-  idle: "",
-  connecting: "Connecting…",
-  listening: "Listening…",
-  transcribing: "Thinking…",
-  thinking: "Thinking…",
-  speaking: "Speaking…",
-  ending: "Ending…",
-  failed: "",
+export const LIVE_VOICE_STATE_KEYS: Record<
+  LiveVoiceSessionState,
+  LiveVoiceStatusKey | null
+> = {
+  idle: null,
+  connecting: "liveVoiceStatus.connecting",
+  listening: "liveVoiceStatus.listening",
+  transcribing: "liveVoiceStatus.thinking",
+  thinking: "liveVoiceStatus.thinking",
+  speaking: "liveVoiceStatus.speaking",
+  ending: "liveVoiceStatus.ending",
+  failed: null,
 };
 
 /**
- * User-facing activity label for a session, factoring in the orthogonal
- * `reconnecting` signal. Drives the room's aria-live label. During a retry of a
- * dropped connection the base `connecting` phase relabels to "Reconnecting…" so
- * surfaces distinguish it from the initial connect (the JARVIS-1255 gap);
- * `reconnecting` is ignored for every other phase. {@link LIVE_VOICE_STATE_LABELS}
- * stays the single source of base labels.
- */
-export function liveVoiceStateLabel(
-  state: LiveVoiceSessionState,
-  reconnecting: boolean,
-): string {
-  if (reconnecting && state === "connecting") {
-    return "Reconnecting…";
-  }
-  return LIVE_VOICE_STATE_LABELS[state];
-}
-
-/**
- * The label a *surface* shows for a session: {@link liveVoiceStateLabel} plus
- * the two remaps that keep the words true of what is actually happening.
+ * The catalog key a *surface* shows for a session: the phase's own key plus the
+ * remaps that keep the word true of what is actually happening. Keys exist so
+ * surfaces can localize without forking the decision table.
+ *
+ * `connecting` relabels to "Reconnecting…" while the controller is retrying a
+ * dropped connection, so a surface distinguishes a retry from the initial
+ * connect (the JARVIS-1255 gap). `reconnecting` is ignored for every other
+ * phase.
  *
  * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
  * audible is wrong for the room's caption, wrong for its screen-reader
  * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
- * that renders session activity calls this, the voice room and the iOS Live
- * Activity mirror, so the island always reads exactly what the room reads.
+ * that renders session activity calls this, the room and the out-of-app
+ * mirrors alike, so the island always reads exactly what the room reads.
  *
  * `listening` is the same problem through the microphone: the session holds
  * that phase while the mic is muted, so the surface claims to be listening
  * beside a mute button that says it is not. Muted is a state rather than an
  * activity, so it takes no ellipsis where the phases do.
  *
- * Only `listening` is remapped. Muting the microphone does not make the
- * assistant stop thinking or speaking, and relabelling those would trade one
- * false statement for another.
- *
- * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
- * audio signal to consult.
+ * Only `listening` is remapped for mute. Muting the microphone does not make
+ * the assistant stop thinking or speaking, and relabelling those would trade
+ * one false statement for another.
  */
-export function liveVoiceSurfaceLabel(
+export function liveVoiceSurfaceLabelKey(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
-): string {
+): LiveVoiceStatusKey | null {
   if (state === "listening" && muted) {
-    return "Muted";
+    return "liveVoiceStatus.muted";
   }
-  return liveVoiceStateLabel(
-    state === "speaking" && !assistantAudioActive ? "thinking" : state,
-    reconnecting,
-  );
+  if (state === "connecting" && reconnecting) {
+    return "liveVoiceStatus.reconnecting";
+  }
+  if (state === "speaking" && !assistantAudioActive) {
+    return "liveVoiceStatus.thinking";
+  }
+  return LIVE_VOICE_STATE_KEYS[state];
 }
 
 /**
@@ -206,6 +211,18 @@ export interface LiveVoiceSessionControls {
    * older assistant's rejection cannot be told apart from `update_config`'s.
    */
   attachImage: (attachmentId: string) => boolean;
+  /**
+   * Share a camera frame the viewfinder's gate kept, by the id its upload
+   * already returned. The daemon persists it as its own user message straight
+   * away, so the transcript carries every keep in the order they arrived and
+   * nothing is staged for a later turn to pick up.
+   *
+   * Returns whether it reached the session. Unlike `attachImage` a false needs
+   * no report: nobody pressed anything, and the next keep sends a newer frame.
+   *
+   * Callers must gate on `useSupportsSightStream`.
+   */
+  sightFrame: (attachmentId: string) => boolean;
 }
 
 /**
@@ -243,8 +260,35 @@ export interface LiveVoiceSessionStarter {
   prewarm(): void;
   /** Release playback reserved by a preflight that will not start a session. */
   cancelPrewarm(): void;
-  /** Start a session, consuming the prewarmed player when one exists. */
-  start(assistantId: string, conversationId: string | null): void;
+  /**
+   * Start a session, consuming the prewarmed player when one exists.
+   *
+   * `seedText` takes a first turn on the session's behalf once the microphone
+   * is live, so the assistant speaks without waiting for the user. It becomes
+   * a real user message in the conversation, so a caller passes one only where
+   * that reads honestly. See `voice-entry-greeting.ts` for the rule and the
+   * copy. `seedVisible` renders it as the user's own message rather than
+   * hiding it, for a seed that is their words; `endAfterSeedReply` ends the
+   * session once its reply has been heard.
+   */
+  start(
+    assistantId: string,
+    conversationId: string | null,
+    options?: LiveVoiceSeedOptions,
+  ): void;
+  /**
+   * Put a typed turn to the running session. Returns whether it went out: a
+   * session that is not up, or an assistant without typed turns, takes
+   * nothing, and the caller keeps the words.
+   */
+  sendText(text: string): boolean;
+}
+
+/** The first turn a session takes on a caller's behalf, and what follows it. */
+export interface LiveVoiceSeedOptions {
+  seedText?: string;
+  seedVisible?: boolean;
+  endAfterSeedReply?: boolean;
 }
 
 export interface LiveVoiceState {
@@ -295,8 +339,79 @@ export interface LiveVoiceState {
   photoRejectedSeq: number;
   /** Why the last photo was refused, for the room's wording. */
   photoRejectedReason: "unsupported" | "failed" | null;
+  /**
+   * Set once the assistant answers a kept camera frame with `unknown_type`,
+   * meaning it has no `sight_frame` handler at all.
+   *
+   * The runtime backstop for a mis-gated assistant, whatever produced the
+   * mis-gating. `use-supports-sight-stream.ts` pins a version floor, but no
+   * version floor can be airtight: a dev release dispatched by hand from a
+   * stale ref stamps a fresh timestamp onto a pre-merge commit, and the
+   * comparator weighs the timestamp ahead of the sha, so such a build clears
+   * any floor. Without this latch each keep against it uploads an attachment,
+   * is refused, and leaves that attachment behind for good, because an
+   * assistant that never understood the frame never reclaims it either.
+   *
+   * Session-scoped: it lives in {@link INITIAL_SESSION_STATE}, so a reconnect
+   * (which resets with `sessionContinues`) tries again against whatever
+   * assistant answers next.
+   */
+  sightFramesUnsupported: boolean;
+  /**
+   * Ids of kept frames sent to the assistant with no verdict yet, newest last,
+   * capped at {@link SIGHT_FRAME_LEDGER_CAP}.
+   *
+   * An assistant that persisted a keep answers with nothing at all, so the
+   * only exact retirement is an error frame naming the attachment. An
+   * assistant that echoes no id leaves nothing to correlate, so its refusal
+   * retracts every claim in this ledger and retires none of them.
+   */
+  outstandingSightFrames: readonly string[];
+  /** Ids the cap pushed off the ledger, newest last, capped the same way. */
+  prunedSightFrames: readonly string[];
+  /**
+   * Photos sent to the assistant with no verdict yet.
+   *
+   * A count rather than ids: nothing here needs to know WHICH photo, only how
+   * many standalone persists can be queued ahead of a keep, since the daemon
+   * runs them one at a time and never supersedes a photo. Only a refusal
+   * retires one, so this over-counts the ones that quietly persisted, which
+   * only ever lengthens a wait. See `queueUnacknowledgedSightFrames`.
+   */
+  outstandingPhotoSends: number;
+  /**
+   * Uploads to give back, accumulating until the session-lifetime reclaimer
+   * drains them.
+   *
+   * Deliberately NOT session state: it is not reset with a session, because
+   * the refusal that fills it can land while the room is minimized (so the
+   * room's hook is unmounted and cannot consume) and the call can then end
+   * before anything drains. A queue that a session teardown could discard
+   * would strand exactly the uploads it is meant to collect.
+   */
+  sightFramesToReclaim: readonly SightFrameReclaim[];
+  /**
+   * Displayed keeps a refusal invalidated, accumulating until the room's sight
+   * surface consumes them.
+   *
+   * Session state, unlike the reclaim queue: a retraction is about a thumbnail
+   * on screen, and a session that ended took its thumbnail with it. Separate
+   * from the queue so each has exactly one consumer and neither can clear work
+   * belonging to the other.
+   */
+  sightFrameRetractions: readonly string[];
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
+  /**
+   * Which session lifetime this is. It moves when a session tears down and
+   * never during one, reconnects included, so an async continuation that read
+   * it mid-session can tell that its session is over. `controls` cannot
+   * answer that question: reconnect attempts republish a fresh controls
+   * object within one session. Never restored to the initial value: a
+   * terminal {@link LiveVoiceActions.reset} bumps it, and a mid-session reset
+   * (`sessionContinues`) leaves it alone.
+   */
+  sessionGeneration: number;
   /**
    * Session starter registered by the persistently mounted controller hook.
    * `null` only when no controller is mounted (e.g. outside the chat layout).
@@ -347,6 +462,15 @@ export interface LiveVoiceState {
    * make, however it was made.
    */
   pendingApprovalRequestId: string | null;
+  /**
+   * Whether the server VAD is holding an utterance open: set on
+   * `speech_started`, cleared on `utterance_end` / `utterance_discarded`. The
+   * session's own answer to "is the user talking right now", published because
+   * a surface renders that boundary directly (the camera-mode status pill's
+   * dot). Only hands-free sessions have one; a manual session leaves it false.
+   * Session-scoped, so `reset()` clears it with everything else.
+   */
+  utteranceOpen: boolean;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -397,7 +521,7 @@ export interface LiveVoiceState {
   /**
    * Latency measurements for the last turn, `null` until a turn is measured.
    * Debug surface only — per the minimal-treatment note on
-   * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
+   * {@link LIVE_VOICE_STATE_KEYS}, no surface renders this: the controller
    * logs one `console.debug("[live-voice] turn latency", …)` line per
    * completed turn and this field waits for a future debug panel.
    */
@@ -406,10 +530,11 @@ export interface LiveVoiceState {
    * Provider for the assistant's TTS *output* amplitude in [0, 1], registered
    * by the controller from the active session's {@link LiveVoiceAudioPlayer}
    * (its output-bus analyser). `null` when there is no session, or on a context
-   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude}; the room
-   * avatar routes between this and the mic amplitude by phase — see
-   * {@link getLiveVoiceAvatarAmplitude}. A registered provider (like `controls`)
-   * so a non-`speaking` read costs nothing and it clears on session reset.
+   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude} by the room's
+   * `responding` band and the output meters on the composer bar and the pill;
+   * the mic amplitude behind `listening` is a separate field. A registered
+   * provider (like `controls`) so a non-`speaking` read costs nothing and it
+   * clears on session reset.
    */
   outputAmplitudeProvider: (() => number) | null;
   /**
@@ -424,6 +549,22 @@ export interface LiveVoiceState {
   playbackProgressProvider: (() => LiveVoicePlaybackProgress | null) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
+  /**
+   * What the user can do about the current failure, beyond dismissing it.
+   * `null` for a failure with no way out but trying again later.
+   *
+   * `reclaim` means another live-voice session holds the daemon's single
+   * slot, and it can be ended from here. `holderConversationId` is where that
+   * session is, when the daemon named it, so a surface can offer to go there
+   * instead of ending it.
+   */
+  errorRecovery: LiveVoiceErrorRecovery | null;
+}
+
+/** See {@link LiveVoiceState.errorRecovery}. */
+export interface LiveVoiceErrorRecovery {
+  kind: "reclaim";
+  holderConversationId: string | null;
 }
 
 export interface LiveVoiceActions {
@@ -464,6 +605,47 @@ export interface LiveVoiceActions {
   setConversationId: (conversationId: string) => void;
   /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
   notePhotoRejected: (reason: "unsupported" | "failed") => void;
+  /** Record a photo that reached the transport. */
+  notePhotoSent: () => void;
+  /** Record a kept frame that reached the transport. */
+  noteSightFrameSent: (attachmentId: string) => void;
+  /**
+   * Record that the assistant refused a kept frame, and work out what it costs.
+   *
+   * `attachmentId` is the id the error named, when the assistant echoes one.
+   * With it, retirement and retraction are exact. Without it (any assistant at
+   * the current version floor) there is nothing to correlate, so the refusal
+   * takes down every outstanding claim and retires none of them.
+   */
+  noteSightFrameRefused: (
+    unsupported: boolean,
+    attachmentId?: string | null,
+  ) => void;
+  /**
+   * Remove the reclaims whose time has come and hand them back, in one state
+   * transition. Entries still waiting on their `notBefore` stay queued.
+   *
+   * The only way to empty the queue, deliberately. A clear that did not return
+   * what it removed could drop an entry queued between a consumer reading the
+   * queue and acting on it, and that entry would be an upload nothing ever
+   * deletes. Taking makes the invariant structural: whatever leaves the queue
+   * is in the caller's hands, and whatever arrives after a take is still
+   * queued for the next one.
+   *
+   * Leaves the state untouched when nothing is due, so a consumer keyed on the
+   * queue is not woken by its own no-op.
+   */
+  takeDueSightFrameReclaims: (now: number) => readonly SightFrameReclaim[];
+  /**
+   * Remove every queued retraction and hand it back, in one state transition.
+   *
+   * The only way to empty it, for the same reason
+   * {@link takeDueSightFrameReclaims} is: a clear that did not return what it
+   * removed could drop a retraction queued between a consumer reading the list
+   * and acting on it, and the surface would go on showing a frame that never
+   * reached the transcript.
+   */
+  takeSightFrameRetractions: () => readonly string[];
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -472,6 +654,8 @@ export interface LiveVoiceActions {
   setFirstRunCardOpen: (open: boolean) => void;
   /** Publish or clear the pre-open "configure voice" notice. */
   setConfigNotice: (notice: string | null) => void;
+  /** Record whether the server VAD is holding an utterance open. */
+  setUtteranceOpen: (utteranceOpen: boolean) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -506,15 +690,68 @@ export interface LiveVoiceActions {
     provider: (() => LiveVoicePlaybackProgress | null) | null,
   ) => void;
   /** Transition to `failed` with a message. */
-  fail: (message: string) => void;
+  fail: (message: string, recovery?: LiveVoiceErrorRecovery | null) => void;
   /**
    * Reset every session field back to the idle defaults. Deliberately leaves
    * `starter` registered — it belongs to the controller's mount lifecycle,
    * not the session lifecycle, and must survive session teardown so the next
    * session can start.
+   *
+   * Bumps `sessionGeneration`, unless `sessionContinues` says this reset
+   * clears state inside one logical session (the reconnect path re-entering
+   * its connect flow), which keeps work pinned to the session, a photo upload
+   * above all, deliverable once the transport is back.
    */
-  reset: () => void;
+  reset: (opts?: { sessionContinues?: boolean }) => void;
 }
+
+/**
+ * An upload nothing will ever collect, paired with the assistant holding it.
+ *
+ * The pair rather than the id alone because this queue outlives the session
+ * that produced it. Draining is a cleanup duty, not session state: it must
+ * survive a session ending (the room unmounts the moment a call ends, and a
+ * minimized room is not mounted at all), and it must never aim a delete at
+ * whichever assistant happens to be current when the drain runs.
+ */
+export interface SightFrameReclaim {
+  readonly assistantId: string;
+  readonly attachmentId: string;
+  /**
+   * The conversation whose serialized persist queue the deadline waits out.
+   * Carried so a later send can tell whether it joined this queue or an
+   * unrelated conversation's; absent on refusal-routed entries, which carry
+   * no deadline to move.
+   */
+  readonly conversationId?: string;
+  /**
+   * Epoch milliseconds before which this must not be deleted, when it has to
+   * wait at all. See {@link PER_JOB_CEILING_MS}.
+   */
+  readonly notBefore?: number;
+}
+
+/**
+ * The longest one standalone-image persist can take on the daemon.
+ *
+ * Each of them waits up to `PROCESSING_WAIT_MS` (30s in
+ * `assistant/src/live-voice/live-voice-photo.ts`) for the conversation's
+ * processing lock before giving up, and then writes. 35s covers that wait plus
+ * the write.
+ */
+export const PER_JOB_CEILING_MS = 35_000;
+
+/**
+ * How many kept frames the outstanding ledger remembers, and how many pruned
+ * ids it keeps behind it.
+ *
+ * A send is only ever retired by an error naming it, because an accepted keep
+ * is answered with nothing and an unnamed refusal cannot say which send it
+ * retires. Without a bound the ledger would grow for the length of a call.
+ * The cap is memory hygiene and nothing else: see `noteSightFrameSent` for
+ * why a pruned id cannot become a wrong deletion.
+ */
+const SIGHT_FRAME_LEDGER_CAP = 8;
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 
@@ -603,8 +840,14 @@ export function isLiveVoiceSessionOwnedBy(
 // Store
 // ---------------------------------------------------------------------------
 
-/** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
-const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
+/**
+ * Session-scoped fields restored by `reset()`. Excludes `starter`
+ * (mount-scoped) and `sessionGeneration` (monotonic across sessions).
+ */
+const INITIAL_SESSION_STATE: Omit<
+  LiveVoiceState,
+  "starter" | "sessionGeneration" | "sightFramesToReclaim"
+> = {
   state: "idle",
   firstRunCardOpen: false,
   configNotice: null,
@@ -618,7 +861,13 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   startedConversationId: null,
   photoRejectedSeq: 0,
   photoRejectedReason: null,
+  sightFramesUnsupported: false,
+  outstandingSightFrames: [],
+  prunedSightFrames: [],
+  outstandingPhotoSends: 0,
+  sightFrameRetractions: [],
   controls: null,
+  utteranceOpen: false,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -632,11 +881,131 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   outputAmplitudeProvider: null,
   playbackProgressProvider: null,
   error: null,
+  errorRecovery: null,
 };
+
+/** Append reclaims not already queued, so a repeated refusal cannot duplicate. */
+function mergeSightFrameReclaims(
+  queued: readonly SightFrameReclaim[],
+  next: readonly SightFrameReclaim[],
+): readonly SightFrameReclaim[] {
+  const seen = new Set(queued.map((r) => `${r.assistantId}/${r.attachmentId}`));
+  return [
+    ...queued,
+    ...next.filter((r) => !seen.has(`${r.assistantId}/${r.attachmentId}`)),
+  ];
+}
+
+/**
+ * Push every waiting reclaim out by one job's worth of time.
+ *
+ * A send that goes out while reset-routed entries are still waiting lands
+ * BEHIND the jobs they are waiting on, when it joins the same conversation
+ * queue, so it moves their deadline by exactly what it adds. The daemon
+ * serializes standalone persists per conversation, so a send in a different
+ * conversation joins a different queue and moves nothing: extending across
+ * conversations would let an active call's steady keeps hold an unrelated
+ * orphan's deadline open for as long as the call runs. Event-driven and
+ * bounded: one job's worth per send that actually happened, and an entry with
+ * no deadline (a refusal routed it) is never given one.
+ */
+function extendPendingSightFrameReclaims(
+  queued: readonly SightFrameReclaim[],
+  conversationId: string | null,
+): readonly SightFrameReclaim[] {
+  if (conversationId === null) {
+    return queued;
+  }
+  if (
+    !queued.some(
+      (entry) =>
+        entry.notBefore !== undefined &&
+        entry.conversationId === conversationId,
+    )
+  ) {
+    return queued;
+  }
+  return queued.map((entry) =>
+    entry.notBefore === undefined || entry.conversationId !== conversationId
+      ? entry
+      : {
+          ...entry,
+          notBefore: entry.notBefore + PER_JOB_CEILING_MS,
+        },
+  );
+}
+
+/**
+ * The uploads a session boundary leaves unaccounted for.
+ *
+ * Reaching the transport is not an acknowledgement that anything was stored.
+ * A socket that closes between the send and the persist takes the frame with
+ * it, and the assistant answers nothing either way, so at a session boundary
+ * every id still in the ledger is one nobody can say landed.
+ *
+ * They are queued for deletion rather than dropped, which is the same trade
+ * the latch-time prune makes. Most of them DID persist and were simply never
+ * acknowledged, and a delete aimed at a persisted frame is refused by the
+ * daemon's link-awareness, so the cost is a burst of refused deletes bounded
+ * by the ledger cap and its prunes. The alternative costs an upload that
+ * genuinely was lost, kept for good, since nothing else collects an
+ * attachment no message links.
+ *
+ * The race with a persist still running is benign in both directions. A
+ * delete that lands first leaves the persist unable to resolve the
+ * attachment, which fails that frame and reclaims nothing; one that lands
+ * after the persist has read the row cannot take the bytes back out of the
+ * message being written.
+ */
+function queueUnacknowledgedSightFrames(
+  state: LiveVoiceState,
+): readonly SightFrameReclaim[] {
+  const assistantId = state.assistantId;
+  const unacknowledged = [
+    ...new Set([...state.prunedSightFrames, ...state.outstandingSightFrames]),
+  ];
+  if (assistantId === null || unacknowledged.length === 0) {
+    return state.sightFramesToReclaim;
+  }
+  // Not before the daemon has had time to finish whatever it still had queued.
+  //
+  // The daemon runs standalone-image persists one at a time and never
+  // supersedes a photo, so a keep can sit behind an arbitrary number of them,
+  // and a fixed wait would be a guess. It does not have to be: this client is
+  // the SOLE producer of that queue. Only `attach_image` and `sight_frame`
+  // feed it (`live-voice-session.ts` dispatches them to `persistPhoto` and
+  // `persistSightFrame`, the only two callers of the queue), both arrive on
+  // one session's socket, and the daemon runs a single live-voice session at a
+  // time. So the ledgers below enumerate everything that can possibly be
+  // queued ahead, and the ceiling is that count plus this job, each at
+  // `PER_JOB_CEILING_MS`.
+  //
+  // It over-counts on purpose: a photo that already persisted is still
+  // counted, because nothing acknowledges one. Over-counting only ever waits
+  // longer, which is the safe direction: a delete that fires while the
+  // persist is still queued takes the frame with it, while one that waits
+  // out jobs long finished merely leaves a lost upload uncollected for a
+  // while. No cap trims the wait for the same reason, since any cap under
+  // the queue's true drain time reopens the early delete.
+  const queuedAhead = state.outstandingPhotoSends + unacknowledged.length;
+  const notBefore = Date.now() + (queuedAhead + 1) * PER_JOB_CEILING_MS;
+  const conversationId = state.conversationId ?? undefined;
+  return mergeSightFrameReclaims(
+    state.sightFramesToReclaim,
+    unacknowledged.map((attachmentId) => ({
+      assistantId,
+      attachmentId,
+      conversationId,
+      notBefore,
+    })),
+  );
+}
 
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
+  sessionGeneration: 0,
+  sightFramesToReclaim: [],
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -660,11 +1029,147 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set((state) => ({
       photoRejectedSeq: state.photoRejectedSeq + 1,
       photoRejectedReason: reason,
+      // Answered for, so it can no longer be queued ahead of anything.
+      outstandingPhotoSends: Math.max(0, state.outstandingPhotoSends - 1),
     })),
+  // The cap drops the OLDEST id, and a dropped id cannot become a wrong
+  // deletion. Overflow only happens against an assistant that is answering
+  // nothing, which is an assistant persisting the keeps; one that cannot take
+  // the frame refuses the very first send, long before eight are in flight.
+  // The pruned ids are kept anyway, and unioned into the reclaim queue if the
+  // latch does fire, so nothing is dropped silently. Reclaiming a pruned id is
+  // safe even when the assistant did persist it: the attachment delete is
+  // refused for a row a message links.
+  notePhotoSent: () =>
+    set((s) => ({
+      outstandingPhotoSends: s.outstandingPhotoSends + 1,
+      sightFramesToReclaim: extendPendingSightFrameReclaims(
+        s.sightFramesToReclaim,
+        s.conversationId,
+      ),
+    })),
+  noteSightFrameSent: (attachmentId) =>
+    set((s) => {
+      // This send joins its conversation's queue, so it moves the deadline of
+      // exactly the reclaims waiting on that queue.
+      const sightFramesToReclaim = extendPendingSightFrameReclaims(
+        s.sightFramesToReclaim,
+        s.conversationId,
+      );
+      const appended = [...s.outstandingSightFrames, attachmentId];
+      if (appended.length <= SIGHT_FRAME_LEDGER_CAP) {
+        return { outstandingSightFrames: appended, sightFramesToReclaim };
+      }
+      const overflow = appended.length - SIGHT_FRAME_LEDGER_CAP;
+      return {
+        outstandingSightFrames: appended.slice(overflow),
+        prunedSightFrames: [
+          ...s.prunedSightFrames,
+          ...appended.slice(0, overflow),
+        ].slice(-SIGHT_FRAME_LEDGER_CAP),
+        sightFramesToReclaim,
+      };
+    }),
+  noteSightFrameRefused: (unsupported, attachmentId = null) =>
+    set((s) => {
+      const outstanding = s.outstandingSightFrames;
+      if (unsupported) {
+        // Nothing this assistant was sent was stored, and it reclaims nothing,
+        // so every id still accounted for is the client's to give back. The
+        // named id joins them: an assistant that echoes one may be naming a
+        // send the cap already pruned.
+        const orphans = [
+          ...new Set([
+            ...s.prunedSightFrames,
+            ...outstanding,
+            ...(attachmentId === null ? [] : [attachmentId]),
+          ]),
+        ];
+        const assistantId = s.assistantId;
+        return {
+          sightFramesUnsupported: true,
+          outstandingSightFrames: [],
+          prunedSightFrames: [],
+          sightFramesToReclaim:
+            assistantId === null
+              ? s.sightFramesToReclaim
+              : mergeSightFrameReclaims(
+                  s.sightFramesToReclaim,
+                  orphans.map((id) => ({ assistantId, attachmentId: id })),
+                ),
+        };
+      }
+      if (attachmentId !== null) {
+        // Exact: the error names its own frame, so the ledger retires that
+        // entry wherever it sits and the retraction speaks for that keep alone,
+        // regardless of how many older sends are still unanswered.
+        return {
+          outstandingSightFrames: outstanding.filter(
+            (id) => id !== attachmentId,
+          ),
+          prunedSightFrames: s.prunedSightFrames.filter(
+            (id) => id !== attachmentId,
+          ),
+          sightFrameRetractions: [
+            ...new Set([...s.sightFrameRetractions, attachmentId]),
+          ],
+        };
+      }
+      // Fallback for an assistant that names nothing: the refusal is about
+      // exactly one unanswered send, with nothing to say which, so the only
+      // honest answer for the surface is to take down every claim it might be
+      // about. A retraction for a keep that quietly persisted costs only the
+      // shared flash, since the frame itself sits in the transcript; leaving
+      // the refused keep's flash up claims the call shared a frame it did
+      // not. The ledgers keep every entry: retiring a guess would exempt it
+      // from the reset-time reclaim, and that reclaim is what sorts the
+      // persisted from the lost, refusing the delete for a frame a message
+      // links and collecting the one nothing does.
+      return {
+        sightFrameRetractions: [
+          ...new Set([
+            ...s.sightFrameRetractions,
+            ...s.prunedSightFrames,
+            ...outstanding,
+          ]),
+        ],
+      };
+    }),
+  takeDueSightFrameReclaims: (now) => {
+    let taken: readonly SightFrameReclaim[] = [];
+    // Read and split inside one updater, so nothing can be appended between
+    // the two halves.
+    set((s) => {
+      const due = s.sightFramesToReclaim.filter(
+        (entry) => entry.notBefore === undefined || entry.notBefore <= now,
+      );
+      if (due.length === 0) {
+        return {};
+      }
+      taken = due;
+      return {
+        sightFramesToReclaim: s.sightFramesToReclaim.filter(
+          (entry) => entry.notBefore !== undefined && entry.notBefore > now,
+        ),
+      };
+    });
+    return taken;
+  },
+  takeSightFrameRetractions: () => {
+    let taken: readonly string[] = [];
+    // Read and emptied inside one updater, so nothing can be appended between
+    // the two halves.
+    set((s) => {
+      taken = s.sightFrameRetractions;
+      return { sightFrameRetractions: [] };
+    });
+    return taken;
+  },
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
+  setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
@@ -683,8 +1188,29 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ outputAmplitudeProvider }),
   setPlaybackProgressProvider: (playbackProgressProvider) =>
     set({ playbackProgressProvider }),
-  fail: (message) => set({ state: "failed", error: message }),
-  reset: () => set({ ...INITIAL_SESSION_STATE }),
+  fail: (message, recovery = null) =>
+    set({ state: "failed", error: message, errorRecovery: recovery }),
+  // The bump marks the session boundary for anything async that outlives the
+  // session, a photo upload above all (see `attachLiveVoiceImage`). A reset
+  // inside one logical session says so, and the generation holds.
+  reset: (opts) =>
+    set((s) => ({
+      ...INITIAL_SESSION_STATE,
+      sessionGeneration: opts?.sessionContinues
+        ? s.sessionGeneration
+        : s.sessionGeneration + 1,
+      // `sightFramesToReclaim` is absent from INITIAL_SESSION_STATE on purpose
+      // and so survives this: a queue a teardown could discard would strand
+      // the uploads it exists to collect. It also GROWS here, because the
+      // ledgers this replaces hold sends nobody ever acknowledged. Both reset
+      // kinds route them the same way, deliberately in the reset itself, so a
+      // third kind cannot be added that forgets to.
+      //
+      // `sightFramesUnsupported` is the opposite and does reset, because the
+      // latch is about the assistant that just answered and a reconnect can
+      // land on an upgraded one.
+      sightFramesToReclaim: queueUnacknowledgedSightFrames(s),
+    })),
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
@@ -869,15 +1395,58 @@ export function updateLiveVoiceSessionConfig(config: {
 
 /**
  * Hand the active session a photo the user took mid-call, by attachment id.
- * Returns whether it reached the session: false when no session exists or the
- * transport is mid-reconnect, which the caller must surface rather than treat
- * as sent. Module-level for the same stable-identity reasons as
+ * `sessionGeneration` is the generation read at the shutter press: the upload
+ * between press and delivery can outlive the session the photo was taken in,
+ * and a photo from an ended session fails here rather than landing in
+ * whichever session is current when the upload resolves. Returns whether it
+ * reached the pressed session: false when that session is over, when no
+ * session exists, or when the transport is mid-reconnect, which the caller
+ * must surface rather than treat as sent. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function attachLiveVoiceImage(
+  attachmentId: string,
+  sessionGeneration: number,
+): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (state.sessionGeneration !== sessionGeneration) {
+    return false;
+  }
+  const sent = state.controls?.attachImage(attachmentId) ?? false;
+  if (sent) {
+    state.notePhotoSent();
+  }
+  return sent;
+}
+
+/**
+ * Share a kept camera frame with the active session, by attachment id, so the
+ * daemon persists it into the conversation as its own message.
+ * `sessionGeneration` is the generation read when the frame was captured: the
+ * upload between the keep and this call can outlive the session it was sampled
+ * in, and a frame from an ended session is refused here rather than persisted
+ * into whichever conversation is current. Returns whether it reached that
+ * session. Module-level for the same stable-identity reasons as
  * {@link endLiveVoiceSession}.
  */
-export function attachLiveVoiceImage(attachmentId: string): boolean {
-  return (
-    useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false
-  );
+export function sendLiveVoiceSightFrame(
+  attachmentId: string,
+  sessionGeneration: number,
+): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (state.sessionGeneration !== sessionGeneration) {
+    return false;
+  }
+  // An assistant that answered `unknown_type` once answers it every time, and
+  // each attempt strands another attachment. See {@link sightFramesUnsupported}.
+  if (state.sightFramesUnsupported) {
+    return false;
+  }
+  const sent = state.controls?.sightFrame(attachmentId) ?? false;
+  if (sent) {
+    state.noteSightFrameSent(attachmentId);
+  }
+  return sent;
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   LLM_USAGE_DIMENSION_ITEMS,
   type LlmUsageDimension,
 } from "@/utils/llm-dimension";
+import { useTranslation } from "@/i18n";
 
 import {
   BillingUsageChart,
@@ -30,11 +31,6 @@ import {
   useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
-
-const METRIC_ITEMS: SegmentControlItem<ChartMetric>[] = [
-  { value: "spend", label: "Spend ($)" },
-  { value: "events", label: "Events" },
-];
 
 /**
  * Format a USD amount string for display (e.g. "12.50" -> "$12.50").
@@ -63,6 +59,7 @@ function formatEventCount(count: number | undefined): string {
 }
 
 export function BillingUsagePanel() {
+  const { t } = useTranslation("settings");
   const tz = useEffectiveTimezone();
   // Track the SELECTED PRESET IDENTITY (days), not its computed bounds, so a tz
   // change (even one that crosses a calendar-day rollover after the range was
@@ -79,6 +76,14 @@ export function BillingUsagePanel() {
     llmDimension?: LlmUsageDimension;
   } | null>(null);
   const [metric, setMetric] = useState<ChartMetric>("spend");
+
+  const metricItems: SegmentControlItem<ChartMetric>[] = useMemo(
+    () => [
+      { value: "spend", label: t("billingUsagePanel.metricSpend") },
+      { value: "events", label: t("billingUsagePanel.metricEvents") },
+    ],
+    [t],
+  );
 
   const { series, totals, isLoading, isError } = useBillingUsageData({
     dateRange,
@@ -115,24 +120,24 @@ export function BillingUsagePanel() {
               variant="title-medium"
               className="text-[var(--content-default)]"
             >
-              Credit Usage
+              {t("billingUsagePanel.title")}
             </Typography>
             <Typography
               as="p"
               variant="body-small-default"
               className="mt-2 text-[var(--content-tertiary)]"
             >
-              Overview of your spending habits.
+              {t("billingUsagePanel.subtitle")}
             </Typography>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <DateRangeSelect value={presetDays} onChange={setPresetDays} />
             <div className="w-44">
               <SegmentControl
-                items={METRIC_ITEMS}
+                items={metricItems}
                 value={metric}
                 onChange={setMetric}
-                ariaLabel="Chart metric"
+                ariaLabel={t("billingUsagePanel.chartMetricAria")}
               />
             </div>
           </div>
@@ -149,7 +154,7 @@ export function BillingUsagePanel() {
                 formatUsd(totals?.total_usd)
               )
             }
-            label="Spend"
+            label={t("billingUsagePanel.spendLabel")}
           />
           <StatSquare
             icon={<Target className="h-4 w-4" aria-hidden />}
@@ -160,7 +165,7 @@ export function BillingUsagePanel() {
                 formatEventCount(totals?.event_count)
               )
             }
-            label="Events"
+            label={t("billingUsagePanel.eventsLabel")}
           />
         </div>
 
@@ -173,12 +178,12 @@ export function BillingUsagePanel() {
                 onClick={() => setDrilldown(null)}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                <span>Back to all usage</span>
+                <span>{t("billingUsagePanel.backToAllUsage")}</span>
                 <span className="text-[var(--content-tertiary)]">/</span>
                 <span className="text-body-medium-default text-[var(--content-default)]">
                   {drilldown.usageSource === "runtime_proxy"
-                    ? "LLM Spend"
-                    : "OAuth Spend"}
+                    ? t("billingUsagePanel.llmSpend")
+                    : t("billingUsagePanel.oauthSpend")}
                 </span>
               </button>
             </div>
@@ -193,7 +198,7 @@ export function BillingUsagePanel() {
                       llmDimension: nextDimension,
                     })
                   }
-                  ariaLabel="LLM spend dimension"
+                  ariaLabel={t("billingUsagePanel.llmDimensionAria")}
                 />
               </div>
             )}
@@ -207,7 +212,7 @@ export function BillingUsagePanel() {
           </div>
         ) : isError ? (
           <div className="flex h-[345px] items-center justify-center rounded-xl bg-[var(--surface-base)] text-body-medium-lighter text-[var(--content-tertiary)]">
-            Failed to load usage data.
+            {t("billingUsagePanel.loadError")}
           </div>
         ) : series ? (
           <div className="rounded-xl bg-[var(--surface-base)] p-3">

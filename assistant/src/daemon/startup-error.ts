@@ -24,6 +24,22 @@ export interface DaemonStartupError {
 const DAEMON_ERROR_PREFIX = "DAEMON_ERROR:";
 
 /**
+ * Build an `EADDRINUSE`-coded error so callers (and {@link categorizeDaemonError})
+ * can branch on `err.code` and surface the structured "already running"
+ * guidance instead of a generic UNKNOWN. Used by every transport that detects
+ * an occupied address itself rather than receiving a kernel-coded error.
+ */
+export function makeAddrInUseError(
+  message: string,
+  cause?: unknown,
+): NodeJS.ErrnoException {
+  const err = new Error(message, cause === undefined ? undefined : { cause });
+  const errno = err as NodeJS.ErrnoException;
+  errno.code = "EADDRINUSE";
+  return errno;
+}
+
+/**
  * Inspect an error and return a categorized {@link DaemonStartupError}.
  */
 function categorizeDaemonError(err: unknown): DaemonStartupError {

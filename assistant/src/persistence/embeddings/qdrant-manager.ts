@@ -51,7 +51,9 @@ export function resolveQdrantReleaseAsset(
     target = "x86_64-unknown-linux-musl";
   } else if (os === "linux" && cpu === "arm64") {
     target = "aarch64-unknown-linux-musl";
-  } else if (os === "win32" && cpu === "x64") {
+  } else if (os === "win32" && (cpu === "x64" || cpu === "arm64")) {
+    // Qdrant ships no arm64 Windows build; Windows 11 on ARM runs the x64
+    // binary via transparent emulation.
     return {
       binaryName: "qdrant.exe",
       filename: "qdrant-x86_64-pc-windows-msvc.zip",
@@ -154,6 +156,7 @@ export class QdrantManager {
 
     const proc = Bun.spawn({
       cmd: [spawnPath],
+      windowsHide: true,
       env: {
         ...process.env,
         QDRANT__SERVICE__HOST: this.host,
@@ -285,6 +288,7 @@ export class QdrantManager {
           cmd: ["tar", "xzf", tmpTar, "-C", binDir, release.binaryName],
           stdout: "ignore",
           stderr: "pipe",
+          windowsHide: true,
         });
         await proc.exited;
         if (proc.exitCode !== 0) {

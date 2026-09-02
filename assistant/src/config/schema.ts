@@ -20,6 +20,7 @@ import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
   A2AConfigSchema,
+  DiscordConfigSchema,
   SlackConfigSchema,
   TelegramConfigSchema,
   TwilioConfigSchema,
@@ -53,6 +54,7 @@ import {
 import { PluginUpdatesConfigSchema } from "./schemas/plugin-updates.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
+import { SightConfigSchema } from "./schemas/sight.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
 import {
   RateLimitConfigSchema,
@@ -117,9 +119,11 @@ export const AssistantConfigSchema = z.object({
   twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
   calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
   liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
+  sight: SightConfigSchema.default(SightConfigSchema.parse({})),
   whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
   telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
   slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
+  discord: DiscordConfigSchema.default(DiscordConfigSchema.parse({})),
   a2a: A2AConfigSchema.default(A2AConfigSchema.parse({})),
   ingress: IngressConfigSchema,
   platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),

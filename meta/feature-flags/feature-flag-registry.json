@@ -28,6 +28,15 @@
       "values": ["off", "on"]
     },
     {
+      "id": "vision-mode",
+      "scope": "client",
+      "key": "vision-mode",
+      "label": "Vision Mode",
+      "description": "Gates the Eyes camera surface in the web composer: the toggle, the floating viewfinder tile, and the send-frame path are all reachable only through the toggle. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
@@ -93,11 +102,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "companion-surface",
+      "id": "teach",
       "scope": "client",
-      "key": "companion-surface",
-      "label": "Companion Surface",
-      "description": "Show the macOS companion surface: the floating avatar that carries Talk, Type and the running call, and its tray item. Read in the Electron main process, which decides whether the window opens at all",
+      "key": "teach",
+      "label": "Teach",
+      "description": "Offer Teach, the session that reads the user's screen while they narrate what they are doing. Gates the companion surface's Teach control and the toggleWatch command that starts a session; evaluated in the app's window and read again in the Electron main process, which pushes it to the floating surface",
       "defaultEnabled": false
     },
     {
@@ -106,6 +115,14 @@
       "key": "expand-completed-steps",
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
+      "defaultEnabled": false
+    },
+    {
+      "id": "inline-assistant-intermediates",
+      "scope": "client",
+      "key": "inline-assistant-intermediates",
+      "label": "Inline Assistant Intermediates",
+      "description": "Render a completed response's intermediate activity inline at full size instead of collapsing it behind the Earlier activity disclosure",
       "defaultEnabled": false
     },
     {
@@ -144,8 +161,16 @@
       "id": "fork-from-message",
       "scope": "client",
       "key": "fork-from-message",
-      "label": "Fork from Message",
-      "description": "Show the fork affordance: 'Fork from here' on messages and 'Fork Conversation' in the thread menu. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
+      "label": "Internal Thread Actions (legacy key)",
+      "description": "Legacy key for `internal-thread-actions`. The client grants the internal thread affordances when either key is enabled, so the platform may serve the gate under either name. Declared here so the flag mapper keeps the value instead of dropping it as undeclared.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "internal-thread-actions",
+      "scope": "client",
+      "key": "internal-thread-actions",
+      "label": "Internal Thread Actions",
+      "description": "Show the internal thread affordances: 'Fork from here' and 'Summarize up to here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. The flag is the sole gate: any session that enables it gets the affordances, including local sessions with no platform identity.",
       "defaultEnabled": false
     },
     {
@@ -162,6 +187,14 @@
       "key": "scroll-debug-overlay",
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "camera-gate-debug-hud",
+      "scope": "client",
+      "key": "camera-gate-debug-hud",
+      "label": "Camera Gate Debug HUD",
+      "description": "Unlock the camera frame gate's tuning readout: the Settings toggle that turns it on, and the live panel over the composer's sight tile and the voice room's viewfinder showing motion, novelty and detail against their thresholds, the check that decided each frame, and sliders that move those thresholds while the camera runs. Staff sessions get it without the flag; the flag is for local gateway sessions, which carry no platform identity and are where the gate is tuned.",
       "defaultEnabled": false
     },
     {
@@ -229,14 +262,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "web-remote-ingress",
-      "scope": "client",
-      "key": "web-remote-ingress",
-      "label": "Web Remote Ingress",
-      "description": "Show the pair-a-device card in web settings. Visibility only; pairing itself is always available.",
-      "defaultEnabled": false
-    },
-    {
       "id": "paired-devices-ui",
       "scope": "client",
       "key": "paired-devices-ui",
@@ -281,7 +306,7 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. On by default; disable to hide the card.",
+      "description": "Server-side switch for admission-floor enforcement: the gateway kill switch, the runtime floor stage, and enforcement-time policy resolution gate on it. Configuration reads and writes stay available while it is off. On by default. Client UI visibility is version-gated, not flag-gated.",
       "defaultEnabled": true
     },
     {
@@ -325,14 +350,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "assistant-switcher",
-      "scope": "client",
-      "key": "assistant-switcher",
-      "label": "Assistant Switcher",
-      "description": "Show the Switch Assistant section in General settings, linking to the assistant chooser. Covers local clients, signed-in cloud-hub users, remote-gateway origins, and native mobile shells; remote-gateway desktop browsers hand off to the hub chooser with a self-registration param. Also makes the chooser's selection authoritative for the app's active assistant on every surface including the platform hub, a job that previously belonged to multi-platform-assistant alone.",
-      "defaultEnabled": false
-    },
-    {
       "id": "marketing-pricing-takeover",
       "scope": "client",
       "key": "marketing-pricing-takeover",
@@ -357,6 +374,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "web-presence-suppression",
+      "scope": "assistant",
+      "key": "web-presence-suppression",
+      "label": "Web Presence Suppression",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a browser tab reports itself visible on that conversation. On by default; turn it off to restore unconditional reply pushes for web-visible conversations.",
+      "defaultEnabled": true
+    },
+    {
       "id": "plugin-schedules",
       "scope": "assistant",
       "key": "plugin-schedules",
@@ -365,13 +390,53 @@
       "defaultEnabled": true
     },
     {
-      "id": "experiment-balanced-model-2026-08-06",
+      "id": "experiment-balanced-model-2026-08-31",
       "scope": "assistant",
-      "key": "experiment-balanced-model-2026-08-06",
+      "key": "experiment-balanced-model-2026-08-31",
       "label": "Experiment: Balanced Profile Model",
-      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
-      "defaultEnabled": "control",
-      "values": ["control", "terra", "glm-5p2"]
+      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. glm-5p3-flash = the shipped pin (accounts/fireworks/models/glm-5p3-flash); glm-5p3 = accounts/fireworks/models/glm-5p3; glm-5p2 = accounts/fireworks/models/glm-5p2. Replaces experiment-balanced-model-2026-08-06, which ended on 2026-08-31: the activation cohort keys a user on their first-ever assignment per flag, so a new arm on the old key could never enrol a user the old test already stamped. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to the shipped pin.",
+      "defaultEnabled": "glm-5p3-flash",
+      "values": ["glm-5p3-flash", "glm-5p3", "glm-5p2"]
+    },
+    {
+      "id": "android-avatar-app-icon",
+      "scope": "client",
+      "key": "android-avatar-app-icon",
+      "label": "Android Avatar App Icon",
+      "description": "Shows the App icon picker in Settings -> General on Android, where any user chooses an eyes-on-color launcher icon, seeds the picker from their assistant's character avatar, or resets to the default. Android applies the change when the app goes to the background, and switching icons can reset a pinned home-screen shortcut. Off hides the picker and leaves the default icon in place.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "channel-conversation-sidecar",
+      "scope": "client",
+      "key": "channel-conversation-sidecar",
+      "label": "Channel Conversation Sidecar",
+      "description": "Renders a conversation bound to an external channel (Slack, Telegram, Discord, phone, email, and any other channel adapter) as two lanes in web chat: Vellum stays the primary full-width lane, and the canonical external-channel transcript moves into the existing read-only right drawer, opened from a channel-thread control in the chat header. Rows the client can attribute to the external channel are drawn once, in the drawer, instead of being blended into the Vellum lane. The drawer offers an Open in <channel> secondary action and a per-message Reference in Vellum action that stages one quoted reference above the Vellum composer. The Vellum composer stays the only input; nothing about delivery, routing, or permissions changes. Off leaves the header deep-link pill and the blended transcript unchanged.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "monday-oauth",
+      "scope": "assistant",
+      "key": "monday-oauth",
+      "label": "monday.com Integration",
+      "description": "Gates the seeded monday.com OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "chatgpt-device-code-login",
+      "scope": "client",
+      "key": "chatgpt-device-code-login",
+      "label": "ChatGPT Device Code Login",
+      "description": "Gates the device-code sign-in as the primary ChatGPT subscription connect flow in the web client. Off: the redirect-and-paste flow is the only flow the connect section shows, with no device code UI and no other-sign-in-options disclosure. On: device code leads, and the redirect-and-paste flow stays reachable behind that disclosure and takes the section over when the assistant has no device-auth route.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "model-first-profile-create",
+      "scope": "client",
+      "key": "model-first-profile-create",
+      "label": "Model-First Profile Create",
+      "description": "Reverses the two questions the web client's New Model modal asks when creating an inference profile. Off: the modal asks for a provider first and then offers that provider's models. On: it opens on one searchable list of every catalog model the assistant can reach, deduplicated across providers, and only then asks which provider serves the chosen model. That second question is skipped when a single provider serves it, answered with radio cards when several do, and turned into an inline connect form (API key, setup, or ChatGPT sign-in) when the chosen route has no connection yet. Editing an existing profile is unchanged either way, and both flows persist the same profile shape.",
+      "defaultEnabled": false
     }
   ]
 }

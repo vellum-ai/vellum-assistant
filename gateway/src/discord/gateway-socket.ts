@@ -24,10 +24,20 @@
  */
 
 import { getLogger } from "../logger.js";
+import {
+  defaultSchedule,
+  type CancelTimer,
+  type ScheduleFn,
+} from "../util/schedule.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import { admitDiscordMessage } from "./admit.js";
 import { AdmissionDropLog } from "./admission-log.js";
+import {
+  extractDiscordAttachmentMap,
+  type DiscordAttachmentReference,
+} from "./attachments.js";
 import { ReconnectBackoff, SESSION_STABLE_AFTER_MS } from "./backoff.js";
 import {
   RESUMABLE_CLOSE_CODE,
@@ -43,15 +53,32 @@ import {
   DiscordMessageCreateSchema,
   DiscordReadySchema,
   DiscordThreadListSchema,
+  DISCORD_COMPONENT_TYPE_BUTTON,
+  DISCORD_INTERACTION_CALLBACK_DEFERRED_UPDATE,
+  DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT,
+  DiscordInteractionSchema,
+  DiscordMessageDeleteSchema,
+  DiscordMessageReactionSchema,
   DiscordThreadSchema,
 } from "./message-schemas.js";
-import { normalizeDiscordMessage, toAdmissionCandidate } from "./normalize.js";
+import {
+  normalizeDiscordInteraction,
+  normalizeDiscordMessage,
+  normalizeDiscordMessageDelete,
+  normalizeDiscordMessageReaction,
+  toAdmissionCandidate,
+} from "./normalize.js";
 import { DiscordSessionState } from "./session-state.js";
 import { ThreadParentCache } from "./thread-parents.js";
 
 const log = getLogger("discord-gateway");
 
 const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
+
+export type DiscordGatewayEventHandler = (
+  event: DiscordInboundEvent,
+  attachmentRefs?: Map<string, DiscordAttachmentReference>,
+) => void;
 
 /**
  * Floor for the `session_start_limit.remaining` warning. Steady state spends
@@ -101,25 +128,15 @@ export interface GatewaySocketLike {
   ): void;
 }
 
-/** Cancel handle returned by {@link ScheduleFn}. */
-export type CancelTimer = () => void;
-
-/** Injectable timer: schedule `fn` after `delayMs`, return a cancel handle. */
-export type ScheduleFn = (fn: () => void, delayMs: number) => CancelTimer;
-
-const defaultSchedule: ScheduleFn = (fn, delayMs) => {
-  const timer = setTimeout(fn, delayMs);
-  return () => clearTimeout(timer);
-};
-
 export interface DiscordGatewayClientOptions {
   botToken: string;
   /**
-   * Live view of the admitted-channel allow-list, read per message so a
-   * config edit applies without restarting the client (a restart costs an
-   * IDENTIFY).
+   * A legacy install's persisted room restriction, read live per message so
+   * an operator's edit applies without a restart. Returns undefined once the
+   * config entry is cleared, which is the operator adopting the permission
+   * model; nothing writes the entry anymore.
    */
-  readAllowedChannelIds: () => ReadonlySet<string>;
+  readLegacyAllowedChannelIds?: () => ReadonlySet<string> | undefined;
   fetchFn?: typeof fetchImpl;
   createSocket?: (url: string) => GatewaySocketLike;
   schedule?: ScheduleFn;
@@ -129,7 +146,9 @@ export interface DiscordGatewayClientOptions {
 
 export class DiscordGatewayClient {
   private readonly botToken: string;
-  private readonly readAllowedChannelIds: () => ReadonlySet<string>;
+  private readonly readLegacyAllowedChannelIds?: () =>
+    | ReadonlySet<string>
+    | undefined;
   private readonly fetchFn: typeof fetchImpl;
   private readonly createSocket: (url: string) => GatewaySocketLike;
   private readonly schedule: ScheduleFn;
@@ -160,10 +179,10 @@ export class DiscordGatewayClient {
 
   constructor(
     options: DiscordGatewayClientOptions,
-    private readonly onEvent: (event: DiscordInboundEvent) => void,
+    private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
-    this.readAllowedChannelIds = options.readAllowedChannelIds;
+    this.readLegacyAllowedChannelIds = options.readLegacyAllowedChannelIds;
     this.fetchFn = options.fetchFn ?? fetchImpl;
     this.createSocket =
       options.createSocket ??
@@ -199,6 +218,28 @@ export class DiscordGatewayClient {
     }
     this.sessionState = new DiscordSessionState(baseUrl);
     this.openSocket();
+  }
+
+  /**
+   * Whether this client currently holds a live Gateway connection.
+   *
+   * Reported in the same shape as the other socket channels so a reader does
+   * not need to know which protocol proved it. Discord's proof of liveness is
+   * an op 11 ACK rather than a pong.
+   *
+   * `connected` requires an established session, not merely a socket pointer.
+   * `openSocket` assigns `this.ws` as soon as the socket is constructed, and
+   * the connection carries nothing until op 10 HELLO arrives, so a socket
+   * whose handshake stalls would otherwise report itself live for the whole
+   * HELLO deadline. A recorded heartbeat interval is the establishment
+   * signal: it is set from HELLO and cleared on every reset.
+   */
+  getConnectionHealth(): ChannelConnectionHealth {
+    return {
+      connected:
+        this.ws !== null && this.heartbeat.heartbeatIntervalMs !== undefined,
+      lastLivenessAt: this.heartbeat.lastAckAt,
+    };
   }
 
   /**
@@ -625,9 +666,261 @@ export class DiscordGatewayClient {
       case "MESSAGE_CREATE":
         this.handleMessageCreate(data);
         return;
+      case "MESSAGE_UPDATE":
+        this.handleMessageUpdate(data);
+        return;
+      case "MESSAGE_DELETE":
+        this.handleMessageDelete(data);
+        return;
+      case "MESSAGE_REACTION_ADD":
+        this.handleMessageReaction(data, "added");
+        return;
+      case "MESSAGE_REACTION_REMOVE":
+        this.handleMessageReaction(data, "removed");
+        return;
+      case "INTERACTION_CREATE":
+        this.handleInteractionCreate(data);
+        return;
       default:
         return;
     }
+  }
+
+  private handleMessageUpdate(data: unknown): void {
+    if (!this.botUserId) {
+      log.warn("Dropping MESSAGE_UPDATE: bot identity not yet resolved");
+      return;
+    }
+    const parsed = DiscordMessageCreateSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed MESSAGE_UPDATE");
+      return;
+    }
+    const message = parsed.data;
+    // Embed resolution and other non-user revisions dispatch MESSAGE_UPDATE
+    // with no edited_timestamp; nothing the user said changed, so there is
+    // nothing to rewrite. Guild content is additionally ambiguous when
+    // empty: without MESSAGE_CONTENT a non-exempt guild edit arrives with
+    // its text hidden, and rewriting a stored row to empty would destroy
+    // text over an intent gap. A DM is inside the content exemption, so an
+    // empty DM revision is a real clearing (an attachment message whose
+    // caption was removed) and propagates.
+    if (
+      message.edited_timestamp == null ||
+      (message.guild_id !== undefined && message.content.length === 0)
+    ) {
+      log.debug(
+        { messageId: message.id },
+        "Dropping MESSAGE_UPDATE with no user revision",
+      );
+      return;
+    }
+    const parentChannelId = this.threadParents.parentOf(message.channel_id);
+    const candidate = toAdmissionCandidate(message, parentChannelId);
+    if (!candidate) {
+      log.warn("Dropping MESSAGE_UPDATE with no author identity");
+      return;
+    }
+    const legacyAllowedChannelIds = this.readLegacyAllowedChannelIds?.();
+    const verdict = admitDiscordMessage(candidate, {
+      botUserId: this.botUserId,
+      ...(legacyAllowedChannelIds !== undefined
+        ? { legacyAllowedChannelIds }
+        : {}),
+    });
+    if (!verdict.admitted) {
+      log.debug(
+        { reason: verdict.reason, channelId: message.channel_id },
+        "Discord edit dropped by admission gate",
+      );
+      return;
+    }
+    const normalized = normalizeDiscordMessage(message, {
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+      edit: { revision: message.edited_timestamp },
+    });
+    if (!normalized) {
+      log.warn(
+        { messageId: message.id },
+        "Discord edit dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        messageId: message.id,
+        conversationExternalId: normalized.message.conversationExternalId,
+      },
+      "Discord edit admitted",
+    );
+    this.onEvent(normalized, new Map());
+  }
+
+  private handleMessageDelete(data: unknown): void {
+    const parsed = DiscordMessageDeleteSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed MESSAGE_DELETE");
+      return;
+    }
+    const del = parsed.data;
+    // No admission gate: the dispatch names no author to gate on, and the
+    // daemon applies an unattributed delete only to a row it ingested, so a
+    // delete for anything the admission gate kept out is a no-op there. The
+    // event still rides the full forward path, where the kill switch and
+    // per-family stages apply.
+    const parentChannelId = this.threadParents.parentOf(del.channel_id);
+    const normalized = normalizeDiscordMessageDelete(del, {
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+    });
+    if (!normalized) {
+      log.warn(
+        { messageId: del.id },
+        "Discord delete dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        messageId: del.id,
+        conversationExternalId: normalized.message.conversationExternalId,
+      },
+      "Discord delete forwarded",
+    );
+    this.onEvent(normalized, new Map());
+  }
+
+  private handleInteractionCreate(data: unknown): void {
+    const parsed = DiscordInteractionSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed INTERACTION_CREATE");
+      return;
+    }
+    const interaction = parsed.data;
+    // Only component button presses are consumed; commands, selects and
+    // modals have no consumer, and an unhandled interaction type must not be
+    // acked into a state the user reads as accepted.
+    if (
+      interaction.type !== DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT ||
+      interaction.data?.component_type !== DISCORD_COMPONENT_TYPE_BUTTON
+    ) {
+      return;
+    }
+    if (!interaction.id || !interaction.token) {
+      log.warn("Dropping INTERACTION_CREATE without id or token");
+      return;
+    }
+    // ACK inside Discord's 3-second deadline, before any forwarding work.
+    // DeferredMessageUpdate leaves the card untouched; the daemon's decision
+    // flow rewrites it through the notification adapter's update path, the
+    // same shape as Telegram's answerCallbackQuery-then-edit.
+    void this.acknowledgeInteraction(interaction.id, interaction.token);
+    const parentChannelId = interaction.channel_id
+      ? this.threadParents.parentOf(interaction.channel_id)
+      : undefined;
+    const normalized = normalizeDiscordInteraction(interaction, {
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+    });
+    if (!normalized) {
+      log.debug(
+        { interactionId: interaction.id },
+        "Discord interaction dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        interactionId: interaction.id,
+        conversationExternalId: normalized.message.conversationExternalId,
+      },
+      "Discord button press forwarded",
+    );
+    this.onEvent(normalized, new Map());
+  }
+
+  /**
+   * POST the deferred-update ack for a component press. The interaction
+   * token in the URL authorizes the call; no bot header is needed. Failure
+   * is logged and swallowed: the press still forwards, and the only cost is
+   * Discord showing the guardian an interaction-failed notice.
+   */
+  private async acknowledgeInteraction(
+    interactionId: string,
+    token: string,
+  ): Promise<void> {
+    try {
+      const response = await this.fetchFn(
+        `${DISCORD_API_BASE_URL}/interactions/${interactionId}/${token}/callback`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            type: DISCORD_INTERACTION_CALLBACK_DEFERRED_UPDATE,
+          }),
+        },
+      );
+      if (!response.ok) {
+        log.warn(
+          { interactionId, status: response.status },
+          "Discord interaction ack failed",
+        );
+      }
+    } catch (err) {
+      log.warn({ err, interactionId }, "Discord interaction ack failed");
+    }
+  }
+
+  private handleMessageReaction(data: unknown, op: "added" | "removed"): void {
+    // Fail-closed like MESSAGE_CREATE: without the bot's own id, reactions
+    // the bot itself adds are indistinguishable from a person's.
+    if (!this.botUserId) {
+      log.warn("Dropping MESSAGE_REACTION: bot identity not yet resolved");
+      return;
+    }
+    const parsed = DiscordMessageReactionSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed MESSAGE_REACTION");
+      return;
+    }
+    const reaction = parsed.data;
+    // The bot's own reactions are self-echoes, never signals to ingest.
+    if (reaction.user_id === this.botUserId) {
+      return;
+    }
+    // No admission gate: the daemon's reaction intercept drops a stranger's
+    // reaction before any write and drops a reaction whose target message it
+    // never stored, so anything the gate would exclude is a no-op there. The
+    // event still rides the full forward path, where the kill switch and
+    // per-family stages apply.
+    const parentChannelId = this.threadParents.parentOf(reaction.channel_id);
+    // Receipt is the only place that can tell one occurrence of a reaction
+    // from the next, because Discord's payload cannot (see the dedup id in
+    // `normalize.ts`). Minting per dispatch is what makes the ids differ;
+    // minting outside the retry path is what keeps a redelivery's identical.
+    const normalized = normalizeDiscordMessageReaction(reaction, {
+      op,
+      ingestId: crypto.randomUUID(),
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+    });
+    if (!normalized) {
+      log.debug(
+        { messageId: reaction.message_id },
+        "Discord reaction dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        messageId: reaction.message_id,
+        conversationExternalId: normalized.message.conversationExternalId,
+        op,
+      },
+      "Discord reaction forwarded",
+    );
+    this.onEvent(normalized, new Map());
   }
 
   private handleMessageCreate(data: unknown): void {
@@ -644,6 +937,8 @@ export class DiscordGatewayClient {
       return;
     }
     const message = parsed.data;
+    // Parent resolution serves the normalized event's conversation binding,
+    // and, under a legacy allow-list, the thread-inheritance rule.
     const parentChannelId = this.threadParents.parentOf(message.channel_id);
     const candidate = toAdmissionCandidate(message, parentChannelId);
     if (!candidate) {
@@ -651,9 +946,12 @@ export class DiscordGatewayClient {
       return;
     }
 
+    const legacyAllowedChannelIds = this.readLegacyAllowedChannelIds?.();
     const verdict = admitDiscordMessage(candidate, {
       botUserId: this.botUserId,
-      allowedChannelIds: this.readAllowedChannelIds(),
+      ...(legacyAllowedChannelIds !== undefined
+        ? { legacyAllowedChannelIds }
+        : {}),
     });
     if (!verdict.admitted) {
       const fields = {
@@ -662,20 +960,12 @@ export class DiscordGatewayClient {
         messageId: message.id,
       };
       // Severity splits by reason and volume is capped at the first drop per
-      // reason and channel. See `admission-log.ts` for why a single level
-      // cannot serve both a misconfigured allow-list and a busy guild.
+      // reason and channel; see `admission-log.ts`.
       const level = this.admissionDropLog.levelFor(
         verdict.reason,
         message.channel_id,
       );
-      if (level === "warn") {
-        log.warn(
-          fields,
-          "Discord message dropped: the channel is not on the allow-list. " +
-            "Check `discord.allowedChannelIds` in config.json. Further " +
-            "drops for this channel log at debug.",
-        );
-      } else if (level === "info") {
+      if (level === "info") {
         log.info(
           fields,
           "Discord message dropped by admission gate. Further drops for " +
@@ -706,7 +996,7 @@ export class DiscordGatewayClient {
       },
       "Discord message admitted",
     );
-    this.onEvent(normalized);
+    this.onEvent(normalized, extractDiscordAttachmentMap(message.attachments));
   }
 
   /**

@@ -32,7 +32,10 @@ import {
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
-import { PRESERVED_ENTRIES } from "../plugins/plugin-tree-walk.js";
+import {
+  PRESERVED_ENTRIES,
+  USER_STATE_ENTRIES,
+} from "../plugins/plugin-tree-walk.js";
 
 const ROOT = join(
   tmpdir(),
@@ -86,6 +89,10 @@ describe("PRESERVED_ENTRIES", () => {
     expect(PRESERVED_ENTRIES).toContain("config.json");
     expect(PRESERVED_ENTRIES).toContain("data");
     expect(PRESERVED_ENTRIES).toContain(".disabled");
+  });
+
+  test("user-state entries are the preserved set minus the provenance sidecar", () => {
+    expect([...USER_STATE_ENTRIES]).toEqual(["config.json", "data", ".disabled"]);
   });
 });
 

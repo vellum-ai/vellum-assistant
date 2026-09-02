@@ -369,9 +369,11 @@ describe("ChannelReadinessService", () => {
     });
   });
 
-  test("email readiness ignores platform connectivity", async () => {
-    // Email passes `allowManagedCallbacks: false`, so the managed tiers are
-    // not offered to it and only a real ingress URL counts.
+  test("email readiness accepts a platform-connected assistant with no ingress", async () => {
+    // Inbound email arrives through the platform callback route the gateway
+    // registers (`registerEmailCallbackRoute`, the same pattern as Telegram),
+    // so a platform-connected assistant with no public ingress URL still
+    // receives email and must not report missing ingress.
     mockPlatformConnected = true;
 
     const readiness = createReadinessService();
@@ -379,8 +381,21 @@ describe("ChannelReadinessService", () => {
 
     expect(snapshot.localChecks).toContainEqual({
       name: "ingress",
+      passed: true,
+      message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("email readiness reports missing ingress when nothing can route inbound", async () => {
+    mockPlatformConnected = false;
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("email");
+
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
       passed: false,
-      message: "Public ingress URL is not configured or disabled",
+      message: "No public ingress URL or managed callback route is configured",
     });
   });
 
@@ -564,5 +579,131 @@ describe("ChannelReadinessService", () => {
     await service.getReadiness("phone", true);
 
     expect(probe.remoteCallCount).toBe(1);
+  });
+});
+
+describe("setup progress and operational health are separate axes", () => {
+  const configured = (name: string): ReadinessCheckResult => ({
+    name,
+    passed: true,
+    message: "configured",
+  });
+
+  test("a configured channel whose delivery fails is set up, not half set up", () => {
+    // The defect this separates: telling the owner of a fully configured
+    // channel to finish setup sends them to fix the one thing that is not
+    // broken. Setup is done; delivery is down.
+    const service = new ChannelReadinessService();
+    service.registerProbe(
+      makeProbe(
+        "phone",
+        [configured("creds")],
+        [
+          {
+            name: "inbound_delivery",
+            passed: false,
+            message: "nothing is arriving",
+            kind: "operational",
+          },
+        ],
+      ),
+    );
+
+    return service.getReadiness("phone", true).then(([snapshot]) => {
+      expect(snapshot.setupStatus).toBe("ready");
+      expect(snapshot.health).toBe("failing");
+      expect(snapshot.ready).toBe(false);
+    });
+  });
+
+  test("a delivery check that establishes nothing reads unknown, not failing", async () => {
+    const service = new ChannelReadinessService();
+    service.registerProbe(
+      makeProbe(
+        "phone",
+        [configured("creds")],
+        [
+          {
+            name: "inbound_delivery",
+            passed: true,
+            indeterminate: true,
+            message: "could not reach the provider",
+            kind: "operational",
+          },
+        ],
+      ),
+    );
+
+    const [snapshot] = await service.getReadiness("phone", true);
+    expect(snapshot.setupStatus).toBe("ready");
+    expect(snapshot.health).toBe("unknown");
+    // Unknown is not proof, so it cannot make the channel ready, and it is
+    // not a fault, so it must not be reported as one.
+    expect(snapshot.ready).toBe(false);
+    expect(snapshot.reasons).toEqual([]);
+  });
+
+  test("a channel that measures nothing operational reports no health at all", async () => {
+    // Absent, not "unknown": nothing was asked, so nothing is claimed, and
+    // readiness rests on configuration alone. This is the shape every channel
+    // without a delivery check still has today.
+    const service = new ChannelReadinessService();
+    service.registerProbe(makeProbe("phone", [configured("creds")]));
+
+    const [snapshot] = await service.getReadiness("phone", true);
+    expect(snapshot.health).toBeUndefined();
+    expect(snapshot.setupStatus).toBe("ready");
+    expect(snapshot.ready).toBe(true);
+  });
+
+  test("incomplete configuration still reads incomplete", async () => {
+    const service = new ChannelReadinessService();
+    service.registerProbe(
+      makeProbe("phone", [
+        configured("creds"),
+        { name: "ingress", passed: false, message: "no public URL" },
+      ]),
+    );
+
+    const [snapshot] = await service.getReadiness("phone", true);
+    expect(snapshot.setupStatus).toBe("incomplete");
+    expect(snapshot.ready).toBe(false);
+  });
+
+  test("an untouched channel is not_configured, not incomplete", async () => {
+    const service = new ChannelReadinessService();
+    service.registerProbe(
+      makeProbe("phone", [
+        { name: "creds", passed: false, message: "not configured" },
+      ]),
+    );
+
+    const [snapshot] = await service.getReadiness("phone", true);
+    expect(snapshot.setupStatus).toBe("not_configured");
+    expect(snapshot.ready).toBe(false);
+  });
+
+  test("ready still means every check verified, exactly as before", async () => {
+    // The safety property for this change: splitting the derivation must not
+    // move `ready` for any input, because the CLI and the web both gate on it.
+    const service = new ChannelReadinessService();
+    service.registerProbe(
+      makeProbe(
+        "phone",
+        [configured("creds")],
+        [
+          {
+            name: "inbound_delivery",
+            passed: true,
+            message: "arriving",
+            kind: "operational",
+          },
+        ],
+      ),
+    );
+
+    const [snapshot] = await service.getReadiness("phone", true);
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.health).toBe("ok");
   });
 });

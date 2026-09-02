@@ -126,6 +126,7 @@ export const FullWidth: Story = {
 export const Active: Story = {
   render: () => (
     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <Button active>Primary active</Button>
       <Button variant="ghost" active>Ghost active</Button>
       <Button variant="outlined" active>Outlined active</Button>
     </div>

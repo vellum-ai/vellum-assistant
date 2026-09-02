@@ -34,6 +34,16 @@
  * barge-in/interrupt: it stops every scheduled source, drops queued chunks, and
  * resets the playhead so the next `enqueue` starts fresh.
  *
+ * {@link LiveVoiceAudioPlayer.holdPlayback} is the recoverable form of that
+ * flush. Server VAD can mistake a door slam or a keyboard for speech, and the
+ * daemon only discovers otherwise once the utterance closes with an empty
+ * transcript, by which point a plain `stop()` has already destroyed the reply.
+ * A hold flushes exactly as `stop()` does but keeps the audio that had been
+ * scheduled and not yet sounded, so
+ * {@link LiveVoiceAudioPlayer.resumeHeldPlayback} can put it back. Web Audio
+ * source nodes are single-use, so a resume re-schedules fresh sources over the
+ * retained `AudioBuffer`s rather than un-stopping the old ones.
+ *
  * No audio playback infrastructure exists elsewhere in `clients/web`; this module
  * owns its own `AudioContext` lifecycle.
  */
@@ -89,20 +99,71 @@ const CONTAINER_MIME_TYPES: ReadonlySet<string> = new Set([
 const RAW_PCM_MIME_TYPE = "audio/pcm";
 
 /**
- * Output-amplitude metering tuning for the voice-room avatar's speaking pulse
+ * How far back a resume rewinds from the point the flush cut playback off.
+ *
+ * Resuming from the exact interruption sample splits a word across the gap the
+ * barge-in opened ("the weather tomor" ... "row will be sunny"), which reads as
+ * a glitch rather than as the reply continuing. Re-speaking the fraction of a
+ * second before the cut carries the last syllable or two into the resumed
+ * audio, so the sentence is intelligible again. Short enough that the repeat
+ * sounds like a stutter rather than the assistant saying something twice.
+ *
+ * It also sets how much already-sounded audio {@link LiveVoiceAudioPlayer}
+ * retains: the schedule log keeps this much history behind the playhead and
+ * nothing more, pruned as the audio clock advances and released outright once
+ * the timeline drains.
+ */
+const RESUME_REWIND_SECONDS = 0.35;
+
+/** One buffer as placed on the scheduled timeline. */
+interface ScheduledSegment {
+  buffer: AudioBuffer;
+  /** Offset into `buffer` at which this placement starts sounding. */
+  offsetSeconds: number;
+  /** Absolute `AudioContext.currentTime` at which it starts sounding. */
+  startAt: number;
+  /** Sounding length, i.e. `buffer.duration - offsetSeconds`. */
+  durationSeconds: number;
+}
+
+/** A retained buffer plus where in it a resume should pick up. */
+interface HeldSegment {
+  buffer: AudioBuffer;
+  offsetSeconds: number;
+}
+
+/** Audio flushed by a hold, kept so a resume can re-schedule it. */
+interface HeldPlayback {
+  /**
+   * The context the buffers belong to. An `AudioBuffer` cannot be played by a
+   * different context, so a hold that outlives its context is unusable.
+   */
+  context: AudioContextLike;
+  /** Undelivered audio in play order, from the rewound resume point. */
+  segments: HeldSegment[];
+  /**
+   * `totalScheduledSeconds` as it will read the instant the resume starts, so
+   * playback progress (the spoken-word cursor) continues from where the flush
+   * cut it off instead of restarting at the tail.
+   */
+  priorSeconds: number;
+}
+
+/**
+ * Output-amplitude metering tuning for the assistant's own band
  * (see {@link LiveVoiceAudioPlayer.getOutputAmplitude}). Speech RMS sits around
  * 0.05–0.2, so `GAIN` lifts it into a visible range; `SMOOTHING` is the EMA
- * weight toward each new read (~60 Hz from the avatar's rAF); `DECAY` eases the
- * pulse back to rest between turns. These are the visual-feel knobs.
+ * weight toward each new read (~60 Hz from the band's rAF); `DECAY` eases the
+ * band back to rest between turns. These are the visual-feel knobs.
  */
 /*
  * What must match the capture path (`pcm-capture.ts`) is the *mapped* 0–1
  * range, not the constants: the two meters measure different things. That one
  * is a microphone in a room, this one is the output bus, and their raw RMS
  * ranges are nowhere near each other — so identical gains would be the bug,
- * not the fix. Both feed the same visuals (the room's wave band, the
- * responding rings, the avatar), so what a surface tuned against one signal
- * needs is for the other to arrive on the same scale.
+ * not the fix. Both feed the same visuals (the room's two bands, the composer
+ * bar and the pill), so what a surface tuned against one signal needs is for
+ * the other to arrive on the same scale.
  *
  * The original gain of 4 came from an assumed speech RMS of 0.05–0.2. Measured
  * against the rendered band, this path actually sits an order of magnitude
@@ -170,8 +231,9 @@ export interface AudioContextLike {
   createMediaStreamDestination?(): MediaStreamAudioDestinationNode;
   /**
    * Create an analyser tapping the output bus for amplitude metering (drives
-   * the voice-room avatar's TTS-reactive pulse). Optional so lightweight test
-   * contexts can omit it — the player then degrades to no metering
+   * the voice room's responding band and the composer bar's output meter).
+   * Optional so lightweight test contexts can omit it; the player then
+   * degrades to no metering
    * ({@link LiveVoiceAudioPlayer.getOutputAmplitude} returns 0).
    */
   createAnalyser?(): AnalyserNode;
@@ -307,6 +369,25 @@ export class LiveVoiceAudioPlayer {
   private activeSources = new Set<AudioBufferSourceNode>();
 
   /**
+   * Every buffer placed on the scheduled timeline that a hold could still need,
+   * in play order: everything not yet finished, plus the last
+   * {@link RESUME_REWIND_SECONDS} of already-sounded audio so a resume has
+   * something to rewind into. Pruned on each schedule, so it retains no more
+   * history than that. It is not an alternative to {@link activeSources}, which
+   * holds the nodes a flush has to stop; this holds the buffers a flush has to
+   * keep.
+   */
+  private scheduleLog: ScheduledSegment[] = [];
+
+  /**
+   * Audio a {@link holdPlayback} flush retained, or null when nothing is held.
+   * Dropped by {@link stop}, {@link discardHeldPlayback}, and by any new
+   * `enqueue`, which supersedes it: audio arriving after the flush cannot be
+   * spliced behind audio the hold would resume.
+   */
+  private heldPlayback: HeldPlayback | null = null;
+
+  /**
    * Absolute `AudioContext.currentTime` at which the next buffer should begin.
    * Tracks the tail of the scheduled timeline for gapless chaining.
    */
@@ -340,8 +421,8 @@ export class LiveVoiceAudioPlayer {
    *
    * Deliberately AFTER the analyser: muting is about the user's ears, not
    * about what is true. The assistant is still speaking while muted, so the
-   * room's bands and the avatar's reaction keep showing that it is, and the
-   * user can see the reply land rather than watching a dead screen.
+   * room's bands keep showing that it is, and the user can see the reply land
+   * rather than watching a dead screen.
    */
   private outputGain: GainNode | null = null;
 
@@ -405,6 +486,18 @@ export class LiveVoiceAudioPlayer {
   }
 
   /**
+   * How many buffers the schedule log currently retains.
+   *
+   * Retained history is bounded to {@link RESUME_REWIND_SECONDS} behind the
+   * playhead and released entirely once the timeline drains, so a long reply
+   * cannot pin its whole decoded PCM in a mobile WebView. Exposed so that
+   * bound is assertable; nothing in the app reads it.
+   */
+  get retainedSegmentCount(): number {
+    return this.scheduleLog.length;
+  }
+
+  /**
    * Decode a TTS frame and schedule it to play immediately after whatever is
    * already queued. The decode path is selected on `chunk.mimeType`:
    *
@@ -417,6 +510,10 @@ export class LiveVoiceAudioPlayer {
    * Empty/malformed PCM chunks (zero samples) are dropped.
    */
   enqueue(chunk: TtsAudioChunk): void {
+    // New audio supersedes a hold. Held audio resumes at the front of an empty
+    // queue, so keeping it across an enqueue would eventually play the
+    // interrupted reply's tail after the frames that arrived since.
+    this.heldPlayback = null;
     const mimeType = normalizeMimeType(chunk.mimeType);
 
     if (mimeType === RAW_PCM_MIME_TYPE) {
@@ -512,14 +609,23 @@ export class LiveVoiceAudioPlayer {
     });
   }
 
-  /** Connect a decoded buffer to the destination and start it gaplessly. */
-  private scheduleBuffer(context: AudioContextLike, buffer: AudioBuffer): void {
+  /**
+   * Connect a decoded buffer to the destination and start it gaplessly.
+   *
+   * `offsetSeconds` skips into the buffer, which only a resume uses: it picks
+   * up part-way through the buffer the flush interrupted.
+   */
+  private scheduleBuffer(
+    context: AudioContextLike,
+    buffer: AudioBuffer,
+    offsetSeconds = 0,
+  ): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
 
     // Route through the metering analyser when present (so output amplitude can
-    // drive the room avatar), then the mute gain, then the destination. Each
-    // stage is optional, so fall through to whichever exists.
+    // drive the room's responding band), then the mute gain, then the
+    // destination. Each stage is optional, so fall through to whichever exists.
     source.connect(
       this.analyser ??
         this.outputGain ??
@@ -530,9 +636,13 @@ export class LiveVoiceAudioPlayer {
     // Chain start time from the running playhead. Never schedule in the past:
     // if the queue drained the playhead may lag behind currentTime.
     const startAt = Math.max(this.playheadTime, context.currentTime);
-    source.start(startAt);
-    this.playheadTime = startAt + buffer.duration;
-    this.totalScheduledSeconds += buffer.duration;
+    const durationSeconds = Math.max(0, buffer.duration - offsetSeconds);
+    source.start(startAt, offsetSeconds);
+    this.playheadTime = startAt + durationSeconds;
+    this.totalScheduledSeconds += durationSeconds;
+
+    this.pruneScheduleLog(context.currentTime);
+    this.scheduleLog.push({ buffer, offsetSeconds, startAt, durationSeconds });
 
     this.activeSources.add(source);
     source.onended = () => {
@@ -553,8 +663,145 @@ export class LiveVoiceAudioPlayer {
    * interrupted utterance after the flush. Those decodes are also treated as
    * drained immediately (counter zeroed) so `waitUntilDrained()` resolves now
    * rather than waiting on the abandoned decode to settle.
+   *
+   * This is the unrecoverable flush: any audio held for a resume goes with it.
+   * {@link holdPlayback} is the form that keeps it.
    */
   stop(): void {
+    this.heldPlayback = null;
+    this.stopScheduledAudio();
+  }
+
+  /**
+   * Flush playback but keep the audio that has not sounded yet, so a barge-in
+   * the daemon later reports as noise (`utterance_discarded`) can be undone by
+   * {@link resumeHeldPlayback}.
+   *
+   * A flush that finds nothing scheduled leaves any existing hold alone rather
+   * than clearing it. A barge-in flushes twice in quick succession (the
+   * `speech_started` frame, then the `turn_cancelled` that follows when the
+   * turn was still in flight), and the second one arrives with the queue
+   * already empty: an empty capture is that second flush, not evidence that
+   * there was never a reply to keep.
+   */
+  holdPlayback(): void {
+    const held = this.captureHeldPlayback() ?? this.heldPlayback;
+    this.stopScheduledAudio();
+    this.heldPlayback = held;
+  }
+
+  /** Whether a {@link holdPlayback} flush has audio a resume could restore. */
+  hasHeldPlayback(): boolean {
+    return this.heldPlayback !== null;
+  }
+
+  /** Drop held audio for good (a real barge-in, a new turn, teardown). */
+  discardHeldPlayback(): void {
+    this.heldPlayback = null;
+  }
+
+  /**
+   * Re-schedule the audio a {@link holdPlayback} flush kept, rewound by
+   * {@link RESUME_REWIND_SECONDS} so the interrupted word is spoken whole.
+   * Returns whether anything resumed.
+   *
+   * The retained `AudioBuffer`s are re-played through fresh source nodes (Web
+   * Audio sources are single-use). Playback progress is restored to what it
+   * read at the flush, so the spoken-word cursor continues through the reply
+   * rather than restarting at the resumed tail. The mute stage is part of the
+   * graph, not of the queue, so a resume onto a muted output stays muted.
+   */
+  resumeHeldPlayback(): boolean {
+    const held = this.heldPlayback;
+    this.heldPlayback = null;
+    // A hold whose context has been closed or replaced is unusable: its
+    // buffers belong to a graph that no longer plays.
+    if (!held || this.context === null || this.context !== held.context) {
+      return false;
+    }
+    this.totalScheduledSeconds = held.priorSeconds;
+    for (const segment of held.segments) {
+      this.scheduleBuffer(held.context, segment.buffer, segment.offsetSeconds);
+    }
+    return true;
+  }
+
+  /**
+   * The undelivered tail of the scheduled timeline, from
+   * {@link RESUME_REWIND_SECONDS} before now, or null when nothing is left to
+   * keep. Read-only: capturing does not disturb playback.
+   *
+   * There has to be audio that has not sounded yet, not merely audio inside
+   * the rewind window. Noise arriving in the moment just after a reply ends is
+   * an ordinary event, and the window still covers the reply's last syllables
+   * then: without this gate a hold would form over a finished reply and a
+   * later retraction would replay its last words for no reason, which is
+   * exactly what users report as the assistant echoing.
+   */
+  private captureHeldPlayback(): HeldPlayback | null {
+    const context = this.context;
+    if (!context) {
+      return null;
+    }
+    // Entries are appended in schedule order and each starts no earlier than
+    // the previous one ends, so the last entry is the tail of the timeline.
+    const tail = this.scheduleLog[this.scheduleLog.length - 1];
+    if (!tail || tail.startAt + tail.durationSeconds <= context.currentTime) {
+      return null;
+    }
+    const resumeAt = Math.max(0, context.currentTime - RESUME_REWIND_SECONDS);
+    const segments: HeldSegment[] = [];
+    let heldSeconds = 0;
+    for (const scheduled of this.scheduleLog) {
+      const endAt = scheduled.startAt + scheduled.durationSeconds;
+      if (endAt <= resumeAt) {
+        continue;
+      }
+      // Only the segment straddling the resume point is entered part-way; every
+      // later one is still whole.
+      const skipped = Math.max(0, resumeAt - scheduled.startAt);
+      const remaining = scheduled.durationSeconds - skipped;
+      if (remaining <= 0) {
+        continue;
+      }
+      segments.push({
+        buffer: scheduled.buffer,
+        offsetSeconds: scheduled.offsetSeconds + skipped,
+      });
+      heldSeconds += remaining;
+    }
+    if (segments.length === 0) {
+      return null;
+    }
+    return {
+      context,
+      segments,
+      priorSeconds: Math.max(0, this.totalScheduledSeconds - heldSeconds),
+    };
+  }
+
+  /**
+   * Drop schedule-log entries that finished more than
+   * {@link RESUME_REWIND_SECONDS} ago. The log is in start order and gaplessly
+   * chained, so the expired entries are always a prefix.
+   */
+  private pruneScheduleLog(now: number): void {
+    const cutoff = now - RESUME_REWIND_SECONDS;
+    let expired = 0;
+    while (expired < this.scheduleLog.length) {
+      const scheduled = this.scheduleLog[expired]!;
+      if (scheduled.startAt + scheduled.durationSeconds > cutoff) {
+        break;
+      }
+      expired += 1;
+    }
+    if (expired > 0) {
+      this.scheduleLog.splice(0, expired);
+    }
+  }
+
+  /** The queue-flushing half of {@link stop}, shared with {@link holdPlayback}. */
+  private stopScheduledAudio(): void {
     this.generation += 1;
     for (const source of this.activeSources) {
       // Detach the handler first so stop() doesn't re-enter handleSourceEnded
@@ -568,6 +815,7 @@ export class LiveVoiceAudioPlayer {
       source.disconnect();
     }
     this.activeSources.clear();
+    this.scheduleLog = [];
     this.pendingContainerDecodes = 0;
     this.totalScheduledSeconds = 0;
     // Reset the decode chain so the next response's container frames don't queue
@@ -639,6 +887,7 @@ export class LiveVoiceAudioPlayer {
       this.context = context;
       this.playheadTime = 0;
       this.totalScheduledSeconds = 0;
+      this.scheduleLog = [];
       const destinationNode = this.createOutputNode(context);
       // Mute stage, closest to the destination so everything upstream (the
       // metering tap included) still sees the real signal.
@@ -851,11 +1100,11 @@ export class LiveVoiceAudioPlayer {
   /**
    * Current smoothed output amplitude in [0, 1], read from the output-bus
    * analyser — the RMS of the audio the assistant is speaking right now. Drives
-   * the voice-room avatar's `responding` pulse (the mic amplitude that drives
-   * `listening` is near-silent while the assistant speaks, which is why the
-   * avatar previously looked inverted — see JARVIS-1267).
+   * the voice room's `responding` band, and the output meters on the composer
+   * bar and the title-bar pill. It has to come off the output bus: the mic
+   * amplitude behind `listening` is near-silent while the assistant speaks.
    *
-   * Polled ~60 Hz from the avatar's rAF loop: it EMA-smooths so the avatar
+   * Polled ~60 Hz from the band's rAF loop: it EMA-smooths so the band
    * breathes rather than jitters, and decays toward rest when nothing is
    * playing. Returns 0 with no analyser (test mock).
    */
@@ -867,7 +1116,7 @@ export class LiveVoiceAudioPlayer {
     }
 
     if (!this.playingState) {
-      // Nothing scheduled — ease back to rest so the avatar settles between
+      // Nothing scheduled: ease back to rest so the band settles between
       // turns instead of holding the last speaking level.
       this.smoothedOutputAmplitude *= OUTPUT_AMPLITUDE_DECAY;
       return this.smoothedOutputAmplitude;
@@ -887,8 +1136,8 @@ export class LiveVoiceAudioPlayer {
    * Separate from {@link getOutputAmplitude} because that one is a stateful EMA
    * tuned for a single ~60 Hz rAF consumer: every call advances its smoothing,
    * so a second caller on a different cadence would both perturb what the
-   * avatar displays and make its own readings depend on whether the avatar
-   * happens to be mounted. A measurement has to be independent of who else is
+   * band displays and make its own readings depend on whether the band happens
+   * to be mounted. A measurement has to be independent of who else is
    * looking.
    */
   readOutputLevel(): number {
@@ -946,6 +1195,13 @@ export class LiveVoiceAudioPlayer {
       return;
     }
     source.disconnect();
+    // Retained history has to shrink with the audio clock, not only when the
+    // next buffer is scheduled. A response whose frames all arrive before any
+    // of it plays schedules nothing further, so pruning here is the only thing
+    // keeping its decoded buffers from being pinned for the whole reply.
+    if (this.context) {
+      this.pruneScheduleLog(this.context.currentTime);
+    }
     this.settleIfIdle();
   }
 
@@ -953,6 +1209,11 @@ export class LiveVoiceAudioPlayer {
    * Mark playback finished and resolve drain waiters once nothing is left to
    * play — neither a scheduled source nor an in-flight container decode that
    * could still schedule one. Called whenever either count reaches zero.
+   *
+   * Retained history goes with it. A drained timeline can never produce a hold
+   * (see {@link captureHeldPlayback}), so keeping the rewind window past that
+   * point buys nothing and pins decoded audio through the idle stretch between
+   * turns of a hands-free session.
    */
   private settleIfIdle(): void {
     if (this.activeSources.size > 0 || this.pendingContainerDecodes > 0) {
@@ -960,6 +1221,7 @@ export class LiveVoiceAudioPlayer {
     }
     this.playheadTime = 0;
     this.playingState = false;
+    this.scheduleLog = [];
     this.resolveDrain();
   }
 

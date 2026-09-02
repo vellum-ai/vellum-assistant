@@ -40,7 +40,13 @@ mock.module("../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
+// Both factories spread the actual module: the module under test reaches
+// feed-writer through `guardian-feed-projection` too, and the real
+// feed-writer needs `parseFeedFile` from feed-types, so a partial factory
+// would fail at import time on any export it omitted.
+const actualFeedTypes = await import("../../home/feed-types.js");
 mock.module("../../home/feed-types.js", () => ({
+  ...actualFeedTypes,
   feedItemSchema: {
     parse: (item: unknown) => {
       if (feedItemSchemaShouldReject) {
@@ -51,7 +57,9 @@ mock.module("../../home/feed-types.js", () => ({
   },
 }));
 
+const actualFeedWriter = await import("../../home/feed-writer.js");
 mock.module("../../home/feed-writer.js", () => ({
+  ...actualFeedWriter,
   appendFeedItem: async (item: FeedItem) => {
     appendCalls.push(item);
   },

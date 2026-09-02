@@ -47,6 +47,15 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
+// Independent of the two above, which is the point: a tablet is hoverless at a
+// width that is neither mobile nor touch-mobile, so it takes the menu branch.
+const hoverCapableRef = { value: true };
+mock.module("@/hooks/use-hover-affordance", () => ({
+  useHoverCapable: () => hoverCapableRef.value,
+  useShowsHoverAffordance: (hasTouchPath: boolean) =>
+    hasTouchPath ? hoverCapableRef.value : true,
+}));
+
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 const toastError = mock((_msg: string) => {});
@@ -381,6 +390,7 @@ function renderMenu(scaffold?: Scaffold) {
 beforeEach(() => {
   isMobileRef.value = false;
   isTouchMobileRef.value = false;
+  hoverCapableRef.value = true;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   configPatchMock.mockClear();
@@ -410,21 +420,21 @@ afterEach(() => {
 });
 
 describe("Model Profile quick-add", () => {
-  test('"+" New Profile renders on desktop, including with profiles present', async () => {
+  test('"+" New Model renders on desktop, including with profiles present', async () => {
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     // Header is present alongside the existing profile.
     expect(document.body.textContent).toContain("Model Profile");
   });
 
-  test('"+" New Profile renders on mobile', async () => {
+  test('"+" New Model renders on mobile', async () => {
     isMobileRef.value = true;
     isTouchMobileRef.value = true;
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
   });
 
@@ -436,7 +446,7 @@ describe("Model Profile quick-add", () => {
     isTouchMobileRef.value = true;
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     expect(screen.queryByTestId("tooltip")).toBeNull();
   });
@@ -444,35 +454,35 @@ describe("Model Profile quick-add", () => {
   test("the mouse presentation keeps the quick-add tooltip", async () => {
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     const tooltip = screen.getByTestId("tooltip");
-    expect(tooltip.getAttribute("data-tooltip-content")).toBe("New Profile");
-    expect(tooltip.querySelector('[aria-label="New Profile"]')).toBeTruthy();
+    expect(tooltip.getAttribute("data-tooltip-content")).toBe("New Model");
+    expect(tooltip.querySelector('[aria-label="New Model"]')).toBeTruthy();
   });
 
-  test('"+" New Profile renders even with zero profiles', async () => {
+  test('"+" New Model renders even with zero profiles', async () => {
     configGetMock.mockImplementationOnce(async () => ({
       data: { llm: { profileOrder: [], profiles: {}, activeProfile: null } },
     }));
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     expect(document.body.textContent).toContain("Model Profile");
   });
 
   test("clicking + closes the popover and opens the quick-add controller", async () => {
     renderMenu();
-    await waitFor(() => screen.getByLabelText("New Profile"));
+    await waitFor(() => screen.getByLabelText("New Model"));
 
     // Wait for config to load so the "+" is enabled.
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
 
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
 
     // Delegates to the top-level controller with the current profile names.
     await waitFor(() => {
@@ -487,10 +497,10 @@ describe("Model Profile quick-add", () => {
     renderMenu();
     // Wait for the config to load and "+" to enable.
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
 
     await waitFor(() => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
@@ -547,8 +557,8 @@ describe("Model Profile quick-add", () => {
     configGetMock.mockImplementationOnce(() => new Promise(() => {}));
     renderMenu();
 
-    await waitFor(() => screen.getByLabelText("New Profile"));
-    const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+    await waitFor(() => screen.getByLabelText("New Model"));
+    const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
     expect(plus.disabled).toBe(true);
     expect(plus.getAttribute("aria-disabled")).toBe("true");
 
@@ -560,7 +570,7 @@ describe("Model Profile quick-add", () => {
   test('"+" enables once the config fetch settles', async () => {
     renderMenu();
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
   });
@@ -576,10 +586,10 @@ describe("Model Profile quick-add", () => {
     renderMenu();
     // Wait for config to load.
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
 
     await waitFor(() => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
@@ -801,16 +811,20 @@ describe("mobile pill triggers", () => {
   const PILL_FILL_CLASS = "bg-[var(--border-subtle)]";
 
   /**
-   * The pill's glyph sits at the design's 20px (Figma 7840-8818), so it rides
-   * as a child of the button rather than in the Button's own narrower icon
-   * box. Both classes matter: the box holds the space, the `svg` rule sizes
-   * the icon, which would otherwise render at its own default.
+   * The pill's glyph rides as a child of the button rather than in the Button's
+   * own icon box, so the button's `gap` sets the space between glyph and label.
+   * Both classes matter: the box holds the space, the `svg` rule sizes the
+   * icon, which would otherwise render at its own default.
+   *
+   * 16px, matching the status controls sharing this row. The desktop variants
+   * of these same two triggers sit at 14px, so a larger glyph here reads as a
+   * size out of step with everything around it.
    */
   function expectGlyphSizedForPill(pill: HTMLElement) {
     const glyph = pill.querySelector('span[aria-hidden="true"]');
     const glyphClass = glyph?.getAttribute("class") ?? "";
-    expect(glyphClass).toContain("size-5");
-    expect(glyphClass).toContain("[&_svg]:size-5");
+    expect(glyphClass).toContain("size-4");
+    expect(glyphClass).toContain("[&_svg]:size-4");
   }
 
   beforeEach(() => {
@@ -837,7 +851,7 @@ describe("mobile pill triggers", () => {
     expect(profileTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
   });
 
-  test("renders both pill glyphs at the design's 20px", async () => {
+  test("renders both pill glyphs at 16px", async () => {
     renderMenu();
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
@@ -1394,10 +1408,10 @@ describe("open-state reporting across the quick-add and unmount", () => {
     });
 
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
     await waitFor(() => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
     });
@@ -1615,5 +1629,101 @@ describe("Profile selection on a draft stub conversation (ATL-1136)", () => {
     });
     expect(inferenceprofilePut).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
+describe("model names on the profile rows", () => {
+  // A managed profile is named for the tier it serves, and the model behind
+  // that tier moves whenever Vellum repoints the pin. A user profile is named
+  // by the person who made it, so naming its model would only repeat itself.
+  const MIXED_CONFIG = {
+    llm: {
+      profileOrder: ["balanced", "my-luna"],
+      profiles: {
+        balanced: {
+          label: "Balanced",
+          source: "managed",
+          provider: "vellum",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        "my-luna": {
+          label: "GPT-5.6 Luna",
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.6-luna",
+        },
+      },
+      activeProfile: "balanced",
+    },
+  };
+
+  function mountMixed() {
+    configGetMock.mockImplementation(async () => ({ data: MIXED_CONFIG }));
+    renderMenu();
+  }
+
+  test("the managed row carries its model on hover, the user row does not", async () => {
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const labels = screen
+      .getAllByTestId("tooltip")
+      .map((el) => el.getAttribute("data-tooltip-content"));
+    // The quick-add "+" carries the only other tooltip on this surface.
+    expect(labels.filter((c) => c !== "New Model")).toEqual(["GLM 5.2"]);
+  });
+
+  test("the hovered row is still the row that selects the profile", async () => {
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const tooltip = screen
+      .getAllByTestId("tooltip")
+      .find((el) => el.getAttribute("data-tooltip-content") === "GLM 5.2");
+    const row = tooltip!.querySelector('[data-testid="menu-item"]');
+    fireEvent.click(row!);
+
+    await waitFor(() => {
+      expect(inferenceprofilePut).toHaveBeenCalled();
+    });
+  });
+
+  test("a hoverless tablet reads the model on the row, not behind a hover", async () => {
+    // An iPad in landscape reports `hover: none` at a width that is neither
+    // mobile nor touch-mobile, so it renders the menu. A tooltip mounts
+    // nothing there, so the model has to be on the row or it is nowhere.
+    hoverCapableRef.value = false;
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GLM 5.2")).toBeTruthy();
+    });
+
+    const rows = screen.getAllByTestId("menu-item");
+    const managed = rows.find((r) => r.textContent?.includes("Balanced"));
+    expect(managed!.textContent).toContain("GLM 5.2");
+    // Nothing is left behind a hover on a device that cannot hover.
+    const labels = screen
+      .queryAllByTestId("tooltip")
+      .map((el) => el.getAttribute("data-tooltip-content"));
+    expect(labels).not.toContain("GLM 5.2");
+  });
+
+  test("touch reads the model on the row itself, where a tooltip cannot go", async () => {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const rows = screen.getAllByTestId("panel-item");
+    const managed = rows.find((r) => r.textContent?.includes("Balanced"));
+    expect(managed!.textContent).toContain("GLM 5.2");
+    const user = rows.find((r) => r.textContent?.includes("GPT-5.6 Luna"));
+    expect(user!.textContent).toBe("GPT-5.6 Luna");
   });
 });

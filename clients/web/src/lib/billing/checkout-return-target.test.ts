@@ -47,14 +47,12 @@ describe("checkoutReturnTarget", () => {
     expect(checkoutReturnTarget()).toBe("native");
   });
 
-  test("web on the Windows Electron shell: its deep-link bridge is still a stub", () => {
-    // clients/windows/src/preload/index.ts stubs deepLinks (drain resolves
-    // empty, onLink never fires), so a native bounce would go nowhere.
+  test("native inside the Windows Electron shell: argv deep links route the bounce back", () => {
     (window as { vellum?: unknown }).vellum = {
       platform: "electron",
       hostOS: "windows",
     };
 
-    expect(checkoutReturnTarget()).toBe("web");
+    expect(checkoutReturnTarget()).toBe("native");
   });
 });

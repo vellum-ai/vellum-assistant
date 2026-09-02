@@ -16,14 +16,15 @@
  * resolvable target is dropped.
  */
 import type { ChannelId } from "../../../channels/types.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { mergeProviderMessageMetadata } from "../../../messaging/read-provider-metadata.js";
 import type { MessageRow } from "../../../persistence/conversation-crud.js";
 import {
   getMessageById,
-  updateMessageContent,
   updateMessageContentAndMetadata,
 } from "../../../persistence/conversation-crud.js";
 import {
@@ -31,6 +32,7 @@ import {
   findMessageBySourceId,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
+import { markProcessed } from "../../../persistence/delivery-status.js";
 import { enqueueLexicalIndexForMessage } from "../../../persistence/job-handlers/message-lexical.js";
 import { stringifyMessageContent } from "../../../persistence/message-content.js";
 import { safeParseRecord } from "../../../util/json.js";
@@ -182,6 +184,7 @@ export async function handleEditIntercept(
       },
       "Edit text unchanged; skipping update",
     );
+    markProcessed(editResult.eventId);
     return {
       accepted: true,
       duplicate: false,
@@ -203,13 +206,34 @@ export async function handleEditIntercept(
       newContent,
     });
   } else {
-    updateMessageContent(original.messageId, newContent);
+    // Every channel marks its edits. Slack's envelope carries the extra
+    // fields its own renderer needs; the rest stamp the neutral shape that
+    // readProviderMetadata serves to every channel-agnostic reader.
+    const providerMeta = mergeProviderMessageMetadata(
+      existingRow?.metadata ?? null,
+      {
+        source: sourceChannel,
+        conversationExternalId,
+        messageId: sourceMessageId,
+        ...(sourceThreadId ? { threadId: sourceThreadId } : {}),
+      },
+      { editedAt: Date.now() },
+    );
+    updateMessageContentAndMetadata(original.messageId, newContent, {
+      providerMeta,
+    });
   }
   // The edit changed searchable text (the no-op guard above already returned
   // for identical content) and this path bypasses the `addMessage` persist
   // path, so reindex the message into the lexical index — the idempotent
   // upsert replaces the stale Qdrant point with the edited content.
   enqueueLexicalIndexForMessage(original.messageId);
+  // The rewrite lands in the store only; a resident conversation keeps the
+  // pre-edit text in memory until it reloads, so the next turn would answer
+  // a revision the sender already replaced. Stale-marking makes that turn's
+  // history reload pick up the edit.
+  findConversation(original.conversationId)?.markHistoryStale();
+  markProcessed(editResult.eventId);
   log.info(
     { assistantId, sourceMessageId, messageId: original.messageId },
     "Updated message content from edited_message",

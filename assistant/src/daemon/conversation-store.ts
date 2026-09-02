@@ -6,9 +6,9 @@
  * decoupling route handlers and IPC callbacks from the DaemonServer
  * class.
  *
- * The {@link getOrCreateConversation} function owns the full
- * creation/reuse lifecycle — provider wiring, rate limiting, system
- * prompt assembly, and DB hydration. Idle eviction lives in
+ * {@link getOrCreateConversation} and {@link getConversationIfExists} share
+ * one body that owns the full creation/reuse lifecycle: provider wiring, rate
+ * limiting, system prompt assembly, and DB hydration. Idle eviction lives in
  * `conversation-evictor`.
  */
 
@@ -128,8 +128,8 @@ function clearConversationOptions(): void {
 
 // ── Conversation lifecycle ─────────────────────────────────────────
 
-/** Dedup guard: in-flight creation promises keyed by conversation ID. */
-const conversationCreating = new Map<string, Promise<Conversation>>();
+/** Dedup guard: in-flight acquisitions keyed by conversation ID. */
+const conversationCreating = new Map<string, Promise<Conversation | null>>();
 
 function applyTransportMetadata(
   conversation: Conversation,
@@ -163,6 +163,88 @@ export async function getOrCreateConversation(
   conversationId: string,
   options?: ConversationCreateOptions,
 ): Promise<Conversation> {
+  // Null is the non-creating acquire's answer and nobody else's.
+  return (await acquireConversation(conversationId, options, true))!;
+}
+
+/**
+ * Acquire an active conversation, or null when the one asked about is gone.
+ *
+ * For a caller whose work is only meaningful inside a conversation that still
+ * exists: a queued job whose conversation can be deleted between the moment it
+ * was accepted and the moment it runs. {@link getOrCreateConversation} would
+ * write the row back for it, which resurrects a conversation the user deleted.
+ *
+ * The question it answers is about one incarnation, not about an id. A row
+ * deleted and written back under the same id is a different conversation, and
+ * this reports it as gone rather than persisting into a stranger that inherited
+ * the name.
+ *
+ * Distinct from the two cheaper reads it sits above:
+ * `findConversation` returns only an instance already in memory, and the
+ * persistence layer's `getConversation` returns only the row. This builds and
+ * hydrates the instance the way the creating acquire does, and answers null
+ * exactly where that one would insert.
+ */
+export function getConversationIfExists(
+  conversationId: string,
+  options?: ConversationCreateOptions,
+): Promise<Conversation | null> {
+  return acquireConversation(conversationId, options, false);
+}
+
+/**
+ * Whether the conversation is still the incarnation the caller was asked about.
+ *
+ * `created_at` is stamped at insert and nothing else rewrites it, so a row
+ * deleted and written back under the same id carries a different one.
+ * `createConversation` issues that stamp monotonically per process, which is
+ * what makes the two distinguishable even when they land in the same
+ * millisecond. Bare existence cannot answer this: a caller sharing flight with
+ * a creating acquire can find a row that acquire wrote moments ago and read it
+ * as the one it was asked about, and so can one that held an instance across a
+ * wait.
+ *
+ * A conversation restored from its on-disk view (the recovery migration, the
+ * `db repair` backfill) is written back with the stamp its meta file records,
+ * so it answers as the incarnation it is rather than as a new one. Both
+ * restores skip an id whose row is present, so neither can displace a live
+ * conversation this way.
+ *
+ * Exported for callers that keep working after their acquire returns: holding
+ * the instance says nothing about the row still being the one behind it.
+ */
+export function isSameIncarnation(
+  conversationId: string,
+  createdAt: number | null,
+): boolean {
+  return (
+    createdAt !== null &&
+    getConversation(conversationId)?.createdAt === createdAt
+  );
+}
+
+/**
+ * The body both acquires share. `createIfMissing` decides one thing: whether a
+ * missing row is written or reported.
+ */
+async function acquireConversation(
+  conversationId: string,
+  options: ConversationCreateOptions | undefined,
+  createIfMissing: boolean,
+): Promise<Conversation | null> {
+  // A caller that will not create wants nothing to do with a conversation
+  // whose row is gone, resident instance or not. Also spares an already-gone
+  // conversation the provider and tool setup below. The row it finds is the
+  // incarnation every later acceptance point below answers for.
+  let incarnation: number | null = null;
+  if (!createIfMissing) {
+    incarnation = getConversation(conversationId)?.createdAt ?? null;
+    if (incarnation === null) {
+      return null;
+    }
+  }
+
   let conversation = findConversation(conversationId);
 
   // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
@@ -184,26 +266,70 @@ export async function getOrCreateConversation(
   // messages live in memory on the instance being disposed, and the queue
   // drains via an async dispatch after the current turn releases, so
   // `isProcessing()` can read false while a queued turn is still pending:
-  // rebuilding in that gap would silently drop those messages. The conversation
-  // stays stale and is rebuilt on a later call.
+  // rebuilding in that gap would silently drop those messages. In-flight
+  // subagents are the same: the parent reads idle between its own tool calls
+  // while children still run, and rebuilding would abort them. The
+  // conversation stays stale and is rebuilt on a later call.
   if (
     !conversation ||
-    (conversation.isStale() &&
-      !conversation.isProcessing() &&
-      !conversation.hasQueuedMessages())
+    (conversation.isStale() && !conversation.hasInFlightWork())
   ) {
     if (conversation) {
-      // Stale rebuild: the conversation id lives on, so abort in-flight
-      // children but keep terminal subagent results readable for the
-      // retention window.
+      // Stale rebuild: the conversation id lives on, so abort any children
+      // that raced into flight after the idle check and keep terminal
+      // subagent results readable for the retention window.
       getSubagentManager().abortAllForParent(conversationId);
       conversation.dispose();
     }
 
-    const pending = conversationCreating.get(conversationId);
-    if (pending) {
-      conversation = await pending;
-      return conversation;
+    // Joining is a loop rather than a single look because a flight can decline
+    // to create, and a caller that was asked to create must then re-consult
+    // the map instead of building unconditionally: two creating callers that
+    // fell through together would each build an instance for one id, the
+    // second overwriting the first in the registry and leaving the first to
+    // run outside the shared processing and queue state. A non-creating caller
+    // re-consults for the mirrored reason: a flight that declined answered for
+    // the incarnation IT was asked about, which a delete and recreate can have
+    // made a different one from this caller's.
+    //
+    // It terminates. The owner of a flight attaches its own continuation in
+    // the same synchronous run that publishes the flight, so its `finally`
+    // has already removed the entry by the time any joiner resumes, and a
+    // joiner therefore never re-joins the flight it just awaited. What it
+    // finds instead is a newer flight or nothing, and a creating flight only
+    // ever resolves non-null, so joining one returns. A non-creating caller
+    // passes again only while the row it was asked about is still there, so
+    // the delete that a declining flight reports ends its loop as well.
+    for (;;) {
+      const pending = conversationCreating.get(conversationId);
+      if (!pending) {
+        break;
+      }
+      const joined = await pending;
+      if (!createIfMissing) {
+        // A non-creating acquire answers for the incarnation it was asked
+        // about, never for what an acquire it happened to share flight with
+        // decided to write. The shared flight can belong to a creating caller,
+        // whose own contract is to build the conversation whatever became of
+        // the row, and a delete during that caller's setup is answered by
+        // writing a fresh row under the same id. Present is therefore not the
+        // question: that row is a different conversation, and this caller was
+        // never asked to persist into it.
+        if (joined) {
+          return isSameIncarnation(conversationId, incarnation) ? joined : null;
+        }
+        // A declining flight reports its own incarnation gone, which says
+        // nothing about a later one this caller may hold. Taking that null
+        // would refuse work the id can still accept, so this reconsults, and
+        // only its own row being gone ends it.
+        if (!isSameIncarnation(conversationId, incarnation)) {
+          return null;
+        }
+        continue;
+      }
+      if (joined) {
+        return joined;
+      }
     }
 
     const storedOptions = conversationOptions.get(conversationId);
@@ -237,6 +363,14 @@ export async function getOrCreateConversation(
 
       const { initializeTools } = await import("../tools/registry.js");
       await initializeTools();
+
+      // Provider resolution, the system prompt, and tool setup all await, and
+      // a delete can land in any of them. This is the last instant before the
+      // row insert below and nothing between the two awaits, so a non-creating
+      // acquire that finds its incarnation gone here never writes it back.
+      if (!createIfMissing && !isSameIncarnation(conversationId, incarnation)) {
+        return null;
+      }
 
       const newConversation = new Conversation(
         conversationId,
@@ -310,16 +444,30 @@ export async function getOrCreateConversation(
       if (options?.transport) {
         newConversation.applyVisibleAppFromTransport(options.transport);
       }
+      // Hydration awaits, so a delete can land between the check that let this
+      // build and the registry write. Registering then leaves an active
+      // conversation with no row behind it, which later session work finds and
+      // reuses. The creating path keeps its own window: it cannot answer null,
+      // and a caller that was asked to build owns what it built.
+      if (!createIfMissing && !isSameIncarnation(conversationId, incarnation)) {
+        newConversation.dispose();
+        return null;
+      }
       setConversation(conversationId, newConversation);
       return newConversation;
     })();
 
     conversationCreating.set(conversationId, createPromise);
+    let acquired: Conversation | null;
     try {
-      conversation = await createPromise;
+      acquired = await createPromise;
     } finally {
       conversationCreating.delete(conversationId);
     }
+    if (!acquired) {
+      return null;
+    }
+    conversation = acquired;
     touchConversation(conversationId);
   } else {
     if (!conversation.isProcessing()) {
@@ -330,7 +478,7 @@ export async function getOrCreateConversation(
     }
     touchConversation(conversationId);
   }
-  return conversation;
+  return conversation ?? null;
 }
 
 /**
@@ -400,25 +548,22 @@ export function clearAllActiveConversations(): number {
 
 /**
  * Evict in-memory conversations after a config/prompt/skills reload so the next
- * turn rebuilds them against the new config. Idle conversations are disposed and
- * dropped; busy ones are marked stale so they're rebuilt once their current turn
- * finishes. Also used when provider credentials change.
+ * turn rebuilds them against the new config. Conversations with in-flight work
+ * (a live turn, a queued successor, or an active subagent) are marked stale
+ * and rebuilt by `getOrCreateConversation` once that work finishes. Idle
+ * conversations are disposed and dropped. Also used when provider credentials
+ * change.
  */
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();
   for (const [id, conversation] of conversationEntries()) {
-    // A conversation with queued messages is not idle: the queue drains via an
-    // async dispatch after the current turn releases, so `isProcessing()` can
-    // read false while a queued turn is still pending. Disposing in that gap
-    // would silently drop the queued messages, so mark it stale instead and
-    // let it rebuild once the queue has run.
-    if (!conversation.isProcessing() && !conversation.hasQueuedMessages()) {
-      subagentManager.abortAllForParent(id);
-      conversation.dispose();
-      deleteConversation(id);
-      removeFromEvictor(id);
-    } else {
+    if (conversation.hasInFlightWork()) {
       conversation.markStale();
+      continue;
     }
+    subagentManager.abortAllForParent(id);
+    conversation.dispose();
+    deleteConversation(id);
+    removeFromEvictor(id);
   }
 }

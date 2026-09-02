@@ -1,11 +1,14 @@
 import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
+  coerceArrayShapes,
   coerceStringBooleans,
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
+import { withActivityProperty } from "../schema-transforms.js";
 import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
+import { bundledToolInputRepairs } from "../shared/input-repairs.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
@@ -36,6 +39,7 @@ export function createSkillTool(
     category: entry.category,
     defaultRiskLevel: riskMap[entry.risk],
     executionTarget: entry.execution_target as ExecutionTarget,
+    supportedClientOs: entry.supported_client_os,
 
     input_schema: entry.input_schema as object,
 
@@ -43,11 +47,22 @@ export function createSkillTool(
       input: Record<string, unknown>,
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
-      const schema = entry.input_schema as Record<string, unknown> | undefined;
-      const coercedInput = coerceStringNumbers(
-        coerceStringBooleans(input, schema),
-        schema,
+      // Validate against the schema the model was actually shown: tool
+      // definitions carry an injected `activity` field the manifest does not
+      // declare, and a call that fills it must not be rejected as unknown.
+      const schema = withActivityProperty(
+        entry.input_schema as Record<string, unknown> | undefined,
       );
+      // Tool-specific repairs first: they rewrite keys and shapes the schema
+      // does not describe, and the generic coercions below then see the
+      // declared parameter names. Repairs describe first-party tools, so only
+      // bundled skills consult them.
+      const repairedInput = bundled
+        ? bundledToolInputRepairs(entry.name, input)
+        : input;
+      const withBooleans = coerceStringBooleans(repairedInput, schema);
+      const withNumbers = coerceStringNumbers(withBooleans, schema);
+      const coercedInput = coerceArrayShapes(withNumbers, schema);
       const validation = validateInputAgainstSchema(
         entry.name,
         coercedInput,

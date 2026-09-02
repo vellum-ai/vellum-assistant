@@ -8,7 +8,10 @@ import {
 } from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { useTranslation } from "@/i18n";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
+import { resolveEffectiveTraits } from "@/utils/avatar-render";
+import { canResolveDefinitions } from "@/utils/avatar-svg-compositor";
 import { AnimatedAvatar } from "./animated-avatar";
 
 export interface ChatAvatarProps {
@@ -55,6 +58,7 @@ function ChatAvatarComponent({
   isAssistantBusy = false,
   originAnchor = false,
 }: ChatAvatarProps) {
+  const { t } = useTranslation();
   const reduce = useReducedMotion();
   const [isPoking, setIsPoking] = useState(false);
   // Spread onto whichever root renders, so the room can locate this avatar.
@@ -73,23 +77,25 @@ function ChatAvatarComponent({
 
   const handleClick = interactive ? triggerBounce : undefined;
 
-  const effectiveTraits = useMemo(() => {
-    if (traits) {
-      return traits;
-    }
-    if (!components) {
-      return null;
-    }
-    const body = components.bodyShapes[0];
-    const eyes = components.eyeStyles[0];
-    const color = components.colors[0];
-    if (!body || !eyes || !color) {
-      return null;
-    }
-    return { bodyShape: body.id, eyeStyle: eyes.id, color: color.id };
-  }, [traits, components]);
+  // Shared with every off-screen surface that draws this assistant, so the
+  // default character here is the one the widgets and icons draw too.
+  // Trait ids that the served palette does not carry (legacy or hand-written
+  // sidecars) are not a character: unknown ids fall through to the uploaded
+  // image, then the letter mark.
+  const effectiveTraits = useMemo(
+    () => resolveEffectiveTraits(components, traits),
+    [traits, components],
+  );
 
-  const hasCharacter = !!components && !!effectiveTraits;
+  const hasCharacter =
+    !!components &&
+    !!effectiveTraits &&
+    canResolveDefinitions(
+      components,
+      effectiveTraits.bodyShape,
+      effectiveTraits.eyeStyle,
+      effectiveTraits.color,
+    );
   const preferCharacter = hasCharacter && (!!traits || !customImageUrl);
 
   const wrapperStyle: CSSProperties = {
@@ -150,7 +156,7 @@ function ChatAvatarComponent({
       >
         <img
           src={customImageUrl}
-          alt="Assistant avatar"
+          alt={t("chatAvatar.alt")}
           width={size}
           height={size}
           className={`rounded-full object-cover ${className ?? ""}`}
@@ -170,7 +176,7 @@ function ChatAvatarComponent({
       animate={animate}
       transition={transition}
     >
-      V
+      {t("chatAvatar.fallbackLetter")}
     </motion.div>
   );
 }

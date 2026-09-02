@@ -18,6 +18,8 @@ interface MockSource {
   buffer: AudioBuffer | null;
   connectedTo: AudioNode | null;
   startedAt: number | null;
+  /** Offset into the buffer playback began at; non-zero only on a resume. */
+  startedOffset: number;
   stopped: boolean;
   disconnected: boolean;
   onended: (() => void) | null;
@@ -89,6 +91,7 @@ class MockAudioContext {
       buffer: null,
       connectedTo: null,
       startedAt: null,
+      startedOffset: 0,
       stopped: false,
       disconnected: false,
       onended: null,
@@ -116,8 +119,9 @@ class MockAudioContext {
       disconnect() {
         source.disconnected = true;
       },
-      start(when?: number) {
+      start(when?: number, offset?: number) {
         source.startedAt = when ?? getCurrentTime();
+        source.startedOffset = offset ?? 0;
       },
       stop() {
         source.stopped = true;
@@ -595,7 +599,7 @@ describe("LiveVoiceAudioPlayer", () => {
     });
   });
 
-  test("reading the output level leaves the avatar's meter untouched", () => {
+  test("reading the output level leaves the band's meter untouched", () => {
     const { player: metered, ctx: meteredCtx } = makeMeteringPlayer();
     meteredCtx.level = 0.05;
     metered.enqueue(chunk(new Array(24000).fill(8000)));
@@ -604,11 +608,11 @@ describe("LiveVoiceAudioPlayer", () => {
     const instant = metered.readOutputLevel();
     expect(instant).toBeGreaterThan(0);
 
-    // Two consumers on different cadences share this player. The avatar's
-    // meter is a stateful EMA advanced by every call, so the measurement path
-    // must not read through it: otherwise the probe would drag the avatar's
-    // level around, and its own numbers would depend on whether the avatar is
-    // mounted at all.
+    // Two consumers on different cadences share this player. The band's meter
+    // is a stateful EMA advanced by every call, so the measurement path must
+    // not read through it: otherwise the probe would drag the band's level
+    // around, and its own numbers would depend on whether the band is mounted
+    // at all.
     const first = metered.getOutputAmplitude();
     metered.readOutputLevel();
     metered.readOutputLevel();
@@ -1057,5 +1061,266 @@ describe("LiveVoiceAudioPlayer output mute", () => {
 
     expect(() => player.setOutputMuted(true)).not.toThrow();
     expect(player.isOutputMuted()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reversible barge-in (hold / resume)
+// ---------------------------------------------------------------------------
+
+describe("LiveVoiceAudioPlayer held playback", () => {
+  /** Mirrors RESUME_REWIND_SECONDS in tts-playback.ts. */
+  const REWIND_SECONDS = 0.35;
+
+  /**
+   * Three gapless 1.0s buffers (t = 0, 1, 2) with the clock parked halfway
+   * through the second one, i.e. the shape of a barge-in landing mid-reply.
+   */
+  function enqueueThreeSecondsAndAdvance(
+    player: LiveVoiceAudioPlayer,
+    ctx: MockAudioContext,
+  ): void {
+    player.enqueue(chunk(new Array(24000).fill(100)));
+    player.enqueue(chunk(new Array(24000).fill(200)));
+    player.enqueue(chunk(new Array(24000).fill(300)));
+    ctx.currentTime = 1.5;
+  }
+
+  test("a hold retains the unplayed audio and resume re-schedules it", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.holdPlayback();
+
+    // The flush itself is indistinguishable from stop(): everything scheduled
+    // is stopped, and nothing is playing.
+    expect(ctx.sources.every((s) => s.stopped)).toBe(true);
+    expect(player.isPlaying).toBe(false);
+    expect(player.hasHeldPlayback()).toBe(true);
+
+    expect(player.resumeHeldPlayback()).toBe(true);
+
+    // Source nodes are single-use, so the retained buffers come back through
+    // fresh ones: the interrupted buffer and the one queued behind it.
+    expect(ctx.sources.length).toBe(5);
+    expect(ctx.sources[3]!.buffer).toBe(ctx.sources[1]!.buffer);
+    expect(ctx.sources[4]!.buffer).toBe(ctx.sources[2]!.buffer);
+    expect(player.isPlaying).toBe(true);
+    expect(player.hasHeldPlayback()).toBe(false);
+  });
+
+  test("stop() is the control: the same barge-in destroys the audio", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.stop();
+
+    expect(player.hasHeldPlayback()).toBe(false);
+    expect(player.resumeHeldPlayback()).toBe(false);
+    expect(ctx.sources.length).toBe(3);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  test("resume rewinds into the interrupted buffer so the word is whole", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.holdPlayback();
+    player.resumeHeldPlayback();
+
+    // Playback was 0.5s into the second buffer; the resume enters it at
+    // 0.5 - REWIND_SECONDS so the syllable the flush cut is spoken again.
+    expect(ctx.sources[3]!.startedAt).toBe(1.5);
+    expect(ctx.sources[3]!.startedOffset).toBeCloseTo(0.5 - REWIND_SECONDS, 6);
+    // Everything behind it is still whole, and still gapless: the resumed
+    // remainder of buffer two is 1 - (0.5 - REWIND_SECONDS) long.
+    expect(ctx.sources[4]!.startedOffset).toBe(0);
+    expect(ctx.sources[4]!.startedAt).toBeCloseTo(
+      1.5 + 0.5 + REWIND_SECONDS,
+      6,
+    );
+  });
+
+  test("audio that already sounded is not resumed", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.holdPlayback();
+    player.resumeHeldPlayback();
+
+    // The first buffer finished 0.5s ago, well past the rewind window.
+    const resumedBuffers = ctx.sources.slice(3).map((s) => s.buffer);
+    expect(resumedBuffers).not.toContain(ctx.sources[0]!.buffer);
+  });
+
+  test("playback progress continues across the resume, rewound to match", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    const beforeFlush = player.getPlaybackProgress();
+    expect(beforeFlush).toEqual({ playedSeconds: 1.5, totalSeconds: 3 });
+
+    player.holdPlayback();
+    player.resumeHeldPlayback();
+
+    // The spoken-word cursor has to survive the round trip, or the caption
+    // would snap back to the first word of the reply as it resumes. Total is
+    // unchanged and played rewinds by exactly what the audio rewound.
+    const afterResume = player.getPlaybackProgress();
+    expect(afterResume?.totalSeconds).toBeCloseTo(3, 6);
+    expect(afterResume?.playedSeconds).toBeCloseTo(1.5 - REWIND_SECONDS, 6);
+  });
+
+  test("a real barge-in behind the first one discards the held audio", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.holdPlayback();
+    expect(player.hasHeldPlayback()).toBe(true);
+
+    // The controller drops the hold explicitly on a second speech onset; a
+    // stop() from any deliberate interrupt does the same thing here.
+    player.stop();
+
+    expect(player.hasHeldPlayback()).toBe(false);
+    expect(player.resumeHeldPlayback()).toBe(false);
+    expect(ctx.sources.length).toBe(3);
+  });
+
+  test("a second flush with nothing scheduled keeps the first flush's hold", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    // A server barge-in flushes twice: `speech_started`, then the
+    // `turn_cancelled` that follows once the daemon aborts the turn. The
+    // second one arrives with the queue already empty and must not be read as
+    // "there was nothing to keep".
+    player.holdPlayback();
+    player.holdPlayback();
+
+    expect(player.hasHeldPlayback()).toBe(true);
+    expect(player.resumeHeldPlayback()).toBe(true);
+    expect(ctx.sources.length).toBe(5);
+  });
+
+  test("audio arriving after the flush supersedes the hold", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.holdPlayback();
+    player.enqueue(chunk(new Array(24000).fill(400)));
+
+    // Held audio resumes at the front of an empty queue, so it cannot be
+    // spliced behind a frame that has already been scheduled.
+    expect(player.hasHeldPlayback()).toBe(false);
+    expect(player.resumeHeldPlayback()).toBe(false);
+    expect(ctx.sources.length).toBe(4);
+  });
+
+  test("a hold does not survive disposal of its context", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+
+    player.holdPlayback();
+    void player.dispose();
+
+    // The retained buffers belong to a graph that no longer plays.
+    expect(player.resumeHeldPlayback()).toBe(false);
+    expect(ctx.closed).toBe(true);
+  });
+
+  test("resuming onto a muted output stays muted", () => {
+    const { player, ctx } = makePlayer();
+    enqueueThreeSecondsAndAdvance(player, ctx);
+    player.setOutputMuted(true);
+
+    player.holdPlayback();
+    player.resumeHeldPlayback();
+
+    // The mute rides the graph, not the queue, so a resume cannot un-silence
+    // an assistant the user muted.
+    expect(ctx.gain?.gain.value).toBe(0);
+    expect(ctx.sources[3]!.connectedTo).toBe(ctx.gain as unknown as AudioNode);
+    expect(player.isOutputMuted()).toBe(true);
+  });
+
+  test("holds nothing when the reply had already finished playing", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100)));
+    ctx.sources[0]!.finish();
+    // Well past the rewind window: there is no undelivered audio to keep.
+    ctx.currentTime = 5;
+
+    player.holdPlayback();
+
+    expect(player.hasHeldPlayback()).toBe(false);
+  });
+
+  test("holds nothing when the reply finished inside the rewind window", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100))); // 0 -> 1.0s
+
+    // Noise landing a fifth of a second after the assistant stopped talking.
+    // The rewind window still covers the reply's last syllables, but none of
+    // it is unplayed, so holding would mean replaying the end of a finished
+    // reply on the retraction. Deliberately without firing `onended`: the rule
+    // is the audio clock, not when the ended event happens to be delivered.
+    ctx.currentTime = 1.2;
+
+    player.holdPlayback();
+
+    expect(player.hasHeldPlayback()).toBe(false);
+    expect(player.resumeHeldPlayback()).toBe(false);
+  });
+
+  test("control: the same flush one moment earlier is still mid-sentence", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100))); // 0 -> 1.0s
+
+    // Identical setup, clock 0.4s earlier, so 0.2s of the reply has yet to
+    // sound. That one is worth keeping.
+    ctx.currentTime = 0.8;
+
+    player.holdPlayback();
+
+    expect(player.hasHeldPlayback()).toBe(true);
+    expect(player.resumeHeldPlayback()).toBe(true);
+  });
+
+  test("retained history shrinks as playback advances", () => {
+    const { player, ctx } = makePlayer();
+    // Ten 1.0s frames delivered up front: the whole reply decoded and
+    // scheduled before any of it has played.
+    for (let i = 0; i < 10; i++) {
+      player.enqueue(chunk(new Array(24000).fill(100)));
+    }
+    expect(player.retainedSegmentCount).toBe(10);
+
+    // Play eight of them out. Nothing further is ever scheduled, so pruning
+    // has to come off the audio clock or every decoded buffer stays pinned for
+    // the length of the reply.
+    for (let i = 0; i < 8; i++) {
+      ctx.currentTime = i + 1;
+      ctx.sources[i]!.finish();
+    }
+
+    // What is left is the two unplayed frames plus the rewind window.
+    expect(player.retainedSegmentCount).toBe(3);
+  });
+
+  test("a drained reply retains nothing between turns", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100)));
+    player.enqueue(chunk(new Array(24000).fill(200)));
+
+    ctx.currentTime = 2;
+    ctx.sources[0]!.finish();
+    ctx.sources[1]!.finish();
+
+    // A hands-free session sits idle between turns, and a drained timeline can
+    // never produce a hold, so nothing decoded for the finished reply should
+    // still be referenced.
+    expect(player.isPlaying).toBe(false);
+    expect(player.retainedSegmentCount).toBe(0);
   });
 });

@@ -26,6 +26,7 @@ import {
 import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useTranslation } from "@/i18n";
 
 /**
  * One-time welcome card shown the first time a user enters voice mode, before
@@ -73,14 +74,13 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * navigates back to the intro rather than cancelling, so a stray keypress
  * can't discard a half-entered API key.
  *
- * `nonDismissible` locks the card to a single forward action — no ✕, backdrop,
- * or Escape. The composer sets it on Capacitor iOS, where the card precedes the
- * live-voice `getUserMedia` alert: per `docs/CAPACITOR.md` § OS permission
- * requests (Apple HIG / App Store Review 5.1.1(iv)) such a pre-prompt must lead
- * straight to the system alert, so a dismissible one is disallowed. Locked,
- * there is no card-level cancel by design — backing out means denying the OS
- * mic prompt (or ✕ once the room opens). The sub-view back arrow is in-modal
- * navigation, not a cancel, so it stays available under the lock.
+ * Dismissible on every platform, Capacitor iOS included. The card precedes the
+ * live-voice `getUserMedia` alert, so `docs/CAPACITOR.md` § OS permission
+ * requests governs it: dismissing cancels without reaching `getUserMedia`, so
+ * it is not a permission pre-prompt. The one path that does reach the alert
+ * ("Start talking") still leads straight to it. A widget, Siri, or Action
+ * Button launch can open this card by accident; a locked card would have no
+ * way out. The sub-view back arrow is in-modal navigation, not a cancel.
  */
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */
@@ -100,25 +100,20 @@ export interface VoiceFirstRunCardProps {
   onStart: () => void;
   /** Cancel: dismissed without starting (does not consume the first run). */
   onDismiss?: () => void;
-  /**
-   * Lock the card: no ✕ / backdrop / Escape, only "Start talking". Set on
-   * Capacitor iOS so the pre-permission card leads straight to the mic alert
-   * (see the module docstring). Defaults to dismissible (web).
-   */
-  nonDismissible?: boolean;
 }
 
 export function VoiceFirstRunCard({
   assistantId,
   onStart,
   onDismiss,
-  nonDismissible = false,
 }: VoiceFirstRunCardProps) {
+  const { t } = useTranslation("chat");
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
     .find((a) => a.id === assistantId)?.name;
+  const displayName = assistantName ?? t("voiceFirstRunCard.yourAssistant");
 
   const [view, setView] = useState<FirstRunView>("intro");
   // The language picker is reachable from two places, so leaving it returns
@@ -183,9 +178,7 @@ export function VoiceFirstRunCard({
           return;
         }
         // On the intro a close is a plain cancel: the first run stays
-        // un-consumed. Inert when locked (those affordances are removed /
-        // prevented below), so `onDismiss` only fires on the dismissible
-        // (web) path.
+        // un-consumed, so the card returns on the next voice entry.
         onDismiss?.();
       }}
     >
@@ -194,22 +187,16 @@ export function VoiceFirstRunCard({
         // Held constant across views: a sub-view that resized the dialog would
         // shift the back arrow and ✕ out from under the pointer.
         className="max-w-[520px]"
-        // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
-        // only way forward is "Start talking" → the mic alert.
-        hideCloseButton={nonDismissible}
-        dismissOnOverlayClick={!nonDismissible}
         onEscapeKeyDown={
           // Inside a sub-view Escape is "go back", never "cancel" — it must not
           // discard a half-entered key. On the intro it keeps its normal
-          // meaning (cancel), or is swallowed entirely under the lock.
+          // meaning (cancel).
           view !== "intro"
             ? (event) => {
                 event.preventDefault();
                 leaveCurrentView();
               }
-            : nonDismissible
-              ? (event) => event.preventDefault()
-              : undefined
+            : undefined
         }
         onKeyDown={
           // Belt to `onEscapeKeyDown`'s suspenders: Radix delivers Escape via
@@ -232,9 +219,6 @@ export function VoiceFirstRunCard({
               }
             : undefined
         }
-        onInteractOutside={
-          nonDismissible ? (event) => event.preventDefault() : undefined
-        }
       >
         {view === "intro" && (
           <>
@@ -250,11 +234,10 @@ export function VoiceFirstRunCard({
                 </span>
                 <div className="flex min-w-0 flex-col">
                   <Modal.Title className="leading-tight">
-                    Voice mode
+                    {t("voiceFirstRunCard.title")}
                   </Modal.Title>
                   <Modal.Description>
-                    A hands-free, spoken conversation with{" "}
-                    {assistantName ?? "your assistant"}.
+                    {t("voiceFirstRunCard.description", { name: displayName })}
                   </Modal.Description>
                 </div>
               </div>
@@ -269,8 +252,7 @@ export function VoiceFirstRunCard({
                     className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
                   />
                   <span className="text-body-medium-default">
-                    Speak naturally and {assistantName ?? "your assistant"}{" "}
-                    replies out loud.
+                    {t("voiceFirstRunCard.speakNaturally", { name: displayName })}
                   </span>
                 </li>
                 <li className="flex items-start gap-2.5">
@@ -279,7 +261,7 @@ export function VoiceFirstRunCard({
                     className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
                   />
                   <span className="text-body-medium-default">
-                    Mute the mic without ending the session.
+                    {t("voiceFirstRunCard.muteMic")}
                   </span>
                 </li>
                 <li className="flex items-start gap-2.5">
@@ -288,7 +270,7 @@ export function VoiceFirstRunCard({
                     className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
                   />
                   <span className="text-body-medium-default">
-                    Turn on live captions anytime.
+                    {t("voiceFirstRunCard.liveCaptions")}
                   </span>
                 </li>
               </ul>
@@ -305,7 +287,7 @@ export function VoiceFirstRunCard({
                       className="size-4 shrink-0 text-[var(--content-secondary)]"
                     />
                     <span className="text-body-medium-default">
-                      Listening language
+                      {t("voiceFirstRunCard.listeningLanguage")}
                     </span>
                   </span>
                   {/* A trigger row into the language sub-view (the card's
@@ -314,7 +296,7 @@ export function VoiceFirstRunCard({
                       the "Suggested" annotation on the locale suggestion. */}
                   <SelectTriggerRow
                     size="compact"
-                    aria-label="Listening language"
+                    aria-label={t("voiceFirstRunCard.listeningLanguage")}
                     aria-haspopup="dialog"
                     onClick={() => openLanguage("intro")}
                     value={sttLanguageLabelForCode(
@@ -338,7 +320,7 @@ export function VoiceFirstRunCard({
                 className="flex cursor-pointer items-center gap-1.5 rounded text-left text-label-small-default text-[var(--content-tertiary)] underline-offset-2 transition-colors hover:text-[var(--content-secondary)]"
               >
                 <Settings aria-hidden className="size-3.5 shrink-0" />
-                <span className="hover:underline">Voice settings</span>
+                <span className="hover:underline">{t("voiceFirstRunCard.voiceSettings")}</span>
               </button>
               {/* Start waits out an in-flight language write (mirroring the
                   Voices view's voice-write gate) so the session cannot open
@@ -348,7 +330,7 @@ export function VoiceFirstRunCard({
                 onClick={onStart}
                 disabled={languageSelecting}
               >
-                Start talking
+                {t("voiceFirstRunCard.startTalking")}
               </Button>
             </Modal.Footer>
           </>
@@ -381,10 +363,10 @@ export function VoiceFirstRunCard({
                 <BackButton onClick={leaveCurrentView} />
                 <div className="flex min-w-0 flex-col">
                   <Modal.Title className="leading-tight">
-                    Listening language
+                    {t("voiceFirstRunCard.listeningLanguage")}
                   </Modal.Title>
                   <Modal.Description>
-                    Applies from your next spoken turn.
+                    {t("voiceFirstRunCard.listeningLanguageApplies")}
                   </Modal.Description>
                 </div>
               </div>
@@ -437,6 +419,7 @@ function VoiceSettingsView({
    */
   startBlocked?: boolean;
 }) {
+  const { t } = useTranslation("chat");
   // Own the selection here (rather than let the list self-commit) so the write's
   // in-flight state can gate Start: the picker reports a pick via `onChange`, and
   // `selecting` stays true until the config patch and refetch settle. Managed
@@ -451,7 +434,7 @@ function VoiceSettingsView({
         <div className="flex items-center gap-2">
           <BackButton onClick={onBack} />
           <div className="flex min-w-0 flex-col">
-            <Modal.Title className="leading-tight">Voice settings</Modal.Title>
+            <Modal.Title className="leading-tight">{t("voiceFirstRunCard.voiceSettings")}</Modal.Title>
             {available && (
               <Modal.Description>
                 {MANAGED_VOICE_CREDITS_NOTE}
@@ -473,12 +456,12 @@ function VoiceSettingsView({
                 className="size-4 shrink-0 text-[var(--content-secondary)]"
               />
               <span className="text-body-medium-default">
-                Listening language
+                {t("voiceFirstRunCard.listeningLanguage")}
               </span>
             </span>
             <SelectTriggerRow
               size="compact"
-              aria-label="Listening language"
+              aria-label={t("voiceFirstRunCard.listeningLanguage")}
               aria-haspopup="dialog"
               onClick={onOpenLanguage}
               value={languageLabel}
@@ -511,7 +494,7 @@ function VoiceSettingsView({
           disabled={selecting || startBlocked}
           className="shrink-0"
         >
-          Start talking
+          {t("voiceFirstRunCard.startTalking")}
         </Button>
       </Modal.Footer>
     </>
@@ -520,12 +503,13 @@ function VoiceSettingsView({
 
 /** Back to the intro view. In-modal navigation — never a cancel. */
 function BackButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation("chat");
   return (
     <Button
       variant="ghost"
       size="compact"
       iconOnly={<ArrowLeft />}
-      aria-label="Back"
+      aria-label={t("voiceFirstRunCard.backAria")}
       onClick={onClick}
       className="-ml-1 shrink-0"
     />

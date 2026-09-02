@@ -1,5 +1,5 @@
 import { Terminal } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getAssistant } from "@/assistant/api";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
@@ -9,22 +9,15 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library";
 import { Select } from "@vellumai/design-library/components/select";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";
 
-const TERMINAL_SERVICE_OPTIONS: ReadonlyArray<{
-  value: TerminalService;
-  label: string;
-}> = [
-  { value: "assistant", label: "assistant" },
-  { value: "gateway", label: "gateway" },
-  { value: "credential-executor", label: "credential-executor" },
-];
-
 export function AssistantTerminalPanel() {
+  const { t } = useTranslation("settings");
   // The terminal session is a platform-routed exec channel — `platformHostedOnly`
   // flips "gated" when the active assistant is self-hosted, even on a
   // platform-mode app where the standard gate would still resolve to "full".
@@ -44,6 +37,19 @@ export function AssistantTerminalPanel() {
   const [service, setService] = useState<TerminalService>("assistant");
   const fetchedRef = useRef(false);
 
+  const terminalServiceOptions = useMemo(
+    () =>
+      [
+        { value: "assistant" as const, label: "assistant" },
+        { value: "gateway" as const, label: "gateway" },
+        {
+          value: "credential-executor" as const,
+          label: "credential-executor",
+        },
+      ] as const,
+    [],
+  );
+
   const fetchAssistant = useCallback(async (force?: boolean) => {
     if (!force && fetchedRef.current) {
       return;
@@ -60,11 +66,11 @@ export function AssistantTerminalPanel() {
       }
     } catch (error) {
       captureError(error, { context: "fetch_assistant_for_terminal" });
-      toast.error("Failed to load assistant info");
+      toast.error(t("assistantTerminalPanel.loadErrorToast"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // `getAssistant` is a daemon-side call (safe in every lifecycle state
   // where we have a daemon connection), so fire it eagerly whenever the
@@ -79,7 +85,7 @@ export function AssistantTerminalPanel() {
     if (platformGate !== "full") {
       return;
     }
-    fetchAssistant();
+    void fetchAssistant();
   }, [fetchAssistant, platformGate]);
 
   if (platformGate === "gated") {
@@ -104,39 +110,37 @@ export function AssistantTerminalPanel() {
           </div>
           <div className="min-w-0">
             <h2 className="text-title-small text-[var(--content-default)]">
-              Terminal
+              {t("assistantTerminalPanel.title")}
             </h2>
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              Interactive shell session on your assistant machine
+              {t("assistantTerminalPanel.subtitle")}
             </p>
           </div>
         </div>
         {assistantId && (
           <Select
-            options={TERMINAL_SERVICE_OPTIONS}
+            options={[...terminalServiceOptions]}
             value={service}
             onChange={setService}
-            aria-label="Target container"
+            aria-label={t("assistantTerminalPanel.targetContainer")}
           />
         )}
       </div>
 
       {platformGate === "disabled" ? (
         <PlatformLoginNotice>
-          Log in to the Vellum platform to open a terminal session.
+          {t("assistantTerminalPanel.loginNotice")}
         </PlatformLoginNotice>
       ) : showLoading ? (
         <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-element)] border-t-[var(--content-secondary)]" />
-          Loading terminal...
+          {t("assistantTerminalPanel.loading")}
         </div>
       ) : !assistantId ? (
         <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 text-body-medium-lighter text-[var(--content-tertiary)]">
           <div className="flex items-center gap-2 px-1 py-0.5">
             <Terminal className="h-4 w-4 shrink-0" />
-            <span>
-              No assistant found. Hatch an assistant to use the terminal.
-            </span>
+            <span>{t("assistantTerminalPanel.noAssistant")}</span>
           </div>
         </div>
       ) : (

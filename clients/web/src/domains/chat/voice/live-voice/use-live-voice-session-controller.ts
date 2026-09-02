@@ -20,7 +20,8 @@
  * - `starter` — registered here for the lifetime of the mount; the composer's
  *   entry-point mic calls it to start a session. Registering it also drains any
  *   start-voice deep link parked before this mount (see
- *   `start-voice-request.ts`).
+ *   `start-voice-request.ts`), as does a change of active assistant, which is
+ *   the other thing that can make a parked request drainable.
  * - `controls` (stop/release/interrupt) — registered per-session by
  *   {@link useLiveVoice} itself.
  * - `state`/`error`/transcripts/amplitude — observable session state.
@@ -29,9 +30,15 @@
  * audio focus ({@link useNativeAudioSessionLifecycle}) and both halves of the
  * platform status surface — what it shows ({@link useLiveActivityMirror}) and
  * what its buttons do ({@link useLiveActivityControls}).
+ *
+ * And it is where duties that must outlive the room UI live, because this
+ * mount does: {@link useSightFrameReclaimer} gives back camera-frame uploads
+ * an assistant refused, which the room cannot be trusted to do while it is
+ * minimized and therefore unmounted.
  */
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { useNavigate } from "react-router";
 
 import {
   useLiveVoice,
@@ -46,12 +53,14 @@ import {
 import { drainPendingVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useLiveActivityControls } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
+import { useSightFrameReclaimer } from "@/domains/chat/voice/live-voice/use-sight-frame-reclaimer";
 import {
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
   subscribeVoiceAudioInterruptions,
 } from "@/runtime/native-audio-session";
 import { isNativeAndroid } from "@/runtime/platform-detection";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** Injectable primitive factories, for tests. */
 export type UseLiveVoiceSessionControllerOptions = Pick<
@@ -169,16 +178,27 @@ export function useLiveVoiceSessionController(
   // `observeAudioState: false` — the controller consumes nothing reactive
   // beyond the low-frequency `state`/`error` fields, so high-frequency
   // amplitude/transcript updates must not re-render the mounting layout.
-  const { start, prewarmPlayback, cancelPrewarmedPlayback } = useLiveVoice({
-    ...options,
-    observeAudioState: false,
+  const { start, sendText, prewarmPlayback, cancelPrewarmedPlayback } =
+    useLiveVoice({
+      ...options,
+      observeAudioState: false,
+    });
+
+  // A parked start-voice request is drained here, and the drain lands on the
+  // conversation it mints for the session (see `start-voice-request.ts`). Held
+  // in a ref, and read only when the drain gets that far, so a fresh
+  // `navigate` identity never re-registers the starter.
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
   });
 
   useEffect(() => {
     useLiveVoiceStore.getState().setStarter({
       prewarm: prewarmPlayback,
       cancelPrewarm: cancelPrewarmedPlayback,
-      start: (assistantId, conversationId) =>
+      start: (assistantId, conversationId, options) =>
         // Hands-free (server-side turn detection) is the only mode the voice
         // button starts — it keeps one socket open across turns so the
         // assistant's TTS drains instead of the session tearing down each
@@ -186,20 +206,59 @@ export function useLiveVoiceSessionController(
         // when the daemon's `ready` doesn't echo `server_vad`.
         void start(assistantId, conversationId ?? undefined, {
           handsFree: true,
+          ...(options?.seedText ? { seedText: options.seedText } : {}),
+          ...(options?.seedVisible ? { seedVisible: true } : {}),
+          ...(options?.endAfterSeedReply ? { endAfterSeedReply: true } : {}),
         }),
+      sendText,
     });
     // A start-voice deep link that arrived before this mount (cold launch from
     // Siri / the Action Button / a Live Activity tap) is parked; now that a
     // starter exists, run it. One-shot, so the re-runs of this effect are free.
-    void drainPendingVoiceStart();
+    void drainPendingVoiceStart((to, navigateOptions) =>
+      navigateRef.current(to, navigateOptions),
+    );
     return () => {
       useLiveVoiceStore.getState().setStarter(null);
     };
-  }, [start, prewarmPlayback, cancelPrewarmedPlayback]);
+  }, [start, sendText, prewarmPlayback, cancelPrewarmedPlayback]);
+
+  // The drain's second trigger, and the only one a parked request has once the
+  // starter is registered: the effect above runs on the starter's identity, not
+  // on anything the drain gates against. `drainPendingVoiceStart` reparks when
+  // the active assistant changed under a preflight, because the eligibility
+  // gate and the readiness verdict both answered for the assistant the user
+  // just left, and without this that request would sit until its TTL took it.
+  //
+  // This fires on the resolved-assistants change, which is ahead of the
+  // identity store being cleared and rehydrated for the assistant switched to.
+  // The drain waits that out itself, on a wait scoped to the new assistant, so
+  // it decides on the identity of the one the user moved to rather than on the
+  // version still held for the one they left.
+  //
+  // Subscribed rather than selected, so a switch never re-renders the mounting
+  // layout, matching `observeAudioState: false` above. Nothing here starts a
+  // session on its own: a drain with nothing parked returns immediately, and
+  // the park is one-shot, so a drain that overlaps one already in flight loses
+  // the consume and stops.
+  useEffect(() => {
+    return useResolvedAssistantsStore.subscribe((state, prevState) => {
+      if (state.activeAssistantId === prevState.activeAssistantId) {
+        return;
+      }
+      void drainPendingVoiceStart((to, navigateOptions) =>
+        navigateRef.current(to, navigateOptions),
+      );
+    });
+  }, []);
 
   useNativeAudioSessionLifecycle();
   useLiveActivityMirror();
   // The island's inbound half. Separate from the mirror because it reaches the
   // session and the mirror may not; see `use-live-activity-controls.ts`.
   useLiveActivityControls();
+  // Camera-frame cleanup. Here rather than in the room because a minimized
+  // room is not mounted, and an upload refused while it is minimized would
+  // otherwise be stranded when the call ends.
+  useSightFrameReclaimer();
 }

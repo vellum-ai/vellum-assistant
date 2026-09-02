@@ -246,6 +246,52 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   75% { transform: rotate(-0.86deg); }
 }
 
+/* Companion avatar bob: the creature lifting off its baseline and settling
+   back, so a surface that otherwise only breathes reads as alive from across
+   the desk. One-directional on purpose: 0% is the avatar's resting position,
+   and the lift is the only departure from it.
+
+   It has to live on a wrapper of its own. `AnimatedAvatar` owns `transform` on
+   its `<svg>` for the breathe and morph, and two animations on one node means
+   one of them silently wins.
+
+   The lift stays inside the creature's own box: the artwork is inset well
+   short of the top, so the raised creature is still somewhere the host's
+   hit-test finds the pointer. */
+@keyframes companion-avatar-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* The glow's breath, with both ends written out. Tailwind's `animate-pulse`
+   synthesises its 0%/100% from whatever opacity the element already carries,
+   which on a glow this faint is a swing nobody can see. */
+@keyframes companion-glow-breathe {
+  0%, 100% { opacity: 0.32; }
+  50% { opacity: 0.5; }
+}
+
+.companion-avatar-bob {
+  animation: companion-avatar-bob 5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.companion-glow {
+  /* Where the breath starts and where it is held when it cannot run. */
+  opacity: 0.32;
+  animation: companion-glow-breathe 4s ease-in-out infinite;
+}
+
+/* Held still rather than dropped: the glow is the avatar's own colour thrown
+   onto the desktop, so it stays lit at rest, and the creature keeps its
+   baseline rather than disappearing from it. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-avatar-bob,
+  .companion-glow {
+    animation: none;
+  }
+}
+
 /* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
  * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
  * ActivityRunCard for active/thinking phases. */
@@ -321,6 +367,54 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* Companion surface capture pulse: one breath of light around the same edge,
+ * each time a watch session has read the screen.
+ *
+ * The working ring above is a state, held for as long as the session is. This
+ * is an event, and it fires only when a read actually landed, so it has to
+ * arrive and leave rather than settle: one that lingered would be
+ * indistinguishable from the session simply being on, and the next read would
+ * have nothing left to announce itself against.
+ *
+ * The same band geometry as the ring, uniform rather than travelling. Both are
+ * drawn at once during a session, so a second shape would read as a second
+ * thing happening; brightening the edge that is already lit reads as the ring
+ * doing something, which is exactly what a capture is.
+ *
+ * Fast in and slow out, because that is the shape of a shutter rather than a
+ * blink, and it peaks well under full opacity: this fires three or four times
+ * a minute for as long as the user works, and it sits over whatever they are
+ * working in.
+ *
+ * No reduced-motion fallback, unlike the ring's travel, and the distinction is
+ * the point: this animates opacity and nothing else, with no travel, no scale,
+ * and nothing on screen displaced. Holding it still would not calm it down, it
+ * would delete it, and with it the only signal the user gets that their screen
+ * was read. */
+@keyframes companion-capture-pulse {
+  0% { opacity: 0; }
+  15% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+.companion-capture-pulse {
+  padding: 2px;
+  background: var(--companion-ring-accent, #ff9f45);
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--companion-ring-accent, #ff9f45) 60%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  animation: companion-capture-pulse 700ms ease-out 1;
+}
+
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is
@@ -340,6 +434,124 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* Camera-mode status dot: the 5px mark in the voice room's status pill,
+ * breathing while a voice is live (the user talking, or the assistant
+ * answering). Long on, short dip: a hard on/off blink at this size reads as a
+ * fault light over a camera feed. The loop closes on the lit value it opens
+ * with, so every repeat fades back up rather than snapping from the dip to full
+ * at the boundary. The component also holds it static via useReducedMotion; the
+ * media query is defense-in-depth for callers that don't, and pins the dot lit
+ * rather than mid-dip. */
+@keyframes camera-status-blink {
+  0%, 55% { opacity: 1; }
+  75% { opacity: 0.25; }
+  100% { opacity: 1; }
+}
+
+.camera-status-blink {
+  animation: camera-status-blink 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-status-blink {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Camera shutter: the ring and core the voice room's viewfinder and the
+ * deep-link capture overlay share.
+ *
+ * Three timings, one contract, so a caller cannot half-adopt it. The core's
+ * morph overshoots on purpose: shrinking past its target and settling back is
+ * what makes the photo-to-live change read as a record button starting rather
+ * than a circle being resized. The capture pulse is a ring of crimson leaving
+ * the shutter, and deliberately NOT a full-screen white flash, which strobes
+ * the frame in the middle of a conversation the user is still holding.
+ *
+ * Reduced motion retimes rather than removes. The pulse is feedback, not
+ * decoration: a press on a shutter whose viewfinder does not change is
+ * otherwise indistinguishable from a dead button, so it stays and shortens.
+ * The overshoot is the part that is movement for its own sake, so that is what
+ * it drops. `.camera-shutter-calm` is what the component applies from
+ * `useReducedMotion` (which is also what its tests can read); the media query
+ * is defense-in-depth for any caller that renders the markup without it. */
+.camera-shutter {
+  --camera-shutter-morph-duration: 0.4s;
+  --camera-shutter-morph-ease: cubic-bezier(0.34, 1.5, 0.5, 1);
+  --camera-shutter-pulse-duration: 500ms;
+  /* The ring takes the duration but not the ease: the morph curve overshoots
+   * past 1, which on a color means interpolating past the target, so only the
+   * core's scale is timed with it. */
+  transition: border-color var(--camera-shutter-morph-duration) ease;
+}
+
+.camera-shutter-calm {
+  --camera-shutter-morph-duration: 0.2s;
+  --camera-shutter-morph-ease: linear;
+  --camera-shutter-pulse-duration: 250ms;
+}
+
+/* `scale` rather than `transform`: the utilities the core is sized with set the
+ * independent transform property, so a transition on `transform` would time
+ * nothing at all. */
+.camera-shutter-core {
+  transition:
+    scale var(--camera-shutter-morph-duration) var(--camera-shutter-morph-ease),
+    background-color var(--camera-shutter-morph-duration) ease,
+    opacity var(--camera-shutter-morph-duration) ease;
+}
+
+/* The lit frame declares the crimson literal first and then reads the same
+ * color back off `--camera-accent` (published by `camera-mode-paint.ts` and
+ * inherited from the shutter this span sits inside): engines without
+ * color-mix() (Safari/iOS < 16.2, which the iOS shell still targets) drop the
+ * second declaration and keep the literal, and everywhere else the accent stays
+ * single-sourced. Same pattern as the wave accents below. The later frames fade
+ * to nothing, which is a color with no identity to duplicate. */
+@keyframes camera-shutter-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--camera-accent) 75%, transparent);
+  }
+  70% { box-shadow: 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.camera-shutter-pulse {
+  animation: camera-shutter-pulse var(--camera-shutter-pulse-duration) ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-shutter {
+    --camera-shutter-morph-duration: 0.2s;
+    --camera-shutter-morph-ease: linear;
+    --camera-shutter-pulse-duration: 250ms;
+  }
+}
+
+/* The kept-frame thumbnail's one-shot ring, played when a newer frame replaces
+ * the one the room was holding for the next turn. Two frames of the same scene
+ * look identical at 44px, so without a beat of movement a refresh is invisible
+ * and the thumbnail reads as stuck. Same literal-then-color-mix pattern as the
+ * shutter pulse above, for the same engines. */
+@keyframes sight-frame-kept {
+  0% {
+    box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--camera-accent) 75%, transparent);
+  }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.sight-frame-kept {
+  animation: sight-frame-kept 600ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sight-frame-kept { animation: none; }
+}
+
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */
@@ -351,6 +563,34 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 .message-highlighted {
   animation: message-highlight-flash 2s ease-out;
   border-radius: var(--radius-lg);
+}
+
+/* The ask-question card's minimize / expand travel. One class carried by every
+ * part that moves (the collapsing rows, the crossfading header copy, the
+ * chevron) so the card eases as one piece rather than as several things that
+ * happen to share a duration.
+ *
+ * Heights animate as `grid-template-rows` between `1fr` and `0fr` over a row
+ * whose child hides its overflow. That is the one way to ease to and from a
+ * content-sized height without measuring it in JavaScript, and it interpolates
+ * through fractional values, so the same property carries the drag. */
+.question-card-motion {
+  transition:
+    grid-template-rows var(--anim-standard) var(--anim-spring),
+    opacity var(--anim-standard) var(--anim-ease-out),
+    transform var(--anim-standard) var(--anim-spring);
+}
+
+/* While the finger is down the card is already where the gesture puts it, so a
+ * transition would only add lag between the two. */
+.question-card-motion[data-dragging="true"] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .question-card-motion {
+    transition: none;
+  }
 }
 
 /* Unseen-changes dot attention pulse, applied when the dot appears so a
@@ -898,22 +1138,19 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* ─── Live-voice room avatar ─────────────────────────────────────────────────
  * State-driven animation for the enlarged assistant avatar in the voice room.
- * Each live-voice visual (idle / listening / thinking / responding /
- * reconnecting) gets one continuous CSS loop here; the discrete enter/scale
- * transition when the visual changes is a motion spring at the call site. Only
- * the `responding` visual rides live amplitude (the assistant's TTS output),
- * fed imperatively through the `--voice-amp` custom property by a
- * requestAnimationFrame loop — never React state. `listening` stays at rest;
- * the user's voice is expressed by the top-edge waves coming in (see
- * voice-listening-waves.tsx). See voice-avatar.tsx.
+ * Each live-voice visual (idle / listening / thinking / reconnecting) gets one
+ * continuous CSS loop here; the discrete enter/scale transition when the visual
+ * changes is a motion spring at the call site. See voice-avatar.tsx.
  *
- * The sonar ripple's cyan→indigo gradient is a deliberate decorative accent
- * that stays constant across all themes (like a data-viz series or annotation
+ * No loop rides audio. Both voices are drawn as bands at the room's floor (see
+ * voice-listening-waves.tsx), so an avatar that answered the same signal would
+ * say the same thing twice; `responding` holds the avatar still and lets the
+ * band carry the turn.
+ *
+ * The idle ring's cyan→indigo gradient is a deliberate decorative accent that
+ * stays constant across all themes (like a data-viz series or annotation
  * overlay), so it is expressed as fixed rgba rather than a theme token. */
 .voice-avatar {
-  /* Live amplitude (0–1) written per frame on this outer node for `responding`
-   * only, so the ::after emanation ring can read it. Defaults to 0. */
-  --voice-amp: 0;
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -921,15 +1158,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   transform-origin: center;
 }
 
-/* Passive wrapper around the avatar. Body motion now lives on the state class
- * (a slight constant pulse); amplitude drives the ::after emanation, not this
- * layer, so the avatar body no longer scales with audio. */
-.voice-avatar__amp {
-  display: inline-flex;
-}
-
-/* Decorative ring layer: idle (invitation pulse) and responding (color
- * emanating outward). Inert until a visual class animates it. */
+/* Decorative ring layer for the idle invitation pulse. Inert until a visual
+ * class animates it. */
 .voice-avatar::after {
   content: "";
   position: absolute;
@@ -986,36 +1216,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: voice-avatar-think-glow 2.6s ease-in-out infinite;
 }
 
-/* Responding — the avatar is speaking: a slight baseline bounce (the "pulse")
- * plus color emanating outward from it (the ::after ring), whose intensity
- * rides live TTS-output amplitude via `--voice-amp`. Energy going *out*, the
- * counterpart to listening's waves coming in. */
-@keyframes voice-avatar-respond-bounce {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
-}
-
-.voice-avatar--responding {
-  animation: voice-avatar-respond-bounce 1.4s ease-in-out infinite;
-}
-
-/* The emanation itself: a ring continuously swelling out and fading (the
- * "emanating" motion); its color intensity scales with `--voice-amp` so louder
- * speech radiates more strongly, and it fades to nothing in the gaps. */
-@keyframes voice-avatar-emanate {
-  0% { opacity: 0.75; transform: scale(0.92); }
-  100% { opacity: 0; transform: scale(1.55); }
-}
-
-.voice-avatar--responding::after {
-  background: radial-gradient(
-    circle,
-    rgba(34, 211, 238, calc(0.12 + var(--voice-amp) * 0.5)) 0%,
-    rgba(99, 102, 241, calc(0.08 + var(--voice-amp) * 0.34)) 58%,
-    rgba(99, 102, 241, 0) 72%
-  );
-  animation: voice-avatar-emanate 1.6s ease-out infinite;
-}
+/* Responding has no loop of its own: the band at the floor is the assistant's
+ * voice, so the avatar holds still under it. */
 
 /* Reconnecting — dimmed, slow pulse, distinct from idle-breathe (full opacity)
  * and think-glow (brightens rather than dims). */
@@ -1032,12 +1234,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   .voice-avatar--idle,
   .voice-avatar--listening,
   .voice-avatar--thinking,
-  .voice-avatar--responding,
   .voice-avatar--reconnecting {
     animation: none;
   }
-  .voice-avatar--idle::after,
-  .voice-avatar--responding::after {
+  .voice-avatar--idle::after {
     animation: none;
     opacity: 0;
   }
@@ -1105,11 +1305,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* ─── Live-voice listening waves ─────────────────────────────────────────────
  * The `listening` visual language: layered sine waves along the bottom edge,
- * the user's voice arriving as energy coming *in* — distinct from `responding`,
- * where the avatar itself emits an outward pulse. The waves always drift
- * horizontally; live mic amplitude (`--voice-amp`, written per frame by a rAF
- * loop — never React state) lifts them up the screen and brightens them as the
- * user speaks. Cyan→indigo is a fixed decorative accent, matching the listening
+ * the user's voice arriving as energy coming *in*. `responding` answers from
+ * the same edge in the opposite ink, so the two are told apart by color rather
+ * than by position. The waves always drift horizontally; live amplitude
+ * (`--voice-amp`, written per frame by a rAF loop rather than through React
+ * state) lifts them up the screen and brightens them as the voice carries. Cyan→indigo is a fixed decorative accent, matching the listening
  * sonar, not a theme token. See voice-listening-waves.tsx. */
 .voice-listening-waves {
   --voice-amp: 0;

@@ -26,6 +26,7 @@ import {
   type ResearchFact,
 } from "@/domains/chat/onboarding-research/research-facts";
 import { SourceFavicon } from "@/domains/chat/onboarding-research/source-favicon";
+import { useTranslation } from "@/i18n";
 
 export interface ResearchFactItem {
   fact: ResearchFact;
@@ -75,6 +76,7 @@ function ClaimRow({
   onRestore: () => void;
   resolveFavicon: (domain: string) => string;
 }) {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const badge = confidenceBadge(fact.confidence);
@@ -122,7 +124,7 @@ function ClaimRow({
           <Popover.Trigger asChild>
             <button
               type="button"
-              aria-label={removed ? "Edit removal" : "Remove"}
+              aria-label={removed ? t("researchFactsCard.editRemovalAria") : t("researchFactsCard.removeAria")}
               onClick={(e) => e.stopPropagation()}
               data-reveal=""
               className="ml-auto shrink-0 cursor-pointer text-[var(--content-tertiary)] hover:text-[var(--content-default)]"
@@ -132,7 +134,7 @@ function ClaimRow({
           </Popover.Trigger>
           <Popover.Content align="end" className="flex w-52 flex-col gap-0.5">
             <p className="px-2 pb-1 pt-1 text-label-small-default text-[var(--content-tertiary)]">
-              Why remove this?
+              {t("researchFactsCard.whyRemove")}
             </p>
             {REASONS.map((reason) => (
               <button
@@ -155,7 +157,7 @@ function ClaimRow({
               }}
               className="mt-0.5 rounded-md border-t border-[var(--border-base)] px-2 pt-2 pb-1 text-left text-sm text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
             >
-              Keep it
+              {t("researchFactsCard.keepIt")}
             </button>
           </Popover.Content>
         </Popover.Root>
@@ -164,7 +166,7 @@ function ClaimRow({
       {expanded && canExpand ? (
         <div className="flex flex-col gap-1.5 border-t border-[var(--border-base)] px-4 py-2.5">
           <span className="text-label-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
-            Sources
+            {t("researchFactsCard.sources")}
           </span>
           {links.map(({ domain, url }) => (
             <a

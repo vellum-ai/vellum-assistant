@@ -7,6 +7,7 @@ import {
   getLockfileData,
   isPairedLockfileEntry,
   renameLockfileAssistantIfPresent,
+  stampLockfileAssistantOnboardedIfPresent,
   replacePlatformAssistants,
   upsertLockfileAssistant,
   upsertRendererLockfileAssistant,
@@ -41,6 +42,7 @@ describe("getLockfileData", () => {
     expect(result).toEqual({
       ok: true,
       data: { assistants: [], activeAssistant: null },
+      raw: { assistants: [], activeAssistant: null },
     });
   });
 
@@ -276,6 +278,87 @@ describe("upsertLockfileAssistant", () => {
     if (result.ok) {
       expect(result.lockfile.activeAssistant).toBe("asst_active");
     }
+  });
+});
+
+describe("stampLockfileAssistantOnboardedIfPresent", () => {
+  const entry = {
+    assistantId: "asst_1",
+    cloud: "local",
+    name: "Credence",
+    signingKey: "sk-on-disk-secret",
+  };
+  const AT = "2026-08-31T00:00:00.000Z";
+
+  test("stamps the entry preserving its other fields and activeAssistant", () => {
+    writeOnDisk({ activeAssistant: "asst_other", assistants: [entry] });
+
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_1",
+      AT,
+    );
+
+    expect(result.ok).toBe(true);
+    const onDisk = readOnDisk();
+    expect(onDisk.activeAssistant).toBe("asst_other");
+    expect(onDisk.assistants).toEqual([{ ...entry, onboardedAt: AT }]);
+  });
+
+  // Update-only: a completion racing a CLI retire must not resurrect the row.
+  test("refuses a missing entry without writing the file", () => {
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_gone",
+      AT,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "No lockfile entry for this assistant",
+    });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("keeps an existing stamp: the first completion is the real one", () => {
+    const stamped = { ...entry, onboardedAt: "2026-08-01T00:00:00.000Z" };
+    writeOnDisk({ activeAssistant: null, assistants: [stamped] });
+
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_1",
+      AT,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readOnDisk().assistants).toEqual([stamped]);
+  });
+
+  test("refuses a corrupt on-disk file without clobbering it", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_1",
+      AT,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(409);
+    }
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ not json");
+  });
+
+  test("rejects a missing id or timestamp", () => {
+    expect(
+      stampLockfileAssistantOnboardedIfPresent([lockfilePath], "", AT).ok,
+    ).toBe(false);
+    expect(
+      stampLockfileAssistantOnboardedIfPresent([lockfilePath], "asst_1", "").ok,
+    ).toBe(false);
+    expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 });
 
@@ -593,6 +676,89 @@ describe("replacePlatformAssistants", () => {
         { assistantId: "asst_local", cloud: "local", runtimeUrl: "http://l" },
       ],
     });
+  });
+
+  // `onboardedAt` is recorded by the client and unknown to the platform, so the
+  // rows a sync builds from the API never carry it. Dropping it here would let
+  // a routine session refresh erase the completion record.
+  test("carries an existing onboardedAt onto the replacement row", () => {
+    writeOnDisk({
+      activeAssistant: "asst_p",
+      assistants: [
+        {
+          assistantId: "asst_p",
+          cloud: "vellum",
+          runtimeUrl: "http://old",
+          onboardedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const result = replacePlatformAssistants(
+      [lockfilePath],
+      [{ assistantId: "asst_p", cloud: "vellum", runtimeUrl: "http://new" }],
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readOnDisk().assistants).toEqual([
+      {
+        assistantId: "asst_p",
+        cloud: "vellum",
+        runtimeUrl: "http://new",
+        onboardedAt: "2026-08-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("an incoming onboardedAt wins over the stored one", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        {
+          assistantId: "asst_p",
+          cloud: "vellum",
+          onboardedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_p",
+          cloud: "vellum",
+          onboardedAt: "2026-08-31T00:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(
+      (readOnDisk().assistants as Array<Record<string, unknown>>)[0]
+        ?.onboardedAt,
+    ).toBe("2026-08-31T00:00:00.000Z");
+  });
+
+  test("a retired-then-recreated id does not inherit a stale stamp from another entry", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        {
+          assistantId: "asst_a",
+          cloud: "vellum",
+          onboardedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [{ assistantId: "asst_b", cloud: "vellum" }],
+    );
+
+    expect(readOnDisk().assistants).toEqual([
+      { assistantId: "asst_b", cloud: "vellum" },
+    ]);
   });
 
   test("replaces platform assistants while keeping local ones and unknown fields", () => {

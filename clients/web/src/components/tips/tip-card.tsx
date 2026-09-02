@@ -12,6 +12,9 @@
 import { ChevronLeft, ChevronRight, Lightbulb, X } from "lucide-react";
 import { Link } from "react-router";
 
+import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
+import { useTranslation } from "@/i18n";
+import { resolveDesktopHostOS } from "@/runtime/platform-detection";
 import { cn } from "@/utils/misc";
 import type { Tip } from "@/utils/tips-catalog";
 
@@ -92,6 +95,22 @@ export function TipCard({
   onPrevTip,
   onNextTip,
 }: TipCardProps) {
+  const { t } = useTranslation();
+  const desktopHostOS = resolveDesktopHostOS();
+  const quickInputShortcut = useCommandShortcutHint("quickInput");
+  const desktopCopy = tip.desktopCopy?.[desktopHostOS];
+  const titleKey = desktopCopy?.title ?? tip.localizedCopy?.title;
+  const bodyKey = desktopCopy?.body ?? tip.localizedCopy?.body;
+  const title = titleKey ? t(titleKey) : tip.title;
+  const body =
+    quickInputShortcut === undefined &&
+    tip.localizedCopy?.bodyWithoutShortcut !== undefined
+      ? t(tip.localizedCopy.bodyWithoutShortcut)
+      : bodyKey
+        ? t(bodyKey, {
+            shortcut: quickInputShortcut,
+          })
+        : tip.body;
   return (
     <div
       data-slot="tip-card"
@@ -109,7 +128,7 @@ export function TipCard({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t("tipCard.dismiss")}
           className={cn(headerButtonClassName, "-mr-1")}
         >
           <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
@@ -117,11 +136,11 @@ export function TipCard({
       </div>
 
       <div className="mb-1.5 text-body-small-emphasised text-[color:var(--content-emphasised)]">
-        {tip.title}
+        {title}
       </div>
 
       <div className="text-body-small-default leading-[1.55] text-[color:var(--content-secondary)]">
-        {tip.body}
+        {body}
       </div>
 
       {tip.learnMore ? (
@@ -143,7 +162,7 @@ export function TipCard({
             type="button"
             onClick={onPrevTip}
             disabled={carouselIndex === 0}
-            aria-label="Previous tip"
+            aria-label={t("tipCard.previousTip")}
             data-slot="tip-card-prev"
             className={carouselButtonClassName}
           >
@@ -157,7 +176,7 @@ export function TipCard({
           <button
             type="button"
             onClick={onNextTip}
-            aria-label="Next tip"
+            aria-label={t("tipCard.nextTip")}
             data-slot="tip-card-next"
             className={carouselButtonClassName}
           >

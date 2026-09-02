@@ -179,6 +179,12 @@ export const LockfileAssistantSchema = z.object({
   runtimeUrl: z.string().optional(),
   species: z.string().optional(),
   hatchedAt: z.string().optional(),
+  /**
+   * When this assistant finished first-run onboarding. Absent for entries that
+   * predate the record, which fall back to hatch age (see the web client's
+   * `onboarded-assistant.ts`).
+   */
+  onboardedAt: z.string().optional(),
   /** Owning org for platform assistants; absent for local ones. */
   organizationId: z.string().optional(),
   /** Platform assistant UUID for a self-hosted local assistant registration. */
@@ -190,7 +196,7 @@ export const LockfileAssistantSchema = z.object({
   /**
    * Public https URL a `vellum tunnel` provider recorded for this assistant
    * (mirrored from the workspace ingress config). A public address, so it is
-   * renderer-safe: remote-web pairing surfaces (the CLI `--qr` flow, the web
+   * renderer-safe: remote-web pairing surfaces (the `vellum pair` flow, the web
    * "Pair a device" card) default to it instead of asking the user to retype it.
    */
   ingressUrl: z.string().optional(),

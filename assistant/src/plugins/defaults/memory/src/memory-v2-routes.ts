@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { getEffectiveProfilesForProvider } from "../../../../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../../../../config/default-profile-catalog.js";
 import { loadConfig } from "../../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -523,7 +523,7 @@ export async function handleSimulateRouter({
   // through (the resolver tolerates missing override-profile references by
   // design, but the playground wants the user to know they typo'd).
   if (profileOverride !== undefined) {
-    const profiles = getEffectiveProfilesForProvider(
+    const profiles = getUserSelectableProfilesForProvider(
       liveConfig.llm?.profiles,
       liveConfig.llm?.defaultProvider ?? null,
     );

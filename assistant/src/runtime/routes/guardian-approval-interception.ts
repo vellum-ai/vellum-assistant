@@ -5,10 +5,10 @@
  * This module is the top-level dispatcher. It delegates plain-text messages to
  * the conversational engine in guardian-text-engine-strategy.ts.
  */
-import type { KnownBlock } from "@slack/types";
-
+import { audienceForReader } from "../../channels/message-audience.js";
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
+import { editChannelMessage } from "../../messaging/providers/index.js";
 import { getLogger } from "../../util/logger.js";
 import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
@@ -33,18 +33,6 @@ import { deliverStaleApprovalReply } from "./guardian-approval-reply-helpers.js"
 
 const log = getLogger("runtime-http");
 
-/**
- * Resolve the Slack ephemeral user ID when the source channel is Slack.
- * Returns `undefined` for non-Slack channels so callers can pass the
- * result directly to `ephemeralUserId` without branching.
- */
-function slackEphemeralUserId(
-  sourceChannel: ChannelId,
-  userId: string | undefined,
-): string | undefined {
-  return sourceChannel === "slack" && userId ? userId : undefined;
-}
-
 export interface ApprovalInterceptionParams {
   conversationId: string;
   callbackData?: string;
@@ -57,8 +45,9 @@ export interface ApprovalInterceptionParams {
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
-  /** Original approval message timestamp (Slack ts) for editing after resolution. */
-  approvalMessageTs?: string;
+  /** Id of the channel message holding the approval buttons (Slack ts,
+   * Telegram message id), for editing the card after resolution. */
+  approvalMessageId?: string;
 }
 
 import type { ApprovalInterceptionResult } from "./approval-interception-types.js";
@@ -89,13 +78,8 @@ export async function handleApprovalInterception(
     assistantId,
     approvalCopyGenerator,
     approvalConversationGenerator,
-    approvalMessageTs,
+    approvalMessageId,
   } = params;
-
-  // Slack emoji reactions are handled by the guardian decision
-  // pipeline (`routeGuardianReply`), invoked from the inbound reaction stage:
-  // it resolves the target request from the reacted card's delivery record.
-  // See `guardian-reply-router.ts`.
 
   // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
@@ -170,7 +154,11 @@ export async function handleApprovalInterception(
           errorLogMessage:
             "Failed to deliver guardian-pending notice to non-guardian actor (pre-row guard)",
           errorLogContext: { conversationId },
-          ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
+          audience: audienceForReader(
+            sourceChannel,
+            conversationExternalId,
+            actorExternalId,
+          ),
         });
         return { handled: true, type: "assistant_turn" };
       }
@@ -205,8 +193,9 @@ export async function handleApprovalInterception(
         "Blocking guardian-class approval decision: acting principal missing or does not match the bound guardian principal",
       );
       if (replyCallbackUrl) {
-        const ephemeralUser = slackEphemeralUserId(
+        const rejectionAudience = audienceForReader(
           sourceChannel,
+          conversationExternalId,
           actorExternalId,
         );
         try {
@@ -214,7 +203,10 @@ export async function handleApprovalInterception(
             chatId: conversationExternalId,
             text: "Sorry, I couldn't process that. Please try again.",
             assistantId,
-            ...(ephemeralUser ? { ephemeral: true, user: ephemeralUser } : {}),
+            // Stated rather than spread. A rejection that loses its
+            // audience becomes a public one, so the key is always present
+            // and the compiler checks it.
+            audience: rejectionAudience,
           });
         } catch (err) {
           log.error(
@@ -246,12 +238,12 @@ export async function handleApprovalInterception(
             "Callback request ID does not match any pending interaction, ignoring stale button press",
           );
 
-          // Edit the original Slack approval message to remove stale buttons
-          if (sourceChannel === "slack" && approvalMessageTs) {
-            editStaleSlackApprovalMessage({
+          // Edit the original approval message to remove stale buttons
+          if (approvalMessageId) {
+            editStaleApprovalMessage({
               replyCallbackUrl,
               chatId: conversationExternalId,
-              messageTs: approvalMessageTs,
+              messageId: approvalMessageId,
               assistantId,
               conversationId,
             });
@@ -264,24 +256,25 @@ export async function handleApprovalInterception(
       const result = await handleChannelDecision(conversationId, cbDecision);
 
       if (result.applied) {
-        // Edit the original Slack approval message to show the decision
-        // and remove stale action buttons.
-        if (sourceChannel === "slack" && approvalMessageTs) {
+        // Edit the original approval message to show the decision and drop
+        // its action buttons. Routed by the callback URL through the channel
+        // edit capability; a transport without edit declines, so this is
+        // safe to attempt on every channel.
+        if (approvalMessageId) {
           const decisionOutcome: "approved" | "denied" =
             cbDecision.action === "reject" ? "denied" : "approved";
           const statusEmoji =
             decisionOutcome === "approved" ? "\u2713" : "\u2717";
           const statusLabel =
             decisionOutcome === "approved" ? "Approved" : "Denied";
-          deliverChannelReply(replyCallbackUrl, {
+          editChannelMessage(replyCallbackUrl, {
             chatId: conversationExternalId,
+            messageId: approvalMessageId,
             text: `${statusEmoji} ${statusLabel}`,
-            messageTs: approvalMessageTs,
-            assistantId,
           }).catch((err) => {
             log.error(
-              { err, conversationId, messageTs: approvalMessageTs },
-              "Failed to edit Slack approval message after decision",
+              { err, conversationId, messageTs: approvalMessageId },
+              "Failed to edit approval message after decision",
             );
           });
         }
@@ -292,13 +285,13 @@ export async function handleApprovalInterception(
       }
 
       // Race condition: request was already resolved between the stale check
-      // above and the decision attempt.
-      // Edit the original Slack approval message to remove stale buttons
-      if (sourceChannel === "slack" && approvalMessageTs) {
-        editStaleSlackApprovalMessage({
+      // above and the decision attempt. Edit the original approval message to
+      // remove stale buttons
+      if (approvalMessageId) {
+        editStaleApprovalMessage({
           replyCallbackUrl,
           chatId: conversationExternalId,
-          messageTs: approvalMessageTs,
+          messageId: approvalMessageId,
           assistantId,
           conversationId,
         });
@@ -362,53 +355,49 @@ export async function handleApprovalInterception(
       toolName: pending.length > 0 ? pending[0].toolName : undefined,
     },
     errorLogContext: { conversationId },
-    ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
+    audience: audienceForReader(
+      sourceChannel,
+      conversationExternalId,
+      actorExternalId,
+    ),
   });
 
   return { handled: true, type: "assistant_turn" };
 }
 
 // ---------------------------------------------------------------------------
-// Slack approval message edit helper
+// Approval message edit helper
 // ---------------------------------------------------------------------------
 
 /**
- * Fire-and-forget: edit a stale Slack approval message to indicate it has
- * been resolved and remove the action buttons. Used when a button click
- * arrives for an already-resolved approval.
+ * Fire-and-forget: mark a stale approval message as resolved and drop its
+ * action buttons. Used when a button click arrives for an approval that was
+ * already decided.
+ *
+ * Says the message is settled and leaves each channel to render that. Slack
+ * reads it as a context block, and a channel with no equivalent shows the
+ * text plainly.
  */
-function editStaleSlackApprovalMessage(params: {
+function editStaleApprovalMessage(params: {
   replyCallbackUrl: string;
   chatId: string;
-  messageTs: string;
+  messageId: string;
   assistantId: string;
   conversationId: string;
 }): void {
-  const statusText = "This approval request has been resolved.";
-  const blocks: KnownBlock[] = [
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: statusText },
-    },
-    {
-      type: "context",
-      elements: [{ type: "mrkdwn", text: statusText }],
-    },
-  ];
-  deliverChannelReply(params.replyCallbackUrl, {
+  editChannelMessage(params.replyCallbackUrl, {
     chatId: params.chatId,
-    text: statusText,
-    blocks,
-    messageTs: params.messageTs,
-    assistantId: params.assistantId,
+    messageId: params.messageId,
+    text: "This approval request has been resolved.",
+    emphasis: "muted",
   }).catch((err) => {
     log.error(
       {
         err,
         conversationId: params.conversationId,
-        messageTs: params.messageTs,
+        messageId: params.messageId,
       },
-      "Failed to edit stale Slack approval message",
+      "Failed to edit stale approval message",
     );
   });
 }

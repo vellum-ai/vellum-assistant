@@ -7,7 +7,7 @@ The end-to-end lifecycle of interactive guardian requests (approvals, questions)
 - **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
 - **Non-rich channels** (http-api) receive plain-text approval prompts. The conversational approval engine handles free-text responses.
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
-- **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, channel reactions and text) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (CAS resolution, resolver dispatch, grant minting) at individual callsites.
+- **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, channel text) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (CAS resolution, resolver dispatch, grant minting) at individual callsites.
 
 ## Single-Guardian Invariant
 
@@ -21,7 +21,7 @@ Conversational guardian verification control-plane invocation is guardian-only. 
 
 ## Memory Provenance Invariant
 
-All memory retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not receive memory recall results. This invariant is enforced in `indexer.ts` (write gate) and `conversation-memory.ts` (read gate).
+All memory retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not receive memory recall results. This invariant is enforced in `indexer.ts` (write gate) and the memory plugin's `injectors.ts` (read gate), which admits personal-memory content only for a turn whose trust context passes `isPersonalMemoryAllowed`.
 
 ## Guardian Privilege Isolation Invariant
 

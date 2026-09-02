@@ -14,6 +14,7 @@
 import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef } from "react";
 
+import { assistantStateCanServeChat } from "@/assistant/lifecycle";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -32,17 +33,20 @@ import { CleanupScreen } from "@/domains/chat/components/cleanup-screen";
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 import { SetupScreen } from "@/domains/chat/components/setup-screen";
 import { useStuckConnecting } from "@/domains/chat/hooks/use-stuck-connecting";
+import { useTranslation } from "@/i18n";
 
 export function ChatPage() {
+  const { t } = useTranslation("chat");
   const isSessionInitializing = useIsSessionInitializing();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const selfHostedChatEnabled =
     useClientFeatureFlagStore.use.selfHostedAssistant();
 
-  const shouldRenderChat =
-    assistantState.kind === "active" ||
-    (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
+  const shouldRenderChat = assistantStateCanServeChat(
+    assistantState.kind,
+    selfHostedChatEnabled,
+  );
 
   // Conversation list query — needed for the self-hosted error guard below.
   // TanStack Query deduplicates with the same query in ActiveChatView.
@@ -142,18 +146,17 @@ export function ChatPage() {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <p className="text-[var(--text-secondary)]">
-            Still connecting to your assistant — something seems stuck. Try
-            again, or refresh the page if this keeps happening.
+            {t("chatPage.connectingStuck")}
           </p>
           <Button variant="primary" onClick={retryStuckConnecting}>
-            Try again
+            {t("chatPage.tryAgain")}
           </Button>
         </div>
       );
     }
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-[var(--text-secondary)]">Connecting…</p>
+        <p className="text-[var(--text-secondary)]">{t("chatPage.connecting")}</p>
       </div>
     );
   }
@@ -168,7 +171,7 @@ export function ChatPage() {
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <p className="text-[var(--text-secondary)]">{assistantState.message}</p>
         <Button variant="primary" onClick={retryAssistant}>
-          {assistantState.transient ? "Retry now" : "Try again"}
+          {assistantState.transient ? t("chatPage.retryNow") : t("chatPage.tryAgain")}
         </Button>
       </div>
     );
@@ -197,11 +200,10 @@ export function ChatPage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <p className="text-[var(--text-secondary)]">
-          Couldn&apos;t reach your self-hosted assistant. Make sure your
-          assistant is running, then try again.
+          {t("chatPage.selfHostedUnreachable")}
         </p>
         <Button variant="primary" onClick={refetchConversationList}>
-          Try again
+          {t("chatPage.tryAgain")}
         </Button>
       </div>
     );

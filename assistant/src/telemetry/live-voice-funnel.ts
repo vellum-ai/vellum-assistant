@@ -58,18 +58,95 @@ export type LiveVoiceStepName =
 export type LiveVoiceSessionOutcome = "completed" | "failed";
 
 /**
- * The `screen` dimension for an ended session: how it closed, plus the
- * protocol error code when a failure is what closed it.
+ * How far a session that produced NO turn actually got.
  *
- * Both halves are the daemon's own vocabulary verbatim
- * (`LiveVoiceSessionCloseReason`, `LiveVoiceProtocolErrorCode`) rather than a
- * mapping, so a rename on either side surfaces here as a compile error instead
- * of a silently-empty dashboard facet. The longest pair this can produce is
- * well inside the wire field's 64-char bound.
+ * A quarter of live-voice sessions end without a single turn, at a median of a
+ * few seconds. That is the closest thing the telemetry has to a "voice didn't
+ * work for me" rate, and a bare connect/close row cannot separate a denied
+ * microphone from a muted one from someone deliberately backing out. Those have
+ * completely different fixes, so the reason is what makes the rate actionable.
+ *
+ * The values are ordered by how far the session got, and each one narrows the
+ * cause to a different layer:
+ *
+ * - `no_ready`  never reached `active`: died in the credential preflight or
+ *               the transport, before the user could have said anything.
+ * - `text_only` opened without a speech-to-text leg because the client could
+ *               type, and then the user never typed. Ranked ahead of the audio
+ *               signals because they cannot mean anything here: no microphone
+ *               was ever expected, so scoring such a session `no_audio` would
+ *               read as a failure the session does not have.
+ * - `no_audio`  reached `active` but not one audio chunk ever arrived, so the
+ *               microphone never opened. Permission denial looks like this.
+ * - `no_speech` audio arrived but the detector never classified any of it as
+ *               speech: a muted or dead mic, or a genuinely silent user.
+ * - `no_turn`   speech was detected but no turn was ever dispatched, so the
+ *               utterance was abandoned, aborted, or failed to arm.
+ */
+export type LiveVoiceSilenceReason =
+  | "no_ready"
+  | "text_only"
+  | "no_audio"
+  | "no_speech"
+  | "no_turn";
+
+/**
+ * Classify a zero-turn session from what the session observed. Call only when
+ * the session really produced no turn: every branch here asserts silence, so a
+ * session that did dispatch a turn would be mislabelled by the last one.
+ */
+export function liveVoiceSilenceReason(signals: {
+  reachedActive: boolean;
+  audioInput: boolean;
+  receivedAudio: boolean;
+  detectedSpeech: boolean;
+}): LiveVoiceSilenceReason {
+  if (!signals.reachedActive) {
+    return "no_ready";
+  }
+  if (!signals.audioInput) {
+    return "text_only";
+  }
+  if (!signals.receivedAudio) {
+    return "no_audio";
+  }
+  if (!signals.detectedSpeech) {
+    return "no_speech";
+  }
+  return "no_turn";
+}
+
+/**
+ * The `screen` dimension for an ended session: how it closed, plus a detail
+ * half. That detail is the protocol error code when a failure closed it, or the
+ * silence classification when the session produced no turn at all.
+ *
+ * Every part is the daemon's own vocabulary verbatim
+ * (`LiveVoiceSessionCloseReason`, `LiveVoiceProtocolErrorCode`,
+ * {@link LiveVoiceSilenceReason}) rather than a mapping, so a rename on any of
+ * them surfaces here as a compile error instead of a silently-empty dashboard
+ * facet. The longest combination this can produce is well inside the wire
+ * field's 64-char bound.
+ *
+ * A failure code wins over a silence reason when both apply: a session that
+ * died on an error is explained by the error, and the silence is a consequence
+ * of it rather than a separate finding.
+ *
+ * The silence value carries a `silent_` prefix on purpose. It shares the detail
+ * slot with failure codes, and the admin dashboard currently renders that slot
+ * in a column labelled "failure code", so the value has to read correctly even
+ * where the column header is wrong, until that panel learns the difference.
  */
 export function liveVoiceEndScreen(
   reason: LiveVoiceSessionCloseReason,
   failureCode?: LiveVoiceProtocolErrorCode | null,
+  silenceReason?: LiveVoiceSilenceReason | null,
 ): string {
-  return failureCode ? `ended_${reason}:${failureCode}` : `ended_${reason}`;
+  if (failureCode) {
+    return `ended_${reason}:${failureCode}`;
+  }
+  if (silenceReason) {
+    return `ended_${reason}:silent_${silenceReason}`;
+  }
+  return `ended_${reason}`;
 }

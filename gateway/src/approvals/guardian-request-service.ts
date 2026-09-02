@@ -34,7 +34,6 @@ import {
   type GuardianRequestWire,
   type ListGuardianRequestsIpcParams,
   type ListPendingGuardianRequestsByDestinationIpcParams,
-  type SweepExpiredGuardianRequestsIpcResponse,
   type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 
@@ -50,15 +49,15 @@ import {
   getGuardianRequest as storeGetGuardianRequest,
   getGuardianRequestByCode as storeGetGuardianRequestByCode,
   getPendingByCallSessionId,
-  getPendingByDestinationMessage,
   isRequestInConversationScope,
   listDeliveries,
+  listDeliveriesByChat,
   listGuardianRequests as storeListGuardianRequests,
   listPendingByConversationScope,
   listPendingByDestinationChat,
   listPendingByDestinationConversation,
   resolveGuardianRequest,
-  sweepExpiredGuardianRequests,
+  listExpiredPendingGuardianRequests,
   updateDelivery,
   updateGuardianRequest as storeUpdateGuardianRequest,
 } from "../db/guardian-request-store.js";
@@ -127,23 +126,26 @@ export function expireGuardianRequest(id: string): void {
 }
 
 /**
- * Daemon-boot expiry: interaction-bound kinds unconditionally, persistent
- * kinds only past their `expiresAt`. Returns the expired-row count.
+ * Daemon-boot expiry: interaction-bound kinds only. Persistent kinds are
+ * never touched, whatever their deadline; the periodic sweep owns their
+ * expiry and its side effects. Returns the expired-row count.
  */
 export function expireInteractionBoundRequests(): ExpireInteractionBoundIpcResponse {
   return { expired: expireAllPendingInteractionBound() };
 }
 
 /**
- * Deadline sweep: CAS-expires past-`expiresAt` pending requests and returns
- * the expired rows for daemon-side card-withdrawal / notification fan-out.
+ * Bounded, read-only probe for the daemon's expiry sweep: pending requests
+ * past their deadline, oldest first. The daemon confirms each one with
+ * `expireGuardianRequest` after running its side effects.
  */
-export function sweepExpiredRequests(
+export function listExpiredPendingRequests(
   now?: number,
-): SweepExpiredGuardianRequestsIpcResponse {
-  return {
-    expired: sweepExpiredGuardianRequests(now).map(toGuardianRequestWire),
-  };
+  limit?: number,
+): GuardianRequestWire[] {
+  return listExpiredPendingGuardianRequests(now, limit).map(
+    toGuardianRequestWire,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -169,20 +171,16 @@ export function listGuardianRequestDeliveries(
   return listDeliveries(requestId);
 }
 
+export function listGuardianRequestDeliveriesByChat(
+  channel: string,
+  chatId: string,
+): GuardianRequestDeliveryWire[] {
+  return listDeliveriesByChat(channel, chatId);
+}
+
 // ---------------------------------------------------------------------------
 // Destination + scope lookups
 // ---------------------------------------------------------------------------
-
-/** Reaction routing: the pending request delivered as a specific message. */
-export function getPendingRequestByDestinationMessage(
-  channel: string,
-  chatId: string,
-  messageId: string,
-): GuardianRequestWire | null {
-  return toWireOrNull(
-    getPendingByDestinationMessage(channel, chatId, messageId),
-  );
-}
 
 /**
  * Reply routing: pending requests delivered to a destination conversation
@@ -217,9 +215,8 @@ export function listPendingRequestsByScope(
 export function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): boolean {
-  return isRequestInConversationScope(requestId, conversationId, channel);
+  return isRequestInConversationScope(requestId, conversationId);
 }
 
 export function getPendingRequestByCallSession(
@@ -294,12 +291,21 @@ export async function decideGuardianRequest(
       : null;
 
   const txn = getGatewayDb().transaction(() => {
-    const cas = resolveGuardianRequest(params.id, params.expectedStatus, {
-      status: params.status,
-      answerText: params.answerText,
-      decidedByExternalUserId: params.decidedByExternalUserId,
-      decidedByPrincipalId: params.decidedByPrincipalId,
-    });
+    const cas = resolveGuardianRequest(
+      params.id,
+      params.expectedStatus,
+      {
+        status: params.status,
+        answerText: params.answerText,
+        decidedByExternalUserId: params.decidedByExternalUserId,
+        decidedByPrincipalId: params.decidedByPrincipalId,
+      },
+      // The deadline is part of the arbitration: a decision that reaches
+      // this transaction past `expiresAt` loses to expiry atomically, so
+      // the sweep's fan-out-then-confirm order can never race a decision
+      // into an approved request whose cards say it expired.
+      { requireUnexpired: true },
+    );
     if (!cas.applied) {
       return { applied: false as const };
     }

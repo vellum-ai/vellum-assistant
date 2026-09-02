@@ -22,15 +22,15 @@ import {
   GUARDIAN_REQUESTS_IPC_METHODS,
   GetGuardianRequestByCallSessionIpcParamsSchema,
   GetGuardianRequestByCodeIpcParamsSchema,
-  GetGuardianRequestByDestinationMessageIpcParamsSchema,
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GetGuardianRequestIpcParamsSchema,
   GuardianRequestInScopeIpcParamsSchema,
+  ListGuardianRequestDeliveriesByChatIpcParamsSchema,
   ListGuardianRequestDeliveriesIpcParamsSchema,
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  SweepExpiredGuardianRequestsIpcParamsSchema,
+  ListExpiredPendingGuardianRequestsIpcParamsSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
 } from "@vellumai/gateway-client";
@@ -45,14 +45,14 @@ import {
   getGuardianRequest,
   getGuardianRequestByCode,
   getPendingRequestByCallSession,
-  getPendingRequestByDestinationMessage,
   getRequestByPendingQuestion,
   isGuardianRequestInScope,
   listGuardianRequestDeliveries,
+  listGuardianRequestDeliveriesByChat,
   listGuardianRequests,
   listPendingRequestsByDestination,
   listPendingRequestsByScope,
-  sweepExpiredRequests,
+  listExpiredPendingRequests,
   updateGuardianRequest,
   updateGuardianRequestDelivery,
 } from "../approvals/guardian-request-service.js";
@@ -66,9 +66,9 @@ const ExpireInteractionBoundParamsSchema = z.preprocess(
   (v) => v ?? {},
   ExpireInteractionBoundIpcParamsSchema,
 );
-const SweepExpiredParamsSchema = z.preprocess(
+const ListExpiredPendingParamsSchema = z.preprocess(
   (v) => v ?? {},
-  SweepExpiredGuardianRequestsIpcParamsSchema,
+  ListExpiredPendingGuardianRequestsIpcParamsSchema,
 );
 const ListGuardianRequestsParamsSchema = z.preprocess(
   (v) => v ?? {},
@@ -150,12 +150,14 @@ export const guardianRequestRoutes: IpcRoute[] = [
     handler: () => expireInteractionBoundRequests(),
   },
   {
-    // Returns the expired ids for daemon-side notification fan-out.
-    method: GUARDIAN_REQUESTS_IPC_METHODS.sweepExpired,
-    schema: SweepExpiredParamsSchema,
+    // Read-only, bounded: the daemon runs each row's expiry side effects
+    // and confirms with the `expire` CAS above, so a row stays listed here
+    // until its fan-out actually ran.
+    method: GUARDIAN_REQUESTS_IPC_METHODS.listExpiredPending,
+    schema: ListExpiredPendingParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { now } = SweepExpiredParamsSchema.parse(params);
-      return sweepExpiredRequests(now);
+      const { now, limit } = ListExpiredPendingParamsSchema.parse(params);
+      return listExpiredPendingRequests(now, limit);
     },
   },
   {
@@ -186,14 +188,15 @@ export const guardianRequestRoutes: IpcRoute[] = [
     },
   },
   {
-    // Reaction routing: the pending request whose delivered card is the
-    // reacted-to message.
-    method: GUARDIAN_REQUESTS_IPC_METHODS.getByDestinationMessage,
-    schema: GetGuardianRequestByDestinationMessageIpcParamsSchema,
+    // Transcript importers: the delivery rows addressed to one chat, so
+    // guardian card messages can be recognized as projections rather
+    // than imported as conversation content.
+    method: GUARDIAN_REQUESTS_IPC_METHODS.listDeliveriesByChat,
+    schema: ListGuardianRequestDeliveriesByChatIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { channel, chatId, messageId } =
-        GetGuardianRequestByDestinationMessageIpcParamsSchema.parse(params);
-      return getPendingRequestByDestinationMessage(channel, chatId, messageId);
+      const { channel, chatId } =
+        ListGuardianRequestDeliveriesByChatIpcParamsSchema.parse(params);
+      return listGuardianRequestDeliveriesByChat(channel, chatId);
     },
   },
   {
@@ -220,10 +223,10 @@ export const guardianRequestRoutes: IpcRoute[] = [
     method: GUARDIAN_REQUESTS_IPC_METHODS.inScope,
     schema: GuardianRequestInScopeIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { requestId, conversationId, channel } =
+      const { requestId, conversationId } =
         GuardianRequestInScopeIpcParamsSchema.parse(params);
       return {
-        inScope: isGuardianRequestInScope(requestId, conversationId, channel),
+        inScope: isGuardianRequestInScope(requestId, conversationId),
       };
     },
   },

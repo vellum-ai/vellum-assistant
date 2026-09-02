@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/components/onboarding-layout";
+import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import {
   DEFAULT_ONBOARDING_PROVIDER,
   ONBOARDING_PROVIDERS,
@@ -79,10 +80,14 @@ export function ApiKeyScreen() {
           }
         : {}),
     });
+    // Reaching this screen at all means an assistant is being provisioned, so
+    // the handoff into privacy always carries the marker.
+    const params = new URLSearchParams({ [NEW_ASSISTANT_PARAM]: "1" });
+    if (hosting) {
+      params.set("hosting", hosting);
+    }
     void navigate(
-      hosting
-        ? `${routes.onboarding.privacy}?hosting=${hosting}`
-        : routes.onboarding.privacy,
+      `${routes.onboarding.privacy}?${params.toString()}`,
       SETUP_NAVIGATE,
     );
   };
@@ -181,7 +186,7 @@ export function ApiKeyScreen() {
                   onChange={(e) => setCustomModels(e.target.value)}
                   fullWidth
                 />
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                <p className="text-body-small-lighter text-[var(--content-tertiary)]">
                   {t("apiKeyScreen.modelsHelp")}
                 </p>
               </div>

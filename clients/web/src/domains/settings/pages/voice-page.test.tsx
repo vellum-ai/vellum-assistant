@@ -1,3 +1,5 @@
+import type { UseManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import type { UseSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 /**
  * Captions and turn-taking cards on the Voice settings page.
  *
@@ -21,6 +23,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
 // The voice-picker card reads the active assistant id (throws outside the
@@ -30,20 +33,24 @@ import { MemoryRouter } from "react-router";
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "asst-test",
 }));
+const voiceSelection: UseManagedVoiceSelection = {
+  available: false,
+  isByok: false,
+  settled: true,
+  voices: [],
+  currentModel: "",
+  defaultModel: "",
+  selectModel: () => {},
+  selecting: false,
+};
 mock.module("@/components/speech/use-managed-voice-selection", () => ({
-  useManagedVoiceSelection: () => ({
-    available: false,
-    voices: [],
-    currentModel: "",
-    selectModel: () => {},
-    selecting: false,
-  }),
+  useManagedVoiceSelection: () => voiceSelection,
 }));
 
 // The listening-language card reads daemon config through React Query too.
 // Hoisted with the mocks above (a mid-file `mock.module` does not re-link on
 // CI's bun), so its shape is swapped through this mutable seed instead.
-const languageSelection = {
+const languageSelection: UseSttLanguageSelection = {
   available: false,
   currentCode: "multi",
   configuredProviderId: "deepgram",
@@ -63,14 +70,28 @@ import {
 } from "@/stores/voice-prefs-store";
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <VoiceSections />
-    </MemoryRouter>,
+  // The page reads daemon config now (the turn-taking row), so it needs a
+  // client. `retry: false` keeps a miss from re-fetching through the test.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  // A fresh element per pass: handed the same element object, React compares
+  // it by reference and skips the subtree, so a transition test would read the
+  // tree from before the flip.
+  const tree = () => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <VoiceSections />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
+  const result = render(tree());
+  return { ...result, rerenderPage: () => result.rerender(tree()) };
 }
 
 beforeEach(() => {
+  voiceSelection.available = false;
+  voiceSelection.settled = true;
   languageSelection.available = false;
   languageSelection.currentCode = "multi";
   languageSelection.configuredProviderId = "deepgram";
@@ -390,5 +411,43 @@ describe("VoiceSections voice mode shortcut", () => {
     );
 
     expect(storedBinding()).toEqual({ kind: "off" });
+  });
+});
+
+describe("VoiceSections voice card while the answer is in flight", () => {
+  const byoNote = () => screen.queryByText(/provider you configured yourself/i);
+  const loading = () => screen.queryByRole("status", { name: "Loading voice" });
+  // The card is named after the assistant, so match the heading it always
+  // renders rather than one branch's copy.
+  const cardTitle = () => screen.queryAllByRole("heading", { name: "Voice" });
+
+  test("says nothing about the provider until the answer lands", () => {
+    voiceSelection.settled = false;
+
+    renderPage();
+
+    expect(loading()).not.toBeNull();
+    expect(byoNote()).toBeNull();
+    expect(cardTitle()).toHaveLength(1);
+  });
+
+  test("an unsettled answer that resolves to no falls back to the note", () => {
+    voiceSelection.settled = false;
+    const { rerenderPage } = renderPage();
+    const headingWhileLoading = screen.getByRole("heading", { name: "Voice" });
+
+    expect(byoNote()).toBeNull();
+
+    voiceSelection.settled = true;
+    rerenderPage();
+
+    expect(loading()).toBeNull();
+    expect(byoNote()).not.toBeNull();
+    // The very same node, not just an equal one: React kept the heading
+    // mounted and replaced only the body under it, which is what stops the
+    // card from moving when the answer lands.
+    expect(screen.getByRole("heading", { name: "Voice" })).toBe(
+      headingWhileLoading,
+    );
   });
 });

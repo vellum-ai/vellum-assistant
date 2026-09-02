@@ -450,6 +450,19 @@ describe("resolvePricingForUsage", () => {
     expect(result.estimatedCostUsd).toBeCloseTo(57.4, 10);
   });
 
+  test("bills Fable 5.1 cache reads at the catalog rate", () => {
+    const result = resolvePricingForUsage("anthropic", "claude-fable-5-1", {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    });
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.25, 10);
+  });
+
   test("returns unpriced with null cost for unknown provider", () => {
     const usage: PricingUsage = {
       directInputTokens: 10,
@@ -834,8 +847,8 @@ describe("Anthropic models on OpenRouter", () => {
     });
 
     expect(result.pricingStatus).toBe("priced");
-    // 0.05M x $0.1 direct + 0.05M x $0.125 write + 0.05M x $0.01 read
-    expect(result.estimatedCostUsd).toBeCloseTo(0.005 + 0.00625 + 0.0005, 10);
+    // 0.05M x $0.2 direct + 0.05M x $0.25 write + 0.05M x $0.02 read
+    expect(result.estimatedCostUsd).toBeCloseTo(0.01 + 0.0125 + 0.001, 10);
   });
 
   test("returns unpriced for unknown non-Anthropic OpenRouter model", () => {

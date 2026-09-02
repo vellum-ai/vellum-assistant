@@ -23,6 +23,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
+import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import { routes } from "@/utils/routes";
 
 const navigateMock = mock((_to: string, _opts?: unknown) => {});
@@ -168,7 +169,9 @@ describe("onboarding funnel history contract", () => {
     click("Continue");
 
     const { to, opts } = navigatedWith();
-    expect(to).toBe(routes.onboarding.privacy);
+    // Cloud skips the api-key step, so this handoff carries the new-assistant
+    // marker itself (see `NEW_ASSISTANT_PARAM`).
+    expect(to).toBe(`${routes.onboarding.privacy}?${NEW_ASSISTANT_PARAM}=1`);
     expect(opts).toEqual({ replace: true });
   });
 
@@ -197,6 +200,11 @@ describe("onboarding funnel history contract", () => {
     click("Continue");
     const { to, opts } = navigatedWith();
     expect(to.startsWith(routes.onboarding.privacy)).toBe(true);
+    // The marker is what exempts this walk from the already-onboarded bounce,
+    // and the hosting choice still has to reach the hatch. Both ride here.
+    const forward = new URLSearchParams(to.slice(to.indexOf("?") + 1));
+    expect(forward.get(NEW_ASSISTANT_PARAM)).toBe("1");
+    expect(forward.get("hosting")).toBe("local");
     expect(opts).toEqual({ replace: true });
   });
 });

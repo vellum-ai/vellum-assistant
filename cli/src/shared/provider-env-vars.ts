@@ -31,6 +31,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   atlascloud: "ATLASCLOUD_API_KEY",
   together: "TOGETHER_API_KEY",
   litellm: "LITELLM_API_KEY",
+  opencode: "OPENCODE_API_KEY",
   baseten: "BASETEN_API_KEY",
   poolside: "POOLSIDE_API_KEY",
 };
@@ -42,6 +43,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   tavily: "TAVILY_API_KEY",
   firecrawl: "FIRECRAWL_API_KEY",
   keenable: "KEENABLE_API_KEY",
+  fastcrw: "FASTCRW_API_KEY",
 };
 
 /**

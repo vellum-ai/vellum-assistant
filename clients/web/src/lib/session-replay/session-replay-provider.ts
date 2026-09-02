@@ -50,6 +50,14 @@ export interface SessionReplayTraits {
   surface: SessionReplaySurface;
 }
 
+/** Cookie scope for the recorder. `app://` cannot set `.vellum.ai` cookies. */
+export function sessionReplayRootHostname(base: string): string | undefined {
+  if (base.startsWith("app:")) {
+    return undefined;
+  }
+  return import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai";
+}
+
 export interface SessionReplayProvider {
   /** Start the SDK. Called once, only after consent is confirmed. */
   init(appId: string, options: SessionReplayInitOptions): void;
@@ -110,11 +118,11 @@ const replayProvider: SessionReplayProvider = (() => {
           // the async recorder bundle reads it.
           window.__SDKCONFIG__ = window.__SDKCONFIG__ ?? {};
           window.__SDKCONFIG__.statsURL = `${options.base}/_sr/ingest/s`;
+          const rootHostname = sessionReplayRootHostname(options.base);
           replaySdk.init(appId, {
             serverURL: `${options.base}/_sr/ingest/i`,
             release: options.release,
-            // Share the recording session across Vellum subdomains.
-            rootHostname: import.meta.env.VITE_ROOT_HOSTNAME ?? ".vellum.ai",
+            ...(rootHostname ? { rootHostname } : {}),
             // Live consent gate: evaluated before every upload, so a mid-session
             // opt-out halts ingestion immediately rather than at next reload.
             shouldSendData: options.shouldSendData,

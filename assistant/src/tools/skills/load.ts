@@ -21,10 +21,15 @@ import {
   validateIncludeCycles,
 } from "../../skills/include-graph.js";
 import { renderInlineCommands } from "../../skills/inline-command-render.js";
+import {
+  isSkillCompatibleWithPlatform,
+  skillPlatformUnavailableMessage,
+} from "../../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
+import { supportsClientOsForSkillTool } from "../client-os.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -83,8 +88,23 @@ function loadToolManifest(
  */
 function formatToolSchemas(
   manifest: SkillToolManifest,
+  context: Pick<
+    ToolContext,
+    "clientOs" | "transportInterface" | "sourceActorPrincipalId"
+  >,
   childSkillName?: string,
-): string {
+): string | undefined {
+  const tools = manifest.tools.filter((tool) =>
+    supportsClientOsForSkillTool(tool.supported_client_os, tool.name, {
+      clientOs: context.clientOs,
+      transportInterface: context.transportInterface,
+      sourceActorPrincipalId: context.sourceActorPrincipalId,
+    }),
+  );
+  if (tools.length === 0) {
+    return undefined;
+  }
+
   const lines: string[] = childSkillName
     ? [`### Tools from ${childSkillName}`, ""]
     : [
@@ -96,7 +116,7 @@ function formatToolSchemas(
 
   const toolHeadingLevel = childSkillName ? "####" : "###";
 
-  for (const tool of manifest.tools) {
+  for (const tool of tools) {
     lines.push(`${toolHeadingLevel} ${tool.name}`);
     lines.push(
       tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
@@ -138,7 +158,7 @@ export const skillLoadTool = {
   name: "skill_load",
 
   description:
-    'Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills. Bundled/first-party skills (like `app-builder`) are already installed — loading only activates their instructions for the current conversation, since skills unload between turns; treat "load" as activation, not installation, and don\'t tell users a bundled skill needs installing. Loading can still fail (e.g. a feature-gated skill returns "currently unavailable", or the load errors) — if it does, relay that specific error rather than claiming the skill is not installed or offering to install it. For app, website, dashboard, game, calculator, tracker, visualization, or interactive tool requests, load `app-builder` with `skill: "app-builder"`.',
+    'Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills. Bundled/first-party skills (like `app-builder`) are already installed: loading only activates their instructions for the current conversation, since skills unload between turns. Treat "load" as activation, not installation, and don\'t tell users a bundled skill needs installing. Loading can still fail (e.g. a feature-gated skill returns "currently unavailable", or the load errors). If it does, relay that specific error rather than claiming the skill is not installed or offering to install it. For app, website, dashboard, game, calculator, tracker, visualization, or interactive tool requests, load `app-builder` with `skill: "app-builder"`. For recurring monitoring of a page, dashboard, or status (check it later and notify), or for reminders and timed checks, load `schedule` with `skill: "schedule"`. When the user names Claude Code or Codex (including as a tool they will use elsewhere), load `acp` with `skill: "acp"`.',
 
   category: "skills",
 
@@ -210,6 +230,13 @@ export const skillLoadTool = {
     }
 
     const skill = loaded.skill;
+
+    if (!isSkillCompatibleWithPlatform(skill)) {
+      return {
+        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
+        isError: true,
+      };
+    }
 
     // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
     // outside the conversation's effective set must not have its instructions
@@ -403,7 +430,7 @@ export const skillLoadTool = {
     // Load tool schemas for the main skill
     const mainManifest = loadToolManifest(skill.directoryPath);
     const toolSchemasSection = mainManifest
-      ? formatToolSchemas(mainManifest)
+      ? formatToolSchemas(mainManifest, context)
       : undefined;
 
     // Build immediate children metadata section and load included skill bodies
@@ -420,6 +447,9 @@ export const skillLoadTool = {
         // Skip a child whose owning plugin is outside this conversation's
         // effective set — do not list it, load its body, or surface its tools.
         if (childOutOfPluginScope(child)) {
+          continue;
+        }
+        if (!isSkillCompatibleWithPlatform(child)) {
           continue;
         }
         const childFlagKey = skillFlagKey(child);
@@ -518,10 +548,15 @@ export const skillLoadTool = {
             childLoaded.skill.directoryPath,
           );
           if (childManifest) {
-            anyChildHasTools = true;
-            includedBodies.push(
-              formatToolSchemas(childManifest, childLoaded.skill.displayName),
+            const childSchemas = formatToolSchemas(
+              childManifest,
+              context,
+              childLoaded.skill.displayName,
             );
+            if (childSchemas) {
+              anyChildHasTools = true;
+              includedBodies.push(childSchemas);
+            }
           }
         }
       }

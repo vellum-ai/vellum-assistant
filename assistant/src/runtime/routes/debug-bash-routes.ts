@@ -97,6 +97,7 @@ function handleDebugBash({ body }: RouteHandlerArgs): Promise<DebugBashResult> {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
       env: buildSanitizedEnv(),
+      windowsHide: true,
     });
 
     const timer = setTimeout(() => {

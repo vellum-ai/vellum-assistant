@@ -10,7 +10,24 @@ metadata:
     display-name: "Slack"
 ---
 
-You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request --provider slack_channel` -- there are no dedicated Slack tools. Use relative Slack API method paths such as `/chat.postMessage`; the provider supplies the Slack host.
+You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request` -- there are no dedicated Slack tools. Use relative Slack API method paths such as `/chat.postMessage`; the provider supplies the Slack host.
+
+## Which provider to pass
+
+Two Slack credentials can exist. They act as different identities and reach different things, so the right one depends on the operation, not only on which is configured.
+
+| Provider        | Sends                      | Acts as       | Reaches                                           |
+| --------------- | -------------------------- | ------------- | ------------------------------------------------- |
+| `slack_channel` | the bot token              | the assistant | channels the bot has joined                       |
+| `slack`         | the installer's user token | that person   | channels that person is in, and `search.messages` |
+
+**Posting: `slack_channel`.** A message sent through `slack` arrives from the person who connected it, not from the assistant. Where that is the only credential present, say so before posting rather than posting as them silently.
+
+**`search.messages`: `slack` only.** It is a user-token method. `--provider slack_channel` sends the bot token even on an install that stored a user token, so it cannot serve search at all.
+
+**Everything else: whichever is present**, preferring `slack_channel` when both are. Reach differs rather than one being better: the bot sees channels it was invited to, the user token sees channels that person belongs to.
+
+A workspace has only `slack` when Slack was connected as an integration without running the setup wizard, which means no bot. `oauth status <provider>` reports whether a given one holds a connection. Passing a provider that holds none fails with a not-configured error rather than falling back on its own.
 
 ## Resolution Scripts
 
@@ -31,7 +48,9 @@ The cache is stored locally under `$VELLUM_WORKSPACE_DIR/data/slack-skill/`. On 
 
 ## Making Slack API Calls
 
-Use `assistant oauth request --provider slack_channel` to call any Slack Web API method. Auth is handled transparently -- the provider injects the bot token automatically. Pass relative method paths; do not include a host.
+Use `assistant oauth request` to call any Slack Web API method. Auth is handled transparently: the provider injects its own token, which is the bot's for `slack_channel` and the installer's for `slack`. Pass relative method paths; do not include a host.
+
+The examples below use `slack_channel`, since posting and reading a channel the bot has joined are what it is for. See [Which provider to pass](#which-provider-to-pass) before reaching for one on a workspace that has no bot, or for `search.messages`.
 
 General pattern:
 
@@ -117,8 +136,10 @@ assistant oauth request --provider slack_channel \
 
 ### Search messages
 
+Takes `slack`, not `slack_channel`: `search.messages` is a user-token method, and the bot token cannot call it. A workspace with no `slack` connection cannot search this way; say so instead of reporting an empty result.
+
 ```bash
-assistant oauth request --provider slack_channel \
+assistant oauth request --provider slack \
   "/search.messages?query=project+launch+in%3A%23general" --json
 ```
 

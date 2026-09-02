@@ -57,7 +57,10 @@ describe("normalizeSlackReactionAdded", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.message.reaction?.emoji).toBe("+1");
+    // The sentinel form stays required for mixed-version readers.
     expect(result!.event.message.callbackData).toBe("reaction:+1");
+    expect(result!.event.message.reaction?.op).toBe("added");
     expect(result!.event.actor.actorExternalId).toBe("U001");
     expect(result!.event.message.conversationExternalId).toBe("C123");
     expect(result!.channel).toBe("C123");
@@ -74,9 +77,8 @@ describe("normalizeSlackReactionAdded", () => {
     const result = normalizeSlackReactionAdded(event, "ev-2", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe(
-      "reaction:white_check_mark",
-    );
+    expect(result!.event.message.reaction?.emoji).toBe("white_check_mark");
+    expect(result!.event.message.reaction?.op).toBe("added");
   });
 
   // Self-authored reactions are now filtered upstream in processEventPayload,
@@ -126,7 +128,7 @@ describe("normalizeSlackReactionAdded", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.externalMessageId).toBe(
-      "C123:1234567890.123456:alarm_clock:U001",
+      "C123:1234567890.123456:alarm_clock:U001:ev-7",
     );
   });
 
@@ -138,8 +140,11 @@ describe("normalizeSlackReactionAdded", () => {
     });
     const event1 = makeReactionEvent({ user: "U001" });
     const event2 = makeReactionEvent({ user: "U002" });
-    const result1 = normalizeSlackReactionAdded(event1, "ev-8a", config);
-    const result2 = normalizeSlackReactionAdded(event2, "ev-8b", config);
+    // One event id across both, so the reactor is the only thing that can
+    // separate the two ids. Distinct event ids would separate them on their
+    // own and the assertion would hold even if the reactor were dropped.
+    const result1 = normalizeSlackReactionAdded(event1, "ev-8", config);
+    const result2 = normalizeSlackReactionAdded(event2, "ev-8", config);
 
     expect(result1).not.toBeNull();
     expect(result2).not.toBeNull();

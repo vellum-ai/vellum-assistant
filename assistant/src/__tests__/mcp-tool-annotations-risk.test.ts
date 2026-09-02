@@ -12,7 +12,7 @@ mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => false,
   getIsPlatform: () => false,
   isPlatformRemote: () => false,
-  getWorkspaceDirOverride: () => undefined,
+  getWorkspaceDirOverride: () => process.env.VELLUM_WORKSPACE_DIR,
   getBackupDirOverride: () => undefined,
   getBackupKeyPathOverride: () => undefined,
   getCpuLimit: () => undefined,
@@ -40,60 +40,69 @@ function serverConfig(defaultRiskLevel: ServerRisk) {
   };
 }
 
-function toolWithAnnotations(readOnlyHint?: boolean) {
+interface RiskAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+}
+
+function toolWithAnnotations(annotations?: RiskAnnotations) {
   return {
     name: "get-summary",
     description: "Read a summary",
     inputSchema: { type: "object", properties: {} },
-    ...(readOnlyHint === undefined ? {} : { annotations: { readOnlyHint } }),
+    ...(annotations === undefined ? {} : { annotations }),
   };
 }
 
-describe("MCP tool risk from readOnlyHint annotations", () => {
+describe("MCP tool risk from annotations", () => {
   const fakeManager = { callTool: jest.fn() } as never;
 
-  test("readOnlyHint true on a medium-risk server lowers risk to Low", () => {
-    const tool = createMcpTool(
-      toolWithAnnotations(true),
-      "fathom",
-      serverConfig("medium"),
+  function riskFor(server: ServerRisk, annotations?: RiskAnnotations) {
+    return createMcpTool(
+      toolWithAnnotations(annotations),
+      "server",
+      serverConfig(server),
       fakeManager,
-    );
+    ).defaultRiskLevel;
+  }
 
-    expect(tool.defaultRiskLevel).toBe(RiskLevel.Low);
+  test("no annotations keeps the server level", () => {
+    expect(riskFor("low")).toBe(RiskLevel.Low);
+    expect(riskFor("medium")).toBe(RiskLevel.Medium);
+    expect(riskFor("high")).toBe(RiskLevel.High);
   });
 
-  test("readOnlyHint true on a high-risk server leaves risk at High", () => {
-    const tool = createMcpTool(
-      toolWithAnnotations(true),
-      "untrusted",
-      serverConfig("high"),
-      fakeManager,
-    );
-
-    expect(tool.defaultRiskLevel).toBe(RiskLevel.High);
+  test("readOnlyHint steps down from the medium default", () => {
+    expect(riskFor("medium", { readOnlyHint: true })).toBe(RiskLevel.Low);
   });
 
-  test("missing annotations keeps the server default risk", () => {
-    const tool = createMcpTool(
-      toolWithAnnotations(undefined),
-      "fathom",
-      serverConfig("medium"),
-      fakeManager,
-    );
-
-    expect(tool.defaultRiskLevel).toBe(RiskLevel.Medium);
+  test("readOnlyHint cannot lower a server the user pinned to high", () => {
+    expect(riskFor("high", { readOnlyHint: true })).toBe(RiskLevel.High);
   });
 
-  test("readOnlyHint false on a low-risk server keeps risk at Low", () => {
-    const tool = createMcpTool(
-      toolWithAnnotations(false),
-      "trusted",
-      serverConfig("low"),
-      fakeManager,
-    );
+  test("readOnlyHint cannot step below low", () => {
+    expect(riskFor("low", { readOnlyHint: true })).toBe(RiskLevel.Low);
+  });
 
-    expect(tool.defaultRiskLevel).toBe(RiskLevel.Low);
+  test("destructiveHint steps up one level", () => {
+    expect(riskFor("low", { destructiveHint: true })).toBe(RiskLevel.Medium);
+    expect(riskFor("medium", { destructiveHint: true })).toBe(RiskLevel.High);
+  });
+
+  test("destructiveHint cannot step above high", () => {
+    expect(riskFor("high", { destructiveHint: true })).toBe(RiskLevel.High);
+  });
+
+  test("destructiveHint wins when a server sends both", () => {
+    expect(
+      riskFor("medium", { readOnlyHint: true, destructiveHint: true }),
+    ).toBe(RiskLevel.High);
+  });
+
+  test("hints set to false leave the server level alone", () => {
+    expect(
+      riskFor("medium", { readOnlyHint: false, destructiveHint: false }),
+    ).toBe(RiskLevel.Medium);
   });
 });
 

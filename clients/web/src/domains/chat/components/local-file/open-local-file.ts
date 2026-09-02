@@ -189,6 +189,19 @@ export function isDocumentOpen(
 }
 
 /**
+ * Reactive form of {@link isDocumentOpen}, composed over atomic selectors so
+ * an affordance only re-renders when the view or the opened document changes.
+ */
+export function useIsDocumentOpen(surfaceId: string | null): boolean {
+  const mainView = useViewerStore.use.mainView();
+  const openedDocument = useViewerStore.use.openedDocumentState();
+  if (surfaceId === null) {
+    return false;
+  }
+  return isDocumentOpen(mainView, openedDocument, surfaceId);
+}
+
+/**
  * The document surface the drawer is showing, or `null` when it shows nothing
  * or a read-only preview. The identity behind {@link isDocumentOpen}, for
  * callers that need to know *which* document rather than ask about one.
@@ -201,16 +214,6 @@ export function openedDocumentSurfaceId(
     return null;
   }
   return openedDocument.surfaceId;
-}
-
-/**
- * Reactive form of {@link isDocumentOpen}, composed over atomic selectors so a
- * consumer only re-renders when the view or the opened document changes.
- */
-export function useIsDocumentOpen(surfaceId: string): boolean {
-  const mainView = useViewerStore.use.mainView();
-  const openedDocument = useViewerStore.use.openedDocumentState();
-  return isDocumentOpen(mainView, openedDocument, surfaceId);
 }
 
 /**

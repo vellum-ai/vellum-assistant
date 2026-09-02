@@ -259,7 +259,7 @@ function FilterControl(props: FilterControlProps) {
       <Popover.Content
         align="end"
         sideOffset={4}
-        className="w-44 overflow-hidden p-0"
+        className="w-44"
       >
         <ul role="listbox">
           <FilterGroup
@@ -270,10 +270,7 @@ function FilterControl(props: FilterControlProps) {
           />
           {props.pluginsSupported && (
             <>
-              <div
-                className="border-t"
-                style={{ borderColor: "var(--border-base)" }}
-              />
+              <div className="my-1 h-px bg-[var(--border-base)]" />
               <FilterGroup
                 label={t("superpowersFilters.typeLabel")}
                 options={typeFilters}
@@ -282,10 +279,7 @@ function FilterControl(props: FilterControlProps) {
               />
             </>
           )}
-          <div
-            className="border-t"
-            style={{ borderColor: "var(--border-base)" }}
-          />
+          <div className="my-1 h-px bg-[var(--border-base)]" />
           <FilterGroup
             label={t("superpowersFilters.sourceLabel")}
             options={originFilters}
@@ -294,10 +288,7 @@ function FilterControl(props: FilterControlProps) {
           />
           {props.showCategories && (
             <>
-              <div
-                className="border-t"
-                style={{ borderColor: "var(--border-base)" }}
-              />
+              <div className="my-1 h-px bg-[var(--border-base)]" />
               <CategoryGroup
                 categories={props.categories}
                 category={props.category}
@@ -546,12 +537,11 @@ function CategoryGroup({
                 onClick={() => onSelect(row.slug)}
                 role="option"
                 aria-selected={isSelected}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-                style={{
-                  color: isSelected
-                    ? "var(--primary-base)"
-                    : "var(--content-default)",
-                }}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-medium-default transition-colors hover:bg-[var(--surface-hover)] ${
+                  isSelected
+                    ? "text-[var(--primary-base)]"
+                    : "text-[var(--content-secondary)] hover:text-[var(--content-emphasised)]"
+                }`}
               >
                 <span className="flex-1 truncate">{row.label}</span>
                 {showCounts && (
@@ -592,12 +582,11 @@ function FilterGroup({
                 onClick={() => onSelect(option.value)}
                 role="option"
                 aria-selected={isSelected}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-                style={{
-                  color: isSelected
-                    ? "var(--primary-base)"
-                    : "var(--content-default)",
-                }}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-medium-default transition-colors hover:bg-[var(--surface-hover)] ${
+                  isSelected
+                    ? "text-[var(--primary-base)]"
+                    : "text-[var(--content-secondary)] hover:text-[var(--content-emphasised)]"
+                }`}
               >
                 <Icon className="h-4 w-4" aria-hidden />
                 <span className="flex-1">{option.label}</span>
@@ -627,10 +616,7 @@ function OptionGroup({
 }) {
   return (
     <li role="group" aria-label={label}>
-      <div
-        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
-        style={{ color: "var(--content-tertiary)" }}
-      >
+      <div className="px-2 py-1.5 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
         {label}
       </div>
       {children}

@@ -7,6 +7,7 @@ import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import { __resetLocalSeqForTesting } from "@/lib/streaming/local-seq";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import type { ReconcileTrigger } from "@/domains/chat/hooks/use-message-reconciliation";
 
 function renderEventStream(params: {
   activeConversationId: string;
@@ -101,11 +102,13 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
      * consumer's seq-gap detector, which only fires on a proven gap.
      */
     // GIVEN a mounted stream that records the reconcile's authoritative arg
-    const reconcile = mock(async (_authoritative?: boolean) => ({
-      changed: false,
-      messagesAdded: 0,
-      assistantProgress: false,
-    }));
+    const reconcile = mock(
+      async (_trigger: ReconcileTrigger, _authoritative?: boolean) => ({
+        changed: false,
+        messagesAdded: 0,
+        assistantProgress: false,
+      }),
+    );
     renderEventStream({
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
@@ -119,7 +122,8 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
 
     // THEN the reopen reconcile is invoked without the authoritative flag
     expect(reconcile).toHaveBeenCalledTimes(1);
-    expect(reconcile.mock.calls[0]?.[0]).toBeFalsy();
+    expect(reconcile.mock.calls[0]?.[0]).toBe("reopen");
+    expect(reconcile.mock.calls[0]?.[1]).toBeFalsy();
   });
 
   test("a proven seq gap on the live stream heals authoritatively", async () => {
@@ -132,11 +136,13 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
      * beginning, so this reconcile must run with the authoritative flag.
      */
     // GIVEN a mounted stream that records the reconcile's authoritative arg
-    const reconcile = mock(async (_authoritative?: boolean) => ({
-      changed: true,
-      messagesAdded: 1,
-      assistantProgress: true,
-    }));
+    const reconcile = mock(
+      async (_trigger: ReconcileTrigger, _authoritative?: boolean) => ({
+        changed: true,
+        messagesAdded: 1,
+        assistantProgress: true,
+      }),
+    );
     renderEventStream({
       activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
@@ -170,7 +176,8 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
 
     // THEN the gap heal reconcile runs with the authoritative flag set
     expect(reconcile).toHaveBeenCalledTimes(1);
-    expect(reconcile.mock.calls[0]?.[0]).toBe(true);
+    expect(reconcile.mock.calls[0]?.[0]).toBe("seq_gap");
+    expect(reconcile.mock.calls[0]?.[1]).toBe(true);
   });
 
   test("reconciles when the bus reopens after a reachability-driven retry", async () => {

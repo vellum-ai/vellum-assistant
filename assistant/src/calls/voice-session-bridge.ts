@@ -28,6 +28,7 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   deleteMessageById,
   getMessageById,
@@ -35,13 +36,15 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
+import { doesSupportVision } from "../plugin-api/vision-support.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
-import type { ContentBlock } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -66,6 +69,40 @@ import {
 } from "./voice-triage-escalate.js";
 
 const log = getLogger("voice-session-bridge");
+
+/**
+ * Profile an image-bearing voice leg is pinned to.
+ *
+ * The latency-class profile is the one voice already leans on (it fronts every
+ * turn through `voiceFrontDoor`); `callAgent`'s `balanced` profile carries no
+ * guarantee that its model takes images, and a model that rejects an image
+ * fails the whole leg rather than degrading it.
+ *
+ * Whether THIS profile takes images is an install-level question, not a
+ * constant: a BYO provider resolves the key through its own column of the
+ * intent matrix, and on Fireworks that lands on a text-only model while its
+ * `balanced` column is vision-capable. Pinning there would break the exact
+ * turns this pin exists to save, hence the capability check at the call site.
+ */
+const VOICE_IMAGE_PROFILE = "latency-optimized";
+
+/**
+ * Does this conversation's history carry an image?
+ *
+ * Images persist inline and are re-sent on every later turn, so one photo
+ * taken mid-call makes every remaining turn of that call an image turn -- the
+ * check is over the whole history, not just this turn's own content.
+ */
+function conversationCarriesImage(messages: readonly Message[]): boolean {
+  return messages.some((message) =>
+    message.content.some(
+      (block) =>
+        block.type === "image" ||
+        (block.type === "tool_result" &&
+          block.contentBlocks?.some((nested) => nested.type === "image")),
+    ),
+  );
+}
 
 /**
  * Front-door decision rule with the registry-derived capability digest. The
@@ -287,6 +324,20 @@ export interface VoiceTurnOptions {
   };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
+  /**
+   * Ids of already-uploaded attachments to hang on this turn's persisted user
+   * message, hydrated here into the shape the message stores.
+   *
+   * Filled by the live-voice session from the camera frame a client parked on
+   * it (`attach_frame`), which is why these are ambient rather than chosen:
+   * they ride the turn's own user message so the picture and the words about it
+   * are one message, and so the media survives a context-overflow retry, which
+   * preserves it only on the newest user message.
+   *
+   * Ids that resolve to nothing are dropped: an unresolvable frame must not
+   * cost the caller their turn.
+   */
+  attachments?: readonly string[];
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
   /** Assistant scope for multi-assistant channels. */
@@ -443,12 +494,13 @@ const PHONE_NO_SETUP_FLOWS_RULE =
  * caller's language (the transcriber is already listening in it, see
  * media-stream-stt-session.ts and providers/speech-to-text/resolve.ts), so it
  * outranks the English default; "multi" and unset mean auto-detect, where
- * English remains the fallback. The pin only counts when the active provider
+ * English remains the fallback. The pin only counts when the provider
  * honors manual language selection (see pinnedListeningLanguage):
  * auto-detecting providers (gemini, whisper) ignore a persisted language
  * entirely, so greeting in it would contradict what the transcriber
- * actually hears. Exported for tests: the default test config exercises
- * only the auto-detect branch.
+ * actually hears. `sttProvider` is the telephony role's catalog key, since
+ * that is the transcriber the caller is heard by. Exported for tests: the
+ * default test config exercises only the auto-detect branch.
  */
 export function preSpeechLanguageRuleFragment(
   sttLanguage: string | undefined,
@@ -555,7 +607,7 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, config.services.stt.provider)}.`,
+    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
     `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
@@ -986,14 +1038,38 @@ export async function startVoiceTurn(
 
   const requestId = uuidv7();
   const turnId = crypto.randomUUID();
+  // Ids this turn's row actually links, read back by `discardFn` so a rollback
+  // does not take the attachments down with the row.
+  let linkedAttachmentIds: string[] = [];
   const persistTurnUserMessage = async (): Promise<string> => {
+    // Resolved inside the persist, not once outside it, so the retry after a
+    // lost lock race stores exactly what the first attempt would have.
+    const turnAttachments =
+      opts.attachments && opts.attachments.length > 0
+        ? resolveAttachmentsForPersist([...opts.attachments])
+        : [];
+    linkedAttachmentIds = turnAttachments.map((a) => a.id);
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
+      ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
       requestId,
       metadata: {
         // Durable "this turn came from an open voice session" marker; see
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
+        // Auto-sent on the user's behalf rather than spoken or typed by them,
+        // so activation metrics exclude it (see the `scripted` contract on the
+        // send route). Keyed off the synthetic set, NOT off
+        // `isHiddenSyntheticPrompt`: the two answer different questions, and
+        // deriving one from the other is what lets a visible-but-scripted turn
+        // through. `hidden` decides whether a human sees the row; `scripted`
+        // decides whether it counts as the user taking a turn.
+        //
+        // Only ever `true` here. A genuine voice turn is left absent rather
+        // than stamped `false`, because absent means UNKNOWN and falls through
+        // to the legacy classifier, while a wrong `false` is trusted
+        // downstream.
+        ...(isSyntheticVoicePrompt ? { scripted: true } : {}),
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
         ...(isEscalationContinuation
           ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
@@ -1018,6 +1094,14 @@ export async function startVoiceTurn(
                   : {}),
               },
             }
+          : {}),
+        // Names which of the row's attachments arrived as ambient camera
+        // frames rather than files the user picked, so retention can treat
+        // them differently. `UserMessageAttachment` carries no metadata of its
+        // own, so the marking lives on the message and refers to the
+        // attachments by id.
+        ...(turnAttachments.length > 0
+          ? { sightFrameAttachmentIds: turnAttachments.map((a) => a.id) }
           : {}),
       },
     });
@@ -1657,6 +1741,23 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
+      // Resolved once here rather than inside the options literal below, so
+      // the history scan happens once per leg. A front-door leg is skipped:
+      // its own call site already resolves to the same profile. The
+      // capability check comes before the scan because it is the cheaper of
+      // the two and it decides whether the pin is worth anything at all.
+      const carriesImage =
+        opts.routingLeg !== "front-door" &&
+        doesSupportVision(VOICE_IMAGE_PROFILE) &&
+        conversationCarriesImage(conversation.getMessages());
+      if (carriesImage) {
+        log.info(
+          { turnId, routingLeg: opts.routingLeg ?? null },
+          "Voice leg carries an image; pinning the image-capable profile",
+        );
+      }
+      const profilePin =
+        opts.overrideProfile ?? (carriesImage ? VOICE_IMAGE_PROFILE : null);
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
@@ -1737,11 +1838,13 @@ export async function startVoiceTurn(
         // strong escalation profile. `forceOverrideProfile` floats it above the
         // callAgent call-site layers (callAgent is not `mainAgent`, so the
         // override would otherwise sit below the call-site profile).
-        ...(opts.overrideProfile != null
-          ? {
-              overrideProfile: opts.overrideProfile,
-              forceOverrideProfile: true,
-            }
+        //
+        // An explicit routing pin wins; failing that, a leg whose history
+        // carries an image is pinned to a profile whose model takes one. A
+        // front-door leg needs neither: its own call site already resolves
+        // there.
+        ...(profilePin != null
+          ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),
       });
       if (lastError) {
@@ -1796,7 +1899,18 @@ export async function startVoiceTurn(
       // Same rollback pattern as the pointer-turn runner: delete the row,
       // then rebuild in-memory history from the clean DB (a plain pop is
       // fragile against concurrent compaction reassigning the array).
-      deleteMessageById(messageId);
+      //
+      // The row's own attachments are exempted from the orphan cleanup. A
+      // discard unwinds the turn as though it never ran, so an ambient camera
+      // frame goes back to being uploaded-but-unsent, which is exactly what
+      // the live-voice session's parked slot expects to find when the held
+      // utterance is replayed. Collecting it here would delete the row and
+      // the bytes, and the replay would silently speak without the picture.
+      deleteMessageById(messageId, {
+        ...(linkedAttachmentIds.length > 0
+          ? { retainAttachmentIds: linkedAttachmentIds }
+          : {}),
+      });
       await conversation.loadFromDb();
       publishConversationMessagesChanged(opts.conversationId);
     } catch (err) {

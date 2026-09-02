@@ -195,6 +195,7 @@ async function runClawhub(
     env: { ...process.env, CLAWHUB_DISABLE_TELEMETRY: "1" },
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
 
   let timer: ReturnType<typeof setTimeout>;

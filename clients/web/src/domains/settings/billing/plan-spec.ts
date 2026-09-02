@@ -1,4 +1,10 @@
-import { Coins, Computer, HardDrive, Mail, type LucideIcon } from "lucide-react";
+import {
+  Coins,
+  Computer,
+  HardDrive,
+  Mail,
+  type LucideIcon,
+} from "lucide-react";
 
 import {
   FREE_CREDITS_USD,
@@ -6,12 +12,10 @@ import {
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
+import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
-  formatDollars,
   storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
@@ -27,6 +31,11 @@ export interface PlanSpec {
   label: string;
   /** Render the chip as a wrap-capable pill for long summary labels. */
   multiline?: boolean;
+  /**
+   * Give the chip a full-width row of its own instead of letting it flow in
+   * the wrapping row beside the short chips.
+   */
+  ownRow?: boolean;
 }
 
 /**
@@ -45,21 +54,26 @@ export function machineLabel(pkg: ProPackage | null): string {
 }
 
 /**
- * The spec chips for a package, in mock order: machine, storage, credits,
- * then any static extras from the tier copy (today only the email/subdomain
- * row on Super and Ultra; a new extra inherits the Mail icon until it needs
- * its own mapping).
+ * The spec chips for a package, in mock order: machine, storage, usage, then
+ * any static extras from the tier copy (today only the email/subdomain row on
+ * Super and Ultra; a new extra inherits the Mail icon until it needs its own
+ * mapping).
+ *
+ * `usageLabel` is the localized wording that describes the bundle as the
+ * package's own usage allowance (e.g. `planCard.usageChip`), supplied by the
+ * caller because this pure module has no `t()`.
+ *
+ * The machine and storage chips are short enough to sit side by side; the
+ * usage chip and the extras are sentences, so they take a row each wherever
+ * the chips are laid out as a wrapping row.
  */
-export function packageSpecs(pkg: ProPackage): PlanSpec[] {
-  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
+export function packageSpecs(pkg: ProPackage, usageLabel: string): PlanSpec[] {
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    // Cents-aware like every other price on these surfaces, so a sub-dollar
-    // bundle reads "$0.50 in credits included" rather than "$0.5".
-    { icon: Coins, label: `${formatDollars(credits * 100)} in credits included` },
-    ...extras.map((label) => ({ icon: Mail, label })),
+    { icon: Coins, label: usageLabel, ownRow: true },
+    ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
   ];
 }
 
@@ -71,7 +85,7 @@ export function freePlanSpecs(): PlanSpec[] {
   return [
     { icon: Computer, label: `${STANDARD_MACHINE_LABEL} Machine` },
     { icon: HardDrive, label: `${FREE_STORAGE_GIB} GB Storage` },
-    { icon: Coins, label: "Pay as you go credits" },
+    { icon: Coins, label: "Pay as you go credits", ownRow: true },
   ];
 }
 
@@ -95,7 +109,9 @@ export function packageHighlights(
   return [
     `${machineLabel(pkg)} machine${resources ? ` (${resources})` : ""}`,
     storageRowLabel(storage),
-    creditRowLabel(credits),
+    // Named for the package's usage allowance where one exists, matching the
+    // invoice line; the dollar wording covers packages with no usage label.
+    pkg?.usage_label ?? creditRowLabel(credits),
     ...extra,
   ];
 }
@@ -141,20 +157,18 @@ export function currentTierRows(
     rows.push(`${current.storageGib} GB`);
   }
   if (current.creditTier != null) {
-    // Built from the structured `credits_usd` rather than `CreditTier.label`:
-    // the label is server-owned copy, so composing a cadence onto it would read
-    // as "50 credits/mo/mo" the day it starts carrying one itself.
+    // The catalog label is preferred: it is the bundle's Stripe product name
+    // ("Mighty Usage" for the offered tiers, "50 credits" for a grandfathered
+    // retired one), so this row matches the subscriber's invoice line.
     //
-    // A held/deprecated tier absent from the catalog has no structured amount,
-    // so it falls back to the tier key (credits_<usd>) and the paid bundle
-    // still shows instead of being silently dropped.
-    const usd =
-      findCreditTier(proPlan, current.creditTier)?.credits_usd ??
-      creditTierKeyUsd(current.creditTier);
-    // Credits refresh every month, unlike the machine and storage rows, which
-    // are standing capacity. A bundle whose amount can't be resolved at all
+    // A held/deprecated tier absent from the catalog has no label, so it
+    // falls back to the amount recovered from the tier key (credits_<usd>)
+    // with its monthly cadence, and the paid bundle still shows instead of
+    // being silently dropped. A bundle whose amount can't be resolved at all
     // stays generic rather than claiming a cadence for an unknown quantity.
-    rows.push(usd != null ? `${usd} credits/mo` : "Credit bundle");
+    const label = findCreditTier(proPlan, current.creditTier)?.label;
+    const usd = creditTierKeyUsd(current.creditTier);
+    rows.push(label ?? (usd != null ? `${usd} credits/mo` : "Credit bundle"));
   }
   return rows;
 }

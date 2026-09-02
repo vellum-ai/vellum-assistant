@@ -18,6 +18,7 @@ import {
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useTranslation } from "@/i18n";
 
 export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
@@ -110,6 +111,7 @@ export function MessageHoverActions({
   onInspect,
   onRetry,
 }: MessageHoverActionsProps) {
+  const { t } = useTranslation("chat");
   const { role } = message;
 
   // The toggle's data hooks live in `MessageBookmarkButton` so they only mount
@@ -159,7 +161,10 @@ export function MessageHoverActions({
   }, [content]);
 
   return (
+    // The timestamp and these controls are chrome, not message content: a
+    // selection that overshoots onto them still copies as the message alone.
     <div
+      data-copy-exclude
       className={`flex items-center gap-0.5 ${
         role === "user" ? "justify-end" : "justify-start"
       }`}
@@ -175,7 +180,7 @@ export function MessageHoverActions({
         <button
           type="button"
           onClick={handleCopy}
-          title={showCopied ? "Copied" : "Copy"}
+          title={showCopied ? t("messageHoverActions.copied") : t("messageHoverActions.copy")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           {showCopied ? (
@@ -190,7 +195,7 @@ export function MessageHoverActions({
         <button
           type="button"
           onClick={onRetry}
-          title="Retry"
+          title={t("messageHoverActions.retry")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <RotateCcw className="h-3.5 w-3.5" />
@@ -209,8 +214,8 @@ export function MessageHoverActions({
           href={openInSlackUrl}
           target="_blank"
           rel="noreferrer noopener"
-          aria-label="Open in Slack"
-          title="Open in Slack"
+          aria-label={t("messageHoverActions.openInSlack")}
+          title={t("messageHoverActions.openInSlack")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <ExternalLink className="h-3.5 w-3.5" />
@@ -221,7 +226,7 @@ export function MessageHoverActions({
         <button
           type="button"
           onClick={onFork}
-          title="Fork from here"
+          title={t("messageHoverActions.forkFromHere")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <GitBranch className="h-3.5 w-3.5" />
@@ -232,7 +237,7 @@ export function MessageHoverActions({
         <button
           type="button"
           onClick={onSummarizeUpToHere}
-          title="Summarize up to here"
+          title={t("messageHoverActions.summarizeUpToHere")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <ListCollapse className="h-3.5 w-3.5" />
@@ -243,7 +248,7 @@ export function MessageHoverActions({
         <button
           type="button"
           onClick={onInspect}
-          title="Inspect"
+          title={t("messageHoverActions.inspect")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <FileCode className="h-3.5 w-3.5" />
@@ -266,6 +271,7 @@ function MessageBookmarkButton({
   messageId: string;
   conversationId: string;
 }) {
+  const { t } = useTranslation("chat");
   const isBookmarked = useIsBookmarked(messageId);
   const toggleBookmark = useBookmarkToggle();
   const handleToggle = useCallback(() => {
@@ -276,7 +282,7 @@ function MessageBookmarkButton({
     <button
       type="button"
       onClick={handleToggle}
-      title={isBookmarked ? "Remove bookmark" : "Bookmark"}
+      title={isBookmarked ? t("messageHoverActions.removeBookmark") : t("messageHoverActions.bookmark")}
       aria-pressed={isBookmarked}
       className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
     >

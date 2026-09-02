@@ -11,6 +11,7 @@ const species = process.env.SPECIES;
 
 async function checkVellum(): Promise<void> {
   const proc = Bun.spawn(["assistant", "credentials", "list", "--json"], {
+    windowsHide: true,
     stdout: "pipe",
     stderr: "pipe",
   });

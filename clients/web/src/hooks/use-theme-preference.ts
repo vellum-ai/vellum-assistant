@@ -12,9 +12,9 @@ import { watchDeviceSetting } from "@/utils/device-settings";
 
 /**
  * Shared theme-preference state used by both the compact `ThemeToggle` in the
- * sidebar preferences popover and the `AppearanceSection` in the Preferences
- * modal. Keeps the two surfaces in sync (they read/write the same device
- * setting) without duplicating the effect chain.
+ * sidebar preferences popover and the `ThemePicker` on Settings → General.
+ * Keeps the two surfaces in sync (they read/write the same device setting)
+ * without duplicating the effect chain.
  *
  * @returns the current theme and a setter that persists + applies the choice.
  */

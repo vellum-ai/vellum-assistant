@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-
 import { LLM_PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 
 export type LlmProviderId = keyof typeof LLM_PROVIDER_ENV_VAR_NAMES;
@@ -75,9 +73,30 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   together: "Together AI",
+  litellm: "LiteLLM",
+  opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
 };
+
+// litellm and opencode are deliberately excluded: they have no fixed default
+// model (endpoint-supplied catalogs), so they cannot back llm.defaultProvider
+// (see DEFAULT_PROVIDER_CHOICES in assistant/src/config/schemas/llm.ts).
+// Picking them here would collect a key the assistant then never uses, since
+// resolveHatchDefaultProvider falls back to anthropic instead.
+export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "openrouter",
+  "vercel-ai-gateway",
+  "fireworks",
+  "together",
+  "minimax",
+  "atlascloud",
+  "baseten",
+  "poolside",
+];
 
 export function formatProviderName(provider: LlmProviderId): string {
   return PROVIDER_LABELS[provider];
@@ -107,6 +126,32 @@ export function resolveHatchProvider(
   }
 
   return provider;
+}
+
+// Distinguishes an explicit `--config` provider from resolveHatchProvider's
+// silent fallback to Anthropic, without duplicating its resolution order.
+export function hasExplicitHatchProvider(
+  configValues: Record<string, string | undefined>,
+): boolean {
+  return resolveConfiguredMainAgentProvider(configValues) !== undefined;
+}
+
+export interface ShouldPromptForHatchProviderOptions {
+  configValues: Record<string, string | undefined>;
+  setupProviderCredentials: boolean;
+  hasProviderApiKey: boolean;
+  stdinIsTTY: boolean | undefined;
+}
+
+export function shouldPromptForHatchProvider(
+  options: ShouldPromptForHatchProviderOptions,
+): boolean {
+  return (
+    options.setupProviderCredentials &&
+    !options.hasProviderApiKey &&
+    !hasExplicitHatchProvider(options.configValues) &&
+    !!options.stdinIsTTY
+  );
 }
 
 function resolveConfiguredMainAgentProvider(
@@ -197,6 +242,11 @@ export function inferProviderFromModel(model: string): string | undefined {
   }
   if (model.startsWith("poolside/")) {
     return "poolside";
+  }
+  if (model === "qwen/qwen3-8b") {
+    // The only qwen/* ID the Vellum hosted provider carries; the rest are
+    // OpenRouter's.
+    return "vellum";
   }
   if (model.includes("/")) {
     return "openrouter";
@@ -356,24 +406,31 @@ export async function promptSecret(
   const input = streams.input ?? process.stdin;
   const output = streams.output ?? process.stdout;
 
-  const restoreEcho = disableTerminalEcho(input);
-  output.write(prompt);
+  if (!input.isTTY || typeof input.setRawMode !== "function") {
+    throw new Error("Hidden secret input requires an interactive terminal.");
+  }
+
+  const wasRaw = input.isRaw;
+  let rawModeEnabled = false;
+  try {
+    input.setRawMode(true);
+    rawModeEnabled = true;
+    output.write(prompt);
+  } catch (error) {
+    if (rawModeEnabled) {
+      input.setRawMode(wasRaw ?? false);
+    }
+    throw error;
+  }
 
   return new Promise((resolve, reject) => {
-    const wasRaw = input.isRaw;
-    if (input.isTTY) {
-      input.setRawMode(true);
-    }
     input.resume();
 
     let value = "";
 
     const cleanup = (): void => {
       input.removeListener("data", onData);
-      if (input.isTTY) {
-        input.setRawMode(wasRaw ?? false);
-      }
-      restoreEcho();
+      input.setRawMode(wasRaw ?? false);
       input.pause();
     };
 
@@ -418,37 +475,152 @@ export async function promptSecret(
   });
 }
 
-function disableTerminalEcho(input: NodeJS.ReadStream): () => void {
-  if (input !== process.stdin || !input.isTTY || process.platform === "win32") {
-    return () => {};
-  }
+// Unlike promptSecret, never enables raw mode: a numbered choice needs no
+// masking, so canonical-mode line editing (backspace, etc.) comes free.
+//
+// Reads via a shared line buffer rather than a one-off listener so that
+// pasted or piped input containing multiple lines isn't lost: any lines
+// beyond the first stay queued for the next readLine() call on the same
+// reader (see promptProviderChoice, which reuses one reader across retries).
+function createLineReader(input: NodeJS.ReadStream): {
+  readLine(): Promise<string>;
+  dispose(): void;
+} {
+  let buffered = "";
+  const queuedLines: string[] = [];
+  let waitingResolve: ((line: string) => void) | null = null;
+  // Ctrl-D (EOF) fires "end" with no trailing newline, so a pending read
+  // would otherwise wait forever. Treat EOF as a blank line: any read
+  // already waiting, and every read requested afterward, resolves to "".
+  let ended = false;
 
-  const currentState = spawnSync("stty", ["-g"], {
-    encoding: "utf8",
-    stdio: ["inherit", "pipe", "ignore"],
-  });
-  const state = currentState.stdout.trim();
-  if (currentState.status !== 0 || state.length === 0) {
-    return () => {};
-  }
+  const onData = (chunk: Buffer | string): void => {
+    buffered += chunk.toString();
+    let newlineIndex: number;
+    while ((newlineIndex = buffered.search(/[\r\n]/)) !== -1) {
+      const terminatorLength =
+        buffered[newlineIndex] === "\r" && buffered[newlineIndex + 1] === "\n"
+          ? 2
+          : 1;
+      const line = buffered.slice(0, newlineIndex);
+      buffered = buffered.slice(newlineIndex + terminatorLength);
 
-  const disabled = spawnSync("stty", ["-echo"], {
-    stdio: ["inherit", "ignore", "ignore"],
-  });
-  if (disabled.status !== 0) {
-    return () => {};
-  }
-
-  let restored = false;
-  return () => {
-    if (restored) {
-      return;
+      if (waitingResolve) {
+        const resolve = waitingResolve;
+        waitingResolve = null;
+        resolve(line);
+      } else {
+        queuedLines.push(line);
+      }
     }
-    restored = true;
-    spawnSync("stty", [state], {
-      stdio: ["inherit", "ignore", "ignore"],
-    });
   };
+
+  const onEnd = (): void => {
+    ended = true;
+    if (waitingResolve) {
+      const resolve = waitingResolve;
+      waitingResolve = null;
+      resolve("");
+    }
+  };
+
+  input.resume();
+  input.on("data", onData);
+  input.on("end", onEnd);
+
+  return {
+    readLine(): Promise<string> {
+      const queued = queuedLines.shift();
+      if (queued !== undefined) {
+        return Promise.resolve(queued);
+      }
+      if (ended) {
+        return Promise.resolve("");
+      }
+      return new Promise((resolve) => {
+        waitingResolve = resolve;
+      });
+    },
+    dispose(): void {
+      input.removeListener("data", onData);
+      input.removeListener("end", onEnd);
+      input.pause();
+    },
+  };
+}
+
+export async function promptLine(
+  prompt: string,
+  streams: {
+    input?: NodeJS.ReadStream;
+    output?: NodeJS.WriteStream;
+  } = {},
+): Promise<string> {
+  const input = streams.input ?? process.stdin;
+  const output = streams.output ?? process.stdout;
+
+  output.write(prompt);
+
+  const reader = createLineReader(input);
+  try {
+    return await reader.readLine();
+  } finally {
+    reader.dispose();
+  }
+}
+
+export interface PromptProviderChoiceOptions {
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+  choices?: readonly LlmProviderId[];
+}
+
+// Resolves null on blank input: the caller's signal to keep whatever
+// resolveHatchProvider already picked.
+export async function promptProviderChoice(
+  options: PromptProviderChoiceOptions = {},
+): Promise<LlmProviderId | null> {
+  const input = options.input ?? process.stdin;
+  const output = options.output ?? process.stdout;
+  const choices = options.choices ?? HATCH_PROVIDER_CHOICES;
+
+  output.write(
+    "No LLM provider API key was found in your environment.\n" +
+      "Choose a provider to use for this assistant:\n\n",
+  );
+  choices.forEach((provider, index) => {
+    const suffix = index === 0 ? " (default)" : "";
+    output.write(`  ${index + 1}) ${formatProviderName(provider)}${suffix}\n`);
+  });
+  output.write("\n");
+
+  const defaultLabel = formatProviderName(choices[0]);
+  const reader = createLineReader(input);
+  try {
+    for (;;) {
+      output.write(
+        `Enter a number (1-${choices.length}), or press Enter to keep the default (${defaultLabel}): `,
+      );
+      const answer = (await reader.readLine()).trim();
+
+      if (answer === "") {
+        return null;
+      }
+
+      if (/^\d+$/.test(answer)) {
+        const index = Number(answer);
+        if (index >= 1 && index <= choices.length) {
+          return choices[index - 1];
+        }
+      }
+
+      output.write(
+        `Please enter a number between 1 and ${choices.length}, or press Enter to skip.\n`,
+      );
+    }
+  } finally {
+    reader.dispose();
+  }
 }
 
 export async function ensureProviderApiKey(

@@ -201,14 +201,6 @@ const unusedGitRunner: GitRunner = async (args) => {
   throw new Error(`git should not run for this install: ${args.join(" ")}`);
 };
 
-/**
- * Read the real, committed caveman adapter stub from the repo so the
- * integration test exercises the adapter that ships rather than a fixture
- * copy that could drift from it. Returns every stub file keyed by its
- * Contents-API path (`plugins/caveman/<rel>`) so the fetch fake
- * serves the whole stub — package.json, the adapter, and its templates — to
- * the real postinstall runner. Resolves the stub relative to this test file.
- */
 function readRealCavemanStub(): Record<string, string> {
   const repoRel = "plugins/caveman";
   const stubDir = join(import.meta.dir, "../../../../../", repoRel);
@@ -300,6 +292,44 @@ describe("installPlugin — install lifecycle", () => {
     expect(result.target).toBe(target);
     expect(existsSync(join(target, "stale.txt"))).toBe(false);
     expect(existsSync(join(target, "package.json"))).toBe(true);
+    expect(existsSync(join(target, "README.md"))).toBe(true);
+  });
+
+  test("--force keeps live config.json instead of a pin-shipped default", async () => {
+    // GIVEN an install with user config, and a clone that materializes a default
+    const target = join(pluginsDir, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "package.json"), '{"name":"caveman"}');
+    writeFileSync(
+      join(target, "config.json"),
+      '{"provider":"photon","ingressMode":"live"}\n',
+    );
+    mkdirSync(join(target, "data"), { recursive: true });
+    writeFileSync(join(target, "data", "cursor.json"), '{"n":1}\n');
+
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"caveman"}',
+        "README.md": "# caveman",
+        "config.json": '{"provider":"comms","ingressMode":"webhook"}\n',
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we reinstall with --force
+    await installPlugin(
+      { name: "caveman", force: true, ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN user-owned state survives and the pin's default config does not win
+    expect(readFileSync(join(target, "config.json"), "utf-8")).toBe(
+      '{"provider":"photon","ingressMode":"live"}\n',
+    );
+    expect(readFileSync(join(target, "data", "cursor.json"), "utf-8")).toBe(
+      '{"n":1}\n',
+    );
     expect(existsSync(join(target, "README.md"))).toBe(true);
   });
 

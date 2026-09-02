@@ -144,6 +144,10 @@ import { repairDeprecatedCodexModelIdMigration } from "./143-repair-deprecated-c
 import { convertStrandedSubscriptionOpenaiProfilesMigration } from "./144-convert-stranded-subscription-openai-profiles.js";
 import { collapseProfileBindingsToEntriesMigration } from "./145-collapse-profile-bindings-to-entries.js";
 import { repairRetiredFireworksDeepseekFlashModelIdMigration } from "./146-repair-retired-fireworks-deepseek-flash-model-id.js";
+import { renameCollidingBackupProfileNamesMigration } from "./147-rename-colliding-backup-profile-names.js";
+import { stripUnsupportedFallbackProfilesMigration } from "./148-strip-unsupported-fallback-profiles.js";
+import { repointBackupProfileSelectionsMigration } from "./149-repoint-backup-profile-selections.js";
+import { sttFluxProviderToModelFamilyMigration } from "./150-stt-flux-provider-to-model-family.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -303,4 +307,8 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   convertStrandedSubscriptionOpenaiProfilesMigration,
   collapseProfileBindingsToEntriesMigration,
   repairRetiredFireworksDeepseekFlashModelIdMigration,
+  renameCollidingBackupProfileNamesMigration,
+  stripUnsupportedFallbackProfilesMigration,
+  repointBackupProfileSelectionsMigration,
+  sttFluxProviderToModelFamilyMigration,
 ];

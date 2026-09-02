@@ -136,6 +136,67 @@ export function isBackgroundEventMetadata(
 }
 
 /**
+ * `messageKind` value marking a daemon-authored system card: a notice that
+ * bypasses the agent loop (the /compact, /clean, and summarize-up-to result
+ * cards, and plugin notices about what a turn did to the user's input). Cards
+ * render as standalone system notices, never as the assistant persona
+ * speaking, and never merge into adjacent assistant display turns.
+ *
+ * Lives in this leaf so a caller that only stamps or classifies the marker
+ * does not pull in `conversation-crud`'s DB graph.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata,
+ * so display merging, transcript rendering, and turn grouping cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
+ * Marker for a turn whose whole reply was the `<no_response/>` sentinel: the
+ * assistant deliberately chose silence. The row's content keeps the raw
+ * sentinel (the model reads its own convention back from history); clients
+ * switch on the marker to render a quiet standalone notice and to resolve
+ * their pending-response state, instead of showing the sentinel text or
+ * waiting forever for a reply that was never coming.
+ */
+export const NO_RESPONSE_MESSAGE_KIND = "no_response";
+
+/**
+ * Shared predicate for the deliberate-silence marker, mirroring
+ * {@link isSystemCardMetadata} so display merging, transcript rendering, and
+ * turn grouping cannot drift.
+ */
+export function isNoResponseMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === NO_RESPONSE_MESSAGE_KIND;
+}
+
+/**
+ * Marker for an assistant-authored reaction row: the assistant reacted with
+ * an emoji, and the row records it durably. The reaction fact itself lives
+ * in the row's `providerMeta.reaction` envelope, same as inbound reaction
+ * rows; this kind carries the display and grouping semantics, keeping the
+ * row a standalone turn (never merged into adjacent assistant speech, where
+ * consolidation would fold its sentinel text into a bubble and drop the
+ * envelope from the wire).
+ */
+export const REACTION_MESSAGE_KIND = "reaction";
+
+/** Shared predicate for the assistant-reaction marker. */
+export function isReactionMessageMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === REACTION_MESSAGE_KIND;
+}
+
+/**
  * True when a role-`"user"` row is internal scaffolding rather than a person's
  * prompt: a daemon-injected run lifecycle notification (subagent
  * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the
@@ -206,21 +267,92 @@ export function isVoiceSessionUserMessage(
 }
 
 /**
- * True when the row that opened the turn was sent from the macOS app, on that
+ * Metadata key naming which of a row's attachments arrived as ambient camera
+ * frames rather than files the user picked. Exported so the SQL prefilter that
+ * finds candidate rows and the reader below name the same key.
+ */
+export const SIGHT_FRAME_ATTACHMENT_IDS_KEY = "sightFrameAttachmentIds";
+
+/**
+ * The row's attachments that arrived as ambient camera frames, by attachment
+ * id. A user attachment carries no metadata of its own, so the marking lives on
+ * the message and refers to the attachments by id.
+ *
+ * Tolerant of any metadata shape: a row without the key, or one whose value is
+ * not an array of ids, yields nothing. Retention consumers therefore treat an
+ * untagged conversation exactly like one that predates the tag.
+ */
+export function sightFrameAttachmentIdsFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string[] {
+  const ids = metadata?.[SIGHT_FRAME_ATTACHMENT_IDS_KEY];
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+  return ids.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+/**
+ * True when a stored `messages.metadata` column belongs to a standalone
+ * ambient camera keep: a row the call's own gate sampled, which no one spoke.
+ *
+ * The raw-column counterpart to {@link sightFrameAttachmentIdsFromMetadata},
+ * for consumers holding the JSON string a row was written with rather than a
+ * parsed bag: the memory rebuild's re-embed scan and the retrospective's
+ * accounting both ask this question of rows they never otherwise decode. It
+ * lives here, beside the key and the parser, so the two cannot drift.
+ *
+ * BOTH halves are required, and the tag alone is not enough. A genuine spoken
+ * turn carries the same tag whenever a parked frame rode it (see
+ * `calls/voice-session-bridge.ts`), which in camera mode is every turn the
+ * user speaks, so keying on the tag would read real speech as machine
+ * output. `scripted` is what separates them: the standalone persist sets it
+ * (`live-voice/live-voice-photo.ts`), while a spoken turn leaves it absent
+ * and the persist stamps the `false` default durably. The pair is the
+ * signature of a keep; `scripted` on its own belongs to every auto-sent row,
+ * onboarding prompts included, which are none of this predicate's business.
+ *
+ * Absent or unparseable metadata is not a keep. Both callers use this to hold
+ * keeps BACK from work, so a row whose marking cannot be read is treated as
+ * ordinary content and still gets indexed or reviewed, which is the direction
+ * that loses nothing.
+ */
+export function messageMetadataIsAmbientSightKeep(
+  metadata: string | null,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return (
+      parsed.scripted === true &&
+      sightFrameAttachmentIdsFromMetadata(parsed).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *
  * Two markers, both required. The `client` bag's `os` entry is the only
  * per-platform attribution on a message: `userMessageInterface` is `"web"` for
- * the macOS app, the iOS app, and a desktop browser alike. `clientOsFromRequest`
- * says that `os` was reported by this row's request or transport rather than
- * inherited from the conversation's live client state, which names the surface
- * of an earlier turn: a button tapped on the phone against a conversation last
- * sent to from the Mac persists `os: "macos"` with no marker.
+ * the desktop apps, the iOS app, and a desktop browser alike.
+ * `clientOsFromRequest` says that `os` was reported by this row's request or
+ * transport rather than inherited from the conversation's live client state,
+ * which names the surface of an earlier turn. A button tapped on the phone
+ * against a conversation last sent to from desktop persists the old OS with no
+ * marker.
  *
  * Origin a row did not report itself is origin unknown. Callers gate
- * suppression on this, so unknown has to read as not-macOS.
+ * suppression on this, so unknown has to read as not-desktop.
  */
-export function isMacOriginatedUserMessage(
+export function isDesktopOriginatedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   if (metadata?.clientOsFromRequest !== true) {
@@ -230,7 +362,10 @@ export function isMacOriginatedUserMessage(
   if (typeof client !== "object" || client === null) {
     return false;
   }
-  return parseClientOs((client as Record<string, unknown>).os) === "macos";
+  const clientOs = parseClientOs((client as Record<string, unknown>).os);
+  return (
+    clientOs === "macos" || clientOs === "windows" || clientOs === "linux"
+  );
 }
 
 /**

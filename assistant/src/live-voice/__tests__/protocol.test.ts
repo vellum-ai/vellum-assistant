@@ -4,6 +4,7 @@ import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientFrame,
   type LiveVoiceServerFrame,
+  MAX_TEXT_TURN_CHARS,
   parseLiveVoiceBinaryAudioFrame,
   parseLiveVoiceClientTextFrame,
   validateLiveVoiceClientFrame,
@@ -461,6 +462,229 @@ describe("parseLiveVoiceClientTextFrame", () => {
       });
     },
   );
+
+  test("parses a text turn frame", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({ type: "text", text: "what is on my calendar" }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toEqual({
+      type: "text",
+      text: "what is on my calendar",
+    });
+  });
+
+  test("trims a text turn so the validated text is the text that travels", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "  what is on my calendar\n",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toEqual({
+      type: "text",
+      text: "what is on my calendar",
+    });
+  });
+
+  test("carries the hidden marker on a text turn that sets it", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "this message is sent automatically",
+      hidden: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toEqual({
+      type: "text",
+      text: "this message is sent automatically",
+      hidden: true,
+    });
+  });
+
+  test.each([[false], [undefined]])(
+    "omits the hidden marker when it is %s",
+    (hidden) => {
+      // Absent rather than `hidden: false`, so a turn the user typed is
+      // byte-identical to one sent by a client that predates the field.
+      const result = validateLiveVoiceClientFrame({
+        type: "text",
+        text: "typed by hand",
+        ...(hidden === undefined ? {} : { hidden }),
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.frame).toEqual({ type: "text", text: "typed by hand" });
+    },
+  );
+
+  test("rejects a non-boolean hidden marker", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "hello",
+      hidden: "yes",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "hidden",
+      frameType: "text",
+    });
+  });
+
+  test.each([
+    ["empty", ""],
+    ["whitespace only", "   \n\t "],
+  ])("rejects a %s text turn", (_label, text) => {
+    const result = validateLiveVoiceClientFrame({ type: "text", text });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "text",
+      frameType: "text",
+    });
+  });
+
+  test("rejects a text turn past the length cap", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "a".repeat(MAX_TEXT_TURN_CHARS + 1),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "text",
+      frameType: "text",
+    });
+  });
+
+  test("accepts a text turn exactly at the length cap", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "a".repeat(MAX_TEXT_TURN_CHARS),
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("measures the length cap after trimming", () => {
+    // Padding is not content: a turn that fits once its surrounding
+    // whitespace is gone must not be rejected for the whitespace.
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: `   ${"a".repeat(MAX_TEXT_TURN_CHARS)}   `,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects a text turn whose text is not a string", () => {
+    const result = validateLiveVoiceClientFrame({ type: "text", text: 42 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "text",
+      frameType: "text",
+    });
+  });
+
+  test("rejects a text turn with no text field", () => {
+    const result = validateLiveVoiceClientFrame({ type: "text" });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "missing_required_field",
+      field: "text",
+      frameType: "text",
+    });
+  });
+
+  test("parses the textInput capability on the start frame", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      textInput: true,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toMatchObject({ type: "start", textInput: true });
+  });
+
+  test.each([
+    ["absent", {}],
+    ["false", { textInput: false }],
+  ])(
+    "omits textInput from the start frame when %s",
+    (_label, extra: Record<string, unknown>) => {
+      // Absent and false must be indistinguishable downstream: both mean the
+      // client cannot take a turn without the microphone, so neither may
+      // relax the credential preflight.
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        ...extra,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect("textInput" in result.frame).toBe(false);
+    },
+  );
+
+  test("returns a typed protocol error for a non-boolean textInput", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      textInput: "yes",
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "textInput",
+      frameType: "start",
+    });
+  });
 
   test("returns typed protocol errors for missing audio configuration fields", () => {
     const result = validateLiveVoiceClientFrame({

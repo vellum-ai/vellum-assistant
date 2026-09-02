@@ -68,12 +68,12 @@ requested -> pending_guardian -> verification_pending -> active | denied | expir
 
 Identity binding ensures the verification code can only be consumed by the intended recipient on the intended channel. The binding fields are set on the gateway `channel_verification_sessions` record when the session is created; the check itself is `checkIdentityMatch` (`gateway/src/verification/identity-match.ts`).
 
-| Channel   | Identity fields                                                                  | Binding behavior                                                                                                                                                                                                                                                                                                         |
-| --------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Telegram  | `expectedExternalUserId` = Telegram user ID, `expectedChatId` = Telegram chat ID | Both are taken from the original denied message's metadata. The `identityBindingStatus` is `'bound'`. Verification requires the actor's user ID or chat ID to match (user ID required when both are set on a shared chat).                                                                                               |
-| Voice     | `expectedPhoneE164` = phone number in E.164 format                               | Phone-based identity binding. Verification requires the caller's number to match the expected phone.                                                                                                                                                                                                                     |
+| Channel   | Identity fields                                                                                                                                                                                                                                                              | Binding behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram  | `expectedExternalUserId` = Telegram user ID, `expectedChatId` = Telegram chat ID                                                                                                                                                                                             | Both are taken from the original denied message's metadata. The `identityBindingStatus` is `'bound'`. Verification requires the actor's user ID or chat ID to match (user ID required when both are set on a shared chat).                                                                                                                                                                                                                                                                                                       |
+| Voice     | `expectedPhoneE164` = phone number in E.164 format                                                                                                                                                                                                                           | Phone-based identity binding. Verification requires the caller's number to match the expected phone.                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Discord   | `expectedExternalUserId` = Discord user snowflake. `expectedChatId` is unset on the guardian-initiated and trusted-contact paths, and is the originating guild channel on the access-request approval path (`mint_outbound_session`), which sets it for every channel alike. | The code is delivered to a DM and answered there, but the DM channel does not exist until it is opened, so those two paths have no chat id to record at mint time. Where the approval path does set one, it is a room rather than an identity and never becomes a sufficient credential on its own: `checkIdentityMatch` requires the `expectedExternalUserId` match whenever both fields are set. That path also writes the room into `destinationAddress`, where it describes nothing the code is ever sent to (see LUM-3110). |
-| Bootstrap | none yet (`identityBindingStatus: 'pending_bootstrap'`)                          | Unbound deep-link sessions use a 32-byte hex token instead of a numeric code; the identity is bound when the token is redeemed (`verification_sessions_bind_identity`).                                                                                                                                                  |
+| Bootstrap | none yet (`identityBindingStatus: 'pending_bootstrap'`)                                                                                                                                                                                                                      | Unbound deep-link sessions use a 32-byte hex token instead of a numeric code; the identity is bound when the token is redeemed (`verification_sessions_bind_identity`).                                                                                                                                                                                                                                                                                                                                                          |
 
 **Anti-oracle invariant:** When identity verification fails, the error message is identical to the "invalid or expired code" message. This prevents attackers from distinguishing between a wrong code and a wrong identity, which would leak information about which identities have pending sessions.
 
@@ -129,10 +129,10 @@ Separately, the admitted-mode introduction **nudge** (for a contact who cleared 
 
 ### Stage: `expired`
 
-| Store                                            | Table                           | Record                                                                                                    |
-| ------------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| gateway `guardian-request-store.ts` (gateway DB) | `guardian_requests`             | Updated to `status: 'expired'` via `guardian_requests_sweep_expired` (the daemon's sweep runs every 60s). |
-| `session-store.ts` (gateway DB)                  | `channel_verification_sessions` | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingSessionByHash()`.           |
+| Store                                            | Table                           | Record                                                                                                                                           |
+| ------------------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| gateway `guardian-request-store.ts` (gateway DB) | `guardian_requests`             | Updated to `status: 'expired'` via the per-request `guardian_requests_expire` CAS, after the daemon's 60s sweep has run that row's side effects. |
+| `session-store.ts` (gateway DB)                  | `channel_verification_sessions` | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingSessionByHash()`.                                                  |
 
 ### Invites (alternative path)
 
@@ -216,10 +216,11 @@ sequenceDiagram
 
     else Guardian never responds
         Note over A: runGuardianExpirySweep()<br/>runs every 60 seconds
-        A->>GW: guardian_requests_sweep_expired (IPC)
-        GW->>GW: Approval TTL elapsed → status: 'expired' (CAS)
+        A->>GW: guardian_requests_list_expired_pending (IPC)
         A->>A: Withdraw approval cards on all surfaces
         A-->>U: "Your access request has expired."
+        A->>GW: guardian_requests_expire (IPC)
+        GW->>GW: status: 'expired' (CAS, the fan-out's receipt)
 
     else Code expires (requester never enters it)
         Note over GW: Verification session TTL: 10 min
@@ -232,7 +233,7 @@ sequenceDiagram
 
 ### Guardian never responds
 
-- The `runGuardianExpirySweep()` timer (`runtime/routes/guardian-expiry-sweep.ts`) runs every 60 seconds; the gateway CAS-transitions pending requests past their `expiresAt` to `status: 'expired'` (`guardian_requests_sweep_expired`) and returns the expired rows.
+- The `runGuardianExpirySweep()` timer (`runtime/routes/guardian-expiry-sweep.ts`) runs every 60 seconds; the gateway returns a bounded, read-only batch of pending requests past their `expiresAt` (`guardian_requests_list_expired_pending`), and the daemon confirms each row with the per-request `guardian_requests_expire` CAS only after running its side effects, so the fan-out is recoverable from state.
 - The daemon then withdraws the now-stale approval cards on every surface and notifies the requester that the request expired.
 
 ### Verification code expires

@@ -1,7 +1,7 @@
 import type { LlmCatalogModel } from "@/assistant/llm-model-catalog";
 import { WEB_FETCH_PROVIDER_KEY_STORAGE } from "@/assistant/generated/web-fetch-provider-catalog.gen";
 import { WEB_SEARCH_PROVIDER_KEY_STORAGE } from "@/assistant/generated/web-search-provider-catalog.gen";
-import type { ProfileEntry, ServiceMode } from "@/generated/daemon/types.gen";
+import type { ProfileEntry } from "@/generated/daemon/types.gen";
 
 import { TOKEN_SLIDER_MIN_TOKENS } from "@/domains/settings/ai/constants";
 
@@ -16,26 +16,6 @@ export interface InferenceTokenBudgetState {
   maxOutputTouched: boolean;
   contextWindowTokens: number;
   contextWindowTouched: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Service mode validation
-// ---------------------------------------------------------------------------
-
-const SERVICE_MODE_VALUES: ReadonlySet<string> = new Set<ServiceMode>([
-  "managed",
-  "your-own",
-]);
-
-/**
- * Validates a raw string (e.g. from localStorage) as a `ServiceMode`.
- * Returns `fallback` when the value is not a known mode.
- */
-export function parseServiceMode(
-  raw: string,
-  fallback: ServiceMode,
-): ServiceMode {
-  return SERVICE_MODE_VALUES.has(raw) ? (raw as ServiceMode) : fallback;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { app, globalShortcut, screen } from "electron";
+import { app, screen } from "electron";
 
 import {
   configureCommandPaletteWindow,
@@ -26,17 +26,21 @@ import {
   configureQuickInputWindow,
   installQuickInput,
   repositionQuickInputWindow,
-  toggleQuickInput,
 } from "@vellumai/electron-desktop/quick-input-window";
+import {
+  restoreBounds,
+  track as trackWindowState,
+} from "@vellumai/electron-desktop/window-state";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "../app-config";
+import { getRendererBase } from "../app-config";
+import { installEscapeMonitor, setDictationRecording } from "../escape-monitor";
 import { handle, on } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
 import { createWindow } from "../windows.client";
 
 const resolveRoute = createWindowRouteResolver(() =>
-  app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+  getRendererBase(app.isPackaged),
 );
 
 const module: CapabilityModule<DesktopCapabilityRegistry> = {
@@ -61,17 +65,29 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
       platform: "win32",
       resolveRoute,
     });
-    configureDictationOverlayWindow({ closeOnHide: true, handle, on });
-    configurePopoutWindows({ createWindow, handle, resolveRoute });
+    // Native mouse-move forwarding for the click-through overlay is broken
+    // on Windows (see `pollCursorForHover`); poll instead so the Stop button
+    // can be hovered and clicked.
+    configureDictationOverlayWindow({
+      closeOnHide: true,
+      pollCursorForHover: true,
+      log: (message) => log.info(message),
+      handle,
+      on,
+    });
+    configurePopoutWindows({
+      createWindow,
+      handle,
+      resolveRoute,
+      restoreBounds,
+      trackWindowState,
+    });
 
+    installEscapeMonitor();
     installCommandPaletteWindow();
     installQuickInput();
-    installDictationOverlay();
+    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installPopoutWindows();
-
-    if (!globalShortcut.register("Control+Shift+/", toggleQuickInput)) {
-      log.warn("[auxiliary-windows] failed to register Quick Input shortcut");
-    }
 
     const repositionTransientWindows = (): void => {
       repositionCommandPaletteWindow();

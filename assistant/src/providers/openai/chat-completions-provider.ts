@@ -4,6 +4,7 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { isChatTemplateFailureError } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { escapeXmlAttr } from "../../util/xml.js";
@@ -121,14 +122,15 @@ export function detectVisionNotSupported(
 
 /**
  * Fallback `content` for an assistant turn that has neither visible text nor
- * tool calls (e.g. a reasoning-only turn truncated at the output-token limit).
+ * tool calls (e.g. a reasoning-only turn truncated at the output-token limit,
+ * or a Stop mid-stream before any text).
  *
  * The OpenAI chat-completions schema requires an assistant message to carry
  * `content` or `tool_calls`. OpenAI itself tolerates `content: null`/`""` here,
- * but strict OpenAI-compatible backends do not: DeepSeek via OpenRouter rejects
- * the request with `Invalid assistant message: content or tool_calls must be
- * set`, and vLLM-style validators coerce empty-string content back to null and
- * reject it the same way. The placeholder must therefore be a non-empty string.
+ * but strict OpenAI-compatible backends do not: DeepSeek rejects the request
+ * with `Invalid assistant message: content or tool_calls must be set`, and
+ * vLLM-style validators coerce empty-string content back to null and reject it
+ * the same way. The placeholder must therefore be a non-empty string.
  *
  * We reuse the shared empty-turn sentinel so that
  * `isPlaceholderSentinelText`/`cleanAssistantContent` strip it from persisted
@@ -168,14 +170,6 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  tool-call turns. DeepSeek thinking mode that requires the field even when
    *  empty is handled by a one-shot retry. */
   assistantReasoningField?: "reasoning" | "reasoning_content";
-  /** Backfill a non-empty placeholder for assistant turns that would otherwise
-   *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
-   *  turns, or a Stop mid-stream before any text). Off by default; enabled for
-   *  OpenRouter, Vercel AI Gateway, LiteLLM, and custom `openai-compatible`
-   *  endpoints, whose downstream providers (e.g. DeepSeek, vLLM, Portkey)
-   *  reject such messages with `Invalid assistant message: content or
-   *  tool_calls must be set`. See {@link EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
-  backfillEmptyAssistantContent?: boolean;
   /** Present object-typed tool params to the model as JSON-string params and
    *  decode them back to objects on the response. Works around models whose
    *  function-call serialization collapses nested objects to `{}` (observed
@@ -231,6 +225,28 @@ export function clampReasoningEffort(
     : value;
 }
 
+/** Snap a wire effort onto a model's sparse accepted set: the nearest
+ *  supported value at or below it, or the smallest supported value when the
+ *  request sits below all of them. Models like GLM 5.3 accept only
+ *  `low|high|max` and 4xx on the in-between tiers instead of rounding, so the
+ *  client rounds for them. `"none"` is never snapped: it is the explicit
+ *  opt-out and has its own rejection retry. */
+export function snapReasoningEffortToSupported(
+  value: ReasoningEffortWire,
+  supported: readonly ReasoningEffortWire[],
+): ReasoningEffortWire {
+  if (value === "none" || supported.includes(value)) {
+    return value;
+  }
+  const ranked = [...supported].sort(
+    (a, b) => REASONING_EFFORT_RANK[a] - REASONING_EFFORT_RANK[b],
+  );
+  const atOrBelow = ranked.filter(
+    (s) => REASONING_EFFORT_RANK[s] < REASONING_EFFORT_RANK[value],
+  );
+  return atOrBelow[atOrBelow.length - 1] ?? ranked[0] ?? value;
+}
+
 /** Human-readable text from an OpenAI-compatible error, including wrapped
  *  upstream detail (OpenRouter `metadata.raw`). Used by the one-shot
  *  compatibility retries so a generic SDK wrapper message cannot hide the
@@ -246,6 +262,60 @@ function openaiCompatErrorHaystack(error: unknown): string {
 function isClientErrorStatus(error: unknown): boolean {
   const status = (error as { status?: unknown }).status;
   return typeof status === "number" && status >= 400 && status < 500;
+}
+
+/**
+ * True when a parsed tool result contains a local JSON Schema reference.
+ *
+ * Gemini reserves `$ref` fields inside structured function responses for
+ * multimodal part references. OpenAI-compatible gateways can JSON-decode tool
+ * message content before translating it to Gemini, which makes a JSON Schema
+ * result look like one of those references and causes an INVALID_ARGUMENT.
+ */
+function containsLocalJsonSchemaReference(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    if (current === null || typeof current !== "object") {
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const ref = record.$ref;
+    if (typeof ref === "string" && (ref === "#" || ref.startsWith("#/"))) {
+      return true;
+    }
+    pending.push(...Object.values(record));
+  }
+  return false;
+}
+
+/**
+ * Keep JSON Schema tool results opaque across OpenAI-compatible gateways.
+ *
+ * The outer object is intentionally valid JSON so gateways that decode tool
+ * content produce `{ output: string }`; the schema's `$ref` remains inside the
+ * string and cannot be interpreted as a Gemini multimodal part reference.
+ */
+function protectJsonSchemaToolResult(payload: string): string {
+  if (!payload.includes('"$ref"')) {
+    return payload;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+
+  return containsLocalJsonSchemaReference(parsed)
+    ? JSON.stringify({ output: payload })
+    : payload;
 }
 
 /**
@@ -482,6 +552,74 @@ function isUnknownAssistantReasoningFieldRejection(
   );
 }
 
+function isTextualContentPart(part: { type: string }): boolean {
+  return part.type === "text" || part.type === "refusal";
+}
+
+function messagesCarryFlattenableContentPartsArrays(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  const arrays = messages.filter((msg) => Array.isArray(msg.content));
+  if (arrays.length === 0) {
+    return false;
+  }
+  return arrays.every((msg) =>
+    (msg.content as Array<{ type: string }>).every(isTextualContentPart),
+  );
+}
+
+/**
+ * True when the endpoint's server-side chat-template renderer rejected the
+ * request and every content-parts array in the outbound messages is purely
+ * textual, so flattening to plain strings loses nothing. Some template
+ * engines behind OpenAI-compatible endpoints only render string message
+ * content (Together serving MiniMax M3 400s with `Failed to apply chat
+ * template: invalid operation: object is not callable`); one retry with
+ * flattened content lets the same endpoint succeed instead of surfacing the
+ * raw template error. Requests carrying media parts are never flattened:
+ * silently dropping an image or audio blob would let the model answer
+ * without it, so those rejections propagate to error classification.
+ */
+function isChatTemplateRejection(error: unknown, params: unknown): boolean {
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  if (!isChatTemplateFailureError(openaiCompatErrorHaystack(error))) {
+    return false;
+  }
+  return messagesCarryFlattenableContentPartsArrays(params);
+}
+
+/**
+ * Rewrite every purely-textual content-parts array in `params.messages` into
+ * a plain string. Returns whether any message changed.
+ */
+function flattenContentPartsToStrings(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  let flattened = false;
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) {
+      continue;
+    }
+    const parts = msg.content as Array<
+      { type: "text"; text: string } | { type: "refusal"; refusal: string }
+    >;
+    if (!parts.every(isTextualContentPart)) {
+      continue;
+    }
+    msg.content = parts
+      .map((part) => (part.type === "text" ? part.text : part.refusal))
+      .join("\n\n");
+    flattened = true;
+  }
+  return flattened;
+}
+
 /**
  * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
  * config into the OpenAI chat-completions wire format. Callers express
@@ -556,7 +694,6 @@ export class OpenAIChatCompletionsProvider implements Provider {
     | "reasoning"
     | "reasoning_content"
     | undefined;
-  private backfillEmptyAssistantContent: boolean;
   private coerceObjectArgsToJsonString: boolean;
   private omitToolChoiceWhenReasoning: boolean;
 
@@ -584,8 +721,6 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.requestHeaders = options.requestHeaders ?? {};
     this.parseThinkTags = options.parseThinkTags ?? false;
     this.assistantReasoningField = options.assistantReasoningField;
-    this.backfillEmptyAssistantContent =
-      options.backfillEmptyAssistantContent ?? false;
     this.coerceObjectArgsToJsonString =
       options.coerceObjectArgsToJsonString ?? false;
     this.omitToolChoiceWhenReasoning =
@@ -610,6 +745,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
       | undefined;
     const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
+      | Record<string, string>
+      | undefined;
+    const perRequestHeaders = configObj?.requestHeaders as
       | Record<string, string>
       | undefined;
 
@@ -665,12 +803,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort && typeof nestedReasoningEffort !== "string") {
-        const ceiling = this.resolveMaxReasoningEffort(
-          modelOverride ?? this.model,
-        );
-        params.reasoning_effort = clampReasoningEffort(
+        const effortModel = modelOverride ?? this.model;
+        const clamped = clampReasoningEffort(
           reasoningEffort,
-          ceiling,
+          this.resolveMaxReasoningEffort(effortModel),
+        );
+        const supported = this.resolveSupportedReasoningEfforts(effortModel);
+        params.reasoning_effort = (
+          supported
+            ? snapReasoningEffortToSupported(clamped, supported)
+            : clamped
         ) as OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"];
       }
 
@@ -709,8 +851,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (toolChoice !== undefined) {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
-          const skipAllChoices =
-            thinkingOn && this.omitToolChoiceWhenReasoning;
+          const skipAllChoices = thinkingOn && this.omitToolChoiceWhenReasoning;
           if (!skipAutoDefault && !skipAllChoices) {
             params.tool_choice = toolChoice;
           }
@@ -801,6 +942,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         const requestHeaders = {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
+          ...(perRequestHeaders ?? {}),
         };
         const createStream = () =>
           this.client.chat.completions.create(params, {
@@ -857,6 +999,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
               "Upstream rejected assistant reasoning field; retrying without it",
             );
             stripAssistantReasoningFields(params);
+            stream = await createStream();
+          } else if (isChatTemplateRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream chat template rejected structured message content; retrying with flattened plain-text content",
+            );
+            flattenContentPartsToStrings(params);
             stream = await createStream();
           } else {
             throw error;
@@ -1147,7 +1300,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
+        // `cause` keeps the SDK error's errno-bearing chain reachable for
+        // network-shape classification (`isRetryableNetworkError` walks it).
         const errorOptions: {
+          cause?: unknown;
           retryAfterMs?: number;
           abortReason?: unknown;
           apiErrorCode?: string;
@@ -1156,7 +1312,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           requestId?: string;
           rawBody?: string;
           reason?: ProviderErrorReason;
-        } = {};
+        } = { cause: error };
         if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
         }
@@ -1185,7 +1341,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           formattedMessage,
           this.name,
           error.status,
-          Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
+          errorOptions,
         );
       }
       throw new ProviderError(
@@ -1220,6 +1376,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
     _model: string,
   ): "high" | "xhigh" | "max" {
     return this.maxReasoningEffort;
+  }
+
+  /**
+   * Per-model sparse `reasoning_effort` support. Subclasses return the
+   * accepted values for models that 4xx on in-between tiers (e.g. GLM 5.3's
+   * `low|high|max`); the outbound value is snapped onto that set after the
+   * ceiling clamp (see {@link snapReasoningEffortToSupported}). Undefined
+   * means any value under the ceiling is accepted.
+   */
+  protected resolveSupportedReasoningEfforts(
+    _model: string,
+  ): readonly ReasoningEffortWire[] | undefined {
+    return undefined;
   }
 
   /** Convert neutral messages + system prompt to OpenAI message format. */
@@ -1300,7 +1469,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           result.push({
             role: "tool",
             tool_call_id: tr.tool_use_id,
-            content: serialized.payload,
+            content: protectJsonSchemaToolResult(serialized.payload),
           });
         }
 
@@ -1387,16 +1556,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
     }
 
     // An assistant message must carry `content` or `tool_calls`. A turn with
-    // neither (e.g. reasoning-only, or a Stop before any text) would serialize
-    // to null/empty content with no tool calls, which strict OpenAI-compatible
-    // backends reject. Reasoning lives in a separate field and does not
-    // satisfy this constraint. Scoped to providers that need it (OpenRouter,
-    // Vercel AI Gateway, LiteLLM, openai-compatible) via
-    // `backfillEmptyAssistantContent`.
+    // neither (e.g. reasoning-only, a Stop before any text, or a turn whose
+    // text arrived as whitespace) would serialize to blank content with no
+    // tool calls, which strict OpenAI-compatible backends reject. Reasoning
+    // lives in a separate field and does not satisfy the constraint, and
+    // whitespace-only content does not survive a validator that trims before
+    // checking presence, so the placeholder covers both.
     if (
-      this.backfillEmptyAssistantContent &&
       !result.tool_calls &&
-      (result.content === null || result.content === "")
+      (result.content === null ||
+        (typeof result.content === "string" && result.content.trim() === ""))
     ) {
       result.content = EMPTY_ASSISTANT_TURN_PLACEHOLDER;
     }

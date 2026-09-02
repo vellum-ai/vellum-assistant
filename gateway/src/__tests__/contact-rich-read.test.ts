@@ -132,6 +132,7 @@ function seedGatewayContact(opts: {
   displayName?: string;
   role?: string;
   updatedAt?: number;
+  autoApproveThreshold?: string | null;
 }): void {
   const db = getGatewayDb();
   db.insert(contacts)
@@ -140,6 +141,7 @@ function seedGatewayContact(opts: {
       displayName: opts.displayName ?? `name-${opts.id}`,
       role: opts.role ?? "contact",
       principalId: null,
+      autoApproveThreshold: opts.autoApproveThreshold ?? null,
       createdAt: opts.updatedAt ?? Date.now(),
       updatedAt: opts.updatedAt ?? Date.now(),
     })
@@ -238,6 +240,7 @@ describe("ContactStore.listContactsRich", () => {
     // Trust signals derived from gateway channels.
     expect(c1.interactionCount).toBe(4);
     expect(c1.lastInteraction).toBe(900);
+    expect(c1.autoApproveThreshold).toBeNull();
     // Channel ACL fields from gateway DB.
     const ch = c1.channels[0];
     expect(ch.status).toBe("active");
@@ -404,6 +407,7 @@ describe("ContactStore.getContactRich", () => {
     expect(result!.contact.interactionCount).toBe(7);
     expect(result!.contact.createdAt).toBe(321);
     expect(result!.contact.updatedAt).toBe(321);
+    expect(result!.contact.autoApproveThreshold).toBeNull();
     expect(result!.assistantMetadata).toBeUndefined();
 
     // Validate against the get-contact IPC response contract.
@@ -448,6 +452,35 @@ describe("ContactStore.getContactRich", () => {
     expect(result!.assistantMetadata).toBeUndefined();
   });
 
+  test("projects a stored contact auto-approve threshold", async () => {
+    seedGatewayContact({
+      id: "c-high",
+      autoApproveThreshold: "high",
+    });
+    seedGatewayChannel({ id: "ch-high", contactId: "c-high" });
+    seedAssistantInfo({ id: "c-high", contactType: "human" });
+
+    const listed = await new ContactStore().listContactsRich();
+    expect(listed[0].autoApproveThreshold).toBe("high");
+    expect(ContactReadSchema.parse(listed[0]).autoApproveThreshold).toBe(
+      "high",
+    );
+
+    const got = await new ContactStore().getContactRich("c-high");
+    expect(got!.contact.autoApproveThreshold).toBe("high");
+  });
+
+  test("treats a corrupt stored auto-approve threshold as unset", async () => {
+    seedGatewayContact({
+      id: "c-bad",
+      autoApproveThreshold: "full",
+    });
+    seedAssistantInfo({ id: "c-bad", contactType: "human" });
+
+    const listed = await new ContactStore().listContactsRich();
+    expect(listed[0].autoApproveThreshold).toBeNull();
+  });
+
   test("soft-fails on assistant DB outage for single contact", async () => {
     seedGatewayContact({ id: "c1" });
     seedAssistantInfo({ id: "c1", notes: "lost", contactType: "human" });
@@ -457,5 +490,32 @@ describe("ContactStore.getContactRich", () => {
     expect(result).not.toBeNull();
     expect(result!.contact.notes).toBeNull();
     expect(result!.contact.contactType).toBeNull();
+  });
+});
+
+describe("ContactStore.upsertContact autoApproveThreshold", () => {
+  test("persists, omit-to-preserves, and clears the contact ceiling", async () => {
+    const store = new ContactStore();
+    const created = await store.upsertContact({
+      displayName: "Alice",
+      autoApproveThreshold: "high",
+      channels: [{ type: "email", address: "alice@example.com" }],
+    });
+    expect(created.created).toBe(true);
+    expect(created.contact.autoApproveThreshold).toBe("high");
+
+    const omitted = await store.upsertContact({
+      id: created.contact.id,
+      displayName: "Alice",
+    });
+    expect(omitted.created).toBe(false);
+    expect(omitted.contact.autoApproveThreshold).toBe("high");
+
+    const cleared = await store.upsertContact({
+      id: created.contact.id,
+      displayName: "Alice",
+      autoApproveThreshold: null,
+    });
+    expect(cleared.contact.autoApproveThreshold).toBeNull();
   });
 });

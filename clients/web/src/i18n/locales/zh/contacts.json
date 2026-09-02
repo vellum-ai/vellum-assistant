@@ -1,0 +1,173 @@
+{
+  "actions": {
+    "save": "保存",
+    "saving": "正在保存…",
+    "merge": "合并…",
+    "merging": "正在合并…",
+    "delete": "删除",
+    "deleting": "正在删除…",
+    "connect": "连接",
+    "connecting": "正在连接…",
+    "manage": "管理",
+    "disconnect": "断开连接",
+    "disconnecting": "正在断开连接…",
+    "cancel": "取消",
+    "back": "返回",
+    "verify": "验证",
+    "verifying": "正在验证…",
+    "revoke": "撤销"
+  },
+  "channelType": {
+    "slack": "Slack",
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
+    "a2a": "A2A",
+    "phone": "电话",
+    "email": "电子邮件",
+    "discord": "Discord"
+  },
+  "contact": {
+    "nameLabel": "名称",
+    "notesLabel": "备注",
+    "draftName": "新建联系人",
+    "interactions": "{count, plural, other {# 次互动}}",
+    "mergeBlockedNoCandidates": "没有其他联系人可供合并",
+    "mergeBlockedUnsaved": "请先保存更改再合并"
+  },
+  "contactsPage": {
+    "title": "联系人",
+    "mergeSucceeded": "联系人已合并",
+    "mergeFailed": "合并联系人失败",
+    "createFailed": "创建联系人失败",
+    "deleteFailed": "删除联系人失败",
+    "saveFailed": "保存联系人失败",
+    "verifyFailed": "验证渠道失败",
+    "rosterLoadFailed": "无法加载工作区名册。请检查 Slack 连接并重试。",
+    "emptyBody": "选择一个联系人"
+  },
+  "contactsList": {
+    "heading": "条目",
+    "addAriaLabel": "添加联系人",
+    "searchPlaceholder": "搜索联系人",
+    "noMatches": "没有匹配的联系人",
+    "add": "添加联系人",
+    "verified": "已验证",
+    "unverified": "未验证",
+    "you": "您",
+    "youNamed": "{name} (您)",
+    "assistantFallback": "您的助手"
+  },
+  "contactDetailView": {
+    "namePlaceholder": "为此人命名",
+    "notesPlaceholder": "关于此人的可选备注，AI 将会考虑这些备注",
+    "mergeBlockedUnsavedDraft": "请先保存此联系人再合并",
+    "delete": "删除联系人",
+    "linkedAccountsTitle": "关联账户",
+    "linkedAccountsSubtitle": "助手识别此联系人的地方。关联您认识的账户，邀请您不认识的账户。",
+    "deleteConfirmTitle": "删除 {name}？",
+    "deleteConfirmMessage": "此操作将永久删除此联系人及其所有渠道。此操作无法撤消。"
+  },
+  "contactPermissions": {
+    "title": "权限",
+    "subtitle": "此联系人无需征求您同意即可承担的最高风险。",
+    "inheritLabel": "继承默认设置",
+    "inheritDescription": "此联系人遵循房间和信任等级设置。",
+    "saveFailed": "更新权限失败",
+    "preset": {
+      "none": "严格",
+      "low": "保守",
+      "medium": "宽松",
+      "high": "完全访问"
+    },
+    "description": {
+      "none": "在执行操作前始终询问。不自动批准任何操作。",
+      "low": "自动批准低风险操作，例如网页搜索以及在其工作区中读写文件。",
+      "medium": "自动批准低风险和中等风险操作，例如更改其工作区之外的文件。",
+      "high": "自动批准所有操作，包括高风险和无法识别的命令。您的助手将永远不会请求权限。"
+    }
+  },
+  "guardianDetailView": {
+    "namePlaceholder": "您的姓名",
+    "notesPlaceholder": "关于您自己的备注，AI 将会考虑这些备注",
+    "channelsTitle": "渠道",
+    "channelsSubtitle": "验证后，当您通过这些渠道发送消息时，您的助手将识别出您。",
+    "setupLabel": "验证我"
+  },
+  "assistantChannelsDetail": {
+    "title": "{name} (您的助手)",
+    "channelsTitle": "渠道",
+    "channelsSubtitle": "{name} 可联系到的地方。"
+  },
+  "assistantContactChannels": {
+    "disconnectConfirmTitle": "断开 {channel} 的连接？",
+    "disconnectConfirmMessage": "此操作将清除此渠道的存储凭据。您可以稍后重新连接。"
+  },
+  "accountLink": {
+    "linked": "已关联为 @{username}",
+    "linkFailed": "关联账户失败"
+  },
+  "connectPage": {
+    "invalidTitle": "无效的邀请链接",
+    "invalidBody": "您访问的链接缺少必要的参数，无法使用。",
+    "goToContacts": "前往联系人",
+    "title": "连接助手",
+    "body": "接受此链接将在您的助手与发送者的助手之间建立受信任的 A2A 连接。",
+    "alreadyConnected": "已连接",
+    "connected": "已连接！",
+    "errorExpired": "此邀请链接已过期或已被使用。",
+    "errorAlreadyRedeemed": "此邀请已被其他人领取。",
+    "errorSenderNotFound": "找不到发送者的助手。",
+    "errorNotPlatformManaged": "A2A 邀请链接仅支持平台托管的助手。",
+    "errorGeneric": "发生了一些错误。请重试。"
+  },
+  "channelStatus": {
+    "connected": "已连接",
+    "verified": "已验证"
+  },
+  "contactChannelsSection": {
+    "verifyConfirmTitle": "验证 {channel}",
+    "verifyConfirmMessageContact": "这将把此联系人的 {channel} 渠道标记为已验证。当他们通过此渠道联系您时，您的助手将识别他们。",
+    "verifyConfirmMessageGuardian": "这将把您的 {channel} 渠道标记为已验证。当您通过此渠道联系时，您的助手将识别您。",
+    "verifyAddressLabel": "地址",
+    "verifyAddressPlaceholder": "+12025550123",
+    "verifyAddressMessageContact": "输入此联系人在 {channel} 上使用的标识符。当他们通过此渠道联系您时，您的助手将识别他们。",
+    "verifyAddressMessageGuardian": "输入您在 {channel} 上使用的标识符。当您通过此渠道联系时，您的助手将识别您。",
+    "revokeConfirmTitle": "撤销 {channel}",
+    "revokeConfirmMessage": "这将断开已验证的渠道。该联系人需要重新验证才能再次使用此渠道。",
+    "linkAccount": "关联账户",
+    "setupDefault": "邀请",
+    "loadFailed": "无法加载渠道。请检查您的网络连接并重试。"
+  },
+  "linkAccountDialog": {
+    "title": "关联 {channel} 账户",
+    "description": "搜索您的 {channel} 工作区并选择 <contact>{name}</contact> 的账户。",
+    "searchPlaceholder": "按姓名或 @句柄搜索",
+    "searchAriaLabel": "搜索 {channel} 工作区账户",
+    "loading": "正在加载工作区成员…",
+    "noMembers": "未找到工作区成员。",
+    "noMatches": "无匹配成员。",
+    "linking": "正在关联…",
+    "guardianLinkNote": "选择此账户会将其标记为 <emphasis>监护人关联</emphasis>：您为身份担保，无需握手验证。",
+    "inviteInstead": "或者发送邀请"
+  },
+  "contactMergeDialog": {
+    "titlePicked": "将“{donor}”合并到 {survivor}？",
+    "titlePicking": "将另一个联系人合并到 {survivor}",
+    "descriptionPicked": "被合并联系人的渠道和备注将转移过来。被合并的联系人将被删除。",
+    "descriptionPicking": "您选择的联系人将被删除。其渠道和备注将添加到此联系人。",
+    "confirm": "合并",
+    "searchPlaceholder": "搜索联系人",
+    "listAriaLabel": "选择要合并的联系人",
+    "empty": "没有其他联系人可供合并。",
+    "donorDeleted": "<donor>“{donor}”</donor> 将被删除。",
+    "channelsMoved": "{count, plural, =0 {没有新渠道会转移到 {survivor}。} one {# 个渠道将转移到 {survivor}：{channels}。} other {# 个渠道将转移到 {survivor}：{channels}。}}",
+    "duplicatesSkipped": "{count, plural, one {有 # 个重复渠道已存在于 {survivor}（已跳过）。} other {有 # 个重复渠道已存在于 {survivor}（已跳过）。}}",
+    "notesAppended": "被合并联系人的备注将被附加。",
+    "irreversible": "此操作无法撤销。"
+  },
+  "survivorName": {
+    "you": "您",
+    "youNamed": "{name} (您)",
+    "thisContact": "此联系人"
+  }
+}

@@ -1,4 +1,5 @@
 import { isSlackDmChannel } from "./channel.js";
+import { slackConversationVisibility } from "./message-normalizer.js";
 import {
   slackMessageChangedEventSchema,
   slackMessageDeletedEventSchema,
@@ -13,7 +14,7 @@ import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 
 /**
  * Normalize a Slack `message_changed` event into the gateway's canonical
- * inbound event shape with `isEdit: true`.
+ * inbound event shape with `eventKind: "edit"`.
  *
  * The edited content lives in `event.message` (not `event.previous_message`).
  * Uses `event.message.ts` as `source.messageId` so the runtime can correlate
@@ -67,10 +68,10 @@ export function normalizeSlackMessageEdit(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "edit",
         content,
         conversationExternalId: channel,
         externalMessageId,
-        isEdit: true,
       },
       actor: {
         actorExternalId: edited.user,
@@ -79,7 +80,14 @@ export function normalizeSlackMessageEdit(
         updateId: eventId,
         // The original message's ts lets the runtime identify which message was edited
         messageId: edited.ts,
-        ...(isDm ? {} : { chatType: "channel" }),
+        ...(isDm ? {} : { chatType: "channel" as const }),
+        ...(() => {
+          const conversationType = slackConversationVisibility(
+            channel,
+            changed.channel_type,
+          );
+          return conversationType ? { conversationType } : {};
+        })(),
         ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
       },
       raw: rawEvent,
@@ -100,13 +108,23 @@ export function normalizeSlackMessageEdit(
  *
  * The deleted message's `ts` arrives as `event.deleted_ts` and the prior
  * content (including any `thread_ts`) lives in `event.previous_message`.
- * The daemon detects deletes via the `message_deleted` sentinel placed in
- * `callbackData` and uses `source.messageId` (= `deleted_ts`) to look up
- * the stored row. `message.content` is intentionally empty — the daemon
- * just marks the row deleted and does not re-process content.
+ * The daemon routes deletes on `eventKind: "delete"` and uses
+ * `source.messageId` (= `deleted_ts`) to look up the stored row.
+ * `message.content` is intentionally empty: the daemon just marks the row
+ * deleted and does not re-process content.
  *
  * Each delete event gets a unique `externalMessageId` (= eventId) so the
  * dedup pipeline does not collide if Slack re-delivers the event.
+ *
+ * Slack names the deleted post's author in `previous_message.user` and never
+ * who deleted it. A human author rides as the actor: the daemon gates the
+ * delete on that author's membership, which confines it to rows it ingested
+ * from a member. When the author is the assistant itself (`selfAuthored`,
+ * decided by the caller's self-filter) or Slack names no author at all
+ * (another app's `bot_message`, or a `previous_message` Slack left out),
+ * there is no identity claim to enforce: the event rides unattributed on the
+ * channel's synthetic system id, and the daemon applies it only to a row it
+ * can resolve in this chat.
  *
  * Returns null if the event cannot be routed.
  */
@@ -114,6 +132,7 @@ export function normalizeSlackMessageDelete(
   event: unknown,
   eventId: string,
   config: GatewayConfig,
+  options?: { selfAuthored?: boolean },
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageDeletedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -125,9 +144,10 @@ export function normalizeSlackMessageDelete(
   if (!deleted.deleted_ts || !deleted.channel) return null;
   const channel = deleted.channel;
 
-  // Use the previous author for actor identity when available; otherwise fall
-  // back to a synthetic identifier so routing/trust still has something to key on.
-  const actorId = deleted.previous_message?.user ?? "slack-system";
+  const author =
+    options?.selfAuthored === true ? undefined : deleted.previous_message?.user;
+  const actorId = author ?? "slack-system";
+  const actorUnattributed = author === undefined;
 
   const isDm = isSlackDmChannel(channel, deleted.channel_type);
   const routing = resolveAssistant(config, channel, actorId);
@@ -141,12 +161,11 @@ export function normalizeSlackMessageDelete(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "delete",
         content: "",
         conversationExternalId: channel,
         // Unique per delete event to avoid dedup collisions
         externalMessageId: eventId,
-        // Sentinel value the daemon uses to detect deletions
-        callbackData: "message_deleted",
       },
       actor: {
         actorExternalId: actorId,
@@ -156,7 +175,15 @@ export function normalizeSlackMessageDelete(
         // Original message's ts — the lookup key the daemon uses to find
         // the stored row to mark deleted.
         messageId: deleted.deleted_ts,
-        ...(isDm ? {} : { chatType: "channel" }),
+        ...(actorUnattributed ? { actorUnattributed: true } : {}),
+        ...(isDm ? {} : { chatType: "channel" as const }),
+        ...(() => {
+          const conversationType = slackConversationVisibility(
+            channel,
+            deleted.channel_type,
+          );
+          return conversationType ? { conversationType } : {};
+        })(),
         ...(previousThreadTs ? { threadId: previousThreadTs } : {}),
       },
       raw: rawEvent,

@@ -9,6 +9,13 @@ mock.module("../subagent/index.js", () => ({
   getSubagentManager: () => ({
     abortAllForParent: (id: string) => abortedParents.push(id),
     getChildrenOf: () => protectedChildren,
+    hasActiveChildren: () =>
+      protectedChildren.some(
+        (c) =>
+          c.status === "running" ||
+          c.status === "pending" ||
+          c.status === "awaiting_input",
+      ),
   }),
 }));
 
@@ -227,6 +234,18 @@ describe("ConversationEvictor", () => {
   describe("shouldProtect", () => {
     test("skips conversations with running or pending subagents", () => {
       protectedChildren = [{ status: "running" }];
+      const s1 = createMockSession();
+      sessions.set("a", s1);
+
+      const result = evictor.sweep();
+
+      expect(result.skipped).toBe(1);
+      expect(sessions.has("a")).toBe(true);
+      expect(s1.disposed).toBe(false);
+    });
+
+    test("skips conversations with awaiting_input subagents", () => {
+      protectedChildren = [{ status: "awaiting_input" }];
       const s1 = createMockSession();
       sessions.set("a", s1);
 

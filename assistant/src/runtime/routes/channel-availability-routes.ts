@@ -26,7 +26,8 @@ import {
   type ChannelInfo,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { VellumPlatformClient } from "../../platform/client.js";
+import { resolveConfiguredByoEmailService } from "../../email/byo-email-credential.js";
+import { resolveRegisteredInbox } from "../../email/registered-inbox.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -35,48 +36,35 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const BASE_AVAILABLE_CHANNELS: readonly ChannelId[] = [
   "slack",
   "telegram",
+  "discord",
   "phone",
 ] as const;
 
-interface EmailAddressListResponse {
-  count?: number;
-  results?: Array<{ id: string; address: string }>;
-}
-
 /**
- * Best-effort check that an inbox address is registered for this
- * assistant. A platform fetch failure is treated as "no inbox" — we
- * prefer to under-report than block the entire Contacts page when the
- * platform is briefly unreachable.
+ * Best-effort check that email is configured for this assistant: a managed
+ * inbox registered on the platform, or a "your own" provider credential
+ * (whose gateway webhook routes carry inbound just as the managed pipeline
+ * does). An unavailable platform is treated as "no inbox": we prefer to
+ * under-report than block the entire Contacts page when the platform is
+ * briefly unreachable.
+ *
+ * Fresh, preserving this route's long-standing live-read-per-request
+ * behavior: availability is fetched on surface loads, not on a poll, so it
+ * does not need the resolver's cache and should not inherit its staleness.
  */
-async function hasRegisteredInbox(): Promise<boolean> {
-  const client = await VellumPlatformClient.create();
-  if (!client?.platformAssistantId) {
-    return false;
+async function hasConfiguredEmail(): Promise<boolean> {
+  const inbox = await resolveRegisteredInbox({ fresh: true });
+  if (inbox.status === "registered") {
+    return true;
   }
-
-  try {
-    const response = await client.fetch(
-      `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-    );
-    if (!response.ok) {
-      return false;
-    }
-    const data = (await response.json()) as EmailAddressListResponse;
-    if (typeof data.count === "number") {
-      return data.count > 0;
-    }
-    return Array.isArray(data.results) && data.results.length > 0;
-  } catch {
-    return false;
-  }
+  return (await resolveConfiguredByoEmailService()) !== undefined;
 }
 
 async function handleGetChannelAvailability(
   _args: RouteHandlerArgs,
 ): Promise<{ channels: AvailableChannel[] }> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
-  if (await hasRegisteredInbox()) {
+  if (await hasConfiguredEmail()) {
     ids.push("email");
   }
   if (isA2AEnabled(getConfig())) {

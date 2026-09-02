@@ -23,6 +23,7 @@
  */
 
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { clearCameraGateDebug } from "@/stores/camera-gate-debug-store";
 import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 const USER_PREFIX = "vellum:";
@@ -43,11 +44,11 @@ const LEGACY_USER_PREFIXES = [
 ];
 
 /**
- * Legacy device-level keys that used the `vellum_` prefix.
- * Must NOT be cleaned on logout — they are device-scoped settings.
- * Normally these have been migrated to `device:*` by
- * `migrateDeviceSettings()`, but if that migration also failed,
- * this set prevents accidental deletion.
+ * Device-level keys that use the `vellum_` prefix. They match the legacy
+ * user-scoped prefixes above but are device-scoped, so this set keeps the
+ * sweep from deleting them. `vellum_theme` is also the shared platform theme
+ * key (see `clients/docs/AGENTS.md`), which the docs app reads on the same
+ * origin.
  */
 const LEGACY_DEVICE_KEYS = new Set([
   "vellum_theme",
@@ -79,6 +80,11 @@ export function clearUserScopedStorage(): void {
   // Same shape: a typed-storage accessor holds a value in memory when the
   // device refuses writes, so the key sweep below has nothing to remove.
   clearUserScopedOverrides();
+
+  // And again: the camera gate's tuning readout keeps its enable bit in a
+  // store slice and its thresholds in the record the gate reads, neither of
+  // which the key sweep reaches.
+  clearCameraGateDebug();
 
   try {
     sessionStorage.clear();

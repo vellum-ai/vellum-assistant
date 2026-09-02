@@ -97,8 +97,35 @@ function createFakeConversation(conversationId: string): Conversation {
     isProcessing(this: { processing: boolean }) {
       return this.processing;
     },
-    setProcessing(this: { processing: boolean }, value: boolean) {
+    setProcessing(
+      this: { processing: boolean; owner: number },
+      value: boolean,
+    ) {
       this.processing = value;
+      this.owner = value ? this.owner + 1 : 0;
+    },
+    owner: 0,
+    async acquireProcessingFenced(this: {
+      processing: boolean;
+      owner: number;
+    }) {
+      if (this.processing) {
+        return null;
+      }
+      this.processing = true;
+      this.owner += 1;
+      return this.owner;
+    },
+    releaseProcessing(
+      this: { processing: boolean; owner: number },
+      claim: number,
+    ) {
+      if (claim !== this.owner) {
+        return false;
+      }
+      this.processing = false;
+      this.owner = 0;
+      return true;
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -299,7 +326,7 @@ beforeEach(() => {
 // These tests verify the route-level wiring that enables the CDP factory's
 // fallback chain on macOS-originated turns:
 //
-//   1. Extension connected  → extension backend (tested in host-browser-e2e-cloud.test.ts)
+//   1. Extension connected  → extension backend
 //   2. Extension absent, cdp-inspect unavailable → local Playwright fallback
 //
 // Specifically, we verify that when a macOS message enters through

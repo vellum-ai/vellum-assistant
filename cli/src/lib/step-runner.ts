@@ -42,6 +42,7 @@ export function exec(
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     let stdout = "";
@@ -82,6 +83,7 @@ export function execWithStdin(
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     let stdout = "";
@@ -116,6 +118,7 @@ export function execOutput(
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     let settled = false;

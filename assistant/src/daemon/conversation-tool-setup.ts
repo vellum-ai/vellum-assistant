@@ -8,12 +8,15 @@
 
 import type { AssistantEvent } from "../api/index.js";
 import {
+  type ClientOs,
   type HostProxyCapability,
+  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -23,6 +26,7 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
+import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllPluginToolDefinitions,
@@ -410,6 +414,7 @@ export function createToolExecutor(
       sourceThreadId: turnTrust.sourceThreadId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
+      requesterContactId: turnTrust.requesterContactId,
       channelConversationType: turnTrust.conversationType,
       // The binding's external chat id is the canonical conversation address
       // for every channel adapter (Slack channel, Telegram chat, …); it keys
@@ -430,6 +435,7 @@ export function createToolExecutor(
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
+      clientOs: resolveTurnClientOs(ctx).clientOs,
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
@@ -708,6 +714,47 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
+ * Host OS of the client driving this turn. The Electron renderer reports
+ * `interface: "web"` and carries the real OS in `clientOs`, so this prefers
+ * the frozen per-turn value and only falls back to a desktop transport.
+ */
+function resolveTurnClientOs(ctx: Conversation): {
+  clientOs: ClientOs | undefined;
+  transportInterface: Conversation["transportInterface"];
+} {
+  const pin = ctx.toolContextPin;
+  const transportInterface = pin
+    ? pin.transportInterface
+    : ctx.transportInterface;
+  const clientOs = pin
+    ? pin.clientOs
+    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
+      (transportInterface === "macos" ||
+      transportInterface === "windows" ||
+      transportInterface === "linux"
+        ? transportInterface
+        : undefined));
+  return { clientOs, transportInterface };
+}
+
+/**
+ * Windows parity gate: skill tools may declare `supported_client_os`; drop
+ * them when the turn's client OS (or pinned OS for wakes) is not listed.
+ */
+function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
+  const supportedClientOs = getTool(name)?.supportedClientOs;
+  if (!supportedClientOs) {
+    return true;
+  }
+  const { clientOs, transportInterface } = resolveTurnClientOs(ctx);
+  return supportsClientOsForSkillTool(supportedClientOs, name, {
+    clientOs,
+    transportInterface,
+    sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+  });
+}
+
+/**
  * Determine whether a tool is part of the final exposed tool set for the
  * current turn. This helper mirrors the filtering applied by
  * `createResolveToolsCallback` — including the subagent allowlist,
@@ -729,6 +776,9 @@ export function isToolActiveForContext(
   const transportInterface = pin
     ? pin.transportInterface
     : ctx.transportInterface;
+  if (!isToolSupportedOnClientOs(name, ctx)) {
+    return false;
+  }
 
   // When the conversation is acting as a subagent, the parent orchestrator
   // restricts the tool list. A tool that isn't on the allowlist is not
@@ -773,6 +823,20 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  // The react capability follows the transport's declaration: the tool is on
+  // the wire exactly when the turn's channel transport implements `react`,
+  // so the model never sees an option the channel cannot honor. The turn's
+  // own capabilities take precedence over the conversation's structural ones
+  // (same order as `conversationSupportsDynamicUi`): an app-side turn on a
+  // channel-origin conversation has no channel message to react to, and the
+  // executor's channel comes from the turn. Wake pins read as no channel
+  // and hide it.
+  if (name === "react_to_message") {
+    const turnChannel = pin
+      ? undefined
+      : (ctx.currentTurnChannelCapabilities ?? channelCapabilities)?.channel;
+    return supportsChannelReaction(turnChannel);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
@@ -837,7 +901,13 @@ export function isToolActiveForContext(
   if (PLATFORM_TOOL_NAMES.has(name)) {
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
-    return channelCapabilities?.clientOS === "macos" && !hasNoClient;
+    const { clientOs } = resolveTurnClientOs(ctx);
+    return (
+      (clientOs === "macos" ||
+        clientOs === "windows" ||
+        clientOs === "linux") &&
+      !hasNoClient
+    );
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
@@ -1068,6 +1138,9 @@ export function createResolveToolsCallback(
         continue;
       }
       if (excluded.has(name)) {
+        continue;
+      }
+      if (!isToolSupportedOnClientOs(name, ctx)) {
         continue;
       }
       turnAllowed.add(name);

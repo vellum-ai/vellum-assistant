@@ -86,6 +86,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../../messaging/providers/slack/message-metadata.js",
     "../../../../../persistence/auto-analysis-constants.js",
     "../../../../../persistence/checkpoints.js",
+    "../../../../../persistence/conversation-types.js",
     "../../../../../persistence/db-connection.js",
     "../../../../../persistence/embeddings/embed.js",
     "../../../../../persistence/embeddings/embedding-backend.js",
@@ -128,7 +129,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/embedding-reconcile.js",
     "../../../../daemon/trust-context.js",
     "../../../../daemon/turn-latency-sub-spans.js",
-    "../../../../notifications/emit-signal.js",
+    "../../../../notifications/background-failure-signal.js",
     "../../../../persistence/checkpoints.js",
     "../../../../persistence/conversation-types.js",
     "../../../../persistence/db-connection.js",
@@ -173,6 +174,10 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../context/strip-injections.js",
     "../../../context/token-estimator.js",
     "../../../conversations/job-handlers/summarization.js",
+    // The standalone memory worker hosts real agent conversations, so its
+    // entry point starts the same eviction sweep the daemon starts at
+    // startup. No plugin-api equivalent.
+    "../../../daemon/conversation-evictor.js",
     "../../../daemon/date-context.js",
     "../../../daemon/disk-pressure-background-gate.js",
     "../../../daemon/embedding-reconcile.js",

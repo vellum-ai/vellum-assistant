@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon,
   Shield,
 } from "lucide-react";
-import { lazy, useState } from "react";
+import { lazy, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -19,24 +19,31 @@ import {
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import {
+  prefetchShareFeedbackModal,
+  ShareFeedbackModalLazy,
+} from "@/components/share-feedback-modal-lazy";
 import { ThemeToggle } from "@/components/theme-toggle";
+import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
+import { PreferencesUsagePanel } from "./preferences-usage-panel";
+import { useTranslation } from "@/i18n";
 
-// Modal only opens when the user clicks "Share Feedback" — defer loading
-// until then to keep the modal's form deps (markdown editor, etc.) out of
-// the initial bundle.
-const ShareFeedbackModal = lazy(() =>
-  import("@/components/share-feedback-modal").then((m) => ({
-    default: m.ShareFeedbackModal,
+// The top-up checkout only opens from the usage panel's exhausted strip, so
+// its chunk stays out of the initial bundle until then.
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
   })),
 );
 
@@ -45,7 +52,25 @@ const ShareFeedbackModal = lazy(() =>
  * settings entry point rather than a profile row, and the account's identity
  * belongs on the Settings page the menu links to.
  */
-const PREFERENCES_LABEL = "Preferences";
+
+/**
+ * Whether the credits row belongs below the usage panel.
+ *
+ * The dollar balance stays hidden whenever there is a usage reading to stand
+ * in for it. While the included bundle has room the bar is the reading that
+ * matters, and a second number beside it only invites the arithmetic the
+ * usage-relative view exists to avoid. Once the bundle is spent the panel
+ * itself says the next turn draws on extra usage credits, and once the wallet
+ * is empty too its add-credits strip takes over, so the row never earns its
+ * place.
+ *
+ * With no reading to hide behind, the row stays: the panel renders nothing
+ * without one, and hiding the row too would leave the menu with no balance and
+ * no way to buy more.
+ */
+export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
+  return usage == null;
+}
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
@@ -64,6 +89,7 @@ export function PreferencesMenu({
   activeConversationId,
   triggerVariant = "item",
 }: PreferencesMenuProps) {
+  const { t } = useTranslation("chat");
   /* From the menu rather than a prop: this trigger has to reduce to a tile at
      the same moment every other rail entry does, and a threaded prop is that
      one fact derived twice, free to disagree with the menu rendering around
@@ -74,6 +100,22 @@ export function PreferencesMenu({
   const isTouchMobile = useTouchMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  /* Held here rather than in the menu body: the popover and the bottom sheet
+     both unmount their content on close, and the strip closes the menu as it
+     opens the checkout. */
+  const [isAddCreditsOpen, setIsAddCreditsOpen] = useState(false);
+
+  /* Warm the feedback chunk as the menu opens rather than on the click that
+     needs it, so the dialog is usually already there by the time it is asked
+     for. Once per mount: the chunk is cached after the first fetch. */
+  const hasPrefetchedFeedback = useRef(false);
+  useEffect(() => {
+    if (!isOpen || hasPrefetchedFeedback.current) {
+      return;
+    }
+    hasPrefetchedFeedback.current = true;
+    prefetchShareFeedbackModal();
+  }, [isOpen]);
 
   if (!isAuthenticated) {
     return null;
@@ -93,7 +135,7 @@ export function PreferencesMenu({
         {/* `truncate` is belt-and-braces: the label is a fixed short string,
             but the pill shares its row with New Chat and must never grow
             wide enough to overlap it at narrow viewports. */}
-        <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
+        <span className="min-w-0 truncate">{t("preferencesMenu.preferences")}</span>
       </Button>
     ) : collapsed ? (
       /* Collapsed, the same tile every other rail entry reduces to: a circle
@@ -110,7 +152,7 @@ export function PreferencesMenu({
          no room for it beside the glyph. */
       <SideMenu.Item
         icon={CircleUser}
-        label={PREFERENCES_LABEL}
+        label={t("preferencesMenu.preferences")}
         showCollapsedTooltip
         shape="tile"
         active={isOpen}
@@ -133,7 +175,7 @@ export function PreferencesMenu({
            own and needs telling that it is still a control. */
         trigger
         icon={CircleUser}
-        label={PREFERENCES_LABEL}
+        label={t("preferencesMenu.preferences")}
         expandChevron={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
         data-tour-id="settings"
@@ -144,6 +186,8 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
+      onAddCredits={() => setIsAddCreditsOpen(true)}
+      activeConversationId={activeConversationId}
     />
   );
 
@@ -154,7 +198,7 @@ export function PreferencesMenu({
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
           <BottomSheet.Content className="max-h-[85dvh]">
             <BottomSheet.Header className="sr-only">
-              <BottomSheet.Title>Preferences</BottomSheet.Title>
+              <BottomSheet.Title>{t("preferencesMenu.preferences")}</BottomSheet.Title>
             </BottomSheet.Header>
             <BottomSheet.Body className="pt-0">{content}</BottomSheet.Body>
           </BottomSheet.Content>
@@ -172,7 +216,7 @@ export function PreferencesMenu({
               event.preventDefault();
               content?.focus();
             }}
-            className="w-64 rounded-lg p-4"
+            className="w-64"
           >
             {content}
           </Popover.Content>
@@ -180,13 +224,20 @@ export function PreferencesMenu({
       )}
 
       {isFeedbackOpen ? (
+        <ShareFeedbackModalLazy
+          open={isFeedbackOpen}
+          onClose={() => setIsFeedbackOpen(false)}
+          assistantId={assistantId}
+          assistantVersion={assistantVersion}
+          activeConversationId={activeConversationId}
+        />
+      ) : null}
+
+      {isAddCreditsOpen ? (
         <LazyBoundary>
-          <ShareFeedbackModal
-            open={isFeedbackOpen}
-            onClose={() => setIsFeedbackOpen(false)}
-            assistantId={assistantId}
-            assistantVersion={assistantVersion}
-            activeConversationId={activeConversationId}
+          <AddCreditsModal
+            open={isAddCreditsOpen}
+            onOpenChange={setIsAddCreditsOpen}
           />
         </LazyBoundary>
       ) : null}
@@ -197,37 +248,58 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
+  onAddCredits: () => void;
+  activeConversationId?: string | null;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
+  onAddCredits,
+  activeConversationId,
 }: PreferencesMenuContentProps) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  const { enabled: showBillingRows, balance: effectiveBalance } =
-    useBillingBalanceStatus();
-  const isNativeAndroid = useIsNativeAndroid();
+  const {
+    enabled: showBillingRows,
+    balance: effectiveBalance,
+    availableUsageBalance,
+  } = useBillingBalanceStatus();
+  /* The same reading the usage panel below draws, composed once so the row and
+     the bar can never disagree about how much of the bundle is left. */
+  const usage = usePreferencesUsage({ conversationId: activeConversationId });
+  const showCredits = showsMenuCredits(usage);
 
   return (
     <>
       <ThemeToggle className="px-2 py-0" />
 
-      <div className="my-2 border-t border-[var(--border-subtle)]" />
+      <div className="my-1 h-px bg-[var(--border-base)]" />
 
-      {showBillingRows && effectiveBalance !== null ? (
+      <PreferencesUsagePanel
+        conversationId={activeConversationId}
+        onOpenBilling={() => {
+          onClose();
+          navigate(routes.settings.usageBilling);
+        }}
+        onAddCredits={() => {
+          onClose();
+          onAddCredits();
+        }}
+      />
+
+      {showBillingRows && effectiveBalance !== null && showCredits ? (
         <div className="my-2">
           <CreditsCard
-            balance={formatWholeCredits(effectiveBalance)}
-            onAddCredits={
-              isNativeAndroid
-                ? undefined
-                : () => {
-                    onClose();
-                    navigate(routes.settings.usageBilling);
-                  }
-            }
+            balance={formatWholeCredits(
+              displayedCreditsUsd(effectiveBalance, availableUsageBalance),
+            )}
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.usageBilling);
+            }}
           />
         </div>
       ) : null}
@@ -235,7 +307,7 @@ function PreferencesMenuContent({
       {(platformGate === "full" || isElectron()) && (
         <PanelItem
           icon={MessageSquareText}
-          label="Share Feedback"
+          label={t("preferencesMenu.shareFeedback")}
           onSelect={() => {
             onClose();
             onShareFeedback();
@@ -246,7 +318,7 @@ function PreferencesMenuContent({
       {user?.isStaff ? (
         <PanelItem
           icon={Shield}
-          label="Admin"
+          label={t("preferencesMenu.admin")}
           onSelect={() => {
             onClose();
             void openUrl(adminUrl());
@@ -261,7 +333,7 @@ function PreferencesMenuContent({
       */}
       <PanelItem
         icon={SettingsIcon}
-        label="Settings"
+        label={t("preferencesMenu.settings")}
         onSelect={() => {
           onClose();
           navigate(routes.settings.root);

@@ -54,10 +54,22 @@ selectors to subscribe to. Wrapping it in a Zustand store adds
 ceremony without value — `useEventBusStore.getState().publish(...)`
 when `publish(...)` is the actual operation.
 
-The convention: stateless pub/sub registries are plain modules with
-exported functions. They live in `lib/` alongside other app
-infrastructure. The event bus is the canonical example; other
-registries (if any are added) should follow the same shape.
+The convention: `lib/event-bus.ts` is that registry, singular. It is a
+module to use, not a shape to copy. A new stateless signal is an entry in
+`BusEventMap` plus a producer (see
+[`EVENT_BUS.md`](./EVENT_BUS.md#adding-a-new-event)), not a second module with
+its own listener `Set`. A parallel registry is a second mechanism for one job,
+and it is invisible to anyone reading the bus's event table to find out what
+signals exist. Don't stand one up without a documented reason, the same bar
+`EVENT_BUS.md` puts on adding a producer.
+
+The line this section draws is *stateless signal* versus *state*, and only
+the first side belongs on the bus. A module that pairs listeners with
+values consumers read back is a store, however much its listener `Set`
+resembles a registry: that belongs in Zustand, or in `useSyncExternalStore`
+when it is mirroring a browser API it does not own (`hooks/use-element-size.ts`,
+`lib/app-sandbox-debug-flag.ts`). Reaching for the bus there loses selectors
+and gives subscribers no value to read.
 
 ## Zustand store conventions
 
@@ -524,6 +536,38 @@ session probe) settles `platformSession: "absent"`, so bearer-auth
 (local/paired gateway) connections never stay org-gated behind a
 dead cookie.
 
+#### When the boolean is not enough
+
+`useIsOrgReady()` answers a yes/no question, which is what `enabled`
+needs: a query either may fire or may not.
+
+A component that renders one thing per outcome needs more than that.
+The boolean is false both while the org id is still arriving and once
+it has resolved to nothing, and those are opposite instructions to a
+caller: keep waiting, or stop. `useOrgHeaderReadiness()` returns
+`"ready" | "resolving" | "unavailable"` for that case, and
+`getOrgHeaderReadiness()` is the imperative read of the same
+derivation, for async sequences outside the render cycle.
+
+The distinction is load-bearing wherever a capability flag is derived
+from queries this gate disables, because `isLoading` is false for a
+query that is disabled. A flag built only from the queries therefore
+reads as settled while the org is still resolving:
+
+```ts
+const orgReadiness = useOrgHeaderReadiness();
+// "resolving" is the one wait not expressed as a query: it disables
+// them, so on the strength of the queries alone they look settled.
+const settled =
+  orgReadiness !== "resolving" && !catalogLoading && !configLoading;
+```
+
+`useManagedVoiceSelection` derives its `settled` this way. Surfaces
+read that rather than `available` to decide whether to draw an outcome
+at all, because `available` is false while the answer is in flight as
+well as once it is a no: a surface reading it alone states a
+conclusion before one exists.
+
 Reference: [TanStack Query — Dependent Queries](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries)
 
 ### Canonical migration example
@@ -545,7 +589,7 @@ Zustand-as-state** pattern: `use-lifecycle.ts` returns `void` and
 publishes everything it produces (the `assistantState` discriminated
 union, the stable imperative actions) into
 [`src/assistant/lifecycle-store.ts`](../src/assistant/lifecycle-store.ts)
-and [`src/assistant/selection-store.ts`](../src/assistant/selection-store.ts).
+and [`src/assistant/selection.ts`](../src/assistant/selection.ts).
 Consumers read via atomic selectors; nothing flows through outlet
 context. This is the shape to copy when a side-effect orchestrator
 needs to expose its state to the whole tree — not a `useReducer`,

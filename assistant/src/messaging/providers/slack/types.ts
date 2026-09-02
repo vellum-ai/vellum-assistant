@@ -1,5 +1,11 @@
 /** Slack Web API response types. */
 
+import type {
+  AnyBlock,
+  GenericMessageEvent,
+  MessageAttachment,
+} from "@slack/types";
+
 export interface SlackApiResponse {
   ok: boolean;
   error?: string;
@@ -61,7 +67,22 @@ export interface SlackMessage {
   ts: string;
   user?: string;
   bot_id?: string;
+  /**
+   * Display name for `bot_message`-subtype rows (incoming webhooks and
+   * legacy bot posts, which carry no `user` to resolve a name from).
+   */
+  username?: string;
+  /** Profile of the posting app, attached to bot-authored rows. The type is
+   *  indexed off the official message event because `@slack/types` does not
+   *  export `BotProfile` from its root. */
+  bot_profile?: GenericMessageEvent["bot_profile"];
   text: string;
+  /**
+   * Bot/webhook posts routinely leave `text` empty and put the visible
+   * content here or in `blocks`; see `slackMessageRawText`.
+   */
+  attachments?: MessageAttachment[];
+  blocks?: AnyBlock[];
   thread_ts?: string;
   reply_count?: number;
   reactions?: Array<{ name: string; count: number; users: string[] }>;
@@ -143,8 +164,6 @@ export interface SlackConversationsOpenResponse extends SlackApiResponse {
 }
 
 export type SlackConversationMarkResponse = SlackApiResponse;
-
-export type SlackReactionsAddResponse = SlackApiResponse;
 
 export interface SlackUsersListResponse extends SlackApiResponse {
   members: SlackUser[];

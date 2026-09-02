@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
  * as the assistant (a standard-height row painted solid in the avatar's color
@@ -52,7 +53,7 @@ import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
 } from "@/components/sidebar-nav-geometry";
-import { newChatShortcutHint } from "@/domains/chat/new-chat-shortcut";
+import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
@@ -75,12 +76,13 @@ function NewChatTooltip({
   children: ReactElement;
   side: "right" | "top";
 }) {
-  const hint = newChatShortcutHint();
+  const { t } = useTranslation("chat");
+  const hint = useCommandShortcutHint("newConversation");
   return (
     <Tooltip
       content={
         <span className="inline-flex items-center gap-1.5">
-          New Chat
+          {t("assistantNavItem.newChat")}
           <span className="opacity-80">{hint}</span>
         </span>
       }
@@ -129,6 +131,7 @@ export function AssistantNavItem({
   trailingAction,
   expansion,
 }: AssistantNavItemProps) {
+  const { t } = useTranslation("chat");
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
@@ -268,7 +271,7 @@ export function AssistantNavItem({
       <button
         type="button"
         onClick={onNewConversation}
-        aria-label="New Chat"
+        aria-label={t("assistantNavItem.newChat")}
         data-tour-id="new-chat"
         className={cn(
           "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
@@ -294,7 +297,9 @@ export function AssistantNavItem({
         <Plus
           aria-hidden="true"
           className="h-3.5 w-3.5"
-          style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
+          style={{
+            color: "var(--panel-item-icon-fg, var(--content-tertiary))",
+          }}
         />
       </button>
     </NewChatTooltip>
@@ -303,7 +308,7 @@ export function AssistantNavItem({
       <PanelItem
         shape="pill"
         icon={Plus}
-        label="New Chat"
+        label={t("assistantNavItem.newChat")}
         onSelect={onNewConversation}
         style={newConversationTint}
         data-tour-id="new-chat"

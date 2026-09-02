@@ -170,7 +170,7 @@ export { doesSupportVision } from "./vision-support.js";
 // Resolve a stored credential to its plaintext value — the same value
 // `assistant credentials reveal` prints — from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials
-// whose `field` matches the plugin's manifest name; outside any plugin it is
+// whose service matches the plugin's manifest name; outside any plugin it is
 // unscoped. Throws CredentialResolutionError when the ref does not resolve, the
 // store is unreachable, or the credential is out of the plugin's scope.
 export {
@@ -179,7 +179,7 @@ export {
 } from "./resolve-credential.js";
 // Store a credential's plaintext value (the same write `assistant credentials
 // set` performs), creating it or replacing an existing one, named by UUID or a
-// "service/field" reference. A plugin may only write credentials whose `field`
+// "service/field" reference. A plugin may only write credentials whose service
 // matches its manifest name, and the write fails closed with no plugin in
 // context. Throws CredentialStoreError when there is no calling plugin, the ref
 // is malformed, the value is invalid, the store rejects the write, or the
@@ -223,6 +223,18 @@ export { getConfiguredProvider } from "../providers/provider-send-message.js";
 // an image, embedding it, re-encoding it — use this instead of reaching into
 // the host attachment store, so they stay agnostic to how media is persisted.
 export { resolveMediaSourceData } from "../providers/media-resolve.js";
+// Build the `_attachmentId` property of a media block as a spreadable fragment,
+// omitting it when there is no usable id. A plugin that rebuilds a media block
+// (resizing an image, re-encoding a file) uses this to carry the block's link
+// to its attachment row across the rebuild, so host consumers that correlate a
+// block back to its attachment still can.
+export { attachmentIdFragment } from "../providers/types.js";
+// Read the attachment row a media block came from, whichever shape it is in: a
+// reference names it on `source.attachmentId`, an inline block on
+// `_attachmentId`. A plugin that rebuilds a block into inline bytes derives the
+// id through this before stamping it, since the reference shape's id would
+// otherwise be lost with the source it replaced.
+export { mediaBlockAttachmentId } from "../providers/types.js";
 // Classify a provider stop reason: whether the turn was truncated at the
 // output token cap (vs. a natural stop or a tool call). A `post-model-call`
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to
@@ -360,6 +372,12 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+// System cards: a transcript notice authored by the daemon rather than the
+// assistant persona, for telling the user something a turn did to their input
+// that the model's reply cannot explain (e.g. an attachment that could not be
+// sent). Persisted and pushed to clients; not seated in the turn's working
+// history.
+export { persistSystemCard } from "./system-card.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing

@@ -31,6 +31,8 @@ export interface DeleteSecureKeyResult {
   result: DeleteResult;
   /** Human-readable error reason when result="error". */
   error?: string;
+  /** Daemon error code when result="error" (e.g. `CREDENTIAL_IN_USE`). */
+  code?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,13 +106,18 @@ export async function setSecureKeyViaDaemon(
 /**
  * Delete a secret via the daemon IPC socket. Falls back to direct
  * `deleteSecureKeyAsync()` when the daemon is not running.
+ *
+ * `force` carries the caller's confirmation past the daemon's in-use guard,
+ * which refuses a delete while an LLM provider connection resolves its auth
+ * through the credential.
  */
 export async function deleteSecureKeyViaDaemon(
   type: string,
   name: string,
+  force = false,
 ): Promise<DeleteSecureKeyResult> {
   const ipc = await cliIpcCall<{ success: boolean }>("secrets_delete", {
-    body: { type, name },
+    body: force ? { type, name, force } : { type, name },
   });
 
   if (ipc.ok && ipc.result?.success) {
@@ -122,7 +129,9 @@ export async function deleteSecureKeyViaDaemon(
     if (ipc.error.includes("not found") || ipc.error.includes("404")) {
       return { result: "not-found" };
     }
-    return { result: "error", error: ipc.error };
+    return ipc.errorCode !== undefined
+      ? { result: "error", error: ipc.error, code: ipc.errorCode }
+      : { result: "error", error: ipc.error };
   }
 
   // Daemon returned success=false
@@ -133,7 +142,20 @@ export async function deleteSecureKeyViaDaemon(
     };
   }
 
-  // Daemon unreachable — fall back to direct delete.
+  // Daemon unreachable. The in-use guard runs daemon-side, next to the
+  // provider connection records it reads, so a direct delete here would
+  // remove a credential an LLM connection depends on with no check at all.
+  // The delete is refused until the caller either starts the assistant or
+  // states the intent explicitly.
+  if (!force) {
+    return {
+      result: "error",
+      code: "IN_USE_CHECK_UNAVAILABLE",
+      error:
+        "Cannot check whether LLM provider connections depend on this credential while the assistant is not running. Start the assistant, or re-run with --force to delete without the check.",
+    };
+  }
+
   if (type === "api_key") {
     // Delete from both locations; during migration overlap both may exist.
     const credResult = await deleteSecureKeyAsync(

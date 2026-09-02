@@ -24,7 +24,7 @@ capture stops).
 Environment:
   GEMINI_API_KEY     enables editor verdicts; without it the script degrades
                      to fixed-cadence wakes with evenly spaced frames
-  GEMINI_MODEL       default: gemini-3-flash-preview
+  GEMINI_MODEL       default: gemini-3.7-flash
   WATCH_MAX_HOLD     max seconds between wakes (default: 240)
   WATCH_MAX_FRAMES   max frames attached per wake (default: 8)
 """
@@ -40,7 +40,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
 MAX_HOLD = int(os.environ.get("WATCH_MAX_HOLD", "240"))
 MAX_FRAMES = int(os.environ.get("WATCH_MAX_FRAMES", "8"))
 PROXY_SHORT_EDGE = 480
@@ -108,6 +108,11 @@ def save_state(session_dir, state):
     tmp.replace(state_file)
 
 
+def held_seconds(pending_chunks, chunk_seconds):
+    """Total seconds of video accumulated since the last wake."""
+    return int(round(sum(c.get("dur", chunk_seconds) for c in pending_chunks)))
+
+
 def make_proxy(src_path, proxy_path, trim_start=None, trim_duration=None):
     """Downscale (and optionally trim) so it fits Gemini's inline-data limit."""
     cmd = ["ffmpeg", "-v", "error", "-y"]
@@ -124,7 +129,7 @@ def make_proxy(src_path, proxy_path, trim_start=None, trim_duration=None):
 
 
 def editor_prompt(chunk_idx, start_s, dur, chunk_seconds, state, subs_text=None):
-    held_s = len(state["pending"]["chunks"]) * chunk_seconds
+    held_s = held_seconds(state["pending"]["chunks"], chunk_seconds)
     time_label = state.get("time_label", "session time")
 
     if subs_text is not None:
@@ -256,6 +261,13 @@ def extract_frame(chunk_path, t, out_path):
     )
 
 
+def rewind_command_note(source):
+    return (
+        "Run scripts/rewind.py with the host's Python 3 launcher: "
+        f"{source} <out_dir> <start_s> <end_s>. It pulls dense 720p frames."
+    )
+
+
 def build_wake_content(session_dir, state, window_start, window_end, frames, reason):
     pending = state["pending"]
     minutes_away = max(1, int(round((window_end - window_start) / 60)))
@@ -277,9 +289,8 @@ def build_wake_content(session_dir, state, window_start, window_end, frames, rea
 
     time_label = state.get("time_label", "session time")
     rewind_note = state.get("rewind_note") or (
-        f"Raw chunks are in {session_dir}/chunks if you want a closer look "
-        "(scripts/rewind.sh <chunk.mp4> <out_dir> <start_s> <end_s> pulls "
-        "dense 720p frames)."
+        f"Raw chunks are in {session_dir}/chunks if you want a closer look. "
+        + rewind_command_note("<chunk.mp4>")
     )
 
     content = f"""[WATCH] {mmss(window_start)}–{mmss(window_end)} {time_label} \
@@ -330,7 +341,8 @@ def wake(session_dir, conversation_key, state, chunk_seconds, reason=""):
         return state
 
     window_start = pending["chunks"][0]["start_s"]
-    window_end = pending["chunks"][-1]["start_s"] + chunk_seconds
+    last = pending["chunks"][-1]
+    window_end = last["start_s"] + last.get("dur", chunk_seconds)
 
     frames = select_frames(pending["candidates"])
     wake_num = state["wake_count"] + 1
@@ -398,9 +410,8 @@ def process_chunk(
     if from_source:
         state["time_label"] = "media time"
         state["rewind_note"] = (
-            f'Timestamps are media time. For a closer look: scripts/rewind.sh '
-            f'"{chunk_path}" <out_dir> <start_s> <end_s> pulls dense 720p '
-            f"frames straight from the source."
+            "Timestamps are media time. "
+            + rewind_command_note(f'"{chunk_path}"')
         )
     else:
         state["time_label"] = "session time"
@@ -419,25 +430,30 @@ def process_chunk(
         ) or "(no subtitle lines in this window)"
 
     verdict = None
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-        proxy_path = Path(tmp.name)
-    try:
-        if from_source:
-            make_proxy(chunk_path, proxy_path, trim_start=start_s, trim_duration=dur)
-        else:
-            make_proxy(chunk_path, proxy_path)
-        prompt = editor_prompt(idx, start_s, dur, chunk_seconds, state, subs_text)
-        verdict = call_editor(proxy_path, prompt)
-    except subprocess.CalledProcessError as e:
-        print(f"⚠️  Proxy encode failed: {e.stderr.decode()[:200]}", file=sys.stderr)
-    finally:
-        proxy_path.unlink(missing_ok=True)
+    # The proxy encode exists only to feed the editor; skip it without a key.
+    if os.environ.get("GEMINI_API_KEY"):
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            proxy_path = Path(tmp.name)
+        try:
+            if from_source:
+                make_proxy(
+                    chunk_path, proxy_path, trim_start=start_s, trim_duration=dur
+                )
+            else:
+                make_proxy(chunk_path, proxy_path)
+            prompt = editor_prompt(idx, start_s, dur, chunk_seconds, state, subs_text)
+            verdict = call_editor(proxy_path, prompt)
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Proxy encode failed: {e.stderr.decode()[:200]}", file=sys.stderr)
+        finally:
+            proxy_path.unlink(missing_ok=True)
 
     pending = state["pending"]
     pending["chunks"].append(
         {
             "path": str(chunk_path),
             "start_s": start_s,
+            "dur": dur,
             "note": (verdict or {}).get("note", ""),
         }
     )
@@ -474,7 +490,7 @@ def process_chunk(
         add_candidate(0.25 * dur)
         add_candidate(0.75 * dur)
 
-    held_s = len(pending["chunks"]) * chunk_seconds
+    held_s = held_seconds(pending["chunks"], chunk_seconds)
     first_look = state["wake_count"] == 0
     force = held_s >= MAX_HOLD
     wants_wake = verdict is not None and verdict.get("action") == "wake"

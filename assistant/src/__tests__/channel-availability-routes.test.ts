@@ -1,7 +1,8 @@
 /**
  * Tests for `assistant/src/runtime/routes/channel-availability-routes.ts`.
  *
- * The handler returns a fixed base list (`slack`, `telegram`, `phone`) and
+ * The handler returns a fixed base list (`slack`, `telegram`, `discord`,
+ * `phone`) and
  * appends `email` when the platform reports at least one registered email
  * address for this assistant. Platform failures fall back to base-only.
  *
@@ -12,6 +13,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CHANNEL_METADATA } from "../channels/types.js";
+import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
 // Mock state — flipped per-test
@@ -28,6 +30,11 @@ let mockEmailAddressesResponse: {
   body: { count: 0, results: [] },
 };
 let mockFetchThrows = false;
+let mockSecureKeys: Record<string, string> = {};
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
+}));
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
@@ -82,6 +89,7 @@ describe("channels/available", () => {
       body: { count: 0, results: [] },
     };
     mockFetchThrows = false;
+    mockSecureKeys = {};
   });
 
   test("base list only when no email address registered", async () => {
@@ -90,6 +98,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -106,6 +115,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
       "email",
     ]);
@@ -117,6 +127,14 @@ describe("channels/available", () => {
       status: 200,
       body: { results: [{ id: "addr-1", address: "hi@bot" }] },
     };
+
+    const result = (await handler({})) as HandlerResult;
+
+    expect(result.channels.map((c) => c.id)).toContain("email");
+  });
+
+  test("appends email when a your-own provider credential is stored", async () => {
+    mockSecureKeys[credentialKey("resend", "api_key")] = "stored";
 
     const result = (await handler({})) as HandlerResult;
 
@@ -135,6 +153,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -147,6 +166,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -159,6 +179,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -215,5 +236,21 @@ describe("channels/available", () => {
       expect(ch!.setupMessages.guardian.length).toBeGreaterThan(0);
       expect(ch!.setupMessages.contact.length).toBeGreaterThan(0);
     }
+  });
+
+  test("offers Discord for verification, like the other text channels", async () => {
+    const result = (await handler({})) as HandlerResult;
+
+    const discord = result.channels.find((c) => c.id === "discord");
+    // Availability is what a client reads to decide whether to offer setup at
+    // all, so a channel absent here can never be verified however complete its
+    // transport is.
+    expect(discord).toBeDefined();
+    expect(discord!.supportsVerification).toBe(true);
+    expect(discord!.source).toBe("default");
+    expect(discord!.setupMessages.guardian).toContain("Discord");
+    // This field carries a Lucide name, which a brand mark is not. A client
+    // with room for one picks it by channel; every client can draw this.
+    expect(discord!.icon).toBe("hash");
   });
 });

@@ -6,22 +6,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
 import { currentPlanFeatures } from "@/domains/settings/billing/plan-spec";
+import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
+import { useReactivateSubscription } from "@/domains/settings/billing/use-reactivate-subscription";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
   getEffectiveCancelDate,
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
+import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
 import {
   organizationsBillingPlansRetrieveOptions,
-  organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionChangeCreditTierCreateMutation,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation,
   organizationsBillingSubscriptionChangeStorageTierCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
@@ -30,9 +30,12 @@ import type {
   ProPlan,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
+import { useTranslation } from "@/i18n";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -41,6 +44,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   TIER_CHANGE_ELIGIBLE_STATUSES,
   extractMutationError,
+  isDirectCancelEligible,
   resolveCreditTierSelection,
   resolveTierSelection,
 } from "./adjust-plan-utils";
@@ -53,11 +57,26 @@ export interface AdjustPlanModalProps {
   onTierUpgraded?: () => void;
 }
 
-export function AdjustPlanModal({
+export function AdjustPlanModal(props: AdjustPlanModalProps) {
+  // Native Android reopens this configurator on the web app (the
+  // `adjust_plan` param seeds it there) instead of selling tiers in-app.
+  const handsOff = useAndroidBillingHandoff({
+    open: props.open,
+    path: `${routes.settings.usageBilling}&adjust_plan`,
+    onClose: props.onClose,
+  });
+  if (handsOff) {
+    return null;
+  }
+  return <AdjustPlanModalContent {...props} />;
+}
+
+function AdjustPlanModalContent({
   open,
   onClose,
   onTierUpgraded,
 }: AdjustPlanModalProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const subscriptionQuery = useQuery(
@@ -76,7 +95,14 @@ export function AdjustPlanModal({
     organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
+  // "Keep your Plan" posts the reactivate endpoint and the cancellation posts
+  // the cancel endpoint; the portal is the fallback for subscriptions those
+  // endpoints reject (non-entitlement status).
   const portalMutation = useBillingPortalSession(portalSnapshot);
+  const { reactivateSubscription, isPending: reactivatePending } =
+    useReactivateSubscription();
+  const { cancelSubscription, isPending: cancelPending } =
+    useCancelSubscription();
   const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
   const [tierDowngradeOpen, setTierDowngradeOpen] = useState(false);
   const [selectedMachineTier, setSelectedMachineTier] =
@@ -96,15 +122,7 @@ export function AdjustPlanModal({
   // surrounding UI re-fetches, then close the modal.
   useEffect(() => {
     return openUrlFinishedListener(() => {
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingPlansRetrieveQueryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-      });
+      void invalidateBillingQueries(queryClient);
       onClose();
     });
   }, [queryClient, onClose]);
@@ -253,7 +271,7 @@ export function AdjustPlanModal({
       return;
     }
     if (!selectedMachineTier || !selectedStorageTier) {
-      toast.error("Pick a machine and storage tier to continue.", {
+      toast.error(t("adjustPlanModal.pickTiersError"), {
         id: "pro-upgrade-error",
       });
       return;
@@ -285,12 +303,12 @@ export function AdjustPlanModal({
             return;
           }
           if (data.status === "no_op") {
-            toast.info("You're already on Pro.", { id: "pro-upgrade" });
+            toast.info(t("adjustPlanModal.alreadyOnPro"), { id: "pro-upgrade" });
             onClose();
             return;
           }
           toast.error(
-            data.message ?? "Failed to start upgrade. Please try again.",
+            data.message ?? t("adjustPlanModal.upgradeFailed"),
             { id: "pro-upgrade-error" },
           );
         },
@@ -298,7 +316,7 @@ export function AdjustPlanModal({
           toast.error(
             extractMutationError(
               error,
-              "Failed to start upgrade. Please try again.",
+              t("adjustPlanModal.upgradeFailed"),
             ),
             { id: "pro-upgrade-error" },
           );
@@ -307,24 +325,25 @@ export function AdjustPlanModal({
     );
   };
 
-  const handleConfirmDowngrade = () => {
-    if (portalMutation.isPending) {
+  // Success returns to the plans view, where the invalidated subscription
+  // read now shows "Your plan ends on ..." and the Keep-plan CTA; failure
+  // stays on the confirm step so the user can retry (the hook already
+  // toasted).
+  const handleConfirmDowngrade = async () => {
+    if (cancelPending || portalMutation.isPending) {
       return;
     }
-    setView("plans");
-    portalMutation.mutate({});
-  };
-
-  const invalidateBillingQueries = () => {
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingPlansRetrieveQueryKey(),
-    });
+    // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps
+    // the Stripe portal handoff, which can still cancel it.
+    if (!isDirectCancelEligible(subscriptionQuery.data)) {
+      setView("plans");
+      portalMutation.mutate({});
+      return;
+    }
+    const result = await cancelSubscription();
+    if (result) {
+      setView("plans");
+    }
   };
 
   const tierChangePending =
@@ -413,7 +432,7 @@ export function AdjustPlanModal({
     }
 
     void Promise.all(pending).then((results) => {
-      invalidateBillingQueries();
+      void invalidateBillingQueries(queryClient);
 
       // A storage change is always an upgrade (downgrades are disabled in the
       // picker). A machine change needs the explicit downgrade check.
@@ -458,8 +477,8 @@ export function AdjustPlanModal({
       } else {
         toast.success(
           creditChanged && !machineChanged && !storageChanged
-            ? "Credit bundle updated."
-            : "Plan updated.",
+            ? t("adjustPlanModal.creditBundleUpdated")
+            : t("adjustPlanModal.planUpdated"),
           { id: "pro-tier-change" },
         );
       }
@@ -512,7 +531,7 @@ export function AdjustPlanModal({
           changeMachineTierMutation.error ??
             changeStorageTierMutation.error ??
             changeCreditTierMutation.error,
-          "Failed to update plan. Please try again.",
+          t("adjustPlanModal.updateFailed"),
         )
       : null;
 
@@ -542,7 +561,7 @@ export function AdjustPlanModal({
           {view === "downgrade-confirm" ? (
             <>
               <Modal.Header icon={AlertTriangle}>
-                <Modal.Title>Downgrade to Base?</Modal.Title>
+                <Modal.Title>{t("adjustPlanModal.downgradeTitle")}</Modal.Title>
               </Modal.Header>
               <Modal.Body>
                 <Typography
@@ -550,7 +569,7 @@ export function AdjustPlanModal({
                   variant="body-medium-default"
                   className="text-(--content-secondary)"
                 >
-                  Downgrading removes the following Pro features:
+                  {t("adjustPlanModal.downgradeIntro")}
                 </Typography>
                 <ul className="mt-4 list-disc space-y-2 pl-5">
                   {lostFeatures.map((feature) => (
@@ -566,51 +585,50 @@ export function AdjustPlanModal({
                 <Button
                   variant="ghost"
                   onClick={() => setView("plans")}
-                  disabled={portalMutation.isPending}
+                  disabled={cancelPending || portalMutation.isPending}
                   leftIcon={<ArrowLeft className="h-4 w-4" />}
                 >
-                  Back
+                  {t("adjustPlanModal.back")}
                 </Button>
                 <Button
                   variant="danger"
-                  onClick={handleConfirmDowngrade}
-                  disabled={portalMutation.isPending}
+                  onClick={() => void handleConfirmDowngrade()}
+                  disabled={cancelPending || portalMutation.isPending}
                   data-testid="confirm-downgrade-button"
                 >
-                  Confirm Downgrade
+                  {t("adjustPlanModal.confirmDowngrade")}
                 </Button>
               </Modal.Footer>
             </>
           ) : (
             <>
               <Modal.Header>
-                <Modal.Title className="sr-only">Upgrade Plan</Modal.Title>
+                <Modal.Title className="sr-only">{t("adjustPlanModal.upgradePlanTitle")}</Modal.Title>
               </Modal.Header>
               <Modal.Body>
                 {isLoading ? (
                   <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <Typography as="span" variant="body-medium-lighter">
-                      Loading plans...
+                      {t("adjustPlanModal.loadingPlans")}
                     </Typography>
                   </div>
                 ) : isError ? (
                   <Notice tone="error">
-                    Failed to load plans. Please try again later.
+                    {t("adjustPlanModal.loadPlansError")}
                   </Notice>
                 ) : (
                   <div className="space-y-4 sm:space-y-6">
                     <div className="space-y-2 pb-2 pt-4 text-center">
                       <Typography as="p" variant="title-medium">
-                        Your Assistant, Your Way
+                        {t("adjustPlanModal.heroTitle")}
                       </Typography>
                       <Typography
                         as="p"
                         variant="body-medium-lighter"
                         className="text-[var(--content-secondary)]"
                       >
-                        Choose the plan that works best for you and your
-                        assistant.
+                        {t("adjustPlanModal.heroSubtitle")}
                       </Typography>
                     </div>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -666,13 +684,23 @@ export function AdjustPlanModal({
                             creditChanged={creditChanged}
                             tierChangeError={tierChangeError}
                             upgradePending={upgradeMutation.isPending}
-                            portalPending={portalMutation.isPending}
+                            billingActionPending={
+                              portalMutation.isPending || reactivatePending
+                            }
                             onUpgrade={handleUpgrade}
                             onApplyTierChange={handleApplyTierChange}
                             onDowngradeClick={() =>
                               setView("downgrade-confirm")
                             }
-                            onKeepPlan={() => portalMutation.mutate({})}
+                            onKeepPlan={() => {
+                              if (
+                                !isDirectCancelEligible(subscriptionQuery.data)
+                              ) {
+                                portalMutation.mutate({});
+                                return;
+                              }
+                              void reactivateSubscription();
+                            }}
                           />
                         );
                       })}
@@ -687,8 +715,7 @@ export function AdjustPlanModal({
                   className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-tertiary)]"
                 >
                   <span className="pointer-events-auto">
-                    You can change or cancel your plan at any time from billing
-                    settings.
+                    {t("adjustPlanModal.footerNote")}
                   </span>
                 </Typography>
                 <div className="ml-auto">
@@ -697,7 +724,7 @@ export function AdjustPlanModal({
                     onClick={onClose}
                     data-testid="modal-cancel-button"
                   >
-                    Cancel
+                    {t("adjustPlanModal.cancel")}
                   </Button>
                 </div>
               </Modal.Footer>
@@ -711,7 +738,7 @@ export function AdjustPlanModal({
         onConfirm={handleConfirmTierDowngrade}
         confirming={tierChangePending}
         lostFeatures={[
-          "Reduced CPU and memory for your assistant — it will resize to the smaller compute profile.",
+          t("adjustPlanModal.machineDowngradeFeature"),
         ]}
       />
     </>

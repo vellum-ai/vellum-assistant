@@ -39,7 +39,8 @@ import {
   BROWSER_STATUS_MODES,
   type BrowserStatusMode,
   CDP_INSPECT_STATUS_DISCOVERY_CODE,
-  EXTENSION_STATUS_ERROR_MARKER,
+  CHROME_EXTENSION_INSTALL_HINT,
+  CHROME_WEB_STORE_INSTALL_URL,
 } from "./browser-status-constants.js";
 import {
   formatAxSnapshot,
@@ -296,6 +297,7 @@ export function parseBrowserMode(
 const REMEDIATION_HINTS: Record<string, string[]> = {
   // Extension backend
   "extension:transport_error": [
+    CHROME_EXTENSION_INSTALL_HINT,
     "Ensure the Vellum browser extension is installed and enabled, or that the macOS desktop client is running for host browser proxy mode.",
     "For extension mode: check that the extension WebSocket connection is active (extension popup → status).",
     "For macOS host browser proxy: verify the desktop client is running and has an active SSE connection to the assistant.",
@@ -335,11 +337,11 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
     "Ensure Chrome on the user's machine is on version 146 or higher (chrome://settings/help).",
     'Ensure "Allow remote debugging for this browser instance" is toggled on at chrome://inspect/#remote-debugging.',
     "Verify the desktop client is running and has an active SSE connection to the assistant.",
-    "Installing the Vellum Chrome extension is the preferred path and avoids the debug-port requirement.",
+    `Installing the Vellum Chrome extension is the preferred path and avoids the debug-port requirement: ${CHROME_WEB_STORE_INSTALL_URL}`,
   ],
   "host-bridge:transport_error": [
     "The desktop client could not reach Chrome's remote-debugging endpoint on the user's machine.",
-    "Ensure Chrome is running with remote debugging enabled, or install the Vellum Chrome extension (preferred).",
+    `Ensure Chrome is running with remote debugging enabled, or install the Vellum Chrome extension (preferred): ${CHROME_WEB_STORE_INSTALL_URL}`,
     "Verify the desktop client is running and connected.",
   ],
   // Local/Playwright backend
@@ -2485,10 +2487,10 @@ function modeTradeoffs(mode: StatusCheckMode): string[] {
   return MODE_TRADEOFFS[mode];
 }
 
-function extensionSetupActions(): string[] {
+function extensionConnectionActions(): string[] {
   return [
-    "Install the Vellum Assistant Chrome extension from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
-    "Open the extension and pair with your assistant.",
+    CHROME_EXTENSION_INSTALL_HINT,
+    "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
   ];
 }
 
@@ -2517,49 +2519,14 @@ function extractDiscoveryCodes(error: CdpError): string[] {
   return dedupeStrings(codes);
 }
 
-function containsTokenCaseInsensitive(text: string, token: string): boolean {
-  return text.toLowerCase().includes(token.toLowerCase());
-}
-
 function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
   const actions: string[] = [];
-  const message = error.message.toLowerCase();
   const discoveryCodes = extractDiscoveryCodes(error).map((c) =>
     c.toLowerCase(),
   );
 
   if (mode === BROWSER_STATUS_MODE.EXTENSION) {
-    actions.push(...extensionSetupActions());
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.UNAUTHORIZED_ORIGIN,
-      )
-    ) {
-      actions.push(
-        "Ensure this extension ID is present in chrome-extension-allowlist.local.json in $GATEWAY_SECURITY_DIR and restart the assistant.",
-      );
-    }
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.NATIVE_MESSAGING_HOST,
-      )
-    ) {
-      actions.push(
-        "Reinstall the native messaging host manifest and confirm it allows this extension ID.",
-      );
-    }
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.HTTP_401,
-      )
-    ) {
-      actions.push(
-        "Re-pair the extension so it refreshes its local relay credential.",
-      );
-    }
+    actions.push(...extensionConnectionActions());
   }
 
   if (mode === BROWSER_STATUS_MODE.CDP_INSPECT) {
@@ -2651,7 +2618,7 @@ async function checkExtensionModeStatus(
       autoCandidate,
       summary:
         "Extension mode is unavailable: no Chrome Extension is connected.",
-      userActions: extensionSetupActions(),
+      userActions: extensionConnectionActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: { transport: "extension-ws" },
     };

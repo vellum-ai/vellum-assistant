@@ -156,7 +156,7 @@ export function createTrustRulesCreateHandler() {
       );
     }
 
-    const { tool, pattern, risk, description } = body as Record<
+    const { tool, pattern, risk, description, scope } = body as Record<
       string,
       unknown
     >;
@@ -185,9 +185,29 @@ export function createTrustRulesCreateHandler() {
         { status: 400 },
       );
     }
+    // The engine matches rules on (tool, pattern) only, so a directory scope
+    // cannot narrow one. Storing a scoped request anyway would persist a rule
+    // broader than the consent it records; refuse it instead. "everywhere"
+    // is the one value that means what the store does, so it stays accepted
+    // for clients that send it explicitly.
+    if (scope !== undefined && scope !== "everywhere") {
+      return Response.json(
+        {
+          error:
+            'Trust rules apply workspace-wide; "scope" cannot narrow one. Omit it or send "everywhere".',
+        },
+        { status: 400 },
+      );
+    }
 
     try {
-      const rule = store.create({ tool, pattern, risk, description });
+      const rule = store.create({
+        tool,
+        pattern,
+        risk,
+        description,
+        scope: typeof scope === "string" ? scope : null,
+      });
       invalidateTrustRuleCache();
       return Response.json({ rule }, { status: 201 });
     } catch (err) {

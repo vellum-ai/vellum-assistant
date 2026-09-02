@@ -163,12 +163,6 @@ interface SubmitDecisionResponse {
   accepted: boolean;
 }
 
-interface AddTrustRuleResponse {
-  accepted: boolean;
-}
-
-type TrustDecision = "always_allow" | "always_deny";
-
 interface HealthResponse {
   status: string;
   message?: string;
@@ -375,27 +369,6 @@ async function submitDecision(
   );
 }
 
-async function addTrustRule(
-  baseUrl: string,
-  assistantId: string,
-  requestId: string,
-  pattern: string,
-  scope: string,
-  decision: "allow" | "deny",
-  auth?: Record<string, string>,
-): Promise<AddTrustRuleResponse> {
-  return runtimeRequest<AddTrustRuleResponse>(
-    baseUrl,
-    assistantId,
-    "/trust-rules",
-    {
-      method: "POST",
-      body: JSON.stringify({ requestId, pattern, scope, decision }),
-    },
-    auth,
-  );
-}
-
 // ── SSE event types ─────────────────────────────────────────────
 interface SseEvent {
   type: string;
@@ -568,8 +541,6 @@ async function handleConfirmationPrompt(
     confirmation.toolName,
     confirmation.input,
   );
-  const allowlistOptions = confirmation.allowlistOptions ?? [];
-
   chatApp.addStatus(`\u250C ${confirmation.toolName}: ${preview}`);
   chatApp.addStatus(`\u2502 Risk: ${confirmation.riskLevel}`);
   if (confirmation.executionTarget) {
@@ -578,127 +549,12 @@ async function handleConfirmationPrompt(
   chatApp.addStatus("\u2514");
 
   const options = ["Allow once", "Deny once"];
-  if (
-    allowlistOptions.length > 0 &&
-    confirmation.persistentDecisionsAllowed !== false
-  ) {
-    options.push("Allowlist...", "Denylist...");
-  }
 
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
     await submitDecision(baseUrl, assistantId, requestId, "allow", auth);
     chatApp.addStatus("\u2714 Allowed", "green");
-    return;
-  }
-  if (index === 2) {
-    await handlePatternSelection(
-      baseUrl,
-      assistantId,
-      requestId,
-      confirmation,
-      chatApp,
-      "always_allow",
-      auth,
-    );
-    return;
-  }
-  if (index === 3) {
-    await handlePatternSelection(
-      baseUrl,
-      assistantId,
-      requestId,
-      confirmation,
-      chatApp,
-      "always_deny",
-      auth,
-    );
-    return;
-  }
-
-  await submitDecision(baseUrl, assistantId, requestId, "deny", auth);
-  chatApp.addStatus("\u2718 Denied", "yellow");
-}
-
-async function handlePatternSelection(
-  baseUrl: string,
-  assistantId: string,
-  requestId: string,
-  confirmation: PendingConfirmation,
-  chatApp: ChatAppHandle,
-  trustDecision: TrustDecision,
-  auth?: Record<string, string>,
-): Promise<void> {
-  const allowlistOptions = confirmation.allowlistOptions ?? [];
-  const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
-  const options = allowlistOptions.map((o) => o.label);
-
-  const index = await chatApp.showSelection(
-    `${label}: choose command pattern`,
-    options,
-  );
-
-  if (index >= 0 && index < allowlistOptions.length) {
-    const selectedPattern = allowlistOptions[index].pattern;
-    await handleScopeSelection(
-      baseUrl,
-      assistantId,
-      requestId,
-      confirmation,
-      chatApp,
-      selectedPattern,
-      trustDecision,
-      auth,
-    );
-    return;
-  }
-
-  await submitDecision(baseUrl, assistantId, requestId, "deny", auth);
-  chatApp.addStatus("\u2718 Denied", "yellow");
-}
-
-async function handleScopeSelection(
-  baseUrl: string,
-  assistantId: string,
-  requestId: string,
-  confirmation: PendingConfirmation,
-  chatApp: ChatAppHandle,
-  selectedPattern: string,
-  trustDecision: TrustDecision,
-  auth?: Record<string, string>,
-): Promise<void> {
-  const scopeOptions = confirmation.scopeOptions ?? [];
-  const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
-  const options = scopeOptions.map((o) => o.label);
-
-  const index = await chatApp.showSelection(`${label}: choose scope`, options);
-
-  if (index >= 0 && index < scopeOptions.length) {
-    const ruleDecision = trustDecision === "always_deny" ? "deny" : "allow";
-    await addTrustRule(
-      baseUrl,
-      assistantId,
-      requestId,
-      selectedPattern,
-      scopeOptions[index].scope,
-      ruleDecision,
-      auth,
-    );
-    await submitDecision(
-      baseUrl,
-      assistantId,
-      requestId,
-      ruleDecision === "deny" ? "deny" : "allow",
-      auth,
-    );
-    const ruleLabel =
-      trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
-    const ruleColor = trustDecision === "always_deny" ? "yellow" : "green";
-    chatApp.addStatus(
-      `${trustDecision === "always_deny" ? "\u2718" : "\u2714"} ${ruleLabel}`,
-      ruleColor,
-    );
     return;
   }
 

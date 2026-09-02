@@ -2,46 +2,46 @@ import { Heart, Monitor, Moon, Sun } from "lucide-react";
 
 import { cn, SegmentControl } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
 import { type ThemePreference } from "@/utils/theme-preferences";
 import { useThemePreference } from "@/hooks/use-theme-preference";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
-const BASE_THEME_OPTIONS: ReadonlyArray<{
-  value: ThemePreference;
-  label: string;
-  Icon: typeof Monitor;
-}> = [
-  { value: "system", label: "System", Icon: Monitor },
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "dark", label: "Dark", Icon: Moon },
-];
-
-const VELVET_THEME_OPTION = {
-  value: "velvet",
-  label: "Velvet",
-  Icon: Heart,
-} satisfies {
-  value: ThemePreference;
-  label: string;
-  Icon: typeof Monitor;
-};
-
 /**
  * Compact icon-only theme switcher for the sidebar preferences popover.
- * Mirrors the `AppearanceSection` in the Preferences modal — both share the
+ * Mirrors the `ThemePicker` on Settings → General. Both share the
  * `useThemePreference` hook so they stay in sync via the `watchDeviceSetting`
  * listener.
  *
  * Every segment carries a tooltip of its label, which non-obvious options
- * (Velvet's Heart) need. Radix opens those on hover and on keyboard focus but
- * never on a tap, so touch users are not left with a phantom label.
+ * (Velvet's Heart) need. The design library mounts those only where the device
+ * can hover, so a touch user is never left with a label a tap put up and
+ * nothing takes down. The `aria-label` carries the same text either way.
  */
 export function ThemeToggle({ className }: { className?: string } = {}) {
+  const { t } = useTranslation();
   const { theme, setThemePreference } = useThemePreference();
 
+  const baseThemeOptions: ReadonlyArray<{
+    value: ThemePreference;
+    label: string;
+    Icon: typeof Monitor;
+  }> = [
+    { value: "system", label: t("themeToggle.system"), Icon: Monitor },
+    { value: "light", label: t("themeToggle.light"), Icon: Sun },
+    { value: "dark", label: t("themeToggle.dark"), Icon: Moon },
+  ];
+
   const themeOptions = useClientFeatureFlagStore.use.velvet()
-    ? [...BASE_THEME_OPTIONS, VELVET_THEME_OPTION]
-    : BASE_THEME_OPTIONS;
+    ? [
+        ...baseThemeOptions,
+        {
+          value: "velvet" as const,
+          label: t("themeToggle.velvet"),
+          Icon: Heart,
+        },
+      ]
+    : baseThemeOptions;
 
   return (
     <div
@@ -54,10 +54,10 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
         className="text-body-small-default max-md:text-body-large-default"
         style={{ color: "var(--content-secondary)" }}
       >
-        Theme
+        {t("themeToggle.label")}
       </span>
       <SegmentControl<ThemePreference>
-        ariaLabel="Theme"
+        ariaLabel={t("themeToggle.label")}
         value={theme}
         onChange={setThemePreference}
         iconOnly

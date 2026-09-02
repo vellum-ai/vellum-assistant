@@ -1,8 +1,14 @@
+import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
+import { SetupStepList } from "@/components/setup-step-list";
+import { Trans, useTranslation } from "@/i18n";
+
 export interface TelegramSetupCreateStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   /** Suggested display name, offered for the prompt BotFather asks first. */
   suggestedName: string;
   copied: boolean;
@@ -18,12 +24,15 @@ export interface TelegramSetupCreateStepProps {
  * does not: a blocked popup would move the flow past a tab that never opened.
  */
 export function TelegramSetupCreateStep({
+  assistantId,
   suggestedName,
   copied,
   onCopyName,
   onOpenBotFather,
   onContinue,
 }: TelegramSetupCreateStepProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex flex-col gap-4">
       <Typography
@@ -31,8 +40,11 @@ export function TelegramSetupCreateStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        Telegram bots are created by messaging <strong>@BotFather</strong>. Open
-        it, run through the prompts, then come back with the token it gives you.
+        <Trans
+          ns="common"
+          i18nKey="telegramSetupCreateStep.intro"
+          components={{ strong: <strong /> }}
+        />
       </Typography>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -42,10 +54,10 @@ export function TelegramSetupCreateStep({
           onClick={onOpenBotFather}
           rightIcon={<ExternalLink aria-hidden className="size-4" />}
         >
-          Open BotFather
+          {t("telegramSetupCreateStep.openBotFather")}
         </Button>
         <Button type="button" variant="outlined" onClick={onContinue}>
-          Next
+          {t("telegramSetupCreateStep.next")}
         </Button>
       </div>
 
@@ -65,13 +77,18 @@ export function TelegramSetupCreateStep({
               )
             }
           >
-            {copied ? "Copied!" : "Copy name"}
+            {copied
+              ? t("telegramSetupCreateStep.copied")
+              : t("telegramSetupCreateStep.copyName")}
           </Button>
         }
       >
-        For the display name, <strong>{suggestedName}</strong> keeps this bot
-        matching your assistant. The username is separate and does not have to
-        match.
+        <Trans
+          ns="common"
+          i18nKey="telegramSetupCreateStep.displayNameHint"
+          values={{ suggestedName }}
+          components={{ strong: <strong /> }}
+        />
       </Notice>
 
       <Typography
@@ -79,22 +96,34 @@ export function TelegramSetupCreateStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        In BotFather:
+        {t("telegramSetupCreateStep.inBotFather")}
       </Typography>
-      <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
+      <SetupStepList>
         <li>
-          Send <strong>/newbot</strong>
+          <Trans
+            ns="common"
+            i18nKey="telegramSetupCreateStep.stepSendNewBot"
+            components={{ strong: <strong /> }}
+          />
         </li>
-        <li>Give it a display name, which is what people see in chat</li>
+        <li>{t("telegramSetupCreateStep.stepDisplayName")}</li>
         <li>
-          Give it a username, which must be unique and end in{" "}
-          <strong>bot</strong>
+          <Trans
+            ns="common"
+            i18nKey="telegramSetupCreateStep.stepUsername"
+            components={{ strong: <strong /> }}
+          />
         </li>
         <li>
-          BotFather replies with a token after{" "}
-          <strong>Use this token to access the HTTP API</strong>
+          <Trans
+            ns="common"
+            i18nKey="telegramSetupCreateStep.stepTokenReply"
+            components={{ strong: <strong /> }}
+          />
         </li>
-      </ol>
+      </SetupStepList>
+
+      <ChannelAvatarDownload assistantId={assistantId} channel="telegram" />
     </div>
   );
 }

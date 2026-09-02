@@ -23,23 +23,31 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
+  DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
@@ -47,6 +55,8 @@ import type {
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
+  VoiceModeChord,
+  VoiceModeChordRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -72,13 +82,16 @@ export type {
   BundleScanData,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -146,7 +159,16 @@ declare global {
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
-          fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
+          setVoiceModeChord?(
+            activator: VoiceModeChord | null,
+          ): Promise<VoiceModeChordRegistrationResult>;
+          setModifierHold?(
+            hold: ModifierHold,
+          ): Promise<ModifierHoldRegistrationResult>;
+          onRegistrationChange?(
+            callback: (active: boolean) => void,
+          ): () => void;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
         dictation?: {
@@ -162,9 +184,7 @@ declare global {
           onFinalized?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
-          transcribe?(
-            audio: ArrayBuffer,
-          ): Promise<{ ok: boolean; reason?: string }>;
+          transcribe?(audio: ArrayBuffer): Promise<DictationTranscribeResult>;
           onTranscribed?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
@@ -198,6 +218,10 @@ declare global {
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
       };
+      downloads?: {
+        onDone(callback: (event: DownloadDoneEvent) => void): () => void;
+        reveal(id: string): Promise<void>;
+      };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
         titles?(): Promise<Array<{ id: string; label: string }>>;
@@ -222,6 +246,10 @@ declare global {
           assistantId: string,
           name: string,
         ): Promise<LockfileWriteResult>;
+        stampLockfileAssistantOnboarded?(
+          assistantId: string,
+          onboardedAt: string,
+        ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
           organizationId?: string,
@@ -232,10 +260,12 @@ declare global {
           hashedDeviceId: string,
         ): Promise<LocalRevokeDeviceResult>;
         unpair?(assistantId: string): Promise<LockfileWriteResult>;
-        connectImport?(
-          bundle: string,
+        pairingStart?(address: string): Promise<LocalPairingStartResult>;
+        pairingPoll?(
+          handle: string,
           name?: string,
-        ): Promise<LocalConnectImportResult>;
+        ): Promise<LocalPairingPollResult>;
+        pairingCancel?(handle: string): Promise<{ ok: boolean }>;
         sleep?(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,
@@ -246,6 +276,9 @@ declare global {
           options?: LocalUpgradeOptions,
         ): Promise<{ ok: boolean; version?: string; error?: string }>;
         status?(assistantId: string): Promise<LocalAssistantStatusResult>;
+        readAssistantAvatar?(
+          assistantId: string,
+        ): Promise<LocalReadAssistantAvatarResult>;
         guardianToken(
           assistantId: string,
         ): Promise<
@@ -307,6 +340,7 @@ declare global {
         requestStop(): void;
         onStopRequested(callback: () => void): () => void;
         setInteractive(interactive: boolean): void;
+        setHitRegion?(region: DictationOverlayHitRegion | null): void;
       };
       notifications?: {
         show(
@@ -344,10 +378,12 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
+        toggleWatch?(): void;
+        answerWatchRetro?(open: boolean): void;
         activate?(): void;
-        setComposing?(composing: boolean): void;
-        submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
+        advanceIntro?(action: CompanionIntroAction): void;
+        showContextMenu?(): void;
       };
     };
   }

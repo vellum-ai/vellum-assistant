@@ -6,10 +6,15 @@
  * submit/cancel lifecycle for the secret-prompt interaction.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -26,19 +31,28 @@ export async function handleSecretSubmit(
   value: string,
   delivery: string = "store",
 ): Promise<void> {
-  const { pendingSecret, isSubmittingSecret } = useInteractionStore.getState();
-  if (!pendingSecret || isSubmittingSecret) {
+  const { pendingSecret, submittingByKind } = useInteractionStore.getState();
+  // Guards double-submitting this prompt, not any prompt; see
+  // `prompt-submission.ts` for why that is not "anything in flight".
+  if (!pendingSecret || submittingByKind.secret === pendingSecret.requestId) {
     return;
   }
-  useInteractionStore.getState().submitSecretStart();
+  useInteractionStore
+    .getState()
+    .claimSubmission("secret", pendingSecret.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
-    useInteractionStore.getState().submitSecretEnd();
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    useInteractionStore
+      .getState()
+      .releaseSubmission("secret", pendingSecret.requestId);
+    useInteractionStore
+      .getState()
+      .setSecretSavedIfMatches(pendingSecret.requestId, false);
     return;
   }
 
@@ -50,29 +64,51 @@ export async function handleSecretSubmit(
       delivery,
     );
     if (!result.ok) {
-      useChatSessionStore.getState().setError({ message: result.error });
-      useInteractionStore.getState().submitSecretEnd();
+      captureSubmissionRejection("submit_secret_response", result);
+      reportSubmissionFailure(
+        "secret",
+        pendingSecret.requestId,
+        "secretActions.submitFailed",
+      );
+      // Outside the gate: both describe this request's own outcome, and a
+      // superseded prompt still has to let go of the slot it holds.
+      useInteractionStore
+        .getState()
+        .releaseSubmission("secret", pendingSecret.requestId);
+      useInteractionStore
+        .getState()
+        .setSecretSavedIfMatches(pendingSecret.requestId, false);
       return;
     }
 
-    useInteractionStore.getState().submitSecretEnd(true);
+    // The saved tick is the card's own state, separate from who holds the slot.
+    useInteractionStore
+      .getState()
+      .setSecretSavedIfMatches(pendingSecret.requestId, true);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("secret", pendingSecret.requestId);
     const convKey = useConversationStore.getState().activeConversationId;
     if (convKey) {
       useConversationStore.getState().removeAttentionConversationId(convKey);
     }
     const savedRequestId = pendingSecret.requestId;
     setTimeout(() => {
-      const current = useInteractionStore.getState().pendingSecret;
-      if (current?.requestId === savedRequestId) {
-        useInteractionStore.getState().dismissSecret();
-      }
+      useInteractionStore.getState().dismissSecretIfMatches(savedRequestId);
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_secret" });
-    useChatSessionStore
+    reportSubmissionFailure(
+      "secret",
+      pendingSecret.requestId,
+      "secretActions.submitFailed",
+    );
+    useInteractionStore
       .getState()
-      .setError({ message: "Failed to submit secret. Please try again." });
-    useInteractionStore.getState().submitSecretEnd();
+      .releaseSubmission("secret", pendingSecret.requestId);
+    useInteractionStore
+      .getState()
+      .setSecretSavedIfMatches(pendingSecret.requestId, false);
   }
 }
 
@@ -95,7 +131,9 @@ export function handleSecretCancel(): void {
         captureError(err, { context: "cancel_secret" });
       });
   }
-  useInteractionStore.getState().dismissSecret();
+  if (requestId) {
+    useInteractionStore.getState().dismissSecretIfMatches(requestId);
+  }
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
     useConversationStore.getState().removeAttentionConversationId(convKey);

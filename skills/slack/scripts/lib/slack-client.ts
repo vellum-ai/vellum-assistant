@@ -56,11 +56,62 @@ const IDEMPOTENT_METHODS = new Set([
 ]);
 
 /**
- * Execute an authenticated Slack API request via `assistant oauth request`.
- * Retries 429 and 5xx errors with exponential backoff for idempotent methods.
+ * Providers holding a Slack credential, widest reach first.
+ *
+ * `slack_channel` is the bot and the common case. `slack` is an OAuth
+ * connection the user authorized, which is all a workspace has when Slack was
+ * connected as an integration without running the setup wizard. Reads and
+ * lookups work through either.
+ */
+const PROVIDERS = ["slack_channel", "slack"] as const;
+
+type SlackProvider = (typeof PROVIDERS)[number];
+
+/**
+ * Which provider answered, remembered for the life of the process.
+ *
+ * Whether a workspace has a bot is an install-level fact, so it is worth
+ * settling once rather than paying a failed subprocess on every lookup.
+ */
+let resolvedProvider: SlackProvider | null = null;
+
+/**
+ * Execute an authenticated Slack API request.
+ *
+ * The first call tries each provider in turn: a request naming one the
+ * workspace holds no credential for fails at the CLI rather than coming back
+ * as a Slack error, so trying is how this finds out. Later calls go straight
+ * to whichever answered.
  */
 export async function slackRequest<T = unknown>(
   opts: SlackRequestOptions,
+): Promise<SlackResponse<T>> {
+  const candidates: readonly SlackProvider[] = resolvedProvider
+    ? [resolvedProvider]
+    : PROVIDERS;
+  let firstError: unknown;
+  for (const provider of candidates) {
+    try {
+      const result = await requestWithProvider<T>(opts, provider);
+      resolvedProvider = provider;
+      return result;
+    } catch (err) {
+      // Keep the first failure. A bot-configured workspace needs to see that
+      // one; the fallback's "no credential" error would only bury it.
+      if (firstError === undefined) {
+        firstError = err;
+      }
+    }
+  }
+  throw firstError;
+}
+
+/**
+ * Retries 429 and 5xx errors with exponential backoff for idempotent methods.
+ */
+async function requestWithProvider<T>(
+  opts: SlackRequestOptions,
+  provider: SlackProvider,
 ): Promise<SlackResponse<T>> {
   const method = (opts.method ?? "GET").toUpperCase();
   const canRetry = IDEMPOTENT_METHODS.has(method);
@@ -71,7 +122,7 @@ export async function slackRequest<T = unknown>(
       "oauth",
       "request",
       "--provider",
-      "slack_channel",
+      provider,
     ];
 
     args.push("-X", method);
@@ -102,7 +153,11 @@ export async function slackRequest<T = unknown>(
 
     let proc: ReturnType<typeof Bun.spawn>;
     try {
-      proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+      proc = Bun.spawn(args, {
+        windowsHide: true,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
     } catch (err) {
       throw new Error(
         `Failed to spawn assistant oauth request: ${err instanceof Error ? err.message : String(err)}`,

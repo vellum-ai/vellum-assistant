@@ -20,7 +20,6 @@ import {
   geminiThinkingLevels,
   type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
-import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
@@ -281,7 +280,6 @@ export function ProfileAdvancedParams({
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
   const { t } = useTranslation("settings");
-  const supportsSnapshots = useSupportsCompleteProfileSnapshots();
 
   // Each model's hard ceiling doubles as that field's slider/input max. The
   // resolved runtime defaults, however, are what a profile inherits when it
@@ -309,15 +307,6 @@ export function ProfileAdvancedParams({
     // a spacing wrapper the fragment stacked these blocks flush against each
     // other (and against the disclosure edges).
     <div className="space-y-4">
-      {!isReadOnly && supportsSnapshots && (
-        // Profiles are complete overrides: fields left at their default are
-        // baked into the profile at save time and do not track later changes
-        // to the assistant defaults. Pre-0.10.8 assistants still live-inherit
-        // (deep merge), so the line is hidden against them.
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
-          {t("profileAdvancedParams.snapshotsHint")}
-        </p>
-      )}
       {visibility.maxTokens && (
         <TokenBudgetField
           label={t("profileAdvancedParams.maxOutputTokensLabel")}

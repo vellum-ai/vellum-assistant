@@ -101,6 +101,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => mockDbMessages,
+  // Read by camera-frame retention on the compaction pipeline's summarizer
+  // input. Empty unless a test seeds tagged frames.
+  selectSightFrameCaptureTimes: () => sightFrameCaptureTimes,
   getConversation: () => mockConversation,
   createConversation: () => ({ id: "conv-1" }),
   addMessage: () => ({ id: `msg-${Date.now()}` }),
@@ -113,6 +116,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
 mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
+
+/** Tagged camera frames for the retention pass; seeded per test. */
+let sightFrameCaptureTimes = new Map<string, number>();
 
 // Captured defaultCompact invocations + per-test canned result.
 let compactCalls: CompactionContext[] = [];
@@ -366,6 +372,7 @@ describe("Conversation.summarizeUpToMessage", () => {
     mockCompactResult = makeNoopResult();
     mockDbMessages = threeTurnRows();
     mockConversation = baseConversationRow();
+    sightFrameCaptureTimes = new Map();
   });
 
   test("maps the boundary row straight through when there is no context summary", async () => {
@@ -937,5 +944,100 @@ describe("formatSummarizeUpToResult", () => {
 
     expect(card).toContain("Summarized 12 earlier messages.");
     expect(card).toContain("4 recent messages kept in full.");
+  });
+});
+
+/**
+ * `forceCompact`, `maybeCompact`, and `summarizeUpToMessage` all funnel through
+ * the private `runCompaction`, so the retention applied to its summarizer input
+ * covers all three. `forceCompact` is the cheapest of them to drive.
+ */
+describe("direct compaction trims the summarizer's own input", () => {
+  beforeEach(() => {
+    compactCalls = [];
+    slackWatermarkCalls = [];
+    mockCompactResult = makeNoopResult();
+    mockDbMessages = threeTurnRows();
+    mockConversation = baseConversationRow();
+    sightFrameCaptureTimes = new Map();
+  });
+
+  /** A frame as the live history carries it: inline bytes plus its row id. */
+  function frame(attachmentId: string): Message {
+    return {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AAAAAAAA" },
+          _attachmentId: attachmentId,
+        },
+      ],
+    };
+  }
+
+  function framesInCompactCall(): number {
+    return (compactCalls[0]?.messages ?? []).flatMap((message) =>
+      message.content.filter((block) => block.type === "image"),
+    ).length;
+  }
+
+  function frameStubsInCompactCall(): number {
+    return (compactCalls[0]?.messages ?? []).flatMap((message) =>
+      message.content.filter(
+        (block) =>
+          block.type === "text" &&
+          block.text.startsWith("[Camera frame omitted from context:"),
+      ),
+    ).length;
+  }
+
+  test("bounds an over-full camera history before the summary call", async () => {
+    sightFrameCaptureTimes = new Map([
+      ["f1", 1000],
+      ["f2", 2000],
+      ["f3", 3000],
+      ["f4", 4000],
+    ]);
+    const conversation = makeConversation();
+    conversation.messages = [
+      frame("f1"),
+      frame("f2"),
+      frame("f3"),
+      frame("f4"),
+    ];
+
+    await conversation.forceCompact();
+
+    // The summary call is a provider request like any other, so it carries the
+    // bound rather than every frame the session captured.
+    expect(compactCalls).toHaveLength(1);
+    expect(framesInCompactCall()).toBe(2);
+    expect(frameStubsInCompactCall()).toBe(2);
+  });
+
+  test("leaves an untagged history untouched", async () => {
+    const conversation = makeConversation();
+    conversation.messages = [frame("f1"), frame("f2"), frame("f3")];
+
+    await conversation.forceCompact();
+
+    expect(framesInCompactCall()).toBe(3);
+    expect(frameStubsInCompactCall()).toBe(0);
+  });
+
+  test("summarizeUpToMessage reaches the same trim through the shared seam", async () => {
+    sightFrameCaptureTimes = new Map([
+      ["f1", 1000],
+      ["f2", 2000],
+      ["f3", 3000],
+      ["f4", 4000],
+    ]);
+    const conversation = makeConversation();
+    await conversation.summarizeUpToMessage("m4");
+    // The boundary machinery reloads history from the mocked rows, so this
+    // asserts the seam ran, not the frame maths (covered above).
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0].fixedTailStartIndex).toBeDefined();
   });
 });

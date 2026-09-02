@@ -2,7 +2,7 @@
  * Shared helper for computer-use skill wrapper scripts.
  *
  * Each wrapper calls forwardComputerUseProxyTool() to delegate execution to
- * the proxy resolver, which forwards the call to the connected macOS client.
+ * the proxy resolver, which forwards the call to the connected desktop client.
  */
 
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -20,7 +20,7 @@ export function forwardComputerUseProxyTool(
 ): Promise<ToolExecutionResult> {
   if (!context.proxyToolResolver) {
     return Promise.resolve({
-      content: `Cannot execute ${toolName}: no proxy resolver available. This tool requires a connected macOS client.`,
+      content: `Cannot execute ${toolName}: no proxy resolver available. This tool requires a connected desktop client.`,
       isError: true,
     });
   }

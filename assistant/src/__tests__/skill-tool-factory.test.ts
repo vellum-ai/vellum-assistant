@@ -83,11 +83,16 @@ afterAll(async () => {
 
 describe("createSkillTool", () => {
   test("produces a tool with correct name, description, and category", () => {
-    const tool = createSkillTool(makeEntry(), "/skills/my-skill", "v1:test");
+    const tool = createSkillTool(
+      makeEntry({ supported_client_os: ["macos"] }),
+      "/skills/my-skill",
+      "v1:test",
+    );
 
     expect(tool.name).toBe("test_tool");
     expect(tool.description).toBe("A test tool");
     expect(tool.category).toBe("testing");
+    expect(tool.supportedClientOs).toEqual(["macos"]);
   });
 
   // Removed "sets origin to skill" test — the factory no longer stamps an
@@ -470,6 +475,75 @@ describe("createSkillTool — required/type/enum validation", () => {
     );
   });
 
+  test("repairs array shapes before validation and passes the repaired value to the executor", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: {
+            activation_hints: { type: "array", items: { type: "string" } },
+            avoid_when: { type: "array", items: { type: "string" } },
+            files: { type: "array", items: { type: "object" } },
+            name: { type: "string" },
+          },
+          required: ["activation_hints"],
+        },
+      }),
+      tempDir,
+      hash,
+      BUNDLED,
+    );
+
+    const result = await tool.execute(
+      {
+        activation_hints: '["user asks to deploy staging","needs a rollback"]',
+        avoid_when: "the repo is dirty",
+        files: '[{"path":"references/notes.md","content":"hi"}]',
+        name: "x",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.input).toEqual({
+      activation_hints: ["user asks to deploy staging", "needs a rollback"],
+      avoid_when: ["the repo is dirty"],
+      files: [{ path: "references/notes.md", content: "hi" }],
+      name: "x",
+    });
+  });
+
+  test("rejects a truncated array with a self-correcting message", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: {
+            activation_hints: { type: "array", items: { type: "string" } },
+          },
+        },
+      }),
+      tempDir,
+      hash,
+      BUNDLED,
+    );
+
+    const result = await tool.execute(
+      { activation_hints: "[user asks to deploy staging" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "activation_hints must be an array: pass a JSON array, not a string",
+    );
+  });
+
   test("passes valid input through to the executor unchanged", async () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
@@ -680,6 +754,98 @@ function subagentSpawnTool() {
  * than the resolver silently deletes the resolver's behavior, and every test
  * that calls `executeSubagentSpawn` directly still passes.
  */
+describe("createSkillTool: bundled input repairs", () => {
+  const SCAFFOLD_SCHEMA = {
+    type: "object",
+    properties: {
+      skill_id: { type: "string" },
+      body_markdown: { type: "string" },
+      files: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            content: { type: "string" },
+            copy_from: { type: "string" },
+          },
+          required: ["path"],
+        },
+      },
+    },
+    required: ["skill_id", "body_markdown"],
+  };
+
+  function makeScaffoldTool(bundled: boolean) {
+    return createSkillTool(
+      makeEntry({
+        name: "scaffold_managed_skill",
+        executor: "echo.ts",
+        input_schema: SCAFFOLD_SCHEMA,
+      }),
+      tempDir,
+      computeSkillVersionHash(tempDir),
+      bundled,
+    );
+  }
+
+  test("reads `body` as `body_markdown` and reaches the executor", async () => {
+    const result = await makeScaffoldTool(true).execute(
+      { skill_id: "deploy", body: "# Deploy\n" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).input).toEqual({
+      skill_id: "deploy",
+      body_markdown: "# Deploy\n",
+    });
+  });
+
+  test("reads a path-keyed files map as the declared array", async () => {
+    const result = await makeScaffoldTool(true).execute(
+      {
+        skill_id: "deploy",
+        body_markdown: "# Deploy\n",
+        files: { "references/notes.md": "hi" },
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).input.files).toEqual([
+      { path: "references/notes.md", content: "hi" },
+    ]);
+  });
+
+  test("accepts the injected activity field the model is shown", async () => {
+    const result = await makeScaffoldTool(true).execute(
+      {
+        skill_id: "deploy",
+        body_markdown: "# Deploy\n",
+        activity: "Writing the deploy skill",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).input.activity).toBe(
+      "Writing the deploy skill",
+    );
+  });
+
+  test("a non-bundled skill reusing the name keeps its own contract", async () => {
+    const result = await makeScaffoldTool(false).execute(
+      { skill_id: "deploy", body: "# Deploy\n" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("body_markdown is required");
+    expect(result.content).toContain('Unknown parameter "body"');
+  });
+});
+
 describe("createSkillTool: subagent_spawn role validation", () => {
   const ROLE_CASES: ReadonlyArray<readonly [string, SubagentRole]> = [
     ["researcher", "researcher"],

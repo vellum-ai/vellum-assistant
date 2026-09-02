@@ -33,24 +33,79 @@ mock.module("electron", () => ({
   shell: { openExternal: () => Promise.resolve() },
 }));
 
+let featureFlags: Record<string, boolean> = {};
+let onboardingActive = false;
+let chromeDevTools = false;
+mock.module("@vellumai/electron-desktop/settings", () => ({
+  readSetting: () => featureFlags,
+  onSettingChange: () => () => undefined,
+}));
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  readOnboardingActive: () => onboardingActive,
+}));
+mock.module("@vellumai/electron-desktop/devtools", () => ({
+  areChromeDevToolsEnabled: () => chromeDevTools,
+}));
+mock.module("./main-window", () => ({
+  onOnboardingChange: () => () => undefined,
+}));
+
 const { buildWindowsMenu, installWindowsMenu } = await import("./menu");
 
-const submenu = (label: string): Array<Record<string, unknown>> => {
-  const item = buildWindowsMenu({ openAbout: () => undefined }).find(
-    (entry) => entry.label === label,
-  );
+type MenuOptions = Parameters<typeof buildWindowsMenu>[0];
+
+const submenu = (
+  label: string,
+  options: MenuOptions = { openAbout: () => undefined },
+): Array<Record<string, unknown>> => {
+  const item = buildWindowsMenu(options).find((entry) => entry.label === label);
   return item?.submenu as Array<Record<string, unknown>>;
 };
 
-const enabled = (menu: string, label: string): unknown =>
-  submenu(menu).find((item) => item.label === label)?.enabled;
+const enabled = (menu: string, label: string, options?: MenuOptions): unknown =>
+  submenu(menu, options).find((item) => item.label === label)?.enabled;
 
 describe("buildWindowsMenu", () => {
   test("uses Windows roles and disables unavailable providers", () => {
     expect(submenu("Window").some((item) => item.role === "close")).toBe(true);
     expect(enabled("Help", "Check for Updates...")).toBe(false);
     expect(enabled("File", "Install vellum Command...")).toBe(false);
-    expect(enabled("Window", "Pop Out Conversation")).toBe(false);
+    expect(enabled("Window", "Pop Out Conversation")).toBeUndefined();
+  });
+
+  test("gates Settings on onboarding and Developer on its flag", () => {
+    expect(enabled("File", "Settings...")).toBe(true);
+    expect(submenu("Developer")).toBeUndefined();
+    expect(submenu("View").some((item) => item.role === "toggleDevTools")).toBe(
+      false,
+    );
+
+    onboardingActive = true;
+    featureFlags = { "developer-menu-items": true };
+    chromeDevTools = true;
+    try {
+      expect(enabled("File", "Settings...")).toBe(false);
+      expect(
+        submenu("Developer").some((item) => item.label === "Replay Onboarding"),
+      ).toBe(true);
+      expect(
+        submenu("View").some((item) => item.role === "toggleDevTools"),
+      ).toBe(true);
+    } finally {
+      onboardingActive = false;
+      featureFlags = {};
+      chromeDevTools = false;
+    }
+  });
+
+  test("enables update and CLI items when handlers are provided", () => {
+    const options = {
+      openAbout: () => undefined,
+      checkForUpdates: () => undefined,
+      installCli: () => undefined,
+    };
+    expect(enabled("Help", "Check for Updates...", options)).toBe(true);
+    expect(enabled("File", "Install vellum Command...", options)).toBe(true);
   });
 
   test("dispatches committed commands to the focused window", () => {

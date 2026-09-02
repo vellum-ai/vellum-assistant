@@ -29,9 +29,8 @@ import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider
 import { useNativeLaunchScreenReady } from "@/hooks/use-native-launch-screen-ready";
 import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
-import { useRequestOrganizationId } from "@/stores/organization-store";
+import { useRequestScopeKey } from "@/stores/request-scope";
 import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
-import { requestScopeKey } from "@/utils/request-scope-key";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -73,18 +72,11 @@ function RequestScopedQueryClientProvider({
 }
 
 function ScopeKeyedQueryClientProvider({ children }: { children: ReactNode }) {
-  const isAuthenticated = useIsAuthenticated();
-  const user = useAuthStore.use.user();
-  // The organization is the one requests carry, which is the store's resolved
-  // selection or the persisted id standing in for it. Both are store slices,
-  // so the key recomputes whenever the identity behind the cache moves and a
+  // The key recomputes whenever the identity behind the cache moves, so a
   // response is never read as the answer for an identity that replaced it.
-  const organizationId = useRequestOrganizationId();
-  const scopeKey = requestScopeKey({
-    isAuthenticated,
-    userId: user?.id,
-    organizationId,
-  });
+  // Read through the shared scope hook, so a consumer that compares a result
+  // against the scope it was produced under cannot drift from this boundary.
+  const scopeKey = useRequestScopeKey();
 
   return (
     <RequestScopedQueryClientProvider key={scopeKey}>

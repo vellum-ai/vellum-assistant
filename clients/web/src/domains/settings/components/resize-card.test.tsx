@@ -13,6 +13,7 @@ import type { SubscriptionResponse } from "@/generated/api/types.gen";
 let nativeAndroid = false;
 
 mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () => null,
   isNativeAndroid: () => nativeAndroid,
   useIsNativeAndroid: () => nativeAndroid,
 }));
@@ -32,6 +33,7 @@ function subscription(planId: SubscriptionResponse["plan_id"]): SubscriptionResp
     plan_id: planId,
     status: "active",
     renewal_date: null,
+    current_period_start: null,
     current_period_end: null,
     cancel_at_period_end: false,
     cancel_at: null,
@@ -86,21 +88,23 @@ afterEach(() => {
 });
 
 describe("ResizeCard billing actions", () => {
-  test("native Android hides Base plan upgrade entry points", () => {
+  test("native Android keeps the Base plan resize entry points, same as iOS", () => {
     nativeAndroid = true;
     renderCard("base");
 
-    expect(screen.queryByRole("button", { name: "Resize" })).toBeNull();
-    expect(screen.queryByText("Upgrade your plan")).toBeNull();
+    // Both the disk and machine rows carry the Base plan's resize action.
+    expect(
+      screen.getAllByRole("button", { name: "Resize" }).length,
+    ).toBeGreaterThan(0);
   });
 
-  test("native Android can resize within Pro without an upgrade link", () => {
+  test("native Android keeps the Pro resize modal's upgrade link, same as iOS", () => {
     nativeAndroid = true;
     renderCard("pro");
 
     fireEvent.click(screen.getByRole("button", { name: "Increase Size" }));
 
     expect(screen.getByText("Resize Assistant")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Upgrade plan" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Upgrade plan" })).toBeTruthy();
   });
 });

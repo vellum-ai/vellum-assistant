@@ -9,10 +9,12 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+
 import {
   listGuardianRequestsOrEmpty,
   listPendingRequestsByDestinationOrEmpty,
 } from "../../../channels/gateway-guardian-requests.js";
+import { audienceForReader } from "../../../channels/message-audience.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
@@ -34,21 +36,11 @@ export interface GuardianReplyInterceptParams {
   trimmedContent: string;
   hasCallbackData: boolean;
   callbackData: string | undefined;
-  /**
-   * For emoji-reaction decisions: the channel-native id (Slack `ts`) of the
-   * message the reaction was attached to. Threaded to the router so it can
-   * recover the target request from the reacted card's delivery record.
-   */
-  reactedMessageTs?: string;
   rawSenderId: string | undefined;
   canonicalSenderId: string | null;
   sourceChannel: ChannelId;
   conversationExternalId: string;
-  /**
-   * Conversation the message arrived in. Reactions resolve their target by the
-   * reacted card's own address and are routed before any conversation is
-   * known, so they pass none.
-   */
+  /** Conversation the message arrived in. */
   conversationId?: string;
   /** Inbound event id, echoed on the consumed response when the caller has one. */
   eventId?: string;
@@ -80,7 +72,6 @@ export async function handleGuardianReplyIntercept(
     trimmedContent,
     hasCallbackData,
     callbackData,
-    reactedMessageTs,
     rawSenderId,
     canonicalSenderId,
     sourceChannel,
@@ -132,43 +123,34 @@ export async function handleGuardianReplyIntercept(
   // guardian can reply before the row is persisted. Cross-chat
   // contamination is unlikely there because each chat is a distinct
   // conversation with no thread concept.
-  // Reactions address one specific request by the reacted card's message id,
-  // so they bypass the pending-request list scoping that the text/NL paths
-  // need — the router's reaction branch resolves the target directly.
-  const isReaction = callbackData?.startsWith("reaction:") === true;
   let pendingScope: GuardianPendingScope | undefined;
-  if (!isReaction) {
-    // Hint reads degrade to empty on gateway failure: Slack then blocks the
-    // identity fallback (safe), other channels keep it (unchanged posture).
-    const deliveryScopedPendingRequests =
-      await listPendingRequestsByDestinationOrEmpty({
-        channel: sourceChannel,
-        chatId: conversationExternalId,
-      });
-    if (deliveryScopedPendingRequests.length > 0) {
-      const deliveryIds = new Set(
-        deliveryScopedPendingRequests.map((r) => r.id),
-      );
-      // Also include identity-based pending requests so we don't hide them
-      const identityId = canonicalSenderId ?? rawSenderId!;
-      const identityPending = await listGuardianRequestsOrEmpty({
-        status: "pending",
-        guardianExternalUserId: identityId,
-      });
-      for (const r of identityPending) {
-        deliveryIds.add(r.id);
-      }
-      pendingScope = { mode: "scoped", requestIds: [...deliveryIds] };
-    } else if (sourceChannel === "slack") {
-      // Block identity-based fallback on Slack to prevent cross-chat
-      // NL/free-text interception. See comment above for rationale.
-      pendingScope = { mode: "blocked" };
+  // Hint reads degrade to empty on gateway failure: Slack then blocks the
+  // identity fallback (safe), other channels keep it (unchanged posture).
+  const deliveryScopedPendingRequests =
+    await listPendingRequestsByDestinationOrEmpty({
+      channel: sourceChannel,
+      chatId: conversationExternalId,
+    });
+  if (deliveryScopedPendingRequests.length > 0) {
+    const deliveryIds = new Set(deliveryScopedPendingRequests.map((r) => r.id));
+    // Also include identity-based pending requests so we don't hide them
+    const identityId = canonicalSenderId ?? rawSenderId!;
+    const identityPending = await listGuardianRequestsOrEmpty({
+      status: "pending",
+      guardianExternalUserId: identityId,
+    });
+    for (const r of identityPending) {
+      deliveryIds.add(r.id);
     }
+    pendingScope = { mode: "scoped", requestIds: [...deliveryIds] };
+  } else if (sourceChannel === "slack") {
+    // Block identity-based fallback on Slack to prevent cross-chat
+    // NL/free-text interception. See comment above for rationale.
+    pendingScope = { mode: "blocked" };
   }
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
-    channel: sourceChannel,
     actor: {
       actorPrincipalId: guardianPrincipalId ?? undefined,
       actorExternalUserId: canonicalSenderId ?? rawSenderId!,
@@ -177,7 +159,6 @@ export async function handleGuardianReplyIntercept(
     },
     conversationId,
     callbackData,
-    reactedMessageTs,
     pendingScope,
     approvalConversationGenerator,
     channelDeliveryContext: {
@@ -196,11 +177,13 @@ export async function handleGuardianReplyIntercept(
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       // On Slack, send guardian management replies (disambiguation, pending
-      // request lists, etc.) as ephemeral so only the guardian sees them.
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        routerReplyPayload.ephemeral = true;
-        routerReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      // request lists, etc.) so only the guardian sees them where a room is
+      // shared.
+      routerReplyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, routerReplyPayload);
       } catch (err) {

@@ -23,6 +23,13 @@ export interface ConversationListContextValue {
    * below the menu that knows which variant is mounted.
    */
   overlayCards?: boolean;
+  /**
+   * The overlay drawer's scrollport. Overlay lists grow with this ancestor
+   * and virtualize against it, so conversation rows can travel into the
+   * padding reserved for the floating Preferences and New Chat pills.
+   * Unset on the rail, where each section owns its own scroller.
+   */
+  scrollParent?: HTMLElement;
   activeConversationId?: string;
   /** Whether the *active* conversation is mid-turn (its row shows a spinner). */
   activeConversationProcessing?: boolean;
@@ -38,11 +45,22 @@ export interface ConversationListContextValue {
   onRename?: (conversation: Conversation) => void;
   onArchive?: (conversation: Conversation) => void;
   onUnarchive?: (conversation: Conversation) => void;
+  /** Permanently delete a conversation after the host's confirmation gate. */
+  onDelete?: (conversation: Conversation) => void;
   onMarkRead?: (conversation: Conversation) => void;
   onMarkUnread?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+  /**
+   * Whether the viewer passes the internal-thread-actions gate, which covers
+   * "Copy conversation ID" and "Open in New Window". Carried as a plain flag
+   * rather than folded into the callbacks because the first is handled
+   * entirely in the row (there is no handler for the surface to withhold), and
+   * because the header gates the same pair off the same signal, so the two
+   * menus stay in step. See `@/lib/auth/internal-thread-actions`.
+   */
+  showInternalActions?: boolean;
 
   /** Custom groups available as "Move to group" targets in each row's menu. */
   conversationGroups?: ConversationGroup[];

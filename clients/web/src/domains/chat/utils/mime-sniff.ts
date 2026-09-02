@@ -43,8 +43,12 @@ const OOXML_MIME_TYPES: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
-/** Server types that name no format and must not shadow the extension map. */
-const GENERIC_MIME_TYPES = new Set([
+/**
+ * Types that name no format, so they must not shadow what the filename or the
+ * bytes say. An empty type is the same claim made by saying nothing.
+ */
+export const GENERIC_MIME_TYPES = new Set([
+  "",
   "application/octet-stream",
   "binary/octet-stream",
 ]);
@@ -190,21 +194,55 @@ export function sniffMimeType(bytes: Uint8Array): string | null {
   return sniffMarkup(bytes);
 }
 
+/**
+ * Bytes read to classify a blob by signature: enough for every signature
+ * {@link sniffMimeType} tests (the Matroska DocType scan is the deepest) while
+ * still being a single small read out of a multi-megabyte file.
+ */
+const SIGNATURE_SNIFF_BYTES = 256;
+
+/**
+ * Type of a blob's leading bytes, or null when they match no known signature.
+ *
+ * Asks the bytes rather than the blob's `type` or name, which a browser derives
+ * from the filename extension: a HEIC photo renamed `.png` reports `image/png`
+ * and passes a file input's `accept` filter untouched.
+ */
+export async function sniffBlobMimeType(blob: Blob): Promise<string | null> {
+  const head = await blob.slice(0, SIGNATURE_SNIFF_BYTES).arrayBuffer();
+  return sniffMimeType(new Uint8Array(head));
+}
+
+/** A media type without its parameters, lowercased: `image/jpeg; q=0.8` reads as `image/jpeg`. */
+export function baseMimeType(raw: string): string {
+  return raw.split(";")[0]!.trim().toLowerCase();
+}
+
 function normalizeMimeType(raw: string | null): string | null {
   if (!raw) {
     return null;
   }
-  const mime = raw.split(";")[0]!.trim().toLowerCase();
+  const mime = baseMimeType(raw);
   return mime.length > 0 ? mime : null;
 }
 
-function extensionOf(filename: string): string {
+/**
+ * A filename's extension, lowercased, or `""` where it has none.
+ *
+ * Reads only the last path segment, so a directory named `photos.2024` does not
+ * lend its suffix to a dotless file inside it, and a leading dot names a hidden
+ * file rather than an extension.
+ */
+export function extensionOf(filename: string): string {
   const base = filename.slice(filename.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   if (dot <= 0) {
     return "";
   }
-  return base.slice(dot + 1).toLowerCase();
+  return base
+    .slice(dot + 1)
+    .trim()
+    .toLowerCase();
 }
 
 function kindForMimeType(mime: string | null): LocalFileKind {
@@ -247,7 +285,9 @@ export function resolveLocalFileType(opts: {
   // say. Naming the real format keeps the document previews reachable while
   // still letting a genuine mismatch (a `.docx` holding png bytes) win.
   const ooxmlMime =
-    sniffed === "application/zip" ? (OOXML_MIME_TYPES[extension] ?? null) : null;
+    sniffed === "application/zip"
+      ? (OOXML_MIME_TYPES[extension] ?? null)
+      : null;
   const trustedSniff = svgShadowsDocument ? null : (ooxmlMime ?? sniffed);
   const server = normalizeMimeType(opts.serverMime);
   const namedServer = server && !GENERIC_MIME_TYPES.has(server) ? server : null;

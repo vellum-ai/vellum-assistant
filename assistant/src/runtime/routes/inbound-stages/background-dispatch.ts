@@ -7,12 +7,11 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { AssistantEvent } from "../../../api/index.js";
-import {
-  extractMessageTsFromCallbackUrl,
-  extractThreadTsFromCallbackUrl,
-  isSlackDeliveryCallbackUrl,
-} from "../../../channels/slack-callback-url.js";
+import type {
+  AssistantActivityPhase,
+  AssistantEvent,
+} from "../../../api/index.js";
+import { resolveGuardianPromptDelivery } from "../../../approvals/guardian-channel-delivery.js";
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import {
   getGuardianDelivery,
@@ -20,14 +19,16 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
-import { sendChannelReaction } from "../../../messaging/providers/index.js";
+import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {
-  sendChannelTyping,
-  supportsChannelTyping,
+  channelActivityRefreshMs,
+  setChannelActivity,
+  supportsChannelActivity,
 } from "../../../messaging/providers/index.js";
 import {
   getSiblingStreamedReplyTs,
   linkMessage,
+  storeInboundChannelMetadata,
   storeInboundSlackMetadata,
   storeReplyMessageId,
   storeStreamedReplyTs,
@@ -35,6 +36,7 @@ import {
 import {
   deferRetryUntilIdle,
   isDeduplicatedDeliveryOwnedBySibling,
+  markDeliveryDelivered,
   markProcessed,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
@@ -54,11 +56,6 @@ import type {
 } from "../../http-types.js";
 import { hasDeliverableAssistantText } from "../../no-response.js";
 import { createSlackReplySession } from "../../slack-reply-session.js";
-import type { TaskProgressData } from "../../slack-task-progress.js";
-import {
-  getTaskProgressDataFromSurfaceData,
-  mergeTaskProgressData,
-} from "../../slack-task-progress.js";
 import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
@@ -116,6 +113,30 @@ export interface BackgroundProcessingParams {
    * `slackMeta` envelope for the chronological renderer.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Neutral per-row channel envelope for non-Slack channels, the counterpart
+   * of `slackInbound`: threaded through to `persistUserMessage` so the row
+   * is tagged with `providerMeta` and can say which external message it is.
+   * A reaction-driven wake turn rides the same lane with its reaction
+   * envelope, so the turn's own persisted row IS the reaction row.
+   */
+  channelInbound?: ProviderMessageMetadata;
+  /** See `ProcessMessageOptions.slackReactionRowMeta`. TRANSITIONAL. */
+  slackReactionRowMeta?: string;
+  /** Explicit idempotency key for this turn's persisted row. */
+  clientMessageId?: string;
+  /** Persist the triggering row without indexing it. */
+  skipUserMessageIndexing?: boolean;
+  /**
+   * Called when the turn could not run because a non-channel turn re-took
+   * the processing lock after admission. When present it REPLACES the
+   * retry-sweep deferral: that lane rebuilds a turn from its stored payload
+   * as a plain message, so a caller whose event stores nothing a turn can be
+   * rebuilt from (a reaction wake, whose payload is delivery-only) degrades
+   * through this hook instead, e.g. by persisting the passive row the turn
+   * would have created.
+   */
+  onTurnLostToBusy?: () => Promise<void>;
 }
 
 /**
@@ -147,15 +168,25 @@ export function processChannelMessageInBackground(
     clientTimezone,
     slackBotMentioned,
     slackInbound,
+    channelInbound,
+    slackReactionRowMeta,
+    clientMessageId,
+    skipUserMessageIndexing,
+    onTurnLostToBusy,
   } = params;
 
-  // Capture the Slack ingress metadata onto the stored payload up front — before
-  // the admission wait or any processing — so if the daemon dies mid-wait or
-  // mid-turn, the retry sweep replays with the SAME `slackInbound` this turn
-  // used. That keeps the derived idempotency key identical (the replay dedups
-  // against a turn this attempt already persisted) and carries full slackMeta.
+  // Capture the channel ingress metadata onto the stored payload up front,
+  // before the admission wait or any processing, so if the daemon dies
+  // mid-wait or mid-turn, the retry sweep replays with the SAME envelope this
+  // turn used. For Slack that keeps the derived idempotency key identical
+  // (the replay dedups against a turn this attempt already persisted) and
+  // carries full slackMeta; for every other channel it carries the same
+  // `providerMeta` onto the replayed row.
   if (slackInbound) {
     storeInboundSlackMetadata(eventId, slackInbound);
+  }
+  if (channelInbound) {
+    storeInboundChannelMetadata(eventId, channelInbound);
   }
 
   // Defer the whole turn + delivery until the conversation's processing lock is
@@ -166,20 +197,14 @@ export function processChannelMessageInBackground(
   // `channel-turn-admission.ts` for why channel turns defer rather than route
   // through the SSE-oriented conversation queue.
   void withChannelTurnAdmission(conversationId, async () => {
-    const stopTypingHeartbeat =
-      replyCallbackUrl && supportsChannelTyping(replyCallbackUrl)
-        ? startTypingHeartbeat(replyCallbackUrl, externalChatId)
-        : undefined;
-
-    const slackThinkingStatus = createSlackThinkingStatusController({
-      sourceChannel,
+    const channelActivity = startChannelActivity({
       replyCallbackUrl,
+      conversationId,
       chatId: externalChatId,
-      assistantId,
-      startImmediately: shouldStartSlackThinkingStatusImmediately({
-        sourceChannel,
+      initiatorUserId: slackInbound?.actorExternalUserId,
+      startImmediately: shouldShowActivityImmediately({
         chatType,
-        slackBotMentioned,
+        botMentioned: slackBotMentioned,
       }),
     });
     const stopApprovalWatcher = replyCallbackUrl
@@ -189,6 +214,7 @@ export function processChannelMessageInBackground(
           externalChatId,
           trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
+          guardianChatId: trustCtx.guardianChatId,
           requesterExternalUserId: trustCtx.requesterExternalUserId,
           replyCallbackUrl,
           assistantId,
@@ -226,7 +252,6 @@ export function processChannelMessageInBackground(
         chatType,
         replyCallbackUrl,
         chatId: externalChatId,
-        assistantId,
         recipientUserId: slackInbound?.actorExternalUserId,
         recipientTeamId: slackInbound?.actorTeamId,
         // Durably record the streamed message `ts` the instant the stream
@@ -243,7 +268,7 @@ export function processChannelMessageInBackground(
           replyMessageId = msg.messageId;
         }
         slackReplySession?.observeEvent(msg);
-        slackThinkingStatus?.observeEvent(msg);
+        channelActivity?.observeEvent(msg);
       };
 
       let userMessageId: string | undefined;
@@ -264,6 +289,10 @@ export function processChannelMessageInBackground(
           ...(displayContent !== undefined ? { displayContent } : {}),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackInbound ? { slackInbound } : {}),
+          ...(channelInbound ? { channelInbound } : {}),
+          ...(slackReactionRowMeta ? { slackReactionRowMeta } : {}),
+          ...(clientMessageId ? { clientMessageId } : {}),
+          ...(skipUserMessageIndexing ? { skipUserMessageIndexing } : {}),
           onEvent: observeAgentEvent,
           sourceChannel,
           sourceInterface,
@@ -271,22 +300,40 @@ export function processChannelMessageInBackground(
         userMessageId = result.messageId;
         deduplicatedIngress = result.deduplicated === true;
         linkMessage(eventId, userMessageId);
-        markProcessed(eventId);
+        // Record the reply row BEFORE marking the event processed. Stranded
+        // delivery recovery treats `processed` as the point an event becomes
+        // eligible and reads the reply id from the stored payload, so an
+        // event that becomes eligible first would be skipped by that step
+        // and never deliver. Crashing between these two leaves the row
+        // `pending` instead, which the orphan step already recovers.
         replyMessageId ??= result.assistantMessageId;
         if (replyMessageId) {
           storeReplyMessageId(eventId, replyMessageId);
         }
+        markProcessed(eventId);
       } catch (err) {
         // Stop any live Slack stream cleanly. Its `ts` is already durably
         // recorded via `onStreamOpen`, so the retry sweep can reconcile
         // against that message rather than posting a duplicate.
         await slackReplySession?.finish();
         if (isConversationBusyError(err)) {
+          if (onTurnLostToBusy) {
+            // The sweep's processing lane cannot rebuild this turn (see the
+            // hook's doc), so the caller degrades in its own way instead.
+            // Nothing was persisted: the busy error is thrown before the
+            // row insert.
+            log.info(
+              { conversationId, eventId },
+              "Channel turn lost the processing lock after admission; degrading via caller fallback",
+            );
+            await onTurnLostToBusy();
+            return;
+          }
           // Admission observed the conversation idle, but a non-channel turn
           // (web / wake / voice) re-took the processing lock before this turn
           // could. Re-schedule for the retry sweep without burning a retry
           // attempt (`deferRetryUntilIdle`) so it reprocesses and delivers from
-          // the stored payload once the lock frees — a plain processing-failure
+          // the stored payload once the lock frees: a plain processing-failure
           // record would classify the busy message as fatal and dead-letter it
           // (a silent drop), and even a retryable one could exhaust the budget
           // under sustained contention.
@@ -301,6 +348,13 @@ export function processChannelMessageInBackground(
           { err, conversationId },
           "Background channel message processing failed",
         );
+        if (onTurnLostToBusy) {
+          // A caller that opted out of sweep replay has no retry lane at
+          // all: its event is already marked processed, so a failure record
+          // would only feed the sweep an event it cannot rebuild. The
+          // best-effort turn is simply lost.
+          return;
+        }
         recordProcessingFailure(eventId, err);
         return;
       }
@@ -342,6 +396,10 @@ export function processChannelMessageInBackground(
           { conversationId, eventId },
           "Skipping channel reply delivery for deduplicated ingress event; a prior attempt owns delivery",
         );
+        // The sibling owns delivery, so settle this row rather than leaving it
+        // `pending`, which stranded-delivery recovery reads as delivery still
+        // owed and would act on after a restart.
+        markDeliveryDelivered(eventId);
       } else if (replyCallbackUrl) {
         try {
           await finalizeEventDelivery({
@@ -365,8 +423,7 @@ export function processChannelMessageInBackground(
         }
       }
     } finally {
-      stopTypingHeartbeat?.();
-      slackThinkingStatus?.stop();
+      channelActivity?.stop();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
@@ -379,382 +436,198 @@ export function processChannelMessageInBackground(
 }
 
 // ---------------------------------------------------------------------------
-// Telegram typing heartbeat
+// Channel activity indicator
 // ---------------------------------------------------------------------------
 
 /**
- * How often the working indicator is re-sent while a turn runs.
- *
- * Every channel that has one expires it after a few seconds and offers no
- * start/stop pair to hold it open, so showing it across a multi-second turn
- * means re-sending on a timer. The interval has to stay under the shortest
- * expiry of any channel that implements `typing`: Telegram is about five
- * seconds, Discord about ten. Anyone changing it should check the current
- * windows first.
- *
- * No explicit stop is needed: both clear the indicator when the bot posts.
- *
- * https://core.telegram.org/bots/api#sendchataction
- * https://discord.com/developers/docs/resources/channel#trigger-typing-indicator
+ * How often the phase is recomputed for a channel whose indicator holds until
+ * it is changed. Such a channel is only called when the phase actually moves,
+ * so this costs a comparison rather than a request.
  */
-const TYPING_INTERVAL_MS = 4_000;
+const ACTIVITY_PHASE_POLL_MS = 1_000;
 
-function startTypingHeartbeat(callbackUrl: string, chatId: string): () => void {
-  let active = true;
-  let inFlight = false;
-
-  const emitTyping = (): void => {
-    if (!active || inFlight) {
-      return;
-    }
-    inFlight = true;
-    void sendChannelTyping(callbackUrl, chatId)
-      .catch((err) => {
-        log.debug(
-          { err, chatId },
-          "Failed to deliver Telegram typing indicator",
-        );
-      })
-      .finally(() => {
-        inFlight = false;
-      });
-  };
-
-  emitTyping();
-
-  const interval = setInterval(emitTyping, TYPING_INTERVAL_MS);
-  (interval as { unref?: () => void }).unref?.();
-
-  return () => {
-    active = false;
-    clearInterval(interval);
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Slack Assistants API thinking status indicator
-// ---------------------------------------------------------------------------
-
-type SlackThinkingStatusController = {
+type ChannelActivityController = {
   observeEvent: (msg: AssistantEvent) => void;
   stop: () => void;
 };
 
-type SlackThinkingStatusHandle = {
-  updateLoadingMessages: (loadingMessages?: string[]) => void;
-  clear: () => void;
-};
-
-export function shouldStartSlackThinkingStatusForText(text: string): boolean {
+export function shouldShowActivityForText(text: string): boolean {
   return hasDeliverableAssistantText(text);
 }
 
-function shouldEmitSlackThinkingStatus(
-  sourceChannel: ChannelId,
-  replyCallbackUrl?: string,
-): boolean {
+/**
+ * Room shapes with one other participant, in each channel's own word for it.
+ *
+ * SHIM. `chatType` reaches the daemon as whatever the channel called it, so one
+ * idea arrives under three spellings and a fourth channel would add a fourth.
+ * It belongs normalized at ingress, where each channel already parses its own
+ * payload and knows the answer. Until then this is the single place that has to
+ * widen for a new channel, and the single place to delete once it does not.
+ *
+ * Slack's `mpim` is deliberately absent: a group DM has other readers, so it is
+ * a room rather than a direct conversation.
+ */
+const DIRECT_CHAT_TYPES: ReadonlySet<string> = new Set([
+  "im", // Slack
+  "dm", // Discord
+  "private", // Telegram
+]);
+
+/**
+ * Whether the assistant should show it is working before it has produced any
+ * text: it was addressed directly, so a reply is expected either way.
+ */
+export function shouldShowActivityImmediately(params: {
+  chatType?: string;
+  botMentioned?: boolean;
+}): boolean {
   return (
-    sourceChannel === "slack" && isSlackDeliveryCallbackUrl(replyCallbackUrl)
+    (params.chatType !== undefined && DIRECT_CHAT_TYPES.has(params.chatType)) ||
+    params.botMentioned === true
   );
 }
 
-export function shouldStartSlackThinkingStatusImmediately(params: {
-  sourceChannel: ChannelId;
-  chatType?: string;
-  slackBotMentioned?: boolean;
-}): boolean {
-  if (params.sourceChannel !== "slack") {
-    return false;
-  }
-  return params.chatType === "im" || params.slackBotMentioned === true;
-}
-
-function createSlackThinkingStatusController(params: {
-  sourceChannel: ChannelId;
+/**
+ * Drive one conversation's activity indicator for the length of a turn.
+ *
+ * The indicator is held back until the turn is known to be producing a reply,
+ * because a channel where the assistant was not addressed may process a
+ * message and decide to stay quiet, and an indicator there promises something
+ * that is not coming. Being addressed directly is enough on its own.
+ *
+ * TRANSITIONAL: the phase is derived here from what this dispatch knows, and
+ * the daemon already publishes the same lifecycle as `assistant_activity_state`
+ * with a monotonic version. That event reaches conversation observers rather
+ * than this turn's `onEvent`, so consuming it is its own change; until then
+ * this is a second derivation of one lifecycle and should not be extended.
+ */
+function startChannelActivity(params: {
   replyCallbackUrl?: string;
+  conversationId: string;
   chatId: string;
-  assistantId?: string;
-  startImmediately?: boolean;
-}): SlackThinkingStatusController | undefined {
-  const {
-    sourceChannel,
-    replyCallbackUrl,
-    chatId,
-    assistantId,
-    startImmediately,
-  } = params;
-  if (
-    !replyCallbackUrl ||
-    !shouldEmitSlackThinkingStatus(sourceChannel, replyCallbackUrl)
-  ) {
+  initiatorUserId?: string;
+  startImmediately: boolean;
+}): ChannelActivityController | undefined {
+  const { replyCallbackUrl, conversationId, chatId, initiatorUserId } = params;
+  if (!replyCallbackUrl || !supportsChannelActivity(replyCallbackUrl)) {
     return undefined;
   }
-  const callbackUrl = replyCallbackUrl;
+  const url = replyCallbackUrl;
 
+  const refreshMs = channelActivityRefreshMs(url);
   let stopped = false;
-  let slackThinkingStatus: SlackThinkingStatusHandle | undefined;
+  let showing = false;
   let observedAssistantText = "";
-  let currentLoadingMessages: string[] | undefined = startImmediately
-    ? [...SLACK_GENERIC_LOADING_MESSAGES]
-    : undefined;
-  let lastSentLoadingMessageKey: string | undefined;
-  const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
+  let lastPhase: AssistantActivityPhase | undefined;
 
-  const start = (): void => {
-    if (stopped || slackThinkingStatus) {
-      return;
-    }
-    slackThinkingStatus = setSlackThinkingStatus(
-      callbackUrl,
+  // Serialized so a later phase cannot overtake an earlier one and leave the
+  // channel showing a state the turn has already left.
+  let pending: Promise<unknown> = Promise.resolve();
+  let outstanding = 0;
+
+  const deliver = (phase: AssistantActivityPhase): Promise<boolean> =>
+    setChannelActivity(url, {
       chatId,
-      assistantId,
-      currentLoadingMessages,
-    );
-    lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
-  };
+      phase,
+      ...(initiatorUserId ? { initiatorUserId } : {}),
+    })
+      .then((result) => result.ok)
+      .catch((err) => {
+        log.debug({ err, chatId, phase }, "Failed to set channel activity");
+        return false;
+      });
 
-  const maybeUpdateLoadingMessages = (): void => {
-    const nextLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
-    if (nextLoadingMessageKey === lastSentLoadingMessageKey) {
+  /**
+   * `refresh` is a re-assertion of a phase the channel is already showing, so
+   * it is dropped whenever anything is still outstanding. A slow channel would
+   * otherwise queue one per tick, and a busy phase that runs after the turn's
+   * `idle` raises the indicator again on a turn that has finished.
+   *
+   * `outstanding` counts sends that are queued or running, not just the one in
+   * flight. A flag cannot express two at once: the earlier link's completion
+   * would clear it while its successor is still waiting its turn on the chain,
+   * and the next tick would queue a third.
+   */
+  const send = (
+    phase: AssistantActivityPhase,
+    options?: { refresh?: boolean; retryOnce?: boolean },
+  ): void => {
+    if (options?.refresh && outstanding > 0) {
       return;
     }
-    lastSentLoadingMessageKey = nextLoadingMessageKey;
-    slackThinkingStatus?.updateLoadingMessages(currentLoadingMessages);
+    lastPhase = phase;
+    outstanding += 1;
+    pending = pending
+      .then(async () => {
+        const ok = await deliver(phase);
+        // A lost terminal transition is not cosmetic: a channel that holds its
+        // indicator keeps showing the assistant as working until something
+        // else changes it, which on Slack is an hour away.
+        if (!ok && options?.retryOnce) {
+          await deliver(phase);
+        }
+      })
+      .finally(() => {
+        outstanding -= 1;
+      });
   };
 
-  const observeTaskProgress = (msg: AssistantEvent): void => {
-    if (msg.type === "ui_surface_show") {
-      const progress = getTaskProgressDataFromSurfaceData(msg.data);
-      if (!progress) {
-        return;
-      }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else if (msg.type === "ui_surface_update") {
-      const existing = taskProgressBySurfaceId.get(msg.surfaceId);
-      const progress = mergeTaskProgressData(existing, msg.data);
-      if (!progress) {
-        return;
-      }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else {
+  const currentPhase = (): AssistantActivityPhase =>
+    getApprovalInfoByConversation(conversationId).length > 0
+      ? "awaiting_confirmation"
+      : "thinking";
+
+  const tick = (): void => {
+    if (stopped || !showing) {
       return;
     }
-
-    currentLoadingMessages =
-      getTaskProgressLoadingMessage(
-        taskProgressBySurfaceId.get(msg.surfaceId),
-      ) ?? [];
-    maybeUpdateLoadingMessages();
+    const phase = currentPhase();
+    // A channel whose indicator expires needs the same phase re-asserted; one
+    // that holds only needs to hear about a change.
+    if (phase !== lastPhase) {
+      send(phase);
+    } else if (refreshMs !== undefined) {
+      send(phase, { refresh: true });
+    }
   };
 
-  if (startImmediately) {
-    start();
+  const interval = setInterval(tick, refreshMs ?? ACTIVITY_PHASE_POLL_MS);
+  (interval as { unref?: () => void }).unref?.();
+
+  const show = (): void => {
+    if (stopped || showing) {
+      return;
+    }
+    showing = true;
+    send(currentPhase());
+  };
+
+  if (params.startImmediately) {
+    show();
   }
 
   return {
     observeEvent(msg) {
-      if (stopped) {
+      if (stopped || showing || msg.type !== "assistant_text_delta") {
         return;
       }
-
-      if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
-        observeTaskProgress(msg);
-        return;
-      }
-
-      if (slackThinkingStatus || msg.type !== "assistant_text_delta") {
-        return;
-      }
-
       observedAssistantText += msg.text;
-      if (shouldStartSlackThinkingStatusForText(observedAssistantText)) {
-        start();
+      if (shouldShowActivityForText(observedAssistantText)) {
+        show();
       }
     },
     stop() {
-      stopped = true;
-      slackThinkingStatus?.clear();
-    },
-  };
-}
-
-const SLACK_THINKING_MAX_DURATION_MS = 120_000;
-const SLACK_GENERIC_LOADING_MESSAGES = ["Thinking…"] as const;
-const SLACK_THINKING_STATUSES = ["is on it", "is working hard"] as const;
-
-function getRandomSlackThinkingStatus(): string {
-  return SLACK_THINKING_STATUSES[
-    Math.floor(Math.random() * SLACK_THINKING_STATUSES.length)
-  ]!;
-}
-
-function getLoadingMessagesKey(loadingMessages?: string[]): string | undefined {
-  return loadingMessages?.join("\n");
-}
-
-function getTaskProgressLoadingMessage(
-  progress: TaskProgressData | undefined,
-): string[] | undefined {
-  if (!progress) {
-    return undefined;
-  }
-
-  const activeStepIndex = progress.steps.findIndex(
-    (step) => step.status === "in_progress",
-  );
-  if (activeStepIndex < 0) {
-    return undefined;
-  }
-
-  const activeStep = progress.steps[activeStepIndex]!;
-  return [
-    `In progress (${activeStepIndex + 1}/${progress.steps.length}): ${
-      activeStep.label
-    }`,
-  ];
-}
-
-/**
- * Set Slack Assistants API status on the thread and return a handle for
- * updating loading messages or clearing the indicator.
- *
- * A safety timer auto-clears the status after {@link SLACK_THINKING_MAX_DURATION_MS}
- * to prevent a stuck indicator when `processMessage` hangs.
- */
-function setSlackThinkingStatus(
-  callbackUrl: string,
-  chatId: string,
-  assistantId?: string,
-  loadingMessages?: string[],
-): SlackThinkingStatusHandle {
-  let cleared = false;
-
-  // Extract the thread timestamp from the callback URL so we can target
-  // the correct thread for the Assistants API status.
-  const threadTs = extractThreadTsFromCallbackUrl(callbackUrl);
-
-  // For non-threaded DMs, fall back to emoji reaction on the original message.
-  if (!threadTs) {
-    const messageTs = extractMessageTsFromCallbackUrl(callbackUrl);
-    if (!messageTs) {
-      return {
-        updateLoadingMessages: () => {},
-        clear: () => {},
-      };
-    }
-
-    const addPromise = sendChannelReaction(callbackUrl, {
-      chatId,
-      messageId: messageTs,
-      emoji: "eyes",
-      action: "add",
-    }).catch((err) => {
-      log.debug({ err, chatId, messageTs }, "Failed to add eyes reaction");
-    });
-
-    const clearReaction = (): void => {
-      if (cleared) {
+      if (stopped) {
         return;
       }
-      cleared = true;
-      clearTimeout(safetyTimer);
-      void addPromise.then(() =>
-        sendChannelReaction(callbackUrl, {
-          chatId,
-          messageId: messageTs,
-          emoji: "eyes",
-          action: "remove",
-        }).catch((err) => {
-          log.debug(
-            { err, chatId, messageTs },
-            "Failed to remove eyes reaction",
-          );
-        }),
-      );
-    };
-
-    const safetyTimer = setTimeout(
-      clearReaction,
-      SLACK_THINKING_MAX_DURATION_MS,
-    );
-    (safetyTimer as { unref?: () => void }).unref?.();
-
-    return {
-      updateLoadingMessages: () => {},
-      clear: clearReaction,
-    };
-  }
-
-  // Track the set promise so clear waits for it to settle first,
-  // preventing a race where clear arrives at Slack before set.
-  let statusPromise = deliverChannelReply(callbackUrl, {
-    chatId,
-    assistantId,
-    assistantThreadStatus: {
-      channel: chatId,
-      threadTs,
-      status: getRandomSlackThinkingStatus(),
-      ...(loadingMessages ? { loadingMessages } : {}),
+      stopped = true;
+      clearInterval(interval);
+      // Only owed when something was shown. `idle` is a real transition on
+      // channels that hold the indicator, not a no-op clear.
+      if (showing) {
+        send("idle", { retryOnce: true });
+      }
     },
-  }).catch((err) => {
-    log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
-  });
-
-  const updateLoadingMessages = (nextLoadingMessages?: string[]): void => {
-    if (cleared) {
-      return;
-    }
-    statusPromise = statusPromise.then(() =>
-      deliverChannelReply(callbackUrl, {
-        chatId,
-        assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: getRandomSlackThinkingStatus(),
-          ...(nextLoadingMessages
-            ? { loadingMessages: nextLoadingMessages }
-            : {}),
-        },
-      }).catch((err) => {
-        log.debug(
-          { err, chatId, threadTs },
-          "Failed to update Slack thinking status",
-        );
-      }),
-    );
-  };
-
-  const clearStatus = (): void => {
-    if (cleared) {
-      return;
-    }
-    cleared = true;
-    clearTimeout(safetyTimer);
-    void statusPromise.then(() =>
-      deliverChannelReply(callbackUrl, {
-        chatId,
-        assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: "",
-        },
-      }).catch((err) => {
-        log.debug(
-          { err, chatId, threadTs },
-          "Failed to clear Slack thinking status",
-        );
-      }),
-    );
-  };
-
-  const safetyTimer = setTimeout(clearStatus, SLACK_THINKING_MAX_DURATION_MS);
-  (safetyTimer as { unref?: () => void }).unref?.();
-
-  return {
-    updateLoadingMessages,
-    clear: clearStatus,
   };
 }
 
@@ -770,6 +643,7 @@ function startPendingApprovalPromptWatcher(params: {
   externalChatId: string;
   trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
+  guardianChatId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
   assistantId?: string;
@@ -781,6 +655,7 @@ function startPendingApprovalPromptWatcher(params: {
     externalChatId,
     trustClass,
     guardianExternalUserId,
+    guardianChatId,
     requesterExternalUserId,
     replyCallbackUrl,
     assistantId,
@@ -812,9 +687,17 @@ function startPendingApprovalPromptWatcher(params: {
         const info = pending[0];
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
+          // Addressed to the guardian's own chat, not the chat the turn is
+          // running in, which can be a room that reads the tool and its
+          // command preview.
+          const promptDelivery = resolveGuardianPromptDelivery({
+            turnChatId: externalChatId,
+            turnCallbackUrl: replyCallbackUrl,
+            guardianChatId,
+          });
           const delivered = await deliverGeneratedApprovalPrompt({
-            replyCallbackUrl,
-            chatId: externalChatId,
+            replyCallbackUrl: promptDelivery.callbackUrl,
+            chatId: promptDelivery.chatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             prompt,

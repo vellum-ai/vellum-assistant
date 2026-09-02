@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
+import { REACTION_MESSAGE_KIND } from "../persistence/conversation-types.js";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import type { RuntimeAttachmentMetadata } from "../runtime/http-types.js";
 
@@ -32,6 +33,13 @@ type UpdateMessageMetadataCall = {
 };
 const updateMessageMetadataCalls: UpdateMessageMetadataCall[] = [];
 
+/**
+ * Number of leading `updateMessageMetadata` calls that throw a transient
+ * SQLite error before the mock starts writing. Lets a test assert that a lost
+ * reconciliation write is recovered rather than forfeited.
+ */
+let metadataWriteFailuresRemaining = 0;
+
 /** Per-test override for the synthetic Slack `ts` returned by deliverChannelReply. */
 let nextDeliveryTs: string | null = null;
 
@@ -57,6 +65,19 @@ let renderedHistoryContent: RenderedHistoryStub = {
 const renderedHistoryContentQueue: RenderedHistoryStub[] = [];
 
 let deliveryFailAtIndex = -1;
+
+const editCalls: { callbackUrl: string; target: Record<string, unknown> }[] =
+  [];
+
+mock.module("../messaging/providers/index.js", () => ({
+  editChannelMessage: async (
+    callbackUrl: string,
+    target: Record<string, unknown>,
+  ) => {
+    editCalls.push({ callbackUrl, target });
+    return { ok: true };
+  },
+}));
 
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
@@ -128,10 +149,31 @@ mock.module("../persistence/conversation-crud.js", () => ({
   },
   getMessageById: (messageId: string) =>
     conversationMessages.find((m) => m.id === messageId) ?? null,
+  // Stands in for the schema-validated parse. The delivery reader pairs it
+  // with the real `isReactionMessageMetadata`, so the marker the assertions
+  // turn on is still the production predicate reading a production-shaped row.
+  parseMessageMetadata: (metadataJson: string | null) => {
+    if (!metadataJson) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(metadataJson) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  },
   updateMessageMetadata: (
     messageId: string,
     updates: Record<string, unknown>,
   ) => {
+    if (metadataWriteFailuresRemaining > 0) {
+      metadataWriteFailuresRemaining -= 1;
+      // Shaped like bun:sqlite's error so `withSqliteRetry` classifies it as
+      // transient contention rather than a fatal write.
+      throw Object.assign(new Error("database is locked"), {
+        code: "SQLITE_BUSY",
+      });
+    }
     updateMessageMetadataCalls.push({ messageId, updates });
     const row = conversationMessages.find((m) => m.id === messageId);
     if (!row) {
@@ -146,15 +188,39 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+// The reconciler writes the outbound-posts index through delivery-crud;
+// stub it so this suite stays DB-free while capturing the writes.
+const recordedOutboundPosts: Array<Record<string, string>> = [];
+mock.module("../persistence/delivery-crud.js", () => ({
+  recordOutboundPost: (post: Record<string, string>) => {
+    recordedOutboundPosts.push(post);
+  },
+}));
+
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: (messageId: string) =>
     attachmentsByMessageId.get(messageId) ?? [],
   getFilePathForAttachment: () => null,
 }));
 
+/**
+ * Renders keyed by a row's raw string content, consulted ahead of the queue.
+ * The queue and the shared default are argument-blind, so a suite that mixes
+ * rows in one scan cannot otherwise tell them apart, and a row the code under
+ * test is supposed to skip would still render as its neighbour.
+ */
+const renderedHistoryContentByContent = new Map<string, RenderedHistoryStub>();
+
 mock.module("../daemon/handlers/shared.js", () => ({
-  renderHistoryContent: () =>
-    renderedHistoryContentQueue.shift() ?? renderedHistoryContent,
+  renderHistoryContent: (content: unknown) => {
+    if (typeof content === "string") {
+      const keyed = renderedHistoryContentByContent.get(content);
+      if (keyed) {
+        return keyed;
+      }
+    }
+    return renderedHistoryContentQueue.shift() ?? renderedHistoryContent;
+  },
 }));
 
 const {
@@ -170,8 +236,10 @@ describe("channel-reply-delivery", () => {
     conversationMessages.length = 0;
     attachmentsByMessageId.clear();
     updateMessageMetadataCalls.length = 0;
+    metadataWriteFailuresRemaining = 0;
     nextDeliveryTs = null;
     renderedHistoryContentQueue.length = 0;
+    renderedHistoryContentByContent.clear();
     renderedHistoryContent = {
       text: "",
       textSegments: [],
@@ -226,6 +294,129 @@ describe("channel-reply-delivery", () => {
     );
   });
 
+  describe("reaction rows are never a turn's reply", () => {
+    /** The body `persistReactionRecords` stores; never channel-visible text. */
+    const SENTINEL = "[reaction]";
+
+    const stubFor = (text: string): RenderedHistoryStub => ({
+      text,
+      textSegments: [text],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    /**
+     * The row `persistReactionRecords` writes at the turn boundary, rendering
+     * as the stored sentinel exactly as the real renderer would. Read
+     * literally that text is what reaches the channel, so these tests fail on
+     * a guard that only stops short of the delivery call.
+     */
+    const reactionRow = (id: string): MockMessageRow => {
+      renderedHistoryContentByContent.set(SENTINEL, stubFor(SENTINEL));
+      return {
+        id,
+        role: "assistant",
+        content: SENTINEL,
+        metadata: JSON.stringify({
+          messageKind: REACTION_MESSAGE_KIND,
+          provenanceSourceChannel: "slack",
+        }),
+      };
+    };
+
+    /** How the turn's one non-reaction assistant row renders. */
+    const renderAs = (text: string): void => {
+      renderedHistoryContent = stubFor(text);
+    };
+
+    it("resolves a reaction-only turn to its silence marker, not the sentinel row", () => {
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        {
+          id: "assistant-silence",
+          role: "assistant",
+          content: "<no_response/>",
+        },
+        // Drained after the turn's own rows, so it is the newest row and the
+        // one a newest-first scan reaches first.
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("<no_response/>");
+
+      expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
+        "assistant-silence",
+      );
+    });
+
+    it("posts nothing at all for a reaction-only turn", async () => {
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        {
+          id: "assistant-silence",
+          role: "assistant",
+          content: "<no_response/>",
+        },
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("<no_response/>");
+
+      await deliverReplyViaCallback(
+        "conv-1",
+        "chat-1",
+        "http://gateway/deliver/slack",
+        "assistant-1",
+        { messageId: "assistant-silence", sinceMessageId: "user-target" },
+      );
+
+      expect(deliveryCalls).toEqual([]);
+    });
+
+    it("delivers the turn's real reply when a reaction row is newer than it", async () => {
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        { id: "assistant-real", role: "assistant", content: "real reply" },
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("Done.");
+
+      await deliverReplyViaCallback(
+        "conv-1",
+        "chat-1",
+        "http://gateway/deliver/slack",
+        "assistant-1",
+        { sinceMessageId: "user-target" },
+      );
+
+      expect(deliveryCalls).toHaveLength(1);
+      expect(deliveryCalls[0].payload.text).toBe("Done.");
+    });
+
+    it("falls through to the real reply when the stored reply id names a reaction row", async () => {
+      // The retry sweep persists whatever the turn scan returned, so a reply
+      // id latched before this guard existed still points at a reaction row.
+      conversationMessages.push(
+        { id: "user-target", role: "user", content: "target" },
+        { id: "assistant-real", role: "assistant", content: "real reply" },
+        reactionRow("assistant-reaction"),
+      );
+      renderAs("Done.");
+
+      await deliverReplyViaCallback(
+        "conv-1",
+        "chat-1",
+        "http://gateway/deliver/slack",
+        "assistant-1",
+        { messageId: "assistant-reaction", sinceMessageId: "user-target" },
+      );
+
+      expect(deliveryCalls).toHaveLength(1);
+      expect(deliveryCalls[0].payload.text).toBe("Done.");
+    });
+  });
+
   it("sends non-empty text segments as separate messages and puts attachments on the last segment", async () => {
     const attachments: RuntimeAttachmentMetadata[] = [
       {
@@ -253,7 +444,7 @@ describe("channel-reply-delivery", () => {
       payload: {
         chatId: "chat-1",
         text: "Before tool.",
-        useBlocks: true,
+        renderRichly: true,
         attachments: undefined,
         assistantId: "assistant-1",
       },
@@ -263,7 +454,7 @@ describe("channel-reply-delivery", () => {
       payload: {
         chatId: "chat-1",
         text: "After tool.",
-        useBlocks: true,
+        renderRichly: true,
         attachments,
         assistantId: "assistant-1",
       },
@@ -322,14 +513,14 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload).toEqual({
       chatId: "chat-3",
       text: "Before tool.",
-      useBlocks: true,
+      renderRichly: true,
       attachments: undefined,
       assistantId: "assistant-2",
     });
     expect(deliveryCalls[1].payload).toEqual({
       chatId: "chat-3",
       text: "After tool.",
-      useBlocks: true,
+      renderRichly: true,
       attachments: [
         {
           id: "att-2",
@@ -774,7 +965,9 @@ describe("channel-reply-delivery", () => {
       attachments,
       startFromSegment: 1,
       messageTs: "1700000000.000055",
-      onMessageTs: (ts) => seenTs.push(ts),
+      onMessageTs: (ts) => {
+        seenTs.push(ts);
+      },
     });
 
     expect(deliveryCalls).toHaveLength(1);
@@ -782,31 +975,32 @@ describe("channel-reply-delivery", () => {
       chatId: "chat-live",
       attachments,
       assistantId: undefined,
-      ephemeral: undefined,
-      user: undefined,
-      messageTs: "1700000000.000055",
+      audience: undefined,
     });
+    // Attachments post as new messages, so nothing is edited on this path.
+    expect(editCalls).toHaveLength(0);
     expect(seenTs).toEqual(["1700000000.000055"]);
   });
 
-  it("passes ephemeral and user through to each delivery call", async () => {
+  it("carries the audience through to every delivery call", async () => {
+    const audience = { kind: "oneReader", userId: "U456" } as const;
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",
       chatId: "C123",
       textSegments: ["Part 1.", "Part 2."],
       interSegmentDelayMs: 0,
-      ephemeral: true,
-      user: "U456",
+      audience,
     });
 
     expect(deliveryCalls).toHaveLength(2);
-    expect(deliveryCalls[0].payload.ephemeral).toBe(true);
-    expect(deliveryCalls[0].payload.user).toBe("U456");
-    expect(deliveryCalls[1].payload.ephemeral).toBe(true);
-    expect(deliveryCalls[1].payload.user).toBe("U456");
+    // Every segment, not just the first: a reply restricted to one reader
+    // that loses the restriction partway becomes a public one.
+    for (const call of deliveryCalls) {
+      expect(call.payload.audience).toEqual(audience);
+    }
   });
 
-  it("does not include ephemeral fields when not set", async () => {
+  it("leaves the audience unset when the reply is for the room", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",
       chatId: "C123",
@@ -815,8 +1009,7 @@ describe("channel-reply-delivery", () => {
     });
 
     expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0].payload.ephemeral).toBeUndefined();
-    expect(deliveryCalls[0].payload.user).toBeUndefined();
+    expect(deliveryCalls[0].payload.audience).toBeUndefined();
   });
 
   it("suppresses delivery when the only text segment is <no_response/>", async () => {
@@ -1241,7 +1434,9 @@ describe("channel-reply-delivery", () => {
         "http://gateway/deliver/slack",
         "assistant-compose",
         {
-          onMessageTs: (ts) => callerTsSeen.push(ts),
+          onMessageTs: (ts) => {
+            callerTsSeen.push(ts);
+          },
         },
       );
 
@@ -1280,6 +1475,101 @@ describe("channel-reply-delivery", () => {
       expect(parsed?.channelId).toBe("C222");
       expect(parsed?.source).toBe("slack");
       expect(parsed?.eventKind).toBe("message");
+    });
+
+    it("retries a reconciliation write that hits transient SQLite contention", async () => {
+      // The stamp is the only durable record of the post's ts: no later sweep
+      // heals a miss once the event is marked delivered, so a SQLITE_BUSY on
+      // the first attempt must not lose it.
+      pushPartialAssistantRow("conv-busy", "msg-busy", "C333");
+      nextDeliveryTs = "1700000800.000444";
+      metadataWriteFailuresRemaining = 1;
+
+      await deliverReplyViaCallback(
+        "conv-busy",
+        "C333",
+        "http://gateway/deliver/slack",
+        "assistant-busy",
+      );
+
+      expect(updateMessageMetadataCalls.length).toBe(1);
+      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
+      const parsed = JSON.parse(merged) as Record<string, unknown>;
+      expect(parsed.channelTs).toBe("1700000800.000444");
+    });
+
+    it("stamps from a later segment when the first segment's write is lost", async () => {
+      // The row records the first ts that reaches a DURABLE write, not the
+      // first ts observed. A first-invocation latch would forfeit channelTs
+      // forever when that write fails, which is the reconciliation gap this
+      // reproduces: the reply posts successfully and the row never gains its
+      // own id, so history projects no `slackMessage` for it.
+      pushPartialAssistantRow("conv-lost", "msg-lost", "C444");
+      renderedHistoryContent = {
+        text: "AlphaBeta",
+        textSegments: ["Alpha", "Beta"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0", "tool:0", "text:1"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700000900.000555";
+      // Exhaust the initial attempt plus every `withSqliteRetry` retry, so the
+      // first segment's reconciliation is genuinely swallowed.
+      metadataWriteFailuresRemaining = 4;
+
+      await deliverReplyViaCallback(
+        "conv-lost",
+        "C444",
+        "http://gateway/deliver/slack",
+        "assistant-lost",
+      );
+
+      // Both segments posted; the surviving write carries the second post's ts
+      // rather than leaving the row without any id of its own.
+      expect(deliveryCalls.length).toBe(2);
+      expect(updateMessageMetadataCalls.length).toBe(1);
+      const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
+      const { readSlackMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      expect(readSlackMetadata(merged)).not.toBeNull();
+    });
+
+    it("commits the reconciliation write before posting the next segment", async () => {
+      // `onMessageTs` is awaited, so the row is durable at each segment
+      // boundary. Otherwise a crash between two posts of a split reply loses
+      // the stamp for a message the reader can already see.
+      pushPartialAssistantRow("conv-order", "msg-order", "C555");
+      renderedHistoryContent = {
+        text: "AlphaBeta",
+        textSegments: ["Alpha", "Beta"],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0", "tool:0", "text:1"],
+        surfaces: [],
+        thinkingSegments: [],
+      };
+      nextDeliveryTs = "1700001000.000666";
+
+      await deliverReplyViaCallback(
+        "conv-order",
+        "C555",
+        "http://gateway/deliver/slack",
+        "assistant-order",
+      );
+
+      // The row already parses through the strict reader by the time the
+      // second POST goes out, which is what makes the second segment a no-op.
+      const row = conversationMessages.find((m) => m.id === "msg-order");
+      const envelope = JSON.parse(row?.metadata ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      const { readSlackMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
+      expect(readSlackMetadata(envelope.slackMeta as string)).not.toBeNull();
+      expect(updateMessageMetadataCalls.length).toBe(1);
     });
   });
 });

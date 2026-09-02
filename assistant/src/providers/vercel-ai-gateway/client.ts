@@ -46,7 +46,6 @@ export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
       // Vercel's OpenAI-compat endpoint streams reasoning text in
       // `delta.reasoning` (see its Advanced Configuration docs).
       assistantReasoningField: "reasoning",
-      backfillEmptyAssistantContent: true,
     });
     this.gatewayApiKey = apiKey;
     this.resolvedBaseURL = baseURL;

@@ -170,19 +170,6 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
-// Capture the unreachable-bus listener so tests can trigger it.
-let capturedUnreachableListener: (() => void) | null = null;
-mock.module("@/assistant/unreachable-bus", () => ({
-  UNREACHABLE_STATUS_CODES: new Set<number>([502, 503, 504]),
-  notifyAssistantUnreachable: () => {},
-  subscribeAssistantUnreachable: (listener: () => void) => {
-    capturedUnreachableListener = listener;
-    return () => {
-      capturedUnreachableListener = null;
-    };
-  },
-}));
-
 mock.module("@/assistant/lifecycle", () => ({
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS: TEST_INITIALIZING_TIMEOUT_MS,
@@ -965,9 +952,7 @@ describe("lifecycleService — reachability probe", () => {
       status: 503,
     }));
 
-    // Fire the unreachable bus listener
-    expect(capturedUnreachableListener).not.toBeNull();
-    capturedUnreachableListener!();
+    publish("assistant.unreachable", {});
 
     const state = useAssistantLifecycleStore.getState().assistantState;
     expect(state.kind).toBe("active");
@@ -976,10 +961,9 @@ describe("lifecycleService — reachability probe", () => {
     }
   });
 
-  test("unreachable bus is a no-op when not in active state", () => {
+  test("the unreachable signal is a no-op when not in active state", () => {
     // Service is in loading state (never driven to active)
-    expect(capturedUnreachableListener).not.toBeNull();
-    capturedUnreachableListener!();
+    publish("assistant.unreachable", {});
 
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
@@ -1094,7 +1078,7 @@ describe("lifecycleService — local health heartbeat", () => {
       },
     );
     getAssistantHealthzMock.mockImplementation(() => {
-      capturedUnreachableListener?.();
+      publish("assistant.unreachable", {});
       return healthzPending;
     });
     getLocalAssistantStatusHostMock.mockImplementation(
@@ -1114,7 +1098,7 @@ describe("lifecycleService — local health heartbeat", () => {
     await Promise.resolve();
     expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
 
-    capturedUnreachableListener?.();
+    publish("assistant.unreachable", {});
     await Promise.resolve();
     expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
 
@@ -1246,8 +1230,7 @@ describe("lifecycleService — local health heartbeat", () => {
     getAssistantHealthzMock.mockImplementation(
       nextHealthz as () => Promise<{ ok: true }>,
     );
-    const assistantId =
-      useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
     if (!assistantId) {
       throw new Error("expected an active assistant id");
     }
@@ -1293,8 +1276,7 @@ describe("lifecycleService — local health heartbeat", () => {
       expect(afterOne.reachable).toBe(true);
     }
 
-    const assistantId =
-      useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
     await (
       lifecycleService as unknown as {
         probeReachability(id: string): Promise<void>;
@@ -1319,8 +1301,7 @@ describe("lifecycleService — local health heartbeat", () => {
         probeReachability(id: string): Promise<void>;
       }
     ).probeReachability.bind(lifecycleService);
-    const assistantId =
-      useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
 
     getAssistantHealthzMock.mockImplementation(async () => ({
       ok: false,
@@ -1349,7 +1330,7 @@ describe("lifecycleService — local health heartbeat", () => {
     // count as ONE failed probe, not two, so a single 503 blip on a healthy
     // assistant stays debounced.
     await driveHealthyThenProbe(async () => {
-      capturedUnreachableListener?.();
+      publish("assistant.unreachable", {});
       return { ok: false, status: 503 };
     });
 
@@ -1359,8 +1340,7 @@ describe("lifecycleService — local health heartbeat", () => {
       expect(afterOne.health).toBe("healthy");
     }
 
-    const assistantId =
-      useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
     await (
       lifecycleService as unknown as {
         probeReachability(id: string): Promise<void>;
@@ -1384,8 +1364,7 @@ describe("lifecycleService — local health heartbeat", () => {
         probeReachability(id: string): Promise<void>;
       }
     ).probeReachability.bind(lifecycleService);
-    const assistantId =
-      useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
 
     getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
     await probe(assistantId!);

@@ -1,5 +1,8 @@
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
+import { SetupStepList } from "@/components/setup-step-list";
+import { Trans, useTranslation } from "@/i18n";
+
 export interface SlackSetupCreateStepProps {
   onContinue: () => void;
 }
@@ -14,6 +17,8 @@ export interface SlackSetupCreateStepProps {
 export function SlackSetupCreateStep({
   onContinue,
 }: SlackSetupCreateStepProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex flex-col gap-4">
       <Typography
@@ -21,23 +26,32 @@ export function SlackSetupCreateStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        In Slack:
+        {t("slackSetupCreateStep.inSlack")}
       </Typography>
-      <ol className="list-decimal list-outside space-y-1 pl-5 text-body-medium-lighter text-[var(--content-default)]">
+      <SetupStepList>
         <li>
-          Under <strong>Or start your own way</strong>, pick{" "}
-          <strong>From a manifest</strong>, then <strong>Continue</strong>
+          <Trans
+            ns="common"
+            i18nKey="slackSetupCreateStep.stepManifest"
+            components={{ strong: <strong /> }}
+          />
         </li>
-        <li>Choose your workspace and paste the manifest</li>
+        <li>{t("slackSetupCreateStep.stepPaste")}</li>
         <li>
-          Review the permissions, then click <strong>Create and Install</strong>
+          <Trans
+            ns="common"
+            i18nKey="slackSetupCreateStep.stepReview"
+            components={{ strong: <strong /> }}
+          />
         </li>
-      </ol>
+      </SetupStepList>
 
       <Notice tone="info">
-        If Slack shows &ldquo;Request approval&rdquo; instead of{" "}
-        <strong>Install</strong>, a workspace admin needs to approve the app
-        first.
+        <Trans
+          ns="common"
+          i18nKey="slackSetupCreateStep.approvalNotice"
+          components={{ strong: <strong /> }}
+        />
       </Notice>
 
       <Button
@@ -46,7 +60,7 @@ export function SlackSetupCreateStep({
         className="self-start"
         onClick={onContinue}
       >
-        I created the app
+        {t("slackSetupCreateStep.createdApp")}
       </Button>
     </div>
   );

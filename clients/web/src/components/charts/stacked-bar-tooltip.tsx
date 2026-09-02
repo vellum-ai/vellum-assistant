@@ -1,4 +1,5 @@
 import { formatDateLabel } from "@/components/charts/format-date-label";
+import { useTranslation } from "@/i18n";
 
 export type TooltipRowItem = {
   key: string;
@@ -49,6 +50,8 @@ export function StackedBarTooltip({
   showTotal,
   formatLabel,
 }: StackedBarTooltipProps) {
+  const { t } = useTranslation();
+
   if (!active || !payload?.length) {
     return null;
   }
@@ -92,7 +95,9 @@ export function StackedBarTooltip({
       ))}
       {showTotal && (
         <div className="mt-1 flex items-center gap-2 border-t border-[var(--border-subtle)] pt-1.5 text-[13px] font-semibold text-[var(--content-default)]">
-          <span>Total: {formatValue(total)}</span>
+          <span>
+            {t("stackedBarTooltip.total", { value: formatValue(total) })}
+          </span>
         </div>
       )}
     </div>

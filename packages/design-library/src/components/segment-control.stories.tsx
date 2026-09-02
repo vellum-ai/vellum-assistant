@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
 
+import { WithoutHover } from "../utils/hover-capability.story-helper";
 import { SegmentControl, type SegmentControlItem } from "./segment-control";
 
 /**
@@ -115,8 +116,9 @@ export const Default: Story = {};
 /**
  * Icon-only mode: each segment renders its `icon` alone and promotes `label`
  * to the button's `aria-label`, with a tooltip carrying the label for sighted
- * pointer users. {@link IconOnlyTooltipBehaviour} is the interactive sibling
- * that exercises when that tooltip appears.
+ * users who can hover. {@link IconOnlyTooltipBehaviour} and
+ * {@link IconOnlyWithoutHover} are the interactive siblings that exercise where
+ * that tooltip appears and where it does not.
  */
 export const IconOnly: Story = {
   args: {
@@ -134,29 +136,29 @@ export const IconOnly: Story = {
 };
 
 /**
+ * Holds the absence of a tooltip across the open delay, rather than sampling
+ * once: a label that only arrives after the delay is exactly the one a static
+ * check would miss.
+ */
+async function expectNoTooltip() {
+  await expect(
+    waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
+      timeout: 600,
+    }),
+  ).rejects.toThrow();
+}
+
+/**
  * The interactive sibling of {@link IconOnly}, owning `value` in local state
  * rather than through `useArgs`. Arg writes reach the canvas over the preview
  * channel, which the test runner does not turn, so a tap in an args-backed
  * story would leave the selection unchanged there and identical assertions
  * would mean different things in Storybook and in CI.
  *
- * It pins the pointer-dependence of the tooltip. A tap leaves none behind, and
- * a hover opens one. Both halves are needed: the hover is what stops the tap
- * assertions passing vacuously, since a harness that dispatched nothing at all
- * would satisfy them and fail the hover.
- *
- * Two tap orderings are checked, because browsers disagree about when focus
- * lands. Chromium delivers it inside the pointer sequence, where Radix's
- * pointer-down flag is still set and suppresses the focus-open, so nothing
- * opens at all. Safari delivers focus in the compatibility mouse burst *after*
- * `pointerup`, by which point that flag is clear: focus does open the tooltip,
- * and the `click` from the same burst closes it a render later. `userEvent`
- * emits only the Chromium sequence, so the Safari one is dispatched by hand.
- *
- * The gestures that would strand a label are the ones with no `click` to close
- * it, and they are unreachable for the same reason: a scroll cancels the touch
- * and a long press takes the callout path, and neither delivers `focus`
- * either, so neither opens anything to begin with.
+ * Where the browser can hover, hovering a segment opens its label. This is the
+ * half that stops {@link IconOnlyWithoutHover} passing vacuously, since a
+ * harness that dispatched nothing at all would satisfy that story and fail
+ * this one.
  */
 export const IconOnlyTooltipBehaviour: Story = {
   args: { ...IconOnly.args },
@@ -169,34 +171,52 @@ export const IconOnlyTooltipBehaviour: Story = {
   play: async () => {
     const segment = await screen.findByRole("radio", { name: "Light" });
 
-    /**
-     * No tooltip may survive a tap. A transient one is tolerated, because the
-     * Safari ordering opens on focus and closes on the `click` from the same
-     * burst, and those are separate renders. What must not happen is a tooltip
-     * that is still there once the dust settles, or one that arrives later:
-     * hence settling first and then holding the absence across the open delay,
-     * rather than sampling once.
-     */
-    const expectNoTooltipSurvivesTap = async () => {
-      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
-      await expect(
-        waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
-          timeout: 600,
-        }),
-      ).rejects.toThrow();
-    };
-
-    await userEvent.pointer({ keys: "[TouchA]", target: segment });
-    await expectNoTooltipSurvivesTap();
-
-    segment.blur();
-    dispatchSafariTap(segment);
-    await expectNoTooltipSurvivesTap();
-
     await userEvent.hover(segment);
     await waitFor(() => {
       expect(screen.getByRole("tooltip")).toHaveTextContent("Light");
     });
+  },
+};
+
+/**
+ * The same control on a device that reports it cannot hover, which is where a
+ * tooltip has no gesture that both opens and closes it. Nothing mounts: the
+ * label lives on the button's `aria-label`, which a screen reader reads either
+ * way.
+ *
+ * Three gestures, because they reach the trigger by different routes. Chromium
+ * delivers `focus` inside the pointer sequence, where Radix's pointer-down flag
+ * is still set. Safari delivers it in the compatibility mouse burst *after*
+ * `pointerup`, by which point a document-level listener has cleared that flag,
+ * so focus is a tooltip-opening event there and only the `click` from the same
+ * burst takes one away again; a gesture with no `click` (a scroll, a long
+ * press) leaves it standing. `userEvent` emits only the Chromium ordering, so
+ * the Safari one is dispatched by hand. Hover is dispatched too, since a hybrid
+ * can still deliver one.
+ */
+export const IconOnlyWithoutHover: Story = {
+  args: { ...IconOnly.args },
+  parameters: { controls: { disable: true } },
+  render: function Render(args) {
+    const [value, setValue] = useState<DemoValue | null>("system");
+    return (
+      <WithoutHover>
+        <SegmentControl {...args} value={value} onChange={setValue} />
+      </WithoutHover>
+    );
+  },
+  play: async () => {
+    const segment = await screen.findByRole("radio", { name: "Light" });
+
+    await userEvent.pointer({ keys: "[TouchA]", target: segment });
+    await expectNoTooltip();
+
+    segment.blur();
+    dispatchSafariTap(segment);
+    await expectNoTooltip();
+
+    await userEvent.hover(segment);
+    await expectNoTooltip();
   },
 };
 

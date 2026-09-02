@@ -403,6 +403,70 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("3.7 Flash: disabled maps to the LOW floor, not MINIMAL", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const flash37Provider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.7-flash",
+    );
+    await flash37Provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "disabled" } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("3.7 Flash: an explicit minimal level is clamped up to LOW", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const flash37Provider = new GeminiProvider(
+      "test-api-key",
+      "models/gemini-3.7-flash",
+    );
+    await flash37Provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        config: {
+          thinking: {
+            type: "adaptive",
+            level: "minimal",
+            streamThinking: false,
+          },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("3.7 Flash: adaptive with no level keeps Google's default", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const flash37Provider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.7-flash",
+    );
+    await flash37Provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "adaptive", streamThinking: true } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      includeThoughts: true,
+    });
+  });
+
   test("Pro: a supported explicit level passes through unchanged", async () => {
     fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
 
@@ -771,6 +835,144 @@ describe("GeminiProvider", () => {
         response: { output: "file content here" },
       },
     });
+  });
+
+  test("splits functionResponse from following text in a user Content", async () => {
+    /** Gemini serializes function responses separately from following text. */
+
+    // GIVEN streamed output and a history containing a tool result followed by text
+    fakeChunks = [textChunk("Done"), finishChunk("STOP", 20, 10)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_split",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_split",
+            content: "file content here",
+          },
+          { type: "text", text: "Summarize that." },
+        ],
+      },
+    ];
+
+    // WHEN the provider sends the message
+    await provider.sendMessage(messages);
+
+    // THEN the function response is isolated in its own user Content
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<Record<string, unknown>>;
+    }>;
+    expect(contents).toHaveLength(4);
+
+    // AND the function response Content appears before the text Content
+    expect(contents[2]).toMatchObject({
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "file_read",
+            response: { output: "file content here" },
+          },
+        },
+      ],
+    });
+
+    // AND the text remains in a separate user Content
+    expect(contents[3]).toEqual({
+      role: "user",
+      parts: [{ text: "Summarize that." }],
+    });
+  });
+
+  test("orders tool result media before following text", async () => {
+    /** Gemini receives tool result attachments before text that refers to them. */
+
+    // GIVEN streamed output and a history with an image tool result followed by text
+    fakeChunks = [textChunk("Done"), finishChunk("STOP", 20, 10)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_image",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_image",
+            content: "image result",
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "iVBORw0KGgo=",
+                },
+              },
+            ],
+          },
+          { type: "text", text: "Describe that image." },
+        ],
+      },
+    ];
+
+    // WHEN the provider sends the message
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<Record<string, unknown>>;
+    }>;
+
+    // THEN the tool result Contents are ordered by function response, media, and text
+    expect(contents.slice(2)).toEqual([
+      {
+        role: "user",
+        parts: [
+          {
+            functionResponse: {
+              name: "file_read",
+              response: { output: "image result" },
+            },
+          },
+        ],
+      },
+      {
+        role: "user",
+        parts: [
+          { inlineData: { mimeType: "image/png", data: "iVBORw0KGgo=" } },
+        ],
+      },
+      {
+        role: "user",
+        parts: [{ text: "Describe that image." }],
+      },
+    ]);
   });
 
   function toolResultWithAudio(mediaType: string, data: string): Message[] {

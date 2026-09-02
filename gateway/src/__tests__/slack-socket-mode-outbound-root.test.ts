@@ -843,19 +843,20 @@ describe("LUM-2941: the assistant's own bot_message echoes", () => {
     }
   });
 
-  test("treats a delete of our own bot_message post like a delete of our own user post", async () => {
+  test("forwards a delete of our own post to the daemon unattributed, in both attribution shapes", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
 
     try {
-      // This is a real behaviour change, made for consistency rather than as a
-      // side effect. `normalizeSlackMessageDelete` does not require an author
-      // (it falls back to "slack-system"), so a delete of a `bot_message`-shaped
-      // post used to reach the daemon while the identical delete of a
-      // user-attributed assistant post was already self-filtered on
-      // `previous_message.user`. Both shapes now behave the same way.
+      // The self-filter drops every echo of something the assistant said. A
+      // deletion is the one own-authored event that is not one: it reports
+      // that a post the assistant made is gone from the channel, and nothing
+      // else carries that fact (LUM-3521). Slack names the post's author here
+      // and never who deleted it, so the event rides unattributed: no actor
+      // for the daemon to enforce, and no contact seeded from the bot's id.
+      const userPostTs = "1785430000.000800";
       deliver(client, ws, "Ev-del-ours-botmsg", {
         type: "message",
         subtype: "message_deleted",
@@ -869,10 +870,31 @@ describe("LUM-2941: the assistant's own bot_message echoes", () => {
         },
       });
       await flushAsyncEventEmission();
-      expect(emitted).toHaveLength(0);
+      // The `chat.postMessage` shape, attributed to our bot user.
+      deliver(client, ws, "Ev-del-ours-user", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: DM,
+        channel_type: "im",
+        deleted_ts: userPostTs,
+        previous_message: {
+          user: "UBOT",
+          text: "a reply",
+          ts: userPostTs,
+        },
+      });
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(2);
+      for (const [index, deletedTs] of [BOT_POST_TS, userPostTs].entries()) {
+        const forwarded = emitted[index]!;
+        expect(forwarded.event.message.eventKind).toBe("delete");
+        expect(forwarded.event.source.messageId).toBe(deletedTs);
+        expect(forwarded.event.source.actorUnattributed).toBe(true);
+        expect(forwarded.event.actor.actorExternalId).toBe("slack-system");
+      }
 
-      // A delete of someone else's message in the same DM still forwards, so
-      // the filter narrowed to our own posts and nothing wider.
+      // A delete of someone else's message still names its author, so the
+      // daemon keeps gating it on that author's membership.
       deliver(client, ws, "Ev-del-theirs", {
         type: "message",
         subtype: "message_deleted",
@@ -886,8 +908,59 @@ describe("LUM-2941: the assistant's own bot_message echoes", () => {
         },
       });
       await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(3);
+      expect(emitted[2]?.event.message.eventKind).toBe("delete");
+      expect(emitted[2]?.event.actor.actorExternalId).toBe("U0000000AL1");
+      expect(emitted[2]?.event.source.actorUnattributed).toBeUndefined();
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("forwards a delete of our own post in a channel with no tracking left", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      // No root armed, no thread tracked, channel unsubscribed: the state a
+      // post is in once its speculative root or thread TTL has lapsed. The
+      // daemon still holds the row, so the deletion is admitted on the
+      // strength of the post being ours.
+      expect(store.hasThread(BOT_POST_TS)).toBe(false);
+      deliver(client, ws, "Ev-del-ours-untracked", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: CHANNEL,
+        channel_type: "channel",
+        deleted_ts: BOT_POST_TS,
+        previous_message: {
+          user: "UBOT",
+          text: "an old triage post",
+          ts: BOT_POST_TS,
+        },
+      });
+      await flushAsyncEventEmission();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0]?.event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0]?.event.source.actorUnattributed).toBe(true);
+
+      // Someone else's deletion in the same untracked channel keeps the
+      // scoped admission and is dropped.
+      deliver(client, ws, "Ev-del-theirs-untracked", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: CHANNEL,
+        channel_type: "channel",
+        deleted_ts: "1785430000.000900",
+        previous_message: {
+          user: "U0000000AL1",
+          text: "their message",
+          ts: "1785430000.000900",
+        },
+      });
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
     } finally {
       rawDb.close();
     }
@@ -957,7 +1030,8 @@ describe("LUM-2941: filters widened by an armed root", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0]?.event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0]?.event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0]?.event.message.reaction?.op).toBe("added");
 
       // Same channel, a message the assistant never posted: still dropped.
       deliver(client, ws, "Ev-reaction-other", {
@@ -997,7 +1071,7 @@ describe("LUM-2941: filters widened by an armed root", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0]?.event.message.isEdit).toBe(true);
+      expect(emitted[0]?.event.message.eventKind).toBe("edit");
 
       deliver(client, ws, "Ev-edit-other", {
         type: "message",
@@ -1042,7 +1116,7 @@ describe("LUM-2941: filters widened by an armed root", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0]?.event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0]?.event.message.eventKind).toBe("delete");
 
       deliver(client, ws, "Ev-del-other", {
         type: "message",

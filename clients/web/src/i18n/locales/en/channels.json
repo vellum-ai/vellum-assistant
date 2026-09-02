@@ -2,14 +2,15 @@
   "assistantChannelsList": {
     "drawerTitle": "Channels",
     "disconnectTitle": "Disconnect {channel}?",
-    "disconnectConfirm": "Disconnect",
-    "confirmFallback": "Confirm"
+    "disconnectConfirm": "Disconnect"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, from a plugin"
   },
   "connectionCard": {
     "connected": "Connected",
+    "reconnecting": "Reconnecting…",
+    "statusUnavailable": "Status unavailable",
     "disconnecting": "Disconnecting…",
     "disconnect": "Disconnect"
   },
@@ -26,7 +27,7 @@
     "connectManually": "or connect manually"
   },
   "pluginChannelPanel": {
-    "openPluginPage": "Open plugin page",
+    "navigateToPluginPage": "Navigate to plugin page",
     "ingressLoading": "Checking who can reach {channel}…",
     "ingressUnsupported": "This assistant's gateway does not report ingress approvals, so there is nothing to decide here.",
     "ingressForbidden": "Only this assistant's guardian can see or change ingress approvals.",
@@ -34,19 +35,46 @@
     "ingressNone": "The gateway sees no ingress declaration for {channel}, so there is nothing to approve yet.",
     "ingressApprovedTag": "Ingress approved",
     "ingressPendingTag": "Ingress awaiting approval",
-    "approvedAddresses": "{channel} receives messages at these addresses:",
-    "pendingAddresses": "{channel} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:",
-    "ungovernedAddresses": "These addresses are open whatever you decide, because only Vellum can reach them:",
-    "deliversInbound": "What arrives here becomes a message to your assistant, not just a callback {channel} receives. Who gets through is still decided by who you allow to message it.",
-    "revokeIngress": "Revoke ingress",
-    "approveIngress": "Approve ingress"
+    "approveChannel": "Approve Channel",
+    "revokeChannel": "Revoke Channel",
+    "approveChannelInfo": "Approving this channel means you are opening up access to your assistant to specifically requests sent by the providers behind this channel"
   },
   "channelTrustFloor": {
     "heading": "Who can message {assistant}",
     "loading": "Loading…",
     "loadFailed": "Couldn’t load this setting. Try reopening this page.",
     "selectAria": "Who can message {assistant}",
-    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts."
+    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts.",
+    "confirmFallback": "Confirm",
+    "noOne": {
+      "label": "No one",
+      "description": "No one can message {assistant} on this channel: every message is blocked, including yours.",
+      "confirmTitle": "Block all messages?",
+      "confirmMessage": "Setting this channel to “No one” hard-denies every inbound message, including messages from you.\n\nYou can reverse this at any time.",
+      "confirmAction": "Block all"
+    },
+    "guardianOnly": {
+      "label": "Only you",
+      "description": "Only you can message {assistant}. Everyone else is turned away."
+    },
+    "trustedContacts": {
+      "label": "Verified contacts",
+      "description": "You and the people you’ve verified can message {assistant}. Anyone else is asked to verify first, and you’re notified."
+    },
+    "anyContact": {
+      "label": "Any contact",
+      "description": "You and any known contact can message {assistant}, including contacts you haven’t verified yet. Strangers are asked to verify first.",
+      "confirmTitle": "Allow any contact?",
+      "confirmMessage": "“Any contact” admits every matched contact in this channel (including pending, unverified ones), not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
+      "confirmAction": "Allow any contact"
+    },
+    "strangers": {
+      "label": "Strangers",
+      "description": "Anyone can message {assistant}, including complete strangers.",
+      "confirmTitle": "Allow strangers?",
+      "confirmMessage": "Are you sure you want to allow strangers to contact your assistant through this channel?\n\nDoing so could cost you money and open you up to security and privacy vulnerabilities.\n\nEnable with extreme caution.",
+      "confirmAction": "Allow strangers"
+    }
   },
   "slackChannelTypeDefaults": {
     "heading": "Default access",
@@ -103,10 +131,74 @@
       "disconnectMessage": "This clears the stored Telegram bot token for this assistant. You can reconnect later.",
       "disconnectedPitch": "Connect a Telegram bot so {assistant} can send and receive messages on Telegram."
     },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "Connect a Discord bot so {assistant} can read and reply in your server.",
+      "disconnectMessage": "This clears the stored Discord bot token for this assistant, and the bot stops receiving messages. Your server keeps the bot until you remove it there."
+    },
+    "email": {
+      "label": "Email"
+    },
     "phone": {
       "label": "Phone Calling",
       "disconnectMessage": "This clears the stored Twilio credentials for this assistant. You can reconnect later.",
       "disconnectedPitch": "Connect your Twilio account so {assistant} can make and answer phone calls."
     }
+  },
+  "emailChannelSection": {
+    "apiKeyConfigured": "{providerName} API key configured. To reconfigure, run the <code>{setupSkill}</code> skill.",
+    "connecting": "Connecting to the Vellum platform…",
+    "openProvider": "Open {providerName}",
+    "platformLoginNotice": "Log in to the Vellum platform to manage email settings.",
+    "providerLabel": "Provider",
+    "saveSuccessToast": "Email settings saved.",
+    "setupInstructions": "Configure {providerName} via the assistant CLI: ask the assistant to run the <code>{setupSkill}</code> skill. It walks you through storing the API key, detecting the domain, and (optionally) wiring up an inbound webhook.",
+    "subtitle": "Configure how your assistant sends and receives email",
+    "title": "Email"
+  },
+  "emailManagedContent": {
+    "addressLabel": "Address",
+    "checkingSubscription": "Checking subscription…",
+    "confirm": "Confirm",
+    "create": "Create",
+    "createEmailFailedFallback": "Failed to create email address.",
+    "creating": "Creating…",
+    "domainLabel": "Domain",
+    "domainRegisteredToast": "Domain {domain} registered.",
+    "domainReleaseFailedToast": "Failed to release domain.",
+    "domainReleasedToast": "Domain released.",
+    "emailAddressLabel": "Email address",
+    "emailCreatedToast": "Email address created.",
+    "emailRemoveFailedToast": "Failed to remove email address.",
+    "emailRemovedToast": "Email address removed.",
+    "emailUsernameAriaLabel": "Email username",
+    "emailUsernamePlaceholder": "hi",
+    "enterSubdomainError": "Enter a subdomain.",
+    "enterUsernameError": "Enter an email username.",
+    "register": "Register",
+    "registerDomainFailedFallback": "Failed to register domain.",
+    "registering": "Registering…",
+    "releaseConfirm": "Release",
+    "releaseDomainAriaLabel": "Release domain",
+    "releaseDomainConfirmMessage": "Are you sure you want to release <code>{domain}</code>? The subdomain will become available for others to claim.",
+    "releaseDomainTitle": "Release Domain",
+    "removeAddressFirstToast": "Remove the email address first.",
+    "removeConfirm": "Remove",
+    "removeEmailAriaLabel": "Remove email address",
+    "removeEmailConfirmMessage": "Are you sure you want to remove <code>{address}</code>? Your assistant will no longer be able to send or receive email at this address.",
+    "removeEmailTitle": "Remove Email Address",
+    "retry": "Retry",
+    "setSubdomainConfirmMessage": "<code>{subdomain}</code> will also become your assistant's public handle. You won't be able to change it once set.",
+    "setSubdomainTitle": "Set Subdomain",
+    "subdomainExamplePlaceholder": "my-assistant",
+    "subdomainFallback": "subdomain",
+    "subdomainHint": "Each assistant gets its own subdomain. Lowercase letters, numbers, and hyphens only.",
+    "subdomainLabel": "Subdomain",
+    "subscriptionWarningBody": "We couldn't reach the billing service. The form below assumes managed email is enabled for your org. If it isn't, registering a domain will fail.",
+    "subscriptionWarningTitle": "Couldn't verify subscription status",
+    "upgradeButton": "Upgrade",
+    "upgradeNoticeBody": "Upgrade to a plan that includes an email address for your assistant. No provider setup required.",
+    "upgradeNoticeTitle": "Give your assistant its own email address",
+    "usageSummary": "{sent} / {limit} sent today · {received} received"
   }
 }

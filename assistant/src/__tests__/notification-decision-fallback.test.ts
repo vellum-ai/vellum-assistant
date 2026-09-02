@@ -88,7 +88,7 @@ describe("notification decision fallback copy", () => {
     );
   });
 
-  test("enforces free-text answer instructions for guardian.question when requestCode exists", async () => {
+  test("enforces free-text answer instructions into chat copy and keeps them out of vellum copy", async () => {
     const signal = makeSignal({
       contextPayload: {
         requestId: "req-pending-1",
@@ -101,13 +101,20 @@ describe("notification decision fallback copy", () => {
     });
     const decision = await evaluateSignal(signal, [
       "vellum",
+      "telegram",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(true);
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3");
-    expect(decision.renderedCopy.vellum?.body).toContain("<your answer>");
-    expect(decision.renderedCopy.vellum?.body).not.toContain("approve");
-    expect(decision.renderedCopy.vellum?.body).not.toContain("reject");
+    expect(decision.renderedCopy.telegram?.body).toContain("A1B2C3");
+    expect(decision.renderedCopy.telegram?.body).toContain("<your answer>");
+    expect(decision.renderedCopy.telegram?.body).not.toContain("approve");
+    expect(decision.renderedCopy.telegram?.body).not.toContain("reject");
+    // The bell and the banner read the vellum copy and act through the
+    // card, so the question arrives without the chat channel's mechanics.
+    expect(decision.renderedCopy.vellum?.body).toBe("What is the gate code?");
+    expect(decision.renderedCopy.vellum?.conversationSeedMessage).toBe(
+      "What is the gate code?",
+    );
   });
 
   test("enforcement appends free-text answer instructions when LLM copy only mentions request code", async () => {
@@ -118,10 +125,10 @@ describe("notification decision fallback copy", () => {
       name: "record_notification_decision",
       input: {
         shouldNotify: true,
-        selectedChannels: ["vellum"],
+        selectedChannels: ["telegram"],
         reasoningSummary: "LLM decision",
         renderedCopy: {
-          vellum: {
+          telegram: {
             title: "Guardian Question",
             body: "Use reference code A1B2C3 for this request.",
           },
@@ -143,17 +150,19 @@ describe("notification decision fallback copy", () => {
     });
 
     const decision = await evaluateSignal(signal, [
-      "vellum",
+      "telegram",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain(
+    expect(decision.renderedCopy.telegram?.body).toContain(
       '"A1B2C3 <your answer>"',
     );
-    expect(decision.renderedCopy.vellum?.body).not.toContain(
+    expect(decision.renderedCopy.telegram?.body).not.toContain(
       '"A1B2C3 approve"',
     );
-    expect(decision.renderedCopy.vellum?.body).not.toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.telegram?.body).not.toContain(
+      '"A1B2C3 reject"',
+    );
   });
 
   test("enforcement appends answer instructions when LLM copy incorrectly uses approve/reject wording", async () => {
@@ -164,10 +173,10 @@ describe("notification decision fallback copy", () => {
       name: "record_notification_decision",
       input: {
         shouldNotify: true,
-        selectedChannels: ["vellum"],
+        selectedChannels: ["telegram"],
         reasoningSummary: "LLM decision",
         renderedCopy: {
-          vellum: {
+          telegram: {
             title: "Guardian Question",
             body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
           },
@@ -189,11 +198,11 @@ describe("notification decision fallback copy", () => {
     });
 
     const decision = await evaluateSignal(signal, [
-      "vellum",
+      "telegram",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain(
+    expect(decision.renderedCopy.telegram?.body).toContain(
       '"A1B2C3 <your answer>"',
     );
   });
@@ -206,10 +215,10 @@ describe("notification decision fallback copy", () => {
       name: "record_notification_decision",
       input: {
         shouldNotify: true,
-        selectedChannels: ["vellum"],
+        selectedChannels: ["telegram"],
         reasoningSummary: "LLM decision",
         renderedCopy: {
-          vellum: {
+          telegram: {
             title: "Guardian Question",
             body: "Use reference code A1B2C3 for this request.",
           },
@@ -230,12 +239,12 @@ describe("notification decision fallback copy", () => {
     });
 
     const decision = await evaluateSignal(signal, [
-      "vellum",
+      "telegram",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.telegram?.body).toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.telegram?.body).toContain('"A1B2C3 reject"');
   });
 
   test("approval-mode enforcement removes conflicting answer-mode phrasing", async () => {
@@ -246,10 +255,10 @@ describe("notification decision fallback copy", () => {
       name: "record_notification_decision",
       input: {
         shouldNotify: true,
-        selectedChannels: ["vellum"],
+        selectedChannels: ["telegram"],
         reasoningSummary: "LLM decision",
         renderedCopy: {
-          vellum: {
+          telegram: {
             title: "Guardian Question",
             body: 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".',
           },
@@ -270,13 +279,13 @@ describe("notification decision fallback copy", () => {
     });
 
     const decision = await evaluateSignal(signal, [
-      "vellum",
+      "telegram",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
-    expect(decision.renderedCopy.vellum?.body).not.toContain("<your answer>");
+    expect(decision.renderedCopy.telegram?.body).toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.telegram?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.telegram?.body).not.toContain("<your answer>");
   });
 
   test("slack approval copy is stripped of request-code instructions instead of enforced", async () => {
@@ -292,12 +301,18 @@ describe("notification decision fallback copy", () => {
 
     const decision = await evaluateSignal(signal, [
       "vellum",
+      "telegram",
       "slack",
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(true);
-    // Vellum keeps the code-reply directive.
-    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
+    // Telegram answers by typed reply and keeps the code-reply directive.
+    expect(decision.renderedCopy.telegram?.body).toContain('"A1B2C3 approve"');
+    // Vellum acts through the card: the same text as Slack, code-free.
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      decision.renderedCopy.slack?.body,
+    );
+    expect(decision.renderedCopy.vellum?.body).not.toContain("A1B2C3");
     // Slack renders Approve/Reject buttons — no code anywhere in its copy.
     expect(decision.renderedCopy.slack?.body).toBe(
       "Approve tool: bash — ls /tmp (requested by Alice)",
@@ -370,6 +385,110 @@ describe("notification decision fallback copy", () => {
     expect(decision.fallbackUsed).toBe(true);
     expect(decision.renderedCopy.slack?.body).toContain(
       '"A1B2C3 <your answer>"',
+    );
+  });
+});
+
+// ── Surfaces that act through the card ───────────────────────────────────
+
+/**
+ * The vellum copy is read by the bell detail, the OS banner, and the
+ * delivery audit row, and the platform push mirrors it. None of them takes
+ * a typed reply, so the chat channels' "Reference code / Reply CODE" copy
+ * is noise there and is kept out on every decision path.
+ */
+describe("guardian copy for surfaces that act through the card", () => {
+  beforeEach(() => {
+    configuredProvider = null;
+    extractedToolUse = null;
+  });
+
+  test("a question with options reaches the bell as the question and its options, nothing else", async () => {
+    const signal = makeSignal({
+      sourceChannel: "telegram",
+      contextPayload: {
+        requestId: "req-ask-bell-1",
+        requestCode: "E96831",
+        requestKind: "pending_question",
+        questionText:
+          "When you say it feels too harsh, what is the feeling exactly?",
+        options: [
+          { id: "heavy", label: "Lines too heavy" },
+          { id: "showy", label: "Feels showy" },
+          { id: "both", label: "Both, honestly" },
+        ],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    const expectedQuestion =
+      "When you say it feels too harsh, what is the feeling exactly?\n\n1. Lines too heavy\n2. Feels showy\n3. Both, honestly";
+    // The bell reads the seed; the banner reads the body. Line structure is
+    // preserved so the options render as lines rather than one run-on blob.
+    expect(decision.renderedCopy.vellum?.conversationSeedMessage).toBe(
+      expectedQuestion,
+    );
+    expect(decision.renderedCopy.vellum?.body).toBe(expectedQuestion);
+    expect(decision.renderedCopy.vellum?.deliveryText).toBe(expectedQuestion);
+    // The chat channel still carries the answer mechanics after the options.
+    expect(decision.renderedCopy.telegram?.deliveryText).toBe(
+      `${expectedQuestion}\n\nReference code: E96831. Reply "E96831 <your answer>".`,
+    );
+  });
+
+  test("model-authored code phrasing is stripped from vellum and platform copy", async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum", "platform"],
+        reasoningSummary: "LLM decision",
+        renderedCopy: {
+          vellum: {
+            title: "Tool Grant Request",
+            body: 'Alice is asking to run ls /tmp.\nApproval code: A1B2C3\nReply "A1B2C3 approve" or "A1B2C3 reject".',
+            conversationSeedMessage:
+              "**Alice** is asking to run `ls /tmp`.\n\nReference code: A1B2C3.",
+          },
+          platform: {
+            title: "Tool Grant Request",
+            body: 'Alice is asking to run ls /tmp. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+          },
+        },
+        dedupeKey: "guardian-question-vellum-llm-test",
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: "req-grant-vellum-1",
+        questionText: "Approve tool: bash (requested by Alice)",
+        requestCode: "A1B2C3",
+        requestKind: "tool_grant_request",
+        toolName: "bash",
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "platform",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "Alice is asking to run ls /tmp.",
+    );
+    expect(decision.renderedCopy.vellum?.conversationSeedMessage).toBe(
+      "**Alice** is asking to run `ls /tmp`.",
+    );
+    expect(decision.renderedCopy.platform?.body).toBe(
+      "Alice is asking to run ls /tmp.",
     );
   });
 });
@@ -627,5 +746,111 @@ describe("access-request instruction enforcement", () => {
     // Approve/reject should NOT be present since there is no requestCode
     expect(decision.renderedCopy.vellum?.body).not.toContain("approve");
     expect(decision.renderedCopy.vellum?.body).not.toContain("reject");
+  });
+});
+
+/**
+ * A question is the one payload whose copy cannot be composed: the guardian is
+ * choosing between the words it carries. The engine replaces title / body /
+ * deliveryText wholesale with the model's version, which is how a question
+ * reached a channel as a summary of itself with its options missing.
+ */
+describe("ask_question copy is pinned to the question", () => {
+  const askQuestionSignal = (): NotificationSignal => ({
+    signalId: "sig-ask-question-1",
+    createdAt: Date.now(),
+    sourceChannel: "slack",
+    sourceContextId: "conv-1",
+    sourceEventName: "guardian.question",
+    contextPayload: {
+      requestId: "req-ask-1",
+      requestCode: "08B619",
+      requestKind: "pending_question",
+      questionText: "What should I dig into?",
+      options: [
+        { id: "opt-thread", label: "This Slack thread" },
+        { id: "opt-pr", label: "The pull request" },
+      ],
+    },
+    attentionHints: {
+      requiresAction: true,
+      urgency: "high",
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+  });
+
+  beforeEach(() => {
+    configuredProvider = { sendMessage: async () => ({ content: [] }) };
+    // The tool-use envelope `classifyWithLLM` reads, not the decision fields
+    // alone: it takes `toolBlock.input`, and the field names inside must be
+    // the ones `validateDecisionOutput` requires. Either mismatch drops the
+    // decision to the fallback path, where this suite's own copy is correct
+    // and the pin under test never runs.
+    extractedToolUse = {
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["slack"],
+        reasoningSummary: "guardian needs to answer",
+        dedupeKey: "ask-question-req-ask-1",
+        confidence: 0.9,
+        renderedCopy: {
+          slack: {
+            title: "Guardian question",
+            body: "Guardian wants to know where to focus",
+            deliveryText: "Guardian wants to know where to focus",
+          },
+        },
+      },
+    };
+  });
+
+  test("the composed paraphrase does not replace the question", async () => {
+    const decision = await evaluateSignal(askQuestionSignal(), [
+      "slack",
+    ] as NotificationChannel[]);
+
+    // Guards the fixture itself: a shape the validator rejects would fall
+    // back, and the assertions below would then be testing the fallback copy
+    // rather than the pin that overrides a composed paraphrase.
+    expect(decision.fallbackUsed).toBe(false);
+
+    const copy = decision.renderedCopy.slack;
+    // `deliveryText` is what the Slack adapter sends, ahead of body and title.
+    expect(copy?.deliveryText).toContain("What should I dig into?");
+    expect(copy?.deliveryText).not.toContain("wants to know where to focus");
+    expect(copy?.body).toContain("What should I dig into?");
+  });
+
+  test("the options ride along, numbered as the resolver orders them", async () => {
+    const decision = await evaluateSignal(askQuestionSignal(), [
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    const delivered = decision.renderedCopy.slack?.deliveryText ?? "";
+    expect(delivered).toContain("1. This Slack thread");
+    expect(delivered).toContain("2. The pull request");
+    expect(delivered).toContain("08B619");
+  });
+
+  test("a voice tool approval keeps its composed copy", async () => {
+    const signal = askQuestionSignal();
+    // A `pending_question` carrying a tool name is an approval, not a
+    // question, so composing its copy is correct.
+    signal.contextPayload = {
+      ...signal.contextPayload,
+      toolName: "bash",
+      options: undefined,
+    };
+    const decision = await evaluateSignal(signal, [
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.slack?.deliveryText).toBe(
+      "Guardian wants to know where to focus",
+    );
   });
 });

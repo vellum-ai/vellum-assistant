@@ -224,6 +224,27 @@
   --color-amber-100: #FDF8EE;
 }
 
+/* ---------------------------------------------------------------------------
+ * Border-radius scale, `static` for the same reason as the ramps above.
+ *
+ * The Stripe Elements appearance reads `--radius-lg` off
+ * `getComputedStyle(document.documentElement)` at runtime
+ * (`clients/web/src/domains/settings/billing/stripe-appearance.ts`) so the
+ * card fields match the app's corners. Today that read resolves only because
+ * the widget-token bridge (`clients/web/src/utils/widget-tokens.ts`) names
+ * every step, which keeps them emitted; `static` makes the values reach
+ * `:root` on their own rather than depending on that second consumer.
+ * --------------------------------------------------------------------------- */
+@theme static inline {
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-xxl: 20px;
+  --radius-pill: 999px;
+}
+
 @theme inline {
   /* Font tokens — DM Sans across the board, matching the Swift macOS
    * client's VFont (TypographyTokens.swift). */
@@ -245,15 +266,6 @@
   --app-spacing-xl: 24px;
   --app-spacing-xxl: 32px;
   --app-spacing-xxxl: 48px;
-
-  /* Border-radius scale */
-  --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-xxl: 20px;
-  --radius-pill: 999px;
 
   /* Shadow scale — synced with macOS design system. `--shadow-popover` is
    * theme-aware (defined per-mode below); the rest are mode-agnostic. */
@@ -285,6 +297,11 @@
 /* ===== Light mode (default) — Figma node 2674:20625 ===== */
 :root,
 [data-theme="light"] {
+  /* Native controls (number spinners, scrollbars, pickers) follow the theme
+     rather than the UA default, which otherwise renders them light on our
+     dark surfaces. */
+  color-scheme: light;
+
   /* Surface */
   --surface-base: #F6F5F4;
   --surface-overlay: #FDFDFC;
@@ -367,6 +384,7 @@
   --field-bg: var(--surface-lift);
   --field-border: var(--border-element);
   --tag-bg-neutral: var(--surface-base);
+  --segment-track: var(--surface-active);
 
   /* Background / Foreground */
   --background: #F6F5F4;
@@ -376,6 +394,8 @@
 
 /* ===== Dark mode — Figma node 2674:20730 ===== */
 [data-theme="dark"] {
+  color-scheme: dark;
+
   /* Surface */
   --surface-base: #17191C;
   --surface-overlay: #1C2024;
@@ -455,6 +475,7 @@
   --field-bg: #2D3339;
   --field-border: transparent;
   --tag-bg-neutral: var(--primary-disabled);
+  --segment-track: #2D3339;
 
   /* Background / Foreground */
   --background: #17191C;
@@ -463,6 +484,8 @@
 
 /* ===== Velvet mode — dark with red/pink accents ===== */
 [data-theme="velvet"] {
+  color-scheme: dark;
+
   /* Surface */
   --surface-base: #121214;
   --surface-overlay: #1A171B;
@@ -543,6 +566,7 @@
   --field-bg: #242026;
   --field-border: transparent;
   --tag-bg-neutral: var(--primary-disabled);
+  --segment-track: var(--surface-active);
 
   /* Background / Foreground */
   --background: #121214;

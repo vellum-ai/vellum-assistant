@@ -34,6 +34,7 @@ export {
   ScrollShadow,
   type ScrollShadowProps,
   type ScrollShadowOrientation,
+  type ScrollShadowFadeEdges,
 } from "./components/scroll-shadow";
 export {
   Tag,
@@ -137,6 +138,7 @@ export {
 } from "./components/confirm-dialog";
 export {
   ActionMenu,
+  actionMenuDestructiveClasses,
   type ActionMenuPresentation,
   type ActionMenuRootProps,
   type ActionMenuTriggerProps,
@@ -195,6 +197,7 @@ export {
 export {
   MARKDOWN_INLINE_CODE_CLASS,
   MarkdownMessage,
+  preloadMarkdownMath,
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
   quoteBlockquoteContentClassName,
@@ -263,6 +266,11 @@ export {
   type ComboboxOptionProps,
 } from "./components/combobox";
 export {
+  SearchableSelect,
+  type SearchableSelectProps,
+  type SearchableSelectOption,
+} from "./components/searchable-select";
+export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,
@@ -270,12 +278,16 @@ export {
 export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
+  acceleratorToAriaKeyShortcuts,
+  detectShortcutPlatform,
+  formatAcceleratorHint,
   parseAccelerator,
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
 export type { CustomPropertyStyle } from "./utils/custom-property-style";
 export { initInputModality } from "./utils/input-modality";
+export { writeSelectionClipboard } from "./utils/selection-clipboard";
 export {
   PANEL_ITEM_WASH,
   panelItemWashStyle,

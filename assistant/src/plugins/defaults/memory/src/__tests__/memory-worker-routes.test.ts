@@ -4,7 +4,7 @@
  * The route handlers run inside the daemon and manage the worker process. We
  * mock worker-control + the embedding backend so the tests assert handler
  * behaviour:
- *   - start spawns as a daemon child (detached:false) and throws on failure.
+ *   - start spawns the worker and throws on failure.
  *   - stop signals the worker and reports its prior state.
  *   - status reports the worker process liveness + the embedding backend.
  */
@@ -16,7 +16,7 @@ import { getMemoryWorkerPidPath } from "../../../../../util/platform.js";
 class FakeSpawnError extends Error {}
 
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
-let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
+let spawnArgs: Array<{ terminateOnTimeout?: boolean } | undefined> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
@@ -37,10 +37,7 @@ let backendStatus: {
 
 mock.module("../../worker-control.js", () => ({
   MemoryWorkerSpawnError: FakeSpawnError,
-  spawnMemoryWorkerProcess: async (opts: {
-    detached?: boolean;
-    terminateOnTimeout?: boolean;
-  }) => {
+  spawnMemoryWorkerProcess: async (opts: { terminateOnTimeout?: boolean }) => {
     spawnArgs.push(opts);
     return spawnImpl();
   },
@@ -86,7 +83,7 @@ describe("memory_worker_start", () => {
 
     const res = await handler("memory_worker_start")();
 
-    expect(spawnArgs).toEqual([{ detached: false }]);
+    expect(spawnArgs).toEqual([undefined]);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,

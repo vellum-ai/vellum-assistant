@@ -37,6 +37,8 @@ assistant contacts list --role contact
 assistant contacts list --role guardian
 assistant contacts list --channel-type telegram
 assistant contacts get <contactId>
+gateway contacts list
+gateway contacts get <contactId>
 ```
 
 ### Via HTTP API
@@ -141,6 +143,18 @@ sqlite3 "file:$GW_DB?mode=ro" \
 ```
 
 `verification_purpose` is `guardian` for guardian binding flows and `trusted_contact` for the access-request handshake.
+
+## 3b. Contact writes
+
+All write operations on contacts are gateway-owned. Use the gateway CLI, not
+`assistant contacts`. From the host, run the same command via
+`vellum exec --service gateway --`.
+
+```bash
+gateway contacts set-risk-threshold <contactId> --threshold high
+```
+
+`inherit` clears the risk ceiling so the contact follows room and trust-class settings. Stored vocabulary is `none`, `low`, `medium`, or `high`.
 
 ## 4. Force-Revoke a Trusted Contact
 

@@ -93,13 +93,25 @@ const PluginStdioServerSchema = z.object({
   cwd: z.string().optional(),
 });
 
+/**
+ * Remote MCP entry. Agent Plugins 1.0.0 requires `type` and names no
+ * default. MCP's current remote transport is Streamable HTTP, so this
+ * host fills omitted `type` and the Claude-style `http` alias as
+ * `streamable-http`. `sse` stays explicit.
+ */
 const PluginHttpServerSchema = z.object({
-  type: z.enum(["streamable-http", "sse"]),
+  type: z
+    .union([
+      z.literal("streamable-http"),
+      z.literal("sse"),
+      z.literal("http").transform(() => "streamable-http" as const),
+    ])
+    .default("streamable-http"),
   url: z.string().min(1),
   headers: z.record(z.string(), z.string()).optional(),
 });
 
-const PluginMcpServerSchema = z.discriminatedUnion("type", [
+const PluginMcpServerSchema = z.union([
   PluginStdioServerSchema,
   PluginHttpServerSchema,
 ]);

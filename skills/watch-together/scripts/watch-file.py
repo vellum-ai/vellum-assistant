@@ -27,9 +27,11 @@ Environment (in addition to editor.py's):
   WATCH_MPV_ARGS   extra args appended to the mpv command line
 """
 
+import argparse
 import json
-import re
 import os
+import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -47,6 +49,20 @@ TEXT_SUB_CODECS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
 SRT_TIME = re.compile(
     r"(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)"
 )
+
+
+def read_when_available(
+    read, available, timeout, clock=time.monotonic, sleep=time.sleep
+):
+    deadline = clock() + timeout
+    while True:
+        byte_count = available()
+        if byte_count > 0:
+            return read(min(byte_count, 65536))
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return None
+        sleep(min(0.02, remaining))
 
 
 def parse_srt(path):
@@ -97,6 +113,26 @@ def find_text_sub_stream(media):
     return None
 
 
+def media_duration(media):
+    """Duration in seconds via ffprobe, or None if unavailable."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(media),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def load_subtitles(media, session_dir):
     """Sidecar .srt, else first embedded text track. Returns entries or None."""
     sidecar = media.with_suffix(".srt")
@@ -127,28 +163,74 @@ def load_subtitles(media, session_dir):
 
 
 class MpvIpc:
-    """Minimal client for mpv's JSON IPC socket."""
+    """Minimal client for mpv JSON IPC over a Unix socket or Windows pipe."""
 
-    def __init__(self, sock_path, timeout=20.0):
+    def __init__(self, endpoint, timeout=20.0):
         deadline = time.monotonic() + timeout
         while True:
             try:
-                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                self.sock.connect(str(sock_path))
+                if os.name == "nt":
+                    self.stream = open(endpoint, "r+b", buffering=0)
+                else:
+                    self.stream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    self.stream.connect(str(endpoint))
                 break
-            except (FileNotFoundError, ConnectionRefusedError):
+            except OSError:
+                if os.name != "nt" and hasattr(self, "stream"):
+                    self.stream.close()
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(0.3)
-        self.sock.settimeout(5.0)
+        if os.name != "nt":
+            self.stream.settimeout(5.0)
         self.buf = b""
         self.req = 0
+
+    def close(self):
+        self.stream.close()
+
+    def send(self, data):
+        if os.name == "nt":
+            self.stream.write(data)
+            self.stream.flush()
+        else:
+            self.stream.sendall(data)
+
+    def windows_pipe_available(self):
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        available = wintypes.DWORD()
+        peek_named_pipe = ctypes.windll.kernel32.PeekNamedPipe
+        peek_named_pipe.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        peek_named_pipe.restype = wintypes.BOOL
+        handle = msvcrt.get_osfhandle(self.stream.fileno())
+        if not peek_named_pipe(handle, None, 0, None, ctypes.byref(available), None):
+            raise ctypes.WinError()
+        return available.value
+
+    def receive(self, timeout):
+        if os.name == "nt":
+            return read_when_available(
+                self.stream.read,
+                self.windows_pipe_available,
+                timeout,
+            )
+        return self.stream.recv(65536)
 
     def get_property(self, name):
         """Returns the property value, or None if unavailable."""
         self.req += 1
         msg = json.dumps({"command": ["get_property", name], "request_id": self.req})
-        self.sock.sendall(msg.encode() + b"\n")
+        self.send(msg.encode() + b"\n")
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             while b"\n" in self.buf:
@@ -163,13 +245,65 @@ class MpvIpc:
                         return obj.get("data")
                     return None
             try:
-                data = self.sock.recv(65536)
+                data = self.receive(max(0, deadline - time.monotonic()))
             except socket.timeout:
+                return None
+            if data is None:
                 return None
             if not data:
                 raise ConnectionError("mpv socket closed")
             self.buf += data
         return None
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Play a local media file and feed watched windows to Watch Together."
+    )
+    parser.add_argument("media_file")
+    parser.add_argument("session_dir")
+    parser.add_argument("conversation_key")
+    parser.add_argument("chunk_seconds", nargs="?", type=int, default=60)
+    args = parser.parse_args()
+    if args.chunk_seconds <= 0:
+        parser.error("chunk_seconds must be greater than zero")
+    return args
+
+
+def install_hint(command):
+    if sys.platform == "darwin":
+        return f"install with: brew install {command}"
+    if os.name == "nt":
+        return f"install {command} and add it to PATH"
+    return f"install {command} with your system package manager"
+
+
+def split_mpv_args(value):
+    if not value:
+        return []
+    if os.name != "nt":
+        return shlex.split(value)
+
+    import ctypes
+    from ctypes import wintypes
+
+    command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+    command_line_to_argv.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+    command_line_to_argv.restype = ctypes.POINTER(wintypes.LPWSTR)
+    local_free = ctypes.windll.kernel32.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+
+    argument_count = ctypes.c_int()
+    arguments = command_line_to_argv(
+        f"watch-together {value}", ctypes.byref(argument_count)
+    )
+    if not arguments:
+        raise OSError(ctypes.get_last_error(), "could not parse WATCH_MPV_ARGS")
+    try:
+        return [arguments[index] for index in range(1, argument_count.value)]
+    finally:
+        local_free(arguments)
 
 
 def process_window(media, session_dir, conv, chunk_s, idx, subs, duration=None):
@@ -193,21 +327,18 @@ def process_window(media, session_dir, conv, chunk_s, idx, subs, duration=None):
 
 
 def main():
-    args = sys.argv[1:]
-    if len(args) not in (3, 4):
-        print(__doc__, file=sys.stderr)
-        sys.exit(1)
-    media = Path(args[0]).expanduser().resolve()
-    session_dir = Path(args[1]).expanduser().resolve()
-    conv = args[2]
-    chunk_s = int(args[3]) if len(args) == 4 else 60
+    args = parse_args()
+    media = Path(args.media_file).expanduser().resolve()
+    session_dir = Path(args.session_dir).expanduser().resolve()
+    conv = args.conversation_key
+    chunk_s = args.chunk_seconds
 
     if not media.is_file():
-        sys.exit(f"❌ Media file not found: {media}")
+        sys.exit(f"Media file not found: {media}")
     if not shutil.which("mpv"):
-        sys.exit("❌ mpv not found — install with: brew install mpv")
+        sys.exit(f"mpv not found. {install_hint('mpv')}")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        sys.exit("❌ ffmpeg/ffprobe not found — install with: brew install ffmpeg")
+        sys.exit(f"ffmpeg or ffprobe not found. {install_hint('ffmpeg')}")
 
     # Fresh session state (the media itself is untouched)
     shutil.rmtree(session_dir / "editor", ignore_errors=True)
@@ -224,10 +355,13 @@ def main():
 
     subs = load_subtitles(media, session_dir)
 
-    sock_path = session_dir / "mpv.sock"
-    sock_path.unlink(missing_ok=True)
-    mpv_cmd = ["mpv", "--fs", f"--input-ipc-server={sock_path}", str(media)]
-    mpv_cmd += os.environ.get("WATCH_MPV_ARGS", "").split()
+    if os.name == "nt":
+        ipc_endpoint = rf"\\.\pipe\vellum-watch-{os.getpid()}"
+    else:
+        ipc_endpoint = session_dir / "mpv.sock"
+        ipc_endpoint.unlink(missing_ok=True)
+    mpv_cmd = ["mpv", "--fs", f"--input-ipc-server={ipc_endpoint}", str(media)]
+    mpv_cmd += split_mpv_args(os.environ.get("WATCH_MPV_ARGS", ""))
     mpv = subprocess.Popen(mpv_cmd)
 
     print("━" * 41)
@@ -242,14 +376,15 @@ def main():
     print("━" * 41)
 
     try:
-        ipc = MpvIpc(sock_path)
-    except (FileNotFoundError, ConnectionRefusedError):
+        ipc = MpvIpc(ipc_endpoint)
+    except OSError:
         mpv.terminate()
-        sys.exit("❌ Could not connect to mpv's IPC socket")
+        sys.exit("Could not connect to mpv IPC")
 
     next_idx = None
     last_pos = None
     last_wall = None
+    last_speed = 1.0
     try:
         while mpv.poll() is None:
             time.sleep(POLL_S)
@@ -268,6 +403,7 @@ def main():
                     # window; processed windows are skip-guarded by their
                     # verdict files.
                     speed = ipc.get_property("speed") or 1.0
+                    last_speed = speed
                     expected = (now - last_wall) * speed
                     if abs((pos - last_pos) - expected) > max(10.0, 0.5 * expected):
                         resync = int(pos // chunk_s)
@@ -286,22 +422,29 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        ipc.close()
         if mpv.poll() is None:
             mpv.terminate()
-        if (
-            next_idx is not None
-            and last_pos is not None
-            and last_pos - next_idx * chunk_s >= MIN_FINAL_WINDOW_S
-        ):
-            process_window(
-                media,
-                session_dir,
-                conv,
-                chunk_s,
-                next_idx,
-                subs,
-                duration=last_pos - next_idx * chunk_s,
-            )
+        if next_idx is not None and last_pos is not None:
+            # Polling can lag mpv's exit by a poll interval (more while a
+            # window is processing), so a file watched to the end may have
+            # unseen windows past the last polled position. When the end of
+            # the file was reachable within that gap, credit playback to the
+            # end; otherwise (early quit) trust the last polled position.
+            end_pos = last_pos
+            duration = media_duration(media)
+            if duration is not None:
+                gap_s = (time.monotonic() - last_wall + POLL_S) * last_speed
+                if duration - last_pos <= gap_s:
+                    end_pos = max(duration, last_pos)
+            while end_pos >= (next_idx + 1) * chunk_s:
+                process_window(media, session_dir, conv, chunk_s, next_idx, subs)
+                next_idx += 1
+            tail = end_pos - next_idx * chunk_s
+            if tail >= MIN_FINAL_WINDOW_S:
+                process_window(
+                    media, session_dir, conv, chunk_s, next_idx, subs, duration=tail
+                )
         editor.flush(session_dir, conv, chunk_s)
         print()
         print("✅ Session complete!")

@@ -15,10 +15,14 @@ import {
 } from "@vellumai/electron-desktop/commands";
 import { installGlobalShortcuts } from "@vellumai/electron-desktop/global-shortcuts";
 import { installHotkeysIpc } from "@vellumai/electron-desktop/hotkeys";
+import { getName, onNameChange } from "@vellumai/electron-desktop/identity";
 import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
+import { toggleQuickInput } from "@vellumai/electron-desktop/quick-input-window";
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 
-import { getDevRendererBase, RENDERER_BASE_PROD } from "../app-config";
+import { getRendererBase } from "../app-config";
+import { checkForUpdates } from "../auto-update";
+import { runInstallCliCommandFlow } from "../cli-path-flow";
 import { handle } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
@@ -34,8 +38,9 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     }
 
     configureAboutRuntime({
-      rendererBase: () =>
-        app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+      rendererBase: () => getRendererBase(app.isPackaged),
+      getAssistantName: getName,
+      onAssistantNameChange: onNameChange,
     });
     installAbout({ handle });
 
@@ -44,6 +49,9 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
         globalHotkey: () => {
           void ensureVisible();
         },
+        // Registered through installGlobalShortcuts so the Keyboard
+        // Shortcuts rebinding applies and the chord is bound exactly once.
+        quickInput: toggleQuickInput,
         // Talk, from wherever the user is. `registerAll` skips a command with
         // no handler, so without this the binding would be offered in both
         // Keyboard Shortcuts and Voice settings, show as bound, and do
@@ -63,7 +71,14 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
       },
       logger: log,
     });
-    installWindowsMenu({ handle, openAbout: openAboutWindow });
+    installWindowsMenu({
+      handle,
+      openAbout: openAboutWindow,
+      checkForUpdates,
+      installCli: () => {
+        void runInstallCliCommandFlow();
+      },
+    });
 
     app.on("web-contents-created", (_event, contents) => {
       installImageContextMenu(contents);

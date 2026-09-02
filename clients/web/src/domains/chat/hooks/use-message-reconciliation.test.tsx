@@ -136,7 +136,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(false);
     const { result, invalidateSpy } = renderReconciliation();
 
-    const outcome = await result.current.reconcileActiveConversation();
+    const outcome = await result.current.reconcileActiveConversation("reopen");
 
     expect(outcome.changed).toBe(false);
     // No content diff, but the server's `processing: false` must still trigger
@@ -149,9 +149,25 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(true);
     const { result, invalidateSpy } = renderReconciliation();
 
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("reseeds when the snapshot never received an authoritative flag (undefined sentinel)", async () => {
+    // The rolling snapshot was seeded without the `processing` field, so
+    // `nextProcessingState` pinned it to the `undefined` sentinel and no delta
+    // fold can ever lift it, leaving the close-gate starved on a non-`false`
+    // value. A modern daemon reporting idle must still trigger the reseed that
+    // plants an authoritative `false`.
+    seedSnapshotProcessing(undefined);
+    seedServerFetch(false);
+    const { result, invalidateSpy } = renderReconciliation();
+
+    const outcome = await result.current.reconcileActiveConversation("reopen");
+
+    expect(outcome.changed).toBe(false);
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
   });
 
   test("does not reseed when the snapshot already reflects the idle turn", async () => {
@@ -160,7 +176,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(false);
     const { result, invalidateSpy } = renderReconciliation();
 
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
@@ -170,7 +186,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(undefined);
     const { result, invalidateSpy } = renderReconciliation();
 
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
@@ -187,7 +203,7 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
     });
 
     // WHEN the active conversation reconciles
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     // THEN the tail was fetched from the snapshot's anchor ...
     const ingest = reconcileTrace.find((t) => t.step === "ingest-tail");

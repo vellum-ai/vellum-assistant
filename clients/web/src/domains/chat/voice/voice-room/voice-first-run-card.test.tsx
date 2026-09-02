@@ -194,26 +194,78 @@ describe("VoiceFirstRunCard", () => {
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
   });
 
-  test("dismissible by default (web): renders the ✕ close affordance", () => {
+  test("renders the ✕ close affordance — on every platform, iOS included", () => {
+    // The card takes no platform prop: there is no build in which it renders
+    // without a way out. An iOS-only lock once removed the ✕ and the backdrop
+    // dismiss, stranding first-time users in voice mode.
     const { getByLabelText } = render(
       <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
     );
     expect(getByLabelText("Close")).toBeTruthy();
   });
 
-  test("nonDismissible (iOS lock): no ✕, only Start talking leads forward", () => {
-    // The lock strips the close affordance so the pre-permission card leads
-    // straight to the mic alert (CAPACITOR.md § OS permission requests); there
-    // is intentionally no card-level cancel.
-    const { queryByLabelText, getByText } = render(
+  test("✕ cancels without starting or consuming the first run", () => {
+    const onStart = mock(() => {});
+    const onDismiss = mock(() => {});
+    const { getByLabelText } = render(
+      <VoiceFirstRunCard
+        assistantId="asst_test"
+        onStart={onStart}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    fireEvent.click(getByLabelText("Close"));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
+    // Un-consumed, so the card returns on the next voice entry.
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("a backdrop tap cancels the intro the same way", () => {
+    // The overlay carries its own onClick (design-library `modal.tsx`) rather
+    // than leaning on Radix's document-level listener, which is what makes the
+    // tap register in the iOS WKWebView. See CAPACITOR.md § Click events
+    // require interactive elements on iOS.
+    const onStart = mock(() => {});
+    const onDismiss = mock(() => {});
+    const { baseElement } = render(
+      <VoiceFirstRunCard
+        assistantId="asst_test"
+        onStart={onStart}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    const overlay = baseElement.querySelector('[data-slot="modal-overlay"]');
+    expect(overlay).toBeTruthy();
+    fireEvent.click(overlay!);
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("a backdrop tap in a sub-view returns to the intro, never cancels", () => {
+    // `onOpenChange` is the authoritative guard, so the backdrop routes the
+    // same way Escape does: back out of the sub-view, don't discard the card.
+    const onDismiss = mock(() => {});
+    const { getByText, baseElement } = render(
       <VoiceFirstRunCard
         assistantId="asst_test"
         onStart={() => {}}
-        nonDismissible
+        onDismiss={onDismiss}
       />,
     );
-    expect(queryByLabelText("Close")).toBeNull();
+
+    fireEvent.click(getByText(SETTINGS_LINK));
+    expect(dialogTitle()).toBe("Voice settings");
+
+    fireEvent.click(baseElement.querySelector('[data-slot="modal-overlay"]')!);
+
     expect(getByText("Start talking")).toBeTruthy();
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   describe("voice settings view", () => {
@@ -251,14 +303,15 @@ describe("VoiceFirstRunCard", () => {
       expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
     });
 
-    test("the link is reachable under the iOS lock too", () => {
-      // The lock removes cancels, not in-modal navigation — a locked card
-      // still has to let a user reach voice settings before the mic prompt.
+    test("the back arrow is in-modal navigation, distinct from the ✕", () => {
+      // Both affordances sit in a sub-view: Back returns to the intro while ✕
+      // cancels the card outright. Neither may be mistaken for the other.
+      const onDismiss = mock(() => {});
       const { getByText, getByLabelText } = render(
         <VoiceFirstRunCard
           assistantId="asst_test"
           onStart={() => {}}
-          nonDismissible
+          onDismiss={onDismiss}
         />,
       );
 
@@ -266,6 +319,7 @@ describe("VoiceFirstRunCard", () => {
       expect(dialogTitle()).toBe("Voice settings");
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
+      expect(onDismiss).not.toHaveBeenCalled();
     });
   });
 

@@ -12,6 +12,7 @@ import { Database } from "bun:sqlite";
 
 import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
+import { readDaemonBootTime } from "../daemon-boot-time.js";
 
 const log = getLogger("recovery-db");
 
@@ -35,5 +36,39 @@ export function openRecoveryDb(): Database | null {
   } catch (err) {
     log.debug({ err }, "recovery: could not open database");
     return null;
+  }
+}
+
+/**
+ * Run one recovery step against a boot-fenced database handle.
+ *
+ * Every step reconciles rows a dead process left behind, so every step needs
+ * the same two guards first: a daemon boot time to fence against (without it
+ * a live daemon's in-flight row is indistinguishable from a dead process's
+ * orphan) and an openable database. `run` is invoked only when both hold, and
+ * the handle is closed however it returns.
+ *
+ * Steps keep their own logger and their own result logging: this owns the
+ * preconditions and the handle's lifetime, not what a step does or says.
+ * A throw propagates to the orchestrator, which treats it as "schema not
+ * ready yet" and retries on the next monitor run.
+ */
+export function withBootFencedRecoveryDb(
+  step: string,
+  run: (db: Database, bootTime: number) => void,
+): void {
+  const bootTime = readDaemonBootTime();
+  if (bootTime == null) {
+    log.warn({ step }, "Skipping recovery step: daemon boot time unavailable");
+    return;
+  }
+  const db = openRecoveryDb();
+  if (db == null) {
+    return;
+  }
+  try {
+    run(db, bootTime);
+  } finally {
+    db.close();
   }
 }

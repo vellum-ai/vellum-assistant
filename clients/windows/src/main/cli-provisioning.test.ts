@@ -18,6 +18,7 @@ import {
   CLI_RUNTIME_OWNERSHIP_MARKER,
   isValidCliRuntime,
   provisionCliRuntime,
+  readRuntimeManifest,
   type CliRuntimePaths,
 } from "./cli-installer";
 import {
@@ -54,11 +55,15 @@ const writeRuntimeEntries = (dir: string, version: string): void => {
   }
 };
 
-const writeRuntime = (dir: string, version: string): string => {
+const writeRuntime = (
+  dir: string,
+  version: string,
+  runtimeBuildId = `build-${version}`,
+): string => {
   writeRuntimeEntries(dir, version);
   writeFileSync(
     path.join(dir, "runtime.json"),
-    JSON.stringify({ version, bunVersion: "1.3.11" }),
+    JSON.stringify({ version, bunVersion: "1.3.11", runtimeBuildId }),
     "utf8",
   );
   writeFileSync(
@@ -135,19 +140,26 @@ test("installs, upgrades, and falls back from paths with spaces", () => {
 test("prunes only owned runtimes older than the fallback", () => {
   const root = makeTempDir();
   let previousInstallDir: string | undefined;
+  const installDirs: string[] = [];
 
-  for (const version of ["1.0.0", "2.0.0", "3.0.0"]) {
+  for (const [version, buildChar] of [
+    ["1.0.0", "1"],
+    ["2.0.0", "2"],
+    ["3.0.0", "3"],
+  ] as const) {
     const paths = runtimePaths(root, version);
     rmSync(paths.sourceDir, { recursive: true, force: true });
-    writeRuntime(paths.sourceDir, version);
-    previousInstallDir = provisionCliRuntime(paths).previousInstallDir;
+    writeRuntime(paths.sourceDir, version, buildChar.repeat(64));
+    const result = provisionCliRuntime(paths);
+    installDirs.push(result.installDir);
+    previousInstallDir = result.previousInstallDir;
   }
 
   const installRoot = runtimePaths(root, "3.0.0").installRoot;
-  expect(existsSync(path.join(installRoot, "1.0.0"))).toBeFalse();
-  expect(existsSync(path.join(installRoot, "2.0.0"))).toBeTrue();
-  expect(existsSync(path.join(installRoot, "3.0.0"))).toBeTrue();
-  expect(previousInstallDir).toBe(path.join(installRoot, "2.0.0"));
+  expect(existsSync(installDirs[0]!)).toBeFalse();
+  expect(existsSync(installDirs[1]!)).toBeTrue();
+  expect(existsSync(installDirs[2]!)).toBeTrue();
+  expect(previousInstallDir).toBe(installDirs[1]);
 
   const foreign = path.join(installRoot, "foreign");
   writeRuntime(foreign, "foreign");
@@ -196,6 +208,27 @@ test("preserves the newer runtime when reusing an older version", () => {
   rmSync(path.join(v1.installDir, "vellum.exe"));
   const fallback = provisionCliRuntime(runtimePaths(root, "3.0.0"));
   expect(fallback.installDir).toBe(v2.installDir);
+});
+
+test("installs a changed same-version runtime side by side", () => {
+  const root = makeTempDir();
+  const paths = runtimePaths(root, "1.0.0");
+  const firstBuildId = "1".repeat(64);
+  const secondBuildId = "2".repeat(64);
+  writeRuntime(paths.sourceDir, paths.version, firstBuildId);
+  const first = provisionCliRuntime(paths);
+
+  rmSync(paths.sourceDir, { recursive: true });
+  writeRuntime(paths.sourceDir, paths.version, secondBuildId);
+  const replacement = provisionCliRuntime(paths);
+
+  expect(replacement.installDir).not.toBe(first.installDir);
+  expect(replacement.previousInstallDir).toBe(first.installDir);
+  expect(existsSync(first.installDir)).toBeTrue();
+  expect(replacement.reused).toBeFalse();
+  expect(readRuntimeManifest(replacement.installDir)?.runtimeBuildId).toBe(
+    secondBuildId,
+  );
 });
 
 test("does not replace a foreign launcher", () => {

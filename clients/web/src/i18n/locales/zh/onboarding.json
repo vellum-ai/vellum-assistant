@@ -1,0 +1,295 @@
+{
+  "actions": {
+    "continue": "继续",
+    "back": "返回",
+    "forward": "前进",
+    "cancel": "取消",
+    "add": "添加",
+    "adding": "正在添加…",
+    "connect": "连接",
+    "connecting": "正在连接…",
+    "tryAgain": "重试",
+    "remove": "移除 {value}",
+    "logIn": "登录",
+    "logOut": "注销",
+    "loginToUse": "登录以使用",
+    "downloadMacApp": "下载 macOS 应用",
+    "claim": "认领",
+    "skipForNow": "暂时跳过",
+    "starting": "正在启动…"
+  },
+  "welcome": {
+    "title": "欢迎使用 Vellum",
+    "body": "您的专属智能助手触手可及。",
+    "continueWithoutAccount": "不登录继续"
+  },
+  "startScreen": {
+    "createAssistant": "创建您的助手"
+  },
+  "privacyScreen": {
+    "title": "开始之前",
+    "body": "选择您的隐私偏好设置。您可以随时在“设置”中更新这些内容。",
+    "start": "开始新手引导",
+    "skipToChat": "跳过并聊天"
+  },
+  "hostingScreen": {
+    "title": "托管",
+    "body": "选择您希望助手驻留的位置。",
+    "needHelp": "需要帮助来决定？",
+    "optionsAriaLabel": "托管选项"
+  },
+  "apiKeyScreen": {
+    "title": "连接模型提供商",
+    "body": "选择您的助手应使用的模型提供商。",
+    "providerLabel": "提供商",
+    "modelLabel": "模型",
+    "baseUrlLabel": "基础 URL",
+    "modelsLabel": "模型",
+    "modelsPlaceholder": "model-1, model-2",
+    "modelsHelp": "您的端点公开的逗号分隔模型标识符。",
+    "apiKeyLabel": "{provider} API 密钥",
+    "apiKeyPlaceholder": "输入您的 API 密钥",
+    "noKeyPrompt": "没有密钥？",
+    "getKeyLink": "在此处获取 API 密钥"
+  },
+  "selectAssistantScreen": {
+    "title": "选择助手",
+    "listAriaLabel": "助手列表",
+    "createNew": "创建新助手",
+    "connectRemote": "连接远程助手",
+    "addRemote": "添加远程助手",
+    "unnamedAssistant": "该助手",
+    "connectingToAssistant": "正在连接到您的助手…",
+    "rowActionsAriaLabel": "{name} 的操作",
+    "removeFromDevice": "从本设备移除…",
+    "selfHosted": "自托管",
+    "selfHostedWithHost": "自托管 · {host}",
+    "currentWithHost": "当前 · {host}",
+    "remoteWithHost": "远程 · {host}"
+  },
+  "hatchingScreen": {
+    "apiKeyFailed": "您的 API 密钥无效",
+    "genericFailure": "发生了一些错误",
+    "localFallbackPitch": "立即开始使用本地助手",
+    "updateApiKey": "更新 API 密钥",
+    "ready": "您的助手已准备就绪！",
+    "waking": "正在唤醒…",
+    "wakingBody": "请稍候，您的助手启动后会向您提出一些问题。",
+    "progressAriaLabel": "助手启动进度",
+    "phase": {
+      "initializing": "正在准备中…",
+      "provisioning": "正在设置您的助手…",
+      "connecting": "正在连接到您的助手…",
+      "resizing": "正在设置您的机器…",
+      "ready": "就绪"
+    }
+  },
+  "addRemoteOriginDialog": {
+    "title": "添加远程助手",
+    "body": "粘贴您的助手配对页面提供的 HTTPS 链接。",
+    "addressLabel": "助手地址",
+    "addFailed": "添加助手失败。请重试。"
+  },
+  "connectAssistantDialog": {
+    "title": "连接远程助手",
+    "instruction": "请从助手的“配对设备”设置中粘贴配对链接，或直接粘贴其地址，然后在助手端批准请求。",
+    "linkGuidance": "此链接来自配对二维码。要连接此设备，请在此处粘贴来自助手设备的配对链接。",
+    "legacyLinkGuidance": "此链接来自旧版应用，已无法使用。请在助手设备上生成新的配对链接并粘贴到此处。",
+    "addressLabel": "地址或配对链接",
+    "addressPlaceholder": "https://your-assistant.ts.net",
+    "nameLabel": "名称（可选）",
+    "approveOnHost": "请在助手设备上批准此代码以完成连接。",
+    "waitingForApproval": "等待批准…",
+    "retrying": "助手尚未准备好配对。正在重试，直到代码过期。",
+    "expiresIn": "将在 {time} 后过期",
+    "retryExpired": "配对代码在助手准备好配对之前已过期。请重新开始以获取新代码。",
+    "submitError": "无法连接到该助手。请重试。",
+    "importedTitle": "配对已导入",
+    "importedBody": "此配对仅限访问：它现在可用，但其访问权限会过期且无法自动续订。过期后，请在助手设备上生成新的配对链接并粘贴到此处以重新配对。"
+  },
+  "connectRecoveryDialog": {
+    "repairTitle": "修复助手？",
+    "repairBody": "修复会重新配置此助手的身份验证令牌。任何连接到此助手的其他设备或浏览器会话都将被注销，需要重新连接。",
+    "repairConfirm": "修复",
+    "authFailedTitle": "无法验证助手身份",
+    "authFailedBody": "{name} 的身份验证令牌缺失或无法再刷新，因此无法连接此助手。您可以修复它、停用它或选择其他助手。",
+    "wakeAndRepair": "唤醒并修复",
+    "retire": "停用助手"
+  },
+  "consentControls": {
+    "whatsChanged": "更新内容",
+    "privacyPreferences": "隐私偏好设置",
+    "analyticsLabel": "分享分析数据",
+    "analyticsHelp": "发送汇总的产品使用数据",
+    "diagnosticsLabel": "分享诊断数据",
+    "diagnosticsHelp": "发送崩溃报告、对话跟踪和会话回放数据",
+    "agreements": "协议",
+    "agreeTo": "我同意<link>{policy}</link>"
+  },
+  "onboardingAutocomplete": {
+    "addOption": "添加“{value}”",
+    "enterHint": "↵ 回车",
+    "freeTextHint": "输入任意内容并按 ↵ 添加您自己的"
+  },
+  "stepIndicator": {
+    "ariaLabel": "第 {current} 步，共 {total} 步"
+  },
+  "googleCalendar": {
+    "authorizationFailed": "启动 Google 日历授权失败。"
+  },
+  "introductionScreen": {
+    "greetingNamed": "嘿，{name}！",
+    "greeting": "嘿！",
+    "introNamed": "我是 {name}，您的新 AI 助手。",
+    "intro": "我是您的新 AI 助手。"
+  },
+  "pitchStep": {
+    "setupLine": "您可能用过只会回答问题的 AI。",
+    "helpLine": "我帮助得越多，",
+    "punchLine": "我与众不同。",
+    "betterLine": "我就越好，",
+    "lessLine": "您需要做的就越少。"
+  },
+  "createPersonalityStep": {
+    "title": "创建我的个性",
+    "lockedBody": "个性已锁定，请与您的助手聊天以进行更多更新",
+    "axisAriaLabel": "从 {left} 到 {right}",
+    "axes": {
+      "companionCoworker": {
+        "left": "伙伴",
+        "right": "同事"
+      },
+      "genzBoomer": {
+        "left": "Z世代",
+        "right": "婴儿潮一代"
+      },
+      "executeCollaborate": {
+        "left": "独立",
+        "right": "协作"
+      },
+      "playfulSerious": {
+        "left": "活泼",
+        "right": "严肃"
+      },
+      "politeUnfiltered": {
+        "left": "礼貌",
+        "right": "直率"
+      }
+    }
+  },
+  "giveMeAFaceScreen": {
+    "title": "给我一个形象和名字",
+    "previousCharacter": "上一个形象",
+    "nextCharacter": "下一个形象",
+    "namePlaceholder": "为您的助手命名",
+    "nameAriaLabel": "助手名称",
+    "editName": "编辑名称",
+    "shuffle": "随机名称和外观",
+    "hearVoice": "听我的声音",
+    "stopVoice": "停止语音示例"
+  },
+  "integrationStep": {
+    "title": "这里有一些初始用法<br></br>供您开始。"
+  },
+  "researchOnboardingScreen": {
+    "title": "我们从您开始。",
+    "body": "一些细节，以便我更好地了解您。",
+    "firstNameLabel": "我该怎么称呼您？",
+    "firstNamePlaceholder": "您的名字",
+    "lastNameLabel": "您的姓氏是？",
+    "lastNamePlaceholder": "您的姓氏（可选）",
+    "roleLabel": "您的角色",
+    "rolePlaceholder": "您的职业是什么？",
+    "hobbiesLabel": "有什么爱好吗？",
+    "hobbiesPlaceholder": "汽车、书籍、种植番茄？"
+  },
+  "letsChatTomorrowStep": {
+    "wakingTitle": "正在唤醒",
+    "missingScopeTitle": "未启用访问权限",
+    "title": "让我来简化一切",
+    "wakingBody": "您的助手正在准备中",
+    "missingScopeBody": "请勾选 Google 日历权限旁边的复选框，这样我才能预订签到。",
+    "body": "连接您的 Google 日历，这样我就可以找到时间进行签到并开始提供帮助。",
+    "startingAssistant": "正在启动助手…",
+    "waitingAuthorization": "正在等待授权…",
+    "connectCalendar": "连接日历 →"
+  },
+  "existingAssistantStep": {
+    "titleNamed": "{name} 已启动并正在运行",
+    "title": "您的助手已启动并正在运行",
+    "bodyNamed": "你们之间有历史：个性、记忆和过去的对话。再次运行设置将覆盖 {name} 现在的身份。",
+    "body": "你们之间有历史：个性、记忆和过去的对话。再次运行设置将覆盖您的助手现在的身份。",
+    "keepNamed": "保留 {name} 并开始聊天",
+    "keep": "保留您的助手并开始聊天",
+    "redoNamed": "重新开始并重建 {name} 的个性",
+    "redo": "重新开始并重建其个性"
+  },
+  "checkinConnectScreen": {
+    "title": "我们明天聊",
+    "body": "在您的日历中添加一个会议，这样我们就可以从上次中断的地方继续。",
+    "permissionBody": "{name} 将添加一个单独的“第 2 天签到”事件。它将获得管理您的日历事件和查看您的电子邮件地址的权限，而不是您的收件箱或文件，并且您可以随时断开连接。",
+    "unnamedAssistant": "您的助手",
+    "waitingAuthorization": "正在等待授权...",
+    "connectGoogleCalendar": "连接 Google 日历"
+  },
+  "meetingCreatedStep": {
+    "titleWithTime": "签到已安排在明天 {time}！",
+    "title": "签到已安排！"
+  },
+  "lookingYouUpStep": {
+    "searching": "正在搜索网络以了解您…",
+    "readingProfiles": "正在阅读公开资料…",
+    "skimming": "正在浏览要点…",
+    "connectingDots": "正在连接点滴信息…",
+    "piecing": "正在整合信息…",
+    "almostThere": "快完成了…"
+  },
+  "finishingUpStep": {
+    "updatingPersonality": "正在更新我的个性…",
+    "findingVoice": "正在寻找我的声音…",
+    "gettingIntoCharacter": "正在进入角色…",
+    "almostThere": "快完成了…"
+  },
+  "researchResultsStep": {
+    "title": "这是我找到的关于您的信息",
+    "bodyLoadingWithClaims": "仍在检查其余信息。您可以在信息出现时进行查看。",
+    "bodyReadyWithClaims": "我搜索了网络。请随意删除任何不真实的信息。",
+    "bodyLoadingEmpty": "仍在整理中…",
+    "bodyReadyEmpty": "我没有找到太多信息，我们可以在聊天时补充。",
+    "removeClaim": "移除“{claim}”",
+    "notMe": "这不是我",
+    "stillSearching": "仍在搜索…"
+  },
+  "suggestionsStep": {
+    "title": "这是我们首先可以做的事情",
+    "pickOne": "选择一个开始，或自行创建。<skip>跳过并开始聊天</skip>",
+    "loading": "正在整理一些想法…",
+    "alreadySetUp": "已设置 <plugins></plugins> {count, plural, other {# 个}} 插件以帮助您完成工作",
+    "listAnd": " 和 ",
+    "listCommaAnd": "，和",
+    "listComma": "，",
+    "fallbacks": {
+      "brief": {
+        "suggestion": "我将为您整理一份关于您领域最新动态的简报",
+        "prompt": "给我一份关于我领域最新动态的简报。"
+      },
+      "weekly": {
+        "suggestion": "我将每周发送一份关于您领域新闻的简报",
+        "prompt": "设置每周发送一份关于我领域新闻的简报。"
+      },
+      "week": {
+        "suggestion": "我将帮助您掌控您的一周",
+        "prompt": "帮助我掌控我的一周。"
+      },
+      "draft": {
+        "suggestion": "我将根据一些粗略的笔记起草内容",
+        "prompt": "根据我提供的一些粗略笔记起草内容。"
+      }
+    }
+  },
+  "letsChatReadyStep": {
+    "title": "您已准备就绪",
+    "setupNote": "我已根据您的信息设置了插件。",
+    "letsChat": "开始聊天"
+  }
+}

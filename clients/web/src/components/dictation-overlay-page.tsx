@@ -7,13 +7,16 @@ import {
   type RefObject,
 } from "react";
 
+import { containsPoint } from "@/components/companion-layout";
 import {
   getDictationOverlayState,
   requestDictationOverlayStop,
+  setDictationOverlayHitRegion,
   setDictationOverlayInteractive,
   subscribeToDictationOverlayState,
 } from "@/runtime/dictation-overlay";
 import type { DictationOverlayState } from "@/runtime/is-electron";
+import { useTranslation } from "@/i18n";
 
 /**
  * Live dictation pill rendered inside the Electron dictation overlay
@@ -62,6 +65,38 @@ export function DictationOverlayPage() {
     setDictationOverlayInteractive(false);
   }, [state?.kind]);
 
+  // Tell main where the Stop control sits so it can hit-test the cursor
+  // itself on platforms where forwarded mouse moves never reach this
+  // click-through window (Windows). View > Zoom relayouts the page
+  // mid-recording and moves the button, so watch the viewport and the
+  // button and re-report on every change.
+  useEffect(() => {
+    if (state?.kind !== "recording") {
+      return;
+    }
+    const button = stopButtonRef.current;
+    if (!button) {
+      return;
+    }
+    const report = () => {
+      const rect = button.getBoundingClientRect();
+      setDictationOverlayHitRegion({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(document.documentElement);
+    observer.observe(button);
+    return () => {
+      observer.disconnect();
+      setDictationOverlayHitRegion(null);
+    };
+  }, [state?.kind]);
+
   if (!state) {
     return null;
   }
@@ -86,12 +121,12 @@ export function DictationOverlayPage() {
       setInteractive(false);
       return;
     }
-    const rect = button.getBoundingClientRect();
     setInteractive(
-      event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom,
+      containsPoint(
+        button.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      ),
     );
   };
   const stopRecording = () => {
@@ -146,6 +181,8 @@ function RecordingActions({
   onInteractiveChange: (interactive: boolean) => void;
   onStop: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2">
       <AudioMeter level={level} />
@@ -153,8 +190,8 @@ function RecordingActions({
         ref={stopButtonRef}
         type="button"
         className="flex size-5 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-overlay)] hover:text-[var(--system-negative-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--system-negative-strong)]"
-        aria-label="Stop recording"
-        title="Stop recording"
+        aria-label={t("dictationOverlayPage.stopRecording")}
+        title={t("dictationOverlayPage.stopRecording")}
         onMouseEnter={() => onInteractiveChange(true)}
         onMouseLeave={() => onInteractiveChange(false)}
         onFocus={() => onInteractiveChange(true)}

@@ -5,12 +5,15 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ConfirmationRequestEvent,
+  ContactFormClosedEvent,
+  ContactRecordRequestEvent,
   ContactRequestEvent,
   InteractionResolvedEvent,
   QuestionRequestEvent,
   SecretRequestEvent,
 } from "@vellumai/assistant-api";
 import { normalizeQuestionRequest } from "@/domains/chat/api/event-types";
+import { ensureMainWindowVisible } from "@/runtime/main-window";
 
 export function handleSecretRequest(
   event: SecretRequestEvent,
@@ -49,6 +52,22 @@ export function handleConfirmationRequest(
     toolUseId: event.toolUseId,
   };
   useInteractionStore.getState().showConfirmation(confData);
+
+  // **And the window comes forward.** A confirmation is the one thing the
+  // assistant cannot get past on its own, and the card that answers it is drawn
+  // in the app's window. A turn started from the companion, or by a schedule,
+  // or from anywhere else while the user is working in another app, leaves that
+  // window behind whatever is in front of it, so the run stops on a question
+  // nobody can see and the assistant reads as having gone quiet.
+  //
+  // Off Electron this is a no-op (`main-window` wraps a host capability the web
+  // and iOS builds do not have), and a window already frontmost is raised to
+  // where it already is. Fire and forget: nothing below waits on it.
+  //
+  // The better end state is answering the request on the companion itself,
+  // which is not this: the surface holds no interaction store and no way to
+  // send a decision, only the words of a message and the tail of a reply.
+  void ensureMainWindowVisible();
 
   // The reducer folds the inline confirmation marker onto the tool-call row in
   // the snapshot. Here we only need the matched tool-call id for the
@@ -109,24 +128,28 @@ export function handleInteractionResolved(
 
   interaction.dismissConfirmationIfMatches(requestId);
 
-  const mappedToolCallId = session.confirmationToolCallMap.get(requestId);
-  if (
-    mappedToolCallId &&
-    interaction.inlineConfirmationToolCallId === mappedToolCallId
-  ) {
-    interaction.setInlineConfirmationToolCallId(null);
-  }
+  interaction.releaseInlineAnchorIfMatches(
+    session.confirmationToolCallMap.get(requestId),
+  );
 
   // The reducer folds the marker-clear onto the snapshot tool call; here we
   // only release the interaction-store bookkeeping.
   session.deleteConfirmationToolCall(requestId);
 }
 
+/**
+ * Raise an address form.
+ *
+ * The turn is left alone. This event carries no conversation, so the only one
+ * available is whichever the guardian happens to be viewing, which for a form
+ * raised by a background command is a conversation that is not waiting on
+ * anything: parking it would show an unrelated turn as awaiting input, and
+ * make it look like this form's to end.
+ */
 export function handleContactRequest(
   event: ContactRequestEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRequest({
     requestId: event.requestId,
     channel: event.channel,
@@ -135,7 +158,81 @@ export function handleContactRequest(
     label: event.label,
     description: event.description,
     role: event.role,
+    verify: event.verify,
   });
+}
+
+/**
+ * Raise a record form. The turn is left alone, for the same reason the address
+ * form leaves it alone.
+ */
+export function handleContactRecordRequest(
+  event: ContactRecordRequestEvent,
+  _ctx: StreamHandlerContext,
+): void {
+  useInteractionStore.getState().showContactRecordRequest({
+    requestId: event.requestId,
+    operation: event.operation,
+    contactId: event.contactId,
+    currentDisplayName: event.currentDisplayName,
+    currentNotes: event.currentNotes,
+    channels: event.channels,
+    displayName: event.displayName,
+    notes: event.notes,
+    notesProposed: event.notesProposed,
+    label: event.label,
+    description: event.description,
+  });
+}
+
+/**
+ * How long a card stays up after its form closes, so a submission still on the
+ * wire has time to say whether this client is the one that answered.
+ */
+const ANSWERED_CARD_LINGER_MS = 3000;
+
+/**
+ * Retire whichever contact form has closed. A closed form accepts no
+ * submission, so a card left up offers an answer the gateway would refuse.
+ *
+ * A card with a submission still on the wire is given a moment rather than
+ * retired at once: the gateway resolves the form, and so broadcasts this,
+ * before its own HTTP response returns, so this can arrive first and cutting
+ * the card would lose the confirmation the guardian is waiting to see.
+ *
+ * It is not taken as proof that this client is the one that answered. The
+ * broadcast names the form, not the submission, so every client submitting it
+ * concurrently matches, including the ones whose claim lost. Only that
+ * client's own response can say it wrote anything, so the confirmation is left
+ * for it to set; if it never arrives, the card retires unconfirmed rather than
+ * claiming a save that may belong to somebody else.
+ *
+ * A form that closed any other way is retired everywhere, including on the
+ * client whose write failed: its card has nothing left to submit to.
+ */
+export function handleContactFormClosed(event: ContactFormClosedEvent): void {
+  const store = useInteractionStore.getState();
+
+  const ownsAddressForm =
+    store.pendingContactRequest?.requestId === event.requestId &&
+    (store.contactRequestAccepted ||
+      store.submittingByKind.contactRequest === event.requestId);
+  const ownsRecordForm =
+    store.pendingContactRecordRequest?.requestId === event.requestId &&
+    (store.contactRecordRequestAccepted ||
+      store.submittingByKind.contactRecordRequest === event.requestId);
+
+  if (event.reason === "answered" && (ownsAddressForm || ownsRecordForm)) {
+    setTimeout(() => {
+      const latest = useInteractionStore.getState();
+      latest.dismissContactRequestIfMatches(event.requestId);
+      latest.dismissContactRecordRequestIfMatches(event.requestId);
+    }, ANSWERED_CARD_LINGER_MS);
+    return;
+  }
+
+  store.dismissContactRequestIfMatches(event.requestId);
+  store.dismissContactRecordRequestIfMatches(event.requestId);
 }
 
 export function handleQuestionRequest(

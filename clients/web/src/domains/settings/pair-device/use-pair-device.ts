@@ -1,18 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { publicBaseUrlRejectionMessage } from "@/utils/pairing-address";
 
 import {
   mintDevicePairing,
   PairDeviceError,
   type DevicePairing,
 } from "./pair-device-client";
-import {
-  publicBaseUrlRejectionMessage,
-  resolvePublicBaseUrl,
-} from "./pair-device-url";
+import { resolvePublicBaseUrl } from "./pair-device-url";
 
 /** localStorage key for the last public URL that successfully minted a code. */
 const PUBLIC_BASE_URL_STORAGE_KEY = "vellum:pair-device:public-base-url";
@@ -21,15 +19,15 @@ const PUBLIC_BASE_URL_STORAGE_KEY = "vellum:pair-device:public-base-url";
 export type PairDevicePrefillSource = "tunnel" | "stored" | "none";
 
 /**
- * Resolve the URL field's initial value and its provenance. Priority: the
- * assistant's `vellum tunnel`-recorded ingress URL, then the last URL that
- * successfully minted a code, then empty.
+ * Resolve the URL field's prefill and its provenance. Priority: the public
+ * address the daemon reports for this assistant's tunnel, then the last URL
+ * that successfully minted a code, then empty.
  */
-function resolvePrefill(recordedIngressUrl: string | null): {
+function resolvePrefill(tunnelPublicBaseUrl: string | null): {
   url: string;
   source: PairDevicePrefillSource;
 } {
-  const tunnel = recordedIngressUrl?.trim();
+  const tunnel = tunnelPublicBaseUrl?.trim();
   if (tunnel) {
     return { url: tunnel, source: "tunnel" };
   }
@@ -50,7 +48,7 @@ export interface PairDeviceController {
   /** The public URL to advertise, editable and prefilled from the tunnel/last success. */
   publicBaseUrl: string;
   setPublicBaseUrl: (value: string) => void;
-  /** Where {@link publicBaseUrl}'s initial value came from. */
+  /** Where the field's prefilled value came from. */
   prefillSource: PairDevicePrefillSource;
   /** Client-side validation message for the URL field, or `null`. */
   inputError: string | null;
@@ -68,15 +66,21 @@ export interface PairDeviceController {
  * request against the host's loopback gateway, and a 1s expiry countdown while a
  * code is live. `base` is the resolved local-gateway base URL, or `null` when
  * pairing isn't available from here (the hook then no-ops).
- * `recordedIngressUrl` is the assistant's `vellum tunnel`-recorded public URL,
- * used to prefill the field.
+ * `tunnelPublicBaseUrl` is the public address reported for this assistant's
+ * tunnel, used to prefill the field.
  */
 export function usePairDevice(
   base: string | null,
-  recordedIngressUrl: string | null,
+  tunnelPublicBaseUrl: string | null,
 ): PairDeviceController {
-  const [prefill] = useState(() => resolvePrefill(recordedIngressUrl));
-  const [publicBaseUrl, setPublicBaseUrlState] = useState(prefill.url);
+  const prefill = useMemo(
+    () => resolvePrefill(tunnelPublicBaseUrl),
+    [tunnelPublicBaseUrl],
+  );
+  // The reported address arrives after the first render, so the field tracks
+  // the prefill until the user types; from then on their value is what shows.
+  const [editedUrl, setEditedUrl] = useState<string | null>(null);
+  const publicBaseUrl = editedUrl ?? prefill.url;
   const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<PairDevicePhase>({ kind: "idle" });
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -99,7 +103,7 @@ export function usePairDevice(
   }, [phase]);
 
   const setPublicBaseUrl = useCallback((value: string) => {
-    setPublicBaseUrlState(value);
+    setEditedUrl(value);
     setInputError(null);
   }, []);
 

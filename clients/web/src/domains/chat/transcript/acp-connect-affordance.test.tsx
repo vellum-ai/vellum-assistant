@@ -5,13 +5,15 @@
  * Covers the version gate and the live-status self-heal: the affordance renders
  * its Connect button when the daemon supports Connect, renders nothing (falling
  * back to the plain error rendering) against a daemon too old to serve the
- * routes, and retires itself when Claude is already connected. Which failed tool
+ * routes, and retires itself when Claude is already connected (leaving a
+ * diagnostic breadcrumb behind). Which failed tool
  * call raises the prompt — and its reseed survival — is covered in
  * `acp-connect-prompt.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -87,7 +89,29 @@ mock.module("@vellumai/design-library/components/typography", () => ({
   ),
 }));
 
+const actualDiagnostics = await import("@/lib/diagnostics");
+const recordedLifecycleDiagnostics: Array<{
+  kind: string;
+  details: Record<string, unknown>;
+}> = [];
+mock.module("@/lib/diagnostics", () => ({
+  ...actualDiagnostics,
+  recordLifecycleDiagnostic: (
+    kind: string,
+    details: Record<string, unknown> = {},
+  ) => {
+    recordedLifecycleDiagnostics.push({ kind, details });
+  },
+}));
+
 const { AcpConnectAffordance } = await import("./acp-connect-affordance");
+
+/** Let the resolved `isClaudeConnected` promise settle inside React's act. */
+async function flushConnectedCheck() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
 
 beforeEach(() => {
   supported = true;
@@ -95,7 +119,12 @@ beforeEach(() => {
   popupBlocked = false;
   startMode = "loopback";
   exchangeShouldFail = false;
-  useInteractionStore.getState().clearAcpContinue();
+  recordedLifecycleDiagnostics.length = 0;
+  useInteractionStore.setState({
+    pendingAcpConnect: null,
+    dismissedAcpConnectToolUseIds: new Set<string>(),
+    pendingAcpContinue: false,
+  });
 });
 
 afterEach(() => {
@@ -109,6 +138,12 @@ describe("AcpConnectAffordance", () => {
     render(<AcpConnectAffordance assistantId="assistant-123" />);
 
     expect(screen.getByRole("button", { name: "Connect" })).not.toBeNull();
+    expect(
+      screen.getByText("Use your Claude Code subscription"),
+    ).not.toBeNull();
+    // The card has no manual dismissal; it retires via the connect flow's
+    // auto-continue or the already-connected self-heal.
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 
   test("renders nothing when the daemon is too old to support Connect", () => {
@@ -140,6 +175,82 @@ describe("AcpConnectAffordance", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
     });
+  });
+
+  test("records a lifecycle diagnostic for every self-heal dismissal", async () => {
+    alreadyConnected = true;
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "missing" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    // alreadyConnected unmounts the card on the same commit the flag flips; the
+    // diagnostic is recorded in a follow-up effect. Wait for both so this does
+    // not race the render path that returns null early.
+    // The card vanishing is invisible in a feedback bundle without this
+    // breadcrumb, so it must carry who/which-call/why, and it lands in the
+    // durable ring that streaming volume cannot evict.
+    await waitFor(() => {
+      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+      expect(recordedLifecycleDiagnostics).toEqual([
+        {
+          kind: "acp_connect_self_heal_dismiss",
+          details: {
+            assistantId: "assistant-123",
+            toolUseId: "toolu-acp-1",
+            reason: "missing",
+          },
+        },
+      ]);
+    });
+  });
+
+  test("records nothing for an auth_required prompt, which skips the connected check", async () => {
+    alreadyConnected = true;
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "auth_required" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedLifecycleDiagnostics).toEqual([]);
+  });
+
+  test("keeps a restored auth_required prompt up even when connected reports true", async () => {
+    // `hasAcpClaudeToken` answers on presence, shape and broker readability
+    // without putting the token to Claude, so a rejected token still reports
+    // connected. Retiring on that would dismiss the card over the failure it
+    // exists to repair, and the dismissal set would keep it from coming back
+    // for the rest of the session. Stale markers are retired at the daemon,
+    // when a new token is actually written.
+    alreadyConnected = true;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "toolu-acp-1",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedLifecycleDiagnostics).toEqual([]);
+  });
+
+  test("records nothing when the connected check answers false", async () => {
+    alreadyConnected = false;
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "missing" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
   test("opens the sign-in tab and advances to awaiting-capture", async () => {
@@ -184,6 +295,10 @@ describe("AcpConnectAffordance", () => {
       expect(screen.getByPlaceholderText("Paste your key")).not.toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
+    expect(
+      screen.getByText("Paste the key from the tab that opened"),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 
   test("signals auto-continue once the connect flow completes", async () => {
@@ -221,7 +336,7 @@ describe("AcpConnectAffordance", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     // The error text appears...
-    await screen.findByText(/Couldn't complete Connect Claude/i);
+    await screen.findByText(/Check the pasted key and try again/i);
     // ...and the paste field + Save remain for a retry, with the value intact.
     const retryInput = screen.getByPlaceholderText(
       "Paste your key",

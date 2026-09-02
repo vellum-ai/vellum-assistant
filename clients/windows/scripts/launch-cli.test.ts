@@ -38,6 +38,10 @@ test("forwards CLI arguments to the owned versioned runtime", () => {
 
   expect(launchOwnedCli(launcher, ["ps", "--json"], spawnCli)).toBe(17);
   expect(spawnCli).toHaveBeenCalledWith(target, ["ps", "--json"], {
+    env: {
+      ...process.env,
+      NODE_PATH: path.join(path.dirname(target), "node_modules"),
+    },
     stdio: "inherit",
     windowsHide: false,
   });

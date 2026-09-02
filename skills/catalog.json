@@ -140,7 +140,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T10:52:10.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "deepgram-voice",
@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T01:16:55.000Z"
+      "updatedAt": "2026-09-01T17:54:05.000Z"
     },
     {
       "id": "doordash",
@@ -199,7 +199,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "elevenlabs-voice",
@@ -323,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T04:41:23.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "gmail-trigger",
@@ -349,7 +349,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-10T11:09:04.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "google-calendar",
@@ -370,12 +370,12 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-10T18:03:33.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, Discord, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-13T01:05:59.000Z"
+      "updatedAt": "2026-09-01T17:54:05.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -441,7 +441,7 @@
     {
       "id": "inbox-management",
       "name": "inbox-management",
-      "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Starts in flag-only mode — earns autonomy through a three-stage trust ladder.",
+      "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Empty polls spend no model tokens. Starts in flag-only mode.",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📬",
@@ -449,7 +449,8 @@
           "category": "email",
           "display-name": "Inbox Management",
           "includes": [
-            "gmail"
+            "gmail",
+            "schedule"
           ],
           "activation-hints": [
             "When the user explicitly asks for ongoing or automatic inbox management",
@@ -465,7 +466,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-23T23:40:56.000Z"
+      "updatedAt": "2026-09-01T13:32:34.000Z"
     },
     {
       "id": "influencer",
@@ -503,7 +504,7 @@
     {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
-      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Cost / Speed) only where they should deviate from shipped defaults.",
+      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Budget / Fast) only where they should deviate from shipped defaults.",
       "metadata": {
         "emoji": "💸",
         "vellum": {
@@ -511,7 +512,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-08-04T23:11:27.000Z"
+      "updatedAt": "2026-09-01T18:32:50.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -536,6 +537,9 @@
         "vellum": {
           "category": "system",
           "display-name": "macOS Automation",
+          "platforms": [
+            "macos"
+          ],
           "activation-hints": [
             "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
           ],
@@ -545,7 +549,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -561,7 +565,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T13:30:40.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "mcp-setup",
@@ -575,7 +579,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-08-27T04:20:00.000Z"
     },
     {
       "id": "meme-generator",
@@ -711,7 +715,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-04T15:23:46.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "outlook-calendar",
@@ -732,7 +736,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-10T18:03:33.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "plugin-builder",
@@ -747,6 +751,8 @@
             "User wants to build, scaffold, or author a Vellum plugin",
             "User wants to edit, update, or push changes to an existing plugin's GitHub repo",
             "User wants to package skills, hooks, or tools into an installable plugin",
+            "User wants to ship MCP servers as part of a plugin (mcp.json)",
+            "User wants a plugin to receive public webhooks or become a channel (channels/ingress.json)",
             "User wants to extend their assistant with a new capability shipped as a plugin",
             "User wants to publish a plugin to the Vellum marketplace catalog",
             "User asks how to ship or distribute extensions for Vellum"
@@ -759,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T22:07:54.000Z"
+      "updatedAt": "2026-09-02T12:58:28.000Z"
     },
     {
       "id": "public-ingress",
@@ -780,7 +786,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "resend-setup",
@@ -795,7 +801,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T13:30:40.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -821,12 +827,15 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "content",
           "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "self-upgrade",
@@ -856,7 +865,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T13:30:40.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "slack",
@@ -871,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -897,7 +906,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-24T22:39:12.000Z"
+      "updatedAt": "2026-08-27T20:51:21.000Z"
     },
     {
       "id": "start-the-day",
@@ -938,7 +947,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T13:30:40.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -993,7 +1002,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-24T17:37:48.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1041,9 +1050,30 @@
       "updatedAt": "2026-07-07T20:33:02.000Z"
     },
     {
+      "id": "vellum-client-capabilities",
+      "name": "vellum-client-capabilities",
+      "description": "Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client and there is no location permission prompt to approve, so location requests are answered by asking for a typed city or address instead.",
+      "metadata": {
+        "emoji": "📍",
+        "vellum": {
+          "category": "system",
+          "display-name": "Vellum Client Capabilities",
+          "activation-hints": [
+            "asked to use the user's current location, GPS, or device position",
+            "whether the app can access a device sensor, permission, or hardware feature"
+          ],
+          "avoid-when": [
+            "the user already gave a location as text (just use it)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-08-27T13:36:21.000Z"
+    },
+    {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export)",
+      "description": "Manage conversation threads (rename, list, search, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -1052,7 +1082,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T16:01:24.000Z"
+      "updatedAt": "2026-08-20T21:25:08.000Z"
     },
     {
       "id": "vellum-github-app-setup",
@@ -1069,7 +1099,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-28T21:17:09.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1149,7 +1179,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T06:03:32.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1205,16 +1235,20 @@
     {
       "id": "vellum-sounds",
       "name": "vellum-sounds",
-      "description": "Customize the macOS app's sound effects — add sound files to the workspace, enable sounds globally, set volume, and assign sounds to 9 app events (message sent, task complete, notifications, etc.)",
+      "description": "Customize the desktop app's sound effects by adding sound files to the workspace, enabling sounds, setting volume, and assigning sounds to app events",
       "metadata": {
         "emoji": "🔊",
         "vellum": {
+          "platforms": [
+            "macos",
+            "windows"
+          ],
           "category": "content",
           "display-name": "Sounds"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-26T00:15:53.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -1241,7 +1275,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-08-07T13:48:02.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "vellum-workspace-theme",
@@ -1278,11 +1312,16 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat - desktop Talk and PTT shortcuts, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
         "vellum": {
+          "platforms": [
+            "macos",
+            "windows",
+            "linux"
+          ],
           "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
@@ -1291,7 +1330,7 @@
           ],
           "activation-hints": [
             "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)",
-            "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
+            "Simple voice setting changes (legacy macOS PTT key, wake word) -> use voice_config_update directly"
           ],
           "avoid-when": [
             "If \"voice\" is in a Twilio/phone context, load phone-calls instead"
@@ -1299,21 +1338,26 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T16:33:06.000Z"
+      "updatedAt": "2026-08-26T00:50:29.000Z"
     },
     {
       "id": "watch-together",
       "name": "watch-together",
-      "description": "Watch TV shows and movies with the user in real time. A fast editor model watches every window of playback, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer. Plays media files directly via mpv (no screen capture), with screen capture as a fallback for browser-only content.",
+      "description": "Watch local TV shows and movies with the user in real time. An editor model watches each playback window, transcribes dialogue, and picks story-critical frames. Source mode plays local media in mpv; screen mode captures supported desktops as a fallback.",
       "metadata": {
         "emoji": "📺",
         "vellum": {
           "category": "content",
           "display-name": "Watch Together",
-          "emoji": "📺"
+          "emoji": "📺",
+          "platforms": [
+            "macos",
+            "windows",
+            "linux"
+          ]
         }
       },
-      "updatedAt": "2026-07-15T00:42:43.000Z"
+      "updatedAt": "2026-08-30T00:44:56.000Z"
     },
     {
       "id": "watcher",
@@ -1341,6 +1385,31 @@
         }
       },
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "windows-automation",
+      "name": "windows-automation",
+      "description": "Automate native Windows apps and system interactions with PowerShell, documented COM APIs, and Microsoft UI Automation through the Windows host executor. Use for launching or inspecting desktop apps, opening Windows Settings, controlling scriptable Microsoft Office apps, and interacting with native UI when no direct CLI or API is available.",
+      "metadata": {
+        "emoji": "🪟",
+        "vellum": {
+          "category": "system",
+          "display-name": "Windows Automation",
+          "platforms": [
+            "windows"
+          ],
+          "activation-hints": [
+            "Interacting with native Windows apps or system settings",
+            "Automating Microsoft Office desktop apps via PowerShell or COM",
+            "Inspecting or controlling a desktop app through Microsoft UI Automation"
+          ],
+          "avoid-when": [
+            "The task can be completed in the sandbox or through a direct CLI or API"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants on Windows",
+      "updatedAt": "2026-08-27T23:10:01.000Z"
     }
   ]
 }

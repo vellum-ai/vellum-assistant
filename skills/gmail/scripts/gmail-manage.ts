@@ -687,7 +687,11 @@ async function requestConfirmation(opts: {
     "--json",
   ];
 
-  const proc = Bun.spawn(confirmArgs, { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(confirmArgs, {
+    windowsHide: true,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
 

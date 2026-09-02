@@ -13,11 +13,13 @@
 import type {
   ConversationStreamingMode,
   SttBoundaryId,
+  SttModelFamily,
   SttProviderId,
   SttTurnDetectionMode,
   TelephonySttMode,
 } from "../../stt/types.js";
 import { baseLanguageSubtag } from "../../util/language-subtag.js";
+import { FLUX_MULTILINGUAL_SUBTAGS } from "./deepgram-flux-frames.js";
 
 // ---------------------------------------------------------------------------
 // Client display metadata
@@ -122,6 +124,23 @@ interface SttProviderEntry {
 
   /** Guide for obtaining API credentials from this provider. */
   readonly credentialsGuide?: SttCredentialsGuide;
+
+  /**
+   * Set when this row is a model family of another provider rather than a
+   * provider in its own right: the id a user selects, plus the
+   * `services.stt.providers.<id>.model` value that reaches this row.
+   *
+   * Rows carrying this are not separately selectable. They share the parent's
+   * credential and appear nowhere in a provider picker.
+   */
+  readonly variantOf?: SttProviderId;
+  readonly variantModel?: SttModelFamily;
+
+  /**
+   * The family this row runs when no `model` is set. Present only on rows that
+   * have variants, so the default is nameable in config and in errors.
+   */
+  readonly baseModelFamily?: SttModelFamily;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +175,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "deepgram",
     {
       id: "deepgram",
+      baseModelFamily: "nova-3",
       displayName: "Deepgram",
       subtitle:
         "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
@@ -178,6 +198,8 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "deepgram-flux",
     {
       id: "deepgram-flux",
+      variantOf: "deepgram",
+      variantModel: "flux",
       displayName: "Deepgram Flux",
       subtitle:
         "Conversational speech-to-text with model-native turn detection. Uses your Deepgram API key.",
@@ -198,9 +220,11 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       // them, so a live-voice session may let them commit the turn.
       turnDetection: "provider",
       supportsDiarization: false,
-      // "no picker", not native detection: the Flux model is English-only and
-      // takes no language parameter, so audio in another language transcribes
-      // as English rather than being detected.
+      // "no picker", not native detection: this entry pins the English Flux
+      // model and sends no language parameter, so audio in another language
+      // transcribes as English. Flux itself has a multilingual model; the
+      // managed `vellum-flux` entry reaches it, and a BYOK picker would need
+      // the model to follow the selection.
       languageSelection: "auto",
       credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
     },
@@ -264,6 +288,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "vellum",
     {
       id: "vellum",
+      baseModelFamily: "nova-3",
       displayName: "Vellum",
       subtitle:
         "Speech-to-text through your Vellum account — billed to Vellum credits, no separate API key needed.",
@@ -280,6 +305,39 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       supportsDiarization: false,
       // The relay dials Deepgram nova-3 server-side, which takes an explicit
       // language parameter.
+      languageSelection: "manual",
+    },
+  ],
+  [
+    "vellum-flux",
+    {
+      id: "vellum-flux",
+      variantOf: "vellum",
+      variantModel: "flux",
+      displayName: "Vellum (Flux)",
+      subtitle:
+        "Conversational speech-to-text with model-native turn detection, through your Vellum account. No separate API key needed.",
+      setupMode: "connection",
+      setupHint: "Connect your Vellum account to enable managed transcription.",
+      // Shared with `vellum`: the platform connection is the credential, and
+      // Flux is a different endpoint on the same relay, not a second account.
+      credentialProvider: "vellum",
+      // Streaming only, same as the BYOK Flux entry: Flux has no batch
+      // endpoint, and the relay exposes none.
+      supportedBoundaries: new Set<SttBoundaryId>(["daemon-streaming"]),
+      // The relay maps `Finalize` onto Flux's `CloseStream`, which ends the
+      // session rather than flushing it, and telephony's utterance-boundary
+      // finals are a nova-3 concept. Calls stay on `vellum`.
+      telephonyMode: "none",
+      conversationStreamingMode: "realtime-ws",
+      // The relay is dialed with `contract=flux`, so Flux's turn lifecycle
+      // events arrive intact and a live-voice session may let them commit
+      // the turn. Without that opt-in the relay translates them away and
+      // this would be false.
+      turnDetection: "provider",
+      supportsDiarization: false,
+      // The relay selects `flux-general-en` or `flux-general-multi` from the
+      // language it is sent, so unlike BYOK Flux the picker is meaningful.
       languageSelection: "manual",
     },
   ],
@@ -440,6 +498,136 @@ export function supportsDiarization(id: SttProviderId): boolean {
  * provider, so a new turn-detecting provider is a catalog entry rather than a
  * session change.
  */
+/**
+ * Whether a provider authenticates with the Vellum platform connection rather
+ * than a stored API key.
+ *
+ * Derived from the catalog rather than a hand-kept id list: every check that
+ * gates managed speech reads this, so adding a managed provider cannot leave
+ * one of them behind on a stale literal.
+ */
+export function isManagedSttProvider(id: SttProviderId): boolean {
+  return CATALOG.get(id)?.credentialProvider === "vellum";
+}
+
+/**
+ * The catalog row a configured provider plus model family resolves to.
+ *
+ * Falls back to the provider's own row when it offers no matching variant, so
+ * a model setting a provider does not implement is inert rather than fatal.
+ * The parameter is structural to keep the catalog free of config imports.
+ */
+export function resolveSttCatalogKey(stt: {
+  readonly provider: string;
+  readonly providers?:
+    | Record<string, { readonly model?: unknown } | undefined>
+    | undefined;
+}): SttProviderId {
+  const provider = stt.provider as SttProviderId;
+  return sttCatalogKeyFor(provider, stt.providers?.[provider]?.model);
+}
+
+/**
+ * The catalog row a provider and model family pair resolves to.
+ *
+ * Split out from {@link resolveSttCatalogKey} because a selection does not
+ * always come from the top-level config block: a per-consumer role names its
+ * own provider and family, and has to reach the same row that pair would
+ * reach anywhere else.
+ */
+export function sttCatalogKeyFor(
+  provider: SttProviderId,
+  model: unknown,
+): SttProviderId {
+  if (typeof model !== "string") {
+    return provider;
+  }
+  for (const entry of CATALOG.values()) {
+    if (entry.variantOf === provider && entry.variantModel === model) {
+      return entry.id;
+    }
+  }
+  return provider;
+}
+
+/**
+ * The model families a provider offers, as `services.stt.providers.<id>.model`
+ * values. A provider with a single family returns an empty list, and setting
+ * `model` on it is a configuration error rather than a silent no-op.
+ */
+export function listProviderModelFamilies(
+  id: SttProviderId,
+): readonly SttModelFamily[] {
+  const base = CATALOG.get(id);
+  if (!base || base.variantOf !== undefined) {
+    return [];
+  }
+  const families = [...CATALOG.values()]
+    .filter((entry) => entry.variantOf === id && entry.variantModel)
+    .map((entry) => entry.variantModel as SttModelFamily);
+  return families.length > 0
+    ? [base.baseModelFamily ?? "nova-3", ...families]
+    : [];
+}
+
+/**
+ * The config that selects a catalog row: the provider id a user sets, plus
+ * the model family when the row is a variant.
+ *
+ * The inverse of {@link resolveSttCatalogKey}. Anything persisting a resolved
+ * provider has to write these two fields rather than the key, which is not a
+ * valid `services.stt.provider` value for a variant row.
+ */
+export function sttConfigForCatalogKey(id: SttProviderId): {
+  provider: SttProviderId;
+  model?: SttModelFamily;
+} {
+  const entry = CATALOG.get(id);
+  if (!entry?.variantOf || !entry.variantModel) {
+    return { provider: id };
+  }
+  return { provider: entry.variantOf, model: entry.variantModel };
+}
+
+/**
+ * The family a provider runs when no `model` is set, for callers that must
+ * write an explicit value rather than leave a stale one in place. Providers
+ * with a single family have no name to write and return undefined.
+ */
+/**
+ * The spoken languages a provider's turn-detecting model family serves, or
+ * undefined when it has no such family.
+ *
+ * A family that owns the turn boundary does not necessarily cover the
+ * provider's whole language roster, and dialing it outside that set fails
+ * rather than degrades. Reported from here so the answer has one home.
+ */
+export function turnDetectionLanguagesFor(
+  id: SttProviderId,
+): readonly string[] | undefined {
+  const variant = [...CATALOG.values()].find(
+    (entry) => entry.variantOf === id && entry.turnDetection === "provider",
+  );
+  return variant ? [...FLUX_MULTILINGUAL_SUBTAGS].sort() : undefined;
+}
+
+export function baseModelFamilyFor(
+  id: SttProviderId,
+): SttModelFamily | undefined {
+  const entry = CATALOG.get(id);
+  return entry?.variantOf === undefined ? entry?.baseModelFamily : undefined;
+}
+
+/**
+ * Provider ids a user may select. Excludes model-family rows, which are
+ * reached through `services.stt.providers.<id>.model` instead.
+ */
+export function listSelectableProviderIds(): readonly SttProviderId[] {
+  return [...CATALOG.values()]
+    .filter((entry) => entry.variantOf === undefined)
+    .map((entry) => entry.id);
+}
+
 export function supportsProviderTurnDetection(id: SttProviderId): boolean {
   return CATALOG.get(id)?.turnDetection === "provider";
 }

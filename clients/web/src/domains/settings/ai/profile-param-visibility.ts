@@ -92,21 +92,28 @@ const GEMINI_THINKING_LEVELS_FULL = [
   "medium",
   "high",
 ] as const;
-const GEMINI_THINKING_LEVELS_PRO = ["low", "medium", "high"] as const;
+const GEMINI_THINKING_LEVELS_NO_MINIMAL = ["low", "medium", "high"] as const;
 
 /**
- * Gemini 3.x Pro family accepts only low/medium/high (no "minimal") and cannot
- * disable thinking. Mirrors the daemon's `isGeminiProModel` in
- * `assistant/src/providers/gemini/client.ts`.
+ * Gemini models whose thinking floor is `"low"` (they do not accept
+ * `"minimal"`). Prefers catalog `thinkingFloor`; uncatalogued Gemini 3.x Pro
+ * IDs fall back to the Pro regex so the picker stays conservative.
  */
-function isGeminiProModel(modelId: string): boolean {
+function geminiOmitsMinimalThinking(modelId: string): boolean {
+  const catalogFloor = findCatalogModel("gemini", modelId)?.thinkingFloor;
+  if (catalogFloor === "low") {
+    return true;
+  }
+  if (catalogFloor === "minimal") {
+    return false;
+  }
   return /^gemini-3.*pro/.test(modelId);
 }
 
 /**
- * Thinking levels selectable for a Gemini model, lowest → highest. Pro models
- * omit "minimal". The daemon clamps anything below a model's floor, so this is
- * a UX nicety rather than a correctness guarantee.
+ * Thinking levels selectable for a Gemini model, lowest → highest. Models that
+ * reject `"minimal"` omit it. The daemon clamps anything below a model's floor,
+ * so this is a UX nicety rather than a correctness guarantee.
  */
 export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS_FULL)[number];
 
@@ -121,8 +128,8 @@ export function isGeminiThinkingLevel(v: unknown): v is GeminiThinkingLevel {
 export function geminiThinkingLevels(
   modelId: string,
 ): readonly GeminiThinkingLevel[] {
-  return isGeminiProModel(modelId.toLowerCase())
-    ? GEMINI_THINKING_LEVELS_PRO
+  return geminiOmitsMinimalThinking(modelId.toLowerCase())
+    ? GEMINI_THINKING_LEVELS_NO_MINIMAL
     : GEMINI_THINKING_LEVELS_FULL;
 }
 
@@ -192,6 +199,7 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "atlascloud",
   "baseten",
   "ollama",
+  "opencode",
   "openrouter",
   "together",
   "vercel-ai-gateway",

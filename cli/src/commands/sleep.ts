@@ -13,8 +13,15 @@ import {
   parseWaitDuration,
 } from "../lib/drain.js";
 import { loadGuardianToken } from "../lib/guardian-token.js";
-import { stopIngressNginx } from "../lib/nginx-ingress.js";
-import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
+import {
+  stopContainerTunnelEdge,
+  stopIngressNginx,
+} from "../lib/nginx-ingress.js";
+import {
+  DAEMON_STOP_TIMEOUT_MS,
+  isProcessAlive,
+  stopProcessByPidFile,
+} from "../lib/process";
 import { resolveFreshBearerToken } from "./client.js";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
@@ -132,6 +139,9 @@ export async function sleep(): Promise<void> {
     const res = dockerResourceNames(entry.assistantId);
     await sleepContainers(res);
     console.log("Docker containers stopped.");
+    if (await stopContainerTunnelEdge(entry)) {
+      console.log("Tunnel edge stopped.");
+    }
     return;
   }
 
@@ -202,18 +212,11 @@ export async function sleep(): Promise<void> {
     }
   }
 
-  // Stop assistant — use a generous timeout. On SIGTERM the daemon runs a
-  // WAL checkpoint before exiting, which can take several seconds on a
-  // multi-GB database. The default 2s grace in stopProcess() would SIGKILL a
-  // healthy daemon mid-checkpoint, forcing a costly multi-minute WAL recovery
-  // on the next start. The timeout is only a SIGKILL ceiling — stopProcess
-  // returns as soon as the process exits, so this adds no delay in the common
-  // case and only applies when the daemon is genuinely wedged.
   const assistantStopped = await stopProcessByPidFile(
     assistantPidFile,
     "assistant",
     undefined,
-    120_000,
+    DAEMON_STOP_TIMEOUT_MS,
   );
   if (!assistantStopped) {
     console.log("Assistant is not running.");

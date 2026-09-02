@@ -26,10 +26,11 @@ const FRONT_MODEL_DEFAULTS = {
 };
 
 // `eagerEotThreshold` is deliberately absent: it has no default, and leaving it
-// unset is what keeps Deepgram from emitting speculative turn events.
+// unset is what keeps Deepgram from emitting speculative turn events. `model`
+// is absent for a related reason: unset means the spoken language selects the
+// model, and pinning one overrides that.
 const FLUX_DEFAULTS = {
-  turnEnd: { enabled: false },
-  model: "flux-general-en",
+  turnEnd: { enabled: true },
   eotThreshold: 0.7,
   eotTimeoutMs: 5_000,
 };
@@ -39,6 +40,7 @@ describe("LiveVoiceVadConfigSchema", () => {
     const parsed = LiveVoiceVadConfigSchema.parse({});
     expect(parsed).toEqual({
       speechEnergyThreshold: 800,
+      noiseFloorMargin: 3,
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
@@ -59,6 +61,17 @@ describe("LiveVoiceVadConfigSchema", () => {
     expect(parsed.silenceThresholdMs).toBe(500);
     expect(parsed.maxTurnDurationMs).toBe(60_000);
     expect(parsed.bargeInMinSpeechMs).toBe(120);
+  });
+
+  test("accepts a noiseFloorMargin of 0 (adaptation disabled)", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({ noiseFloorMargin: 0 });
+    expect(parsed.noiseFloorMargin).toBe(0);
+  });
+
+  test("rejects a negative noiseFloorMargin", () => {
+    expect(() =>
+      LiveVoiceVadConfigSchema.parse({ noiseFloorMargin: -1 }),
+    ).toThrow();
   });
 
   test("accepts a bargeInMinSpeechMs of 0 (guard disabled)", () => {
@@ -229,7 +242,7 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
 });
 
 describe("LiveVoiceFluxConfigSchema", () => {
-  test("empty object parses to defaults, with turn-end off", () => {
+  test("empty object parses to defaults, with turn-end on", () => {
     expect(LiveVoiceFluxConfigSchema.parse({})).toEqual(FLUX_DEFAULTS);
   });
 
@@ -257,8 +270,8 @@ describe("LiveVoiceFluxConfigSchema", () => {
   test("partial overrides merge with defaults", () => {
     const parsed = LiveVoiceFluxConfigSchema.parse({ eotThreshold: 0.6 });
     expect(parsed.eotThreshold).toBe(0.6);
-    expect(parsed.turnEnd.enabled).toBe(false);
-    expect(parsed.model).toBe("flux-general-en");
+    expect(parsed.turnEnd.enabled).toBe(true);
+    expect(parsed.model).toBeUndefined();
     expect(parsed.eotTimeoutMs).toBe(5_000);
   });
 
@@ -316,6 +329,7 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
+        noiseFloorMargin: 3,
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,

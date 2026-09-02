@@ -1,6 +1,9 @@
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
-import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import {
+  isNewAssistantFunnel,
+  onboardingDestinationAfterConsent,
+} from "@/domains/onboarding/onboarding-destination";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { routes } from "@/utils/routes";
 
@@ -48,6 +51,18 @@ export interface NavigationState {
   consentHydrationTimedOut?: boolean;
   /** Whether the resolved assistants list reflects at least one authoritative load. */
   assistantsHydrated: boolean;
+  /**
+   * Whether the user owns ANY assistant past first-run onboarding, i.e. is a
+   * returning user. The right question for post-auth and the onboarding
+   * intercept, where the assistant they will land in is not yet known.
+   */
+  userHasOnboardedAssistant: boolean;
+  /**
+   * Whether the SELECTED assistant is past first-run onboarding. False when
+   * nothing is selected. The right question for the privacy funnel, which is
+   * always about one assistant.
+   */
+  selectedAssistantOnboarded: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +302,12 @@ export function resolveNavigation(
     case "hatch-gate":
       return resolveHatchGate(state);
     case "post-auth":
-      return resolvePostAuth(query.authIntent, query.returnTo, query.fallback);
+      return resolvePostAuth(
+        state,
+        query.authIntent,
+        query.returnTo,
+        query.fallback,
+      );
     case "post-retire":
       return resolvePostRetire(state);
   }
@@ -556,9 +576,7 @@ function enforceModeBoundary(
   // lockfile-driven picker, and the platform build hosts the hub chooser. The
   // non-local case falls through rather than allowing, so `requireConsent`
   // below still binds on this route; `requireAssistant` exempts it on purpose
-  // (see NO_ASSISTANT_EXEMPT_PATHS). The screen owns the assistant-switcher
-  // flag gate for platform-mode access, because the flag hydrates
-  // asynchronously and this resolver has no hydration signal.
+  // (see NO_ASSISTANT_EXEMPT_PATHS).
   if (path === routes.selectAssistant) {
     return state.isLocalClient ? localChooserDecision(state) : null;
   }
@@ -616,6 +634,24 @@ function allowSetupRoutes(
 
   if (!isOnboardingPath(path)) {
     return null;
+  }
+
+  // The selected assistant is past first run, so this privacy visit is a
+  // replay rather than its onboarding. Research stays reachable on demand;
+  // only the automatic privacy entry is bounced. A paid hatch riding on
+  // `returnTo` is resumed so a purchased resize is not dropped.
+  //
+  // The marker is the walk's INTENT: provisioning a new assistant is first-run
+  // for that assistant no matter how established the selected one is.
+  if (path === routes.onboarding.privacy && state.selectedAssistantOnboarded) {
+    const params = searchParamsOf(pathnameWithSearch);
+    if (!isNewAssistantFunnel(params)) {
+      const paidReturn = postCheckoutHatchReturnTo(params.get("returnTo"));
+      if (paidReturn) {
+        return { action: "redirect", to: paidReturn };
+      }
+      return { action: "redirect", to: routes.assistant };
+    }
   }
 
   return enforceFunnelConsent(state, path, pathnameWithSearch);
@@ -803,7 +839,7 @@ function resolveOnboardingIntercept(
   if (state.isLocalClient && state.hasAssistants) {
     return { action: "allow" };
   }
-  if (hasCompletedOnboarding(state)) {
+  if (hasCompletedOnboarding(state) || state.userHasOnboardedAssistant) {
     return { action: "allow" };
   }
 
@@ -864,12 +900,57 @@ function isImportFunnelDestination(destination: string): boolean {
   );
 }
 
+/** The query of a `pathname?search` string the guard was handed. */
+function searchParamsOf(pathnameWithSearch: string): URLSearchParams {
+  const qIdx = pathnameWithSearch.indexOf("?");
+  return new URLSearchParams(
+    qIdx >= 0 ? pathnameWithSearch.slice(qIdx + 1) : "",
+  );
+}
+
+function isOnboardingResearchPath(destination: string): boolean {
+  const path = extractPathname(destination);
+  const qIdx = path.indexOf("?");
+  const pathname = qIdx < 0 ? path : path.slice(0, qIdx);
+  return (
+    pathname === routes.onboarding.privacy ||
+    pathname === routes.onboarding.research
+  );
+}
+
 function resolvePostAuth(
+  state: NavigationState,
   authIntent: "login" | "signup",
   returnTo: string | null,
   fallback: string,
 ): NavigationDecision {
   const destination = sanitizeReturnTo(returnTo, fallback);
+  // The import funnel replaces onboarding: a signup that started on /import
+  // lands back there instead of the consent screen.
+  if (authIntent === "signup" && isImportFunnelDestination(destination)) {
+    return { action: "redirect", to: destination };
+  }
+
+  // A returning user skips first-run privacy and research. Treat the auth as
+  // a login so a pricing-CTA checkout stash is not marked for the privacy
+  // screen to consume. Two funnel destinations are still real work rather
+  // than a re-run, so they survive: a paid hatch, and a walk that is
+  // provisioning a new assistant.
+  if (state.userHasOnboardedAssistant) {
+    const isRealWork =
+      postCheckoutHatchReturnTo(destination) != null ||
+      isNewAssistantFunnel(searchParamsOf(destination));
+    const skipTarget =
+      !isRealWork && isOnboardingResearchPath(destination)
+        ? fallback
+        : destination;
+    resolveSignupCheckoutDestination({
+      intent: "login",
+      returnTo: skipTarget,
+    });
+    return { action: "redirect", to: skipTarget };
+  }
+
   // The shared resolver stashes a pricing-CTA checkout package across signup,
   // discards a stale stash for any non-checkout auth, and picks the
   // destination (privacy for signup, the sanitized `returnTo` for login).
@@ -877,11 +958,6 @@ function resolvePostAuth(
     intent: authIntent,
     returnTo: destination,
   });
-  // The import funnel replaces onboarding: a signup that started on /import
-  // lands back there instead of the consent screen.
-  if (authIntent === "signup" && isImportFunnelDestination(destination)) {
-    return { action: "redirect", to: destination };
-  }
   return { action: "redirect", to: resolved };
 }
 

@@ -2,19 +2,20 @@
  * Chat content layout — routes the active `mainView` to the appropriate
  * panel arrangement.
  *
- * Single responsibility: reads `mainView` from the viewer store, renders
- * `ChatMainPanel` inside the correct layout shell (standalone, or
- * as the left pane of a `ResizablePanel` with a side panel on the right).
+ * Single responsibility: reads the viewer store, resolves the arrangement,
+ * and hands the surfaces to `WorkspacePanes`, which draws them. Side panels
+ * and overlays keep their own shells.
  *
  * Side-panel state (app, document, subagent, tool-detail) is read directly
  * from stores — no props required for layout decisions.
  */
 
 import { lazy, useCallback, useEffect, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
-import { ResizablePanel } from "@vellumai/design-library";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
+import { ProgressStack } from "@/domains/chat/components/progress-stack";
+import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
@@ -26,7 +27,8 @@ import {
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { viewerPanePresentation } from "@/stores/pane-presentation";
+import { paneState } from "@/stores/pane-state";
+import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -38,6 +40,7 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
+import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
 // below and the idle-prefetch effect. Once a thunk has run, the browser module
@@ -58,6 +61,8 @@ const importBackgroundTaskDetailPanel = () =>
   import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
+const importChannelTranscriptPanel = () =>
+  import("@/domains/chat/channel-sidecar/channel-transcript-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
@@ -85,6 +90,11 @@ const BackgroundTaskDetailPanel = lazy(() =>
 const SkillDetailPanel = lazy(() =>
   importSkillDetailPanel().then((m) => ({ default: m.SkillDetailPanel })),
 );
+const ChannelTranscriptPanel = lazy(() =>
+  importChannelTranscriptPanel().then((m) => ({
+    default: m.ChannelTranscriptPanel,
+  })),
+);
 
 // ---------------------------------------------------------------------------
 // Component
@@ -97,6 +107,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId =
     useConversationStore.use.editingConversationId();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
@@ -124,6 +135,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   );
   const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
+  const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -131,6 +143,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const editApp = useEditApp();
 
   // -------------------------------------------------------------------------
@@ -233,6 +246,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeChannelSetup();
   }, []);
 
+  const onCloseChannelTranscript = useCallback(() => {
+    useViewerStore.getState().closeChannelTranscript();
+  }, []);
+
   // -------------------------------------------------------------------------
   // Mobile fallback: side-drawer panels don't render on narrow viewports, so
   // redirect to the Channels tab with the channel's setup form pre-opened.
@@ -273,8 +290,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       return;
     }
     useViewerStore.getState().closeSkillDetail();
-    navigate(routes.skills.detail(activeSkillDetailId));
-  }, [isMobile, mainView, activeSkillDetailId, navigate]);
+    navigate(routes.skills.detail(activeSkillDetailId), {
+      state: skillDetailBackState(location),
+    });
+  }, [isMobile, mainView, activeSkillDetailId, navigate, location]);
 
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
@@ -315,6 +334,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // Warm the lazy side-panel chunks while the browser is idle so the first
   // open renders immediately instead of stalling on a dynamic import.
+  //
+  // The channel transcript panel is deliberately absent: it is reachable only
+  // behind a default-off flag and only from a channel-bound conversation, so
+  // warming it would spend every session's idle budget on a chunk almost no
+  // session opens. It loads on demand through `LazyBoundary` instead.
   useEffect(() => {
     // Swallow prefetch rejections: this is best-effort warming, so a chunk
     // 404 (offline / stale deploy) must not surface as an unhandledrejection.
@@ -343,23 +367,20 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // App editing: resizable split with chat + app editor
   if (
-    viewerPanePresentation({
+    paneState({
       mainView,
-      hasApp: !!openedAppState,
-      hasBoundConversation: !!editingConversationId,
+      appId: openedAppState?.appId ?? null,
+      conversationId: activeConversationId,
+      boundConversationId: editingConversationId,
       isAppMinimized,
-    }) === "side" &&
+    }).presentation === "side" &&
     openedAppState
   ) {
     return (
-      <ResizablePanel
-        storageKey="appEditPanelWidth"
-        hideDivider
-        defaultRightWidth={400}
-        minLeftWidth={300}
-        minRightWidth={400}
-        left={<ChatMainPanel {...props} />}
-        right={
+      <WorkspacePanes
+        presentation="side"
+        secondary={<ChatMainPanel {...props} />}
+        primary={
           <AppViewerContainer
             appId={openedAppState.appId}
             appName={openedAppState.name}
@@ -390,23 +411,42 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       );
     }
     return (
-      <AppViewerContainer
-        appId={openedAppState.appId}
-        appName={openedAppState.name}
-        html={openedAppState.html}
-        assistantId={assistantId ?? ""}
-        onClose={handleCloseApp}
-        onEdit={handleEditApp}
-        onShare={handleShareApp}
-        isSharing={isSharing}
-        onDeploy={handleDeployApp}
-        isDeploying={isDeploying}
-        onAction={handleAppAction}
+      <WorkspacePanes
+        presentation="single"
+        primary={
+          <AppViewerContainer
+            appId={openedAppState.appId}
+            appName={openedAppState.name}
+            html={openedAppState.html}
+            assistantId={assistantId ?? ""}
+            onClose={handleCloseApp}
+            onEdit={handleEditApp}
+            onShare={handleShareApp}
+            isSharing={isSharing}
+            onDeploy={handleDeployApp}
+            isDeploying={isDeploying}
+            onAction={handleAppAction}
+          />
+        }
       />
     );
   }
 
-  const chatContent = <ChatMainPanel {...props} />;
+  // The chat column, with the progress surfaces layered over it. `relative` so
+  // the stack anchors to THIS box rather than the viewport: the drawers below
+  // open beside this column, and the controls must stay inside it rather than
+  // floating over whatever opens next to them.
+  //
+  // The boundary measures this column and publishes whether its right gutter
+  // can hold the side controls. Both mounts read that one value: the floating
+  // cluster here, and the fallback row above the composer inside
+  // `ChatMainPanel`. Exactly one draws.
+  const chatContent = (
+    <SideControlPlacementBoundary className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+      <ProgressStack placement="column" />
+      <ChatMainPanel {...props} />
+    </SideControlPlacementBoundary>
+  );
 
   // Right-hand detail panels — document viewer, subagent detail, tool detail,
   // and workflow detail — all share ONE AnimatedRightDrawer so the chat
@@ -451,6 +491,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
+            onRenamed={(documentName) =>
+              useViewerStore
+                .getState()
+                .renameOpenedDocument(
+                  openedDocumentState.surfaceId,
+                  documentName,
+                )
+            }
             onSubmitFeedback={() => {
               const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
               navigate(
@@ -575,6 +623,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           payload={activeChannelSetup}
           onClose={onCloseChannelSetup}
         />
+      );
+    } else if (mainView === "channel-transcript" && activeChannelTranscript) {
+      rightPanel = (
+        <LazyBoundary>
+          {/* Re-key per thread so switching conversations remounts the panel
+              rather than reusing one whose scroll position belongs to the
+              previous thread. */}
+          <ChannelTranscriptPanel
+            key={`${activeChannelTranscript.conversationId}:${activeChannelTranscript.channelId}`}
+            sidecarRef={activeChannelTranscript}
+            onClose={onCloseChannelTranscript}
+          />
+        </LazyBoundary>
       );
     }
   }

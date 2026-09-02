@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { getCharacterComponents } from "@vellumai/avatar-catalog";
+import { AVATAR_TRAITS_FILENAME } from "@vellumai/avatar-manifest";
 import { z } from "zod";
 
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
@@ -15,24 +17,19 @@ import {
   setCharacter,
   setImage,
 } from "../../avatar/avatar-store.js";
-import { getCharacterComponents } from "../../avatar/character-components.js";
-import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
-  type CharacterTraits,
-  TRAITS_FILENAME,
-  writeTraitsAndRenderAvatar,
-} from "../../avatar/traits-png-sync.js";
+  ensureAvatarRaster,
+  ensureAvatarRasterPath,
+} from "../../avatar/ensure-raster.js";
+import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
+import type { CharacterTraits } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { detectMediaType } from "../../tools/shared/filesystem/image-read.js";
 import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getAvatarDir,
-  getAvatarImagePath,
-  getWorkspaceDir,
-} from "../../util/platform.js";
+import { getAvatarDir, getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import {
@@ -259,7 +256,7 @@ function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
   return { ok: true, hadAvatar };
 }
 
-function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
+async function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
   const format = (queryParams?.format ??
     (body as Record<string, unknown>)?.format ??
     "path") as string;
@@ -281,27 +278,17 @@ function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
     return { exists: false };
   }
 
-  const avatarPath = getAvatarImagePath();
-
-  // For a character, the rendered PNG normally already exists on disk. Keep the
-  // existing safety net: if it's missing, re-render it from the persisted traits
-  // so the accessor still returns a raster.
-  if (state.kind === "character" && !existsSync(avatarPath) && state.traits) {
-    try {
-      writeTraitsAndRenderAvatar(state.traits);
-    } catch {
-      // Best-effort
-    }
+  // A character whose PNG is missing is regenerated on read. Path mode never
+  // loads the raster bytes.
+  if (format === "path") {
+    const path = await ensureAvatarRasterPath(state);
+    return path ? { exists: true, path } : { exists: false };
   }
-
-  if (!existsSync(avatarPath)) {
+  const raster = await ensureAvatarRaster(state);
+  if (!raster) {
     return { exists: false };
   }
-
-  if (format === "path") {
-    return { exists: true, path: avatarPath };
-  }
-  return { exists: true, base64: readFileSync(avatarPath).toString("base64") };
+  return { exists: true, base64: raster.toString("base64") };
 }
 
 function handleCharacterAscii({ queryParams, body }: RouteHandlerArgs) {
@@ -322,7 +309,7 @@ function handleCharacterAscii({ queryParams, body }: RouteHandlerArgs) {
     );
   }
 
-  const traitsPath = join(getAvatarDir(), TRAITS_FILENAME);
+  const traitsPath = join(getAvatarDir(), AVATAR_TRAITS_FILENAME);
   if (!existsSync(traitsPath)) {
     throw new BadRequestError(
       "No native character set. Use 'assistant avatar character update' first.",

@@ -3,16 +3,17 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 // `composeSvg` is the trait→SVG compositor; mock it so the precedence logic is
-// tested in isolation. A `throw` simulates unknown trait IDs, the documented
-// "no character avatar" fall-through.
+// tested in isolation. `null` is the documented "no character avatar"
+// fall-through for unknown trait IDs.
 const composeSvgMock = mock(
-  (..._args: unknown[]): string => "<svg>character</svg>",
+  (..._args: unknown[]): string | null => "<svg>character</svg>",
 );
 mock.module("@/utils/avatar-svg-compositor", () => ({
   composeSvg: composeSvgMock,
 }));
 
-const { resolveAvatarRender } = await import("@/utils/avatar-render");
+const { resolveAvatarRender, resolveEffectiveTraits } =
+  await import("@/utils/avatar-render");
 
 // The compositor is mocked, so these only need to be present, not valid.
 const components = {} as CharacterComponents;
@@ -21,6 +22,23 @@ const traits = {
   eyeStyle: "dot",
   color: "green",
 } as CharacterTraits;
+
+/**
+ * A palette, for the paths that read it. The first of each list is the default
+ * character, so the second entries are there to prove which one is taken.
+ */
+const palette = {
+  bodyShapes: [{ id: "blob" }, { id: "cloud" }],
+  eyeStyles: [{ id: "grumpy" }, { id: "angry" }],
+  colors: [{ id: "green" }, { id: "orange" }],
+} as unknown as CharacterComponents;
+
+/** A palette served empty, which has no default character to derive. */
+const emptyPalette = {
+  bodyShapes: [],
+  eyeStyles: [],
+  colors: [],
+} as unknown as CharacterComponents;
 
 beforeEach(() => {
   composeSvgMock.mockReset();
@@ -66,10 +84,8 @@ describe("resolveAvatarRender", () => {
     expect(composeSvgMock).not.toHaveBeenCalled();
   });
 
-  test("falls through to the custom image when composeSvg throws", () => {
-    composeSvgMock.mockImplementation(() => {
-      throw new Error("unknown trait id");
-    });
+  test("falls through to the custom image when composeSvg returns null", () => {
+    composeSvgMock.mockReturnValue(null);
     const result = resolveAvatarRender(
       "https://example.com/custom.png",
       components,
@@ -88,12 +104,62 @@ describe("resolveAvatarRender", () => {
     });
   });
 
-  test("resolves to none when composeSvg throws and there is no custom image", () => {
-    composeSvgMock.mockImplementation(() => {
-      throw new Error("unknown trait id");
-    });
+  test("resolves to none when composeSvg returns null and there is no custom image", () => {
+    composeSvgMock.mockReturnValue(null);
     expect(resolveAvatarRender(null, components, traits, 512)).toEqual({
       kind: "none",
     });
+    // The assistant's own traits are not retried as the default character: it
+    // chose them, and the default is for an assistant that chose none.
+    expect(composeSvgMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("draws the default character when there are components but no traits", () => {
+    // What `ChatAvatar` renders for an assistant that never opened the avatar
+    // builder, so every off-screen surface has to draw the same creature
+    // instead of falling back to the Vellum mark.
+    const result = resolveAvatarRender(null, palette, null, 512);
+    expect(result.kind).toBe("character");
+    expect(composeSvgMock).toHaveBeenCalledWith(
+      palette,
+      "blob",
+      "grumpy",
+      "green",
+      512,
+    );
+  });
+
+  test("prefers a custom image over the default character", () => {
+    // Saved traits outrank an uploaded image; a default nobody picked does not.
+    expect(
+      resolveAvatarRender("https://example.com/custom.png", palette, null, 512),
+    ).toEqual({ kind: "image", url: "https://example.com/custom.png" });
+    expect(composeSvgMock).not.toHaveBeenCalled();
+  });
+
+  test("resolves to none when the palette has no default to derive", () => {
+    expect(resolveAvatarRender(null, emptyPalette, null, 512)).toEqual({
+      kind: "none",
+    });
+    expect(composeSvgMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveEffectiveTraits", () => {
+  test("returns the assistant's own traits untouched", () => {
+    expect(resolveEffectiveTraits(palette, traits)).toBe(traits);
+  });
+
+  test("derives the first of each component when there are no traits", () => {
+    expect(resolveEffectiveTraits(palette, null)).toEqual({
+      bodyShape: "blob",
+      eyeStyle: "grumpy",
+      color: "green",
+    });
+  });
+
+  test("returns null without components, or with an empty palette", () => {
+    expect(resolveEffectiveTraits(null, null)).toBeNull();
+    expect(resolveEffectiveTraits(emptyPalette, null)).toBeNull();
   });
 });

@@ -10,12 +10,13 @@
  * the plugin-facing {@link ../../plugin-api/store-credential.storeCredential}
  * both compose it.
  *
- * The transcript scrub and the connection sync are imported lazily, at the
- * point of use. Both pull heavy graphs behind them (the scrub reaches the
- * conversation database and registry; the sync reaches the OAuth store), and
- * this module sits under `@vellumai/plugin-api`, so a static edge would drag
- * that machinery into every plugin-api consumer for a write most of them never
- * perform.
+ * The transcript scrub, connection sync, and provider rotation refresh are
+ * imported lazily, at the point of use. They pull heavy graphs behind them
+ * (the scrub reaches the conversation database and registry, the sync reaches
+ * the OAuth store, and the refresh reaches the provider and conversation
+ * graphs), and this module sits under `@vellumai/plugin-api`, so static edges
+ * would drag that machinery into every plugin-api consumer for a write most of
+ * them never perform.
  *
  * Callers own their own transport-level argument validation and error mapping;
  * this module throws {@link InvalidCredentialInputError} for a value it will
@@ -27,6 +28,7 @@ import {
   ACP_SERVICE,
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
+import { invalidateEmailReadinessForByoCredential } from "../../email/byo-email-credential.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { normalizeSecretValue } from "../../security/secret-normalize.js";
 import {
@@ -163,6 +165,19 @@ export async function storeCredentialValue(
   const { syncManualTokenConnection } =
     await import("../../oauth/manual-token-connection.js");
   await syncManualTokenConnection(service);
+
+  try {
+    const { refreshProvidersForRotatedCredential } =
+      await import("../../providers/inference/credential-rotation.js");
+    await refreshProvidersForRotatedCredential(service, field);
+  } catch (err) {
+    log.warn(
+      { err, service, field },
+      "Credential stored, but provider rotation refresh failed",
+    );
+  }
+
+  await invalidateEmailReadinessForByoCredential(service);
 
   return { credentialId: metadata.credentialId, service, field };
 }

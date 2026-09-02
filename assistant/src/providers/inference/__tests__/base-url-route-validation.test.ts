@@ -184,6 +184,22 @@ describe("base_url provider-type gate (create)", () => {
     );
   });
 
+  test("accepts base_url on opencode provider", async () => {
+    mockResolvedAddresses = ["93.184.216.34"];
+    const result = await handleCreate({
+      body: {
+        name: "valid-opencode-go",
+        provider: "opencode",
+        auth: { type: "api_key", credential: "cred-opencode" },
+        base_url: "https://opencode.ai/zen/go/v1",
+      },
+    });
+    expect(result).toBeDefined();
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "https://opencode.ai/zen/go/v1",
+    );
+  });
+
   test("accepts base_url on ollama provider", async () => {
     mockResolvedAddresses = ["93.184.216.34"];
     const result = await handleCreate({

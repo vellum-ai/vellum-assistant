@@ -51,10 +51,21 @@ export const HELPER_GET_STATE = "vellum:helper:state:get";
 export const HELPER_RESTART = "vellum:helper:restart";
 export const HELPER_STATE_EVENT = "vellum:helper:state";
 export const HELPER_HOTKEY_FN_PTT = "vellum:helper:hotkey:fnPushToTalk";
+export const HELPER_HOTKEY_SET_VOICE_MODE_CHORD =
+  "vellum:helper:hotkey:setVoiceModeChord";
+export const HELPER_HOTKEY_SET_MODIFIER_HOLD =
+  "vellum:helper:hotkey:setModifierHold";
 export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
+export const HELPER_HOTKEY_REGISTRATION_EVENT =
+  "vellum:helper:hotkey:registration";
 export const HELPER_DICTATION_SET_PARTIALS =
   "vellum:helper:dictation:setPartials";
 export const HELPER_DICTATION_PARTIAL_EVENT = "vellum:helper:dictation:partial";
+export const HELPER_DICTATION_FINALIZED_EVENT =
+  "vellum:helper:dictation:finalized";
+export const HELPER_DICTATION_TRANSCRIBE = "vellum:helper:dictation:transcribe";
+export const HELPER_DICTATION_TRANSCRIBED_EVENT =
+  "vellum:helper:dictation:transcribed";
 
 // Commands
 export const COMMAND_EVENT = "vellum:command";
@@ -72,6 +83,10 @@ export const ICON_SET_CHARACTER = "vellum:icon:setCharacter";
 // Dock
 export const DOCK_SET_BADGE = "vellum:dock:setBadge";
 
+// Downloads
+export const DOWNLOADS_DONE_EVENT = "vellum:downloads:done";
+export const DOWNLOADS_REVEAL = "vellum:downloads:reveal";
+
 // Local mode
 export const LOCAL_MODE_HATCH = "vellum:localMode:hatch";
 export const LOCAL_MODE_READ_LOCKFILE = "vellum:localMode:readLockfile";
@@ -86,6 +101,8 @@ export const LOCAL_MODE_WAKE = "vellum:localMode:wake";
 export const LOCAL_MODE_UPGRADE = "vellum:localMode:upgrade";
 export const LOCAL_MODE_STATUS = "vellum:localMode:status";
 export const LOCAL_MODE_GUARDIAN_TOKEN = "vellum:localMode:guardianToken";
+export const LOCAL_MODE_READ_ASSISTANT_AVATAR =
+  "vellum:localMode:readAssistantAvatar";
 
 // Menu
 export const MENU_SET_PLATFORM_SESSION = "vellum:menu:setPlatformSession";
@@ -150,6 +167,8 @@ export const DICTATION_OVERLAY_STOP_REQUESTED =
   "vellum:dictationOverlay:stopRequested";
 export const DICTATION_OVERLAY_SET_INTERACTIVE =
   "vellum:dictationOverlay:setInteractive";
+export const DICTATION_OVERLAY_SET_HIT_REGION =
+  "vellum:dictationOverlay:setHitRegion";
 
 // Voice activity: the running live-voice session, as the companion surface
 // renders it. The session's window publishes; the surface's window presses.
@@ -165,10 +184,12 @@ export const COMPANION_STATE_EVENT = "vellum:companion:state";
 export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
 export const COMPANION_MOVE_BY = "vellum:companion:moveBy";
 export const COMPANION_START_VOICE = "vellum:companion:startVoice";
+export const COMPANION_TOGGLE_WATCH = "vellum:companion:toggleWatch";
+export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
-export const COMPANION_SET_COMPOSING = "vellum:companion:setComposing";
-export const COMPANION_SUBMIT = "vellum:companion:submit";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
+export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";
+export const COMPANION_CONTEXT_MENU = "vellum:companion:contextMenu";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

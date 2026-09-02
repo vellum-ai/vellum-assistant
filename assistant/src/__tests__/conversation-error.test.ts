@@ -521,6 +521,23 @@ describe("classifyConversationError", () => {
       expect(result.userMessage.toLowerCase()).toContain("image");
     });
 
+    it("classifies an OpenAI-compatible 400 for an unreadable image as image_unsupported_format (non-retryable)", () => {
+      // The rejection an OpenAI-compatible endpoint returns when any image in
+      // the request is not one of the formats it decodes (a HEIC photo renamed
+      // to .png, say). It names no index, so the whole turn dies unless it is
+      // classified for the image-recovery path with actionable copy.
+      const err = new ProviderError(
+        "The image data you provided does not represent a valid image. Please check your input and try again with one of the supported image formats: [image/jpeg, image/png, image/gif, image/webp]",
+        "openai",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_unsupported_format");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage.toLowerCase()).toContain("image");
+    });
+
     it("does not steal generic 400s that happen to mention 'image'", () => {
       const err = new ProviderError(
         "invalid request: image source is missing",
@@ -564,6 +581,23 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_ORDERING");
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("tool_ordering");
+    });
+
+    it("classifies user-terminal history rejections separately", () => {
+      /** User-terminal provider rejections receive a dedicated category. */
+
+      // GIVEN a provider error whose history ends with a model turn
+      const error = new Error(
+        "Requests ending with a model turn are not supported.",
+      );
+
+      // WHEN the conversation error is classified
+      const result = classifyConversationError(error, baseCtx);
+
+      // THEN it is a retryable ordering error in the user-terminal category
+      expect(result.code).toBe("PROVIDER_ORDERING");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("history_user_terminal");
     });
   });
 
@@ -1102,6 +1136,50 @@ describe("classifyConversationError", () => {
   });
 
   describe("reason-driven classification (ProviderError.reason)", () => {
+    it("classifies reason=request_shape_unsupported as a friendly capability-mismatch message", () => {
+      // GIVEN a chat-template 400 that the provider stamped with the
+      // semantic reason (Together serving MiniMax M3)
+      const err = new ProviderError(
+        "Together AI API error (400): Failed to apply chat template: invalid operation: object is not callable (in chat:22)",
+        "together",
+        400,
+        { reason: "request_shape_unsupported" },
+      );
+
+      // WHEN it is classified
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN the user sees the capability-mismatch copy, not the raw
+      // template error
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("request_shape_unsupported");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain(
+        "couldn't process the request format",
+      );
+      expect(result.userMessage).not.toContain("chat template");
+    });
+
+    it("classifies a reason-less chat-template 400 via the message ladder", () => {
+      // GIVEN a chat-template 400 whose ProviderError carries no semantic
+      // reason (e.g. thrown by a non-OpenAI-compatible wrapper)
+      const err = new ProviderError(
+        "Together AI API error (400): Failed to apply chat template: invalid operation: object is not callable (in chat:22)",
+        "together",
+        400,
+      );
+
+      // WHEN it is classified
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN the regex ladder still lands on the capability-mismatch copy
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("request_shape_unsupported");
+      expect(result.userMessage).toContain(
+        "couldn't process the request format",
+      );
+    });
+
     it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {
       const err = new ProviderError(
         "Vercel AI Gateway API error (403): Model claude-opus-4 is restricted on your plan [type=no_providers_available]",
@@ -1597,6 +1675,21 @@ describe("ConnectionResolutionError classification", () => {
     expect(err.cause).toBe(cause);
     const result = classifyConversationError(err, errCtx);
     expect(result.userMessage).toContain("Restart the assistant");
+  });
+
+  it("classifies adapter_unavailable for a Vellum-hosted GPU model", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "adapter_unavailable",
+      "no adapter",
+      { model: "qwen/qwen3-8b", profileName: "steer" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain("qwen/qwen3-8b");
+    expect(result.userMessage).toContain("Vellum GPU route");
+    expect(result.userMessage).toContain('profile "steer"');
+    expect(result.userMessage).toContain("was not sent through another provider");
   });
 
   it("classifies missing_credential naming the connection and fix", () => {

@@ -21,10 +21,17 @@ import { cloudAssistantHubUrl } from "@vellumai/environments";
 import {
   getAssistantDisplayName,
   lookupAssistantByIdentifier,
+  type AssistantEntry,
 } from "./assistant-config.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { waitForDaemonReady } from "./http-client.js";
-import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
+import {
+  getDefaultWorkspaceDir,
+  isLocalContainerEntry,
+  loadRawConfig,
+  parseGatewayPortFromEntryUrls,
+  saveRawConfig,
+} from "./ingress-config.js";
 import { findWebDistDir } from "./web-dist.js";
 
 export { findWebDistDir } from "./web-dist.js";
@@ -132,6 +139,10 @@ export interface RemoteWebIngressOptions {
   /** Serving assistant's display name, stamped into the served config so
    *  remote clients can label this origin. Absent in older served configs. */
   assistantName?: string;
+  /** Serving assistant's id, stamped into the served config so a caller can
+   *  confirm which assistant an edge is fronting. Absent in older served
+   *  configs. */
+  assistantId?: string;
   /** Cloud web SPA base the remote client can hand this origin to (see
    *  `cloudWebHubUrl`). Absent in older served configs. */
   hubUrl?: string;
@@ -147,7 +158,10 @@ export function cloudWebHubUrl(env: string | undefined): string {
 }
 
 function remoteWebIngressConfig(
-  opts: Pick<RemoteWebIngressOptions, "config" | "assistantName" | "hubUrl">,
+  opts: Pick<
+    RemoteWebIngressOptions,
+    "config" | "assistantName" | "assistantId" | "hubUrl"
+  >,
 ): Record<string, unknown> {
   return {
     mode: "remote-gateway",
@@ -155,6 +169,7 @@ function remoteWebIngressConfig(
     platformDisabled: true,
     disablePlatform: true,
     ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+    ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
     ...(opts.hubUrl ? { hubUrl: opts.hubUrl } : {}),
     ...opts.config,
   };
@@ -165,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 3;
+export const EDGE_TEMPLATE_VERSION = 7;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -186,19 +201,56 @@ function safeScriptJson(value: unknown): string {
 }
 
 /**
- * Preloading the whole chunk graph opens ~290 tunnel connections on a cold
- * load, and one dropped request blanks the app before React can report it.
- * These are hints only; the entry module still pulls what it needs.
+ * How many modulepreload hints the served index may carry before they are
+ * stripped wholesale.
+ *
+ * The consolidated boot graph emits 4 hints (the entry chunk's static
+ * imports). Serving them lets a phone fetch the whole boot set in parallel;
+ * without them the browser cannot discover the other chunks until the entry
+ * has downloaded AND parsed, so ~515 kB gzip serializes behind ~623 kB plus
+ * a phone-CPU parse of ~2.2 MB of JavaScript.
+ *
+ * The strip exists for the pathological shape: a whole-chunk-graph index
+ * (~290 hints) floods the tunnel with requests, and one dropped *import*
+ * blanks the app before React can report it. A build that regresses toward
+ * that shape trips this threshold and gets the protective strip.
+ * All-or-nothing, because preserving an arbitrary prefix of a broken graph
+ * would be luck, not policy. 12 sits comfortably above the consolidated
+ * graph and within two rounds of the browser's six-per-origin HTTP/1.1
+ * connection pool, so kept hints never widen concurrency much beyond what
+ * the entry's own imports would open.
  */
-function stripModulePreloads(html: string): string {
-  return html.replace(/<link[^>]+rel="modulepreload"[^>]*>\s*/g, "");
+export const MAX_PRESERVED_MODULE_PRELOADS = 12;
+
+const MODULE_PRELOAD_RE = /<link[^>]+rel="modulepreload"[^>]*>\s*/g;
+
+/**
+ * Failure semantics are engine-dependent while whatwg/html#10327 rolls out:
+ * older engines cache a failed module fetch in the module map (a later
+ * import returns the failure without refetching), newer ones evict it so a
+ * later import refetches. The invariant that matters holds in both models:
+ * the preserved hints name exactly the URLs the entry's static imports
+ * fetch anyway, through the same module map, so a dropped request for a
+ * BOOT chunk has the same outcome whether or not the chunk was hinted.
+ * Hints for the boot set add no failure surface; they only start the same
+ * fetches earlier. What the strip guards against is the whole-graph shape,
+ * where hundreds of speculative NON-boot fetches amplify the odds of any
+ * failure and (on old-model engines) a dropped lazy chunk poisons a later
+ * dynamic import.
+ */
+function stripExcessModulePreloads(html: string): string {
+  const count = html.match(MODULE_PRELOAD_RE)?.length ?? 0;
+  if (count <= MAX_PRESERVED_MODULE_PRELOADS) {
+    return html;
+  }
+  return html.replace(MODULE_PRELOAD_RE, "");
 }
 
 export function buildRemoteWebIndexHtml(
   rawHtml: string,
   config: Record<string, unknown>,
 ): string {
-  const html = stripModulePreloads(rawHtml);
+  const html = stripExcessModulePreloads(rawHtml);
   const script = `<script>window.__VELLUM_CONFIG__=${safeScriptJson(config)}</script>`;
   if (html.includes("</head>")) {
     return html.replace("</head>", `${script}</head>`);
@@ -258,6 +310,19 @@ events {}
 http {
   access_log off;
   default_type application/octet-stream;
+
+  # Compression tuning only. It stays inert here because nginx ships with
+  # gzip off, and only the static SPA locations below turn it on: this server
+  # also proxies authenticated /v1 and /webhooks traffic, and compressing a
+  # response that carries both a secret and attacker-influenced content over
+  # TLS is the BREACH side channel. The SPA bytes are the whole win, so the
+  # boundary is drawn by opting locations in rather than by excluding proxies.
+  # text/html is always compressed once gzip is on, so it must not be
+  # repeated in gzip_types.
+  gzip_vary on;
+  gzip_comp_level 5;
+  gzip_min_length 1024;
+  gzip_types application/javascript application/json application/wasm image/svg+xml text/css text/plain;
 
   types {
     application/javascript js mjs;
@@ -330,6 +395,10 @@ function buildRemoteWebIngressLocations(opts: {
 ${proxyBlock}
     }
 
+    location = /readyz {
+${proxyBlock}
+    }
+
     location ^~ /v1/ {
 ${proxyBlock}
     }
@@ -350,10 +419,16 @@ ${proxyBlock}
       rewrite ^ /assistant/__remote-index.html last;
     }
 
+    # The shell and the unhashed files beside it revalidate rather than
+    # refusing storage: they carry no credential, and nginx serves them from
+    # disk with a validator, so a repeat load costs a 304 instead of the whole
+    # document. __config is the exception below: it is returned inline, so
+    # nginx attaches no validator for a revalidation to match against.
     location = /assistant/__remote-index.html {
       internal;
+      gzip on;
       alias ${nginxQuoted(indexHtmlPath, "remote web ingress index path")};
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = /assistant/__config {
@@ -363,15 +438,17 @@ ${proxyBlock}
     }
 
     location ^~ /assistant/assets/ {
+      gzip on;
       alias ${nginxQuoted(nginxDirPath(webAssetsDir), "web assets path")};
       try_files $uri =404;
       add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
     location ^~ /assistant/ {
+      gzip on;
       alias ${nginxQuoted(webDistDir, "web dist path")};
       try_files $uri $uri/ /assistant/__remote-index.html;
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = / {
@@ -396,6 +473,7 @@ export function getNginxVersion(): string | null {
   const result = spawnSync(nginxBin(), ["-v"], {
     encoding: "utf-8",
     timeout: 5_000,
+    windowsHide: true,
   });
   if (result.error || result.status !== 0) return null;
   const output = `${result.stderr || ""}${result.stdout || ""}`.trim();
@@ -445,6 +523,7 @@ function isIngressNginxProcess(pid: number, paths: IngressPaths): boolean {
         encoding: "utf-8",
         timeout: 3000,
         stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
       },
     ).trim();
     return (
@@ -585,7 +664,7 @@ export function startIngressNginx(opts: {
   const child = spawn(
     nginxBin(),
     ["-p", paths.dir, "-c", paths.confPath, "-g", "daemon off;"],
-    { detached: true, stdio: ["ignore", fd, fd] },
+    { detached: true, stdio: ["ignore", fd, fd], windowsHide: true },
   );
   closeSync(fd);
 
@@ -748,6 +827,12 @@ export async function startRemoteWebIngress(opts: {
    */
   assistantName?: string;
   /**
+   * Serving assistant's id, stamped into the served remote-web config
+   * (`__VELLUM_CONFIG__.assistantId`) so a caller probing this origin can
+   * confirm which assistant the edge fronts. Omitted when unknown.
+   */
+  assistantId?: string;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
    * with the resolved version/dist/port (webDistDir is null in webhooks-only
@@ -777,6 +862,7 @@ export async function startRemoteWebIngress(opts: {
     ? {
         hubUrl: cloudWebHubUrl(getCurrentEnvironment().name),
         ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+        ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
       }
     : undefined;
   const requestedConfigHash = spaOptions
@@ -911,6 +997,35 @@ export function formatEdgeMode(includesWebApp: boolean): string {
   return includesWebApp ? "remote web + webhooks" : "webhooks only";
 }
 
+/**
+ * Stop the tunnel edge fronting a container assistant, if this assistant is
+ * the one it currently fronts.
+ *
+ * Container topologies share one default-workspace edge (one pidfile, one
+ * listen port), so the recorded `gatewayPort` is what attributes it. Without
+ * that check this would tear down another assistant's working tunnel; a record
+ * with no recorded port cannot be attributed, so it is left alone.
+ */
+export async function stopContainerTunnelEdge(
+  entry: AssistantEntry,
+): Promise<boolean> {
+  if (!isLocalContainerEntry(entry)) {
+    return false;
+  }
+  const gatewayPort = parseGatewayPortFromEntryUrls(entry);
+  if (gatewayPort === undefined) {
+    return false;
+  }
+  const workspaceDir = getDefaultWorkspaceDir();
+  if (!isIngressRunning(workspaceDir)) {
+    return false;
+  }
+  if (readIngressState(workspaceDir)?.gatewayPort !== gatewayPort) {
+    return false;
+  }
+  return stopIngressNginx(workspaceDir);
+}
+
 /** Resolved edge a tunnel (or bring-your-own HTTPS front) should target. */
 export interface TunnelEdge {
   /** Loopback listen port the HTTPS front should forward to. */
@@ -918,6 +1033,23 @@ export interface TunnelEdge {
   /** True when this call started the edge, false when a running one was reused. */
   started: boolean;
   includesWebApp: boolean;
+}
+
+/**
+ * Recovery text for a drifted edge that outlived the automatic restart.
+ * `startRemoteWebIngress` already escalated SIGTERM to SIGKILL before
+ * reporting `already-running`, so the only thing left is the wedged process
+ * itself: name its PID and log so the user can clear it by hand.
+ */
+function stuckEdgeRecoveryHint(workspaceDir: string): string {
+  const { logPath } = getIngressPaths(workspaceDir);
+  const pid = getIngressPid(workspaceDir);
+  const target = pid !== null ? `the nginx process (PID ${pid})` : "it";
+  return (
+    `Vellum could not stop ${target}, even with SIGKILL. ` +
+    `Stop it by hand and retry, or run \`vellum sleep\` to shut the ` +
+    `assistant down entirely. Check the nginx log: ${logPath}`
+  );
 }
 
 /**
@@ -953,6 +1085,7 @@ export async function ensureTunnelEdge(opts: {
     gatewayPort: opts.gatewayPort,
     includeWebApp: true,
     ...(assistantName ? { assistantName } : {}),
+    ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
     ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
   });
 
@@ -970,7 +1103,7 @@ export async function ensureTunnelEdge(opts: {
         throw new Error(
           "The nginx edge is still running in webhooks-only mode " +
             "and could not be restarted in web app mode. " +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       if (result.gatewayPort !== opts.gatewayPort) {
@@ -981,14 +1114,14 @@ export async function ensureTunnelEdge(opts: {
         throw new Error(
           `The nginx edge is ${upstream} ` +
             `and could not be restarted against port ${opts.gatewayPort}. ` +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       if (result.staleRemoteWebConfig) {
         throw new Error(
           "The nginx edge is still serving an outdated remote web config " +
             "and could not be restarted with the updated one. " +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       return {

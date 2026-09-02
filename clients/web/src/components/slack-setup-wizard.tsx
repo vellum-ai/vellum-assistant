@@ -10,7 +10,9 @@ import { SlackSetupNameStep } from "@/components/slack-setup-name-step";
 import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
 import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
+import { useClearOnSaveSuccess } from "@/hooks/use-clear-on-save-success";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { buildSlackManifest } from "@/utils/slack-manifest";
 
@@ -26,14 +28,9 @@ const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 const WIZARD_STEP_IDS = ["name", "open", "create", "connect"] as const;
 export type SlackSetupStepId = (typeof WIZARD_STEP_IDS)[number];
 
-const WIZARD_STEPS: StepperStep[] = [
-  { id: "name", label: "Name" },
-  { id: "open", label: "Open" },
-  { id: "create", label: "Create" },
-  { id: "connect", label: "Connect" },
-];
-
 export interface SlackSetupWizardProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   assistantName: string;
   onSave?: (botToken: string, appToken: string) => void;
   saveStatus?: MutationStatus;
@@ -51,11 +48,22 @@ export interface SlackSetupWizardProps {
  * Slack (thread behavior) live in `SlackThreadBehavior`.
  */
 export function SlackSetupWizard({
+  assistantId,
   assistantName,
   onSave,
   saveStatus = "idle",
   saveError = null,
 }: SlackSetupWizardProps) {
+  const { t } = useTranslation();
+  const WIZARD_STEPS: StepperStep[] = useMemo(
+    () => [
+      { id: "name", label: t("slackSetupWizard.stepName") },
+      { id: "open", label: t("slackSetupWizard.stepOpen") },
+      { id: "create", label: t("slackSetupWizard.stepCreate") },
+      { id: "connect", label: t("slackSetupWizard.stepConnect") },
+    ],
+    [t],
+  );
   const { stepId, stepIndex, goTo, onStepSelect } =
     useChannelSetupSteps(WIZARD_STEP_IDS);
   const [slackAppName, setSlackAppName] = useState(assistantName);
@@ -79,20 +87,10 @@ export function SlackSetupWizard({
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
-  // Drop the credentials once they are saved. The Channels page keeps this
-  // wizard mounted on success, so without this both tokens stay in their
-  // fields, recoverable from a mounted component long after they were handed
-  // over. The chat drawer closes on success and unmounts either way.
-  useEffect(() => {
-    if (saveStatus === "success") {
-      setBotToken("");
-      setAppToken("");
-    }
-  }, [saveStatus]);
+  useClearOnSaveSuccess(saveStatus, setBotToken, setAppToken);
 
   const { copy, copied } = useCopyToClipboard({
-    errorMessage:
-      "Could not copy the manifest. Copy it again before continuing.",
+    errorMessage: t("slackSetupWizard.copyError"),
   });
 
   const manifestJson = useMemo(
@@ -131,7 +129,7 @@ export function SlackSetupWizard({
 
   return (
     <ChannelSetupWizard
-      channelLabel="Slack"
+      channelLabel={t("slackSetupWizard.channelLabel")}
       steps={WIZARD_STEPS}
       stepIndex={stepIndex}
       onStepSelect={onStepSelect}
@@ -165,6 +163,7 @@ export function SlackSetupWizard({
 
       {stepId === "connect" && (
         <SlackSetupTokensStep
+          assistantId={assistantId}
           botToken={botToken}
           appToken={appToken}
           saveStatus={saveStatus}

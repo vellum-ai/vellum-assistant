@@ -50,7 +50,7 @@ const statusResponseSchema = z.object({
 async function startScheduleWorker() {
   let result: { pid: number; alreadyRunning: boolean };
   try {
-    result = await spawnScheduleWorkerProcess({ detached: false });
+    result = await spawnScheduleWorkerProcess();
   } catch (err) {
     const message =
       err instanceof ScheduleWorkerSpawnError || err instanceof Error

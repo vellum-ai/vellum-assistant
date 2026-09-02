@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 const isMobileRef = { value: false };
@@ -38,7 +44,7 @@ const HINTED_SECTIONS = [
     id: "actions",
     label: "Actions",
     items: [
-      { id: "new", title: "New Conversation", shortcutHint: "⌘⇧O" },
+      { id: "new", title: "New Conversation", shortcut: "CmdOrCtrl+Shift+O" },
       { id: "library", title: "Library" },
     ],
   },
@@ -76,10 +82,13 @@ function keyboardHints(): string[] {
   const caps = Array.from(dialog.querySelectorAll("kbd")).map(
     (el) => el.textContent ?? "",
   );
-  const itemHints = Array.from(dialog.querySelectorAll("span"))
-    .filter((el) => el.children.length === 0)
-    .map((el) => el.textContent ?? "")
-    .filter((text) => text.startsWith("⌘"));
+  // Queried by slot rather than by scanning text: the previous version looked
+  // for spans whose text began with a modifier glyph, which silently dropped a
+  // hint the moment modifier order changed and left the assertion comparing
+  // against a list with the chord missing.
+  const itemHints = Array.from(
+    dialog.querySelectorAll('[data-slot="shortcut-keys"]'),
+  ).map((el) => el.textContent ?? "");
   return [...caps, ...itemHints];
 }
 
@@ -388,7 +397,7 @@ describe("CommandPalette keyboard hints", () => {
 
     renderHintedPalette();
 
-    expect(keyboardHints()).toEqual(["⌘K", "⌘⇧O"]);
+    expect(keyboardHints()).toEqual(["⌘K", "⇧⌘O"]);
   });
 
   test("keeps the hints on a narrow window that still has a keyboard", () => {
@@ -400,7 +409,7 @@ describe("CommandPalette keyboard hints", () => {
     renderHintedPalette();
 
     expect(screen.getByRole("dialog", { name: "Search" })).toBeTruthy();
-    expect(keyboardHints()).toEqual(["⌘K", "⌘⇧O"]);
+    expect(keyboardHints()).toEqual(["⌘K", "⇧⌘O"]);
   });
 
   test("drops the hints on a roomy touch device that cannot press them", () => {

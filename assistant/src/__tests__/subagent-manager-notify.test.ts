@@ -13,6 +13,8 @@ const capturedNotifications: {
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => ({
+    isStale: () => false,
+    hasInFlightWork: () => false,
     enqueueMessage: (options: { content: string }) => {
       capturedNotifications.push({
         parentConversationId: id,
@@ -530,6 +532,44 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     expect(capturedNotifications).toHaveLength(0);
 
     asInternals(manager).stopSweep();
+  });
+});
+
+describe("SubagentManager hasActiveChildren", () => {
+  test("is true for pending, running, and awaiting_input children", () => {
+    const manager = new SubagentManager();
+    injectFakeSubagent(
+      manager,
+      "sub-running",
+      makeState("sub-running", { status: "running" }),
+    );
+
+    expect(manager.hasActiveChildren("parent-sess-1")).toBe(true);
+
+    asInternals(manager).subagents.get("sub-running")!.state.status =
+      "awaiting_input";
+    expect(manager.hasActiveChildren("parent-sess-1")).toBe(true);
+
+    asInternals(manager).subagents.get("sub-running")!.state.status = "pending";
+    expect(manager.hasActiveChildren("parent-sess-1")).toBe(true);
+  });
+
+  test("is false when every child is terminal or the parent has none", () => {
+    const manager = new SubagentManager();
+    expect(manager.hasActiveChildren("parent-sess-1")).toBe(false);
+
+    injectFakeSubagent(
+      manager,
+      "sub-done",
+      makeState("sub-done", { status: "completed" }),
+    );
+    injectFakeSubagent(
+      manager,
+      "sub-aborted",
+      makeState("sub-aborted", { status: "aborted" }),
+    );
+
+    expect(manager.hasActiveChildren("parent-sess-1")).toBe(false);
   });
 });
 

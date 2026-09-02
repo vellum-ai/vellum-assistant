@@ -12,6 +12,7 @@ import {
   PinOff,
   RefreshCw,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -24,17 +25,23 @@ import {
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { type ConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import { useTranslation, type TFunction } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { READ_ICON, UNREAD_ICON } from "@/utils/read-state-icon";
-import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  ContextMenu,
+  Menu,
+  actionMenuDestructiveClasses,
+} from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis
  * button; clicking it opens a dropdown menu with Pin / Rename / Archive /
- * Mark as unread actions, plus an optional "Move to group" submenu.
+ * Delete / Mark as unread actions, plus an optional "Move to group" submenu.
  *
  * The same item set is also rendered by the row's right-click context menu
  * (`AssistantSideMenu`) via the shared `renderConversationMenuItems` helper
@@ -82,6 +89,12 @@ export interface ConversationMenuItemsProps {
   onArchive?: () => void;
   /** Restore an archived conversation. When provided, takes precedence over `onArchive` when `isArchived` is true. */
   onUnarchive?: () => void;
+  /**
+   * Permanently delete the conversation. The host owns confirmation; this
+   * callback only requests the delete. Available for channel threads too:
+   * deletion is a local history wipe and does not write to the source channel.
+   */
+  onDelete?: () => void;
   /** Mark the most recent assistant message as unread. */
   onMarkUnread?: () => void;
   /**
@@ -184,6 +197,7 @@ export function renderConversationMenuItems({
   onRename,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   isMarkUnreadDisabled = false,
   onMarkRead,
@@ -201,11 +215,14 @@ export function renderConversationMenuItems({
   onRefresh,
   channelSourceLink,
   variant = "sidebar",
+  shortcuts = {},
 }: ConversationMenuItemsProps & {
   Primitive: ConversationMenuPrimitive;
   /** Threaded in: these builders are plain functions, so they cannot hold
    *  the hook themselves and their callers own the reactive binding. */
   t: TFunction<"chat">;
+  /** Bindings for the rows that have one, absent where the host binds none. */
+  shortcuts?: ConversationMenuShortcuts;
 }): ReactNode {
   // The submenu shows whenever move + create are wired, even with zero
   // existing groups — "New group…" is always a valid action and is the only
@@ -216,6 +233,7 @@ export function renderConversationMenuItems({
     <Primitive.Item
       leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
       onSelect={onPinToggle}
+      shortcut={shortcuts.pin}
     >
       {isPinned ? t("conversationActions.unpin") : t("conversationActions.pin")}
     </Primitive.Item>
@@ -241,6 +259,16 @@ export function renderConversationMenuItems({
       </Primitive.Item>
     ) : null;
 
+  const deleteItem = onDelete ? (
+    <Primitive.Item
+      leftIcon={<Trash2 size={14} />}
+      onSelect={onDelete}
+      className={actionMenuDestructiveClasses.anchored}
+    >
+      {t("conversationActions.delete")}
+    </Primitive.Item>
+  ) : null;
+
   const markReadUnreadItem =
     !isReadonly && onMarkRead ? (
       <Primitive.Item
@@ -254,6 +282,10 @@ export function renderConversationMenuItems({
         leftIcon={<READ_ICON size={14} />}
         onSelect={onMarkUnread}
         disabled={isMarkUnreadDisabled}
+        // A dimmed row that still draws a key claims an action it will not
+        // perform, and the binding itself has no matching guard, so the row
+        // and the keypress would disagree.
+        shortcut={isMarkUnreadDisabled ? undefined : shortcuts.markUnread}
       >
         {t("conversationActions.markUnread")}
       </Primitive.Item>
@@ -295,6 +327,7 @@ export function renderConversationMenuItems({
     <Primitive.Item
       leftIcon={<ExternalLink size={14} />}
       onSelect={onOpenInNewWindow}
+      shortcut={shortcuts.openInNewWindow}
     >
       {t("conversationActions.openInNewWindow")}
     </Primitive.Item>
@@ -362,6 +395,7 @@ export function renderConversationMenuItems({
         {renameItem}
         {moveToGroupItem}
         {archiveItem}
+        {deleteItem}
         {copyConversationIdItem}
       </>
     );
@@ -372,6 +406,7 @@ export function renderConversationMenuItems({
       {pinItem}
       {renameItem}
       {archiveItem}
+      {deleteItem}
 
       {markReadUnreadItem}
       {moveToGroupItem}
@@ -479,6 +514,7 @@ export function renderConversationMenuItemsAsPanelItems({
   onRename,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   isMarkUnreadDisabled = false,
   onMarkRead,
@@ -546,6 +582,17 @@ export function renderConversationMenuItemsAsPanelItems({
             onClose,
           })
         : null;
+
+  const deleteItem = onDelete
+    ? buildSheetMenuItem({
+        key: "delete",
+        icon: Trash2,
+        label: t("conversationActions.delete"),
+        className: actionMenuDestructiveClasses.sheet,
+        run: onDelete,
+        onClose,
+      })
+    : null;
 
   const markReadUnreadItem =
     !isReadonly && onMarkRead
@@ -683,6 +730,7 @@ export function renderConversationMenuItemsAsPanelItems({
         {pinItem}
         {renameItem}
         {archiveItem}
+        {deleteItem}
         {moveToGroupBlock}
         {copyConversationIdItem}
       </>
@@ -694,6 +742,7 @@ export function renderConversationMenuItemsAsPanelItems({
       {pinItem}
       {renameItem}
       {archiveItem}
+      {deleteItem}
       {markReadUnreadItem}
       {moveToGroupBlock}
       {channelSourceLinkItem}
@@ -800,6 +849,14 @@ export function ConversationActionsSheet({
 
 export interface ConversationActionsMenuProps extends ConversationMenuItemsProps {
   /**
+   * Bindings to advertise, resolved by the caller. The pin, mark-unread, and
+   * pop-out commands act on the active conversation, so only that
+   * conversation's menu may pass any: omitted means the menu advertises
+   * nothing, which is the safe default for a caller that has not decided.
+   */
+  shortcuts?: ConversationMenuShortcuts;
+
+  /**
    * Override the default hover-revealed ellipsis button with a custom
    * trigger (e.g. the topbar thread-name dropdown). The element is
    * wrapped in Radix `Menu.Trigger asChild`, so it must be a
@@ -817,6 +874,7 @@ export function ConversationActionsMenu({
   side = "right",
   align = "start",
   sideOffset = 4,
+  shortcuts = {},
   ...itemProps
 }: ConversationActionsMenuProps) {
   const isTouchMobile = useTouchMobile();
@@ -834,7 +892,11 @@ export function ConversationActionsMenu({
       }}
       className="flex h-6 w-6 items-center justify-center rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)] max-md:h-[30px] max-md:w-[30px]"
     >
-      <MoreHorizontal size={14} aria-hidden className="max-md:h-[21px] max-md:w-[21px]" />
+      <MoreHorizontal
+        size={14}
+        aria-hidden
+        className="max-md:h-[21px] max-md:w-[21px]"
+      />
     </button>
   );
 
@@ -864,7 +926,12 @@ export function ConversationActionsMenu({
         sideOffset={sideOffset}
         onClick={(event) => event.stopPropagation()}
       >
-        {renderConversationMenuItems({ Primitive: Menu, t, ...itemProps })}
+        {renderConversationMenuItems({
+          Primitive: Menu,
+          t,
+          shortcuts,
+          ...itemProps,
+        })}
       </Menu.Content>
     </Menu.Root>
   );

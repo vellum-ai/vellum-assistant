@@ -1,5 +1,5 @@
 import { AlertTriangle, Bookmark, Loader2, RotateCcw, X } from "lucide-react";
-import { useNavigate } from "react-router";
+import { Navigate, useNavigate } from "react-router";
 
 import {
   type Bookmark as BookmarkSummary,
@@ -7,6 +7,9 @@ import {
   useBookmarkToggle,
 } from "@/hooks/use-bookmarks";
 import { useTranslation } from "@/i18n";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -126,6 +129,16 @@ export function BookmarksPage() {
   const navigate = useNavigate();
   const { bookmarks, isLoading, isError, refetch } = useBookmarks();
   const toggleBookmark = useBookmarkToggle();
+  // Bookmarks are internal-only. The tab is hidden for sessions outside the
+  // gate, so this catches a direct URL or a stale deep link. Held until the
+  // flag hydrates: it reads registry-default `false` on a cold load, and
+  // bouncing on that would strand an internal user who deep-linked here.
+  const canUseInternalActions = useCanUseInternalThreadActions();
+  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
+
+  if (flagsHydrated && !canUseInternalActions) {
+    return <Navigate replace to={routes.settings.general} />;
+  }
 
   if (isLoading) {
     return (

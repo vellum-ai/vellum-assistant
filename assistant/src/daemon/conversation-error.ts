@@ -1,4 +1,5 @@
 import {
+  isUserTerminalHistoryError,
   ORDERING_ERROR_PATTERNS,
   WEB_SEARCH_ORDERING_PATTERNS,
 } from "../agent/history-repair/history-repair.js";
@@ -11,6 +12,7 @@ import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,
   isImageUnprocessableError,
+  isImageUnsupportedFormatError,
 } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
@@ -24,6 +26,7 @@ import {
 } from "../util/errors.js";
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
+  isChatTemplateFailureError,
   isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
 
@@ -356,6 +359,8 @@ function connectionResolutionUserMessage(
       return `No provider connection is configured${usedBy}. Ask me to set one up right here, or add an API key in ${fixPath}.`;
     case "unroutable_managed_model":
       return `The model "${error.model ?? "<unset>"}"${usedBy} isn't served by the Vellum managed route. Pick a model from the Vellum catalog, or choose a concrete provider in ${fixPath}.`;
+    case "adapter_unavailable":
+      return `${connection}${usedBy} could not serve model "${error.model ?? "<unset>"}". This model is only available on the Vellum GPU route and was not sent through another provider.`;
     case "missing_credential":
       // Provider-neutral: api_key connections store keys, oauth_subscription
       // connections store login tokens — the fix differs but the location
@@ -479,6 +484,14 @@ function classifyCore(
           errorCategory: "stale_web_search_content",
         };
       }
+      if (isUserTerminalHistoryError(message)) {
+        return {
+          code: "PROVIDER_ORDERING",
+          userMessage: "An internal error occurred. Please try again.",
+          retryable: true,
+          errorCategory: "history_user_terminal",
+        };
+      }
       if (isOrderingError(message)) {
         return {
           code: "PROVIDER_ORDERING",
@@ -539,8 +552,23 @@ function classifyCore(
           errorCategory: "image_media_type_mismatch",
         };
       }
+      if (isImageUnsupportedFormatError(message)) {
+        // Same wire-code reuse as image_unprocessable above. The provider read
+        // the bytes and found no image it accepts, so no relabel or resize can
+        // rescue the attachment: name the accepted formats instead.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation is not in a format the AI provider accepts (PNG, JPEG, GIF, and WebP are). Remove or convert it and send your message again.",
+          retryable: false,
+          errorCategory: "image_unsupported_format",
+        };
+      }
       if (isVisionNotSupportedError(message)) {
         return visionNotSupportedClassification();
+      }
+      if (isChatTemplateFailureError(message)) {
+        return requestShapeUnsupportedClassification();
       }
       // Extract the provider detail after "API error (NNN): " prefix
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
@@ -632,13 +660,19 @@ function reasonToClassification(
       return contextTooLargeClassification();
     case "vision_unsupported":
       return visionNotSupportedClassification();
+    case "request_shape_unsupported":
+      return requestShapeUnsupportedClassification();
+    // Two producers share this reason: SDK transport failures that never got
+    // a response (OpenAI APIConnectionError), and Gemini responses whose empty
+    // body reveals a proxy/egress filter intercepting the request. The copy
+    // must stay broad enough for both.
     case "network_error":
       return {
         code: "PROVIDER_NETWORK",
         userMessage:
-          "The provider returned an empty response with no body — this typically indicates a network proxy or egress filter intercepting the request, not a genuine provider error. Check your network configuration.",
+          "The request could not reach the provider: the connection failed before a real response arrived. Check that the endpoint is reachable and that no proxy or egress filter is intercepting the request, then try again.",
         retryable: true,
-        errorCategory: "provider_network_proxy_intercepted",
+        errorCategory: "provider_network_error",
       };
     case "model_not_found":
       return {
@@ -883,6 +917,25 @@ function visionNotSupportedClassification(): Omit<
 }
 
 /**
+ * Classification for a request rejected by the endpoint's server-side
+ * chat-template renderer. These endpoints choke on richer request shapes
+ * (tool calls, images, structured message content), so the copy points the
+ * user at a capability mismatch instead of the raw template error.
+ */
+function requestShapeUnsupportedClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "This model's provider couldn't process the request format (tool calls or images may not be supported). Switch to a different model in Settings → Models & Services and try again.",
+    retryable: false,
+    errorCategory: "request_shape_unsupported",
+  };
+}
+
+/**
  * Build a user-facing message that names the exact profile / connection
  * to fix when one is known, falling back to a generic phrase otherwise.
  * Profile is preferred because that's the entity the user picks in the
@@ -1083,6 +1136,15 @@ function classifyByMessage(
         "Stale web-search results in conversation history. Please try again.",
       retryable: true,
       errorCategory: "stale_web_search_content",
+    };
+  }
+
+  if (isUserTerminalHistoryError(message)) {
+    return {
+      code: "PROVIDER_ORDERING",
+      userMessage: "An internal error occurred. Please try again.",
+      retryable: true,
+      errorCategory: "history_user_terminal",
     };
   }
 

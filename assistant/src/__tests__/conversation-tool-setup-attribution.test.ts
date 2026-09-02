@@ -402,6 +402,22 @@ describe("createToolExecutor channel-permission coordinate threading", () => {
     expect(calls[0].context.channelPermissionChannelId).toBeUndefined();
     expect(bindingLookups).toEqual([]);
   });
+
+  test("copies the requester contact id from turn trust onto tool context", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        currentTurnTrustContext: {
+          sourceChannel: "slack",
+          trustClass: "trusted_contact",
+          requesterContactId: "contact-abc",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.requesterContactId).toBe("contact-abc");
+  });
 });
 
 describe("createToolExecutor source-actor threading", () => {

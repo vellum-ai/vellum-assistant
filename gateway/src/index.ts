@@ -1,6 +1,6 @@
 process.title = "vellum-gateway";
 
-import { slackEventRefersToAnotherMessage } from "./slack/event-kind.js";
+import { eventRefersToAnotherMessage } from "./channels/inbound-event.js";
 import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
@@ -50,6 +50,11 @@ import {
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
 import {
+  createWatchStreamWebsocketHandler,
+  getWatchStreamWebsocketHandlers,
+  type WatchStreamSocketData,
+} from "./http/routes/watch-stream-websocket.js";
+import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
   type SpeechRelaySocketData,
@@ -85,7 +90,10 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
-import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import {
+  handleContactPromptSubmit,
+  handleContactRecordSubmit,
+} from "./http/routes/contact-prompt.js";
 import {
   handleListDevices,
   handleRevokeDevice,
@@ -108,7 +116,9 @@ import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
+import { createPlatformPushProxyHandler } from "./http/routes/platform-push-proxy.js";
 import { createPsHandler } from "./http/routes/ps.js";
+import { createVelayStatusHandler } from "./http/routes/velay-status.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
@@ -169,11 +179,12 @@ import {
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
+import { CircuitBreakerOpenError, uploadAttachment } from "./runtime/client.js";
 import {
-  AttachmentValidationError,
-  CircuitBreakerOpenError,
-  uploadAttachment,
-} from "./runtime/client.js";
+  appendFailedAttachmentNotice,
+  ingestAttachments,
+} from "./attachments/ingest.js";
+import { createConversationTaskQueue } from "./channels/conversation-queue.js";
 import { buildSchema } from "./schema.js";
 import {
   createSlackSocketModeClient,
@@ -182,7 +193,7 @@ import {
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
-import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
+import { createDiscordInboundEventHandler } from "./discord/forward.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -225,6 +236,7 @@ import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createChannelSocketHealthRoutes } from "./ipc/channel-socket-health-handlers.js";
 import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -233,9 +245,6 @@ import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
-import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
-import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
-import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
@@ -303,6 +312,14 @@ function isSttStreamSocketData(data: unknown): data is SttStreamSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "stt-stream"
+  );
+}
+
+function isWatchStreamSocketData(data: unknown): data is WatchStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "watch-stream"
   );
 }
 
@@ -392,17 +409,12 @@ async function main() {
     configFile: configFileCache,
   });
 
-  // ── Avatar sync ──
-  const avatarChannelSyncer = new AvatarChannelSyncer();
-  const avatarSyncWatcher = new AvatarSyncWatcher(avatarChannelSyncer);
-
   // ── Integration readiness flags ──
   // Track whether each integration has valid credentials so route
   // preconditions can gate requests synchronously. Updated by the
   // credential watcher callback whenever credentials change.
   let telegramReady = false;
   let whatsappReady = false;
-  let slackReady = false;
   let vellumReady = false;
   let velayStartRequested = false;
 
@@ -535,11 +547,21 @@ async function main() {
     credentials: credentialCache,
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
+  const handleWatchStreamWs = createWatchStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
     config,
     "stt",
     { credentials: credentialCache },
+  );
+  // Managed STT v2 (Flux). Separate handler rather than a param on v1: the
+  // contract version is the endpoint, and v2 accepts query params v1 must
+  // keep rejecting.
+  const handleSpeechRelaySttV2Ws = createSpeechRelayUpgradeHandler(
+    config,
+    "stt",
+    { credentials: credentialCache },
+    "v2",
   );
   const handleSpeechRelayTtsWs = createSpeechRelayUpgradeHandler(
     config,
@@ -549,6 +571,7 @@ async function main() {
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
+  const watchStreamWebsocketHandlers = getWatchStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -590,7 +613,9 @@ async function main() {
   const oauthAppsProxy = createOAuthAppsProxyHandler(config);
   const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
+  const platformPushProxy = createPlatformPushProxyHandler(credentialCache);
   const psHandler = createPsHandler(config);
+  const velayStatusHandler = createVelayStatusHandler(velayTunnelClient);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
@@ -798,6 +823,23 @@ async function main() {
       handler: () => psHandler.handlePs(),
     },
 
+    // ── Velay tunnel status ──
+    {
+      path: "/v1/velay/status",
+      method: "GET",
+      auth: "edge",
+      handler: () => velayStatusHandler.handleVelayStatus(),
+    },
+    // Assistant-scoped mirror: self-hosted clients emit /v1/assistants/<id>/velay/status
+    // and rewriteForSelfHostedIngress preserves that path, so a flat-only route
+    // would fall through to the runtime proxy and 404. The assistant id is discarded.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/velay\/status\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      handler: () => velayStatusHandler.handleVelayStatus(),
+    },
+
     // ── Brain graph ──
     {
       path: "/v1/brain-graph",
@@ -871,6 +913,7 @@ async function main() {
     ...buildContactsControlPlaneRoutes({
       contactsControlPlaneProxy,
       handleContactPromptSubmit,
+      handleContactRecordSubmit,
     }),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
@@ -1313,6 +1356,42 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handleCreateBackup(req),
+    },
+
+    // ── Platform push / Live Activity tokens ──
+    // Django-owned registration. Remote-gateway clients hit these
+    // same-origin; without a dedicated route they fall through to the
+    // runtime-proxy catch-all and 404. The handler forwards to Django
+    // with the stored assistant API key and platform assistant UUID.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/push-tokens\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => platformPushProxy.handleUpsertPushToken(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/push-tokens\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        platformPushProxy.handleDeletePushToken(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/live-activity\/tokens\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => platformPushProxy.handleUpsertLiveActivityToken(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/live-activity\/tokens\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        platformPushProxy.handleDeleteLiveActivityToken(req, params[0]),
     },
 
     // ── Channel readiness ──
@@ -1857,6 +1936,10 @@ async function main() {
           sttStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
@@ -1880,6 +1963,10 @@ async function main() {
           sttStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
@@ -1901,6 +1988,10 @@ async function main() {
         }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isLiveVoiceSocketData(ws.data)) {
@@ -2125,6 +2216,19 @@ async function main() {
       return undefined as unknown as Response;
     }
 
+    // Reachable both ways: directly on a self-hosted ingress with an actor
+    // edge JWT, and through the velay tunnel on a managed assistant, which is
+    // why it is in `VELAY_ALLOWED_PATHS`. The handler authorizes each shape on
+    // its own terms and admits only the guardian either way. A paired
+    // assistant has no transport at all and never reaches here.
+    if (url.pathname === "/v1/watch/stream") {
+      const upgradeResult = await handleWatchStreamWs(req, server);
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
+      return undefined as unknown as Response;
+    }
+
     if (url.pathname === "/v1/live-voice") {
       const upgradeResult = await handleLiveVoiceWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
@@ -2135,6 +2239,12 @@ async function main() {
     // VELAY_ALLOWED_PATHS — velay's inbound tunnel must never reach it.
     if (url.pathname === "/v1/speech/stt/stream") {
       const upgradeResult = await handleSpeechRelaySttWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (url.pathname === "/v2/speech/stt/stream") {
+      const upgradeResult = await handleSpeechRelaySttV2Ws(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
     }
@@ -2264,6 +2374,7 @@ async function main() {
 
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
+  const slackForwardQueue = createConversationTaskQueue();
   // Guards concurrent startSlackSocket calls: at boot both the credential
   // watcher's and the config-file watcher's initial polls fire it, and the
   // second call can pass the stop() guard while the first is still awaiting
@@ -2363,7 +2474,7 @@ async function main() {
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
 
-        const refersToAnotherMessage = slackEventRefersToAnotherMessage(
+        const refersToAnotherMessage = eventRefersToAnotherMessage(
           normalized.event.message,
         );
         const slackSourceMetadata = buildSlackSourceMetadata(normalized);
@@ -2399,7 +2510,13 @@ async function main() {
           // Covers both DMs (externalChatId = DM channel) and workspace messages.
           // Bot/app senders are classified as 'assistant' contacts with a
           // provenance note instead of the default 'human'.
-          if (normalized.event.actor.actorExternalId) {
+          // An unattributed event (a delete Slack names no human author for)
+          // carries the channel's synthetic system id, not a person; seeding
+          // a contact from it would mint a record for nobody.
+          if (
+            normalized.event.actor.actorExternalId &&
+            !normalized.event.source.actorUnattributed
+          ) {
             void upsertContactChannel({
               sourceChannel: "slack",
               externalUserId: normalized.event.actor.actorExternalId,
@@ -2431,12 +2548,6 @@ async function main() {
               normalized.slackFiles &&
               !refersToAnotherMessage
             ) {
-              attachmentIds = [];
-              const failedAttachmentNames: string[] = [];
-              const maxBytes =
-                config.maxAttachmentBytes.slack ??
-                config.maxAttachmentBytes.default;
-
               // Guardian-actor bypass: when the Slack sender is the
               // assistant's owner, the upload is marked trustedSource so the
               // assistant accepts arbitrary MIME types and extensions
@@ -2462,87 +2573,38 @@ async function main() {
                 }
               }
 
-              // Filter oversized attachments
-              const eligible = eventAttachments.filter((att) => {
-                if (att.fileSize !== undefined && att.fileSize > maxBytes) {
-                  log.warn(
-                    {
-                      fileId: att.fileId,
-                      fileSize: att.fileSize,
-                      limit: maxBytes,
-                    },
-                    "Skipping oversized Slack attachment",
-                  );
-                  return false;
-                }
-                return true;
-              });
-
-              // Process with bounded concurrency. Socket Mode has no retry
-              // mechanism, so all errors (validation and transient) are logged
-              // and skipped — the message is still delivered without the
-              // failed attachment.
-              for (
-                let i = 0;
-                i < eligible.length;
-                i += config.maxAttachmentConcurrency
-              ) {
-                const batch = eligible.slice(
-                  i,
-                  i + config.maxAttachmentConcurrency,
-                );
-                const results = await Promise.allSettled(
-                  batch.map(async (att) => {
+              const result = await ingestAttachments(
+                config,
+                "slack",
+                eventAttachments,
+                log,
+                {
+                  download: (att, maxBytes) => {
                     const slackFile = normalized.slackFiles?.get(att.fileId);
                     if (!slackFile) {
                       throw new Error(
                         `No SlackFile found for attachment ${att.fileId}`,
                       );
                     }
-                    const downloaded = await downloadSlackFile(
-                      slackFile,
-                      botToken,
-                    );
-                    return uploadAttachment(
+                    return downloadSlackFile(slackFile, botToken, maxBytes);
+                  },
+                  upload: (downloaded) =>
+                    uploadAttachment(
                       config,
                       { ...downloaded, trustedSource: isGuardianActor },
                       { skipCircuitBreaker: true },
-                    );
-                  }),
-                );
-                for (let j = 0; j < results.length; j++) {
-                  const result = results[j];
-                  if (result.status === "fulfilled") {
-                    attachmentIds.push(result.value.id);
-                  } else if (
-                    result.reason instanceof AttachmentValidationError
-                  ) {
-                    const att = batch[j];
-                    failedAttachmentNames.push(att.fileName || att.fileId);
-                    log.warn(
-                      { err: result.reason },
-                      "Skipping Slack attachment with validation error",
-                    );
-                  } else {
-                    const att = batch[j];
-                    failedAttachmentNames.push(att.fileName || att.fileId);
-                    log.warn(
-                      { err: result.reason },
-                      "Skipping Slack attachment due to download/upload failure",
-                    );
-                  }
-                }
-              }
-
-              if (failedAttachmentNames.length > 0) {
-                const nameList = failedAttachmentNames
-                  .map((n) => `"${n}"`)
-                  .join(", ");
-                normalized.event.message.content += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
-              }
+                    ),
+                  failurePolicy: { mode: "skip" },
+                },
+              );
+              attachmentIds = result.attachmentIds;
+              normalized.event.message.content = appendFailedAttachmentNotice(
+                normalized.event.message.content,
+                result.failedAttachmentNames,
+              );
             }
 
-            handleInbound(config, normalized.event, {
+            await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2562,7 +2624,7 @@ async function main() {
               { err, channel, threadTs },
               "Failed to process Slack event — delivering message without attachments",
             );
-            handleInbound(config, normalized.event, {
+            await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2581,12 +2643,14 @@ async function main() {
         // persisted message rows (see `assembleSlackChronologicalMessages`
         // in the assistant), so the gateway no longer fetches per-turn
         // thread/DM context to inject as transport hints.
-        forward().catch((err) => {
-          log.error(
-            { err, channel, threadTs },
-            "Unhandled error in Slack forward",
-          );
-        });
+        void slackForwardQueue
+          .enqueue(normalized.event.message.conversationExternalId, forward)
+          .catch((err) => {
+            log.error(
+              { err, channel, threadTs },
+              "Unhandled error in Slack forward",
+            );
+          });
 
         // Approval message replacement is handled by the assistant's
         // direct Slack delivery path (messaging/providers/slack/send.ts).
@@ -2600,10 +2664,13 @@ async function main() {
   }
 
   // ── Discord Gateway lifecycle ──
-  // Credential-gated and UI-invisible: the client exists only while a
-  // `discord_channel:bot_token` credential does. There is no feature flag —
-  // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
-  // credential tears the connection down on the next watcher tick.
+  // Credential-gated: the client exists only while a
+  // `discord_channel:bot_token` credential does. There is no feature flag, and
+  // removing the credential tears the connection down on the next watcher
+  // tick. Whether Discord is offered for setup is a separate question, decided
+  // by BASE_AVAILABLE_CHANNELS in the daemon, which lists it: a channel can be
+  // offered while no credential is stored, and the connection is what a stored
+  // one buys.
   //
   // Startup is the credential watcher's initial poll: it diffs against an
   // empty baseline, so a token already stored at boot surfaces as
@@ -2613,6 +2680,7 @@ async function main() {
   // only reads services listed there, and the registration is pinned by
   // credential-reader.test.ts.
   let discordGatewayClient: DiscordGatewayClient | null = null;
+  const discordForwardQueue = createConversationTaskQueue();
 
   async function startDiscordGateway(): Promise<void> {
     if (discordGatewayClient) {
@@ -2627,59 +2695,34 @@ async function main() {
       return;
     }
 
+    // Room admission defers to Discord's own channel permissions. A
+    // non-empty legacy allow-list is persisted operator intent, so it keeps
+    // gating rooms until the operator clears it; the log names the way out.
+    const readLegacyAllowedChannelIds = (): ReadonlySet<string> | undefined => {
+      const ids =
+        configFileCache.getStringArray("discord", "allowedChannelIds") ?? [];
+      return ids.length > 0 ? new Set(ids) : undefined;
+    };
+    if (readLegacyAllowedChannelIds() !== undefined) {
+      log.warn(
+        "discord.allowedChannelIds is a legacy setting and is still " +
+          "enforced: the bot answers mentions only in listed channels. To " +
+          "adopt Discord's own permission model, scope the bot with View " +
+          "Channel permissions in Discord and remove the config entry.",
+      );
+    }
+
     discordGatewayClient = new DiscordGatewayClient(
       {
         botToken,
-        // Read live (the config cache is TTL'd) so an allow-list edit applies
-        // without a client restart, which would spend an IDENTIFY.
-        readAllowedChannelIds: () =>
-          readDiscordAllowedChannelIds(configFileCache),
+        readLegacyAllowedChannelIds,
       },
-      (event) => {
-        // Reset the platform idle-sleep timer — inbound Discord activity
-        // keeps the assistant awake like any other channel's.
-        notifyRecordActivity();
-
-        // Seed a contact channel for the actor (dual-write, fire-and-forget)
-        // so later verification flows have a record to upgrade.
-        //
-        // `externalChatId` is recorded only for a DM, where the conversation
-        // address is a private one-to-one channel. A guild channel is a room
-        // the actor happens to be standing in, and storing it as their
-        // delivery address is how a private notice ends up posted in public.
-        void upsertContactChannel({
-          sourceChannel: "discord",
-          externalUserId: event.actor.actorExternalId,
-          ...(event.source.chatType === "dm"
-            ? { externalChatId: event.message.conversationExternalId }
-            : {}),
-          displayName: event.actor.displayName,
-          username: event.actor.username,
-        }).catch(() => {});
-
-        // Where the assistant posts its reply. The daemon owns Discord egress
-        // directly (`messaging/providers/discord`), so this callback is
-        // resolved to that transport rather than proxied back through here.
-        //
-        // `threadId` carries the thread's own snowflake when the message came
-        // from one: the event's conversation address is the *parent* channel
-        // for a threaded message, and a Discord thread is itself a channel, so
-        // without this param the reply would land outside the thread.
-        const threadId = event.source.threadId;
-        const replyCallbackUrl = threadId
-          ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`
-          : `${config.gatewayInternalBaseUrl}/deliver/discord`;
-
-        handleInbound(config, event, { replyCallbackUrl }).catch((err) => {
-          log.error(
-            {
-              err,
-              conversationExternalId: event.message.conversationExternalId,
-            },
-            "Failed to forward Discord event to runtime",
-          );
-        });
-      },
+      createDiscordInboundEventHandler({
+        config,
+        log,
+        notifyRecordActivity,
+        forwardQueue: discordForwardQueue,
+      }),
     );
 
     discordGatewayClient.start().catch((err) => {
@@ -2695,6 +2738,13 @@ async function main() {
   // refresh until the next scheduled poll (up to 5 min), so the onboarding
   // first message evaluates flags against stale values (see JARVIS-1018).
   let remoteFeatureFlagSyncRef: RemoteFeatureFlagSync | null = null;
+
+  /**
+   * Fingerprint of the Telegram bot token the dedup cache's watermark belongs
+   * to. Null while no token is stored, which is itself a bot change: the next
+   * bot to arrive must not meet the departed one's mark.
+   */
+  let lastTelegramTokenFingerprint: string | null = null;
 
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
@@ -2715,9 +2765,6 @@ async function main() {
       whatsappCreds?.phone_number_id && whatsappCreds?.access_token
     );
 
-    const slackCreds = event.credentials.get("slack_channel");
-    slackReady = !!(slackCreds?.bot_token && slackCreds?.app_token);
-
     const vellumCreds = event.credentials.get("vellum");
     vellumReady = !!(
       vellumCreds?.platform_base_url &&
@@ -2727,6 +2774,25 @@ async function main() {
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
+    // `update_id` is a per-bot sequence, so a replacement bot starts below the
+    // previous one's high-water mark and every inbound would be rejected as an
+    // already-processed replay and answered 200. Forgetting the mark is what
+    // keeps delivery working across a bot swap.
+    //
+    // Keyed on the token itself rather than on `changed`. Every `keys.enc`
+    // write polls with `forceChanged`, which reports every configured service
+    // as changed even when its plaintext is identical, so re-saving an
+    // unrelated credential would otherwise clear replay protection for a bot
+    // that never moved and let a delayed retry be processed twice.
+    const telegramTokenFingerprint = telegramCreds?.bot_token
+      ? new Bun.CryptoHasher("sha256")
+          .update(telegramCreds.bot_token)
+          .digest("hex")
+      : null;
+    if (telegramTokenFingerprint !== lastTelegramTokenFingerprint) {
+      lastTelegramTokenFingerprint = telegramTokenFingerprint;
+      telegramDedupCache.reset();
+    }
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -2752,15 +2818,6 @@ async function main() {
           "Failed to restart Slack Socket Mode after credential change",
         );
       });
-
-      if (slackReady) {
-        avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
-        avatarChannelSyncer.syncToChannel("slack").catch((err) => {
-          log.warn({ err }, "Initial Slack avatar sync failed");
-        });
-      } else {
-        avatarChannelSyncer.unregister("slack");
-      }
     }
 
     if (changed.has("twilio")) {
@@ -2836,10 +2893,6 @@ async function main() {
   // effects during the initial poll. Stale Velay-owned ingress is already
   // cleared before those side effects can register external callbacks.
   await credentialWatcher.start();
-
-  // Start watching avatar directory for changes after credential watcher
-  // so channel syncers are already registered before the first file event.
-  avatarSyncWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
@@ -2919,6 +2972,10 @@ async function main() {
     ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
+    ...createChannelSocketHealthRoutes({
+      slack: () => slackSocketClient,
+      discord: () => discordGatewayClient,
+    }),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
     ...createCredentialRequestIpcRoutes(
@@ -3004,7 +3061,6 @@ async function main() {
     backupWorkerHandle.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
-    avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
     // Stop the timer and flush any buffered auth-fallback counts before exit.

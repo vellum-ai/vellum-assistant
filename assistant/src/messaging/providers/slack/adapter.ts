@@ -38,6 +38,7 @@ import {
   isPrivateConversation,
   slackUserDisplayName,
 } from "./conversation-utils.js";
+import { slackMessageRawText } from "./message-content.js";
 import type {
   SlackConversation,
   SlackMessage,
@@ -78,6 +79,15 @@ const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
  * doomed lookup per message batch.
  */
 const channelNameCache = new Map<string, Promise<string | undefined>>();
+
+/**
+ * Cache resolved bot display names (`bots.info`) for bot-authored rows that
+ * carry only a `bot_id`, same lifetime and keying discipline as
+ * {@link userInfoCache}. Holds `undefined` for bots this auth provably
+ * cannot resolve so a wall of webhook history doesn't re-fire a doomed
+ * lookup per message batch.
+ */
+const botNameCache = new Map<string, Promise<string | undefined>>();
 
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
@@ -331,10 +341,41 @@ function slackUserInfoCacheKey(
 }
 
 /**
+ * Shared resolve-once discipline for the Slack directory name caches
+ * (channel and bot names): concurrent callers share the in-flight promise,
+ * successes and provably-permanent failures stay cached, and transient
+ * failures are evicted so a later batch retries.
+ */
+async function resolveCachedSlackName(
+  cache: Map<string, Promise<string | undefined>>,
+  cacheKey: string,
+  lookup: () => Promise<string | undefined>,
+  isPermanentFailure: (err: unknown) => boolean,
+): Promise<string | undefined> {
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const resolved = lookup().then(
+    (name) => name,
+    (err: unknown) => {
+      // Cache the definitive "this auth cannot resolve it" answers; drop
+      // everything else so transient failures retry on the next batch.
+      if (!isPermanentFailure(err)) {
+        cache.delete(cacheKey);
+      }
+      return undefined;
+    },
+  );
+  cache.set(cacheKey, resolved);
+  return resolved;
+}
+
+/**
  * Resolve a channel's display name for inline mention rendering, cached per
  * auth scope. Returns undefined when the channel has no name (DMs) or this
- * auth cannot see it; transient failures are not cached so a later batch
- * retries.
+ * auth cannot see it.
  */
 async function resolveChannelName(
   auth: OAuthConnection | string,
@@ -343,28 +384,68 @@ async function resolveChannelName(
   if (!channelId) {
     return undefined;
   }
-  const cacheKey = `${slackAuthCacheScope(auth)}:channel:${channelId}`;
-  const cached = channelNameCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const resolved = slack.conversationInfo(auth, channelId).then(
-    (resp) => trimNonEmpty(resp.channel.name),
-    (err: unknown) => {
-      // Cache the definitive "this auth cannot resolve it" answers; drop
-      // everything else so transient failures retry on the next batch.
-      const permanent =
-        err instanceof SlackApiError &&
-        (err.category === "channel_not_found" || err.category === "permission");
-      if (!permanent) {
-        channelNameCache.delete(cacheKey);
-      }
-      return undefined;
-    },
+  return resolveCachedSlackName(
+    channelNameCache,
+    `${slackAuthCacheScope(auth)}:channel:${channelId}`,
+    async () =>
+      trimNonEmpty(
+        (await slack.conversationInfo(auth, channelId)).channel.name,
+      ),
+    (err) =>
+      err instanceof SlackApiError &&
+      (err.category === "channel_not_found" || err.category === "permission"),
   );
-  channelNameCache.set(cacheKey, resolved);
-  return resolved;
+}
+
+/**
+ * Resolve a bot's display name via `bots.info`, cached per auth scope.
+ * Returns undefined when this auth cannot resolve it.
+ */
+async function resolveBotName(
+  auth: OAuthConnection | string,
+  botId: string,
+): Promise<string | undefined> {
+  return resolveCachedSlackName(
+    botNameCache,
+    `${slackAuthCacheScope(auth)}:bot:${botId}`,
+    async () => trimNonEmpty((await slack.botsInfo(auth, botId)).bot.name),
+    (err) =>
+      err instanceof SlackApiError &&
+      (err.slackError === "bot_not_found" || err.category === "permission"),
+  );
+}
+
+/**
+ * Sender info for a bot-authored row (no `user` to look up). The message's
+ * own `username` (bot_message subtype) or `bot_profile.name` answers without
+ * I/O; `bots.info` covers rows carrying only a `bot_id`, with the id itself
+ * as the last resort so the sender is at least attributable.
+ *
+ * `batchBotNames` pins the first lookup attempt per bot id for the caller's
+ * batch: the module cache evicts transient failures (so a later batch
+ * retries), and without the pin a history page full of one webhook's rows
+ * would re-fire a doomed `bots.info` cycle per row during a Slack outage.
+ */
+async function resolveBotSenderInfo(
+  auth: OAuthConnection | string,
+  msg: SlackMessage,
+  batchBotNames: Map<string, Promise<string | undefined>>,
+): Promise<NormalizedSlackUserInfo> {
+  const fromMessage =
+    trimNonEmpty(msg.username) ?? trimNonEmpty(msg.bot_profile?.name);
+  if (fromMessage) {
+    return { displayName: fromMessage };
+  }
+  const botId = msg.bot_id?.trim();
+  if (!botId) {
+    return { displayName: "unknown" };
+  }
+  let pending = batchBotNames.get(botId);
+  if (pending === undefined) {
+    pending = resolveBotName(auth, botId);
+    batchBotNames.set(botId, pending);
+  }
+  return { displayName: (await pending) ?? botId };
 }
 
 function normalizeSlackUserInfo(
@@ -398,6 +479,7 @@ function trimNonEmpty(value: unknown): string | undefined {
 export function __resetSlackMentionCachesForTests(): void {
   userInfoCache.clear();
   channelNameCache.clear();
+  botNameCache.clear();
 }
 
 function slackUserInfoMetadata(
@@ -529,19 +611,22 @@ async function mapSlackMessages(
   channelId: string,
   slackMessages: SlackMessage[],
 ): Promise<Message[]> {
-  const labels = await buildMentionLabels(
-    auth,
-    slackMessages.map((msg) => msg.text),
-  );
+  // Raw text may come from attachments/blocks (bot and webhook posts), so
+  // mention labels are built from the same derived strings that get rendered.
+  const rawTexts = slackMessages.map((msg) => slackMessageRawText(msg));
+  const labels = await buildMentionLabels(auth, rawTexts);
+  const batchBotNames = new Map<string, Promise<string | undefined>>();
   const messages: Message[] = [];
-  for (const msg of slackMessages) {
-    const senderInfo = await resolveUserInfo(auth, msg.user ?? "");
+  for (const [i, msg] of slackMessages.entries()) {
+    const senderInfo = msg.user
+      ? await resolveUserInfo(auth, msg.user)
+      : await resolveBotSenderInfo(auth, msg, batchBotNames);
     messages.push(
       mapMessage(
         msg,
         channelId,
         senderInfo,
-        renderSlackTextForModel(msg.text, labels),
+        renderSlackTextForModel(rawTexts[i], labels),
       ),
     );
   }

@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { defineConfig, globalIgnores } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
+import { noEmDash } from "./eslint-rules/no-em-dash.mjs";
 import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mjs";
 
 // ---------------------------------------------------------------------------
@@ -22,6 +26,83 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
  * contrast. Use semantic tokens (`--surface-*`, `--content-*`,
  * `--border-*`) instead. See `clients/web/docs/STYLE_GUIDE.md`.
  */
+/**
+ * Typography variant names that do not exist.
+ *
+ * `packages/design-library/src/tokens.css` defines the typography utilities
+ * via Tailwind `@utility`. The `--text-*` variables sit in a plain `:root`
+ * rather than `@theme`, so Tailwind generates nothing else. A name that is
+ * not declared there matches no CSS, and the element silently falls back to
+ * the inherited 16px/400 instead of failing.
+ *
+ * The list is parsed out of `tokens.css` rather than restated, so it cannot
+ * drift from the utilities that actually exist. `tokens.test.ts` takes the
+ * same approach with the colour palette, for the same reason. Filtered to
+ * the four scale families so unrelated `@utility` entries (for example
+ * `text-optical-center`) are not treated as variants.
+ *
+ * Transitional. This rule guards the class-string form, which `<Typography>`
+ * makes unnecessary: its `variant` prop is a typed union, so a wrong name is
+ * a compile error and none of this machinery is needed. Class strings are
+ * only unavoidable for variant-prefixing (`max-md:text-body-large-default`),
+ * which is 7 of ~1,430 usages here. The direction is to converge on the
+ * component and let this rule shrink to cover that remainder, so treat it as
+ * a net under the old path rather than an endorsement of it.
+ */
+const TYPOGRAPHY_VARIANTS = [
+  ...readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../packages/design-library/src/tokens.css",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ).matchAll(/@utility\s+text-((?:title|body|label|chat)[a-z-]*)\s*\{/g),
+].map((match) => match[1]);
+
+if (TYPOGRAPHY_VARIANTS.length === 0) {
+  throw new Error(
+    "No typography utilities found in tokens.css. The parse above has drifted from the file's shape, and the unknown-variant rule would match everything.",
+  );
+}
+
+/**
+ * Matches `text-` + a scale family unless the whole token is a real variant.
+ *
+ * The exemption ends with `(?![A-Za-z0-9_-])` rather than `\b`. A word
+ * boundary matches before a hyphen, so it would exempt anything merely
+ * *prefixed* by a valid variant (`text-chat-foo`,
+ * `text-body-small-default-typo`). The wider character class covers digit
+ * and underscore suffixes too (`text-title-small2`, `text-chat_extra`),
+ * which are equally undeclared. The class token has to end where the
+ * variant ends.
+ *
+ * The leading `(?<!-)` keeps the rule off CSS custom properties. Rebinding a
+ * token on one element is legitimate: the
+ * `[--text-label-medium-default-weight:600]` in `camera-status-pill.tsx`
+ * sets the variable the utility reads, which is how you change one facet of
+ * a variant without a second utility racing it on the same property.
+ * Without the lookbehind the `text-` inside `--text-…` matches.
+ */
+export const unknownTypographyPattern = `(?<!-)\\btext-(?!(?:${TYPOGRAPHY_VARIANTS.join("|")})(?![A-Za-z0-9_-]))(?:title|body|label|chat)[a-z-]*`;
+
+const unknownTypographyMessage =
+  "This is not a real typography variant, so it matches no CSS and the element falls back to the inherited 16px/400. Use one of: " +
+  TYPOGRAPHY_VARIANTS.map((v) => `text-${v}`).join(", ") +
+  '. Prefer <Typography variant="…"> so the name is checked by the compiler.';
+
+const unknownTypographyRules = [
+  {
+    selector: `Literal[value=/${unknownTypographyPattern}/]`,
+    message: unknownTypographyMessage,
+  },
+  {
+    selector: `TemplateElement[value.raw=/${unknownTypographyPattern}/]`,
+    message: unknownTypographyMessage,
+  },
+];
+
 const darkPairedColorScaleRules = [
   {
     selector:
@@ -184,42 +265,32 @@ const authBoundaryAllowedPaths = [
 /**
  * Paths where user-facing copy must come from a translation catalog.
  *
- * Append to this list as each area is converted. Entries are globs relative to
- * `clients/web/`. Keep them as narrow as the conversion actually was: a
- * directory glob added before its files are converted turns the ratchet into
- * noise, which is how these rules die.
+ * Covers all of `src/` (generated excluded via `globalIgnores`). Entries are
+ * globs relative to `clients/web/`. Never shrink this list to silence a
+ * violation; fix the copy or add an eslint-disable with a reason.
  */
-const i18nEnforcedPaths = [
-  "src/components/not-found.tsx",
-  "src/components/section-actions-button.tsx",
-  "src/domains/chat/components/allow-options-menu.tsx",
-  "src/domains/chat/components/chat-composer/add-to-chat-sheet.tsx",
-  "src/domains/chat/components/conversation-actions-menu.tsx",
-  "src/domains/chat/components/conversation-assets-pill.tsx",
-  "src/domains/chat/components/conversation-starter-dock.tsx",
-  "src/domains/chat/components/group-actions-menu.tsx",
-  "src/domains/chat/components/pinned-app-color-swatches.tsx",
-  "src/domains/chat/components/sidebar-conversation-error.tsx",
-  "src/domains/schedules/**/*.{ts,tsx}",
-  "src/domains/settings/billing/checkout-bonus-modal.tsx",
-  "src/domains/account/**/*.{ts,tsx}",
-  "src/domains/channels/**/*.{ts,tsx}",
-  "src/domains/workspace/**/*.{ts,tsx}",
+const i18nEnforcedPaths = ["src/**/*.{ts,tsx}"];
+
+/**
+ * Paths where em dashes are enforced. See root `AGENTS.md`, "Em Dashes".
+ *
+ * Deliberately short. `src/` carries roughly 8,000 pre-existing em dashes
+ * across some 1,500 files, and `AGENTS.md` says existing text is not swept
+ * retroactively, so this list holds only what is already clean or was cleaned
+ * in the same commit that added it. Entries are globs relative to
+ * `clients/web/`.
+ *
+ * To enroll an area: fix its em dashes, add the glob, run `bun run lint` until
+ * it is quiet. Never add a path with violations still in it.
+ */
+const emDashEnforcedPaths = [
+  "src/i18n/**/*.{ts,tsx}",
   "src/domains/terminal/**/*.{ts,tsx}",
-  "src/domains/remote-web/**/*.{ts,tsx}",
-  "src/domains/credential-requests/**/*.{ts,tsx}",
-  "src/domains/logs/**/*.{ts,tsx}",
-  "src/domains/library/**/*.{ts,tsx}",
-  "src/domains/home/**/*.{ts,tsx}",
-  "src/domains/contacts/**/*.{ts,tsx}",
-  "src/domains/onboarding/**/*.{ts,tsx}",
-  "src/domains/intelligence/**/*.{ts,tsx}",
-  "src/domains/settings/ai/**/*.{ts,tsx}",
-  "src/domains/chat/inspector/**/*.{ts,tsx}",
-  "src/domains/settings/billing/**/*.{ts,tsx}",
-  "src/domains/settings/pages/**/*.{ts,tsx}",
-  "src/domains/settings/mcp/**/*.{ts,tsx}",
-  "src/domains/settings/pair-device/**/*.{ts,tsx}",
+  "src/domains/chat/channel-sidecar/**/*.{ts,tsx}",
+  // File-scoped rather than the whole `surfaces/` directory, which carries
+  // pre-existing em dashes that must not be swept retroactively.
+  "src/domains/chat/components/surfaces/watch-retro-surface.tsx",
+  "src/domains/chat/components/surfaces/watch-retro-surface.test.tsx",
 ];
 
 const eslintConfig = defineConfig([
@@ -231,6 +302,7 @@ const eslintConfig = defineConfig([
       local: {
         rules: {
           "no-cross-domain-imports": noCrossDomainImports,
+          "no-em-dash": noEmDash,
           "no-untranslated-strings": noUntranslatedStrings,
         },
       },
@@ -248,6 +320,7 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
+        ...unknownTypographyRules,
         ...universalAuthRules,
         ...rawApiFetchRules,
         ...headerLiteralRules,
@@ -292,6 +365,7 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
+        ...unknownTypographyRules,
         ...universalAuthRules,
         ...rawApiFetchRules,
       ],
@@ -300,22 +374,32 @@ const eslintConfig = defineConfig([
   // -----------------------------------------------------------------------
   // i18n cutover ratchet
   //
-  // `local/no-untranslated-strings` is enabled only for the paths below, and
-  // the list grows as areas are converted. Repo-wide it would report thousands
-  // of pre-existing literals in one go, and a rule that noisy gets disabled
-  // rather than obeyed. Scoped, an area that has been converted cannot
-  // regress, and this list is the record of how far the cutover has reached.
+  // `local/no-untranslated-strings` covers all of `src/` (except generated).
+  // Domains, hooks, and components were converted first; the remaining
+  // stores/root routes followed so this glob could widen without a flood of
+  // pre-existing literals. A clean lint here is not proof every user-facing
+  // string is translated: the rule reads JSX, toast call sites, and
+  // copy-shaped props, not every helper return value. See `docs/I18N.md`.
   //
-  // To convert an area: move its copy into the namespace that owns it (see
-  // `src/i18n/namespaces.ts`), read it with `t()`, add the glob here, and run
-  // `bun run lint` until it is quiet. Never add a path with violations still
-  // in it, and never widen a glob to make an error go away.
-  //
-  // See `clients/web/docs/I18N.md`.
+  // Never shrink this glob to silence a violation. Fix the copy, or add an
+  // eslint-disable with a reason for brand names / protocol tokens.
   {
     files: i18nEnforcedPaths,
     rules: {
       "local/no-untranslated-strings": "error",
+    },
+  },
+  // -----------------------------------------------------------------------
+  // Em dash ratchet
+  //
+  // Same shape as the i18n ratchet above, and scoped for the same reason:
+  // repo-wide this reports thousands of pre-existing em dashes, which is how a
+  // rule gets switched off instead of obeyed. See `emDashEnforcedPaths` for
+  // how to enroll an area, and root `AGENTS.md` for the rule itself.
+  {
+    files: emDashEnforcedPaths,
+    rules: {
+      "local/no-em-dash": "error",
     },
   },
 ]);

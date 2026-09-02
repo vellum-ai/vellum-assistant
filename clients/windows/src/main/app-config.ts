@@ -3,7 +3,7 @@
  *
  * `APP_PROTOCOL` and `APP_HOST` define the custom scheme the packaged
  * renderer is served from; `index.ts` registers it privileged and serves
- * `resources/web-dist` through it, and `main-window.ts` derives the
+ * `resources/cli-runtime/web-dist` through it, and `main-window.ts` derives the
  * BrowserWindow load URL and the same-origin navigation guard from it.
  *
  * The renderer-base URLs are derived: `RENDERER_BASE_PROD` is the
@@ -18,10 +18,16 @@
 export const APP_PROTOCOL = "app";
 export const APP_HOST = "vellum.ai";
 
+declare const __VELLUM_APP_USER_MODEL_ID__: string;
 declare const __VELLUM_BUILD_SHA__: string;
 declare const __VELLUM_ENVIRONMENT__: string;
 
 export const WINDOWS_RELEASE_INFO = {
+  // Injected from electron-builder.config.cjs `appId` at build time.
+  appUserModelId:
+    typeof __VELLUM_APP_USER_MODEL_ID__ === "string"
+      ? __VELLUM_APP_USER_MODEL_ID__
+      : "com.vellum.vellum-assistant-electron",
   commitSha:
     typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown",
   releaseChannel:
@@ -46,6 +52,20 @@ export const RENDERER_BASE_PROD = `${APP_PROTOCOL}://${APP_HOST}/assistant`;
  */
 export const getDevRendererBase = (): string =>
   (process.env.VELLUM_DEV_URL ?? DEV_SERVER_FALLBACK_URL).replace(/\/+$/, "");
+
+/**
+ * Renderer-base URL for the current process, for auxiliary windows and
+ * any other surface that must land on the same origin as the main window.
+ * Follows `usesAppProtocolRenderer`, not `isPackaged` alone: with
+ * `VELLUM_LOCAL_RENDERER` the main window is served over `app://` while
+ * `VELLUM_DEV_URL` points at the remote platform, and loading that remote
+ * URL would hand a window a foreign origin that the IPC sender guard
+ * rejects.
+ */
+export const getRendererBase = (isPackaged: boolean): string =>
+  usesAppProtocolRenderer(isPackaged)
+    ? RENDERER_BASE_PROD
+    : getDevRendererBase();
 
 /** Whether this process loads the renderer through the app protocol. */
 export const usesAppProtocolRenderer = (isPackaged: boolean): boolean =>

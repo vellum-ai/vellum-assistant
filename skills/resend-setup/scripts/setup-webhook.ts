@@ -28,6 +28,7 @@ async function run(
   opts?: { env?: Record<string, string> },
 ): Promise<{ stdout: string; exitCode: number }> {
   const proc = Bun.spawn(cmd, {
+    windowsHide: true,
     stdout: "pipe",
     stderr: "inherit",
     env: { ...process.env, ...opts?.env },

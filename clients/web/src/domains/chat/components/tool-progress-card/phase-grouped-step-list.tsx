@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Phase-grouped step list for the expanded body of the unified tool-call
  * progress card. Collapses contiguous same-phase steps under a single
@@ -168,6 +169,7 @@ function PhaseDurationLabel({
   durationLabel: string;
   startedAt: number | null;
 }) {
+  const { t } = useTranslation("chat");
   const label = (
     <Typography
       variant="label-medium-default"
@@ -181,7 +183,7 @@ function PhaseDurationLabel({
   }
   return (
     <Tooltip
-      content={`Started at ${formatStartTime(startedAt)}`}
+      content={t("phaseGroupedStepList.startedAt", { time: formatStartTime(startedAt) })}
       side="top"
       align="end"
     >

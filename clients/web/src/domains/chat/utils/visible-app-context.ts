@@ -13,7 +13,7 @@
  * reflected on the next send.
  */
 
-import { isAppMainView } from "@/stores/pane-presentation";
+import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
 
 /**

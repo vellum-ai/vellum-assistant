@@ -104,6 +104,60 @@ describe("daemon credential client", () => {
       expect(result.error).toBe("Credential store is unreachable");
     });
 
+    test("refuses to delete around the in-use guard when the daemon is down", async () => {
+      /**
+       * The guard runs daemon-side, so a stopped daemon must not turn into an
+       * unchecked direct delete.
+       */
+
+      // GIVEN a stored credential and no reachable daemon
+      _ipcResponse = {
+        ok: false,
+        error: "Could not connect to assistant daemon. Is it running?",
+      };
+      await setSecureKeyViaDaemon("api_key", "guarded-provider", "keep-me");
+
+      // WHEN the delete is attempted without force
+      const result = await deleteSecureKeyViaDaemon(
+        "api_key",
+        "guarded-provider",
+      );
+
+      // THEN it is refused and the credential survives
+      expect(result.result).toBe("error");
+      expect(result.code).toBe("IN_USE_CHECK_UNAVAILABLE");
+      expect(result.error).toContain("--force");
+      expect(
+        await getSecureKeyAsync(credentialKey("guarded-provider", "api_key")),
+      ).toBe("keep-me");
+    });
+
+    test("deletes directly when the caller forces past the unavailable guard", async () => {
+      /**
+       * An explicit --force still works with the daemon down.
+       */
+
+      // GIVEN a stored credential and no reachable daemon
+      _ipcResponse = {
+        ok: false,
+        error: "Could not connect to assistant daemon. Is it running?",
+      };
+      await setSecureKeyViaDaemon("api_key", "forced-provider", "drop-me");
+
+      // WHEN the delete is forced
+      const result = await deleteSecureKeyViaDaemon(
+        "api_key",
+        "forced-provider",
+        true,
+      );
+
+      // THEN the credential is gone from secure storage
+      expect(result.result).toBe("deleted");
+      expect(
+        await getSecureKeyAsync(credentialKey("forced-provider", "api_key")),
+      ).toBeUndefined();
+    });
+
     test("returns not-found for 404 errors", async () => {
       _ipcResponse = {
         ok: false,
@@ -166,6 +220,40 @@ describe("daemon credential client", () => {
       expect(captured?.params).toEqual({
         body: { type: "credential", name: "github-app:pem" },
       });
+    });
+
+    test("delete carries the caller's force choice past the in-use guard", async () => {
+      // GIVEN a daemon that accepts the delete
+      _ipcResponse = { ok: true, result: { success: true } };
+      _lastIpcCall = null;
+
+      // WHEN the caller forces the delete
+      await deleteSecureKeyViaDaemon("api_key", "agentrouter", true);
+
+      // THEN `force` rides along in the request body
+      const captured = _lastIpcCall as {
+        method: string;
+        params: unknown;
+      } | null;
+      expect(captured?.params).toEqual({
+        body: { type: "api_key", name: "agentrouter", force: true },
+      });
+    });
+
+    test("delete surfaces the in-use refusal from the daemon", async () => {
+      // GIVEN a credential an LLM provider connection resolves its auth through
+      _ipcResponse = {
+        ok: false,
+        error:
+          'Credential credential/agentrouter/api_key is in use by connection "agentrouter". It will stop working without it. Delete it anyway to continue.',
+      };
+
+      // WHEN the delete is attempted without force
+      const result = await deleteSecureKeyViaDaemon("api_key", "agentrouter");
+
+      // THEN the refusal reaches the caller naming the dependent connection
+      expect(result.result).toBe("error");
+      expect(result.error).toContain('in use by connection "agentrouter"');
     });
   });
 });

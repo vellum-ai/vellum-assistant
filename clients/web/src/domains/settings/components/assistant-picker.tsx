@@ -6,6 +6,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -15,6 +16,7 @@ const PLATFORM_LIST_OPTIONS = assistantsListOptions({
 });
 
 export function AssistantPicker() {
+  const { t } = useTranslation("settings");
   const activeAssistantId = useActiveAssistantId();
   const listQuery = useQuery(PLATFORM_LIST_OPTIONS);
   const platformAssistants = (listQuery.data?.results ?? []) as Assistant[];
@@ -25,8 +27,8 @@ export function AssistantPicker() {
 
   return (
     <DetailCard
-      title="Switch Assistant"
-      subtitle="Choose which assistant is active for this account."
+      title={t("assistantPicker.title")}
+      subtitle={t("assistantPicker.subtitle")}
     >
       <div className="space-y-2">
         {platformAssistants.map((a) => {
@@ -46,7 +48,7 @@ export function AssistantPicker() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-body-medium-default text-[var(--content-default)]">
-                      {a.name || "Unnamed"}
+                      {a.name || t("assistantPicker.unnamed")}
                     </span>
                     {a.status !== "active" && (
                       <Tag tone="warning">{a.status}</Tag>
@@ -59,7 +61,7 @@ export function AssistantPicker() {
                 {isActive ? (
                   <span className="flex items-center gap-1.5 text-body-small-default text-[var(--system-positive-default)]">
                     <Check className="h-4 w-4" />
-                    Active
+                    {t("assistantPicker.active")}
                   </span>
                 ) : (
                   <Button
@@ -68,10 +70,10 @@ export function AssistantPicker() {
                     disabled={a.status !== "active"}
                     onClick={() => {
                       void setSelectedAssistant(a.id);
-                      toast.success("Switched active assistant.");
+                      toast.success(t("assistantPicker.switchedToast"));
                     }}
                   >
-                    Switch
+                    {t("assistantPicker.switch")}
                   </Button>
                 )}
               </div>

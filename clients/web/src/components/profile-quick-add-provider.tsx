@@ -1,5 +1,5 @@
 /**
- * App-level controller for the profile quick-add ("+ New Profile") flow.
+ * App-level controller for the profile quick-add ("New Model") flow.
  *
  * Chat's `ComposerSettingsMenu` must not import from `@/domains/settings/...`
  * (enforced by `local/no-cross-domain-imports`). This provider lifts the
@@ -15,19 +15,19 @@
  * the feature-flag props, the create-persistence config PATCH, and the
  * success toast.
  *
- * The create-persistence here is a re-implementation, not a copy, of
- * the retired settings profile-save path: that code lived in the settings
- * domain and uses its `useDaemonConfigMutation` hook, which this provider
- * cannot import (`local/no-cross-domain-imports`). So it persists via the
- * generated SDK functions (`configGet`/`configPatch`), sources `profileOrder`
- * from a fresh authoritative server fetch (not a captured prop), and adds a
- * server-side duplicate-existence guard the modal does not have. See
- * `handleSave`.
+ * Persistence goes through the settings-owned `useLlmConfigPatch` mutation
+ * (allowed here — `local/no-cross-domain-imports` only restricts imports
+ * between peer domains, not from top-level dirs like this one), so the cache
+ * write and catalog invalidations match the settings save path. What differs
+ * from that path is create-flow hardening the modal's caller can't provide:
+ * `profileOrder` is sourced from a fresh authoritative server fetch (not a
+ * captured prop), and a server-side duplicate-existence guard rejects a name
+ * that already exists. See `handleSave`.
  *
  * `assistantId` and feature flags are read from top-level stores rather than
  * threaded through props, so the provider stays decoupled from any one domain.
  */
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -39,13 +39,13 @@ import {
 } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
+import type { ProfilePatchEntryWritable } from "@/generated/daemon/types.gen";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
-import {
-  configGetSetQueryData,
-  inferenceProviderconnectionsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { probeSavedProfile } from "@/domains/settings/ai/use-profile-save";
+import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
+import { configGet } from "@/generated/daemon/sdk.gen";
+import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface OpenProfileQuickAddArgs {
@@ -81,9 +81,10 @@ const ProfileQuickAddContext =
   createContext<ProfileQuickAddContextValue | null>(null);
 
 export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
-  const queryClient = useQueryClient();
+  const configMutation = useLlmConfigPatch();
   const [isOpen, setIsOpen] = useState(false);
   const [existingNames, setExistingNames] = useState<string[]>([]);
   // Held in a ref so the modal's onSave closure always sees the latest caller
@@ -123,9 +124,9 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // Persist a freshly-created profile, then hand the name back to the caller.
   // Writes `llm.profiles[name]` plus an appended `profileOrder` in a single
   // config PATCH so the daemon records both the entry and its picker position.
-  // Uses generated SDK functions (`configGet`/`configPatch`) directly because
-  // this cross-domain provider can't import settings-domain hooks
-  // (`local/no-cross-domain-imports`).
+  // The PATCH goes through `useLlmConfigPatch`, whose onSuccess writes the
+  // merged config to the shared cache and invalidates the profile/call-site
+  // catalogs — same convergence as every settings-surface write.
   //
   // The order is computed from a FRESH server fetch rather than the
   // `profileOrder` captured when the modal opened. The caller may have opened
@@ -134,7 +135,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // new name, dropping every existing profile's position. Reading the latest
   // config here keeps the append authoritative regardless of stale inputs.
   const handleSave = useCallback(
-    async (name: string, entry: ProfilePatchEntry) => {
+    async (name: string, entry: ProfilePatchEntryWritable) => {
       if (!assistantId) {
         return;
       }
@@ -165,7 +166,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
         throw new Error(`A profile with the key "${name}" already exists.`);
       }
 
-      const patchResult = await configPatch({
+      await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
         body: {
           llm: {
@@ -173,17 +174,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
             profileOrder: [...serverOrder, name],
           },
         },
-        throwOnError: true,
       });
-      // Write the PATCH response (full merged config) directly to the shared
-      // config query cache so all consumers see the new profile immediately.
-      if (patchResult.data) {
-        configGetSetQueryData(
-          queryClient,
-          { path: { assistant_id: assistantId } },
-          patchResult.data,
-        );
-      }
       // Hand back the display-name label alongside the key so the caller's
       // optimistic picker entry renders the Name immediately rather than
       // showing the key until the next config refetch. The create form derives
@@ -193,9 +184,12 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       pendingRef.current?.onCreated?.(name, label);
       closePending();
       setIsOpen(false);
-      toast.success(`Profile "${label ?? name}" created`);
+      toast.success(
+        t("profileQuickAddProvider.created", { name: label ?? name }),
+      );
+      void probeSavedProfile(assistantId, name);
     },
-    [assistantId, queryClient, closePending],
+    [assistantId, configMutation, closePending, t],
   );
 
   const value = useMemo<ProfileQuickAddContextValue>(

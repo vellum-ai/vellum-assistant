@@ -17,7 +17,14 @@ mock.module("../../../../oauth/connection-resolver.js", () => ({
     throw new Error("OAuth fallback was not expected");
   },
 }));
+// Spread rather than list: a partial factory silently drops whatever the
+// module under test imports next, and `resolveSlackAuth` reaching
+// `getConnectionByProvider` is what surfaced that here as a real query
+// against a database this suite never built.
+const actualOauthStore = await import("../../../../oauth/oauth-store.js");
 mock.module("../../../../oauth/oauth-store.js", () => ({
+  ...actualOauthStore,
+  getConnectionByProvider: () => undefined,
   isProviderConnected: async () => false,
 }));
 
@@ -38,6 +45,7 @@ import {
 const originalFetch = globalThis.fetch;
 let userInfoCalls: string[] = [];
 let channelInfoCalls: string[] = [];
+let botsInfoCalls: string[] = [];
 
 function installFetchStub() {
   globalThis.fetch = (async (
@@ -158,6 +166,29 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
       };
     }
 
+    if (parsed.searchParams.get("channel") === "C_FLAKY_BOT_HISTORY") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000004.000100",
+            bot_id: "B_FLAKY",
+            text: "first alert",
+          },
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000004.000200",
+            bot_id: "B_FLAKY",
+            text: "second alert",
+          },
+        ],
+      };
+    }
+
     if (parsed.searchParams.get("channel") === "C_BOT_HISTORY") {
       return {
         ok: true,
@@ -167,6 +198,39 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
             type: "message",
             subtype: "bot_message",
             ts: "1700000003.000400",
+            bot_id: "B_ASSISTANT",
+            text: "",
+            attachments: [
+              {
+                fallback: "notify-web failure",
+                pretext: "notify-web failure by <@ULEO>",
+                title: "CI Main Web",
+                title_link: "https://example.com/actions/runs/1",
+              },
+            ],
+          },
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000003.000500",
+            bot_id: "B_WEBHOOK",
+            username: "Deploy Webhook",
+            text: "",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "Deploy finished" },
+              },
+              {
+                type: "context",
+                elements: [{ type: "mrkdwn", text: "took 42s" }],
+              },
+            ],
+          },
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000003.000600",
             bot_id: "B_ASSISTANT",
             text: "Bot-authored history",
           },
@@ -234,6 +298,20 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
     const userId = parsed.searchParams.get("user") ?? "";
     userInfoCalls.push(userId);
     return fakeUserInfoResponse(userId);
+  }
+
+  if (method === "bots.info") {
+    const botId = parsed.searchParams.get("bot") ?? "";
+    botsInfoCalls.push(botId);
+    if (botId === "B_ASSISTANT") {
+      return { ok: true, bot: { id: "B_ASSISTANT", name: "CI Notifier" } };
+    }
+    // An unmapped transient failure: thrown immediately (no in-transport
+    // retry, unlike rate limits) and evicted from the cross-batch cache.
+    if (botId === "B_FLAKY") {
+      return { ok: false, error: "fatal_error" };
+    }
+    return { ok: false, error: "bot_not_found" };
   }
 
   return { ok: true };
@@ -364,6 +442,7 @@ describe("Slack adapter mention rendering", () => {
     __resetSlackMentionCachesForTests();
     userInfoCalls = [];
     channelInfoCalls = [];
+    botsInfoCalls = [];
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) {
@@ -392,15 +471,62 @@ describe("Slack adapter mention rendering", () => {
     expect(messages[0].reactions).toEqual([{ name: "eyes", count: 1 }]);
   });
 
-  test("getHistory preserves bot ids for bot-authored Slack messages", async () => {
+  test("getHistory resolves bot sender names and attachment/block content for bot-authored Slack messages", async () => {
     const messages = await slackProvider.getHistory(undefined, "C_BOT_HISTORY");
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0].sender).toEqual({ id: "B_ASSISTANT", name: "unknown" });
+    expect(messages).toHaveLength(3);
+
+    // bot_id-only row: name via bots.info, content from the attachment
+    // (mention tokens inside it render like ordinary message text).
+    expect(messages[0].sender).toEqual({
+      id: "B_ASSISTANT",
+      name: "CI Notifier",
+    });
+    expect(messages[0].text).toBe(
+      "notify-web failure by @Leo\nCI Main Web (https://example.com/actions/runs/1)",
+    );
     expect(messages[0].metadata).toEqual({
       isBot: true,
       slackBotId: "B_ASSISTANT",
     });
+
+    // username-bearing row: named without a bots.info round trip, content
+    // from Block Kit blocks.
+    expect(messages[1].sender).toEqual({
+      id: "B_WEBHOOK",
+      name: "Deploy Webhook",
+    });
+    expect(messages[1].text).toBe("Deploy finished\ntook 42s");
+    expect(botsInfoCalls).not.toContain("B_WEBHOOK");
+
+    // Plain text row from the same bot: bots.info was resolved once, cached.
+    expect(messages[2].sender).toEqual({
+      id: "B_ASSISTANT",
+      name: "CI Notifier",
+    });
+    expect(messages[2].text).toBe("Bot-authored history");
+    expect(
+      botsInfoCalls.filter((botId) => botId === "B_ASSISTANT"),
+    ).toHaveLength(1);
+  });
+
+  test("a transient bots.info failure is attempted once per batch and falls back to the bot id", async () => {
+    const messages = await slackProvider.getHistory(
+      undefined,
+      "C_FLAKY_BOT_HISTORY",
+    );
+
+    expect(messages).toHaveLength(2);
+    expect(messages.map((message) => message.sender)).toEqual([
+      { id: "B_FLAKY", name: "B_FLAKY" },
+      { id: "B_FLAKY", name: "B_FLAKY" },
+    ]);
+    // The transient failure is evicted from the cross-batch cache (so a later
+    // page retries), but within one page the batch memo pins the first
+    // attempt: two rows from the same bot cost one bots.info call.
+    expect(botsInfoCalls.filter((botId) => botId === "B_FLAKY")).toHaveLength(
+      1,
+    );
   });
 
   test("getHistory caches Slack user info and maps timezone metadata", async () => {

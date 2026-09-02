@@ -51,12 +51,163 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-Launcher colors distinguish production, staging, and dev installs. The launch
-screen follows the saved app appearance, falling back to the Android light or
-dark setting until the web app has stored a preference. Android's app night
-mode keeps the OS splash and native overlay on the same theme. Android 11 and
-older skip the OS preview window so the themed native overlay is the first app
-frame.
+The launch screen follows the saved app appearance, falling back to the Android
+light or dark setting until the web app has stored a preference. Android's app
+night mode keeps the OS splash and native overlay on the same theme. Android 11
+and older skip the OS preview window so the themed native overlay is the first
+app frame.
+
+## Launcher Icons
+
+The default launcher icon is the `quirky` eye pair from the avatar library in
+`packages/avatar-catalog`, the same design the iOS app icon uses. The six paths
+in `app/src/main/res/drawable/ic_launcher_foreground.xml` and in the
+pre-adaptive `app/src/main/res/mipmap-anydpi/ic_launcher*.xml` fallbacks are
+copied verbatim from that table and only repositioned by a VectorDrawable
+`<group>`, so the icon stays in sync with the in-app avatars. Launcher
+background colors distinguish production (`#4C9B50`, the avatar palette green),
+staging, and dev installs.
+
+### Alternate Icons
+
+A user picks an eyes-on-color launcher icon in the web app under
+Settings -> General -> Preferences -> App icon
+(`clients/web/src/domains/settings/components/app-icon-modal.tsx`), gated on the
+dark `android-avatar-app-icon` flag. Every combination ships: 9 eye styles by 6
+colors, so 54 alternates.
+
+`clients/ios/scripts/generate-android-avatar-icons.ts` writes all of them from
+the avatar catalog as vector XML rather than rasterized PNGs. Edit the script,
+not the files. Regenerate the committed state with
+`bun clients/ios/scripts/generate-android-avatar-icons.ts`, add `--pilot` to cut
+a local run down to a 12-set slice while iterating, and verify with
+`cd clients/ios && bun test scripts/__tests__/android-avatar-icons.test.ts`.
+Measuring where an eye pair's artwork reaches goes through the native
+`@resvg/resvg-js` binding, so install the assistant package's dependencies
+first: `bun install --filter=@vellumai/assistant`. `pr-native-drift.yaml` and
+`ci-main-native-drift.yaml` run that same test and watch both
+`app/src/main/res/**` and `app/src/main/AndroidManifest.xml`, so an edit without
+a regeneration fails CI.
+
+| Generated resource | Count | Contents |
+|--------------------|-------|----------|
+| `drawable/avatar_eyes_fg_<eye>.xml` | 9 | The eye pair on a transparent field, sized for the 72dp an adaptive-icon mask keeps visible |
+| `drawable/avatar_eyes_mono_<eye>.xml` | 9 | The same pair reduced to its sclera silhouette, which a themed icon reads for alpha |
+| `mipmap-anydpi-v26/avatar_eyes_<eye>_<color>.xml` | 54 | Adaptive icon pairing the foreground with a background color |
+| `mipmap-anydpi-v33/avatar_eyes_<eye>_<color>.xml` | 54 | The same adaptive icon plus the monochrome layer |
+| `mipmap-anydpi/avatar_eyes_<eye>_<color>.xml` | 54 | Pre-adaptive fallback that paints its own background and draws the pair 1.5x larger to fill all 108dp |
+| `values/avatar_icon_colors.xml` | 6 colors | The alternate backgrounds, kept apart from the flavor-owned `launcher_background` because an alternate looks the same in every flavor |
+
+The generator also owns the `avatar-icon-aliases` marker block in
+`AndroidManifest.xml`. Android reads the launcher icon off whichever launcher
+component is enabled, so every launcher entry is an `<activity-alias>` targeting
+`.MainActivity`: `.icon.primary`, enabled and drawn with the `ic_launcher`
+artwork, then one disabled `.icon.avatar_eyes_<eye>_<color>` alias per
+alternate. Exactly one launcher-bearing alias is enabled at a time. Each alias
+carries a MAIN/LAUNCHER filter and a copy of `.MainActivity`'s shortcuts
+`<meta-data>`, and nothing else: a launcher reads static shortcuts off the
+component it launched, while deep links resolve through `.MainActivity` alone,
+so cloning its VIEW filters onto 55 components would only multiply the App Links
+verification surface.
+
+`.MainActivity` therefore declares no MAIN/LAUNCHER filter of its own. It holds
+every deep-link filter and the shortcuts `<meta-data>` the aliases copy, carries
+no `android:enabled` attribute, and is never toggled, so the static shortcuts,
+the voice status notification, and the Quick Settings tile, which all name its
+class explicitly, resolve whichever icon is picked.
+
+`AppIconPlugin.java` does the switching, on the same Capacitor contract as iOS:
+`getState` resolves `{supported, current, available}` and `set` resolves `{ok}`
+plus an `error` when it refuses. Toggling a launcher component makes the
+launcher re-resolve the app, which some launchers answer by dropping the running
+task, so `set` only records the target in the `app_icon` SharedPreferences file
+and `handleOnStop` applies it once the activity has left the screen. Until the
+toggle lands, `getState` reports the recorded target as `current`, so the web
+layer's re-read after an apply sees the icon it asked for. An apply enables the
+target before disabling the others and clears the record last, so no launcher
+sees the app with every launcher component off, and an interrupted pass is
+retried rather than half kept. It reads its alias set off the manifest and takes
+`.icon.primary` plus the `.icon.avatar_eyes_*` alternates only, so an activity
+that lands in the `.icon.` namespace for anything else is neither offered in
+`available` nor toggled by an apply.
+
+`load()` runs that same apply before the activity resumes, so a process death
+between `set` and the next background never strands a recorded target. It then
+holds one more invariant: an enabled-state override outlives the install that
+wrote it, so a device carrying an explicit disable on `.icon.primary` alongside
+an applied alternate that the installed build does not declare has no launcher
+entry at all. Whenever no declared alias is drawing the app, `.icon.primary`
+goes back to `COMPONENT_ENABLED_STATE_DEFAULT`.
+
+The web layer addresses an icon by its wire name, `avatar-eyes-<eye>-<color>`,
+the same name iOS uses. Resource and class names admit underscores rather than
+dashes, so an alias suffix is that whole string with every dash swapped for an
+underscore, and the reverse is the same whole-string swap. It round-trips only
+while no catalog id carries a separator of its own, which
+`assertUnderscoreSafeIds` in `clients/ios/scripts/avatar-icon-core.ts` enforces
+on every run.
+
+`getState` reports `supported: true` only on API 26 or newer with at least one
+alternate present. `minSdkVersion` is 24, so an API 24 or 25 device answers
+`supported: false` and the picker draws nothing. `set` applies the same version
+check and resolves `{ok: false, error}` below it, so a caller that skipped
+`supported` cannot leave a target behind for the next background to toggle.
+
+Alternates read at the size of the default launcher icon sitting next to them in
+the picker. Each pair is fitted by the longer edge of its measured artwork
+bounds to a fraction of the 72dp an adaptive mask keeps visible, and the
+pre-adaptive fallback multiplies that scale by 108/72.
+
+| Eye style | Span of the masked square |
+|-----------|---------------------------|
+| `dazed` | 0.55 |
+| `bashful` | 0.40 |
+| Every other style | 0.5 |
+
+The 0.5 default is the framing the default launcher icon uses, so the generated
+`quirky` foreground lands on that icon's own scale, within the rounding step
+that separates a hand-rounded bounding box from a rasterized measurement.
+`dazed` is framed wider so it reads at the size of the rest, and `bashful`
+narrower so it does not draw the same icon as `surprised`, which is the same
+shape. The spans live in `clients/ios/scripts/avatar-icon-core.ts`, shared with
+the iOS generator and mirrored by
+`clients/web/src/components/avatar/app-icon-preview.tsx` so the picker's
+on-screen preview frames a pair the way the launcher does.
+
+### Device QA Checklist
+
+Launcher behavior is physical-device territory; an emulator does not cover it.
+
+- Apply an alternate and reset to the default on both a Pixel launcher and a
+  Samsung One UI launcher. The icon changes when the app goes to the background,
+  not on the press.
+- Pin the app icon to the home screen from a build that declares no aliases,
+  install this build over it, and confirm any resulting pin loss happens at most
+  once. Pin again, switch icons, and record what each launcher does to the pin.
+- Long-press the launcher icon while an alternate is active and confirm the New
+  chat and Start voice shortcuts are still listed. Check the voice status
+  notification tap and the Start voice Quick Settings tile in the same state.
+- Open an auth callback deep link and an HTTPS App Link while an alternate is
+  active. Both resolve through `.MainActivity`, so neither should behave
+  differently.
+- Apply an icon and immediately hand off to a browser, so the handoff is what
+  first backgrounds the app: a sign-in, which `NativeAuthPlugin` sends to the
+  system browser, and a purchase CTA, which opens a Custom Tab through the
+  Capacitor Browser plugin. Either one stops the activity, so the pending toggle
+  applies mid-flow. On each launcher, confirm the sign-in's custom-scheme
+  callback still completes and that coming back from the purchase page lands on
+  a live task rather than one the launcher dropped.
+- Turn on themed icons on Android 13 or newer and confirm every alternate draws
+  its sclera silhouette rather than a blank tile or a filled square.
+- Set an icon, force-stop the app before it reaches the background
+  (`adb shell am force-stop ai.vellum.assistant.dev`), and relaunch. `load()`
+  applies the recorded target.
+- Install on an API 24 or 25 device and confirm the App icon row does not
+  render.
+- Build a release variant (`./gradlew :app:assembleProductionRelease`), which
+  enables `minifyEnabled` and `shrinkResources`, and confirm every alias draws
+  its own icon, so resource shrinking keeps mipmaps referenced only from the
+  manifest.
 
 ## HTTPS App Links
 
@@ -91,6 +242,21 @@ adb shell am start -a android.intent.action.VIEW \
 
 Use the suffixed application ID and matching host when checking staging or dev.
 
+## Billing
+
+The Android shell renders the same billing surfaces as iOS (plan card, plans
+takeover, billing settings) but sells nothing in-app: there is no Google Play
+Billing integration, and every purchase CTA opens the matching page on the
+hosted web app in the system browser instead of starting a checkout inside the
+WebView. The handoff lives in
+`clients/web/src/lib/billing/android-billing-handoff.ts`; it goes through the
+Capacitor Browser plugin because a plain navigation would stay in the WebView
+and a bare VIEW intent would bounce straight back via the verified App Links
+above. Because the purchase runs on the hosted web app in a plain browser
+context, Stripe returns to the hosted web page there rather than through the
+custom-scheme `billing/checkout-complete` deep link; the manifest still claims
+that scheme for checkouts launched from a native context.
+
 ## Native Auth
 
 The `NativeAuth` Capacitor plugin opens WorkOS AuthKit in the system browser,
@@ -118,13 +284,17 @@ absent. Scanning a connect link switches the native shell to the validated
 server, opens `<server>/assistant/pair`, and keeps an existing server path
 prefix intact. Cold and warm app launches use the same route.
 
-Only the validated server base is saved after the pairing page loads; the
-same deferred write appends the server, with its label, to the remembered
-list. The one-time device code is kept out of app preferences and the
-generated Capacitor configuration. HTTPS is required except for `localhost`,
-`127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
-when a physical development device needs to reach a service through
-`localhost`.
+A server the list does not already hold joins it, with its label, as soon as
+the link is scanned, matching iOS, so the chooser can still offer it when the
+pairing page never loads. What a scan alone cannot claim is deferred until that
+page loads: the active slot, so an unreachable server never displaces the one
+already working, and any label a server is already remembered under, so an
+unpaired link can fill in a missing name but cannot rewrite one an earlier
+pairing established. The one-time device code is kept out of app preferences
+and the generated Capacitor configuration. HTTPS is required except for
+`localhost`, `127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use
+`adb reverse` when a physical development device needs to reach a service
+through `localhost`.
 
 Paired servers accumulate in a remembered list, stored as JSON `{name?, url}`
 entries in the same `self_hosted_server` SharedPreferences file as the active
@@ -149,9 +319,13 @@ If Android terminates the app before the pairing page loads, scan the connect
 link again. The shell intentionally does not save the one-time code for process
 restoration.
 
-If a saved or newly scanned server cannot load, the native recovery dialog can
-retry it or clear the saved server and return to Vellum Cloud. A failed new
-server is never promoted over the last server that loaded successfully.
+If a saved or newly scanned server cannot load, whether the connection is
+refused outright or a tunnel provider answers on the server's behalf with its
+own error page, the native recovery dialog offers Retry or Choose Assistant.
+Choose Assistant clears the active slot and recreates onto the Vellum Cloud
+chooser, which lists every remembered server including the one that just
+failed. A failed new server is never promoted over the last server that loaded
+successfully.
 
 ## Biometric Session Recovery
 
@@ -231,7 +405,9 @@ clients/
     │   └── src/main/
     │       ├── AndroidManifest.xml
     │       ├── java/ai/vellum/assistant/
+    │       │   ├── Attribution.java
     │       │   ├── ConnectDeepLink.java
+    │       │   ├── InstallReferrerPlugin.java
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
     │       │   ├── NativeBiometricPlugin.java

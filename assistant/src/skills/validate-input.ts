@@ -12,6 +12,7 @@
  * (e.g. `surface_id is required`, `mode must be one of "replace", "append"`).
  */
 
+import { parseJsonSafe } from "../util/json.js";
 import { isPlainObject } from "../util/object.js";
 
 export interface InputValidationSuccess {
@@ -67,6 +68,52 @@ function quoteList(values: readonly string[]): string {
 }
 
 /**
+ * Walk the properties a schema declares as `declaredType`, offering each
+ * present value to `coerceValue`. A converter returns `{ value }` to replace
+ * the input's value, or `undefined` to leave it alone.
+ *
+ * The shared traversal is what keeps the coercions below agreeing on the
+ * details a caller depends on: union types (`["boolean", "null"]`) are skipped
+ * rather than coerced, an absent property is never introduced, and the input
+ * object is cloned lazily so an input with nothing to coerce comes back by
+ * reference.
+ *
+ * Pure: returns a new object when a coercion applies, otherwise returns
+ * `input` unchanged. Never mutates `input` or `schema`.
+ */
+function coercePropertiesOfType(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+  declaredType: string,
+  coerceValue: (
+    value: unknown,
+    subSchema: Record<string, unknown>,
+  ) => { value: unknown } | undefined,
+): Record<string, unknown> {
+  if (!schema) {
+    return input;
+  }
+  const properties = schema.properties;
+  if (!isPlainObject(properties)) {
+    return input;
+  }
+
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, rawSubSchema] of Object.entries(properties)) {
+    if (!isPlainObject(rawSubSchema) || rawSubSchema.type !== declaredType) {
+      continue;
+    }
+    const result = coerceValue(input[key], rawSubSchema);
+    if (!result) {
+      continue;
+    }
+    coerced ??= { ...input };
+    coerced[key] = result.value;
+  }
+  return coerced ?? input;
+}
+
+/**
  * Coerce string-encoded booleans (`"true"`/`"false"`) to real booleans for
  * properties the schema declares as `type: "boolean"`.
  *
@@ -84,34 +131,16 @@ export function coerceStringBooleans(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) {
-    return input;
-  }
-  const properties = schema.properties;
-  if (!isPlainObject(properties)) {
-    return input;
-  }
-
-  let coerced: Record<string, unknown> | undefined;
-  for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) {
-      continue;
-    }
-    if (rawSubSchema.type !== "boolean") {
-      continue;
-    }
-    const value = input[key];
+  return coercePropertiesOfType(input, schema, "boolean", (value) => {
     if (typeof value !== "string") {
-      continue;
+      return undefined;
     }
     const normalized = value.trim().toLowerCase();
     if (normalized !== "true" && normalized !== "false") {
-      continue;
+      return undefined;
     }
-    coerced ??= { ...input };
-    coerced[key] = normalized === "true";
-  }
-  return coerced ?? input;
+    return { value: normalized === "true" };
+  });
 }
 
 /**
@@ -141,36 +170,135 @@ export function coerceStringNumbers(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) {
-    return input;
-  }
-  const properties = schema.properties;
-  if (!isPlainObject(properties)) {
-    return input;
-  }
-
-  let coerced: Record<string, unknown> | undefined;
-  for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) {
-      continue;
-    }
-    if (rawSubSchema.type !== "string") {
-      continue;
-    }
-    const value = input[key];
+  return coercePropertiesOfType(input, schema, "string", (value) => {
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      continue;
+      return undefined;
     }
     // An integer beyond the safe range was already rounded by JSON.parse;
     // coercing it would lock in a corrupted identifier. Skip it so validation
     // fails and the model retries with a lossless quoted string.
     if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
-      continue;
+      return undefined;
     }
-    coerced ??= { ...input };
-    coerced[key] = String(value);
+    return { value: String(value) };
+  });
+}
+
+/**
+ * Repair the shapes a model sends for a property the schema declares as
+ * `type: "array"`, when the intent is unambiguous.
+ *
+ * Two shapes dominate what models actually send, and neither is recoverable
+ * from the model's side: it cannot see the difference between what it meant
+ * and what arrived, so the observed recovery is to drop the field and retry.
+ * That is how a skill gets scaffolded with no `activation_hints` (losing the
+ * intent-routing signal that makes it findable later) or with its companion
+ * `files` folded into the body instead.
+ *
+ * - **The JSON text of the array** (`"[\"a\",\"b\"]"`) rather than the array.
+ *   Decoded back into the array it spells.
+ * - **A single element where a list was expected**: a bare phrase for a
+ *   string-item array (`avoid_when: "when the repo is dirty"`), or one object
+ *   for an object-item array. Wrapped into a one-element array.
+ *
+ * A string is wrapped only when the schema declares string items and the text
+ * does not open a JSON structure it failed to close, and an object only when
+ * every key it carries is a declared property of the item schema. A shape that
+ * means something else (a truncated array, a map keyed by something the item
+ * schema does not name) is left for the validator to reject rather than
+ * silently reinterpreted. Per-element `items.type` checks still run on the
+ * repaired array, so a genuinely wrong element keeps its own error, and each
+ * element an array gains here is coerced against the item schema so a repaired
+ * element cannot carry a shape a natively-sent one could not.
+ *
+ * Pure: returns a new object when a repair applies, otherwise returns `input`
+ * unchanged. Never mutates `input` or `schema`.
+ */
+export function coerceArrayShapes(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return coercePropertiesOfType(input, schema, "array", (value, subSchema) => {
+    const items = isPlainObject(subSchema.items) ? subSchema.items : undefined;
+    const itemType = typeof items?.type === "string" ? items.type : undefined;
+
+    if (typeof value === "string") {
+      const decoded = parseJsonSafe(value);
+      if (Array.isArray(decoded)) {
+        return { value: coerceElements(decoded, items) };
+      }
+      if (itemType !== "string") {
+        return undefined;
+      }
+      if (typeof decoded === "string" && decoded.trim()) {
+        return { value: [decoded] };
+      }
+      // Text that opens a JSON structure and then fails to parse is a
+      // truncated or malformed array, not a phrase. Wrapping it would store
+      // the broken JSON as if it were the element the caller wrote.
+      const trimmed = value.trim();
+      if (!trimmed || trimmed.startsWith("[") || trimmed.startsWith("{")) {
+        return undefined;
+      }
+      return { value: [value] };
+    }
+
+    if (
+      itemType === "object" &&
+      isPlainObject(value) &&
+      matchesItemProperties(value, items)
+    ) {
+      return { value: coerceElements([value], items) };
+    }
+
+    return undefined;
+  });
+}
+
+/**
+ * Apply the scalar coercions to each object element against the item schema.
+ *
+ * Only top-level properties are coerced when a call arrives already in the
+ * declared shape, because that is the only level the validator type-checks.
+ * An array this function builds has no such level yet: its elements were text
+ * a moment ago, and their properties carry whatever the model serialized,
+ * including the string-encoded booleans this module exists to read. Coercing
+ * them here keeps a repaired element from reaching an executor in a shape a
+ * natively-sent one could not.
+ */
+function coerceElements(
+  elements: unknown[],
+  itemSchema: Record<string, unknown> | undefined,
+): unknown[] {
+  if (!isPlainObject(itemSchema?.properties)) {
+    return elements;
   }
-  return coerced ?? input;
+  return elements.map((element) =>
+    isPlainObject(element)
+      ? coerceStringNumbers(
+          coerceStringBooleans(element, itemSchema),
+          itemSchema,
+        )
+      : element,
+  );
+}
+
+/**
+ * Whether `value` reads as one element of `itemSchema`: every key it carries
+ * is a property that schema declares. An object that fails this is some other
+ * shape (most often a map keyed by data rather than by field name), which is
+ * not a single element and must not be wrapped as one.
+ */
+function matchesItemProperties(
+  value: Record<string, unknown>,
+  itemSchema: Record<string, unknown> | undefined,
+): boolean {
+  const properties = itemSchema?.properties;
+  if (!isPlainObject(properties)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  return keys.length > 0 && keys.every((key) => key in properties);
 }
 
 /**
@@ -241,6 +369,15 @@ export function validateInputAgainstSchema(
     }
     if (typeof declaredType === "string" && SUPPORTED_TYPES.has(declaredType)) {
       const type = declaredType as SupportedType;
+      if (
+        type === "array" &&
+        (typeof value === "string" || isPlainObject(value))
+      ) {
+        errors.push(
+          `${key} must be an array: pass a JSON array, not ${typeof value === "string" ? "a string" : "an object"}`,
+        );
+        continue;
+      }
       if (!matchesType(value, type)) {
         errors.push(
           type === "boolean" && typeof value === "string"

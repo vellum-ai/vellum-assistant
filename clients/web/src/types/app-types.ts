@@ -1,11 +1,6 @@
-import type {
-  AppsByIdOpenPostResponse,
-  AppsGetResponse,
-} from "@/generated/daemon/types.gen";
+import type { AppsGetResponse } from "@/generated/daemon/types.gen";
 
 export type AppSummary = AppsGetResponse["apps"][number];
-
-export type AppOpenResponse = AppsByIdOpenPostResponse;
 
 /**
  * Whether an app is read-only over the daemon's mutation surface. The daemon

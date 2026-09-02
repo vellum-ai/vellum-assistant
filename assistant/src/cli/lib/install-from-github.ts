@@ -26,7 +26,6 @@
 import { execFile } from "node:child_process";
 import {
   copyFileSync,
-  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -37,12 +36,22 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
-import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
+import {
+  copyPreservedUserState,
+  isPluginUserStateEntry,
+  PRESERVED_ENTRIES,
+  stripPreservedUserState,
+} from "../../plugins/plugin-tree-walk.js";
 import { ensureBun } from "../../util/bun-runtime.js";
-import { getWorkspacePluginsDir } from "../../util/platform.js";
+import {
+  addToPathEnv,
+  getExtraToolPathDirs,
+  getWorkspacePluginsDir,
+  isWindows,
+} from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
   type DependencyInstaller,
@@ -687,27 +696,13 @@ export async function finalizeStagedInstall(
     }
   }
 
-  // Copy preserved entries (config.json, data/, .disabled) from the existing
-  // install into the staging dir before the swap so user-owned state survives
-  // upgrades and reinstalls. Without this, the rm+rename below would destroy
-  // user config and runtime data.
+  // User-owned state (config.json, data/, .disabled) is not plugin source.
+  // Drop any copy the pin materialized into staging, then copy the live
+  // install's bytes over so an upgrade cannot reset user config to pin
+  // defaults. Without the live copy, the rm+rename below would destroy it.
+  stripPreservedUserState(stagingDir);
   if (existsSync(target)) {
-    for (const entry of PRESERVED_ENTRIES) {
-      if (entry === INSTALL_META_FILENAME) {
-        continue;
-      } // sidecar is rewritten above
-      const src = join(target, entry);
-      if (!existsSync(src)) {
-        continue;
-      }
-      const dest = join(stagingDir, entry);
-      const stat = statSync(src);
-      if (stat.isDirectory()) {
-        cpSync(src, dest, { recursive: true });
-      } else {
-        copyFileSync(src, dest);
-      }
-    }
+    copyPreservedUserState(target, stagingDir);
     rmSync(target, { recursive: true, force: true });
   }
   renameSync(stagingDir, target);
@@ -1139,12 +1134,16 @@ function normalizeInstalledManifest(
  * (`buildPluginFromDir`) hard-requires a `package.json` validated against
  * `PluginPackageJsonSchema` and silently skips the plugin when it's missing.
  *
- * The synthesized manifest carries the install name and the default
- * `@vellumai/plugin-api` peer dependency range. No foreign-ecosystem manifest
- * data is read — the install name is the only identity we trust for an
- * untrusted direct install.
+ * Used by both the GitHub clone path and the platform tarball path. The
+ * synthesized manifest carries the install name and the default
+ * `@vellumai/plugin-api` peer dependency range. No foreign-ecosystem
+ * manifest data is read: the install name is the only identity we trust
+ * when upstream ships no Vellum package.json.
  */
-function synthesizeMinimalPackageJson(name: string, stagingDir: string): void {
+export function synthesizeMinimalPackageJson(
+  name: string,
+  stagingDir: string,
+): void {
   const manifestPath = join(stagingDir, "package.json");
 
   const manifest: PackageManifest = {
@@ -1264,30 +1263,31 @@ export const defaultPostinstallRunner: PostinstallRunner = async ({
     timeout: POSTINSTALL_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,
     env: pluginPostinstallEnv(bun),
+    windowsHide: true,
   });
 };
 
 function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
+  const systemDirs = isWindows()
+    ? [process.env.SystemRoot ?? "C:\\Windows"]
+    : [...getExtraToolPathDirs(), "/usr/bin", "/bin"];
   const env: NodeJS.ProcessEnv = {
-    PATH: [
-      dirname(bun),
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-    ]
-      .filter(Boolean)
-      .join(":"),
+    PATH: [dirname(bun), ...systemDirs].join(delimiter),
   };
-  if (process.env.HOME) {
-    env.HOME = process.env.HOME;
+  for (const key of isWindows()
+    ? ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "SystemRoot"]
+    : ["HOME"]) {
+    if (process.env[key]) {
+      env[key] = process.env[key];
+    }
   }
   return env;
 }
 
 /**
  * Recursively copy regular files from `srcRoot` into `destDir`, skipping the
- * top-level `.git` directory, a top-level `bunfig.toml` (see below), and any
+ * top-level `.git` directory, a top-level `bunfig.toml` (see below), top-level
+ * user-state entries (`config.json`, `data/`, `.disabled`), and any
  * symlinks. Returns the file count.
  */
 function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
@@ -1298,6 +1298,12 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
       // Drop git metadata and symlinks: the loader follows neither, and a
       // symlink could otherwise point outside the staging tree.
       if (relDir === "" && entry.name === ".git") {
+        continue;
+      }
+      // Runtime-owned state is not plugin source. A pin that ships
+      // `config.json` or `data/` must not land in the staged tree, or an
+      // upgrade would reset user config to whatever the revision committed.
+      if (relDir === "" && isPluginUserStateEntry(entry.name)) {
         continue;
       }
       // Drop a top-level `bunfig.toml`. The adapter postinstall runs `bun` with
@@ -1376,6 +1382,7 @@ export const defaultGitRunner: GitRunner = async (args, opts) => {
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
     env: pluginGitEnv(),
+    windowsHide: true,
   });
   return { stdout };
 };
@@ -1388,12 +1395,7 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
     }
   }
   env.GIT_TERMINAL_PROMPT = "0";
-  const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
-  const current = (env.PATH ?? "").split(":").filter(Boolean);
-  const missing = extraPaths.filter((p) => !current.includes(p));
-  if (missing.length > 0) {
-    env.PATH = [...current, ...missing].join(":");
-  }
+  addToPathEnv(env, getExtraToolPathDirs(), "back");
   return env;
 }
 
@@ -1712,6 +1714,7 @@ async function copyDir(
   ref: string,
   destDir: string,
   fetchFn: FetchLike,
+  atPluginRoot = true,
 ): Promise<number> {
   const entries = await listDir(owner, repo, apiPath, ref, fetchFn);
   if (entries === null) {
@@ -1725,11 +1728,24 @@ async function copyDir(
       continue;
     }
     assertSafeFilename("entry name", entry.name);
+    // Adapter stubs overlay the plugin root. User-state names at that root
+    // are host-owned, not adapter input.
+    if (atPluginRoot && isPluginUserStateEntry(entry.name)) {
+      continue;
+    }
 
     if (entry.type === "dir") {
       const subDest = join(destDir, entry.name);
       mkdirSync(subDest, { recursive: true });
-      count += await copyDir(owner, repo, entry.path, ref, subDest, fetchFn);
+      count += await copyDir(
+        owner,
+        repo,
+        entry.path,
+        ref,
+        subDest,
+        fetchFn,
+        false,
+      );
       continue;
     }
 

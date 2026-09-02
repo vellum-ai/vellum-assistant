@@ -99,3 +99,20 @@ export const PastOneShot: Story = {
   args: { isPast: true },
   decorators: [withClient(seededClient())],
 };
+
+export const PendingOneShot: Story = {
+  args: {
+    schedule: {
+      ...SCHEDULE,
+      name: "Add members and partners to phone system",
+      description: "Remind me to add members and partners to the phone system.",
+      isOneShot: true,
+      expression: null,
+      cronExpression: null,
+      cadenceDescription: "",
+      lastRunAt: null,
+      lastStatus: null,
+    },
+  },
+  decorators: [withClient(seededClient())],
+};

@@ -69,57 +69,70 @@ export function computeTransforms(
   };
 }
 
+export interface ResolvedAvatarDefinitions {
+  bodyShape: BodyShapeDefinition;
+  eyeStyle: EyeStyleDefinition | undefined;
+  color: ColorDefinition;
+}
+
+export interface ResolvedEyedAvatarDefinitions {
+  bodyShape: BodyShapeDefinition;
+  eyeStyle: EyeStyleDefinition;
+  color: ColorDefinition;
+}
+
 /**
- * Resolve the active definitions from components + trait IDs. When `eyeStyleId`
- * is absent (null/undefined) the eye style is left unresolved (body-only
- * avatars); a present-but-unknown id still throws, as before.
+ * Resolve the active definitions from components + trait IDs. Missing or
+ * unknown ids return `null` so renderers can fall through rather than throw.
+ * When `eyeStyleId` is absent (null/undefined) the eye style is left
+ * unresolved (body-only avatars).
  */
 export function resolveDefinitions(
   components: CharacterComponents,
   bodyShapeId: string,
   eyeStyleId: string,
   colorId: string,
-): {
-  bodyShape: BodyShapeDefinition;
-  eyeStyle: EyeStyleDefinition;
-  color: ColorDefinition;
-};
+): ResolvedEyedAvatarDefinitions | null;
 export function resolveDefinitions(
   components: CharacterComponents,
   bodyShapeId: string,
   eyeStyleId: string | null | undefined,
   colorId: string,
-): {
-  bodyShape: BodyShapeDefinition;
-  eyeStyle: EyeStyleDefinition | undefined;
-  color: ColorDefinition;
-};
+): ResolvedAvatarDefinitions | null;
 export function resolveDefinitions(
   components: CharacterComponents,
   bodyShapeId: string,
   eyeStyleId: string | null | undefined,
   colorId: string,
-): {
-  bodyShape: BodyShapeDefinition;
-  eyeStyle: EyeStyleDefinition | undefined;
-  color: ColorDefinition;
-} {
+): ResolvedAvatarDefinitions | null {
   const bodyShape = components.bodyShapes.find((b) => b.id === bodyShapeId);
   if (!bodyShape) {
-    throw new Error(`Unknown body shape: "${bodyShapeId}"`);
+    return null;
   }
   let eyeStyle: EyeStyleDefinition | undefined;
   if (eyeStyleId != null) {
     eyeStyle = components.eyeStyles.find((e) => e.id === eyeStyleId);
     if (!eyeStyle) {
-      throw new Error(`Unknown eye style: "${eyeStyleId}"`);
+      return null;
     }
   }
   const color = components.colors.find((c) => c.id === colorId);
   if (!color) {
-    throw new Error(`Unknown color: "${colorId}"`);
+    return null;
   }
   return { bodyShape, eyeStyle, color };
+}
+
+/** True when every trait id resolves against `components`. */
+export function canResolveDefinitions(
+  components: CharacterComponents,
+  bodyShapeId: string,
+  eyeStyleId: string | null | undefined,
+  colorId: string,
+): boolean {
+  return (
+    resolveDefinitions(components, bodyShapeId, eyeStyleId, colorId) != null
+  );
 }
 
 function escapeAttr(s: string): string {
@@ -136,17 +149,20 @@ export function composeSvg(
   eyeStyleId: string | null | undefined,
   colorId: string,
   size: number = 512,
-): string {
-  const { bodyShape, eyeStyle, color } = resolveDefinitions(
+): string | null {
+  const resolved = resolveDefinitions(
     components,
     bodyShapeId,
     eyeStyleId,
     colorId,
   );
+  if (!resolved) {
+    return null;
+  }
   return composeSvgFromDefinitions(
-    bodyShape,
-    eyeStyle,
-    color,
+    resolved.bodyShape,
+    resolved.eyeStyle,
+    resolved.color,
     components,
     size,
   );

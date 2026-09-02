@@ -153,3 +153,61 @@ describe("GET /v1/acp/sessions — SQL pad amount", () => {
     expect(capturedLimits).toEqual([24]);
   });
 });
+
+describe("GET /v1/acp/sessions: the marker lookup stays off the common path", () => {
+  test("a conversation whose history fits the page issues no extra query", async () => {
+    // Most conversations have never had a credential failure. A short read
+    // means every row is already in hand, which is proof enough that no marker
+    // is hiding outside the page, so the database is not asked to confirm the
+    // absence on every list.
+    inMemoryStates.clear();
+    capturedLimits.length = 0;
+    getDb()
+      .insert(acpSessionHistory)
+      .values({
+        id: "short-1",
+        agentId: "claude",
+        acpSessionId: "proto-short-1",
+        parentConversationId: "conv-short",
+        startedAt: 1,
+        status: "completed",
+        eventLogJson: "[]",
+      })
+      .run();
+
+    const handler = getListHandler();
+    await handler({
+      queryParams: { conversationId: "conv-short", limit: "10" },
+    });
+
+    expect(capturedLimits).toEqual([10]);
+  });
+
+  test("a full page does look, because a marker could be beyond it", async () => {
+    inMemoryStates.clear();
+    capturedLimits.length = 0;
+    for (let i = 0; i < 3; i++) {
+      getDb()
+        .insert(acpSessionHistory)
+        .values({
+          id: `full-${i}`,
+          agentId: "claude",
+          acpSessionId: `proto-full-${i}`,
+          parentConversationId: "conv-full",
+          startedAt: 10 + i,
+          status: "completed",
+          eventLogJson: "[]",
+        })
+        .run();
+    }
+
+    const handler = getListHandler();
+    await handler({
+      queryParams: { conversationId: "conv-full", limit: "2" },
+    });
+
+    // The page query, then the bounded scan for a marker beyond it.
+    expect(capturedLimits.length).toBeGreaterThan(1);
+    expect(capturedLimits[0]).toBe(2);
+  });
+});

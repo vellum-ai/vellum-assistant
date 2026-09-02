@@ -5,7 +5,9 @@ import { Paperclip } from "lucide-react";
 import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { ChatColumn } from "@/domains/chat/components/chat-column";
+import { AcpConnectSlot } from "@/domains/chat/components/acp-connect-slot";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
+import { ChannelReferenceChip } from "@/domains/chat/channel-sidecar/channel-reference-chip";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import {
   ChatScrollArea,
@@ -17,6 +19,7 @@ import {
   type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
 import { Notice, type NoticeTone } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -228,6 +231,7 @@ export function ChatBody({
   startersDockCollapsed = false,
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
+  const { t } = useTranslation("chat");
   const isEmptyState = scrollAreaProps.showEmptyState;
   const keyboardOpen = useKeyboardOpen();
   // Banners (app-download nudge, GitHub star, Discord) show once the user
@@ -379,8 +383,10 @@ export function ChatBody({
           </div>
         )}
         {queuedDrawerSlot}
+        <AcpConnectSlot />
         <QuestionPromptSlot />
         {channelFooterSlot}
+        <ChannelReferenceChip />
         <StagedQuotesStrip />
         {composerSlot}
         {pluginPillsSlot &&
@@ -401,7 +407,7 @@ export function ChatBody({
     >
       <div className="flex flex-col items-center gap-2 text-[var(--content-default)]">
         <Paperclip className="h-6 w-6" />
-        <span className="text-body-medium-default">Drop files to attach</span>
+        <span className="text-body-medium-default">{t("chatBody.dropFiles")}</span>
       </div>
     </div>
   );

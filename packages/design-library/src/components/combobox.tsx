@@ -116,6 +116,13 @@ export interface ComboboxRootProps extends Omit<
    * to say nothing.
    */
   announceResults?: (count: number) => string;
+  /**
+   * The count the live region reports, when it is not `options.length`. A
+   * list that walks rows which are not matches (a pinned "enter a custom
+   * value" action) would otherwise announce one result more than it found,
+   * and announce "1 result" for a query that matched nothing.
+   */
+  announceCount?: number;
   children?: ReactNode;
 }
 
@@ -132,6 +139,7 @@ function Root({
   onOpenChange,
   autoActivateFirst = false,
   announceResults = defaultAnnouncement,
+  announceCount,
   className,
   children,
   ...rest
@@ -230,18 +238,19 @@ function Root({
   // keystroke is noise, and a closed list has nothing to report.
   const [announcement, setAnnouncement] = useState("");
   const lastAnnouncedCount = useRef<number | null>(null);
+  const reportedCount = announceCount ?? options.length;
   useEffect(() => {
     if (!isOpen) {
       lastAnnouncedCount.current = null;
       setAnnouncement("");
       return;
     }
-    if (lastAnnouncedCount.current === options.length) {
+    if (lastAnnouncedCount.current === reportedCount) {
       return;
     }
-    lastAnnouncedCount.current = options.length;
-    setAnnouncement(announceResults(options.length));
-  }, [isOpen, options.length, announceResults]);
+    lastAnnouncedCount.current = reportedCount;
+    setAnnouncement(announceResults(reportedCount));
+  }, [isOpen, reportedCount, announceResults]);
 
   const context = useMemo<ComboboxContextValue>(
     () => ({
@@ -421,18 +430,18 @@ function List({ className, children, emptyState, ...rest }: ComboboxListProps) {
     useComboboxContext("List");
 
   // Follow the highlight, and show the current selection when the list opens
-  // with no highlight yet (it may sit far down a long list).
+  // with no highlight yet (it may sit far down a long list). Keyed on the id
+  // rather than on `optionId`, whose identity turns over with the option
+  // array: a list that grows for its own reasons must not drag the scroll
+  // back to a row nobody moved to.
   const target = activeValue ?? (open ? value : null);
+  const targetId = target === null ? undefined : optionId(target);
   useEffect(() => {
-    if (target === null) {
+    if (targetId === undefined) {
       return;
     }
-    const id = optionId(target);
-    if (id === undefined) {
-      return;
-    }
-    document.getElementById(id)?.scrollIntoView?.({ block: "nearest" });
-  }, [target, optionId]);
+    document.getElementById(targetId)?.scrollIntoView?.({ block: "nearest" });
+  }, [targetId]);
 
   if (!open) {
     return null;
@@ -455,12 +464,21 @@ export interface ComboboxGroupProps extends ComponentProps<"div"> {
   /** Heading text, announced as the group's name. */
   label: ReactNode;
   labelClassName?: string;
+  /**
+   * Pin the heading to the top of the scrolling list while its own rows are
+   * still on screen. Worth it once the list is long enough that a section
+   * scrolls past its own heading, which is when a reader loses track of which
+   * section they are in. Off by default: a short list gains nothing from it,
+   * and the opaque backing a pinned heading needs is a visible change.
+   */
+  stickyLabel?: boolean;
 }
 
 /** A labelled section of the list, announced as a group by assistive tech. */
 function Group({
   label,
   labelClassName,
+  stickyLabel = false,
   children,
   ...rest
 }: ComboboxGroupProps) {
@@ -475,8 +493,12 @@ function Group({
       <div
         id={labelId}
         role="presentation"
+        data-slot="combobox-group-label"
         className={cn(
           "px-3 pb-1 pt-2 text-label-small-default text-[var(--content-tertiary)]",
+          // The rows scroll under the heading, so it needs a ground of its
+          // own and a place above them in the stack.
+          stickyLabel && "sticky top-0 z-10 bg-[var(--surface-lift)]",
           labelClassName,
         )}
       >

@@ -20,6 +20,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as reactRouter from "react-router";
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
 import {
   SIDEBAR_SECTION_MAX_HEIGHT,
   SIDEBAR_STACK_GAP,
@@ -123,6 +129,25 @@ mock.module(
   }),
 );
 
+/* Pinned apps come from the daemon's app list. The pin list is a plain
+   variable rather than seeded query data because `SideMenuUnderTest` builds its
+   own QueryClient per render, so a test has nothing to seed. */
+let pinnedAppsFixture: AppSummary[] = [];
+
+mock.module(
+  "@/hooks/use-pinned-apps",
+  (): Partial<typeof UsePinnedApps> => ({
+    usePinnedApps: () => ({
+      pinnedApps: pinnedAppsFixture,
+      pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
+      source: "daemon" as const,
+      togglePin: () => {},
+      unpin: () => {},
+      setColor: () => {},
+    }),
+  }),
+);
+
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
 mock.module("@/hooks/use-assistant-avatar", () => ({
@@ -145,8 +170,9 @@ import type { ConversationListFilter } from "@/utils/conversation-list-keys";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import type { PinnedAppEntry } from "@/utils/app-pin-storage";
+import type * as UsePinnedApps from "@/hooks/use-pinned-apps";
+import { makeAppSummary } from "@/types/app-summary.test-helper";
+import type { AppSummary } from "@/types/app-types";
 
 // Most of what follows describes the Grouped view's composition: the Chats
 // section, the per-channel sections, and the peer treatment they share with
@@ -206,6 +232,7 @@ function renderMenu(props: {
   conversationsFailed?: boolean;
   onRetryConversations?: () => void;
   onWidthChange?: (width: number) => void;
+  includeNotificationsAction?: boolean;
 }): string {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
@@ -228,6 +255,9 @@ function renderMenu(props: {
         : undefined,
       tipCard: props.includeTipCard
         ? createElement("span", null, "TipSentinel")
+        : undefined,
+      notificationsAction: props.includeNotificationsAction
+        ? createElement("span", { "data-testid": "bell-stub" }, "Bell")
         : undefined,
     }),
   );
@@ -682,11 +712,36 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     return html.slice(open, close + 1);
   };
 
-  test("rail body reserves no bottom padding", () => {
+  test("rail body reserves nothing under its list", () => {
     const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
 
+    expect(tag).not.toContain("mb-24");
+    expect(tag).not.toContain("margin-bottom");
+  });
+
+  test("the overlay scrollport rounds its cut onto the card's corners", () => {
+    // The cut lands mid-card whenever the list outruns the drawer, so it
+    // carries the card's own radius.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("clip-path:inset(");
+    expect(tag).toContain("var(--radius-xl)");
+    expect(sliceBodyOpeningTag(renderMenu({ conversations }))).not.toContain(
+      "clip-path",
+    );
+  });
+
+  test("the overlay reserve ends the scrollport rather than padding it", () => {
+    // A margin, so the reserve ends the scrollport: padding belongs to the
+    // scrollable box, and a card taller than the drawer paints through it.
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay" }),
+    );
+
+    expect(tag).toContain("mb-24");
     expect(tag).not.toContain("pb-24");
-    expect(tag).not.toContain("padding-bottom");
   });
 
   test("reserves the measured floating-column height once mounted", async () => {
@@ -751,7 +806,7 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
       );
 
       // happy-dom's CSSStyleDeclaration drops values containing `env()`,
-      // so the composed `padding-bottom` calc is unobservable here; the
+      // so the composed `margin-bottom` calc is unobservable here; the
       // measured height feeding it is asserted via its custom property,
       // which happy-dom stores verbatim.
       const measuredReserve = () => {
@@ -845,7 +900,12 @@ describe("AssistantSideMenu · overlay close affordance", () => {
 
   test("keeps the search affordance in the overlay header", () => {
     const overlayHtml = renderMenu({ conversations: [], variant: "overlay" });
-    expect(overlayHtml).toContain('aria-label="Search (⌘K)"');
+    // The accessible name is the command; the chord it is bound to reaches
+    // assistive tech through `aria-keyshortcuts` and a sighted user through
+    // the tooltip, so the glyphs are not part of the name.
+    expect(overlayHtml).toContain('aria-label="Search"');
+    expect(overlayHtml).toContain('aria-keyshortcuts="Meta+K"');
+    expect(overlayHtml).toContain('title="Search (⌘K)"');
   });
 });
 
@@ -901,9 +961,26 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     expect(classTokens(glyph(container, "Close navigation"))).toContain(
       "pointer-events-auto",
     );
-    expect(classTokens(glyph(container, "Search (⌘K)"))).toContain(
+    expect(classTokens(glyph(container, "Search"))).toContain(
       "pointer-events-auto",
     );
+  });
+
+  test("search sits in the right cluster beside the notifications bell", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({
+      conversations,
+      variant: "overlay",
+      includeNotificationsAction: true,
+    });
+
+    // Mirrors the chat header's right cluster: search directly left of the
+    // bell, with the close glyph alone on the other side of the row.
+    const cluster = glyph(container, "Search").parentElement;
+    expect(cluster?.querySelector('[data-testid="bell-stub"]')).not.toBeNull();
+    expect(
+      cluster?.querySelector('[aria-label="Close navigation"]'),
+    ).toBeNull();
   });
 
   test("the scroll body reserves the glyph band and carries both mask declarations", () => {
@@ -926,6 +1003,36 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     expect(body).toContain(
       "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]",
     );
+  });
+});
+
+describe("AssistantSideMenu · overlay section card geometry", () => {
+  // Class-presence pins: 12px vertical inset + 20px header row put the
+  // collapsed section pill at the overlay tile size (44px), level with the
+  // assistant pill.
+  test("the overlay card and its header carry the 44px pill geometry", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "a", title: "Alpha" }),
+      ],
+      variant: "overlay",
+    });
+
+    const card = container.querySelector('[data-slot="card"]');
+    const cardTokens = card ? Array.from(card.classList) : [];
+    expect(cardTokens).toContain("rounded-[16px]");
+    expect(cardTokens).toContain("pt-3");
+    expect(cardTokens).toContain("pb-3");
+    // Without this the Card's default transparent 1px border grows the
+    // border-box to 46px.
+    expect(cardTokens).toContain("border-0");
+
+    const header = container.querySelector(
+      '[data-slot="collapsible-nav-section-header"]',
+    );
+    const headerTokens = header ? Array.from(header.classList) : [];
+    expect(headerTokens).toContain("h-5");
   });
 });
 
@@ -1495,13 +1602,10 @@ describe("AssistantSideMenu · equal section treatment", () => {
   // used to be conditional on them.
   test("the collapsed rail's header carries no separator, pinned apps or not", () => {
     for (const pinnedApps of [
-      [] as PinnedAppEntry[],
-      [{ appId: "app-1", pinnedOrder: 0, name: "Vex Ops" }],
+      [],
+      [makeAppSummary({ id: "app-1", name: "Vex Ops", pinSortPosition: 1 })],
     ]) {
-      usePinnedAppsStore.setState({
-        pinnedApps,
-        pinnedAppIds: new Set(pinnedApps.map((a) => a.appId)),
-      });
+      pinnedAppsFixture = pinnedApps;
 
       const container = parse(
         renderMenu({
@@ -1523,7 +1627,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
       ).toHaveLength(0);
     }
 
-    usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
+    pinnedAppsFixture = [];
   });
 
   // Pinned is the one section that doesn't cap: it grows to fit its own
@@ -1636,6 +1740,78 @@ describe("AssistantSideMenu · equal section treatment", () => {
       // height of its own, so it reaches the footer on a tall rail.
       expect(scroller("Slack").classList.contains("flex-1")).toBe(true);
       expect(scroller("Slack").style.maxHeight).toBe("");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the overlay drawer lets the body scroll Chats clear of the floating pills", () => {
+    const { container } = render(
+      createElement(SideMenuUnderTest, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "overlay",
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+        onStartNewConversation: () => {},
+        footerAction: createElement("span", null, "Preferences"),
+      }),
+    );
+    try {
+      const root = container.querySelector<HTMLElement>(
+        '[data-slot="collapsible"]',
+      );
+      expect(root?.classList.contains("flex-1")).toBe(false);
+
+      const sections = sectionElements(container);
+      const labels = sectionLabels(container);
+      const chats = sections[labels.indexOf("Chats")];
+      if (!chats) {
+        throw new Error("expected the Chats section");
+      }
+
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the overlay windows a long Chats list against the drawer body", async () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const { container } = render(
+      createElement(SideMenuUnderTest, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "overlay",
+        conversations: Array.from(
+          { length: CONVERSATION_LIST_VIRTUALIZE_THRESHOLD + 1 },
+          (_, index) =>
+            makeConversation({
+              conversationId: `r${index}`,
+              title: `Recent ${index}`,
+            }),
+        ),
+        onSelectConversation: () => {},
+        onStartNewConversation: () => {},
+      }),
+    );
+    try {
+      const chats = sectionElements(container)[
+        sectionLabels(container).indexOf("Chats")
+      ];
+      if (!chats) {
+        throw new Error("expected the Chats section");
+      }
+
+      await waitFor(() => {
+        expect(chats.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+      });
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+      expect(
+        chats.querySelector('[data-slot="virtual-list"]')?.parentElement
+          ?.style.minHeight,
+      ).toBe("");
     } finally {
       cleanup();
     }

@@ -101,6 +101,10 @@ export async function processGuardianDecision(
   // 2. Verify conversationId scoping before applying the decision. The
   //    decision is allowed when the conversationId matches the request's
   //    source conversation OR a recorded delivery destination conversation.
+  //    Deliberately not narrowed by delivery channel: a delivery row's
+  //    destinationConversationId is always an internal conversation id, and
+  //    a channel card's paired conversation renders the same actionable
+  //    in-app card, so its taps are as legitimate as the vellum card's.
   //    Reads degrade fail-closed: an unreachable gateway scopes to not_found
   //    (and the decide below fails loudly anyway).
   if (conversationId) {
@@ -108,11 +112,7 @@ export async function processGuardianDecision(
     if (
       request &&
       request.sourceConversationId &&
-      !(await isGuardianRequestInScopeOrFalse(
-        requestId,
-        conversationId,
-        channel,
-      ))
+      !(await isGuardianRequestInScopeOrFalse(requestId, conversationId))
     ) {
       return { ok: true, applied: false, reason: "not_found" };
     }
@@ -128,6 +128,10 @@ export async function processGuardianDecision(
       channel,
       guardianPrincipalId: actorContext.guardianPrincipalId,
     },
+    // The acting conversation: card withdrawal suppresses only this
+    // conversation's completion broadcast (the acting client already shows
+    // its optimistic completion); sibling in-app projections still get theirs.
+    ...(conversationId ? { originConversationId: conversationId } : {}),
     userText: undefined,
   });
 

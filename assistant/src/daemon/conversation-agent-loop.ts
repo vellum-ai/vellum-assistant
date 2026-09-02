@@ -51,8 +51,10 @@ import {
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
+  updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
+import { NO_RESPONSE_MESSAGE_KIND } from "../persistence/conversation-types.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
@@ -73,6 +75,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { isNoResponseOnlyText } from "../runtime/no-response.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import {
@@ -113,6 +116,7 @@ import {
   drainConversationNotices,
 } from "./conversation-notices.js";
 import {
+  applySightFrameRetention,
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
   resolveTurnInboundActorContext,
@@ -133,6 +137,10 @@ import {
   unregisterInflightTurn,
 } from "./inflight-turn-registry.js";
 import type { UsageStats } from "./message-protocol.js";
+import {
+  persistReactionRecords,
+  type QueuedReactionRecord,
+} from "./reaction-record.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
@@ -733,8 +741,33 @@ export async function runAgentLoopImpl(
   // the `finally` (before processing clears, so the reporter's settled-turn
   // barrier guarantees the stamp ships with the turn event). Unset = the turn
   // replied normally and carries no stamp.
+  const failedOutcomeFromClassification = (classified: {
+    code: string;
+    userMessage: string;
+    errorCategory: string;
+    connectionName?: string;
+    profileName?: string;
+  }): NonNullable<typeof abnormalOutcome> => ({
+    outcome: "failed",
+    failureCode: classified.code,
+    failureMessage: classified.userMessage,
+    failureCategory: classified.errorCategory,
+    ...(classified.connectionName
+      ? { failureConnection: classified.connectionName }
+      : {}),
+    ...(classified.profileName
+      ? { failureProfile: classified.profileName }
+      : {}),
+  });
   let abnormalOutcome:
-    | { outcome: "failed" | "cancelled"; failureCode?: string }
+    | {
+        outcome: "failed" | "cancelled";
+        failureCode?: string;
+        failureMessage?: string;
+        failureCategory?: string;
+        failureConnection?: string;
+        failureProfile?: string;
+      }
     | undefined;
   // True once a replied terminal SSE (message_complete / generation_handoff)
   // has been emitted. Guards the catch block: an error thrown by the
@@ -750,6 +783,14 @@ export async function runAgentLoopImpl(
   // turn's content is settled; the `finally` calls it again as the backstop for
   // the cancel/error paths that never reached the early release.
   let turnReleased = false;
+  // The turn's own queued reaction records, captured by `releaseTurn` while
+  // the conversation is still exclusive. The `finally` drains this array,
+  // never the live conversation field: after release a following turn may
+  // queue records of its own there, and draining the shared field would
+  // consume the new turn's record before its tool_result settles, the
+  // cross-turn variant of the pairing corruption the boundary drain
+  // prevents.
+  const ownedReactionRecords: QueuedReactionRecord[] = [];
 
   /**
    * Free the conversation for its next turn.
@@ -777,6 +818,10 @@ export async function runAgentLoopImpl(
       try {
         stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
           failureCode: abnormalOutcome.failureCode,
+          failureMessage: abnormalOutcome.failureMessage,
+          failureCategory: abnormalOutcome.failureCategory,
+          failureConnection: abnormalOutcome.failureConnection,
+          failureProfile: abnormalOutcome.failureProfile,
         });
       } catch (err) {
         rlog.warn(
@@ -784,6 +829,11 @@ export async function runAgentLoopImpl(
           "Failed to stamp turn outcome (non-fatal); releasing the turn anyway",
         );
       }
+    }
+    // Ownership capture happens in the same synchronous step as the
+    // release, so records queued after this point belong to the next turn.
+    if (ctx.pendingReactionRecords?.length) {
+      ownedReactionRecords.push(...ctx.pendingReactionRecords.splice(0));
     }
     ctx.abortController = null;
     ctx.setProcessing(false);
@@ -858,6 +908,7 @@ export async function runAgentLoopImpl(
       abnormalOutcome = {
         outcome: "failed",
         failureCode: DISK_PRESSURE_ERROR_CODE,
+        failureMessage: message,
       };
       rlog.warn(
         { reason: diskPressureDecision.reason },
@@ -1225,8 +1276,20 @@ export async function runAgentLoopImpl(
     // immediately before the call, after every hook (memory injection, title,
     // user plugins) has settled its shape. Runs unconditionally — a malformed
     // history is a hard provider rejection, never a per-conversation opt-in.
-    const runMessages = repairHistoryForRun(
+    const repairedMessages = repairHistoryForRun(
       finalUserPromptCtx.latestMessages,
+      ctx.conversationId,
+    );
+    // Camera-frame retention: keep only the newest few ambient frames as real
+    // images. Applied to the per-turn copy, after every hook and the repair, so
+    // every turn this loop drives inherits it and the stored transcript keeps
+    // its attachments. The loop re-runs the same pass on any history its
+    // in-place compaction rebuilds (see the `transformCompactedHistory` closure
+    // the conversation supplies), so the bound holds across a compaction rather
+    // than only from the next turn. The overflow ladder's media stubbing still
+    // governs everything the user deliberately attached.
+    const runMessages = applySightFrameRetention(
+      repairedMessages,
       ctx.conversationId,
     );
 
@@ -1382,17 +1445,16 @@ export async function runAgentLoopImpl(
       );
       // Exhausted-overflow exit: the reduction ladder is spent and the turn
       // ends without a real reply, so label it failed for telemetry.
-      abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+      abnormalOutcome = failedOutcomeFromClassification(classified);
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     } else if (
       overflowTerminalReason === "budget_yield_unrecovered" &&
       !abortController.signal.aborted
     ) {
       budgetYieldClassification = budgetYieldUnrecoveredClassification();
-      abnormalOutcome = {
-        outcome: "failed",
-        failureCode: budgetYieldClassification.code,
-      };
+      abnormalOutcome = failedOutcomeFromClassification(
+        budgetYieldClassification,
+      );
       onEvent(
         buildConversationErrorMessage(
           ctx.conversationId,
@@ -1534,6 +1596,32 @@ export async function runAgentLoopImpl(
     // of why the turn stopped.
     const hasAssistantResponse =
       newMessages[newMessages.length - 1]?.role === "assistant";
+    // A reply that is nothing but the `<no_response/>` sentinel is deliberate
+    // silence. Stamp the persisted row so clients render a quiet notice and
+    // resolve their pending-response state, instead of showing the raw
+    // sentinel or waiting forever; the content keeps the sentinel so the
+    // model reads its own convention back from history.
+    if (hasAssistantResponse && state.lastAssistantMessageId) {
+      const tail = newMessages[newMessages.length - 1]!;
+      const tailText = Array.isArray(tail.content)
+        ? tail.content
+            .filter((b) => b.type === "text")
+            .map((b) => (b.type === "text" ? b.text : ""))
+            .join("\n")
+        : "";
+      if (isNoResponseOnlyText(tailText)) {
+        try {
+          updateMessageMetadata(state.lastAssistantMessageId, {
+            messageKind: NO_RESPONSE_MESSAGE_KIND,
+          });
+        } catch (err) {
+          rlog.warn(
+            { err, messageId: state.lastAssistantMessageId },
+            "Failed to stamp deliberate-silence marker (non-fatal)",
+          );
+        }
+      }
+    }
     if (
       !hasAssistantResponse &&
       state.providerErrorUserMessage &&
@@ -1547,6 +1635,16 @@ export async function runAgentLoopImpl(
         outcome: "failed",
         ...(state.providerErrorCode
           ? { failureCode: state.providerErrorCode }
+          : {}),
+        failureMessage: state.providerErrorUserMessage,
+        ...(state.providerErrorCategory
+          ? { failureCategory: state.providerErrorCategory }
+          : {}),
+        ...(state.providerErrorConnection
+          ? { failureConnection: state.providerErrorConnection }
+          : {}),
+        ...(state.providerErrorProfile
+          ? { failureProfile: state.providerErrorProfile }
           : {}),
       };
       // Drop any reservation stranded by the failed LLM call. The B3
@@ -1684,9 +1782,23 @@ export async function runAgentLoopImpl(
         tokens: state.lastCallInputTokens,
         maxTokens: resolveCurrentMaxInputTokens(),
       },
+      // When the turn's last LLM call was rerouted to a backup profile, that
+      // profile is what served the tokens being recorded, so it outranks the
+      // conversation's own resolution, which knows nothing about the
+      // reroute. `provider` and `model` on this same row already follow the
+      // backup (via `state.exchangeProviderName` / `state.model`), so
+      // attributing the profile from the primary would write a row that
+      // contradicts itself. `forceOverrideProfile` floats it above the
+      // call-site profile exactly as the fallback dispatch did.
       {
         callSite: turnCallSite,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        overrideProfile:
+          state.exchangeInferenceProfile ??
+          resolveCurrentOverrideProfile() ??
+          null,
+        ...(state.exchangeInferenceProfile !== undefined
+          ? { forceOverrideProfile: true }
+          : {}),
       },
       turnCronRunId,
     );
@@ -1860,7 +1972,7 @@ export async function runAgentLoopImpl(
         ...turnErrorAttribution(),
       });
       if (!turnReplied) {
-        abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+        abnormalOutcome = failedOutcomeFromClassification(classified);
       }
       onEvent({
         type: "error",
@@ -1945,6 +2057,16 @@ export async function runAgentLoopImpl(
       // the API, enabling stable prefix caching across turns.  Compaction
       // consolidates when it summarizes old messages (cache miss is expected).
     } finally {
+      // Backstop for paths that threw before either release site: still
+      // exclusive here, so the release's ownership capture is race-free.
+      releaseTurn();
+      // Reactions the turn delivered get their durable rows on every
+      // terminal path, error exits included: the reaction already happened
+      // on the channel, and the record must not depend on the turn
+      // finishing cleanly. Only records this turn captured at release are
+      // drained; writing after the turn stops producing rows keeps them out
+      // of any tool_use/tool_result pair.
+      await drainQueuedReactionRecords(ctx, ownedReactionRecords);
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.
@@ -1953,6 +2075,32 @@ export async function runAgentLoopImpl(
         "agent_loop_finally",
       );
     }
+  }
+}
+
+/**
+ * Persist and clear the turn's queued reaction records. Non-throwing: a
+ * failure here must never mask the turn's own outcome, and
+ * `persistReactionRecords` already logs per-record failures.
+ */
+export async function drainQueuedReactionRecords(
+  ctx: Pick<Conversation, "conversationId" | "markHistoryStale">,
+  ownedRecords: QueuedReactionRecord[] | undefined,
+): Promise<void> {
+  // Runs inside the loop's finally, where a throw would mask the turn's own
+  // outcome, so every access sits inside the guard. Drains only the records
+  // the finished turn captured at release, never the conversation's live
+  // queue, so one turn cannot consume a following turn's records.
+  try {
+    if (!ownedRecords?.length) {
+      return;
+    }
+    const queuedReactions = ownedRecords.splice(0);
+    await persistReactionRecords(ctx.conversationId, queuedReactions);
+    ctx.markHistoryStale();
+  } catch {
+    // persistReactionRecords is itself non-throwing per record; this guard
+    // covers only unexpected faults so the finally block stays safe.
   }
 }
 
@@ -1975,6 +2123,13 @@ function emitUsage(
   attribution?: {
     callSite: LLMCallSite | null;
     overrideProfile?: string | null;
+    /**
+     * Float `overrideProfile` above the call-site profile, matching how the
+     * dispatch path floated it. Set when the profile being attributed is the
+     * one a reroute actually served under rather than the caller's own
+     * resolution.
+     */
+    forceOverrideProfile?: boolean;
   },
   cronRunId: string | null = null,
 ): void {
@@ -2050,7 +2205,10 @@ export async function applyCompactionResult(
     summaryCacheReadInputTokens?: number;
     summaryRawResponses?: unknown[];
     summaryCallSite?: LLMCallSite;
+    summaryResolutionCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
+    summaryActualProvider?: string;
+    summaryActualInferenceProfile?: string;
   },
   onEvent: (msg: AssistantEvent) => void,
   reqId: string | null,
@@ -2125,12 +2283,29 @@ export async function applyCompactionResult(
     result.summaryCacheCreationInputTokens ?? 0,
     result.summaryCacheReadInputTokens ?? 0,
     collapseRawResponses(result.summaryRawResponses),
-    undefined /* providerName */,
+    // The provider that actually served the summary, which follows a fallback
+    // reroute the way `summaryModel` already did. Undefined only where no call
+    // was made, and `emitUsage` then falls back to `ctx.provider.name` exactly
+    // as before.
+    result.summaryActualProvider /* providerName */,
     1 /* llmCallCount */,
     undefined /* contextWindow */,
+    // Same rule as the main-agent row above, applied to the compaction row:
+    // a rerouted summary is attributed to the profile that answered, not to
+    // the one the compactor resolved before the call. The two call sites set
+    // this parameter independently off their own state and never share it.
     {
       callSite: result.summaryCallSite ?? null,
-      overrideProfile: result.summaryOverrideProfile ?? null,
+      ...(result.summaryResolutionCallSite != null
+        ? { profileResolutionCallSite: result.summaryResolutionCallSite }
+        : {}),
+      overrideProfile:
+        result.summaryActualInferenceProfile ??
+        result.summaryOverrideProfile ??
+        null,
+      ...(result.summaryActualInferenceProfile !== undefined
+        ? { forceOverrideProfile: true }
+        : {}),
     },
     options.cronRunId ?? null,
   );

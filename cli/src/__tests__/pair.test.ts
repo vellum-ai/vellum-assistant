@@ -24,6 +24,48 @@ import { buildAppConnectUrl, pair } from "../commands/pair.js";
 // Distinct loopback (mint) vs reachable (advertised) URLs to verify the split.
 const LOCAL_URL = "http://127.0.0.1:7830";
 const RUNTIME_URL = "http://192.168.1.50:7830";
+const PUBLIC_URL = "https://pair.example.ts.net";
+
+function challengeResponse(baseUrl = PUBLIC_URL): Response {
+  return new Response(
+    JSON.stringify({
+      deviceCode: "device-code",
+      userCode: "ABCD-EFGH",
+      verificationUri: `${baseUrl}/assistant/pair`,
+      expiresAt: "2026-06-04T00:10:00.000Z",
+      expiresInSeconds: 600,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+function approvalResponse(baseUrl = PUBLIC_URL): Response {
+  return new Response(
+    JSON.stringify({
+      status: "approved",
+      verificationUri: `${baseUrl}/assistant/pair`,
+      expiresAt: "2026-06-04T00:10:00.000Z",
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+/** Answer the challenge + verification pair minted over loopback. */
+function stubPairingGateway(
+  calls: Array<[string, RequestInit | undefined]>,
+  baseUrl = PUBLIC_URL,
+): void {
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    calls.push([url, init]);
+    if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+      return challengeResponse(baseUrl);
+    }
+    if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
+      return approvalResponse(baseUrl);
+    }
+    return new Response("not found", { status: 404 });
+  }) as unknown as typeof fetch;
+}
 
 function writeLockfile(): void {
   writeFileSync(
@@ -66,21 +108,10 @@ describe("pair command", () => {
     }
   });
 
-  test("POSTs a cli device-bound pair request and prints a decodable bundle", async () => {
-    const calls: Array<[string, RequestInit]> = [];
+  test("mints a challenge, approves it locally, and prints the link plus a QR", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init: RequestInit) => {
-      calls.push([url, init]);
-      return new Response(
-        JSON.stringify({
-          token: "test-access-token",
-          expiresAt: "2026-06-04T00:00:00.000Z",
-          guardianId: "guardian-001",
-          assistantId: "self",
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
+    stubPairingGateway(calls);
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation(
@@ -89,7 +120,7 @@ describe("pair command", () => {
       },
     );
 
-    process.argv = ["bun", "vellum", "pair", "--json"];
+    process.argv = ["bun", "vellum", "pair", "--url", PUBLIC_URL];
     try {
       await pair();
     } finally {
@@ -97,29 +128,224 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // Mint over the loopback (localUrl), not the reachable runtime URL.
-    expect(calls).toHaveLength(1);
-    const [url, init] = calls[0];
-    expect(url).toBe(`${LOCAL_URL}/v1/pair`);
-    expect(init.method).toBe("POST");
-    const headers = Object.fromEntries(
-      Object.entries(init.headers as Record<string, string>).map(([k, v]) => [
-        k.toLowerCase(),
-        v,
-      ]),
-    );
-    expect(headers["x-vellum-interface-id"]).toBe("cli");
-    const body = JSON.parse(init.body as string);
-    expect(typeof body.deviceId).toBe("string");
-    expect(body.deviceId.length).toBeGreaterThan(0);
-    expect(body.platform).toBe("cli");
+    // Mint over the loopback gateway, then approve: running this command on
+    // the host IS the approval, so the link alone completes the pairing.
+    expect(calls.map((c) => c[0])).toEqual([
+      `${LOCAL_URL}/v1/remote-web/pairing-challenge`,
+      `${LOCAL_URL}/v1/remote-web/pairing-verification`,
+    ]);
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
+      publicBaseUrl: PUBLIC_URL,
+    });
+    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+      userCode: "ABCD-EFGH",
+    });
 
-    // The bundle advertises the REACHABLE runtime URL, not loopback.
+    const output = logs.join("\n");
+    // One artifact, two renderings: the link and the same link as a QR.
+    expect(output).toContain(
+      `${PUBLIC_URL}/assistant/pair#device_code=device-code`,
+    );
+    expect(output).toContain("\u2588");
+    expect(output).toContain("vellum connect import");
+    expect(output).toContain("Expires: 2026-06-04T00:10:00.000Z");
+    // The base64 bundle is gone: no blob, and no hand-this-over copy.
+    expect(output).not.toContain("Hand this to the other machine");
+    expect(output).not.toMatch(/eyJ[A-Za-z0-9+/=]{20,}/);
+  });
+
+  test("--json emits the pairing link, device code, and expiry", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const origFetch = globalThis.fetch;
+    stubPairingGateway(calls);
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = ["bun", "vellum", "pair", "--url", PUBLIC_URL, "--json"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
     const out = JSON.parse(logs.join("\n"));
-    expect(out.gatewayUrl).toBe(RUNTIME_URL);
-    expect(out.assistantId).toBe("self");
-    expect(out.token).toBe("test-access-token");
-    expect(out.deviceId).toBe(body.deviceId);
+    expect(out).toEqual({
+      pairUrl: `${PUBLIC_URL}/assistant/pair#device_code=device-code`,
+      deviceCode: "device-code",
+      expiresAt: "2026-06-04T00:10:00.000Z",
+      expiresInSeconds: 600,
+    });
+    // The device code rides the fragment only, never the path or query.
+    const parsed = new URL(out.pairUrl);
+    expect(parsed.search).toBe("");
+    expect(parsed.hash).toBe("#device_code=device-code");
+    // No credential ever reaches the output.
+    expect(logs.join("\n")).not.toContain("token");
+  });
+
+  test("--qr is a silent no-op, identical to a flagless run", async () => {
+    // Shipped iOS builds tell users to run `vellum pair --qr` (see
+    // clients/ios/App/App/Settings.bundle/Root.plist), copy those installs can
+    // never receive an update for, so the flag stays accepted and ignored.
+    const origFetch = globalThis.fetch;
+
+    async function runPair(argv: string[]): Promise<{
+      urls: string[];
+      output: string;
+    }> {
+      const calls: Array<[string, RequestInit | undefined]> = [];
+      stubPairingGateway(calls);
+      const logs: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation(
+        (...a: unknown[]) => {
+          logs.push(a.join(" "));
+        },
+      );
+      const errSpy = spyOn(console, "error").mockImplementation(
+        (...a: unknown[]) => {
+          logs.push(`ERROR ${a.join(" ")}`);
+        },
+      );
+      process.argv = argv;
+      try {
+        await pair();
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+      }
+      return { urls: calls.map((c) => c[0]), output: logs.join("\n") };
+    }
+
+    let plain: { urls: string[]; output: string };
+    let withQr: { urls: string[]; output: string };
+    try {
+      plain = await runPair(["bun", "vellum", "pair", "--url", PUBLIC_URL]);
+      withQr = await runPair([
+        "bun",
+        "vellum",
+        "pair",
+        "--qr",
+        "--url",
+        PUBLIC_URL,
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+
+    expect(withQr.urls).toEqual(plain.urls);
+    expect(withQr.output).toBe(plain.output);
+    // Accepted, not retired: no migration error, and the QR still prints.
+    expect(withQr.output).not.toContain("no longer an option");
+    expect(withQr.output).toContain("\u2588");
+  });
+
+  test("--qr is not advertised in the help output", async () => {
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+    process.argv = ["bun", "vellum", "pair", "--help"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(logs.join("\n")).not.toContain("--qr");
+  });
+
+  test("--app-scheme without --app is refused rather than ignored", async () => {
+    // A scheme only names the app link, so accepting it alone would print the
+    // https QR and drop the scheme silently.
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--app-scheme",
+      "vellum-assistant-dev",
+      "--url",
+      PUBLIC_URL,
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("--app-scheme");
+    expect(errors.join("\n")).toContain("--app");
+    // Refused before anything is minted.
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("--web is refused, pointing at connect import on the other device", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--web", "--url", PUBLIC_URL];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    const joined = errors.join("\n");
+    expect(joined).toContain("--web is no longer an option");
+    expect(joined).toContain("vellum connect import");
+    expect(joined).toContain("--web-approve");
+    expect(fetchCalled).toBe(false);
   });
 
   test("resolves an unquoted multi-word display name", async () => {
@@ -140,23 +366,21 @@ describe("pair command", () => {
       }),
     );
 
-    let fetchCalled = false;
+    const calls: Array<[string, RequestInit | undefined]> = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (async () => {
-      fetchCalled = true;
-      return new Response(
-        JSON.stringify({
-          token: "t",
-          expiresAt: "2026-06-04T00:00:00.000Z",
-          guardianId: "g",
-          assistantId: "self",
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
+    stubPairingGateway(calls);
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
 
-    process.argv = ["bun", "vellum", "pair", "My", "Assistant", "--json"];
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "My",
+      "Assistant",
+      "--url",
+      PUBLIC_URL,
+      "--json",
+    ];
     try {
       await pair();
     } finally {
@@ -164,8 +388,11 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // Resolution succeeded (no exit), so the mint request was made.
-    expect(fetchCalled).toBe(true);
+    // Resolution succeeded (no exit), so the challenge was minted.
+    expect(calls.map((c) => c[0])).toEqual([
+      `${LOCAL_URL}/v1/remote-web/pairing-challenge`,
+      `${LOCAL_URL}/v1/remote-web/pairing-verification`,
+    ]);
   });
 
   test("rejects an unknown --flag before any network call", async () => {
@@ -262,7 +489,7 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("refuses to advertise a loopback URL without --url (suggests the assistant's own port)", async () => {
+  test("refuses a loopback runtime URL without --url, before minting", async () => {
     // Local hatch on a NON-default gateway port (e.g. a 2nd instance).
     const LOOPBACK_CUSTOM = "http://127.0.0.1:7842";
     writeFileSync(
@@ -310,21 +537,20 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // The suggested --url uses the assistant's actual port, not the default.
-    expect(errors.join("\n")).toContain(":7842");
-    expect(errors.join("\n")).not.toContain(":7830");
+    // The refusal names the address it refused and both ways forward: an
+    // explicit --url, or a tunnel when there is no public address yet.
+    const joined = errors.join("\n");
+    expect(joined).toContain(LOOPBACK_CUSTOM);
+    expect(joined).toContain("loopback");
+    expect(joined).toContain("vellum pair --url");
+    expect(joined).toContain("vellum tunnel --provider tailscale");
 
-    // The refusal cross-points to the QR flow (the phone-pairing path) and its
-    // https prerequisite, so a user who wanted a QR isn't left at a dead end.
-    expect(errors.join("\n")).toContain("vellum pair --qr");
-    expect(errors.join("\n")).toContain("vellum tunnel --provider tailscale");
-
-    // Exited with an error before minting — no token created for a dead URL.
+    // Exited before minting, so no challenge exists for a dead link.
     expect(exited).toBe(true);
     expect(fetchCalled).toBe(false);
   });
 
-  test("--url override allows pairing even when the runtime URL is loopback", async () => {
+  test("--url override wins over a loopback runtime URL", async () => {
     writeFileSync(
       join(testDir, ".vellum.lock.json"),
       JSON.stringify({
@@ -340,20 +566,10 @@ describe("pair command", () => {
       }),
     );
 
-    const calls: Array<[string, RequestInit]> = [];
+    const OVERRIDE = "https://abc123.ngrok.app";
+    const calls: Array<[string, RequestInit | undefined]> = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init: RequestInit) => {
-      calls.push([url, init]);
-      return new Response(
-        JSON.stringify({
-          token: "t",
-          expiresAt: "2026-06-04T00:00:00.000Z",
-          guardianId: "g",
-          assistantId: "self",
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
+    stubPairingGateway(calls, OVERRIDE);
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation(
       (...a: unknown[]) => {
@@ -361,7 +577,6 @@ describe("pair command", () => {
       },
     );
 
-    const OVERRIDE = "https://abc123.ngrok.app";
     process.argv = ["bun", "vellum", "pair", "--url", OVERRIDE, "--json"];
     try {
       await pair();
@@ -370,75 +585,14 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // Mint still over loopback; bundle advertises the override.
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toBe(`${LOCAL_URL}/v1/pair`);
-    const out = JSON.parse(logs.join("\n"));
-    expect(out.gatewayUrl).toBe(OVERRIDE);
-  });
-
-  test("--web creates a browser pairing URL without printing tokens", async () => {
-    const calls: Array<[string, RequestInit | undefined]> = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      calls.push([url, init]);
-      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
-        return new Response(
-          JSON.stringify({
-            deviceCode: "device-code",
-            userCode: "ABCD-EFGH",
-            verificationUri:
-              "https://abc123.ngrok.app/assistant-123/assistant/pair",
-            expiresAt: "2026-06-04T00:10:00.000Z",
-            expiresInSeconds: 600,
-            intervalSeconds: 5,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response("not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation(
-      (...a: unknown[]) => {
-        logs.push(a.join(" "));
-      },
-    );
-
-    process.argv = [
-      "bun",
-      "vellum",
-      "pair",
-      "--web",
-      "--url",
-      "https://abc123.ngrok.app/assistant-123/assistant/",
-      "--json",
-    ];
-    try {
-      await pair();
-    } finally {
-      logSpy.mockRestore();
-      globalThis.fetch = origFetch;
-    }
-
-    expect(calls).toHaveLength(1);
+    // Mint still over loopback; the link advertises the override.
     expect(calls[0][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-challenge`);
     expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
-      publicBaseUrl: "https://abc123.ngrok.app/assistant-123",
+      publicBaseUrl: OVERRIDE,
     });
-
-    const out = JSON.parse(logs.join("\n"));
-    expect(out).toEqual({
-      pairUrl:
-        "https://abc123.ngrok.app/assistant-123/assistant/pair#device_code=device-code",
-      userCode: "ABCD-EFGH",
-      verificationUri: "https://abc123.ngrok.app/assistant-123/assistant/pair",
-      expiresAt: "2026-06-04T00:10:00.000Z",
-      expiresInSeconds: 600,
-    });
-    expect(logs.join("\n")).not.toContain("access");
-    expect(logs.join("\n")).not.toContain("refresh");
+    expect(JSON.parse(logs.join("\n")).pairUrl).toBe(
+      `${OVERRIDE}/assistant/pair#device_code=device-code`,
+    );
   });
 
   test("--web-approve approves a browser pairing code over loopback", async () => {
@@ -508,142 +662,7 @@ describe("pair command", () => {
     });
   });
 
-  test("--qr mints a challenge, auto-approves it, and emits a device-code link", async () => {
-    const calls: Array<[string, RequestInit | undefined]> = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      calls.push([url, init]);
-      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
-        return new Response(
-          JSON.stringify({
-            deviceCode: "device-code",
-            userCode: "ABCD-EFGH",
-            verificationUri: "https://pair.example.ts.net/assistant/pair",
-            expiresAt: "2026-06-04T00:10:00.000Z",
-            expiresInSeconds: 600,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
-        return new Response(
-          JSON.stringify({
-            status: "approved",
-            verificationUri: "https://pair.example.ts.net/assistant/pair",
-            expiresAt: "2026-06-04T00:10:00.000Z",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response("not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation(
-      (...a: unknown[]) => {
-        logs.push(a.join(" "));
-      },
-    );
-
-    process.argv = [
-      "bun",
-      "vellum",
-      "pair",
-      "--qr",
-      "--url",
-      "https://pair.example.ts.net",
-      "--json",
-    ];
-    try {
-      await pair();
-    } finally {
-      logSpy.mockRestore();
-      globalThis.fetch = origFetch;
-    }
-
-    // Create challenge → approve it, all over loopback. The
-    // approval is the whole point: running the CLI on the host IS the approval,
-    // so the scan alone completes pairing.
-    expect(calls.map((c) => c[0])).toEqual([
-      `${LOCAL_URL}/v1/remote-web/pairing-challenge`,
-      `${LOCAL_URL}/v1/remote-web/pairing-verification`,
-    ]);
-    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
-      publicBaseUrl: "https://pair.example.ts.net",
-    });
-    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
-      userCode: "ABCD-EFGH",
-    });
-
-    const out = JSON.parse(logs.join("\n"));
-    expect(out).toEqual({
-      pairUrl:
-        "https://pair.example.ts.net/assistant/pair#device_code=device-code",
-      deviceCode: "device-code",
-      expiresAt: "2026-06-04T00:10:00.000Z",
-      expiresInSeconds: 600,
-    });
-    // The device code rides the fragment only — never the path or query.
-    const parsed = new URL(out.pairUrl);
-    expect(parsed.search).toBe("");
-    expect(parsed.hash).toBe("#device_code=device-code");
-  });
-
-  test("--qr renders a QR and prints the fallback URL and expiry", async () => {
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string) => {
-      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
-        return new Response(
-          JSON.stringify({
-            deviceCode: "device-code",
-            userCode: "ABCD-EFGH",
-            verificationUri: "https://pair.example.ts.net/assistant/pair",
-            expiresAt: "2026-06-04T00:10:00.000Z",
-            expiresInSeconds: 600,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          status: "approved",
-          verificationUri: "https://pair.example.ts.net/assistant/pair",
-          expiresAt: "2026-06-04T00:10:00.000Z",
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
-
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation(
-      (...a: unknown[]) => {
-        logs.push(a.join(" "));
-      },
-    );
-
-    process.argv = [
-      "bun",
-      "vellum",
-      "pair",
-      "--qr",
-      "--url",
-      "https://pair.example.ts.net",
-    ];
-    try {
-      await pair();
-    } finally {
-      logSpy.mockRestore();
-      globalThis.fetch = origFetch;
-    }
-
-    const output = logs.join("\n");
-    expect(output).toContain(
-      "https://pair.example.ts.net/assistant/pair#device_code=device-code",
-    );
-    expect(output).toContain("Expires: 2026-06-04T00:10:00.000Z");
-  });
-
-  test("--qr refuses a non-https --url without minting", async () => {
+  test("refuses a non-https --url without minting", async () => {
     let fetchCalled = false;
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -666,7 +685,6 @@ describe("pair command", () => {
       "bun",
       "vellum",
       "pair",
-      "--qr",
       "--url",
       "http://pair.example.com",
     ];
@@ -687,7 +705,7 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("--qr refuses a loopback --url without minting", async () => {
+  test("refuses a loopback --url without minting", async () => {
     let fetchCalled = false;
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -706,14 +724,7 @@ describe("pair command", () => {
       throw new Error(`exit:${code}`);
     }) as never);
 
-    process.argv = [
-      "bun",
-      "vellum",
-      "pair",
-      "--qr",
-      "--url",
-      "http://127.0.0.1:7830",
-    ];
+    process.argv = ["bun", "vellum", "pair", "--url", "http://127.0.0.1:7830"];
     let exited = false;
     try {
       await pair();
@@ -730,7 +741,7 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("--qr refuses an unparseable --url with an accurate error, not a non-https mislabel", async () => {
+  test("refuses an unparseable --url with an accurate error, not a non-https mislabel", async () => {
     let fetchCalled = false;
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -749,7 +760,7 @@ describe("pair command", () => {
       throw new Error(`exit:${code}`);
     }) as never);
 
-    process.argv = ["bun", "vellum", "pair", "--qr", "--url", "not-a-url"];
+    process.argv = ["bun", "vellum", "pair", "--url", "not-a-url"];
     let exited = false;
     try {
       await pair();
@@ -771,7 +782,7 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("--qr refuses a tunnel-provider website URL (Tailscale admin invite) without minting", async () => {
+  test("refuses a tunnel-provider website URL (Tailscale admin invite) without minting", async () => {
     let fetchCalled = false;
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -794,7 +805,6 @@ describe("pair command", () => {
       "bun",
       "vellum",
       "pair",
-      "--qr",
       "--url",
       "https://login.tailscale.com/admin/invite/abc123",
     ];
@@ -863,7 +873,7 @@ describe("pair command", () => {
     );
   });
 
-  test("--qr --app emits an app connect URL alongside the browser URL", async () => {
+  test("--app emits an app connect URL alongside the browser URL", async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string) => {
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
@@ -902,7 +912,6 @@ describe("pair command", () => {
       "bun",
       "vellum",
       "pair",
-      "--qr",
       "--app",
       "--app-scheme",
       "vellum-assistant-dev",
@@ -930,7 +939,7 @@ describe("pair command", () => {
     expect(out.deviceCode).toBe("device-code");
   });
 
-  test("--qr --app --label overrides the assistant name in the connect link", async () => {
+  test("--app --label overrides the assistant name in the connect link", async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string) => {
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
@@ -969,7 +978,6 @@ describe("pair command", () => {
       "bun",
       "vellum",
       "pair",
-      "--qr",
       "--app",
       "--label",
       "Homelab",
@@ -990,7 +998,7 @@ describe("pair command", () => {
     );
   });
 
-  test("--app without --qr is refused", async () => {
+  test("--app is refused alongside --web-approve", async () => {
     let fetchCalled = false;
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -1009,7 +1017,14 @@ describe("pair command", () => {
       throw new Error(`exit:${code}`);
     }) as never);
 
-    process.argv = ["bun", "vellum", "pair", "--app"];
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--app",
+      "--web-approve",
+      "ABCD-EFGH",
+    ];
     let exited = false;
     try {
       await pair();
@@ -1022,7 +1037,7 @@ describe("pair command", () => {
     }
 
     expect(exited).toBe(true);
-    expect(errors.join("\n")).toContain("--qr");
+    expect(errors.join("\n")).toContain("--web-approve");
     expect(fetchCalled).toBe(false);
   });
 
@@ -1044,7 +1059,7 @@ describe("pair command", () => {
     );
   }
 
-  test("--qr with no --url uses the entry's tunnel-recorded ingress URL", async () => {
+  test("with no --url, the entry's tunnel-recorded ingress URL is used", async () => {
     writeLockfileWithIngress("https://saved.example.ts.net");
 
     const calls: string[] = [];
@@ -1087,7 +1102,7 @@ describe("pair command", () => {
       },
     );
 
-    process.argv = ["bun", "vellum", "pair", "--qr"];
+    process.argv = ["bun", "vellum", "pair"];
     try {
       await pair();
     } finally {
@@ -1149,7 +1164,6 @@ describe("pair command", () => {
       "bun",
       "vellum",
       "pair",
-      "--qr",
       "--url",
       "https://explicit.example.ts.net",
     ];
@@ -1185,7 +1199,7 @@ describe("pair command", () => {
       throw new Error(`exit:${code}`);
     }) as never);
 
-    process.argv = ["bun", "vellum", "pair", "--qr"];
+    process.argv = ["bun", "vellum", "pair"];
     let exited = false;
     try {
       await pair();
@@ -1197,8 +1211,8 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // The recorded http URL is skipped, so --qr falls through to the
-    // (non-https) runtime URL and refuses — proving it was not advertised.
+    // The recorded http URL is skipped, so the flow falls through to the
+    // (non-https) runtime URL and refuses, proving it was not advertised.
     expect(exited).toBe(true);
     expect(errors.join("\n")).toContain(RUNTIME_URL);
     expect(minted).toBe(false);
@@ -1226,7 +1240,7 @@ describe("pair command", () => {
       throw new Error(`exit:${code}`);
     }) as never);
 
-    process.argv = ["bun", "vellum", "pair", "--qr"];
+    process.argv = ["bun", "vellum", "pair"];
     let exited = false;
     try {
       await pair();

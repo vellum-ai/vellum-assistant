@@ -50,7 +50,7 @@ interface SenderAgg {
 async function cacheStore(data: unknown): Promise<string> {
   const proc = Bun.spawn(
     ["assistant", "cache", "set", "--ttl", "30m", "--json"],
-    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+    { windowsHide: true, stdin: "pipe", stdout: "pipe", stderr: "pipe" },
   );
   proc.stdin.write(JSON.stringify(data));
   proc.stdin.end();

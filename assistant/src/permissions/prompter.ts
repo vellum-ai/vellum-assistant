@@ -14,8 +14,6 @@ const log = getLogger("permission-prompter");
 
 type ConfirmResult = {
   decision: UserDecision;
-  selectedPattern?: string;
-  selectedScope?: string;
   decisionContext?: string;
   wasTimeout?: boolean;
   wasSystemCancel?: boolean;
@@ -175,7 +173,7 @@ export class PermissionPrompter {
       this.sendToClient(confirmationMsg);
 
       // Promote the confirmation to a guardian request so channel
-      // guardian decisions (reactions, buttons, text) can resolve it.
+      // guardian decisions (buttons, text) can resolve it.
       // The prompter runs inside the emitting turn, so the request binds
       // to that turn's trust snapshot.
       if (conversationId) {
@@ -208,8 +206,6 @@ export class PermissionPrompter {
     requestId: string,
     decision: UserDecision,
     options?: {
-      selectedPattern?: string;
-      selectedScope?: string;
       decisionContext?: string;
     },
   ): void {
@@ -226,8 +222,6 @@ export class PermissionPrompter {
     this.ownedIds.delete(requestId);
     (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.({
       decision,
-      selectedPattern: options?.selectedPattern,
-      selectedScope: options?.selectedScope,
       decisionContext: options?.decisionContext,
     });
   }

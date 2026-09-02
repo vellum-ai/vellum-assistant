@@ -56,6 +56,8 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
     capturedParentIds.push(id);
     return {
+      isStale: () => false,
+      hasInFlightWork: () => false,
       enqueueMessage: (options: { content: string }) => {
         capturedMessages.push(options.content);
         return { queued: true };

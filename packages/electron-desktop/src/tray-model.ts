@@ -13,8 +13,8 @@ import {
   type LockfileAssistant,
 } from "@vellumai/local-mode/contract";
 import {
-  COMPANION_SIZES,
   type CompanionSize,
+  type CompanionSizeAxis,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
 
@@ -29,6 +29,10 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
+import {
+  companionSizeSubmenus,
+  companionVisibilityItem,
+} from "./companion-menu";
 
 export type TrayMenuIcon =
   | "check"
@@ -43,10 +47,18 @@ export interface TrayModelRuntime {
   accelerator: (
     command: VellumCommand["kind"],
   ) => Pick<MenuItemConstructorOptions, "accelerator">;
-  companionEnabled: () => boolean;
+  /**
+   * Whether this platform has a companion surface at all.
+   *
+   * A statement about the build, not about the user: macOS has one and Windows
+   * does not. It never becomes true on Windows and is never false on macOS, so
+   * it decides whether these items exist rather than tracking anything that
+   * changes while the app runs.
+   */
+  companionSupported: () => boolean;
   companionHidden: () => boolean;
-  /** Which named size the companion surface is drawn at. */
-  companionSize: () => CompanionSize;
+  /** Which named size one axis of the companion surface is drawn at. */
+  companionSize: (axis: CompanionSizeAxis) => CompanionSize;
   dispatch: (command: VellumCommand) => void;
   featureEnabled: (flag: string) => boolean;
   getLockfile: () => Lockfile;
@@ -55,7 +67,7 @@ export interface TrayModelRuntime {
   openComponentGallery: () => void;
   removePairedLabel: string;
   setCompanionVisible: (visible: boolean) => void;
-  setCompanionSize: (size: CompanionSize) => void;
+  setCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
 }
 
 let runtime: TrayModelRuntime | null = null;
@@ -130,21 +142,6 @@ export interface TrayHandlers {
  * Resolve a user-facing display title for a lockfile assistant. Uses the
  * assistant name when present, falling back to a truncated id.
  */
-/**
- * Menu wording for each companion size.
- *
- * Here rather than in the contract: the contract carries what the two processes
- * send each other, and these are words on a menu. The point sizes are not in
- * the labels: "88pt" means nothing next to a floating avatar, and the sizes
- * are meant to be picked by looking at the result.
- */
-const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  huge: "Huge",
-};
-
 const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
   if (assistant.name) {
     return assistant.name;
@@ -361,46 +358,30 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
-    // The floating avatar pill (`companion-window.ts`), for whoever the flag
-    // is on for. Off, there is no surface to show or hide, and an item
-    // offering to bring one back would be the only place in the app that
-    // mentions it exists.
-    ...(trayRuntime.companionEnabled()
+    // The floating avatar pill (`companion-window.ts`), on the platforms that
+    // have one. Where there is no surface there is nothing to show or hide, and
+    // an item offering to bring one back would be the only place in the app
+    // that mentions it exists.
+    ...(trayRuntime.companionSupported()
       ? [
-          {
-            // A checkbox rather than a toggle-action item: once the surface is
-            // hidden, this menu is the only place left to bring it back from,
-            // so the item has to show which state it is in. Electron flips
-            // `checked` before `click` runs, so the item carries the state
-            // being asked for.
-            label: "Show Floating Companion",
-            type: "checkbox" as const,
-            checked: !trayRuntime.companionHidden(),
-            click: (item: Electron.MenuItem) => {
-              trayRuntime.setCompanionVisible(item.checked);
+          // The show/hide checkbox the application menu offers too, from the one
+          // builder both read.
+          companionVisibilityItem(
+            trayRuntime.companionHidden(),
+            trayRuntime.setCompanionVisible,
+          ),
+          // The size pickers the surface's own right-click offers too, from the
+          // one builder both read. Disabled rather than hidden while the
+          // surface is: items that came and went with the checkbox above them
+          // would read as a bug.
+          ...companionSizeSubmenus(
+            {
+              avatar: trayRuntime.companionSize("avatar"),
+              options: trayRuntime.companionSize("options"),
             },
-          },
-          {
-            // Named steps rather than a slider, because the avatar's box is not
-            // a style: the canvas, the pill's reach and the card's height are
-            // all derived from it, so a continuous scale would be a layout
-            // nobody had ever looked at. Radio items, since the sizes are one
-            // choice and the menu has to show which one is in effect.
-            //
-            // Disabled rather than hidden while the surface is hidden: the item
-            // says the size is still something the companion has, and an item
-            // that comes and goes with the checkbox above it reads as a bug.
-            label: "Companion Size",
-            enabled: !trayRuntime.companionHidden(),
-            submenu: COMPANION_SIZES.map((size) => ({
-              label: COMPANION_SIZE_LABELS[size],
-              type: "radio" as const,
-              checked: trayRuntime.companionSize() === size,
-              click: () => {
-                trayRuntime.setCompanionSize(size);
-              },
-            })),
-          },
+            trayRuntime.setCompanionSize,
+            { enabled: !trayRuntime.companionHidden() },
+          ),
         ]
       : []),
     { type: "separator" },

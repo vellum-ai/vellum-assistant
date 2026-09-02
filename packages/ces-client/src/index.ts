@@ -18,6 +18,7 @@ export {
   type CesCredentialGetResult,
   type CesCredentialListResult,
   type CesDeleteResult,
+  type CredentialRecord,
 } from "./http-credentials.js";
 
 export {

@@ -15,16 +15,48 @@ export interface LlmCatalogModel {
   contextWindowTokens: number;
   defaultContextWindowTokens: number;
   maxOutputTokens: number;
+  /**
+   * The model line this entry belongs to, when the catalog carries more than
+   * one version of it ("claude-opus", "gemini-flash"). Members of a line are
+   * authored newest first, so a picker can offer the newest and fold the rest
+   * away. The slug is the same under every provider that hosts the model,
+   * which is what lets a cross-provider list fold them together; a model with
+   * no older siblings carries none.
+   */
+  family?: string;
+  /**
+   * The organisation that made the model, never the one serving it. Set only
+   * where the two differ, which is every model listed first by a provider
+   * that hosts other people's work: Kimi is Moonshot's whoever runs it. A
+   * model listed first by the organisation that made it carries none, and
+   * falls back to that provider's own name.
+   */
+  vendor?: string;
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
+  thinkingFloor?: "minimal" | "low";
   longContextPricingThresholdTokens?: number;
+  /** When set, the model is hidden unless that assistant flag is on. */
+  featureFlag?: string;
 }
 
 export const MODELS_BY_PROVIDER = {
   anthropic: [
     {
+      id: "claude-fable-5-1",
+      displayName: "Claude Fable 5.1",
+      family: "claude-fable",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "claude-fable-5",
       displayName: "Claude Fable 5",
+      family: "claude-fable",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -35,6 +67,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-5",
       displayName: "Claude Opus 5",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -44,6 +77,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-8",
       displayName: "Claude Opus 4.8",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -53,6 +87,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-7",
       displayName: "Claude Opus 4.7",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -62,6 +97,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-6",
       displayName: "Claude Opus 4.6",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -71,6 +107,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-sonnet-5",
       displayName: "Claude Sonnet 5",
+      family: "claude-sonnet",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -80,6 +117,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-sonnet-4-6",
       displayName: "Claude Sonnet 4.6",
+      family: "claude-sonnet",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -89,6 +127,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-sonnet-4-5-20250929",
       displayName: "Claude Sonnet 4.5",
+      family: "claude-sonnet",
       contextWindowTokens: 200_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -97,6 +136,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-5-20251101",
       displayName: "Claude Opus 4.5",
+      family: "claude-opus",
       contextWindowTokens: 200_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -142,6 +182,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gpt-5.5",
       displayName: "GPT-5.5",
+      family: "gpt-5",
       contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -160,6 +201,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gpt-5.4",
       displayName: "GPT-5.4",
+      family: "gpt-5",
       contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -169,6 +211,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gpt-5.2",
       displayName: "GPT-5.2",
+      family: "gpt-5",
       contextWindowTokens: 400_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -193,8 +236,18 @@ export const MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
+      id: "gemini-3.7-flash",
+      displayName: "Gemini 3.7 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+      thinkingFloor: "low",
+    },
+    {
       id: "gemini-3.6-flash",
       displayName: "Gemini 3.6 Flash",
+      family: "gemini-flash",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -203,6 +256,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-3.5-flash",
       displayName: "Gemini 3.5 Flash",
+      family: "gemini-flash",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -211,6 +265,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-3.5-flash-lite",
       displayName: "Gemini 3.5 Flash-Lite",
+      family: "gemini-flash-lite",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -219,24 +274,29 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-3.1-pro-preview",
       displayName: "Gemini 3.1 Pro Preview",
+      family: "gemini-pro",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
       supportsThinking: true,
+      thinkingFloor: "low",
       longContextPricingThresholdTokens: 200_000,
     },
     {
       id: "gemini-3.1-pro-preview-customtools",
       displayName: "Gemini 3.1 Pro Preview (Custom Tools)",
+      family: "gemini-pro",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
       supportsThinking: true,
+      thinkingFloor: "low",
       longContextPricingThresholdTokens: 200_000,
     },
     {
       id: "gemini-3-flash-preview",
       displayName: "Gemini 3 Flash Preview",
+      family: "gemini-flash",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -245,6 +305,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-3.1-flash-lite-preview",
       displayName: "Gemini 3.1 Flash-Lite Preview",
+      family: "gemini-flash-lite",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -253,6 +314,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-3.1-flash-lite",
       displayName: "Gemini 3.1 Flash-Lite",
+      family: "gemini-flash-lite",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -261,6 +323,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-2.5-flash",
       displayName: "Gemini 2.5 Flash",
+      family: "gemini-flash",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -269,6 +332,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-2.5-flash-lite",
       displayName: "Gemini 2.5 Flash Lite",
+      family: "gemini-flash-lite",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -276,6 +340,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "gemini-2.5-pro",
       displayName: "Gemini 2.5 Pro",
+      family: "gemini-pro",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -287,6 +352,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "llama3.2",
       displayName: "Llama 3.2",
+      vendor: "meta",
       contextWindowTokens: 128_000,
       defaultContextWindowTokens: 128_000,
       maxOutputTokens: 4_096,
@@ -294,6 +360,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "mistral",
       displayName: "Mistral",
+      vendor: "mistral",
       contextWindowTokens: 32_768,
       defaultContextWindowTokens: 32_768,
       maxOutputTokens: 4_096,
@@ -303,6 +370,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/kimi-k3",
       displayName: "Kimi K3",
+      vendor: "moonshot",
+      family: "kimi-k",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -312,6 +381,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/kimi-k2p6",
       displayName: "Kimi K2.6",
+      vendor: "moonshot",
+      family: "kimi-k",
       contextWindowTokens: 262_144,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
@@ -320,16 +391,39 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/glm-5p2",
       displayName: "GLM 5.2",
+      vendor: "zhipu",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
       supportsThinking: true,
+    },
+    {
+      id: "accounts/fireworks/models/glm-5p3",
+      displayName: "GLM 5.3",
+      vendor: "zhipu",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+    },
+    {
+      id: "accounts/fireworks/models/glm-5p3-flash",
+      displayName: "GLM 5.3 Flash",
+      vendor: "zhipu",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
     },
     // Kimi K2.5 (kimi-k2p5) is intentionally absent: Fireworks serves it
     // on-demand/dedicated only, so serverless calls 404.
     {
       id: "accounts/fireworks/models/minimax-m3",
       displayName: "MiniMax M3",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 524_288,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 512_000,
@@ -338,6 +432,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/minimax-m2p7",
       displayName: "MiniMax M2.7",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 196_608,
       defaultContextWindowTokens: 196_608,
       maxOutputTokens: 25_000,
@@ -345,6 +441,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/deepseek-v4-pro",
       displayName: "DeepSeek V4 Pro",
+      vendor: "deepseek",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -353,6 +450,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/deepseek-v4-flash-0731",
       displayName: "DeepSeek V4 Flash",
+      vendor: "deepseek",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -363,6 +461,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "MiniMaxAI/MiniMax-M3",
       displayName: "MiniMax M3",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 524_288,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 512_000,
@@ -371,8 +471,20 @@ export const MODELS_BY_PROVIDER = {
   ],
   openrouter: [
     {
+      id: "anthropic/claude-fable-5.1",
+      displayName: "Claude Fable 5.1",
+      family: "claude-fable",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "anthropic/claude-fable-5",
       displayName: "Claude Fable 5",
+      family: "claude-fable",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -383,6 +495,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-5",
       displayName: "Claude Opus 5",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -392,6 +505,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.8",
       displayName: "Claude Opus 4.8",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -401,6 +515,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.7",
       displayName: "Claude Opus 4.7",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -410,6 +525,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.6",
       displayName: "Claude Opus 4.6",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -419,6 +535,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-sonnet-5",
       displayName: "Claude Sonnet 5",
+      family: "claude-sonnet",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -428,6 +545,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-sonnet-4.6",
       displayName: "Claude Sonnet 4.6",
+      family: "claude-sonnet",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -437,6 +555,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-sonnet-4.5",
       displayName: "Claude Sonnet 4.5",
+      family: "claude-sonnet",
       contextWindowTokens: 200_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -445,6 +564,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.5",
       displayName: "Claude Opus 4.5",
+      family: "claude-opus",
       contextWindowTokens: 200_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -470,6 +590,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "openai/gpt-5.6-sol-pro",
       displayName: "GPT-5.6 Sol Pro",
+      vendor: "openai",
       contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -488,6 +609,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "openai/gpt-5.6-terra-pro",
       displayName: "GPT-5.6 Terra Pro",
+      vendor: "openai",
       contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -506,6 +628,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "openai/gpt-5.6-luna-pro",
       displayName: "GPT-5.6 Luna Pro",
+      vendor: "openai",
       contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -513,8 +636,21 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 272_000,
     },
     {
+      id: "x-ai/grok-4.6",
+      displayName: "Grok 4.6",
+      vendor: "xai",
+      family: "grok",
+      contextWindowTokens: 500_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 30_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "x-ai/grok-4.5",
       displayName: "Grok 4.5",
+      vendor: "xai",
+      family: "grok",
       contextWindowTokens: 500_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 30_000,
@@ -523,6 +659,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "x-ai/grok-4.3",
       displayName: "Grok 4.3",
+      vendor: "xai",
+      family: "grok",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
@@ -531,6 +669,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "x-ai/grok-4.20",
       displayName: "Grok 4.20",
+      vendor: "xai",
+      family: "grok",
       contextWindowTokens: 2_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
@@ -539,6 +679,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "deepseek/deepseek-r1-0528",
       displayName: "DeepSeek R1",
+      vendor: "deepseek",
       contextWindowTokens: 163_840,
       defaultContextWindowTokens: 163_840,
       maxOutputTokens: 32_000,
@@ -547,6 +688,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "deepseek/deepseek-chat-v3-0324",
       displayName: "DeepSeek V3",
+      vendor: "deepseek",
       contextWindowTokens: 163_840,
       defaultContextWindowTokens: 163_840,
       maxOutputTokens: 32_000,
@@ -554,6 +696,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "deepseek/deepseek-v4-pro",
       displayName: "DeepSeek V4 Pro",
+      vendor: "deepseek",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 384_000,
@@ -562,22 +705,16 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "deepseek/deepseek-v4-flash",
       displayName: "DeepSeek V4 Flash",
+      vendor: "deepseek",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 384_000,
       supportsThinking: true,
     },
     {
-      id: "deepseek/deepseek-v3.2-speciale",
-      displayName: "DeepSeek V3.2 Speciale",
-      contextWindowTokens: 163_840,
-      defaultContextWindowTokens: 163_840,
-      maxOutputTokens: 163_840,
-      supportsThinking: true,
-    },
-    {
       id: "qwen/qwen3.5-plus-02-15",
       displayName: "Qwen 3.5 Plus",
+      vendor: "alibaba",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 8_192,
@@ -586,6 +723,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "qwen/qwen3.5-397b-a17b",
       displayName: "Qwen 3.5 397B",
+      vendor: "alibaba",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 8_192,
@@ -594,6 +732,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "qwen/qwen3.5-flash-02-23",
       displayName: "Qwen 3.5 Flash",
+      vendor: "alibaba",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 8_192,
@@ -601,6 +740,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "qwen/qwen3-coder-next",
       displayName: "Qwen 3 Coder",
+      vendor: "alibaba",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 8_192,
@@ -608,6 +748,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "moonshotai/kimi-k3",
       displayName: "Kimi K3",
+      vendor: "moonshot",
+      family: "kimi-k",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -617,6 +759,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "moonshotai/kimi-k2.6",
       displayName: "Kimi K2.6",
+      vendor: "moonshot",
+      family: "kimi-k",
       contextWindowTokens: 262_144,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
@@ -625,6 +769,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "moonshotai/kimi-k2.5",
       displayName: "Kimi K2.5",
+      vendor: "moonshot",
+      family: "kimi-k",
       contextWindowTokens: 256_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
@@ -632,6 +778,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m3",
       displayName: "MiniMax M3",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 524_288,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 512_000,
@@ -640,6 +788,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m2.7",
       displayName: "MiniMax M2.7",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 196_608,
       defaultContextWindowTokens: 196_608,
       maxOutputTokens: 131_072,
@@ -648,6 +798,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m2.5",
       displayName: "MiniMax M2.5",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 196_608,
       defaultContextWindowTokens: 196_608,
       maxOutputTokens: 196_608,
@@ -656,6 +808,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m2.1",
       displayName: "MiniMax M2.1",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 196_608,
       defaultContextWindowTokens: 196_608,
       maxOutputTokens: 196_608,
@@ -664,6 +818,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m2",
       displayName: "MiniMax M2",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 196_608,
       defaultContextWindowTokens: 196_608,
       maxOutputTokens: 196_608,
@@ -672,6 +828,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m2-her",
       displayName: "MiniMax M2-her",
+      vendor: "minimax",
       contextWindowTokens: 65_536,
       defaultContextWindowTokens: 65_536,
       maxOutputTokens: 2_048,
@@ -679,6 +836,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-m1",
       displayName: "MiniMax M1",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 40_000,
@@ -687,13 +846,36 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "minimax/minimax-01",
       displayName: "MiniMax-01",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 1_000_000,
     },
     {
+      id: "z-ai/glm-5.3",
+      displayName: "GLM-5.3",
+      vendor: "zhipu",
+      family: "glm",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
+      id: "z-ai/glm-5.3-flash",
+      displayName: "GLM-5.3 Flash",
+      vendor: "zhipu",
+      contextWindowTokens: 1_310_720,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
       id: "z-ai/glm-5.2",
       displayName: "GLM-5.2",
+      vendor: "zhipu",
+      family: "glm",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -702,6 +884,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "mistralai/mistral-medium-3",
       displayName: "Mistral Medium 3",
+      vendor: "mistral",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 16_000,
@@ -709,13 +892,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "mistralai/mistral-small-2603",
       displayName: "Mistral Small 4",
-      contextWindowTokens: 131_072,
-      defaultContextWindowTokens: 131_072,
-      maxOutputTokens: 16_000,
-    },
-    {
-      id: "mistralai/devstral-2512",
-      displayName: "Devstral 2",
+      vendor: "mistral",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 16_000,
@@ -723,6 +900,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "meta-llama/llama-4-maverick",
       displayName: "Llama 4 Maverick",
+      vendor: "meta",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
@@ -730,6 +908,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "meta-llama/llama-4-scout",
       displayName: "Llama 4 Scout",
+      vendor: "meta",
       contextWindowTokens: 327_680,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
@@ -737,22 +916,28 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "amazon/nova-pro-v1",
       displayName: "Amazon Nova Pro",
+      vendor: "amazon",
       contextWindowTokens: 300_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 5_000,
     },
-    {
-      id: "openrouter/owl-alpha",
-      displayName: "Owl Alpha",
-      contextWindowTokens: 1_048_576,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 262_144,
-    },
   ],
   "vercel-ai-gateway": [
     {
+      id: "anthropic/claude-fable-5.1",
+      displayName: "Claude Fable 5.1",
+      family: "claude-fable",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "anthropic/claude-fable-5",
       displayName: "Claude Fable 5",
+      family: "claude-fable",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -763,6 +948,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-5",
       displayName: "Claude Opus 5",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -772,6 +958,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.8",
       displayName: "Claude Opus 4.8",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -781,6 +968,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.6",
       displayName: "Claude Opus 4.6",
+      family: "claude-opus",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -790,6 +978,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-sonnet-5",
       displayName: "Claude Sonnet 5",
+      family: "claude-sonnet",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -799,6 +988,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-sonnet-4.6",
       displayName: "Claude Sonnet 4.6",
+      family: "claude-sonnet",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
@@ -816,6 +1006,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "openai/gpt-5.5",
       displayName: "GPT-5.5",
+      family: "gpt-5",
       contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -834,6 +1025,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "xai/grok-4.3",
       displayName: "Grok 4.3",
+      vendor: "xai",
+      family: "grok",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
@@ -842,6 +1035,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "moonshotai/kimi-k2.6",
       displayName: "Kimi K2.6",
+      vendor: "moonshot",
+      family: "kimi-k",
       contextWindowTokens: 262_144,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
@@ -850,6 +1045,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "deepseek/deepseek-v4-flash",
       displayName: "DeepSeek V4 Flash",
+      vendor: "deepseek",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 384_000,
@@ -860,6 +1056,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "MiniMax-M3",
       displayName: "MiniMax M3",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 512_000,
@@ -868,6 +1066,8 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "MiniMax-M2.7",
       displayName: "MiniMax M2.7",
+      vendor: "minimax",
+      family: "minimax-m",
       contextWindowTokens: 200_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_384,
@@ -878,6 +1078,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "deepseek-ai/deepseek-v4-pro",
       displayName: "DeepSeek V4 Pro",
+      vendor: "deepseek",
       contextWindowTokens: 128_000,
       defaultContextWindowTokens: 128_000,
       maxOutputTokens: 8_192,
@@ -885,10 +1086,12 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   litellm: [],
+  opencode: [],
   baseten: [
     {
       id: "thinkingmachines/inkling",
       displayName: "Inkling",
+      vendor: "thinking-machines",
       contextWindowTokens: 262_144,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
@@ -913,6 +1116,17 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  vellum: [
+    {
+      id: "qwen/qwen3-8b",
+      displayName: "Qwen3 8B",
+      vendor: "alibaba",
+      contextWindowTokens: 32_768,
+      defaultContextWindowTokens: 32_768,
+      maxOutputTokens: 32_768,
+      featureFlag: "settings-developer-nav",
+    },
+  ],
   "openai-compatible": [],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
 
@@ -930,8 +1144,10 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
   litellm: "",
+  opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
+  vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
 
@@ -941,9 +1157,8 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  // Not catalog providers: the platform-managed routing sentinel and the
-  // subscription-auth pseudo-provider. Cards and pickers render both as
-  // providers, so they need display names.
+  // Routing identities that cards and pickers render as providers.
+  // `vellum` is also the catalog owner of Vellum-hosted GPU models.
   vellum: "Vellum",
   chatgpt: "ChatGPT Subscription",
   anthropic: "Anthropic",
@@ -958,9 +1173,40 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   litellm: "LiteLLM",
+  opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
 };
+
+/**
+ * Vendor slug to human-readable label, for the organisations that make models
+ * without hosting them. A slug shared with a provider id (`minimax`, `openai`)
+ * names the same organisation in both places, so a picker that groups by
+ * vendor folds the two together rather than drawing the name twice.
+ */
+export const VENDOR_DISPLAY_NAMES: Record<string, string> = {
+  alibaba: "Alibaba",
+  amazon: "Amazon",
+  deepseek: "DeepSeek",
+  meta: "Meta",
+  minimax: "MiniMax",
+  mistral: "Mistral AI",
+  moonshot: "Moonshot AI",
+  openai: "OpenAI",
+  "thinking-machines": "Thinking Machines",
+  xai: "xAI",
+  zhipu: "Z.ai",
+};
+
+/**
+ * The label for a vendor slug, falling back to the provider of the same name
+ * for a first-party organisation the catalog already names.
+ */
+export function vendorDisplayName(vendor: string): string {
+  return (
+    VENDOR_DISPLAY_NAMES[vendor] ?? PROVIDER_DISPLAY_NAMES[vendor] ?? vendor
+  );
+}
 
 /**
  * Whether each provider supports Vellum-managed (`platform`) auth.
@@ -982,8 +1228,10 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   minimax: false,
   atlascloud: false,
   litellm: false,
+  opencode: false,
   baseten: false,
   poolside: false,
+  vellum: true,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
@@ -1000,6 +1248,7 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
+  "vellum",
 ] as const;
 
 /**
@@ -1081,6 +1330,27 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
   "gpt-5.4-mini",
 ]);
 
+export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
+
+export function isCatalogModelVisible(
+  model: Pick<LlmCatalogModel, "featureFlag">,
+  developerMode: boolean,
+): boolean {
+  if (!model.featureFlag) {
+    return true;
+  }
+  return model.featureFlag === DEVELOPER_MODE_CATALOG_FLAG && developerMode;
+}
+
+export function getVisibleModelsForProvider(
+  provider: string,
+  developerMode: boolean,
+): readonly LlmCatalogModel[] {
+  return getModelsForProvider(provider).filter((model) =>
+    isCatalogModelVisible(model, developerMode),
+  );
+}
+
 export function getModelsForProvider(
   provider: string,
 ): readonly LlmCatalogModel[] {
@@ -1105,6 +1375,11 @@ export function getDefaultModelForProvider(
   // users see one consistent "default" for the subscription.
   if (provider === "chatgpt") {
     return "gpt-5.6-luna";
+  }
+  // The Vellum picker serves the union of managed catalogs. The GPU
+  // catalog's defaultModel is not the Vellum connection default.
+  if (provider === "vellum") {
+    return undefined;
   }
   return DEFAULT_MODEL_BY_PROVIDER[provider as LlmProviderId];
 }

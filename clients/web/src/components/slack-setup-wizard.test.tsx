@@ -22,6 +22,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
 import * as toastModule from "@vellumai/design-library/components/toast";
@@ -89,9 +90,27 @@ function goToConnectStep() {
   fireEvent.click(screen.getByRole("button", { name: /I created the app/i }));
 }
 
+/**
+ * The create/token steps render `ChannelAvatarDownload`, which reads the
+ * avatar raster from the query cache, so these trees need a client.
+ */
+function renderWizard(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("SlackSetupWizard step flow", () => {
   test("copying puts the live manifest on the clipboard without navigating", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.change(screen.getByLabelText(/App Name/i), {
       target: { value: "Support Bot" },
@@ -112,7 +131,12 @@ describe("SlackSetupWizard step flow", () => {
 
   test("a failed clipboard write neither claims success nor advances", async () => {
     stubClipboard(() => Promise.reject(new Error("NotAllowedError")));
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(copyButton());
 
@@ -125,7 +149,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("advancing without a copy warns at the handoff instead of blocking", () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(nextButton());
 
@@ -139,7 +168,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("editing after a copy retracts the Copied! label, not just the notice", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(copyButton());
     await waitFor(() => {
@@ -158,7 +192,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("a stale clipboard is reported as not ready", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(copyButton());
     await waitFor(() => {
@@ -179,7 +218,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("copying at the handoff step marks the manifest copied", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(nextButton());
     fireEvent.click(copyButton());
@@ -207,7 +251,12 @@ describe("SlackSetupWizard step flow", () => {
     }) as typeof window.open;
 
     try {
-      render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+      renderWizard(
+        <SlackSetupWizard
+          assistantId="asst-test"
+          assistantName={ASSISTANT_NAME}
+        />,
+      );
       fireEvent.click(nextButton());
       fireEvent.click(screen.getByRole("button", { name: /Open Slack/i }));
 
@@ -226,7 +275,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("an empty app name blocks both controls on step 1", () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.change(screen.getByLabelText(/App Name/i), {
       target: { value: "   " },
@@ -239,21 +293,24 @@ describe("SlackSetupWizard step flow", () => {
     expect(onOpenStep()).toBe(false);
   });
 
-  test("clears both tokens once the save succeeds", () => {
+  test("retires the token form once the save succeeds", () => {
     // The Channels page keeps this wizard mounted after a successful save, so
-    // a retained secret sits in a live field. The chat drawer closes and
-    // unmounts, which hides the problem on the surface most people use.
+    // a retained secret would sit in a live field. The chat drawer closes and
+    // unmounts, which hides the problem on the surface most people use. The
+    // fields go away entirely rather than being blanked, which is both the
+    // stronger guarantee and the honest reading of a saved credential.
     function Harness() {
       const [status, setStatus] = useState<"idle" | "success">("idle");
       return (
         <SlackSetupWizard
+          assistantId="asst-test"
           assistantName={ASSISTANT_NAME}
           saveStatus={status}
           onSave={() => setStatus("success")}
         />
       );
     }
-    render(<Harness />);
+    renderWizard(<Harness />);
 
     goToConnectStep();
     fireEvent.change(screen.getByLabelText(/Bot Token/i), {
@@ -264,18 +321,19 @@ describe("SlackSetupWizard step flow", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Connect Slack/i }));
 
-    expect(
-      (screen.getByLabelText(/Bot Token/i) as HTMLInputElement).value,
-    ).toBe("");
-    expect(
-      (screen.getByLabelText(/App Token/i) as HTMLInputElement).value,
-    ).toBe("");
+    expect(screen.queryByLabelText(/Bot Token/i)).toBeNull();
+    expect(screen.queryByLabelText(/App Token/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Connect Slack/i })).toBeNull();
+    expect(screen.queryByText(/Credentials saved/i)).not.toBeNull();
+    // The hand-off is the shared notice, channel-interpolated.
+    expect(screen.queryByText(/verify me on Slack/i)).not.toBeNull();
   });
 
   test("step 4 hands both tokens to onSave, trimmed", () => {
     const saved: Array<[string, string]> = [];
-    render(
+    renderWizard(
       <SlackSetupWizard
+        assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
         onSave={(bot, app) => saved.push([bot, app])}
       />,

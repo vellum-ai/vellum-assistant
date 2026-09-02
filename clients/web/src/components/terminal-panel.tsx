@@ -5,6 +5,7 @@ import { useTerminalSession } from "@/domains/terminal/use-terminal-session";
 import { useTerminalStore } from "@/domains/terminal/terminal-store";
 import { TerminalConsole } from "@/domains/terminal/components/terminal-console";
 import { TerminalToolbar } from "@/domains/terminal/components/terminal-toolbar";
+import { useTranslation } from "@/i18n";
 
 export interface TerminalPanelProps {
   assistantId: string | null;
@@ -19,6 +20,7 @@ export function TerminalPanel({
   maintenanceMode,
   service,
 }: TerminalPanelProps) {
+  const { t } = useTranslation();
   const writeToTerminalRef = useRef<((data: string) => void) | null>(null);
 
   const handleData = useCallback((data: string) => {
@@ -88,9 +90,8 @@ export function TerminalPanel({
       />
 
       {isMaintenanceActive && (
-        <div className="border-b border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)] px-3 py-2 text-body-small-default text-[var(--system-mid-strong)]">
-          Recovery Mode active — this session is connected to the debug
-          terminal.
+        <div className="border-b border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)] px-3 py-2 text-body-small-lighter text-[var(--system-mid-strong)]">
+          {t("terminalPanel.recoveryModeBanner")}
         </div>
       )}
 

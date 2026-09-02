@@ -5,6 +5,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import {
   getEditChatConversationId,
   setEditChatConversationId,
@@ -42,9 +43,16 @@ export function useEditApp(): (app: OpenedAppState) => void {
       if (!assistantId) {
         return;
       }
+      // The conversation on screen wins, so the pane opens on something the
+      // user chose. With nothing on screen, the per-app memo keeps repeated
+      // Edit clicks in one thread. A minted id is registered as a draft like
+      // every client-minted key, which is what lets the pane paint an empty
+      // thread rather than wait on history it does not have. Same order as
+      // the document surface in `document-viewer-page`.
       const convId =
+        useConversationStore.getState().activeConversationId ??
         getEditChatConversationId(assistantId, app.appId) ??
-        crypto.randomUUID();
+        createDraftConversationId();
       setEditChatConversationId(assistantId, app.appId, convId);
 
       const viewer = useViewerStore.getState();

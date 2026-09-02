@@ -11,6 +11,24 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect("github-oauth" in ServicesSchema.shape).toBe(true);
   });
 
+  test("monday only exposes scopes supported by its OAuth API", () => {
+    const monday = PROVIDER_SEED_DATA.monday;
+    expect(monday).toBeDefined();
+    expect(monday.defaultScopes).not.toContain("items:read");
+    expect(monday.defaultScopes).not.toContain("items:write");
+
+    const availableScopes = monday.availableScopes;
+    expect(Array.isArray(availableScopes)).toBe(true);
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).not.toContain(
+        "items:read",
+      );
+      expect(availableScopes.map(({ scope }) => scope)).not.toContain(
+        "items:write",
+      );
+    }
+  });
+
   test("google base URL is host-only so relative paths select the product", () => {
     // A host-only base URL (no product path) lets a relative request path pick
     // the Google product — Gmail (/gmail/v1/...), Calendar (/calendar/v3/...),

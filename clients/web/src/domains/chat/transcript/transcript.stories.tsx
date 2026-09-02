@@ -1,49 +1,29 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useTurnStore } from "@/domains/chat/turn-store";
-import type { DisplayMessage } from "@/domains/chat/types/types";
 
 import {
   Transcript,
   type TranscriptHandle,
   type TranscriptProps,
 } from "./transcript";
-import type { MessageItem, TranscriptItem } from "./types";
+import { message } from "./transcript-story-fixtures";
+import { TranscriptStoryFrame } from "./transcript-story-frame";
+import type { TranscriptItem } from "./types";
 
 // ---------------------------------------------------------------------------
 // Fixtures
 //
 // `Transcript` takes a flat `TranscriptItem[]`. A text row is a `MessageItem`
-// wrapping a `DisplayMessage` whose body is three positional arrays kept in
-// lockstep — `textSegments`, `contentOrder`, `contentBlocks` — exactly the
-// shape the ingest boundary materializes for a single text block (the canonical
-// builder is `textBody` in `utils/message-test-helpers.ts`). `message()` is the
-// thin local builder for that shape; `user`/`assistant` name the role.
+// wrapping a `DisplayMessage` whose body is the single-text-block shape the
+// ingest boundary materializes; `message()` in `transcript-story-fixtures.ts`
+// builds that row for every transcript story file, and `user`/`assistant`
+// name the role.
 // ---------------------------------------------------------------------------
 
-function message(
-  id: string,
-  role: "user" | "assistant",
-  text: string,
-): MessageItem {
-  const msg: DisplayMessage = {
-    id,
-    role,
-    textSegments: [text],
-    contentOrder: [{ type: "text", id: "0" }],
-    contentBlocks: [{ type: "text", text }],
-  };
-  return { kind: "message", key: id, message: msg };
-}
 const user = (id: string, text: string) => message(id, "user", text);
 const assistant = (id: string, text: string) => message(id, "assistant", text);
 
@@ -90,24 +70,6 @@ const renderAvatar = () => (
   />
 );
 
-/** A sized chat surface; `Transcript` fills its `h-full` parent. */
-function Frame({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        height: 720,
-        width: 780,
-        overflow: "hidden",
-        borderRadius: 12,
-        border: "1px solid var(--border-base)",
-        background: "var(--surface-base)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 /** Renders the transcript scrolled to the latest message on mount — the resting
  *  state production lands in when a conversation opens. Isolated from the parent
  *  scroll coordinator, the bare component would otherwise open at the top. */
@@ -142,9 +104,9 @@ const meta: Meta<typeof Transcript> = {
   },
   decorators: [
     (Story) => (
-      <Frame>
+      <TranscriptStoryFrame>
         <Story />
-      </Frame>
+      </TranscriptStoryFrame>
     ),
   ],
 };

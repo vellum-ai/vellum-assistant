@@ -13,6 +13,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { discordInviteAdapter } from "./channel-invite-transports/discord.js";
 import { emailInviteAdapter } from "./channel-invite-transports/email.js";
 import { slackInviteAdapter } from "./channel-invite-transports/slack.js";
 import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
@@ -96,6 +97,7 @@ export async function resolveAdapterHandle(
 /** Create a registry instance with built-in adapters registered. */
 export function createInviteAdapterRegistry(): InviteAdapterRegistry {
   const registry = new InviteAdapterRegistry();
+  registry.register(discordInviteAdapter);
   registry.register(emailInviteAdapter);
   registry.register(slackInviteAdapter);
   registry.register(telegramInviteAdapter);

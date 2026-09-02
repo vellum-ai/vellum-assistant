@@ -62,6 +62,7 @@ export function buildPolicyContext(
   const originSignals = {
     requestOrigin: context?.requestOrigin,
     ...channelCoordinatesFromToolContext(context),
+    requesterContactId: context?.requesterContactId,
     // Precompute the proc-to-skills gate — the v3 tier being active, i.e.
     // memory on AND v3 live — here so the permission checker, a leaf module
     // that must not read config, can deny the memory-retrospective

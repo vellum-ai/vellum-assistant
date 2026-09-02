@@ -25,7 +25,6 @@ import {
   GuardianRequestInScopeIpcResponseSchema,
   GuardianRequestListIpcResponseSchema,
   GuardianRequestSchema,
-  SweepExpiredGuardianRequestsIpcResponseSchema,
 } from "@vellumai/gateway-client";
 import { eq } from "drizzle-orm";
 
@@ -424,21 +423,23 @@ describe("guardian_requests_expire", () => {
 });
 
 describe("guardian_requests_expire_interaction_bound", () => {
-  test("expires interaction-bound kinds unconditionally, persistent kinds only past deadline", async () => {
+  test("expires interaction-bound kinds unconditionally, never persistent kinds", async () => {
     const toolApproval = await createRequest({
       kind: "tool_approval",
       toolName: "bash",
     });
     const pendingQuestion = await createRequest({ kind: "pending_question" });
     const freshAccess = await createRequest({ expiresAt: FUTURE() });
+    // Past-deadline persistent rows wait for the sweep, whose per-request
+    // confirmation keeps their fan-out recoverable.
     const staleAccess = await createRequest({ expiresAt: PAST() });
 
     expect(await call(METHODS.expireInteractionBound, {})).toEqual({
-      expired: 3,
+      expired: 2,
     });
     expect(getRequestRow(toolApproval.id)?.status).toBe("expired");
     expect(getRequestRow(pendingQuestion.id)?.status).toBe("expired");
-    expect(getRequestRow(staleAccess.id)?.status).toBe("expired");
+    expect(getRequestRow(staleAccess.id)?.status).toBe("pending");
     expect(getRequestRow(freshAccess.id)?.status).toBe("pending");
   });
 
@@ -453,30 +454,35 @@ describe("guardian_requests_expire_interaction_bound", () => {
   });
 });
 
-describe("guardian_requests_sweep_expired", () => {
-  test("expires past-deadline pending requests and returns their ids", async () => {
+describe("guardian_requests_list_expired_pending", () => {
+  test("lists past-deadline pending requests without mutating them", async () => {
     const stale = await createRequest({ expiresAt: PAST() });
     const fresh = await createRequest({ expiresAt: FUTURE() });
     const noDeadline = await createRequest({});
 
-    const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
-      await call(METHODS.sweepExpired),
+    const listed = GuardianRequestListIpcResponseSchema.parse(
+      await call(METHODS.listExpiredPending),
     );
-    expect(swept.expired.map((row) => row.id)).toEqual([stale.id]);
-    expect(swept.expired[0].status).toBe("expired");
-    expect(getRequestRow(stale.id)?.status).toBe("expired");
+    expect(listed.map((row) => row.id)).toEqual([stale.id]);
+    // Read-only: the daemon confirms each row with the expire CAS after its
+    // side effects run, so the row stays pending (and listed) until then.
+    expect(listed[0].status).toBe("pending");
+    expect(getRequestRow(stale.id)?.status).toBe("pending");
     expect(getRequestRow(fresh.id)?.status).toBe("pending");
     expect(getRequestRow(noDeadline.id)?.status).toBe("pending");
   });
 
-  test("honors an explicit `now`", async () => {
+  test("honors an explicit `now` and `limit`", async () => {
     const fresh = await createRequest({ expiresAt: FUTURE() });
 
-    const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
-      await call(METHODS.sweepExpired, { now: fresh.expiresAt! + 1 }),
+    const listed = GuardianRequestListIpcResponseSchema.parse(
+      await call(METHODS.listExpiredPending, {
+        now: fresh.expiresAt! + 1,
+        limit: 10,
+      }),
     );
-    expect(swept.expired.map((row) => row.id)).toEqual([fresh.id]);
-    expect(getRequestRow(fresh.id)?.status).toBe("expired");
+    expect(listed.map((row) => row.id)).toEqual([fresh.id]);
+    expect(getRequestRow(fresh.id)?.status).toBe("pending");
   });
 });
 
@@ -524,38 +530,6 @@ describe("delivery routes: create / update / list", () => {
 });
 
 describe("destination lookups", () => {
-  test("get_by_destination_message resolves the pending request behind a delivered card", async () => {
-    const created = await createRequest({});
-    await call(METHODS.createDelivery, {
-      requestId: created.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-1",
-      destinationMessageId: "msg-7",
-    });
-
-    const found = GuardianRequestSchema.parse(
-      await call(METHODS.getByDestinationMessage, {
-        channel: "telegram",
-        chatId: "chat-1",
-        messageId: "msg-7",
-      }),
-    );
-    expect(found.id).toBe(created.id);
-
-    // Resolved requests no longer match (pending-only).
-    await call(METHODS.update, {
-      id: created.id,
-      patch: { status: "approved" },
-    });
-    expect(
-      await call(METHODS.getByDestinationMessage, {
-        channel: "telegram",
-        chatId: "chat-1",
-        messageId: "msg-7",
-      }),
-    ).toBeNull();
-  });
-
   test("list_pending_by_destination: chat form and conversation form with channel narrowing", async () => {
     const a = await createRequest({});
     const b = await createRequest({});
@@ -622,7 +596,7 @@ describe("scope reads", () => {
     );
   });
 
-  test("in_scope matches by source or delivery, honoring channel narrowing", async () => {
+  test("in_scope matches by source or any delivery's paired conversation", async () => {
     const created = await createRequest({ sourceConversationId: "conv-src" });
     await call(METHODS.createDelivery, {
       requestId: created.id,
@@ -632,19 +606,10 @@ describe("scope reads", () => {
 
     const cases: Array<[Record<string, unknown>, boolean]> = [
       [{ requestId: created.id, conversationId: "conv-src" }, true],
+      // A channel delivery's paired conversation renders the same actionable
+      // in-app card as the vellum delivery's conversation, so it is in scope
+      // regardless of the delivery's channel.
       [{ requestId: created.id, conversationId: "conv-dst" }, true],
-      [
-        {
-          requestId: created.id,
-          conversationId: "conv-dst",
-          channel: "telegram",
-        },
-        true,
-      ],
-      [
-        { requestId: created.id, conversationId: "conv-dst", channel: "slack" },
-        false,
-      ],
       [{ requestId: created.id, conversationId: "conv-nope" }, false],
       [{ requestId: "nope", conversationId: "conv-src" }, false],
     ];
@@ -734,11 +699,10 @@ describe("schema rejection", () => {
         },
       ],
       [METHODS.expire, {}],
-      [METHODS.sweepExpired, { now: "yesterday" }],
+      [METHODS.listExpiredPending, { now: "yesterday" }],
       [METHODS.createDelivery, { requestId: "req-x" }], // channel required
       [METHODS.updateDelivery, { id: "d-1" }], // patch required
       [METHODS.listDeliveries, {}],
-      [METHODS.getByDestinationMessage, { channel: "telegram", chatId: "c" }],
       [METHODS.listPendingByDestination, {}], // refine: conversationId or channel+chatId
       [METHODS.listPendingByDestination, { channel: "telegram" }],
       [METHODS.listPendingByScope, {}],

@@ -1,10 +1,11 @@
 /**
- * Tests for the end-of-turn link back to a document the assistant changed.
+ * Tests for the end-of-turn card for a document the assistant changed.
  *
- * Covers the two things the link owes its caller: it names the document from
- * the documents query, rendering only once a resolved list carries the
- * document, and it is present exactly when its own document is not the one
- * open in the viewer.
+ * Covers what the card owes its caller: it names the document from the
+ * documents query, rendering only once a resolved list carries the document,
+ * and it stays put regardless of what the viewer is showing. A document is an
+ * artifact of the turn that produced it, so its row does not appear and vanish
+ * as the editor opens and closes.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -187,11 +188,30 @@ describe("DocumentReopenLink", () => {
     expect(screen.getByText("Quarterly notes")).toBeTruthy();
   });
 
-  test("hides itself while its own document is open", () => {
+  test("stays visible while its own document is open", () => {
     openDocument(SURFACE_ID);
     renderLink([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]);
 
-    expect(screen.queryByTestId("document-reopen-link")).toBeNull();
+    expect(screen.getByTestId("document-reopen-link")).toBeTruthy();
+    expect(screen.getByText("Quarterly notes")).toBeTruthy();
+  });
+
+  test("reads as pressed while its own document is open", () => {
+    openDocument(SURFACE_ID);
+    renderLink([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]);
+
+    expect(
+      screen.getByTestId("document-reopen-link").getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  test("reads as unpressed while a different document is open", () => {
+    openDocument("surf-other");
+    renderLink([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]);
+
+    expect(
+      screen.getByTestId("document-reopen-link").getAttribute("aria-pressed"),
+    ).toBe("false");
   });
 
   test("stays visible while a different document is open", () => {

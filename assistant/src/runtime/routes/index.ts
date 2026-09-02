@@ -74,6 +74,7 @@ import { ROUTES as GATEWAY_STATUS_ROUTES } from "./gateway-status-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
+import { GUARDIAN_FORM_ROUTES } from "./guardian-form-routes.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
@@ -91,7 +92,9 @@ import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-
 import { ROUTES as INFERENCE_PROFILES_ROUTES } from "./inference-profiles-routes.js";
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
+import { ROUTES as INGRESS_STATUS_ROUTES } from "./ingress-status-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
+import { ROUTES as DISCORD_CONFIG_ROUTES } from "./integrations/discord.js";
 import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_CHANNELS_ROUTES } from "./integrations/slack/channels.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
@@ -136,6 +139,7 @@ import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
+import { ROUTES as SIGHT_FRAME_ROUTES } from "./sight-frame-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
 import { ROUTES as SOUNDS_CONFIG_ROUTES } from "./sounds-config-routes.js";
@@ -191,6 +195,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CLIENT_ROUTES,
   ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
+  ...GUARDIAN_FORM_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_CLI_ROUTES,
@@ -240,6 +245,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INFERENCE_PROFILES_ROUTES,
   ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
   ...INFERENCE_SEND_ROUTES,
+  ...INGRESS_STATUS_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TELEMETRY_ROUTES,
   ...MCP_AUTH_ROUTES,
@@ -282,9 +288,11 @@ export const ROUTES: RouteDefinition[] = [
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SIGHT_FRAME_ROUTES,
   ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,
+  ...DISCORD_CONFIG_ROUTES,
   ...SLACK_CHANNEL_CONFIG_ROUTES,
   ...SLACK_CHANNEL_RESOLVE_ROUTES,
   ...SLACK_CHANNELS_ROUTES,

@@ -920,6 +920,70 @@ describe("upgradePlugin --strategy", () => {
     expect(installedFile("level-up", "local-only.txt")).toBeNull();
   });
 
+  test("keeps live config.json, data/, and .disabled under overwrite, theirs, and ours", async () => {
+    // GIVEN user-owned state on the live install, and a pin that ships defaults
+    const userConfig = '{"provider":"photon","ingressMode":"live"}\n';
+    const pinConfig = '{"provider":"comms","ingressMode":"webhook"}\n';
+    const liveOurs: Tree = {
+      ...OURS,
+      "config.json": userConfig,
+      "data/cursor.json": '{"n":1}\n',
+      ".disabled": "",
+    };
+    const pinTheirs: Tree = {
+      ...THEIRS,
+      "config.json": pinConfig,
+      "data/cursor.json": '{"n":0}\n',
+    };
+
+    for (const strategy of ["overwrite", "theirs", "ours"] as const) {
+      rmSync(join(pluginsDir, "level-up"), { recursive: true, force: true });
+      installMergeCopy("level-up", liveOurs, SHA_A, BASE);
+      const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+      const runGit = treeGitRunner({
+        [SHA_A]: BASE,
+        [SHA_B]: pinTheirs,
+      });
+
+      // WHEN the plugin is upgraded
+      const result = await upgradePlugin(
+        { name: "level-up", strategy },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      );
+
+      // THEN user-owned state is unchanged, including under `theirs` and
+      // overwrite, which would otherwise take the pin wholesale
+      expect(result.outcome).toBe("upgraded");
+      expect(installedFile("level-up", "config.json")).toBe(userConfig);
+      expect(installedFile("level-up", "data/cursor.json")).toBe('{"n":1}\n');
+      expect(existsSync(join(pluginsDir, "level-up", ".disabled"))).toBe(true);
+    }
+  });
+
+  test("does not seed config.json from the pin when the live install has none", async () => {
+    // GIVEN an install with no config.json, and a pin that ships defaults
+    installMergeCopy("level-up", OURS, SHA_A, BASE);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({
+      [SHA_A]: BASE,
+      [SHA_B]: {
+        ...THEIRS,
+        "config.json": '{"provider":"comms","ingressMode":"webhook"}\n',
+      },
+    });
+
+    // WHEN upgraded (overwrite materializes the pin tree directly)
+    const result = await upgradePlugin(
+      { name: "level-up", strategy: "overwrite" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the pin's config.json does not land: host-owned config is created
+    // by the plugin at runtime, not by the installer
+    expect(result.outcome).toBe("upgraded");
+    expect(installedFile("level-up", "config.json")).toBeNull();
+  });
+
   test("defaults to overwrite when no strategy is given", async () => {
     // GIVEN an install with a local-only file and an advanced pin
     installMergeCopy("level-up", OURS, SHA_A, BASE);

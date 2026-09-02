@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { bucketMessagesAdded } from "@/lib/diagnostics";
+import { bucketMessagesAdded, bucketTurnAge } from "@/lib/diagnostics";
 
 describe("bucketMessagesAdded", () => {
   // Buckets must stay low-cardinality so the values are aggregable
@@ -42,5 +42,26 @@ describe("bucketMessagesAdded", () => {
     expect(bucketMessagesAdded(Number.NaN)).toBe("0");
     expect(bucketMessagesAdded(Number.POSITIVE_INFINITY)).toBe("0");
     expect(bucketMessagesAdded(Number.NEGATIVE_INFINITY)).toBe("0");
+  });
+});
+
+describe("bucketTurnAge", () => {
+  test("buckets ages into the tag bands", () => {
+    expect(bucketTurnAge(0)).toBe("<2s");
+    expect(bucketTurnAge(1_999)).toBe("<2s");
+    expect(bucketTurnAge(2_000)).toBe("2-5s");
+    expect(bucketTurnAge(4_999)).toBe("2-5s");
+    expect(bucketTurnAge(5_000)).toBe("5-15s");
+    expect(bucketTurnAge(14_999)).toBe("5-15s");
+    expect(bucketTurnAge(15_000)).toBe("15-60s");
+    expect(bucketTurnAge(59_999)).toBe("15-60s");
+    expect(bucketTurnAge(60_000)).toBe("60s+");
+  });
+
+  test("collapses unusable inputs to unknown rather than throwing", () => {
+    expect(bucketTurnAge(null)).toBe("unknown");
+    expect(bucketTurnAge(-1)).toBe("unknown");
+    expect(bucketTurnAge(Number.NaN)).toBe("unknown");
+    expect(bucketTurnAge(Number.POSITIVE_INFINITY)).toBe("unknown");
   });
 });

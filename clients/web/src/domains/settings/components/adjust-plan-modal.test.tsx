@@ -31,6 +31,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
+import * as platformDetection from "@/runtime/platform-detection";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -89,6 +90,12 @@ mock.module("@/runtime/browser", () => ({
     return Promise.resolve();
   },
   openUrlFinishedListener: () => () => {},
+}));
+
+let nativeAndroid = false;
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 
 import {
@@ -285,6 +292,7 @@ beforeEach(() => {
   changeMachineTierCall = null;
   changeStorageTierCall = null;
   openedUrl = null;
+  nativeAndroid = false;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
@@ -300,6 +308,38 @@ afterEach(() => {
   cleanup();
 });
 
+describe("AdjustPlanModal on native Android", () => {
+  test("opens the web billing adjust deep link and closes instead of rendering", async () => {
+    nativeAndroid = true;
+    const closes: number[] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription("base", null),
+    );
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      proPlansResponse(CREDIT_TIERS),
+    );
+    const { queryByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AdjustPlanModal open onClose={() => closes.push(1)} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        `${window.location.origin}/assistant/settings/usage?tab=billing&adjust_plan`,
+      ),
+    );
+    expect(closes.length).toBe(1);
+    expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+});
+
 describe("AdjustPlanModal credit bundle — upgrade", () => {
   test("forwards the selected credit_tier in the upgrade body", async () => {
     const { getByTestId } = renderModal(
@@ -308,7 +348,7 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     );
 
     openCreditSelect();
-    clickOption("50 credits — $50/mo");
+    clickOption("50 credits - $50/mo");
 
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
@@ -410,7 +450,7 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     );
 
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -431,7 +471,7 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     );
 
     openCreditSelect();
-    clickOption("No credit bundle — $0/mo");
+    clickOption("No credit bundle - $0/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -601,7 +641,7 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     });
 
     openCreditSelect();
-    clickOption("No credit bundle — $0/mo");
+    clickOption("No credit bundle - $0/mo");
 
     // Simulate a mid-modal refetch: re-seed by replacing the plans object so the
     // seeding effect re-runs with a fresh `proPlan` identity.
@@ -636,7 +676,7 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     );
 
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -699,7 +739,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     });
 
     openCreditSelect();
-    clickOption("50 credits — $50/mo");
+    clickOption("50 credits - $50/mo");
 
     await waitFor(() => {
       if (getByTestId("modal-pro-price").textContent?.includes("$85/mo")) {
@@ -725,7 +765,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     });
 
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     await waitFor(() => {
       const text = getByTestId("modal-pro-price").textContent ?? "";
@@ -941,7 +981,7 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
 
     // Add a credit bundle
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -1123,7 +1163,7 @@ describe("AdjustPlanModal current plan: name and real tier rows", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Large Machine");
     expect(text).toContain("30 GB");
-    expect(text).toContain("50 credits/mo");
+    expect(text).toContain("50 credits");
     // The non-tier entitlement survives; the three tier-derived generic bullets
     // are superseded by the subscriber's real values.
     expect(text).toContain("Assistant email & subdomain");

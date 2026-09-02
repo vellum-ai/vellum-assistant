@@ -12,6 +12,7 @@ clients/
 ├── ios/               # iOS Capacitor shell
 ├── android/           # Android Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
+├── linux/             # Linux desktop wrapper (Electron / electron-vite, AppImage)
 ├── windows/           # Windows desktop wrapper (Electron / electron-vite)
 └── chrome-extension/  # MV3 Chrome browser extension
 ```
@@ -23,7 +24,7 @@ surfaces.
 The Android app is a Capacitor shell that lives in [`android/`](./android/);
 it follows the same remote web app loading model as iOS.
 
-The macOS and Windows Electron shells share their platform-neutral main and
+The macOS, Linux, and Windows Electron shells share their platform-neutral main and
 preload foundations through `@vellumai/electron-desktop` and native helper process supervision through `@vellumai/native-sidecar`. Thin client adapters
 under each platform package connect that core to platform lifecycle and native
 features. Dependency-free Electron helpers remain in `@vellumai/electron-utils`.
@@ -41,7 +42,7 @@ features. Dependency-free Electron helpers remain in `@vellumai/electron-utils`.
 
 ## Conventions
 
-- `web/`, `macos/`, `windows/`, and `docs/` are members of the root bun
+- `web/`, `macos/`, `linux/`, `windows/`, and `docs/` are members of the root bun
   workspace: the single root `bun.lock` covers them, and `bun install` anywhere in the tree
   resolves to the workspace root. Each keeps its own `package.json`,
   `tsconfig.json`, and lint config.
@@ -60,6 +61,12 @@ features. Dependency-free Electron helpers remain in `@vellumai/electron-utils`.
   `ci-main-macos.yaml`.
 - **Windows workflow filenames** - `clients/windows/` uses `pr-windows.yaml` /
   `ci-main-windows.yaml`.
+- **Linux workflow filenames** - `clients/linux/` uses `pr-linux.yaml` /
+  `ci-main-linux.yaml`.
+- **Desktop parity** - the Electron shells expose the same `VellumBridge`
+  contract from `packages/ipc-contract`; `clients/windows/docs/parity-matrix.md`
+  maps each capability to its Windows module, macOS counterpart, and test, and
+  names the macOS concepts with no Windows equivalent.
 
 ## Chrome Extension
 

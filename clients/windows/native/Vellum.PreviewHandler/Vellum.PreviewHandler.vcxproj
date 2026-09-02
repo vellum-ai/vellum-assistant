@@ -19,7 +19,7 @@
     <ConfigurationType Condition="'$(Configuration)'=='Release'">DynamicLibrary</ConfigurationType>
     <ConfigurationType Condition="'$(Configuration)'=='Tests'">Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -30,7 +30,14 @@
     <TargetName Condition="'$(Configuration)'=='Tests'">BundleReaderTests</TargetName>
     <VcpkgTriplet Condition="'$(Platform)'=='x64'">x64-windows-static-md</VcpkgTriplet>
     <VcpkgTriplet Condition="'$(Platform)'=='ARM64'">arm64-windows-static-md</VcpkgTriplet>
+    <VcpkgInstalledDir Condition="'$(VcpkgInstalledDir)'==''">$(MSBuildThisFileDirectory)vcpkg_installed\</VcpkgInstalledDir>
   </PropertyGroup>
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\lib;$(VcpkgInstalledDir)$(VcpkgTriplet)\lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>zs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -39,14 +46,15 @@
       <SDLCheck>true</SDLCheck>
       <ControlFlowGuard>Guard</ControlFlowGuard>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory);$(VcpkgInstalledDir)$(VcpkgTriplet)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link Condition="'$(Configuration)'=='Release'">
-      <AdditionalDependencies>windowscodecs.lib;shlwapi.lib;ole32.lib;gdi32.lib;user32.lib;zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>windowscodecs.lib;shlwapi.lib;ole32.lib;gdi32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <ControlFlowGuard>Guard</ControlFlowGuard>
-      <AdditionalOptions>/CETCOMPAT /DEPENDENTLOADFLAG:0x800 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Platform)'=='x64'">/CETCOMPAT /DEPENDENTLOADFLAG:0x800 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/DEPENDENTLOADFLAG:0x800 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -57,8 +65,5 @@
     <ClInclude Include="BundleReader.h" />
     <ClInclude Include="ComServer.h" />
   </ItemGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)'=='Tests'">
-    <Link><AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
-  </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

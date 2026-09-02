@@ -24,6 +24,7 @@ import type { ChangeTiersResult } from "./use-change-tiers";
 const SUBSCRIPTION_KEY = ["subscription"];
 const ONBOARDING_KEY = ["onboarding"];
 const PLANS_KEY = ["plans"];
+const SUMMARY_KEY = ["summary"];
 
 // The fixtures the mocked retrieve options resolve; each test seeds them.
 let subscriptionFixture: SubscriptionResponse | null = null;
@@ -114,6 +115,7 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
     queryFn: () => plansFixture,
   }),
   organizationsBillingPlansRetrieveQueryKey: () => PLANS_KEY,
+  organizationsBillingSummaryRetrieveQueryKey: () => SUMMARY_KEY,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation: () => ({
     mutationFn: (opts: Body) => {
       machineCalls.push(opts);
@@ -152,6 +154,7 @@ function proSubscription(
     plan_id: "pro",
     status: "active",
     renewal_date: null,
+    current_period_start: null,
     current_period_end: "2026-07-10T00:00:00Z",
     cancel_at_period_end: false,
     cancel_at: null,
@@ -430,8 +433,9 @@ describe("useChangeTiers", () => {
     expect(storageCalls).toEqual([]);
     expect(invalidatedKeys).toEqual([
       SUBSCRIPTION_KEY,
-      ONBOARDING_KEY,
       PLANS_KEY,
+      ONBOARDING_KEY,
+      SUMMARY_KEY,
     ]);
     expect(toastErrorCalls).toEqual([]);
     // A machine change resizes the assistant; the credit change persisted too.
@@ -471,6 +475,7 @@ describe("useChangeTiers", () => {
     });
 
     expect(events).toEqual([
+      "invalidated",
       "invalidated",
       "invalidated",
       "invalidated",

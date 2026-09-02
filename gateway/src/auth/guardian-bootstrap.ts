@@ -7,6 +7,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
@@ -26,6 +27,11 @@ import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
+import {
+  capDeviceIdentityText,
+  MAX_CLIENT_REPORTED_NAME_CHARS,
+  MAX_PAIRING_USER_AGENT_CHARS,
+} from "./device-identity-text.js";
 import {
   bustGuardianIntegrityCache,
   guardianIntegrityState,
@@ -97,6 +103,18 @@ export class VellumGuardianMintRefusedError extends Error {
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Hash a raw device id into its stored binding.
+ *
+ * A device id is only ever compared as a hash, so any difference in the raw
+ * bytes is a different device. Every mint and every redeem goes through here
+ * so surrounding whitespace cannot make one route's binding unmatchable by
+ * another's.
+ */
+export function hashDeviceId(deviceId: string): string {
+  return hashToken(deviceId.trim());
 }
 
 function uuid(): string {
@@ -572,7 +590,38 @@ export interface RefreshableTokenPair {
 export type DeviceBoundTokenPair = RefreshableTokenPair;
 
 /**
- * Revoke active actor tokens for a device binding.
+ * Clear a device's activity stamp on every actor token row, whatever its
+ * status.
+ *
+ * The device list takes the max `lastUsedAt` across statuses, and rotation
+ * revokes deliberately keep their stamp, so a status-scoped clear would leave
+ * a stamped revoked row behind for a re-paired device to inherit, reporting a
+ * last use older than its pairing date. Kept separate from the status update
+ * so `updatedAt`, which tracks lifecycle, is not bumped on rows whose
+ * lifecycle did not change.
+ */
+export function clearDeviceActivityStamp(
+  guardianPrincipalId: string,
+  hashedDeviceId: string,
+): void {
+  getGatewayDb()
+    .update(actorTokenRecords)
+    .set({ lastUsedAt: null })
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+      ),
+    )
+    .run();
+}
+
+/**
+ * Revoke active actor tokens for a device binding, ending the pairing.
+ *
+ * Clears the device's activity stamp as well so a later re-pair starts fresh.
+ * Rotation revokes via `revokeActiveActorTokensByDevice` instead, which keeps
+ * the stamp so history survives a credential refresh.
  */
 export function revokeActorTokensByDevice(
   guardianPrincipalId: string,
@@ -590,6 +639,7 @@ export function revokeActorTokensByDevice(
       ),
     )
     .run();
+  clearDeviceActivityStamp(guardianPrincipalId, hashedDeviceId);
 }
 
 /**
@@ -614,6 +664,34 @@ export function revokeRefreshTokensByDevice(
 }
 
 /**
+ * Device identity observed/asserted at mint time, carried as one unit so it
+ * travels through the minting signatures as a pair rather than two loose
+ * parameters. Capping happens at the store boundary (inside the mint
+ * functions below), not here, so no caller can bypass it.
+ */
+export interface DeviceIdentityInput {
+  pairingUserAgent?: string | null;
+  clientReportedName?: string | null;
+}
+
+/** Cap a device identity's free-text fields to their stored max lengths. */
+function capIdentity(identity?: DeviceIdentityInput): {
+  pairingUserAgent: string | null;
+  clientReportedName: string | null;
+} {
+  return {
+    pairingUserAgent: capDeviceIdentityText(
+      identity?.pairingUserAgent,
+      MAX_PAIRING_USER_AGENT_CHARS,
+    ),
+    clientReportedName: capDeviceIdentityText(
+      identity?.clientReportedName,
+      MAX_CLIENT_REPORTED_NAME_CHARS,
+    ),
+  };
+}
+
+/**
  * Mint a JWT access token and persist its hash in the gateway DB.
  */
 function mintAccessToken(
@@ -621,6 +699,7 @@ function mintAccessToken(
   hashedDeviceId: string,
   platform: string,
   ttlSeconds: number = ACCESS_TOKEN_TTL_SECONDS,
+  identity?: DeviceIdentityInput,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
@@ -645,6 +724,7 @@ function mintAccessToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
+      ...capIdentity(identity),
       status: "active",
       issuedAt: now,
       expiresAt,
@@ -664,6 +744,7 @@ function mintRefreshToken(
   hashedDeviceId: string,
   platform: string,
   options: { browserRefreshCookiePath?: string } = {},
+  identity?: DeviceIdentityInput,
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -685,6 +766,7 @@ function mintRefreshToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
+      ...capIdentity(identity),
       status: "active",
       issuedAt: now,
       absoluteExpiresAt,
@@ -712,13 +794,21 @@ function mintRefreshToken(
  * needs a full refreshable credential). The device binding enforces one active
  * token per (guardianPrincipalId, hashedDeviceId) via a unique index, so
  * re-minting for the same device first revokes the prior tokens.
+ *
+ * The device id is normalized here rather than at each route, so every entry
+ * point records the same binding. A blank one throws instead of minting
+ * against an empty identity.
  */
 export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
   deviceId: string;
   platform: string;
+  identity?: DeviceIdentityInput;
 }): DeviceBoundTokenPair {
-  const hashedDeviceId = hashToken(params.deviceId);
+  if (!params.deviceId.trim()) {
+    throw new Error("deviceId is required to mint a device-bound token pair");
+  }
+  const hashedDeviceId = hashDeviceId(params.deviceId);
 
   revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
   revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
@@ -727,11 +817,15 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    ACCESS_TOKEN_TTL_SECONDS,
+    params.identity,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    {},
+    params.identity,
   );
 
   return {
@@ -752,6 +846,7 @@ export function mintAndRecordBrowserTokenPair(params: {
   guardianPrincipalId: string;
   platform: string;
   browserRefreshCookiePath: string;
+  identity?: DeviceIdentityInput;
 }): RefreshableTokenPair {
   const internalBinding = randomBytes(32).toString("base64url");
   const hashedDeviceId = hashToken(internalBinding);
@@ -760,12 +855,15 @@ export function mintAndRecordBrowserTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    ACCESS_TOKEN_TTL_SECONDS,
+    params.identity,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
     { browserRefreshCookiePath: params.browserRefreshCookiePath },
+    params.identity,
   );
 
   return {
@@ -1020,6 +1118,23 @@ export async function ensureVellumGuardianBinding(
 }
 
 /**
+ * Bootstrap is on the critical path, so a throwing or empty hostname
+ * degrades to `undefined` rather than failing guardian bootstrap. This is
+ * the gateway process's own hostname, which is only the right identity for
+ * the paired machine in bare-metal mode; a containerized gateway (Docker,
+ * AWS, GCP) reads its own container/VM name here instead of the host that
+ * issued the init request. Callers should prefer a client-reported name
+ * when the init request carried one.
+ */
+function readHostReportedName(): string | undefined {
+  try {
+    return hostname() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Execute the full guardian bootstrap flow:
  *   1. Ensure a guardian principal exists for the vellum channel
  *   2. Revoke existing credentials for this device
@@ -1029,6 +1144,7 @@ export async function ensureVellumGuardianBinding(
 export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
+  clientReportedName?: string;
 }): Promise<GuardianBootstrapResult> {
   // 1. Resolve (or mint) the guardian principal. Guardian init is the
   //    sanctioned operator-driven recovery path, so it may mint over evidence
@@ -1041,6 +1157,9 @@ export async function bootstrapGuardian(params: {
     guardianPrincipalId,
     deviceId: params.deviceId,
     platform: params.platform,
+    identity: {
+      clientReportedName: params.clientReportedName ?? readHostReportedName(),
+    },
   });
 
   log.info(

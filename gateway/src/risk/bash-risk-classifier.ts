@@ -277,6 +277,7 @@ export function classifySegment(
   segment: CommandSegment,
   registry: Record<string, CommandRiskSpec>,
   toolName: "bash" | "host_bash" = "bash",
+  cwd?: string,
 ): { risk: Risk; reason: string; matchType: RiskAssessment["matchType"] } {
   // 1. Short-circuit on user-defined trust rules from the cache.
   // Rules with origin="user_defined" (created by the user) bypass the
@@ -287,6 +288,7 @@ export function classifySegment(
     const cacheRule = getTrustRuleCache().findBaseRisk(
       toolName,
       segment.command,
+      cwd,
     );
     if (cacheRule?.origin === "user_defined") {
       return {
@@ -366,7 +368,12 @@ export function classifySegment(
           args: inner.args,
           operator: segment.operator,
         };
-        const innerResult = classifySegment(innerSegment, registry, toolName);
+        const innerResult = classifySegment(
+          innerSegment,
+          registry,
+          toolName,
+          cwd,
+        );
         return {
           risk: maxRisk(spec.baseRisk as Risk, innerResult.risk),
           reason:
@@ -439,6 +446,7 @@ export function classifySegment(
     let cachedRule = getTrustRuleCache().findBaseRisk(
       toolName,
       positionalPattern,
+      cwd,
     );
     // Defensive fallback: the registry subcommand walk skips per-level value
     // flags that the program-level parseArgs may not, so retry with the
@@ -447,6 +455,7 @@ export function classifySegment(
       cachedRule = getTrustRuleCache().findBaseRisk(
         toolName,
         subcommandPattern,
+        cwd,
       );
     }
 
@@ -971,7 +980,7 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
   }
 
   async classify(input: BashClassifierInput): Promise<RiskAssessment> {
-    const { command, toolName } = input;
+    const { command, toolName, workingDir } = input;
 
     if (!command.trim()) {
       return {
@@ -993,7 +1002,11 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
     // the literal first, then the action: sibling, then progressively shorter
     // prefixes); a compound command with && / || / ; only hits the literal step.
     try {
-      const fullRule = getTrustRuleCache().findBaseRisk(toolName, command);
+      const fullRule = getTrustRuleCache().findBaseRisk(
+        toolName,
+        command,
+        workingDir,
+      );
       if (fullRule?.origin === "user_defined") {
         return {
           riskLevel: fullRule.risk,
@@ -1017,7 +1030,12 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
 
     // Classify each segment
     for (const segment of parsed.segments) {
-      const result = classifySegment(segment, this.registry, toolName);
+      const result = classifySegment(
+        segment,
+        this.registry,
+        toolName,
+        workingDir,
+      );
       if (riskOrd(result.risk) > riskOrd(maxRiskLevel)) {
         maxRiskLevel = result.risk;
         maxReason = result.reason;

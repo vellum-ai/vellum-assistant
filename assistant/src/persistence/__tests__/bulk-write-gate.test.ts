@@ -6,7 +6,6 @@ import { describe, expect, test } from "bun:test";
 import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
 import { bulkWriteGateHolder, withBulkWriteGate } from "../bulk-write-gate.js";
 import { deleteConversationRowsInBatches } from "../conversation-row-batch-delete.js";
-import { copyForkMessagesViaSubprocess } from "../fork-message-copy.js";
 
 /** A promise whose resolution the test controls. */
 function deferred(): { promise: Promise<void>; release: () => void } {
@@ -73,43 +72,6 @@ describe("withBulkWriteGate", () => {
 });
 
 describe("gated bulk writers", () => {
-  test("fork message-copy queues behind a held gate", async () => {
-    const holder = deferred();
-    const holding = withBulkWriteGate("holder", () => holder.promise);
-
-    let copySettled = false;
-    const copy = copyForkMessagesViaSubprocess({
-      forkConversationId: "fork-1",
-      idPairs: [{ oldId: "old-1", newId: "new-1" }],
-      forceInProcess: true,
-    }).then((result) => {
-      copySettled = true;
-      return result;
-    });
-
-    await Bun.sleep(20);
-    expect(copySettled).toBe(false);
-
-    holder.release();
-    await holding;
-    await copy;
-    expect(copySettled).toBe(true);
-  });
-
-  test("empty fork message-copy skips the gate entirely", async () => {
-    const holder = deferred();
-    const holding = withBulkWriteGate("holder", () => holder.promise);
-
-    const result = await copyForkMessagesViaSubprocess({
-      forkConversationId: "fork-1",
-      idPairs: [],
-    });
-    expect(result.ok).toBe(true);
-
-    holder.release();
-    await holding;
-  });
-
   test("main-DB batched delete queues behind a held gate", async () => {
     const holder = deferred();
     const holding = withBulkWriteGate("holder", () => holder.promise);

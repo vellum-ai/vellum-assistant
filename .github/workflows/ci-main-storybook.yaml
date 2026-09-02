@@ -10,9 +10,14 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - "packages/design-library/**"
+      # The web's Storybook bundles this contract's values, so a change here
+      # can break the Storybook build with no web file touched.
+      - "packages/ipc-contract/**"
       - "clients/web/**"
       - "packages/local-mode/**"
       - "packages/environments/**"
+      - "packages/avatar-catalog/**"
+      - "packages/avatar-manifest/**"
       - ".github/workflows/ci-main-storybook.yaml"
 
 # Serialize per branch and cancel superseded runs so only the newest main

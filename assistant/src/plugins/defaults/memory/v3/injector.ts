@@ -1,5 +1,5 @@
 /**
- * The memory-v3 {@link Injector}s: frozen net-new cards + ephemeral spotlight.
+ * The memory-v3 {@link Injector}s: frozen net-new cards + per-turn spotlight.
  *
  * Two injectors share one orchestration result per turn (memoized via
  * {@link observeTurnOnce} so re-entry assemblies — overflow convergence,
@@ -30,15 +30,18 @@
  *    frozen cards still ride history).
  *
  *  - {@link memoryV3SpotlightInjector} (id `memory-v3-spotlight`,
- *    `after-memory-prefix`): the EPHEMERAL layer. Renders the top `spotlight.n`
- *    selected finder hits' matched sections, plus the previous
+ *    `after-memory-prefix`): the per-turn spotlight layer. Renders the top
+ *    `spotlight.n` selected finder hits' matched sections, plus the previous
  *    `spotlight.windowTurns` turns' entries from an in-memory per-conversation
  *    ring (a daemon restart simply re-warms it), as a `<memory_spotlight>`
- *    block spliced immediately after the `<memory>` cards block (so the two
- *    memory layers sit adjacent in the prefix, ahead of the user's message
- *    text). Assembly strip-and-replaces this block every turn (scoped to this
- *    block id only); it is never persisted to metadata, so the frozen card
- *    prefix it follows stays byte-stable and cached regardless.
+ *    block. Runtime assembly splices the block onto the current user message
+ *    immediately after any frozen `<memory>` cards. The user-prompt-submit
+ *    hook persists the wrapped text under `metadata.memoryV3SpotlightBlock`;
+ *    `conversation.ts` rehydrates it on load. Historical user messages keep
+ *    the spotlight they were sent with, so the provider prefix through those
+ *    messages stays byte-identical. Mid-turn re-entry and post-compact
+ *    tail-strip the current tail before splicing a fresh spotlight so the
+ *    block does not double-stack.
  *
  * Gating: `memory.v3.live` (config) runs orchestration and attaches blocks;
  * with it off, no orchestration runs and nothing is attached.
@@ -442,13 +445,9 @@ export const memoryV3SpotlightInjector: Injector = {
       return {
         id: MEMORY_V3_SPOTLIGHT_BLOCK_ID,
         text: wrapMemorySpotlightBlock(renderSpotlightInner(window)),
-        // Splices right after the `<memory>` cards block (this injector's
-        // order 1001 runs after the cards' 1000, and `countMemoryPrefixBlocks`
-        // counts the cards `<memory>` block but not `<memory_spotlight>`, so the
-        // spotlight lands immediately after the cards rather than at the user
-        // tail). Cache-neutral: the block is strip-and-replaced from prior
-        // messages by block id every turn regardless of placement, so the
-        // frozen card prefix stays byte-stable and cached.
+        // Immediately after frozen `<memory>` cards. `countMemoryPrefixBlocks`
+        // counts `<memory>` but not `<memory_spotlight>`, so this lands
+        // between the cards and NOW.md / user text.
         placement: "after-memory-prefix",
       };
     } catch (err) {

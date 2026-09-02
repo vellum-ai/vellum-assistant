@@ -31,6 +31,7 @@ import {
   prepareImageAttachmentForUpload,
 } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
 import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
+import { sniffBlobMimeType } from "@/domains/chat/utils/mime-sniff";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,6 +169,35 @@ export function canQueueFile(
   );
 }
 
+/** Chip error for an image whose bytes are not an image at all. */
+const UNREADABLE_IMAGE_ERROR =
+  "This image can't be sent: the file appears to be corrupt or in an unsupported format.";
+
+/**
+ * Whether a file declared as an image holds bytes no image decoder can read.
+ *
+ * The declared type comes from the filename extension, so it is a claim, and
+ * the bytes are what the model provider actually judges: an unreadable payload
+ * costs the whole turn, since an OpenAI-compatible endpoint answers HTTP 400
+ * for the entire request ("The image data you provided does not represent a
+ * valid image"), taking every other image in the message down with it.
+ *
+ * Only a payload matching no known signature is refused here, not every payload
+ * outside the four formats providers accept (PNG, JPEG, GIF, WebP): a HEIC
+ * photo from an iPhone is none of the four and still attaches successfully,
+ * because the assistant transcodes it to JPEG on the way into the attachment
+ * store. Bytes that name nothing have no such route, so this is the subset that
+ * is knowably unsendable from the browser. The provider send boundary is the
+ * authoritative gate for the rest, and names the file in the transcript when it
+ * drops one.
+ */
+async function isUnreadableImage(file: File): Promise<boolean> {
+  if (!file.type.toLowerCase().startsWith("image/")) {
+    return false;
+  }
+  return (await sniffBlobMimeType(file)) === null;
+}
+
 /** Extract the trailing path segment for the chip label, stripping any trailing separator. */
 function basenameOf(path: string): string {
   const trimmed = path.replace(/[/\\]+$/, "");
@@ -200,6 +230,34 @@ export interface ComposerActions {
   saveDraft: (key: string, text: string) => void;
   /** Clear the draft for the given key (e.g. after a successful send). */
   clearDraft: (key: string) => void;
+  /**
+   * Put a failed send's text back into `key`'s draft slot, unless something is
+   * already there.
+   *
+   * The composer clears the moment a send starts, so a send that fails after
+   * the user has moved to another thread has nowhere on screen to put its text
+   * back: the composer in front of them belongs to a different conversation.
+   * Parking it in the draft map hands the message back the way any unsent draft
+   * is handed back, the next time that thread is opened. The deep-link send
+   * keeps a message for its target thread the same way when the user navigates
+   * away mid-resolve (see `hooks/use-deep-link-thread-send.ts`).
+   *
+   * An occupied slot wins and this does nothing. Whatever is in there was
+   * written after this send left, so it is the newer of the two, and it is what
+   * the user last saw in that composer.
+   *
+   * For a thread that is NOT the one on screen: the write lands in the map, and
+   * the composer picks it up on the switch that opens that conversation. A
+   * caller restoring into the open thread would want {@link setInput} as well.
+   *
+   * `assistantId` is the assistant the SEND belonged to, which is not
+   * necessarily the one loaded now: an assistant switch swaps the in-memory map
+   * out from under a send still in flight. When the two agree this writes the
+   * live map; when they do not it goes straight to that assistant's own
+   * persisted entry, so the message waits where its own conversation will look
+   * for it rather than being filed under a stranger.
+   */
+  restoreFailedDraft: (assistantId: string, key: string, text: string) => void;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -296,6 +354,24 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     if (currentAssistantId) {
       persistDrafts(currentAssistantId, draftsMap);
     }
+  },
+
+  restoreFailedDraft: (assistantId, key, text) => {
+    if (!text.trim()) {
+      return;
+    }
+    // The map in memory belongs to whichever assistant is loaded. Reach for it
+    // only when that is this send's assistant; otherwise read, check and write
+    // that one's stored entry through the same helpers, so the two paths agree
+    // on both the storage key and the serialized shape.
+    const drafts =
+      assistantId === currentAssistantId ? draftsMap : loadDrafts(assistantId);
+    const existing = drafts.get(key);
+    if (existing && existing.trim()) {
+      return;
+    }
+    drafts.set(key, text);
+    persistDrafts(assistantId, drafts);
   },
 
   handleConversationSwitch: ({ previousKey, nextKey }) => {
@@ -431,6 +507,10 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
           const uploadFile =
             prepared.status === "failed" ? file : prepared.file;
+          if (await isUnreadableImage(uploadFile)) {
+            markFailed(set, pending.localId, UNREADABLE_IMAGE_ERROR);
+            return;
+          }
           if (uploadFile.size > MAX_ATTACHMENT_BYTES) {
             markFailed(
               set,

@@ -1,4 +1,8 @@
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
+import {
+  buildShellInvocation,
+  terminateProcessTree,
+} from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
@@ -34,14 +38,13 @@ export interface ScriptResult {
 /**
  * Run a shell command and capture its output.
  *
- * Uses Bun.spawn with /bin/sh so the command string supports pipes,
- * redirects, and shell builtins. Output is truncated to
- * {@link MAX_OUTPUT_BYTES} to keep schedule_runs rows bounded.
+ * Uses the platform shell so the command string supports pipes, redirects,
+ * and shell builtins. Windows uses PowerShell and POSIX hosts use Bash. Output
+ * is truncated to {@link MAX_OUTPUT_BYTES} to keep schedule_runs rows bounded.
  *
- * The command runs in its own process group, and the whole group is killed
- * on timeout and swept after exit, so background children cannot outlive the
- * run. A child that daemonizes itself with setsid leaves the group and
- * deliberately survives.
+ * The command runs in its own process group or Windows process tree. The tree
+ * is terminated on timeout and swept after exit so background children cannot
+ * outlive the run.
  */
 export async function runScript(
   command: string,
@@ -57,11 +60,13 @@ export async function runScript(
 
   log.info({ command, cwd, timeoutMs }, "Running script");
 
-  const proc = Bun.spawn(["sh", "-c", command], {
+  const shell = buildShellInvocation(command);
+  const proc = Bun.spawn([shell.command, ...shell.args], {
     cwd,
     detached: true,
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
     env: {
       ...buildSanitizedEnv(),
       // __SCHEDULE_ID lets a saved command find its own dir; __SCHEDULE_RUN_ID
@@ -82,7 +87,7 @@ export async function runScript(
   const timeoutPromise = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
       timedOut = true;
-      killProcessGroup(proc.pid);
+      terminateProcessTree(proc);
       reject(new Error(`Script timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
@@ -116,7 +121,7 @@ export async function runScript(
   // Sweep anything the script left running. This reaps orphaned background
   // children and closes their copies of the pipe fds so the stream reads
   // below can reach EOF.
-  killProcessGroup(proc.pid);
+  terminateProcessTree(proc);
 
   const [stdoutStr, stderrStr] = await drainStreams(
     stdoutCollector,
@@ -131,19 +136,6 @@ export async function runScript(
   );
 
   return { exitCode, stdout, stderr };
-}
-
-/**
- * SIGKILL every process in the script's process group. The group is often
- * already empty, in which case the signal fails with ESRCH and there is
- * nothing to reap.
- */
-function killProcessGroup(pid: number): void {
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    // Process group may have already exited.
-  }
 }
 
 interface StreamCollector {

@@ -1,6 +1,6 @@
 /**
  * "Create my personality" — five trait sliders the user nudges to shape the
- * assistant's voice, shown between the pitch and the free-credits step.
+ * assistant's voice, shown between the pitch and the initial-usage step.
  *
  * SPIKE — research-onboarding flow.
  *
@@ -299,6 +299,7 @@ function PersonalitySlider({
         {rightLabel}
       </span>
       <SliderPrimitive.Root
+        data-owns-horizontal-drag=""
         className="relative order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
         value={[value]}
         onValueChange={(next) => onValueChange(next[0] ?? DEFAULT_VALUE)}

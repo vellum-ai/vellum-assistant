@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   deriveProfileDefaults,
   deriveProviderDefaults,
+  uniqueProfileName,
 } from "@/domains/settings/ai/profile-prefill";
 
 // `slugify` and `dedupeKey` are module-private — they have no non-test
@@ -87,19 +88,76 @@ describe("deriveProviderDefaults", () => {
 });
 
 describe("deriveProfileDefaults", () => {
-  test("uses the model display name and a deduped slug key", () => {
+  test("uses the model display name and the key it slugifies to", () => {
     expect(deriveProfileDefaults("Claude Opus 4.7", [])).toEqual({
       name: "Claude Opus 4.7",
       key: "claude-opus-4-7",
     });
   });
 
-  test("dedupes the key against existing profile names", () => {
+  test("suffixes the name, and the key follows it", () => {
     expect(
       deriveProfileDefaults("Claude Opus 4.7", ["claude-opus-4-7"]),
     ).toEqual({
-      name: "Claude Opus 4.7",
+      name: "Claude Opus 4.7 (2)",
       key: "claude-opus-4-7-2",
     });
+  });
+});
+
+describe("uniqueProfileName", () => {
+  test("leaves a free name alone", () => {
+    expect(uniqueProfileName("Claude Opus 4.8", [])).toBe("Claude Opus 4.8");
+    expect(uniqueProfileName("Claude Opus 4.8", ["gpt-5-6"])).toBe(
+      "Claude Opus 4.8",
+    );
+  });
+
+  test("appends (2) on the first collision", () => {
+    expect(uniqueProfileName("Claude Opus 4.8", ["claude-opus-4-8"])).toBe(
+      "Claude Opus 4.8 (2)",
+    );
+  });
+
+  test("walks the suffix until both the name and its key are free", () => {
+    expect(
+      uniqueProfileName("Claude Opus 4.8", [
+        "claude-opus-4-8",
+        "claude-opus-4-8-2",
+        "claude-opus-4-8-3",
+      ]),
+    ).toBe("Claude Opus 4.8 (4)");
+  });
+
+  test("fills a gap rather than counting past the highest suffix", () => {
+    // "(2)" and "(4)" are taken, so the next one is "(3)": the lowest free
+    // number, so deleting a copy cannot change what the next one is called.
+    expect(
+      uniqueProfileName("Claude Opus 4.8", [
+        "claude-opus-4-8",
+        "claude-opus-4-8-2",
+        "claude-opus-4-8-4",
+      ]),
+    ).toBe("Claude Opus 4.8 (3)");
+  });
+
+  test("rejects a candidate whose key is taken under a different name", () => {
+    // "fast-cheap" was stored from "Fast & Cheap"; "Fast Cheap" slugifies to
+    // the same key, so it collides even though the names differ.
+    expect(uniqueProfileName("Fast Cheap", ["fast-cheap"])).toBe(
+      "Fast Cheap (2)",
+    );
+  });
+
+  test("matches a taken name case-insensitively", () => {
+    expect(uniqueProfileName("Anthropic", ["ANTHROPIC"])).toBe(
+      "Anthropic (2)",
+    );
+  });
+
+  test("lets a profile being edited keep its own name", () => {
+    expect(
+      uniqueProfileName("Claude Opus 4.8", ["claude-opus-4-8"], "claude-opus-4-8"),
+    ).toBe("Claude Opus 4.8");
   });
 });

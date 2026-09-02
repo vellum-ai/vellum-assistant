@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Minimized live-voice surface: while a session is active and the room is
  * dismissed, this bar sits directly above the chat input on the owning thread.
@@ -64,10 +65,14 @@ import { Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 import { Button, cn } from "@vellumai/design-library";
 
 import {
-  LIVE_VOICE_STATE_LABELS,
   isLiveVoiceMicLive,
+  liveVoiceSurfaceLabelKey,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  COMPOSER_MOBILE_RADIUS_CLASS,
+  COMPOSER_RADIUS_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { VOICE_WAVE_EDGE_FADE_CLASS } from "@/domains/chat/voice/voice-room/voice-listening-waves";
 import {
   MESH_INLINE_TUNING,
@@ -94,23 +99,6 @@ const SILENT_AMPLITUDE = () => 0;
  * beneath it. Touch takes the extra 4px the expanded tap targets want.
  */
 const BAR_HEIGHT_CLASS = "h-10 touch-mobile:h-11";
-
-/**
- * The chat input's own corner radius. Exported so the composer card and this
- * bar can never drift apart: they are stacked with 8px between them, and two
- * different radii at that distance read as two unrelated widgets rather than
- * one control area.
- */
-export const COMPOSER_RADIUS_CLASS = "rounded-[10px]";
-
-/**
- * The same corner at mobile widths, where the composer card is a 26px pill
- * (half its 52px collapsed height) rather than the desktop panel. The bar
- * tracks whichever card it is stacked on, so the two still read as one control
- * area; a 10px bar over a pill would not. Exported for the same reason as its
- * desktop sibling: the card and the bar cannot be allowed to drift.
- */
-export const COMPOSER_MOBILE_RADIUS_CLASS = "rounded-[26px]";
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
@@ -164,6 +152,7 @@ export function VoiceComposerBar({
   onExpand,
   paint = null,
 }: VoiceComposerBarProps) {
+  const { t } = useTranslation("chat");
   // The card below is a pill at mobile widths, so the bar follows it there.
   const isMobile = useIsMobile();
   // Which voice the band is drawing, in the room's own terms: the user lifts a
@@ -188,10 +177,16 @@ export function VoiceComposerBar({
   const mutedInk = {
     "--vbtn-fg": voiceSurfaceMutedInk(paint),
   } as CSSProperties;
+  // The session's own word, taken as a catalog key so the live region reads in
+  // the user's language. The bar is handed a phase and a mute flag and nothing
+  // else, so the reconnect and assistant-audio remaps are handed the values
+  // that leave them unfired. Mute keeps the branch at the region below: this
+  // bar says "Muted" in every phase, not only the one the session relabels.
+  const stateKey = liveVoiceSurfaceLabelKey(state, false, true, false);
   return (
     <div
       role="group"
-      aria-label="Voice session"
+      aria-label={t("voiceComposerBar.ariaLabel")}
       data-theme={voiceSurfaceTheme(paint)}
       style={paint ? voiceSurfaceStyle(paint) : undefined}
       className={cn(
@@ -231,9 +226,9 @@ export function VoiceComposerBar({
           }
           expandOnMobile
           onClick={onToggleMute}
-          aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+          aria-label={muted ? t("voiceComposerBar.unmuteMicrophone") : t("voiceComposerBar.muteMicrophone")}
           aria-pressed={muted}
-          tooltip={muted ? "Unmute microphone" : "Mute microphone"}
+          tooltip={muted ? t("voiceComposerBar.unmuteMicrophone") : t("voiceComposerBar.muteMicrophone")}
           className={VOICE_SURFACE_CONTROL_CLASS}
           style={muted ? mutedInk : undefined}
         />
@@ -259,14 +254,14 @@ export function VoiceComposerBar({
         <button
           type="button"
           onClick={onExpand}
-          aria-label="Open voice room"
+          aria-label={t("voiceComposerBar.openVoiceRoom")}
           className="relative min-w-0 flex-1 self-stretch focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--vbtn-fg)]"
         />
       ) : (
         <div className="relative min-w-0 flex-1" />
       )}
       <span aria-live="polite" className="sr-only">
-        {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
+        {muted ? t("voiceComposerBar.muted") : stateKey ? t(stateKey) : ""}
       </span>
 
       <div className="relative flex shrink-0 items-center gap-1">
@@ -284,9 +279,9 @@ export function VoiceComposerBar({
           }
           expandOnMobile
           onClick={onToggleOutputMute}
-          aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          aria-label={outputMuted ? t("voiceComposerBar.unmuteAssistant") : t("voiceComposerBar.muteAssistant")}
           aria-pressed={outputMuted}
-          tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          tooltip={outputMuted ? t("voiceComposerBar.unmuteAssistant") : t("voiceComposerBar.muteAssistant")}
           className={VOICE_SURFACE_CONTROL_CLASS}
           style={outputMuted ? mutedInk : undefined}
         />
@@ -295,8 +290,8 @@ export function VoiceComposerBar({
           iconOnly={<X className="h-4 w-4" strokeWidth={2.5} />}
           expandOnMobile
           onClick={onEnd}
-          aria-label="End voice session"
-          tooltip="End voice session"
+          aria-label={t("voiceComposerBar.endSession")}
+          tooltip={t("voiceComposerBar.endSession")}
           className={VOICE_SURFACE_CONTROL_CLASS}
         />
       </div>

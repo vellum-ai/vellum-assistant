@@ -9,7 +9,7 @@ Console.CancelKeyPress += (_, eventArgs) =>
     shutdown.Cancel();
 };
 
-var registry = ModuleRegistry.Discover(Assembly.GetExecutingAssembly());
+using var registry = ModuleRegistry.Discover(Assembly.GetExecutingAssembly());
 ObservationSeams.CuSource = new WindowsCuObservationSource();
 try
 {

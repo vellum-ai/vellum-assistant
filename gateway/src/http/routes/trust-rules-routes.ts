@@ -28,6 +28,12 @@ const TrustRuleSchema = z.object({
   origin: z.enum(["default", "user_defined"]),
   userModified: z.boolean(),
   deleted: z.boolean(),
+  /**
+   * Optional directory scope. When non-null the rule applies only when the
+   * tool is invoked from within this directory (or a subdirectory). Null
+   * means global.
+   */
+  scope: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -38,10 +44,10 @@ const CreateTrustRuleRequestSchema = z.object({
   risk: TrustRuleRiskSchema,
   description: z.string().min(1),
   scope: z
-    .string()
+    .literal("everywhere")
     .optional()
     .describe(
-      "Directory scope selected in the rule editor. Accepted on the wire but not yet persisted by the gateway.",
+      'Compatibility field. Trust rules apply workspace-wide: the engine matches on (tool, pattern) only, so a narrower scope cannot be honored and any value other than "everywhere" is rejected rather than stored broader than the consent it records.',
     ),
 });
 

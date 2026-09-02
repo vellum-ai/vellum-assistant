@@ -1,9 +1,9 @@
 /**
  * Computer-use tool definitions.
  *
- * These tools mirror the macOS client's ToolDefinitions.swift schemas, prefixed
+ * These tools mirror the desktop client's computer-use schemas, prefixed
  * with `computer_use_` to avoid collisions with existing daemon tools.  They are all
- * proxy tools - execution is forwarded to a connected macOS client and never
+ * proxy tools. Execution is forwarded to a connected desktop client and never
  * handled locally by the daemon.
  */
 
@@ -19,7 +19,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
- * Forward execution to the connected macOS client via the request-bound
+ * Forward execution to the connected desktop client via the request-bound
  * `proxyToolResolver`. Returns a structured error when no resolver is
  * configured (e.g. no client connected) so callers see a normal tool
  * failure rather than an unhandled throw.
@@ -31,7 +31,7 @@ function proxyExecute(toolName: string) {
   ): Promise<ToolExecutionResult> => {
     if (!context.proxyToolResolver) {
       return {
-        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`,
+        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires a connected desktop client.`,
         isError: true,
       };
     }
@@ -131,7 +131,7 @@ export const computerUseTypeTextTool = {
 export const computerUseKeyTool = {
   name: "computer_use_key",
   description:
-    "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab",
+    "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab. On Windows use ctrl/alt in place of cmd/option.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -141,7 +141,8 @@ export const computerUseKeyTool = {
     properties: {
       key: {
         type: "string",
-        description: "Key or shortcut to press (e.g. enter, tab, cmd+c, cmd+v)",
+        description:
+          "Key or shortcut to press (e.g. enter, tab, ctrl+c, cmd+c)",
       },
       reasoning: {
         type: "string",
@@ -223,6 +224,7 @@ export const computerUseDragTool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
+  supportedClientOs: ["macos", "windows"],
 
   input_schema: {
     type: "object",
@@ -311,10 +313,11 @@ export const computerUseWaitTool = {
 export const computerUseOpenAppTool = {
   name: "computer_use_open_app",
   description:
-    "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps - more reliable and explicit.",
+    "Open or switch to a desktop application by name. Preferred over cmd+tab / alt+tab for switching apps - more reliable and explicit.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
+  supportedClientOs: ["macos", "windows"],
 
   input_schema: {
     type: "object",
@@ -352,6 +355,7 @@ export const computerUseRunAppleScriptTool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
+  supportedClientOs: ["macos"],
 
   input_schema: {
     type: "object",

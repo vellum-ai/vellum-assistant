@@ -11,14 +11,17 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  StreamOp,
 } from "@vellumai/gateway-client";
 
 import { a2aTransport } from "./a2a/transport.js";
 import type { DirectDeliveryChannel } from "./callback-routing.js";
 import { channelForCallback } from "./callback-routing.js";
 import type {
+  ActivityTarget,
   CallbackContext,
   ChannelTransport,
+  EditTarget,
   ReactionTarget,
 } from "./channel-transport.js";
 import { discordTransport } from "./discord/transport.js";
@@ -50,49 +53,119 @@ export function getTransportForCallback(
 }
 
 /**
- * Whether the channel this callback addresses can show a working indicator.
+ * Resolve a channel's transport by its id, or `undefined` for a channel with
+ * no direct transport. A plugin channel resolves to `undefined` until plugin
+ * outbound exists, so capability probes over this read as "not yet" rather
+ * than throwing on an unknown id.
+ */
+export function getTransportForChannel(
+  channel: string | undefined,
+): ChannelTransport | undefined {
+  return channel && channel in TRANSPORTS
+    ? TRANSPORTS[channel as DirectDeliveryChannel]
+    : undefined;
+}
+
+/**
+ * Whether this channel can add or remove the assistant's own emoji
+ * reactions. Asks the transport rather than the channel id, so a channel
+ * that gains the method starts being offered without a caller being told.
+ */
+export function supportsChannelReaction(channel: string | undefined): boolean {
+  return getTransportForChannel(channel)?.react !== undefined;
+}
+
+/**
+ * Add or remove one of the assistant's own emoji reactions on a message.
+ *
+ * Resolves to nothing when the channel cannot react; the tool surface gates
+ * on `supportsChannelReaction`, so reaching this without the capability is a
+ * caller that skipped the gate, not a user-visible failure.
+ */
+export async function sendChannelReaction(
+  channel: string,
+  target: ReactionTarget,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForChannel(channel);
+  if (!transport?.react) {
+    return { ok: true };
+  }
+  return transport.react(target);
+}
+
+/**
+ * Whether the channel this callback addresses can show how busy the assistant
+ * is.
  *
  * Asks the transport rather than the channel id, so a channel that gains the
  * method starts being asked without a caller being told about it.
  */
-export function supportsChannelTyping(callbackUrl: string): boolean {
-  return getTransportForCallback(callbackUrl)?.typing !== undefined;
+export function supportsChannelActivity(callbackUrl: string): boolean {
+  return getTransportForCallback(callbackUrl)?.setActivity !== undefined;
 }
 
 /**
- * Show that the assistant is working on the channel this callback addresses.
+ * How often this channel's busy indicator has to be re-asserted, or
+ * `undefined` when it holds until changed and one call is enough.
+ */
+export function channelActivityRefreshMs(
+  callbackUrl: string,
+): number | undefined {
+  return getTransportForCallback(callbackUrl)?.activityRefreshMs;
+}
+
+/**
+ * Show how busy the assistant is on the channel this callback addresses.
  *
  * Resolves to nothing when the channel has no such affordance, which is the
  * ordinary case rather than a failure: the indicator is decoration, and a
  * channel that cannot show one is not degraded by its absence.
  */
-export async function sendChannelTyping(
+export async function setChannelActivity(
   callbackUrl: string,
-  chatId: string,
+  target: ActivityTarget,
 ): Promise<ChannelDeliveryResult> {
   const transport = getTransportForCallback(callbackUrl);
-  if (!transport?.typing) {
+  if (!transport?.setActivity) {
     return { ok: true };
   }
-  return transport.typing(callbackContext(callbackUrl), chatId);
+  return transport.setActivity(callbackContext(callbackUrl), target);
 }
 
 /**
- * Add or remove one of the assistant's own reactions on a message.
+ * Replace a message the assistant already sent.
  *
- * Resolves to nothing when the channel has none, the same as typing: a
- * reaction is an acknowledgement, and a channel that cannot show one is not a
- * failed delivery.
+ * Returns `ok` without acting when the channel cannot revise a sent message,
+ * matching the other capability entry points: an absent method is an absent
+ * capability, not an error.
  */
-export async function sendChannelReaction(
+export async function editChannelMessage(
   callbackUrl: string,
-  target: ReactionTarget,
+  target: EditTarget,
 ): Promise<ChannelDeliveryResult> {
   const transport = getTransportForCallback(callbackUrl);
-  if (!transport?.react) {
+  if (!transport?.edit) {
     return { ok: true };
   }
-  return transport.react(callbackContext(callbackUrl), target);
+  return transport.edit(callbackContext(callbackUrl), target);
+}
+
+/**
+ * Advance a streamed reply on the channel this callback addresses.
+ *
+ * Resolves to nothing when the channel cannot stream, so a caller that wants a
+ * streamed reply learns it has to send the whole thing instead.
+ */
+export async function sendChannelStreamOp(
+  callbackUrl: string,
+  chatId: string,
+  op: StreamOp,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.streamReply) {
+    return { ok: true };
+  }
+  return transport.streamReply(callbackContext(callbackUrl), chatId, op);
 }
 
 function callbackContext(callbackUrl: string): CallbackContext {
@@ -124,9 +197,8 @@ export function isDirectDelivery(callbackUrl: string): boolean {
  * Deliver a channel reply directly to the provider API, bypassing the gateway
  * HTTP proxy. Callers MUST check `isDirectDelivery()` first.
  *
- * Sub-operations (reaction, thread status) route to the transport's optional
- * method when both the payload field and the method are present; otherwise
- * the reply is delivered as text / approval / attachments.
+ * Delivers the reply itself: text, approval card, attachments. Every other
+ * operation a transport supports is reached through its own entry point.
  */
 export async function deliverDirect(
   callbackUrl: string,
@@ -140,11 +212,5 @@ export async function deliverDirect(
   }
 
   const ctx = callbackContext(callbackUrl);
-  if (payload.slackStream && transport.streamReply) {
-    return transport.streamReply(ctx, payload);
-  }
-  if (payload.assistantThreadStatus && transport.setThreadStatus) {
-    return transport.setThreadStatus(ctx, payload);
-  }
   return transport.deliver(ctx, payload);
 }

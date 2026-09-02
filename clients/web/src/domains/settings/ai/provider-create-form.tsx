@@ -36,13 +36,17 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
+  CONNECTION_PROVIDERS,
   connectionAuthTypeForProvider,
   connectionSaveErrorMessage,
   parseCredentialRef,
   providerAllowsCustomBaseUrl,
+  providerPersistsConnectionModels,
   validationErrorMessage,
+  warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
+import { useProviderPickerAvailability } from "@/domains/settings/ai/provider-picker-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
@@ -75,6 +79,13 @@ export interface ProviderCreateFormProps {
   hideProviderSelect?: boolean;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
+  /**
+   * What the dismiss action says. Give it something more specific than
+   * "Cancel" wherever the form sits inside a dialog that has a Cancel of its
+   * own, so the two are told apart by what they read rather than by which one
+   * is nearer the pointer.
+   */
+  cancelLabel?: ReactNode;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
   variant?: "modal" | "inline";
   /**
@@ -95,11 +106,15 @@ export function ProviderCreateForm({
   hideProviderSelect = false,
   onCreated,
   onCancel,
+  cancelLabel,
   variant = "modal",
   actionsSlot,
 }: ProviderCreateFormProps) {
   const { t } = useTranslation("settings");
   const selectableConnectionProviders = useSelectableConnectionProviders();
+  const providerAvailability = useProviderPickerAvailability();
+  // A provider this assistant cannot reach is offered as a disabled row, so
+  // the seed and the empty-picker fallback both land on one it can.
   const initialProvider: ConnectionProvider =
     defaultProviderType &&
     selectableConnectionProviders.includes(defaultProviderType)
@@ -149,20 +164,21 @@ export function ProviderCreateForm({
 
   const isOpenAICompatible = provider === "openai-compatible";
   const allowsCustomBaseUrl = providerAllowsCustomBaseUrl(provider);
+  const persistsConnectionModels = providerPersistsConnectionModels(provider);
   const connectionProviderOptions = useMemo<
     Array<ConnectionProvider | "chatgpt">
   >(() => {
     const base: Array<ConnectionProvider | "chatgpt"> =
-      !isChatgpt && !selectableConnectionProviders.includes(provider)
-        ? [...selectableConnectionProviders, provider]
-        : [...selectableConnectionProviders];
+      !isChatgpt && !CONNECTION_PROVIDERS.includes(provider)
+        ? [...CONNECTION_PROVIDERS, provider]
+        : [...CONNECTION_PROVIDERS];
     // Subscription-auth entry, right after its API-key sibling.
     const openaiIndex = base.indexOf("openai");
     if (openaiIndex >= 0) {
       base.splice(openaiIndex + 1, 0, "chatgpt");
     }
     return base;
-  }, [isChatgpt, provider, selectableConnectionProviders]);
+  }, [isChatgpt, provider]);
 
   const isLabelDirty = useRef(false);
 
@@ -292,7 +308,7 @@ export function ProviderCreateForm({
         ...(allowsCustomBaseUrl && {
           base_url: baseUrl.trim() || null,
         }),
-        ...(isOpenAICompatible && {
+        ...(persistsConnectionModels && {
           models: connectionModels.trim()
             ? connectionModels
                 .split(",")
@@ -323,6 +339,7 @@ export function ProviderCreateForm({
       // Single success confirmation for both the standalone and inline
       // surfaces; failures above already surface inline via `error` (no toast).
       toast.success(t("providerCreateForm.providerConnectedToast"));
+      warnOnFailedEndpointCheck(created, t);
       onCreated(created);
     } catch {
       setError(t("providerCreateForm.failedSaveProvider"));
@@ -433,19 +450,22 @@ export function ProviderCreateForm({
             }}
             options={[
               // Catalog providers first; the custom-provider entry closes the
-              // list. "OpenAI-compatible" is the protocol a custom provider
-              // must speak, not the provider's identity.
+              // list, pinned to the menu's bottom edge so the catalog can
+              // scroll past it. "OpenAI-compatible" is the protocol a custom
+              // provider must speak, not the provider's identity.
               ...connectionProviderOptions
                 .filter((p) => p !== "openai-compatible")
                 .map((p) => ({
                   value: p,
                   label: PROVIDER_DISPLAY_NAMES[p],
+                  ...providerAvailability(p),
                 })),
               ...(connectionProviderOptions.includes("openai-compatible")
                 ? [
                     {
                       value: "openai-compatible" as ConnectionProvider,
                       label: t("providerCreateForm.customProviderOption"),
+                      sticky: true,
                     },
                   ]
                 : []),
@@ -499,7 +519,9 @@ export function ProviderCreateForm({
             placeholder={
               provider === "ollama"
                 ? t("providerCreateForm.baseUrlPlaceholderOllama")
-                : t("providerCreateForm.baseUrlPlaceholder")
+                : provider === "opencode"
+                  ? t("providerCreateForm.baseUrlPlaceholderOpencode")
+                  : t("providerCreateForm.baseUrlPlaceholder")
             }
             fullWidth
           />
@@ -512,9 +534,18 @@ export function ProviderCreateForm({
               {t("providerCreateForm.baseUrlHintOllama")}
             </Typography>
           ) : null}
+          {provider === "opencode" ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("providerCreateForm.baseUrlHintOpencode")}
+            </Typography>
+          ) : null}
         </div>
       )}
-      {isOpenAICompatible && (
+      {persistsConnectionModels && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             {t("providerCreateForm.modelsLabel")}
@@ -586,7 +617,7 @@ export function ProviderCreateForm({
   const footer: ReactNode = (
     <>
       <Button variant="ghost" onClick={onCancel}>
-        {t("providerCreateForm.cancel")}
+        {cancelLabel ?? t("providerCreateForm.cancel")}
       </Button>
       {!isChatgpt && (
         <Button

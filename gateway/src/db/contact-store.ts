@@ -2,13 +2,17 @@ import { type Database } from "bun:sqlite";
 
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 
-import { isBindingDemotion } from "@vellumai/gateway-client";
+import {
+  isBindingDemotion,
+  type RiskThreshold,
+} from "@vellumai/gateway-client";
 import {
   type AssistantContactMetadata,
   type ContactRead,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { type GatewayDb, getGatewayDb } from "./connection.js";
+import { parseContactAutoApproveThreshold } from "./contact-auto-approve-threshold.js";
 import { contacts, contactChannels, ingressInvites } from "./schema.js";
 import {
   type ContactInfoFields,
@@ -49,6 +53,16 @@ export type IngressInviteRow = typeof ingressInvites.$inferSelect;
  * Never matches a real lookup — real code hashes are SHA-256 hex.
  */
 export const NO_INVITE_CODE_HASH = "";
+
+/**
+ * Outcome of {@link ContactStore.seedInboundChannel}. `blocked` means the
+ * authoritative row refused the seed (no writes happened); the other two carry
+ * the gateway ids the assistant mirror should key the same identity under.
+ */
+export type SeedInboundChannelResult =
+  | { outcome: "existing"; contactId: string; channelId: string }
+  | { outcome: "created"; contactId: string; channelId: string }
+  | { outcome: "blocked" };
 
 export class ContactStore {
   private injectedDb?: GatewayDb;
@@ -100,6 +114,7 @@ export class ContactStore {
         displayName: contacts.displayName,
         role: contacts.role,
         principalId: contacts.principalId,
+        autoApproveThreshold: contacts.autoApproveThreshold,
         createdAt: contacts.createdAt,
         updatedAt: contacts.updatedAt,
       })
@@ -113,6 +128,54 @@ export class ContactStore {
       )
       .limit(1)
       .get();
+  }
+
+  /**
+   * Identity projection of every contact + channel, for the daemon's mirror
+   * reconciler: ids, ownership, addresses, delivery chat ids. No ACL columns
+   * (the mirror never carries them) and no assistant-info join (the caller IS
+   * the assistant), so the read is uncapped and cheap.
+   */
+  listIdentitySnapshot(): Array<{
+    id: string;
+    displayName: string;
+    channels: Array<{
+      id: string;
+      contactId: string;
+      type: string;
+      address: string;
+      externalChatId: string | null;
+      isPrimary: boolean;
+    }>;
+  }> {
+    const contactRows = this.db
+      .select({ id: contacts.id, displayName: contacts.displayName })
+      .from(contacts)
+      .all();
+    const channelRows = this.db
+      .select({
+        id: contactChannels.id,
+        contactId: contactChannels.contactId,
+        type: contactChannels.type,
+        address: contactChannels.address,
+        externalChatId: contactChannels.externalChatId,
+        isPrimary: contactChannels.isPrimary,
+      })
+      .from(contactChannels)
+      .all();
+    const channelsByContact = new Map<string, typeof channelRows>();
+    for (const ch of channelRows) {
+      const list = channelsByContact.get(ch.contactId);
+      if (list) {
+        list.push(ch);
+      } else {
+        channelsByContact.set(ch.contactId, [ch]);
+      }
+    }
+    return contactRows.map((c) => ({
+      ...c,
+      channels: channelsByContact.get(c.id) ?? [],
+    }));
   }
 
   getChannelsForContact(contactId: string): ContactChannel[] {
@@ -129,9 +192,9 @@ export class ContactStore {
   // These methods read the ACL shape (contacts + contact_channels) from the
   // gateway DB and join the informational shape (notes, userFile, contactType,
   // assistant_contact_metadata) from the assistant DB in a single batched
-  // query. Trust signals (interactionCount, lastInteraction, role) are
-  // derived from gateway rows only — the assistant copy is not trusted for
-  // ACL-relevant fields.
+  // query. Trust signals (interactionCount, lastInteraction, role,
+  // autoApproveThreshold) are derived from gateway rows only. The assistant
+  // copy is not trusted for ACL-relevant fields.
   //
   // Soft-fail: if the assistant DB read throws, info fields become null and
   // the ACL shape is still returned. A contact present in gateway but missing
@@ -237,9 +300,10 @@ export class ContactStore {
    * authoritative ACL onto daemon-forwarded (filtered/search) contact reads,
    * which carry neutral ACL.
    *
-   * Returns a map of contactId → { role, channels }, where `channels` is keyed
-   * by channel `id`. Empty input → empty map. Contacts/channels absent from the
-   * gateway are simply absent from the map (the caller leaves them untouched).
+   * Returns a map of contactId → { role, autoApproveThreshold, channels },
+   * where `channels` is keyed by channel `id`. Empty input → empty map.
+   * Contacts/channels absent from the gateway are simply absent from the map
+   * (the caller leaves them untouched).
    */
   async getAclByContactIds(ids: string[]): Promise<Map<string, ContactAcl>> {
     const result = new Map<string, ContactAcl>();
@@ -261,7 +325,13 @@ export class ContactStore {
       const id = row.contact.id;
       let entry = result.get(id);
       if (!entry) {
-        entry = { role: row.contact.role, channels: new Map() };
+        entry = {
+          role: row.contact.role,
+          autoApproveThreshold: parseContactAutoApproveThreshold(
+            row.contact.autoApproveThreshold,
+          ),
+          channels: new Map(),
+        };
         result.set(id, entry);
       }
       const ch = row.channel;
@@ -373,6 +443,7 @@ export class ContactStore {
       contactType: c.contactType,
       interactionCount: c.interactionCount,
       lastInteraction: c.lastInteraction,
+      autoApproveThreshold: c.autoApproveThreshold,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
       channels: c.channels.map((ch) => ({
@@ -468,6 +539,9 @@ export class ContactStore {
       displayName: contact.displayName,
       role: contact.role,
       principalId: contact.principalId,
+      autoApproveThreshold: parseContactAutoApproveThreshold(
+        contact.autoApproveThreshold,
+      ),
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
       channels: channels.map((ch) => ({
@@ -631,11 +705,13 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannel.id))
       .run();
 
-    return this.db
+    const after = this.db
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannel.id))
       .get()!;
+
+    return after;
   }
 
   /**
@@ -1164,6 +1240,7 @@ export class ContactStore {
     id?: string;
     displayName?: string;
     notes?: string | null;
+    autoApproveThreshold?: RiskThreshold | null;
     contactType?: string;
     assistantMetadata?: {
       species: string;
@@ -1177,7 +1254,11 @@ export class ContactStore {
       type: string;
       address: string;
       isPrimary?: boolean;
-      externalChatId?: string | null;
+      /** Omit to preserve an existing row's value. Deliberately not
+       *  nullable: a stored null is indistinguishable from never-learned,
+       *  so clearing has no contract here, and admitting null is what let
+       *  an omit-conflating caller blank stored delivery chat ids. */
+      externalChatId?: string;
       status?: string;
       policy?: string;
       verifiedAt?: number | null;
@@ -1231,6 +1312,9 @@ export class ContactStore {
         updatedAt: gatewayRow.updatedAt,
         interactionCount: 0,
         lastInteraction: null,
+        autoApproveThreshold: parseContactAutoApproveThreshold(
+          gatewayRow.autoApproveThreshold,
+        ),
         channels: [],
         assistantMetadata: null,
       },
@@ -1259,10 +1343,13 @@ export class ContactStore {
     // Canonicalize all channel addresses up front so every downstream path
     // (gateway DB, assistant mirror op, conflict checks) uses the canonical
     // form.
-    const canonicalChannels = params.channels?.map((ch) => ({
-      ...ch,
-      address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
-    }));
+    const canonicalChannels = params.channels
+      ? params.channels.map((ch) => ({
+          ...ch,
+          address:
+            canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+        }))
+      : undefined;
 
     // Fallback name for a brand-new contact created without an explicit
     // displayName: the first channel's canonical address, else "Unknown".
@@ -1275,6 +1362,9 @@ export class ContactStore {
       const updateSet: Record<string, unknown> = { updatedAt: now };
       if (params.displayName !== undefined) {
         updateSet.displayName = params.displayName;
+      }
+      if (params.autoApproveThreshold !== undefined) {
+        updateSet.autoApproveThreshold = params.autoApproveThreshold;
       }
       this.db.update(contacts).set(updateSet).where(eq(contacts.id, id)).run();
     };
@@ -1299,6 +1389,7 @@ export class ContactStore {
             displayName: newContactName,
             role: "contact",
             principalId: null,
+            autoApproveThreshold: params.autoApproveThreshold ?? null,
             createdAt: now,
             updatedAt: now,
           })
@@ -1342,6 +1433,7 @@ export class ContactStore {
             params.displayName ?? canonicalChannels?.[0]?.address ?? "Unknown",
           role: "contact",
           principalId: null,
+          autoApproveThreshold: params.autoApproveThreshold ?? null,
           createdAt: now,
           updatedAt: now,
         })
@@ -1383,6 +1475,213 @@ export class ContactStore {
         );
       }
     }
+  }
+
+  /**
+   * Gateway-DB core of inbound contact seeding: resolve a first-seen actor's
+   * `(type, address)` identity to a contact, creating one when none exists.
+   *
+   * The dedupe lookup runs against the gateway DB (the source of truth),
+   * never the assistant mirror: the mirror is a lossy best-effort copy, and a
+   * dedupe keyed off it can re-mint a contact for an identity the gateway
+   * already binds (including the guardian's own), leaving a channel-less
+   * duplicate in the Contacts pane.
+   *
+   * One transaction, and the contact row is keyed to its channel landing: a
+   * create either commits contact + channel together or nothing. The
+   * conflict re-check inside the transaction downgrades a raced create to
+   * the update path rather than ever leaving a channel-less contact.
+   *
+   * ACL is untouched: an existing row keeps its status/policy (revoked stays
+   * revoked, and a `blocked` row short-circuits with no writes at all); a new
+   * channel seeds the schema defaults (`unverified`/`allow`). The existing
+   * contact's displayName is also left alone: the gateway name is the
+   * guardian-curated one; only the assistant mirror tracks the live platform
+   * profile name (the caller's mirror op carries `refreshDisplayName`).
+   */
+  seedInboundChannel(params: {
+    type: string;
+    /** Canonical address (callers canonicalize via canonicalizeInboundIdentity). */
+    address: string;
+    externalChatId?: string;
+    /** Name for a newly created contact only; existing names are preserved. */
+    displayName: string;
+  }): SeedInboundChannelResult {
+    const now = Date.now();
+
+    return this.db.transaction((tx) => {
+      const findExisting = () =>
+        tx
+          .select({
+            id: contactChannels.id,
+            contactId: contactChannels.contactId,
+            status: contactChannels.status,
+          })
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.type, params.type),
+              sql`${contactChannels.address} = ${params.address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+      const refreshIdentity = (channelId: string): void => {
+        // Identity refresh only: canonical address casing self-heal, and the
+        // delivery chat id when the caller learned one (a DM). Omitted
+        // externalChatId preserves the stored value.
+        tx.update(contactChannels)
+          .set({
+            address: params.address,
+            ...(params.externalChatId
+              ? { externalChatId: params.externalChatId }
+              : {}),
+            updatedAt: now,
+          })
+          .where(eq(contactChannels.id, channelId))
+          .run();
+      };
+
+      const existing = findExisting();
+      if (existing) {
+        if (existing.status === "blocked") {
+          return { outcome: "blocked" };
+        }
+        refreshIdentity(existing.id);
+        return {
+          outcome: "existing",
+          contactId: existing.contactId,
+          channelId: existing.id,
+        };
+      }
+
+      const contactId = crypto.randomUUID();
+      const channelId = crypto.randomUUID();
+      tx.insert(contacts)
+        .values({
+          id: contactId,
+          displayName: params.displayName,
+          role: "contact",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      const inserted = tx
+        .insert(contactChannels)
+        .values({
+          id: channelId,
+          contactId,
+          type: params.type,
+          address: params.address,
+          isPrimary: false,
+          externalChatId: params.externalChatId ?? null,
+          status: "unverified",
+          policy: "allow",
+          interactionCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning({ id: contactChannels.id })
+        .all();
+      if (inserted.length === 0) {
+        // A foreign writer landed the (type, address) row between the lookup
+        // and the insert. Take the contact insert back and downgrade to the
+        // update path: a contact must never outlive a channel insert that
+        // didn't happen.
+        tx.delete(contacts).where(eq(contacts.id, contactId)).run();
+        const raced = findExisting();
+        if (!raced || raced.status === "blocked") {
+          return { outcome: "blocked" };
+        }
+        refreshIdentity(raced.id);
+        return {
+          outcome: "existing",
+          contactId: raced.contactId,
+          channelId: raced.id,
+        };
+      }
+      return { outcome: "created", contactId, channelId };
+    });
+  }
+
+  /**
+   * Ensure a plain `role='contact'` row exists for `contactId`. A conflict on
+   * the id is a no-op, so an existing contact (any role, any curated name) is
+   * never touched. Plain statement, composable inside a caller transaction.
+   *
+   * This is the single "make the target contact exist" write for channel
+   * binding paths; identity seeding stays on {@link seedInboundChannel},
+   * whose contact insert is atomic with a channel insert.
+   */
+  ensureContactRow(contactId: string, displayName: string, now: number): void {
+    this.db
+      .insert(contacts)
+      .values({
+        id: contactId,
+        displayName,
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  /**
+   * Re-parent the `(type, address)` channel to `toContactId`, ensuring the
+   * target contact row exists first. Matches by the logical key, not a
+   * channel id: the gateway row can live under a different UUID than the
+   * assistant mirror's, and an id-only update would re-parent nothing.
+   *
+   * Returns the previous owner's contact id when the channel actually moved
+   * (null when no row exists or the target already owns it). Callers that
+   * commit a move MUST hand that donor id to the post-commit orphan GC
+   * (`deleteContactIfOrphaned`) once every re-parent write, gateway AND
+   * assistant mirror, has landed: a re-parent that strips a seed contact's
+   * only channel otherwise leaves a channel-less duplicate in the Contacts
+   * pane. The verified-channel mirror plan carries the id for exactly that
+   * purpose.
+   *
+   * Plain statements, composable inside a caller transaction. ACL columns
+   * are untouched: moving a channel between contacts changes ownership, not
+   * its verification state.
+   */
+  reassignChannelOwner(params: {
+    type: string;
+    /** Canonical address (callers canonicalize via canonicalizeInboundIdentity). */
+    address: string;
+    toContactId: string;
+    /** Name for the target contact only when it has to be created. */
+    displayName: string;
+    now: number;
+  }): { donorContactId: string | null } {
+    this.ensureContactRow(params.toContactId, params.displayName, params.now);
+
+    const current = this.db
+      .select({ contactId: contactChannels.contactId })
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, params.type),
+          sql`${contactChannels.address} = ${params.address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
+    if (!current || current.contactId === params.toContactId) {
+      return { donorContactId: null };
+    }
+
+    this.db
+      .update(contactChannels)
+      .set({ contactId: params.toContactId, updatedAt: params.now })
+      .where(
+        and(
+          eq(contactChannels.type, params.type),
+          sql`${contactChannels.address} = ${params.address} COLLATE NOCASE`,
+        ),
+      )
+      .run();
+    return { donorContactId: current.contactId };
   }
 
   /**
@@ -1764,9 +2063,10 @@ export interface ChannelAcl {
   blockedReason: string | null;
 }
 
-/** Contact-level role + channel ACL map (channel id → ChannelAcl). */
+/** Contact-level role, auto-approve ceiling, and channel ACL map. */
 export interface ContactAcl {
   role: string;
+  autoApproveThreshold: RiskThreshold | null;
   channels: Map<string, ChannelAcl>;
 }
 
@@ -1805,6 +2105,7 @@ export interface ContactWithInfo {
   displayName: string;
   role: string;
   principalId: string | null;
+  autoApproveThreshold: RiskThreshold | null;
   createdAt: number;
   updatedAt: number;
   channels: ContactChannelShape[];

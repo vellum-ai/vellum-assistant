@@ -6,7 +6,7 @@ import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { Trans, t, useTranslation } from "@/i18n";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import type {
   MemoryRouterSimulateRequest,
   MemoryRouterSimulateResponse,
@@ -34,12 +34,12 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  *
  * Gated by:
  *   1. The `memoryRouterPlayground` client feature flag (default off).
- *   2. The same staff/developer-flag gate that protects the LLM context
- *      inspector (/assistant/conversations/:conversationId/inspect).
+ *   2. The same internal-thread-actions flag gate that protects the LLM
+ *      context inspector (/assistant/conversations/:conversationId/inspect).
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
   const { t } = useTranslation("chat");
-  const canInspect = useCanUseLlmInspector();
+  const canInspect = useCanUseInternalThreadActions();
   const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 
@@ -367,7 +367,7 @@ function ConversationContextSection({
               type="button"
               onClick={onReloadNowText}
               disabled={nowTextLoading}
-              className="rounded px-2 py-1 text-label-default"
+              className="rounded px-2 py-1 text-label-medium-default"
               style={{
                 background: "var(--surface-overlay)",
                 color: "var(--content-secondary)",
@@ -381,7 +381,7 @@ function ConversationContextSection({
         />
         <div className="flex items-baseline justify-between">
           <span
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
             {t("memoryRouterPlaygroundPage.recentPairsLabel")}
@@ -389,7 +389,7 @@ function ConversationContextSection({
           <button
             type="button"
             onClick={addOlderPair}
-            className="rounded px-2 py-1 text-label-default"
+            className="rounded px-2 py-1 text-label-medium-default"
             style={{
               background: "var(--surface-overlay)",
               color: "var(--content-secondary)",
@@ -413,7 +413,7 @@ function ConversationContextSection({
             >
               <div className="flex items-baseline justify-between">
                 <span
-                  className="text-label-default"
+                  className="text-label-medium-default"
                   style={{ color: "var(--content-secondary)" }}
                 >
                   {t("memoryRouterPlaygroundPage.pairLabel", {
@@ -428,7 +428,7 @@ function ConversationContextSection({
                   <button
                     type="button"
                     onClick={() => removePair(index)}
-                    className="rounded px-2 py-1 text-label-default"
+                    className="rounded px-2 py-1 text-label-medium-default"
                     style={{
                       background: "transparent",
                       color: "var(--system-negative-strong)",
@@ -503,7 +503,7 @@ function ContextField({
       <div className="flex items-center justify-between">
         <label
           htmlFor={id}
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{ color: "var(--content-secondary)" }}
         >
           {label}
@@ -648,7 +648,7 @@ function PromptEditor({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{
             color: "var(--content-secondary)",
             background: "transparent",
@@ -673,7 +673,7 @@ function PromptEditor({
               type="button"
               onClick={() => onChange(defaultTemplate)}
               disabled={defaultTemplate.length === 0}
-              className="rounded px-2 py-1 text-label-default"
+              className="rounded px-2 py-1 text-label-medium-default"
               style={{
                 background: "var(--surface-overlay)",
                 color: "var(--content-secondary)",
@@ -688,7 +688,7 @@ function PromptEditor({
               type="button"
               onClick={() => onChange("")}
               disabled={!usingCustom}
-              className="rounded px-2 py-1 text-label-default"
+              className="rounded px-2 py-1 text-label-medium-default"
               style={{
                 background: "var(--surface-overlay)",
                 color: "var(--content-secondary)",
@@ -749,7 +749,7 @@ function ProfileSelect({
     <div className="flex flex-col gap-1">
       <label
         htmlFor={inputId}
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {t("memoryRouterPlaygroundPage.llmProfilesOverride")}
@@ -793,7 +793,7 @@ function OverrideInput({
     <div className="flex flex-col gap-1">
       <label
         htmlFor={inputId}
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {label}
@@ -855,7 +855,7 @@ function DiffLegend({ visible }: { visible: boolean }): ReactNode {
   }
   return (
     <div
-      className="flex flex-wrap items-center gap-4 rounded-md px-4 py-2 text-label-default"
+      className="flex flex-wrap items-center gap-4 rounded-md px-4 py-2 text-label-medium-default"
       style={{
         background: "var(--surface-overlay)",
         color: "var(--content-secondary)",
@@ -965,7 +965,7 @@ function RawExchangePanel({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="text-label-default"
+          className="text-label-medium-default"
           style={{
             color: "var(--content-secondary)",
             background: "transparent",
@@ -1006,7 +1006,7 @@ function RawExchangeBlock({
   return (
     <div className="flex flex-col gap-1">
       <span
-        className="text-label-default"
+        className="text-label-medium-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {label}
@@ -1337,7 +1337,7 @@ function TierSectionCard({
             {formatSourceLabel(source, t)}
           </span>
           <span
-            className="text-label-default"
+            className="text-label-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
             {t("memoryRouterPlaygroundPage.pageCount", { count: slugs.length })}
@@ -1360,7 +1360,7 @@ function TierSectionCard({
                 </span>
                 {source === "tier2" && (
                   <span
-                    className="tabular-nums text-label-default"
+                    className="tabular-nums text-label-medium-default"
                     style={{ color: "var(--content-secondary)" }}
                   >
                     {t("memoryRouterPlaygroundPage.emaScore", {
@@ -1390,7 +1390,7 @@ function EmptyResultCard(): ReactNode {
           {t("memoryRouterPlaygroundPage.noPagesSelected")}
         </span>
         <span
-          className="text-label-default"
+          className="text-body-small-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
           {t("memoryRouterPlaygroundPage.emptySelectionHint")}
@@ -1410,7 +1410,7 @@ function MetaGrid({
       {rows.map(({ label, value }) => (
         <div key={label} className="flex items-baseline justify-between gap-3">
           <span
-            className="shrink-0 text-label-default"
+            className="shrink-0 text-label-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
             {label}
@@ -1444,7 +1444,7 @@ function ErrorBanner({ message }: { message: string }): ReactNode {
 function CenteredMessage({ children }: { children: ReactNode }): ReactNode {
   return (
     <div
-      className="flex h-full w-full items-center justify-center p-8 text-label-default"
+      className="flex h-full w-full items-center justify-center p-8 text-label-medium-default"
       style={{ color: "var(--content-tertiary)" }}
     >
       {children}

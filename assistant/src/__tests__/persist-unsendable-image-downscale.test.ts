@@ -2,18 +2,16 @@
  * Regression test for the durable-downscale path of the image-too-large
  * recovery (JARVIS-1041 review follow-up).
  *
- * When an oversized stored image *can* be shrunk on this host (the common macOS
- * path where `sips` is available), `persistUnsendableImageDowngrades` must write
- * the downscaled bytes back to the DB — not leave the original in place. The
+ * When an oversized stored image can be shrunk,
+ * `persistUnsendableImageDowngrades` must write the downscaled bytes back to
+ * the DB, not leave the original in place. The
  * latest tool-result media is intentionally kept in context, so leaving the
  * full-size block would rehydrate and re-reject on every later turn instead of
  * durably self-healing the conversation.
  *
- * `optimizeImageForTransport` needs `sips` and a decodable image to actually
- * downscale, which is not portable to CI, so it is mocked here to simulate a
- * successful shrink. The mock is process-global, so this case lives in its own
- * file (the test runner isolates each file in its own process) to avoid
- * disturbing the no-op-resize cases in persist-unsendable-image.test.ts.
+ * The encoder is mocked here to isolate the durable persistence behavior from
+ * image decoding. The mock is process-global, so this case lives in its own
+ * file to avoid disturbing the no-op resize cases.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -35,6 +33,7 @@ mock.module("../agent/image-optimize.js", () => ({
   }),
 }));
 
+import { uploadAttachment } from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
@@ -42,7 +41,10 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
+import {
+  persistUnsendableImageDowngrades,
+  unsendableImageReplacement,
+} from "../plugins/defaults/image-recovery/recover.js";
 import { base64Source } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 
@@ -147,6 +149,64 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
       base64Source((nested as Extract<ContentBlock, { type: "image" }>).source)
         .data,
     ).toBe(SHRUNK_DATA);
+  });
+
+  /** The resize replaces the block's whole source, so a reference-backed image
+   *  loses `source.attachmentId` along with the reference. The id has to be
+   *  derived from either shape and re-stamped, or the durable rewrite untags a
+   *  camera frame permanently. */
+  test("a resized workspace_ref keeps its attachment id on the rebuilt block", async () => {
+    const stored = await uploadAttachment(
+      "frame.png",
+      "image/png",
+      oversizedPngBase64(),
+    );
+    const referenceBlock = {
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/png",
+        attachmentId: stored.id,
+        sizeBytes: 128,
+        // Persisted references carry the dimension hints the provider caps are
+        // judged against (see `attachmentsToReferenceBlocks`).
+        width: 12000,
+        height: 9000,
+      },
+    } as Extract<ContentBlock, { type: "image" }>;
+
+    const replacement = await unsendableImageReplacement(referenceBlock);
+
+    // The source was flattened to the shrunk inline bytes...
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: { type: "base64", data: SHRUNK_DATA },
+    });
+    // ...and the link to the attachment row survived the flattening.
+    expect((replacement as { _attachmentId?: string })._attachmentId).toBe(
+      stored.id,
+    );
+  });
+
+  /** An inline resize input carries its id on the top-level field instead. */
+  test("a resized inline block keeps its top-level attachment id", async () => {
+    const inlineBlock = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: oversizedPngBase64(),
+      },
+      _attachmentId: "att-inline-1",
+    } as Extract<ContentBlock, { type: "image" }>;
+
+    const replacement = await unsendableImageReplacement(inlineBlock);
+
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: { type: "base64", data: SHRUNK_DATA },
+      _attachmentId: "att-inline-1",
+    });
   });
 
   /** Re-running is a no-op: the downscaled payload is within limits. */

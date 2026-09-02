@@ -1,12 +1,13 @@
 import { AlertCircle, EllipsisVertical } from "lucide-react";
 
+import { actionMenuDestructiveClasses } from "@vellumai/design-library/components/action-menu";
 import { Button } from "@vellumai/design-library/components/button";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
-import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
+import { resolveModelDisplayName } from "@/assistant/model-display";
 import { useTranslation } from "@/i18n";
 import type {
   InferenceProfileSummary,
@@ -80,22 +81,39 @@ export function ProfileRow({
   }
 
   const availability = profile.availability;
+  const configIssue = profile.config_issue;
   // This row opens the profile editor, which is where a missing provider or
   // model is filled in. A connection or credential problem is repaired
   // elsewhere, and those messages already name where, so only the
-  // `incomplete` case invites a click: promising a fix the editor cannot
-  // perform would send the user somewhere that does not help.
-  const fixableHere = availability?.status === "incomplete";
+  // `incomplete` availability case and a config issue (bad model or token
+  // budget, both edited right here) invite a click: promising a fix the
+  // editor cannot perform would send the user somewhere that does not help.
+  const fixableHere =
+    configIssue != null || availability?.status === "incomplete";
   const availabilityMessage =
     availability?.message ?? t("profileRow.providerUnavailableDefault");
-  const availabilityProblem =
-    availability != null && availability.status !== "ok"
-      ? fixableHere
-        ? t("profileRow.providerUnavailableFixable", {
-            message: availabilityMessage,
-          })
-        : availabilityMessage
-      : null;
+  // A config issue outranks availability: the entry itself is wrong, so the
+  // connection verdict behind it is secondary. Composed from catalog copy
+  // keyed on the issue code, so the surface stays translated; the daemon's
+  // English detail remains in the editor and CLI.
+  const rowProblem =
+    configIssue != null
+      ? t("profileRow.providerUnavailableFixable", {
+          message: t(
+            configIssue.code === "over_output_cap"
+              ? "profileRow.configIssueOverOutputCap"
+              : configIssue.code === "no_input_room"
+                ? "profileRow.configIssueNoInputRoom"
+                : "profileRow.configIssueModelUnknown",
+          ),
+        })
+      : availability != null && availability.status !== "ok"
+        ? fixableHere
+          ? t("profileRow.providerUnavailableFixable", {
+              message: availabilityMessage,
+            })
+          : availabilityMessage
+        : null;
 
   return (
     <ListRow
@@ -117,13 +135,13 @@ export function ProfileRow({
       trailingInteractive
       trailing={
         <>
-          {availabilityProblem != null ? (
-            <Tooltip content={availabilityProblem}>
+          {rowProblem != null ? (
+            <Tooltip content={rowProblem}>
               {fixableHere ? (
                 <button
                   type="button"
                   onClick={onOpen}
-                  aria-label={availabilityProblem}
+                  aria-label={rowProblem}
                   className="inline-flex cursor-pointer rounded-sm p-0.5 keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
                 >
                   <AlertCircle
@@ -135,7 +153,7 @@ export function ProfileRow({
                 <span className="inline-flex p-0.5" tabIndex={0}>
                   <AlertCircle
                     className="h-4 w-4 text-[var(--system-mid-strong)]"
-                    aria-label={availabilityProblem}
+                    aria-label={rowProblem}
                     role="img"
                   />
                 </span>
@@ -162,9 +180,7 @@ export function ProfileRow({
             </Menu.Trigger>
             <Menu.Content align="end" sideOffset={4}>
               <Menu.Item onSelect={onOpen}>
-                {isManaged
-                  ? t("profileRow.view")
-                  : t("profileRow.edit")}
+                {isManaged ? t("profileRow.view") : t("profileRow.edit")}
               </Menu.Item>
               {!isActiveProfile && !isDisabled ? (
                 <Menu.Item onSelect={onMakeActive}>
@@ -185,7 +201,7 @@ export function ProfileRow({
               {!isManaged ? (
                 <Menu.Item
                   onSelect={onDelete}
-                  className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+                  className={actionMenuDestructiveClasses.anchored}
                 >
                   {t("profileRow.delete")}
                 </Menu.Item>

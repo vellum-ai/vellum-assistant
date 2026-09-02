@@ -543,19 +543,29 @@ export function findPersistedSurfaceInfo(
  * user-action completion paths: the underlying request is already resolved, so
  * withholding the announcement on a transient write failure strands a live,
  * clickable approval card for a decision that has already been made.
+ *
+ * Returns whether the completion persisted durably (see
+ * {@link markSurfaceCompleted}); the broadcast goes out either way. A caller
+ * whose own receipt depends on the card staying completed across a reload
+ * (the expiry sweep) holds that receipt back on false and retries.
  */
 export function completeSurfaceAndNotify(
   conversationId: string,
   surfaceId: string,
   summary: string,
-): void {
-  markSurfaceCompleted({ conversationId }, surfaceId, summary);
+): boolean {
+  const persisted = markSurfaceCompleted(
+    { conversationId },
+    surfaceId,
+    summary,
+  );
   broadcastMessage({
     type: "ui_surface_complete",
     conversationId,
     surfaceId,
     summary,
   });
+  return persisted;
 }
 
 /**

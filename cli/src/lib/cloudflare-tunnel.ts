@@ -24,6 +24,7 @@ export function getCloudflareTunnelVersion(): string | null {
       encoding: "utf-8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     return output.trim();
   } catch {
@@ -41,7 +42,7 @@ export function startCloudflareTunnelProcess(targetPort: number): ChildProcess {
     "cloudflared",
     ["tunnel", "--url", `http://localhost:${targetPort}`, "--no-autoupdate"],
     // Keep stdio as pipes so we can parse the URL from output.
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
 }
 
@@ -219,7 +220,7 @@ export async function runCloudflareTunnel(
   console.log(`Forwarding to:     localhost:${port}`);
   console.log("");
 
-  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "cloudflare");
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");

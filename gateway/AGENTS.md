@@ -83,8 +83,10 @@ Gateway inbound events use a channel-discriminated union model (`GatewayInboundE
 
 - **`conversationExternalId`**: Delivery/conversation address (e.g., Telegram chat ID, phone number). Used for conversation binding and message routing. **Not** used for trust classification.
 - **`actorExternalId`**: Sender identity (e.g., Telegram user ID, WhatsApp phone number). Used for trust classification, guardian binding, and ACL enforcement. **Required** for all public channel ingress.
+- **`externalMessageId`**: Dedup identity. It must name one OCCURRENCE of an event, not one kind of event: two distinct acts by the same actor differ here, and the same act delivered twice repeats here. Both halves are load-bearing, because the gateway claims a delivery on `(sourceChannel, externalChatId, externalMessageId)` (`db/inbound-dedup-store.ts`) and the daemon records the permanent event row on the same triple. Prefer the provider's own per-event id (Telegram `update_id`, Slack `event_id`, a Discord snowflake, an email `Message-ID`). Where a provider names only the thing acted on and not the act, as both reaction families do, addressing fields alone (room, target message, actor, verb) repeat byte for byte on the second occurrence and silently dedup it away, so the normalizer must carry a per-event component of its own.
 - **"conversation"** is canonical vocabulary for delivery addresses. "thread" is reserved for provider-specific fields (Slack `thread_ts`, email thread IDs).
 - **"actor"** is canonical vocabulary for sender identity.
+- **`source.actorUnattributed`**: set when the platform names no person for an event. `actorExternalId` then carries the channel's synthetic system id (`discord-system`, `slack-system`) and is not an identity claim: the gateway seeds no contact from it, and the runtime's ACL neither resolves a member nor denies, applying the event only to a row the daemon already holds for that chat. Only event kinds that cannot start a turn may carry it; today that is the delete family (Discord names no author; Slack names the author, never the deleter, and the author may be the assistant itself). The `no_one` kill switch still applies, since it keys on the policy alone.
 
 Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
 
@@ -117,6 +119,43 @@ Organize gateway code **by concern, not by technical layer** — group by what c
 
 The `slack/` module is the worked example of this shape.
 
+## Long-Lived Channel Transports Own Their Liveness
+
+A channel that holds a persistent socket (Discord Gateway, Slack Socket Mode)
+must be able to conclude on its own that its connection is dead, and recover,
+without waiting for a close event. A half-open socket, the shape a NAT rebind
+or a vanished peer leaves behind, reports itself `OPEN` indefinitely and fires
+nothing at all: no message, no error, no close. Recovery that waits to be told
+never runs.
+
+Three things are required, and a transport missing any one of them has a
+silent multi-hour outage in it:
+
+- **A liveness signal the transport generates itself.** Inbound quiet proves
+  nothing, because a quiet workspace and a dead socket are indistinguishable.
+  Discord rides its protocol heartbeat and tracks the ACK
+  (`discord/heartbeat.ts`). Slack Socket Mode has no application-level
+  heartbeat, so it probes the transport directly with a WebSocket ping frame
+  and requires a pong (`slack/socket-liveness.ts`). Prefer a probe you send
+  over a timeout you wait out.
+- **A bound on the pre-established window.** A handshake that stalls produces
+  neither `open` nor `close`, so it falls outside any watchdog that arms on a
+  live connection. See `HELLO_DEADLINE_MS` (Discord) and
+  `CONNECT_DEADLINE_MS` (Slack).
+- **Teardown that does not wait on a close event.** Recovery closes the dead
+  socket and proceeds on a timer whether or not the close ever lands. See
+  `killAndRecover` (Discord) and `forceReconnect` (Slack).
+
+Derive every threshold from something measured, and record the derivation in
+the constant's docstring. A number chosen to feel safe against expected
+traffic will be wrong: Socket Mode connections were assumed to rotate about
+hourly, and were then observed rotating several hours apart, which is exactly
+the kind of assumption an inbound-silence threshold would have been built on.
+
+The process-wide `SleepWakeDetector` is not a substitute for any of this. It
+fires only when the whole process was suspended, so it misses every connection
+that dies while the gateway is healthy and logging normally.
+
 ## Channel Trust Classification & Admission Policy
 
 The gateway owns per-channel `AdmissionPolicy` storage (`gateway/src/db/admission-policy-store.ts`, HTTP in `gateway/src/http/routes/channel-admission-policy.ts`) and attaches the floor to every forwarded inbound via `sourceMetadata.admissionPolicy`. The runtime (`assistant/src/runtime/routes/inbound-stages/admission-policy.ts`) emits `admitted: true | false` based on `TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy]`.
@@ -142,7 +181,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in _both_ the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
 
-**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`, `discord`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
+**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
 
 - The GET list omits them, and `PUT`/`DELETE` return **403** (`isAdmissionPolicyHiddenChannel`).
 - They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.
@@ -180,7 +219,7 @@ Two orthogonal axes, do not conflate them:
 - **Admission** (above) — _who gets in the door_. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
 - **Capabilities** — _what an actor may do once admitted_. Resolved in the runtime, never on the gateway.
 
-**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
+**Trust classes** (`TrustClass` in `assistant/src/runtime/trust-class.ts`, re-exported from `actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
 
 | Class                | Rank | Meaning                                                                  |
 | -------------------- | ---- | ------------------------------------------------------------------------ |
@@ -205,11 +244,25 @@ The gateway classifies the actor at ingress (keyed on `actorExternalId`) and for
 
 **Intentionally NOT capability-gated** (these are identity / admission-flow decisions, not permissions, and stay raw class checks): `calls/*` guardian-identity call routing, `inbound-message-handler` heartbeat/timezone side-effects, `surface-action-routes` drift-heal re-resolution, and `channel-retry-sweep` trust-class parsing.
 
+## Operator CLI (`gateway contacts`)
+
+The gateway package ships an operator CLI (`gateway/src/cli/`, bin `gateway`) for gateway-owned contact ACL. This is the write surface for a contact's assistant-access ceiling. Do not add that write to `assistant contacts`.
+
+```
+gateway contacts list
+gateway contacts get <contactId>
+gateway contacts set-risk-threshold <contactId> --threshold none|low|medium|high|inherit
+```
+
+The CLI talks to the running gateway over its IPC socket (`set_contact_threshold`, `contacts_list_rich`, `contacts_get_rich`). It does not open `gateway.sqlite` itself.
+
+From the host: `vellum exec --service gateway -- gateway contacts ...`. Do not add a `vellum gateway contacts` verb.
+
 ## Guardian Requests (gateway-owned)
 
 The gateway owns guardian approval requests and their delivery records: the `guardian_requests` and `guardian_request_deliveries` tables (`src/db/guardian-request-store.ts`), fronted by `src/approvals/guardian-request-service.ts` and exposed to the daemon over the `guardian_requests_*` IPC routes (`src/ipc/guardian-request-handlers.ts`; shared contract in `packages/gateway-client/src/guardian-request-contract.ts`). The daemon holds no request state — it relays everything through `assistant/src/channels/gateway-guardian-requests.ts` and keeps the daemon-domain side effects: notifications, card delivery/withdrawal, pending-interaction resume, grant minting into its `scoped_approval_grants`.
 
 - **Decide atomicity (the core invariant).** `guardian_requests_decide` commits the status CAS (`pending → approved|denied`, first-writer-wins) and the decision's ACL outcome (`activate_member`, `seed_unverified`, `block`, `mint_outbound_session`) in ONE gateway transaction. A failed outcome rolls back the CAS — the request stays `pending` and the guardian can decide again; an `approved` request without its ACL write cannot exist, and deciding twice never applies two outcomes. There is no reopen path.
 - **Schema notes.** There is no `source_type` column — the wire DTO's `sourceType` is derived from `source_channel` (`phone` → voice, `vellum` → desktop, else channel), and the list route translates a `sourceType` filter into `source_channel` predicates. The requester-side conversation is `source_conversation_id`. Request ids are caller-supplied and load-bearing (deterministic access-request ids; `tool_approval` rows reuse the pending-interaction id as PK).
-- **Expiry is daemon-keyed for interaction-bound kinds.** `tool_approval`/`pending_question` requests die with the daemon's in-memory `pendingInteractions` map, so the daemon calls `guardian_requests_expire_interaction_bound` at boot; the gateway never expires them on its own restart. Persistent kinds (`access_request`, `tool_grant_request`) expire past `expires_at` via the daemon's 60s `guardian_requests_sweep_expired` sweep, which returns the expired rows for daemon-side card withdrawal and requester notices.
+- **Expiry is daemon-keyed for interaction-bound kinds.** `tool_approval`/`pending_question` requests die with the daemon's in-memory `pendingInteractions` map, so the daemon calls `guardian_requests_expire_interaction_bound` at boot; the gateway never expires them on its own restart, and the boot call never touches persistent kinds. Persistent kinds (`access_request`, `tool_grant_request`) expire via the daemon's 60s sweep: `guardian_requests_list_expired_pending` returns a bounded, read-only batch of past-deadline pending rows, the daemon runs each row's card withdrawal and requester notice, and only then confirms with the per-request `guardian_requests_expire` CAS, so a lost response or crash leaves the row listed for the next round instead of stranding its side effects. The decide CAS carries an `expires_at` guard, so a decision arriving past the deadline loses the arbitration atomically.
 - **Provenance.** The tables moved here from the assistant DB: gateway data migration m0015 backfilled them, and m0016 (checkpoint-gated on m0015, with a final catch-up copy) dropped the assistant-side tables.

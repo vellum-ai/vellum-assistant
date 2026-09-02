@@ -132,13 +132,21 @@ describe("handleAppViewerAction — set_view", () => {
     expect(useViewerStore.getState().mainView).toBe("app");
   });
 
-  it("'split' is a no-op with no active conversation", () => {
+  it("'split' with no conversation starts one to put beside the app", () => {
     useConversationStore.setState({ activeConversationId: null });
     useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
+    const ctx = makeCtx(false);
 
-    handleAppViewerAction(makeCtx(false), "set_view", { view: "split" });
+    handleAppViewerAction(ctx, "set_view", { view: "split" });
 
-    expect(useViewerStore.getState().mainView).toBe("app");
+    const conversation = useConversationStore.getState();
+    const newId = conversation.activeConversationId;
+    expect(newId).toBeTruthy();
+    expect(conversation.draftConversationIds.has(newId!)).toBe(true);
+    expect(conversation.editingConversationId).toBe(newId);
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    const [url] = ctx.navigate.mock.calls[0];
+    expect(url).toContain(`/assistant/conversations/${newId}`);
   });
 });
 

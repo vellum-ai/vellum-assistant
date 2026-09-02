@@ -1,12 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
+import { withAvatarRaster } from "./channel-avatar-story-decorator";
 import { SlackSetupWizard } from "./slack-setup-wizard";
+
+const ASSISTANT_ID = "asst_story";
 
 const meta: Meta<typeof SlackSetupWizard> = {
   title: "Contacts/SlackSetupWizard",
   component: SlackSetupWizard,
   args: {
+    assistantId: ASSISTANT_ID,
     assistantName: "Example Assistant",
   },
   // 400px matches the drawer the wizard actually renders in: `chat-content-
@@ -14,6 +18,7 @@ const meta: Meta<typeof SlackSetupWizard> = {
   // `minWidth` both 400. A wider frame hides the density these stories exist to
   // show.
   decorators: [
+    withAvatarRaster(ASSISTANT_ID, true),
     (Story) => (
       <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
@@ -156,4 +161,20 @@ export const TokenFormatValidation: Story = {
     await userEvent.type(canvas.getByLabelText(/Bot Token/i), APP_TOKEN);
     await userEvent.type(canvas.getByLabelText(/App Token/i), "xapp-123");
   },
+};
+
+/**
+ * Step 4, where the avatar card sits. An app icon cannot be set until the app
+ * exists, and by this step the user is on its own screen collecting tokens.
+ */
+export const ConnectWithAvatar: Story = {
+  play: async ({ canvasElement }) => {
+    await goToConnect(canvasElement);
+  },
+};
+
+/** The same step for an assistant with no avatar: the card is absent entirely. */
+export const ConnectWithoutAvatar: Story = {
+  decorators: [withAvatarRaster(ASSISTANT_ID, false)],
+  play: ConnectWithAvatar.play,
 };

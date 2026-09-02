@@ -31,13 +31,25 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const ipcThrowOn = new Map<string, Error>();
 
+/**
+ * The gateway claims a form before writing, so every submission in this suite
+ * needs the claim granted unless the test is about losing it. Shared with the
+ * per-test overrides below so none of them can drop it by omission.
+ */
+function defaultIpcResponse(method: string): Record<string, unknown> {
+  if (method === "contact_prompt_claim") {
+    return { claimed: true, settleMs: 180_000 };
+  }
+  return { resolved: true };
+}
+
 const ipcMock = mock(async (method: string) => {
   const err = ipcThrowOn.get(method);
   if (err) {
     ipcThrowOn.delete(method);
     throw err;
   }
-  return { resolved: true };
+  return defaultIpcResponse(method);
 });
 
 // Spread the actual module so untouched exports (IpcHandlerError,
@@ -122,6 +134,14 @@ afterAll(() => {
 
 beforeEach(() => {
   ipcMock.mockClear();
+  ipcMock.mockImplementation(async (method: string) => {
+    const err = ipcThrowOn.get(method);
+    if (err) {
+      ipcThrowOn.delete(method);
+      throw err;
+    }
+    return defaultIpcResponse(method);
+  });
   ipcThrowOn.clear();
 
   const gwDb = getGatewayDb();
@@ -192,6 +212,243 @@ describe("handleContactPromptSubmit", () => {
 
     // A successful guardian bind invalidates the daemon guardian-id cache.
     expectEmittedContactsChanged(ipcMock);
+  });
+
+  test("guardian prompt — --verify attests the submitted channel", async () => {
+    seedGuardian();
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_flags") {
+        return { resolved: true, verify: true };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-verify",
+        address: "+12025550142",
+        channelType: "imessage",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const discovered = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.type, "imessage"))
+      .get();
+    expect(discovered).toBeDefined();
+    expect(discovered!.status).toBe("active");
+    expect(discovered!.verifiedVia).toBe("manual");
+    expect(discovered!.address).toBe("+12025550142");
+
+    const pluginRows = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.type, "plugin"))
+      .all();
+    expect(pluginRows).toHaveLength(0);
+
+    const flags = callsFor(ipcMock, "contact_prompt_flags");
+    expect(flags).toHaveLength(1);
+    expect(flags[0].body.requestId).toBe("req-verify");
+  });
+
+  test("a dismissal unblocks the command and writes nothing", async () => {
+    seedGuardian();
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({ requestId: "req-dismiss", cancelled: true }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expect(resolveCall(ipcMock).body.error).toBe("Cancelled by user");
+  });
+
+  test("a dismissal that loses the claim leaves the answer in flight alone", async () => {
+    seedGuardian();
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_claim") {
+        return { claimed: false, reason: "already_claimed" };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({ requestId: "req-dismiss-late", cancelled: true }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(callsFor(ipcMock, "resolve_contact_prompt")).toHaveLength(0);
+  });
+
+  test("a submission that loses the claim writes nothing", async () => {
+    seedGuardian();
+    // A second client answering the same broadcast, after the first already
+    // has the claim.
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_claim") {
+        return { claimed: false, reason: "already_claimed" };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-lost-claim",
+        address: "+12025550147",
+        channelType: "imessage",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ accepted: true, duplicate: true });
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expect(callsFor(ipcMock, "resolve_contact_prompt")).toHaveLength(0);
+  });
+
+  test("submitted verify:true attests without reading the parked flag", async () => {
+    seedGuardian();
+    // The parked flag says no. The form says yes, and the form is the answer.
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_flags") {
+        return { resolved: true, verify: false };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-box-checked",
+        address: "+12025550143",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const channel = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "+12025550143"))
+      .get();
+    expect(channel!.verifiedVia).toBe("manual");
+    expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
+  });
+
+  test("the resolve reports what the channel actually is, not what was asked", async () => {
+    seedGuardian();
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-report-verified",
+        address: "+12025550145",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // The command prints this, and the guardian's checkbox is what decides it.
+    expect(resolveCall(ipcMock).body.verified).toBe(true);
+  });
+
+  test("a failed re-attest reports the channel as it stands", async () => {
+    seedGuardian();
+    // Bind and attest the channel first.
+    await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-first-attest",
+        address: "+12025550148",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+
+    // On the prototype: the handler holds its own ContactStore, so spying on a
+    // fresh instance would leave the real method in place and prove nothing.
+    const attest = spyOn(ContactStore.prototype, "markChannelVerified");
+    attest.mockImplementation(() => {
+      throw new Error("attest exploded");
+    });
+
+    // Re-submitting the same address reuses the verified channel. A failed
+    // re-attest changes nothing, so reporting it unverified would invent a
+    // downgrade that never happened.
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-reattest",
+        address: "+12025550148",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+    // Read the call count before restoring: restoring clears the record.
+    const attestCalls = attest.mock.calls.length;
+    attest.mockRestore();
+
+    expect(res.status).toBe(200);
+    expect(attestCalls).toBeGreaterThan(0);
+    // The channel is still attested, so that is what the command hears.
+    const resolves = callsFor(ipcMock, "resolve_contact_prompt");
+    expect(resolves[resolves.length - 1]!.body.verified).toBe(true);
+  });
+
+  test("an unchecked box resolves as unverified", async () => {
+    seedGuardian();
+
+    await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-report-unverified",
+        address: "+12025550146",
+        channelType: "imessage",
+        role: "guardian",
+        verify: false,
+      }),
+    );
+
+    expect(resolveCall(ipcMock).body.verified).toBe(false);
+  });
+
+  test("submitted verify:false leaves the channel unverified even when the command asked for --verify", async () => {
+    seedGuardian();
+    // The guardian unchecked the box the command pre-checked. Their answer wins.
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_flags") {
+        return { resolved: true, verify: true };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-box-unchecked",
+        address: "+12025550144",
+        channelType: "imessage",
+        role: "guardian",
+        verify: false,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const channel = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "+12025550144"))
+      .get();
+    expect(channel!.verifiedVia).toBeNull();
+    expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
   });
 
   test("guardian prompt — reuses channel already bound to guardian", async () => {
@@ -298,9 +555,8 @@ describe("handleContactPromptSubmit", () => {
     // No mirror op fired either — the conflict aborts before any upsert.
     expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
 
-    // IPC should have been called with an error so the CLI doesn't hang.
-    expect(ipcMock).toHaveBeenCalledTimes(1);
-
+    // The CLI is told, so it doesn't hang. Asserted by what was sent rather
+    // than by a call count, since claiming the form is a call of its own.
     const ipcCall = resolveCall(ipcMock);
     expect(typeof ipcCall.body.error).toBe("string");
 

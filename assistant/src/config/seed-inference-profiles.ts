@@ -9,13 +9,17 @@ import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getEffectiveProfiles,
+  getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   MANAGED_PROFILE_TEMPLATES,
 } from "./default-profile-catalog.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import { isDispatchableProfile } from "./profile-dispatchability.js";
-import { isDefaultProviderChoice, type ProfileEntry } from "./schemas/llm.js";
+import {
+  type DefaultProviderConfig,
+  isDefaultProviderChoice,
+  type ProfileEntry,
+} from "./schemas/llm.js";
 
 const log = getLogger("seed-inference-profiles");
 
@@ -141,8 +145,13 @@ export function seedInferenceProfiles(
   // Profile lookups below go through the effective view: a default profile
   // resolves from the code catalog whether or not the workspace carries a
   // stub for it, and a stub contributes only its status/label overlays.
-  const effectiveProfiles = getEffectiveProfiles(
+  // Resolved against `llm.defaultProvider` so the managed backups count as
+  // available only on the managed column, matching what the schema accepts
+  // as a reference: an `activeProfile` naming a backup on a BYOK install is
+  // then repaired here rather than preserved as a dangling selection.
+  const effectiveProfiles = getEffectiveProfilesForProvider(
     profiles as Record<string, ProfileEntry>,
+    seedResolutionDefaultProvider(llm),
   ) as Record<string, Record<string, unknown>>;
 
   // Active profile resolution.
@@ -228,6 +237,26 @@ export function seedInferenceProfiles(
   }
 
   saveRawConfig(config);
+}
+
+/**
+ * The `llm.defaultProvider` to resolve the effective catalog against, read
+ * from RAW config. Only a value the matrix can implement is used: a
+ * hand-edited or legacy provider outside `DEFAULT_PROVIDER_CHOICES` has no
+ * column and no verified intent resolution, so materializing against it
+ * could throw and fail the whole boot seed. Such a value falls back to
+ * `null`, which resolves the managed column.
+ */
+function seedResolutionDefaultProvider(
+  llm: Record<string, unknown>,
+): DefaultProviderConfig | null {
+  const raw = readObject(llm.defaultProvider);
+  const provider = readString(raw?.provider);
+  if (provider === undefined || !isDefaultProviderChoice(provider)) {
+    return null;
+  }
+  const connectionName = readString(raw?.connectionName);
+  return { provider, ...(connectionName ? { connectionName } : {}) };
 }
 
 export function readObject(value: unknown): Record<string, unknown> | null {

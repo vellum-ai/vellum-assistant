@@ -15,7 +15,9 @@
  */
 
 import {
+  attachmentIdFragment,
   type ContentBlock,
+  mediaBlockAttachmentId,
   type Message,
   resolveMediaSourceData,
 } from "@vellumai/plugin-api";
@@ -66,8 +68,8 @@ export const UNSENDABLE_IMAGE_NOTE =
  * bytes untouched. An unsendable image that can be resized is rewritten to
  * its resized form (downscaled when oversized, upscaled to the minimum floor
  * when undersized); one that cannot be resized on this host (resize is a
- * no-op, e.g. `sips` is absent off macOS or the format is unsupported) is
- * replaced with a text note.
+ * no-op because the encoder cannot decode the format) is replaced with a text
+ * note.
  *
  * Shared by the in-memory recovery transform and the durable persist pass so
  * both apply the identical rule. Persisting the resized form is what lets a
@@ -105,10 +107,13 @@ export async function unsendableImageReplacement(
     if (mediaTypeMismatch) {
       // Only the label is wrong, so keep the source shape: a workspace_ref
       // stays a reference (inlining it would bake the full payload into the
-      // stored message row) and only media_type is corrected.
+      // stored message row) and only media_type is corrected. Because the
+      // source survives, a reference still names its own attachment through
+      // it, and only an inline block's top-level id needs carrying.
       return {
         type: "image",
         source: { ...block.source, media_type: effectiveMediaType },
+        ...attachmentIdFragment(block._attachmentId),
       };
     }
     return null;
@@ -128,6 +133,12 @@ export async function unsendableImageReplacement(
         media_type: optimized.mediaType,
         data: optimized.data,
       },
+      // The resized block is inline bytes whatever the input was, so a
+      // reference's `source.attachmentId` is about to be replaced along with
+      // the source that held it. Derive the id from either shape before
+      // stamping, or a reference-backed image loses its attachment here and
+      // the durable rewrite makes that permanent.
+      ...attachmentIdFragment(mediaBlockAttachmentId(block)),
     };
   }
   return { type: "text", text: UNSENDABLE_IMAGE_NOTE };

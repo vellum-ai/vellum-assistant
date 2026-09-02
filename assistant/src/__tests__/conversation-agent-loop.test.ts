@@ -23,6 +23,10 @@ import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/inde
 import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import {
+  resolveUsageAttribution,
+  type UsageAttributionInput,
+} from "../usage/attribution.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -342,6 +346,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateMessageMetadata: updateMessageMetadataMock,
   setConversationHistoryStrippedAt: setConversationHistoryStrippedAtMock,
   getMessages: () => mockStoredMessages,
+  // Read by the pre-run camera-frame retention pass for any history holding
+  // attachment references. This suite seeds none, so an empty map is the same
+  // answer the real accessor would give.
+  selectSightFrameCaptureTimes: () => new Map<string, number>(),
   getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -415,19 +423,6 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
-}));
-
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
 mock.module("../apps/app-store.js", () => ({
@@ -1704,6 +1699,91 @@ describe("session-agent-loop", () => {
       expect(call[1]).toBe(JSON.stringify(rawRequest));
       expect(call[2]).toBe(JSON.stringify(rawResponse));
     });
+
+    test("request log and usage event share the turn call site", async () => {
+      const rawRequest = {
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+      const rawResponse = {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { role: "assistant", content: "Hi there." },
+          },
+        ],
+      };
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "openai",
+            rawRequest,
+            rawResponse,
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+      });
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[5]).toBe("callAgent");
+
+      const usageCall = recordUsageMock.mock.calls.find(
+        (entry) => (entry as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+      expect(usageCall).toBeDefined();
+      const attribution = usageCall?.[12] as UsageAttributionInput;
+      expect(attribution.callSite).toBe("callAgent");
+    });
+
+    test("stamps voiceFrontDoor on the request log for a front-door turn", async () => {
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi." }],
+            model: "mock-model",
+            usage: { inputTokens: 8, outputTokens: 2 },
+            stopReason: "end_turn",
+            rawRequest: { model: "mock-model", messages: [] },
+            rawResponse: { id: "resp-1" },
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "voiceFrontDoor",
+      });
+
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[5]).toBe("voiceFrontDoor");
+    });
+
+    test("provider-error request logs carry the turn call site", async () => {
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+      });
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[5]).toBe("callAgent");
+    });
   });
 
   describe("usage accounting", () => {
@@ -1761,6 +1841,108 @@ describe("session-agent-loop", () => {
       expect(mainAgentCall?.[1]).toBe(12);
       expect(mainAgentCall?.[2]).toBe(3);
       expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
+    });
+
+    test("attributes a fallback serve to the profile that actually served", async () => {
+      // The turn resolved to the primary managed profile, the request hit an
+      // outage-shaped failure, and `RetryProvider` escalated to a backup
+      // profile on a different provider, stamping `actualProvider` and
+      // `actualInferenceProfile` on the response it returns.
+      seedLlmConfig({
+        profiles: {
+          ...disabledCatalogDefaultProfiles,
+          backupProfile: { provider: "anthropic", model: "claude-sonnet-5" },
+        },
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "claude-sonnet-5",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "anthropic",
+            actualInferenceProfile: "backupProfile",
+          },
+        ],
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as Conversation["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const mainAgentCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+
+      expect(mainAgentCall).toBeDefined();
+      // All three attribution facets of the row must describe the same call.
+      expect(mainAgentCall?.[0]).toMatchObject({ providerName: "anthropic" });
+      expect(mainAgentCall?.[3]).toBe("claude-sonnet-5");
+      const attribution = mainAgentCall?.[12] as UsageAttributionInput;
+      expect(attribution.callSite).toBe("mainAgent");
+      expect(attribution.overrideProfile).toBe("backupProfile");
+      expect(attribution.forceOverrideProfile).toBe(true);
+      // `inference_profile` on the persisted row is this snapshot's applied
+      // profile, so resolve it the way `recordUsage` does and assert the
+      // column value itself rather than only the input that feeds it.
+      expect(resolveUsageAttribution(attribution).appliedProfile).toBe(
+        "backupProfile",
+      );
+    });
+
+    test("leaves a non-fallback turn attributed to the conversation's own profile", async () => {
+      // No reroute: the response carries no `actualInferenceProfile`, so the
+      // attribution input stays exactly what the conversation resolved and
+      // carries no forced override.
+      seedLlmConfig({
+        profiles: {
+          ...disabledCatalogDefaultProfiles,
+          backupProfile: { provider: "anthropic", model: "claude-sonnet-5" },
+        },
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+          },
+        ],
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as Conversation["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const mainAgentCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+
+      expect(mainAgentCall).toBeDefined();
+      expect(mainAgentCall?.[0]).toMatchObject({ providerName: "openai" });
+      expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
+      expect(mainAgentCall?.[12]).toEqual({
+        callSite: "mainAgent",
+        overrideProfile: null,
+      });
     });
 
     test("persists the served model onto the assistant row's metadata at finalize", async () => {
@@ -4035,6 +4217,144 @@ describe("session-agent-loop", () => {
       expect(events.some((event) => event.type === "context_compacted")).toBe(
         true,
       );
+    });
+
+    test("rerouted compaction records usage under the profile that actually served", async () => {
+      const ctx = makeCtx();
+
+      await applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "summary" }] },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "claude-sonnet-5",
+          summaryText: "summary",
+          summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
+          // What the compactor resolved before the call...
+          summaryOverrideProfile: "primaryProfile",
+          // ...and what the reroute actually served.
+          summaryActualProvider: "anthropic",
+          summaryActualInferenceProfile: "backupProfile",
+        },
+        () => {},
+        "req-1",
+      );
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+
+      expect(compactorCall).toBeDefined();
+      // All three attribution facets of the row describe the same call.
+      expect(compactorCall?.[0]).toMatchObject({ providerName: "anthropic" });
+      expect(compactorCall?.[3]).toBe("claude-sonnet-5");
+      expect(compactorCall?.[12]).toEqual({
+        callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
+        overrideProfile: "backupProfile",
+        forceOverrideProfile: true,
+      });
+    });
+
+    test("non-rerouted compaction keeps the compactor's own attribution", async () => {
+      const ctx = makeCtx();
+
+      await applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "summary" }] },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+          summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
+          summaryOverrideProfile: "primaryProfile",
+          summaryActualProvider: "openai",
+        },
+        () => {},
+        "req-1",
+      );
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+
+      expect(compactorCall).toBeDefined();
+      expect(compactorCall?.[0]).toMatchObject({ providerName: "openai" });
+      expect(compactorCall?.[3]).toBe("mock-model");
+      expect(compactorCall?.[12]).toEqual({
+        callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
+        overrideProfile: "primaryProfile",
+      });
+    });
+
+    test("compaction that served no call falls back to the conversation's provider", async () => {
+      // The degraded shape: `emptyResult` paths record no served attribution
+      // because no call happened. Provider must fall back to the
+      // conversation's own, and the attribution input must be byte-identical
+      // to what it was before served attribution existed.
+      const ctx = makeCtx();
+
+      await applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "summary" }] },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+          summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
+          summaryOverrideProfile: "primaryProfile",
+        },
+        () => {},
+        "req-1",
+      );
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+
+      expect(compactorCall).toBeDefined();
+      expect(compactorCall?.[0]).toMatchObject({
+        providerName: "mock-provider",
+      });
+      expect(compactorCall?.[12]).toEqual({
+        callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
+        overrideProfile: "primaryProfile",
+      });
     });
 
     test("applyCompactionResult advances the persisted count from the trusted in-context boundary", async () => {

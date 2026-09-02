@@ -17,11 +17,12 @@ interface GuardianDetailViewProps {
   mergePending?: boolean;
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
+  channelsLoadFailed?: boolean;
   a2aEnabled?: boolean;
   onSave: (patch: { displayName: string; notes: string }) => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
-  onVerifyChannel?: (type: string) => void;
+  onVerifyChannel?: (type: string, address?: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
   onGenerateInviteLink?: () => void;
 }
@@ -37,6 +38,7 @@ function GuardianDetailViewInner({
   mergePending = false,
   canMerge = false,
   availableChannels,
+  channelsLoadFailed,
   a2aEnabled,
   onSave,
   onMerge,
@@ -136,6 +138,7 @@ function GuardianDetailViewInner({
         <ContactChannelsSection
           contactChannels={contact.channels}
           availableChannels={availableChannels}
+          channelsLoadFailed={channelsLoadFailed}
           a2aEnabled={a2aEnabled}
           setupLabel={t("guardianDetailView.setupLabel")}
           verifyLoading={verifyPending}

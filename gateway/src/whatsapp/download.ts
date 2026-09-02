@@ -1,18 +1,15 @@
-import { fileTypeFromBuffer } from "file-type";
+import {
+  finalizeDownloadedAttachment,
+  readLimitedAttachmentResponse,
+} from "../attachments/download.js";
+import { AttachmentTooLargeError } from "../attachments/ingest.js";
+import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { GatewayConfig } from "../config.js";
-import { validateDownloadedContent } from "../download-validation.js";
 import {
   getWhatsAppMediaMetadata,
   downloadWhatsAppMediaBytes,
-  WhatsAppNonRetryableError,
   type WhatsAppApiCaches,
 } from "./api.js";
-
-export interface DownloadedFile {
-  filename: string;
-  mimeType: string;
-  data: string; // base64-encoded
-}
 
 /** Common MIME-to-extension map for when Meta omits a filename. */
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -53,37 +50,30 @@ function inferFilename(mediaId: string, mimeType: string): string {
 export async function downloadWhatsAppFile(
   config: GatewayConfig,
   mediaId: string,
+  maxBytes: number,
   hint?: { fileName?: string; mimeType?: string },
   caches?: WhatsAppApiCaches,
-): Promise<DownloadedFile> {
+): Promise<DownloadedAttachment> {
   const meta = await getWhatsAppMediaMetadata(mediaId, caches);
 
-  if (
-    meta.file_size >
-    (config.maxAttachmentBytes.whatsapp ?? config.maxAttachmentBytes.default)
-  ) {
-    throw new WhatsAppNonRetryableError(
-      `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${config.maxAttachmentBytes.whatsapp ?? config.maxAttachmentBytes.default} bytes)`,
+  if (meta.file_size > maxBytes) {
+    throw new AttachmentTooLargeError(
+      `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${maxBytes} bytes)`,
     );
   }
 
   const response = await downloadWhatsAppMediaBytes(meta.url, caches);
-  const buffer = await response.arrayBuffer();
-
-  const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
-
-  // Prefer the MIME type from Meta metadata, then detected (trusted), then hint (untrusted), then Content-Type header
-  const mimeType =
-    meta.mime_type ||
-    detected?.mime ||
-    hint?.mimeType ||
-    response.headers.get("Content-Type")?.split(";")[0].trim() ||
-    "application/octet-stream";
-
-  await validateDownloadedContent(new Uint8Array(buffer), mimeType, mediaId);
-
-  const filename = hint?.fileName || inferFilename(mediaId, mimeType);
-  const data = Buffer.from(buffer).toString("base64");
-
-  return { filename, mimeType, data };
+  // Meta metadata is authoritative; detected bytes are trusted; the caller
+  // hint is untrusted and follows byte detection.
+  return finalizeDownloadedAttachment(
+    await readLimitedAttachmentResponse(response, maxBytes, mediaId),
+    {
+      attachmentId: mediaId,
+      mimeTypeCandidatesBeforeDetection: [meta.mime_type],
+      mimeTypeCandidatesAfterDetection: [hint?.mimeType],
+      responseContentType: response.headers.get("Content-Type"),
+      filename: hint?.fileName,
+      fallbackFilename: (mimeType) => inferFilename(mediaId, mimeType),
+    },
+  );
 }

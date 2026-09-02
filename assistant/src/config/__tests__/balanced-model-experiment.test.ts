@@ -24,15 +24,16 @@ import {
   type ProfileEntry,
 } from "../schemas/llm.js";
 
-// The `experiment-balanced-model-2026-08-06` arm repoints the model the managed
+// The `experiment-balanced-model-2026-08-31` arm repoints the model the managed
 // Balanced profile resolves to. Both the runtime resolver and the client-facing
 // profile listing go through `defaultProfileBodyForProvider`, so both are
 // exercised here: a disagreement between them shows the user one model beside a
 // profile that runs another.
 
 const FLAG = BALANCED_MODEL_EXPERIMENT_FLAG_KEY;
-const SHIPPED_MODEL = "gpt-5.6-luna";
-const GLM_MODEL = "accounts/fireworks/models/glm-5p2";
+const SHIPPED_MODEL = "accounts/fireworks/models/glm-5p3-flash";
+const GLM_53_MODEL = "accounts/fireworks/models/glm-5p3";
+const GLM_52_MODEL = "accounts/fireworks/models/glm-5p2";
 
 function setArm(value: boolean | string): void {
   setOverridesForTesting({ [FLAG]: value });
@@ -57,57 +58,64 @@ afterEach(() => {
 });
 
 describe("balanced-model experiment arms", () => {
-  test("terra repoints mainAgent at gpt-5.6-terra on the managed connection", () => {
-    setArm("terra");
+  test("glm-5p3 repoints mainAgent at GLM 5.3 on the managed connection", () => {
+    setArm("glm-5p3");
     const resolved = resolveCallSiteConfig(
       "mainAgent",
       llmWithActiveBalanced(),
     );
-    expect(resolved.model).toBe("gpt-5.6-terra");
+    expect(resolved.model).toBe(GLM_53_MODEL);
     expect(resolved.provider).toBe("vellum");
-    expect(getManagedUpstream("gpt-5.6-terra")).toBe("openai");
+    expect(getManagedUpstream(GLM_53_MODEL)).toBe("fireworks");
 
     const entry = resolveDefaultProfileForProvider(
       undefined,
       "balanced",
       managed,
     );
-    expect(entry?.model).toBe("gpt-5.6-terra");
+    expect(entry?.model).toBe(GLM_53_MODEL);
     expect(entry?.provider).toBe("vellum");
     // Routing-identity providers derive their connection per request.
     expect(entry?.provider_connection).toBeUndefined();
     expect(entry?.source).toBe("managed");
   });
 
-  test("glm-5p2 repoints mainAgent at GLM 5.2 within the model's output cap", () => {
+  test("glm-5p2 resolves mainAgent to GLM 5.2 within the model's output cap", () => {
     setArm("glm-5p2");
     const resolved = resolveCallSiteConfig(
       "mainAgent",
       llmWithActiveBalanced(),
     );
-    expect(resolved.model).toBe(GLM_MODEL);
+    expect(resolved.model).toBe(GLM_52_MODEL);
     expect(resolved.provider).toBe("vellum");
 
-    const upstream = getManagedUpstream(GLM_MODEL);
+    const upstream = getManagedUpstream(GLM_52_MODEL);
     expect(upstream).toBe("fireworks");
-    const cap = catalogMaxOutputTokens(upstream as string, GLM_MODEL);
+    const cap = catalogMaxOutputTokens(upstream as string, GLM_52_MODEL);
     expect(cap).toBeDefined();
     expect(resolved.maxTokens).toBeLessThanOrEqual(cap as number);
-    // Only the model moves: the shipped token budget stands.
+    // The shipped token budget stands.
     expect(resolved.maxTokens).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.maxTokens as number,
     );
   });
 
+  test("the glm-5p3-flash arm names the shipped pin", () => {
+    setArm("glm-5p3-flash");
+    expect(
+      resolveDefaultProfileForProvider(undefined, "balanced", managed)?.model,
+    ).toBe(SHIPPED_MODEL);
+  });
+
   test("an arm changes only the model of the managed balanced body", () => {
-    setArm("terra");
+    setArm("glm-5p2");
     const entry = resolveDefaultProfileForProvider(
       undefined,
       "balanced",
       managed,
     );
     const shipped = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
-    expect(entry).toEqual({ ...shipped, model: "gpt-5.6-terra" });
+    expect(entry).toEqual({ ...shipped, model: GLM_52_MODEL });
   });
 
   test("the other default profiles are untouched by an arm", () => {
@@ -124,7 +132,7 @@ describe("balanced-model experiment arms", () => {
   });
 
   test("every pinned arm model is managed-routable and in its upstream catalog", () => {
-    for (const model of ["gpt-5.6-terra", GLM_MODEL]) {
+    for (const model of [SHIPPED_MODEL, GLM_53_MODEL, GLM_52_MODEL]) {
       const upstream = getManagedUpstream(model);
       expect(upstream).not.toBeNull();
       expect(isModelInCatalog(upstream as string, model)).toBe(true);
@@ -136,7 +144,10 @@ describe("balanced-model experiment fallbacks", () => {
   const shippedCases: [string, () => void][] = [
     ["the flag is unset", () => clearCachedOverrides()],
     ["no override is present", () => setOverridesForTesting({})],
+    // Arms of the retired 2026-08-06 experiment are no longer pinned, so a
+    // stale value cannot strand an install on a model this test no longer runs.
     ["the arm is control", () => setArm("control")],
+    ["the arm is terra", () => setArm("terra")],
     ["the arm is an unknown string", () => setArm("gpt-9-does-not-exist")],
     ["the arm is the empty string", () => setArm("")],
     ["the value is boolean true", () => setArm(true)],
@@ -162,11 +173,11 @@ describe("balanced-model experiment fallbacks", () => {
     });
   }
 
-  test("the shipped catalog body is the control arm", () => {
+  test("the shipped catalog body is the glm-5p3-flash arm", () => {
     expect(CODE_DEFAULT_PROFILE_ENTRIES.balanced.model).toBe(SHIPPED_MODEL);
   });
 
-  test("the registry default is control, which the override-only flag read assumes", () => {
+  test("the registry default names the shipped pin, which the override-only flag read assumes", () => {
     const registryPath = join(
       import.meta.dirname,
       "..",
@@ -188,14 +199,35 @@ describe("balanced-model experiment fallbacks", () => {
     const flag = registry.flags.find((entry) => entry.key === FLAG);
     expect(flag).toBeDefined();
     expect(flag?.scope).toBe("assistant");
-    expect(flag?.defaultEnabled).toBe("control");
-    expect(flag?.values).toEqual(["control", "terra", "glm-5p2"]);
+    expect(flag?.defaultEnabled).toBe("glm-5p3-flash");
+    expect(flag?.values).toEqual(["glm-5p3-flash", "glm-5p3", "glm-5p2"]);
+  });
+
+  test("the retired experiment's flag is gone from the registry", () => {
+    const registryPath = join(
+      import.meta.dirname,
+      "..",
+      "..",
+      "..",
+      "..",
+      "meta",
+      "feature-flags",
+      "feature-flag-registry.json",
+    );
+    const registry = JSON.parse(readFileSync(registryPath, "utf-8")) as {
+      flags: { key: string }[];
+    };
+    expect(
+      registry.flags.some(
+        (entry) => entry.key === "experiment-balanced-model-2026-08-06",
+      ),
+    ).toBe(false);
   });
 });
 
 describe("balanced-model experiment boundaries", () => {
   test("a user-owned balanced shadow wins over the arm", () => {
-    setArm("terra");
+    setArm("glm-5p2");
     const profiles: Record<string, ProfileEntry> = {
       balanced: { source: "user", provider: "openai", model: "gpt-5.5" },
     };
@@ -209,7 +241,7 @@ describe("balanced-model experiment boundaries", () => {
   });
 
   test("a managed-source stub still resolves to the arm's body", () => {
-    setArm("terra");
+    setArm("glm-5p2");
     const profiles: Record<string, ProfileEntry> = {
       balanced: { source: "managed", label: "My Balanced" },
     };
@@ -218,12 +250,12 @@ describe("balanced-model experiment boundaries", () => {
       "balanced",
       managed,
     );
-    expect(entry?.model).toBe("gpt-5.6-terra");
+    expect(entry?.model).toBe(GLM_52_MODEL);
     expect(entry?.label).toBe("My Balanced");
   });
 
   test("the chatgpt and BYOK columns stay out of the experiment", () => {
-    setArm("terra");
+    setArm("glm-5p2");
     for (const provider of ["anthropic", "openai", "chatgpt"] as const) {
       const armed = resolveDefaultProfileForProvider(undefined, "balanced", {
         provider,
@@ -234,7 +266,7 @@ describe("balanced-model experiment boundaries", () => {
       });
       expect(armed).toEqual(shipped as ProfileEntry);
       expect(armed?.provider).toBe(provider);
-      setArm("terra");
+      setArm("glm-5p2");
     }
   });
 
@@ -242,29 +274,29 @@ describe("balanced-model experiment boundaries", () => {
     setArm("glm-5p2");
     expect(
       resolveDefaultProfileForProvider(undefined, "balanced", null)?.model,
-    ).toBe(GLM_MODEL);
+    ).toBe(GLM_52_MODEL);
   });
 });
 
 describe("client-facing profile listing", () => {
   test("reports the arm's model so the UI matches what runs", () => {
-    setArm("terra");
+    setArm("glm-5p2");
     const profiles = getEffectiveProfilesForProvider(undefined, managed);
-    expect(profiles.balanced?.model).toBe("gpt-5.6-terra");
+    expect(profiles.balanced?.model).toBe(GLM_52_MODEL);
     expect(profiles["quality-optimized"]?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"].model,
     );
   });
 
-  test("reports the shipped model on the control arm", () => {
-    setArm("control");
+  test("reports the shipped model on an arm this build does not know", () => {
+    setArm("terra");
     expect(
       getEffectiveProfilesForProvider(undefined, managed).balanced?.model,
     ).toBe(SHIPPED_MODEL);
   });
 
   test("agrees with the runtime resolver on every arm", () => {
-    for (const arm of ["control", "terra", "glm-5p2", "nonsense"]) {
+    for (const arm of ["glm-5p3-flash", "glm-5p3", "glm-5p2", "nonsense"]) {
       setArm(arm);
       const listed = getEffectiveProfilesForProvider(undefined, managed)
         .balanced?.model;

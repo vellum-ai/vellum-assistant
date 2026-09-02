@@ -16,6 +16,7 @@ import {
 } from "@/generated/api/sdk.gen";
 import type { InvoiceListResponse } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { openExternalUrl } from "@/runtime/browser";
 import { assertHasResponse, toApiError } from "@/utils/api-errors";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
@@ -79,14 +80,13 @@ function formatDate(unixSeconds: number): string {
   });
 }
 
+// Stripe hosts the invoice PDF, so this is an external open rather than a
+// Vellum-owned save: a cross-origin fetch would be CORS-blocked, and the
+// browser view is Stripe's own hosted invoice page. `openExternalUrl` covers
+// every shell (a hand-rolled target="_blank" anchor is a no-op in the
+// Capacitor WKWebView).
 function downloadPdf(url: string): void {
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  void openExternalUrl(url);
 }
 
 export function InvoicesTable() {
@@ -200,7 +200,7 @@ export function InvoicesTable() {
       await saveFile(data, "invoices.zip");
     } catch (error) {
       captureError(error, { context: "download_all_invoices" });
-      toast.error("Failed to download invoices.");
+      toast.error(t("invoicesTable.downloadAllFailed"));
     } finally {
       setIsDownloadingAll(false);
     }
@@ -227,7 +227,7 @@ export function InvoicesTable() {
                   disabled={isDownloadingAll}
                   data-testid="invoices-download-all"
                 >
-                  Download all
+                  {t("invoicesTable.downloadAll")}
                 </Button>
               )}
               <Button
@@ -270,11 +270,11 @@ export function InvoicesTable() {
           <div className="flex items-center gap-2 py-6 text-[var(--content-tertiary)]">
             <Loader2 className="h-4 w-4 animate-spin" />
             <Typography as="span" variant="body-small-default">
-              Loading invoices...
+              {t("invoicesTable.loading")}
             </Typography>
           </div>
         ) : invoicesQuery.isLoadingError ? (
-          <Notice tone="error">Failed to load invoices.</Notice>
+          <Notice tone="error">{t("invoicesTable.loadError")}</Notice>
         ) : invoices.length === 0 ? (
           <Typography
             as="p"
@@ -282,7 +282,7 @@ export function InvoicesTable() {
             className="py-6 text-center text-[var(--content-tertiary)]"
             data-testid="invoices-empty"
           >
-            No Invoices Found
+            {t("invoicesTable.empty")}
           </Typography>
         ) : (
           <>
@@ -291,16 +291,16 @@ export function InvoicesTable() {
                 <thead>
                   <tr className="border-b border-[var(--border-base)] text-left">
                     <th className="pb-2 pr-4 text-body-small-default text-[var(--content-tertiary)]">
-                      Date
+                      {t("invoicesTable.columnDate")}
                     </th>
                     <th className="pb-2 pr-4 text-body-small-default text-[var(--content-tertiary)]">
-                      Amount
+                      {t("invoicesTable.columnAmount")}
                     </th>
                     <th className="pb-2 pr-4 text-body-small-default text-[var(--content-tertiary)]">
-                      Status
+                      {t("invoicesTable.columnStatus")}
                     </th>
                     <th className="pb-2 text-body-small-default text-[var(--content-tertiary)]">
-                      Action
+                      {t("invoicesTable.columnAction")}
                     </th>
                   </tr>
                 </thead>
@@ -352,7 +352,7 @@ export function InvoicesTable() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
-                                View
+                                {t("invoicesTable.view")}
                               </a>
                             </Button>
                           )}
@@ -361,7 +361,7 @@ export function InvoicesTable() {
                               variant="ghost"
                               size="compact"
                               iconOnly={<Download className="h-3.5 w-3.5" />}
-                              aria-label="Download invoice PDF"
+                              aria-label={t("invoicesTable.downloadPdfAriaLabel")}
                               onClick={() => downloadPdf(invoice.invoice_pdf!)}
                             />
                           )}
@@ -382,8 +382,10 @@ export function InvoicesTable() {
                     data-testid="invoices-show-more"
                   >
                     {showAll
-                      ? "Show less"
-                      : `Show more (${invoices.length - INITIAL_VISIBLE} more)`}
+                      ? t("invoicesTable.showLess")
+                      : t("invoicesTable.showMore", {
+                          count: invoices.length - INITIAL_VISIBLE,
+                        })}
                   </Button>
                 )}
                 {showLoadMore && (
@@ -399,7 +401,7 @@ export function InvoicesTable() {
                     className={FOOTER_LINK_CLASS}
                     data-testid="invoices-load-more"
                   >
-                    Load more
+                    {t("invoicesTable.loadMore")}
                   </Button>
                 )}
                 {showLoadMoreError && (
@@ -412,7 +414,7 @@ export function InvoicesTable() {
                       variant="body-small-default"
                       className="text-[color:var(--content-negative)]"
                     >
-                      Failed to load more invoices.
+                      {t("invoicesTable.loadMoreError")}
                     </Typography>
                     <Button
                       variant="link"
@@ -426,7 +428,7 @@ export function InvoicesTable() {
                       className={FOOTER_LINK_CLASS}
                       data-testid="invoices-load-more-retry"
                     >
-                      Retry
+                      {t("invoicesTable.retry")}
                     </Button>
                   </div>
                 )}

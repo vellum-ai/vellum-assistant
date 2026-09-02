@@ -327,21 +327,6 @@ describe("request lookups", () => {
     });
   });
 
-  test("getPendingRequestByDestinationMessageOrNull maps the destination triple", async () => {
-    ipcResponse = null;
-    expect(
-      await client.getPendingRequestByDestinationMessageOrNull(
-        "telegram",
-        "chat-456",
-        "msg-1",
-      ),
-    ).toBeNull();
-    expect(ipcCalls[0]).toEqual({
-      method: "guardian_requests_get_by_destination_message",
-      params: { channel: "telegram", chatId: "chat-456", messageId: "msg-1" },
-    });
-  });
-
   test("getPendingRequestByCallSession and getRequestByPendingQuestionOrNull map params", async () => {
     const request = makeWireRequest({ callSessionId: "call-1" });
     ipcResponse = request;
@@ -379,17 +364,10 @@ describe("request lookups", () => {
     ipcError = new Error("gateway unavailable");
     expect(await client.getGuardianRequestByCodeOrNull("AB12")).toBeNull();
     expect(
-      await client.getPendingRequestByDestinationMessageOrNull(
-        "telegram",
-        "chat-456",
-        "msg-1",
-      ),
-    ).toBeNull();
-    expect(
       await client.getPendingRequestByCallSessionOrNull("call-1"),
     ).toBeNull();
     expect(await client.getRequestByPendingQuestionOrNull("pq-1")).toBeNull();
-    expect(warnCalls).toHaveLength(5);
+    expect(warnCalls).toHaveLength(4);
   });
 
   test("OrNull variants pass successful reads through untouched", async () => {
@@ -524,30 +502,30 @@ describe("expiry lifecycle", () => {
     ]);
   });
 
-  test("sweepExpiredGuardianRequests passes now and returns the expired rows", async () => {
-    const expiredRow = makeWireRequest({ status: "expired" });
-    ipcResponse = { expired: [expiredRow] };
-    expect(
-      await client.sweepExpiredGuardianRequests(1_700_000_500_000),
-    ).toEqual([expiredRow]);
+  test("listExpiredPendingGuardianRequests passes the limit and returns pending rows", async () => {
+    const staleRow = makeWireRequest({ status: "pending" });
+    ipcResponse = [staleRow];
+    expect(await client.listExpiredPendingGuardianRequests(50)).toEqual([
+      staleRow,
+    ]);
     expect(ipcCalls).toEqual([
       {
-        method: "guardian_requests_sweep_expired",
-        params: { now: 1_700_000_500_000 },
+        method: "guardian_requests_list_expired_pending",
+        params: { limit: 50 },
       },
     ]);
   });
 
-  test("sweeps throw on transport failure and malformed responses", async () => {
+  test("the expired-pending list throws on transport failure and malformed responses", async () => {
     ipcError = new Error("gateway unavailable");
-    await expect(client.sweepExpiredGuardianRequests()).rejects.toThrow(
+    await expect(client.listExpiredPendingGuardianRequests()).rejects.toThrow(
       "gateway unavailable",
     );
 
     ipcError = null;
     ipcResponse = { expired: 3 };
-    await expect(client.sweepExpiredGuardianRequests()).rejects.toThrow(
-      "guardian_requests_sweep_expired",
+    await expect(client.listExpiredPendingGuardianRequests()).rejects.toThrow(
+      "guardian_requests_list_expired_pending",
     );
   });
 });
@@ -631,11 +609,7 @@ describe("isGuardianRequestInScopeOrFalse", () => {
   test("returns the gateway scope verdict", async () => {
     ipcResponse = { inScope: true };
     expect(
-      await client.isGuardianRequestInScopeOrFalse(
-        "req-1",
-        "conv-1",
-        "telegram",
-      ),
+      await client.isGuardianRequestInScopeOrFalse("req-1", "conv-1"),
     ).toBe(true);
     expect(ipcCalls).toEqual([
       {
@@ -643,7 +617,6 @@ describe("isGuardianRequestInScopeOrFalse", () => {
         params: {
           requestId: "req-1",
           conversationId: "conv-1",
-          channel: "telegram",
         },
       },
     ]);

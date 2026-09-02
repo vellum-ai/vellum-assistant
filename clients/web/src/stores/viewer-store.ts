@@ -20,6 +20,8 @@
  * - `activeAcpRunId` — ACP run detail panel
  * - `activeBackgroundTaskId` — background-task detail panel
  * - `activeSkillDetailId` — skill detail panel
+ * - `activeChannelTranscript`: read-only external-channel transcript drawer
+ *   (identity only; the panel re-derives its rows from the live transcript)
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -29,7 +31,11 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
-import type { SetupChannelId } from "@/types/channel-types";
+import {
+  CHANNEL_META,
+  type ChannelCredentialForm,
+} from "@/domains/channels/channel-meta";
+import { SETUP_CHANNEL_IDS, type SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -42,7 +48,7 @@ import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-ch
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
-import { isAppMainView } from "@/stores/pane-presentation";
+import { isAppMainView } from "@/stores/pane-state";
 
 /** Views that overlay the main content and track a "back" destination. */
 type OverlayView =
@@ -55,7 +61,8 @@ type OverlayView =
   | "acp-run-detail"
   | "background-task-detail"
   | "skill-detail"
-  | "channel-setup";
+  | "channel-setup"
+  | "channel-transcript";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -127,7 +134,8 @@ function resolveViewBefore(
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
     | "viewBeforeSkillDetail"
-    | "viewBeforeChannelSetup",
+    | "viewBeforeChannelSetup"
+    | "viewBeforeChannelTranscript",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -140,7 +148,8 @@ function resolveViewBefore(
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
     mv === "skill-detail" ||
-    mv === "channel-setup"
+    mv === "channel-setup" ||
+    mv === "channel-transcript"
   ) {
     return state[field];
   }
@@ -164,7 +173,8 @@ export type MainView =
   | "acp-run-detail"
   | "background-task-detail"
   | "skill-detail"
-  | "channel-setup";
+  | "channel-setup"
+  | "channel-transcript";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -253,7 +263,46 @@ export function sameDocumentTarget(
   );
 }
 
-export type ChannelSetupType = SetupChannelId;
+/**
+ * Channels the setup drawer can actually render.
+ *
+ * Narrower than the setup-channel list on purpose: this panel *is* a
+ * credential form, and a channel without one has nothing for it to show.
+ *
+ * Derived rather than listed. The drawer and the Channels tab render the same
+ * wizards and differ only in where they are mounted, so "has a credential
+ * form" is one fact about the channel, and two hand-kept lists would be free
+ * to disagree about it.
+ */
+export const CHANNEL_SETUP_TYPES = SETUP_CHANNEL_IDS.filter(
+  (id): id is ChannelSetupType => CHANNEL_META[id].credentialForm !== undefined,
+);
+
+/**
+ * Derived at the type level from the same declarations the filter above reads
+ * at runtime: the channels whose `CHANNEL_META` entry declares a form. A bare
+ * `.filter` keeps the unnarrowed union, which would let a formless channel
+ * satisfy this type while the drawer has nothing to show it.
+ */
+export type ChannelSetupType = {
+  [K in SetupChannelId]: (typeof CHANNEL_META)[K] extends {
+    credentialForm: ChannelCredentialForm;
+  }
+    ? K
+    : never;
+}[SetupChannelId];
+
+/** Whether the setup drawer has a credential form for this channel. */
+export function isChannelSetupType(value: string): value is ChannelSetupType {
+  return CHANNEL_SETUP_TYPES.some((id) => id === value);
+}
+
+/**
+ * What the user did to end a channel-setup session, when they did something
+ * more specific than dismissing the drawer. Read at close time to pick which
+ * marker the auto-notify sends, so one close is one message.
+ */
+export type ChannelSetupOutcome = "verify_requested";
 
 export interface ChannelSetupPayload {
   channel: ChannelSetupType;
@@ -266,6 +315,36 @@ export interface ChannelSetupPayload {
    * the panel was opened outside an assistant conversation.
    */
   conversationId?: string;
+  /**
+   * Set by the wizard just before it closes itself. Absent for a plain
+   * dismissal, and never carried between sessions: opening the wizard
+   * replaces this payload wholesale.
+   */
+  outcome?: ChannelSetupOutcome;
+}
+
+/**
+ * Identity of the thread the channel-transcript drawer is showing.
+ *
+ * Held as an identity rather than a payload of rows: entries stream, and a
+ * store that owned them would keep a previous conversation's rows alive after
+ * a switch. The panel re-derives entries from the live transcript and matches
+ * them against this, so a stale thread has nothing to render.
+ */
+export interface ChannelSidecarRef {
+  conversationId: string;
+  channelId: string;
+}
+
+/** Whether a stored drawer reference still addresses the conversation on screen. */
+export function isSameChannelSidecarRef(
+  a: ChannelSidecarRef | null | undefined,
+  b: ChannelSidecarRef | null | undefined,
+): boolean {
+  if (!a || !b) {
+    return false;
+  }
+  return a.conversationId === b.conversationId && a.channelId === b.channelId;
 }
 
 export interface ToolDetailPayload {
@@ -438,6 +517,12 @@ export interface ViewerState {
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
+   * Which external-channel thread the read-only channel drawer is showing.
+   * See {@link ChannelSidecarRef} for why this is an identity, not rows.
+   */
+  activeChannelTranscript: ChannelSidecarRef | null;
+  viewBeforeChannelTranscript: Exclude<MainView, OverlayView>;
+  /**
    * Monotonic counter bumped when a viewer (a tool-detail drawer or the
    * activity-steps drill-in, which may live in a separate portal subtree)
    * asks to open the trust rule editor for `ruleEditorRequestToolCallId`.
@@ -548,7 +633,37 @@ export interface ViewerActions {
 
   // --- Channel setup ---
   openChannelSetup: (payload: ChannelSetupPayload) => void;
+  /**
+   * Record how the open session is ending, for the close auto-notify to read.
+   * Call immediately before `closeChannelSetup`.
+   */
+  markChannelSetupOutcome: (outcome: ChannelSetupOutcome) => void;
   closeChannelSetup: () => void;
+
+  // --- Channel transcript (external-channel sidecar) ---
+  openChannelTranscript: (ref: ChannelSidecarRef) => void;
+  /**
+   * Open the channel drawer for `ref`, or close it when the drawer is already
+   * showing that thread. Powers the header's channel-thread control, which is
+   * a toggle rather than a link.
+   */
+  toggleChannelTranscript: (ref: ChannelSidecarRef) => void;
+  /**
+   * Drop the drawer's thread identity. `mainView` is restored to the
+   * pre-drawer view only when the drawer itself is the active view; an
+   * overlay opened on top of the drawer (tool detail, activity steps, skill
+   * detail, ...) keeps exclusive ownership of `mainView`.
+   */
+  closeChannelTranscript: () => void;
+  /**
+   * Close the drawer unless it is still showing `ref`. Called as the sidecar
+   * re-resolves, so a conversation switch, a lost binding, or the flag going
+   * off settles the drawer instead of stranding `mainView` on a thread with
+   * nothing behind it. Passing `null` closes any open channel drawer. A stale
+   * identity is cleared even while another overlay owns `mainView`; that
+   * overlay stays put.
+   */
+  reconcileChannelTranscript: (ref: ChannelSidecarRef | null) => void;
 
   // --- Document viewer ---
   openDocument: () => void;
@@ -571,6 +686,13 @@ export interface ViewerActions {
     content: string,
     mode: string,
   ) => void;
+  /**
+   * Retitle the open document. The viewer writes the new title through the
+   * documents API and calls this so the drawer, the autosave target, and the
+   * mobile overlay all read the name the user just gave it, rather than
+   * waiting for the next load.
+   */
+  renameOpenedDocument: (surfaceId: string, documentName: string) => void;
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
@@ -611,6 +733,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeSkillDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
+  activeChannelTranscript: null,
+  viewBeforeChannelTranscript: "chat",
   ruleEditorRequestSeq: 0,
   ruleEditorRequestToolCallId: null,
 };
@@ -886,6 +1010,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       case "channel-setup":
         get().closeChannelSetup();
         return true;
+      case "channel-transcript":
+        get().closeChannelTranscript();
+        return true;
       default:
         return false;
     }
@@ -904,11 +1031,71 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  markChannelSetupOutcome: (outcome) => {
+    const active = get().activeChannelSetup;
+    if (!active) {
+      return;
+    }
+    set({ activeChannelSetup: { ...active, outcome } });
+  },
+
   closeChannelSetup: () => {
     set({
       mainView: get().viewBeforeChannelSetup,
       activeChannelSetup: null,
     });
+  },
+
+  // --- Channel transcript (external-channel sidecar) ---
+
+  openChannelTranscript: (ref) => {
+    set({
+      mainView: "channel-transcript",
+      activeChannelTranscript: ref,
+      viewBeforeChannelTranscript: resolveViewBefore(
+        get(),
+        "viewBeforeChannelTranscript",
+      ),
+    });
+  },
+
+  toggleChannelTranscript: (ref) => {
+    const state = get();
+    const isOpenOnSameThread =
+      state.mainView === "channel-transcript" &&
+      isSameChannelSidecarRef(state.activeChannelTranscript, ref);
+    if (isOpenOnSameThread) {
+      get().closeChannelTranscript();
+    } else {
+      get().openChannelTranscript(ref);
+    }
+  },
+
+  closeChannelTranscript: () => {
+    const state = get();
+    // Restore `mainView` only when the drawer is what is on screen: a caller
+    // reaching here while another overlay sits on top (reconciliation after a
+    // conversation switch) must not replace that overlay with the drawer's
+    // remembered pre-open view.
+    set(
+      state.mainView === "channel-transcript"
+        ? {
+            mainView: state.viewBeforeChannelTranscript,
+            activeChannelTranscript: null,
+          }
+        : { activeChannelTranscript: null },
+    );
+  },
+
+  reconcileChannelTranscript: (ref) => {
+    const state = get();
+    if (state.activeChannelTranscript === null) {
+      return;
+    }
+    if (isSameChannelSidecarRef(state.activeChannelTranscript, ref)) {
+      return;
+    }
+    get().closeChannelTranscript();
   },
 
   // --- Tool detail ---
@@ -1120,6 +1307,16 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     }
     const newContent = mode === "append" ? prev.content + content : content;
     set({ openedDocumentState: { ...prev, content: newContent } });
+  },
+
+  renameOpenedDocument: (surfaceId, documentName) => {
+    const prev = get().openedDocumentState;
+    // A workspace-file preview is named by its path, which nothing renames
+    // from here, so only a document surface answers to this.
+    if (!prev || prev.source !== "document" || prev.surfaceId !== surfaceId) {
+      return;
+    }
+    set({ openedDocumentState: { ...prev, documentName } });
   },
 
   handleDocumentLoadFailed: () => {

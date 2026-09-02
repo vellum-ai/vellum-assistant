@@ -23,7 +23,8 @@ export function SkillsReferenceScheduleContent() {
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             Sets up recurring and one-shot scheduled actions using cron syntax, RRULE patterns, or
-            simple timestamps. Your assistant can do things on a schedule without you asking.
+            simple timestamps. Your assistant can do things on a schedule without you asking,
+            including recurring monitoring of a page, dashboard, or status check.
           </p>
         </section>
 
@@ -88,6 +89,14 @@ export function SkillsReferenceScheduleContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
+                    &ldquo;Watch this status page and alert me if a branch is late&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Creates a recurring schedule that checks the page and notifies on exceptions
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2">
                     &ldquo;Show me my active schedules&rdquo;
                   </td>
                   <td className="px-3 py-2">
@@ -122,6 +131,10 @@ export function SkillsReferenceScheduleContent() {
             </li>
             <li>Timezone-aware</li>
             <li>
+              Notify mode can prefer the Vellum app used to create the schedule on macOS, Windows,
+              or iOS when no source channel is available
+            </li>
+            <li>
               Each schedule is pinned to a model profile when it is created, so
               changing your default model later does not change what your
               existing schedules cost
@@ -134,6 +147,11 @@ export function SkillsReferenceScheduleContent() {
             Tips &amp; gotchas
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
+            <li>
+              <strong>Recurring monitoring.</strong> Ask the assistant to watch a page or
+              dashboard. It creates a schedule you can pause and edit, not a script to run
+              yourself.
+            </li>
             <li>
               <strong>Persistent across conversations.</strong> Schedules persist across
               conversations &mdash; set it once and it runs until you cancel it.

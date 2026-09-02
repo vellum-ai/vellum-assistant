@@ -73,7 +73,7 @@ describe("notification decision strategy", () => {
       expect(copy.vellum!.body).toContain("What is the gate code?");
     });
 
-    test("guardian.question template includes free-text answer instructions when requestCode is present", () => {
+    test("guardian.question template puts free-text answer instructions in chat copy only", () => {
       const signal = makeSignal({
         sourceEventName: "guardian.question",
         contextPayload: {
@@ -87,15 +87,18 @@ describe("notification decision strategy", () => {
       });
 
       const copy = composeFallbackCopy(signal, channels);
-      expect(copy.vellum).toBeDefined();
-      expect(copy.vellum!.body).toContain("A1B2C3");
-      expect(copy.vellum!.body).toContain("<your answer>");
-      expect(copy.vellum!.body).not.toContain("approve");
-      expect(copy.vellum!.body).not.toContain("reject");
+      expect(copy.telegram).toBeDefined();
+      expect(copy.telegram!.body).toContain("A1B2C3");
+      expect(copy.telegram!.body).toContain("<your answer>");
+      expect(copy.telegram!.body).not.toContain("approve");
+      expect(copy.telegram!.body).not.toContain("reject");
       expect(copy.telegram!.deliveryText).toContain("A1B2C3");
+      // Vellum copy is read by the bell and the banner, which act through
+      // the card: the question arrives without reply mechanics.
+      expect(copy.vellum!.body).toBe("What is the gate code?");
     });
 
-    test("guardian.question template uses approve/reject instructions for approval-kind request", () => {
+    test("guardian.question template uses approve/reject instructions in chat copy for approval-kind request", () => {
       const signal = makeSignal({
         sourceEventName: "guardian.question",
         contextPayload: {
@@ -108,10 +111,11 @@ describe("notification decision strategy", () => {
       });
 
       const copy = composeFallbackCopy(signal, channels);
-      expect(copy.vellum).toBeDefined();
-      expect(copy.vellum!.body).toContain("D4E5F6");
-      expect(copy.vellum!.body).toContain("approve");
-      expect(copy.vellum!.body).toContain("reject");
+      expect(copy.telegram).toBeDefined();
+      expect(copy.telegram!.body).toContain("D4E5F6");
+      expect(copy.telegram!.body).toContain("approve");
+      expect(copy.telegram!.body).toContain("reject");
+      expect(copy.vellum!.body).toBe("Allow running host_bash?");
     });
 
     test("guardian.question template uses approve/reject for tool-backed pending_question payloads", () => {
@@ -129,11 +133,12 @@ describe("notification decision strategy", () => {
       });
 
       const copy = composeFallbackCopy(signal, channels);
-      expect(copy.vellum).toBeDefined();
-      expect(copy.vellum!.body).toContain("A1B2C3");
-      expect(copy.vellum!.body).toContain("approve");
-      expect(copy.vellum!.body).toContain("reject");
-      expect(copy.vellum!.body).not.toContain("<your answer>");
+      expect(copy.telegram).toBeDefined();
+      expect(copy.telegram!.body).toContain("A1B2C3");
+      expect(copy.telegram!.body).toContain("approve");
+      expect(copy.telegram!.body).toContain("reject");
+      expect(copy.telegram!.body).not.toContain("<your answer>");
+      expect(copy.vellum!.body).not.toContain("A1B2C3");
     });
 
     test("schedule.notify template uses message from payload", () => {

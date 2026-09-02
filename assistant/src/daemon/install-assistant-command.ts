@@ -262,6 +262,7 @@ function commandResolvesElsewhere(
     const resolved = execFileSync("/usr/bin/which", [commandName], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     return resolved !== "" && !candidatePaths.has(resolved);
   } catch {

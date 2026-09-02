@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
@@ -153,7 +153,7 @@ export async function setInferenceProfileSession({
 
   // --- Validate profile ---
   const { llm } = loadConfig();
-  const profiles = getEffectiveProfilesForProvider(
+  const profiles = getUserSelectableProfilesForProvider(
     llm?.profiles,
     llm?.defaultProvider ?? null,
   );

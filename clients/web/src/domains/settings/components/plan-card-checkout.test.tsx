@@ -20,6 +20,7 @@ import { MemoryRouter } from "react-router";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
+import * as platformDetection from "@/runtime/platform-detection";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
@@ -34,12 +35,19 @@ import {
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import { routes } from "@/utils/routes";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
 let openedUrl: string | null = null;
+let nativeAndroid = false;
+
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
+}));
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -67,6 +75,7 @@ function baseSubscription(): SubscriptionResponse {
     plan_id: "base",
     status: "active",
     renewal_date: null,
+    current_period_start: null,
     current_period_end: "2026-07-10T00:00:00Z",
     cancel_at_period_end: false,
     cancel_at: null,
@@ -123,6 +132,7 @@ function renderCard() {
 beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
+  nativeAndroid = false;
   clearCheckoutIntent();
 });
 
@@ -164,5 +174,23 @@ describe("PlanCard — recommended upgrade checkout", () => {
       kind: "package",
       packageKey: "mighty",
     });
+  });
+
+  test("native Android opens the web billing page instead of checking out", async () => {
+    nativeAndroid = true;
+    const { getByTestId } = renderCard();
+
+    fireEvent.click(getByTestId("recommended-upgrade-button"));
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        new URL(
+          routes.settings.usageBilling,
+          window.location.origin,
+        ).toString(),
+      ),
+    );
+    expect(upgradeCall).toBeNull();
+    expect(readCheckoutIntent()).toBeNull();
   });
 });

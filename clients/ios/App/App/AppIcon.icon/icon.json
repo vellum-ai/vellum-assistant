@@ -1,7 +1,17 @@
 {
-  "fill": {
-    "solid": "display-p3:0.12941,0.42353,0.21569,1.00000"
-  },
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "display-p3:0.37749,0.60064,0.34581,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "display-p3:0.37749,0.60064,0.34581,1.00000"
+      }
+    }
+  ],
   "groups": [
     {
       "blend-mode": "normal",
@@ -14,13 +24,13 @@
             }
           ],
           "glass": false,
-          "image-name": "white-V.svg",
-          "name": "white-V",
+          "image-name": "eyes.svg",
+          "name": "eyes",
           "position": {
-            "scale": 6,
+            "scale": 2.213,
             "translation-in-points": [
-              0,
-              25
+              61.33,
+              -14.21
             ]
           }
         }

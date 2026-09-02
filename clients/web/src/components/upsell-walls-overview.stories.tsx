@@ -4,7 +4,10 @@
  * This is the index for the rest of the `Upsell Walls/` section: each case
  * below states what triggers the wall, what the button says, and where it goes,
  * above the real component rendering it. Individual story files drill into the
- * per-wall variants (dismissible/not, Android, pending, error).
+ * per-wall variants (dismissible/not, pending, error). Native Android renders
+ * every wall exactly as iOS does; only the purchase CTAs behave differently
+ * there, handing off to the web app's billing page in the browser
+ * (`lib/billing/android-billing-handoff.ts`).
  *
  * It lives outside `src/domains/` deliberately: the walls span chat, settings
  * and billing, and `local/no-cross-domain-imports` only constrains files that
@@ -32,7 +35,7 @@ import {
   ADD_CREDITS_COPY,
   UPGRADE_COPY,
 } from "@/domains/chat/components/credits-upsell-card";
-import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
+import { EmailManagedContent } from "@/domains/channels/components/email-managed-content";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import {
@@ -42,11 +45,10 @@ import {
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
-import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 
 /**
  * The entitlement wall is the real `EmailManagedContent`, not a rebuild of it,
- * so the catalog cannot drift from the icon, copy and Android CTA suppression
+ * so the catalog cannot drift from the icon, copy and CTA wiring
  * the production component owns. Only the subscription read is faked; one
  * instance mounts here, and the component writes no global store, so unlike the
  * credit wall it is safe to co-mount with the rest of the page.
@@ -55,6 +57,7 @@ const NOT_ENTITLED: SubscriptionResponse = {
   plan_id: "base",
   status: "active",
   renewal_date: null,
+  current_period_start: null,
   current_period_end: null,
   cancel_at_period_end: false,
   cancel_at: null,
@@ -290,7 +293,7 @@ export const ResourceAndEntitlementWalls: Story = {
 
           <WallCase
             wall="Storage almost full (no upgrade path)"
-            trigger="Same, but self-hosted or native Android. The Upgrade CTA is dropped and the copy stops offering more storage."
+            trigger="Same, but self-hosted. The Upgrade CTA is dropped and the copy stops offering more storage."
             cta="Manage Storage"
             destination="/workspace?sort=size"
           >
@@ -359,7 +362,10 @@ export const ResourceAndEntitlementWalls: Story = {
                     Next Plan
                   </Tag>
                 }
-                specs={packageSpecs(SUPER_PACKAGE)}
+                specs={packageSpecs(
+                  SUPER_PACKAGE,
+                  "Super usage, reset monthly",
+                )}
                 footer={
                   <Button
                     variant="primary"
@@ -376,22 +382,6 @@ export const ResourceAndEntitlementWalls: Story = {
           </WallCase>
         </Group>
 
-        <Group heading="Native Android (consumption only)">
-          <WallCase
-            wall="Any purchase wall on native Android"
-            trigger="useIsNativeAndroid(). Every purchase entry point app-wide is suppressed and the copy points at the website."
-            cta="none"
-            destination="n/a"
-          >
-            <BillingErrorBanner
-              ariaLabel={`${ADD_CREDITS_COPY.title}. ${ANDROID_BILLING_MESSAGE}`}
-              icon={<span className="text-lg opacity-80">💰</span>}
-              title={ADD_CREDITS_COPY.title}
-              subtitle={ANDROID_BILLING_MESSAGE}
-              detached
-            />
-          </WallCase>
-        </Group>
       </div>
     </QueryClientProvider>
   ),

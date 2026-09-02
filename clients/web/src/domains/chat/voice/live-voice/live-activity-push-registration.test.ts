@@ -13,6 +13,13 @@ mock.module("@/runtime/apns-environment", () => ({
   resolveSignedApnsEnvironment: resolveSignedApnsEnvironmentMock,
 }));
 
+const resolvePlatformAssistantIdMock = mock(
+  async (assistantId: string) => assistantId as string | null,
+);
+mock.module("@/lib/platform-assistant-id", () => ({
+  resolvePlatformAssistantId: resolvePlatformAssistantIdMock,
+}));
+
 // ── @capacitor/app (lazy-imported plugin Proxy) ──────────────────────────────
 
 const bundleId = "ai.vocify-inc.vellum-assistant-ios";
@@ -62,10 +69,15 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const { registerLiveActivityPushToken } =
   await import("@/domains/chat/voice/live-voice/live-activity-push-registration");
+const { changeLocale } = await import("@/i18n");
 
 beforeEach(() => {
   lastUpsertArg = null;
   resolveSignedApnsEnvironmentMock.mockClear();
+  resolvePlatformAssistantIdMock.mockClear();
+  resolvePlatformAssistantIdMock.mockImplementation(
+    async (assistantId: string) => assistantId,
+  );
   getInfoMock.mockClear();
   upsertMock.mockClear();
   deleteMock.mockClear();
@@ -92,6 +104,25 @@ describe("registerLiveActivityPushToken APNs environment", () => {
     expect(lastUpsertArg?.body.bundle_id).toBe(bundleId);
     expect(lastUpsertArg?.body.conversation_id).toBe("conv-1");
     expect(lastUpsertArg?.body.apns_environment).toBe("production");
+  });
+
+  test("upserts under the resolved platform UUID", async () => {
+    resolvePlatformAssistantIdMock.mockImplementationOnce(
+      async () => "11111111-1111-4111-8111-111111111111",
+    );
+    await registerLiveActivityPushToken(REGISTRATION);
+
+    expect(lastUpsertArg?.path).toEqual({
+      assistant_id: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  test("skips upsert when no platform UUID can be resolved", async () => {
+    resolvePlatformAssistantIdMock.mockImplementationOnce(async () => null);
+    await registerLiveActivityPushToken(REGISTRATION);
+
+    expect(upsertMock).not.toHaveBeenCalled();
+    expect(resolveSignedApnsEnvironmentMock).not.toHaveBeenCalled();
   });
 });
 
@@ -127,6 +158,24 @@ describe("registerLiveActivityPushToken content state", () => {
     await registerLiveActivityPushToken({ ...REGISTRATION, muted: false });
 
     expect(lastUpsertArg?.body.labels.listening).toBe("Listening…");
+  });
+
+  /**
+   * The table is the platform's whole vocabulary, so one built in English puts
+   * the island back into English on the first push after iOS suspends this web
+   * layer, which is the only state the island is ever seen in.
+   */
+  test("registers the table in the language the app is in", async () => {
+    await changeLocale("es");
+    try {
+      await registerLiveActivityPushToken(REGISTRATION);
+
+      expect(lastUpsertArg?.body.labels.listening).toBe("Escuchando…");
+      expect(lastUpsertArg?.body.labels.thinking).toBe("Pensando…");
+    } finally {
+      // Process-global, so leaving it set would fail every later assertion.
+      await changeLocale("en");
+    }
   });
 
   // The stored row is what every background push composes from, so a slow

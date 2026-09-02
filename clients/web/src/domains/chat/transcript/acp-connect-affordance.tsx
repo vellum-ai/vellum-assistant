@@ -1,6 +1,6 @@
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
@@ -10,7 +10,9 @@ import {
   useConnectClaude,
   type UseConnectClaudeResult,
 } from "@/hooks/use-connect-claude";
+import { useTranslation } from "@/i18n";
 import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-connect";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
 
 // ---------------------------------------------------------------------------
@@ -38,10 +40,10 @@ import { isElectron } from "@/runtime/is-electron";
 // Two card shapes, chosen the same way the client tells the daemon which flow to
 // run (`preferManual: !isElectron()`), so the shape matches the flow the user
 // gets:
-//   - one-step (desktop/loopback): a compact row — the daemon captures the token
-//     on its own callback, so a single "Connect" click is the whole flow.
-//   - two-step (browser/cloud): a stacked card — "Connect" opens a tab, then the
-//     user pastes the key it shows back into a masked field to finish.
+//   - one-step (desktop/loopback): the daemon captures the token on its own
+//     callback, so a single "Connect" click is the whole flow.
+//   - two-step (browser/cloud): "Connect" opens a tab, then the user pastes the
+//     key it shows back into a masked field to finish.
 
 export function AcpConnectAffordance({
   assistantId,
@@ -74,10 +76,13 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // `idle`), so a fresh in-card connect keeps showing its "connected"
   // confirmation instead of unmounting out from under the user.
   //
-  // Skipped for an `auth_required` prompt: that check asks "is a token
-  // stored", the wrong question when the stored token itself was rejected. A
-  // "yes" would retire the card over the failure it exists to repair; those
-  // prompts clear only via the flow or explicit dismissal.
+  // Skipped for an `auth_required` prompt, restored or live. The check asks
+  // "is a token stored", and `hasAcpClaudeToken` answers on presence, shape and
+  // broker readability without ever putting the token to Claude, so a rejected
+  // one still reports connected. Retiring on that would dismiss the card over
+  // the failure it exists to repair, and the dismissal set would keep it from
+  // coming back for the rest of the session. A stale marker is retired at the
+  // daemon instead, when a new token is actually written.
   useEffect(() => {
     if (reason === "auth_required") {
       return;
@@ -98,15 +103,49 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   }, [assistantId, reason]);
 
   useEffect(() => {
-    if (alreadyConnected && connection.phase === "idle") {
-      useInteractionStore.getState().dismissAcpConnect();
+    if (!alreadyConnected || connection.phase !== "idle") {
+      return;
     }
-  }, [alreadyConnected, connection.phase]);
+    // Leave a breadcrumb: the card flashing and vanishing is otherwise silent,
+    // and a self-heal dismissal next to a fresh missing-token failure is the
+    // signature of a status/spawn predicate mismatch. It goes in the durable
+    // lifecycle ring because streaming floods the high-volume ring, which then
+    // evicts within minutes, and the breadcrumb has to survive until a feedback
+    // bundle is captured.
+    const store = useInteractionStore.getState();
+    recordLifecycleDiagnostic("acp_connect_self_heal_dismiss", {
+      assistantId,
+      toolUseId: store.pendingAcpConnect?.toolUseId ?? null,
+      reason: store.pendingAcpConnect?.reason ?? "missing",
+    });
+    store.dismissAcpConnect();
+  }, [alreadyConnected, assistantId, connection.phase]);
 
   // When the in-card connect flow completes, signal the chat view to
   // auto-continue the failed task (via a hidden "retry" send) so the user
   // doesn't have to re-ask. One-shot — the continuation's own send clears the
   // card, but guard so a re-render can't re-trigger it.
+  // Publish that this tab owns a live flow, so the invalidation its own token
+  // write triggers does not dismiss the card before it can auto-continue.
+  // Cleared on unmount so a tab that navigates away stops claiming it.
+  // Only phases that can still produce this tab's own successful write. A
+  // terminal `error` cannot, so leaving it "active" would let a failed attempt
+  // pin a stale card in place after another client repaired the token, with
+  // nothing to clear it: `auth_required` prompts skip the connected-state
+  // self-heal.
+  const flowActive =
+    connection.phase === "starting" ||
+    connection.phase === "awaiting_capture" ||
+    connection.phase === "awaiting_paste" ||
+    connection.phase === "exchanging" ||
+    connection.phase === "connected";
+  useEffect(() => {
+    useInteractionStore.getState().setAcpConnectFlowActive(flowActive);
+    return () => {
+      useInteractionStore.getState().setAcpConnectFlowActive(false);
+    };
+  }, [flowActive]);
+
   const continuedRef = useRef(false);
   useEffect(() => {
     if (connection.phase === "connected" && !continuedRef.current) {
@@ -118,8 +157,6 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   if (alreadyConnected && connection.phase === "idle") {
     return null;
   }
-
-  const dismiss = () => useInteractionStore.getState().dismissAcpConnect();
 
   // The daemon has the final say on loopback (one-step) vs manual (two-step): a
   // containerized/cloud assistant forces manual even in the desktop app, whose
@@ -133,13 +170,12 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     : isElectron();
 
   return oneStep ? (
-    <OneStepCard connection={connection} onDismiss={dismiss} />
+    <OneStepCard connection={connection} />
   ) : (
     <TwoStepCard
       connection={connection}
       pastedCode={pastedCode}
       onPastedCodeChange={setPastedCode}
-      onDismiss={dismiss}
     />
   );
 }
@@ -157,34 +193,10 @@ function BrandIcon() {
 }
 
 function Title() {
+  const { t } = useTranslation("chat");
   return (
     <div className="text-title-small text-[var(--content-strong)]">
-      Connect Claude Code
-    </div>
-  );
-}
-
-function DismissButton({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label="Dismiss"
-      title="Dismiss"
-      onClick={onDismiss}
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)]"
-    >
-      <X className="h-4 w-4" />
-    </button>
-  );
-}
-
-function BusyRow({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-      <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-        {label}
-      </span>
+      {t("acpConnectAffordance.title")}
     </div>
   );
 }
@@ -193,27 +205,28 @@ function BusyRow({ label }: { label: string }) {
 // One-step (desktop / loopback): compact single row
 // ---------------------------------------------------------------------------
 
-function OneStepCard({
+// Exported (with TwoStepCard) for Storybook, which drives the pure-props cards
+// directly; production callers stay within this file.
+export function OneStepCard({
   connection,
-  onDismiss,
 }: {
   connection: UseConnectClaudeResult;
-  onDismiss: () => void;
 }) {
   const { phase, error, connect } = connection;
+  const { t } = useTranslation("chat");
 
   const subtitle =
     phase === "error"
-      ? (error ?? "Connecting Claude failed. Please try again.")
+      ? (error ?? t("acpConnectAffordance.errorFallback"))
       : phase === "starting"
-        ? "Starting sign-in..."
+        ? t("acpConnectAffordance.subtitleStarting")
         : phase === "awaiting_capture" || phase === "awaiting_paste"
-          ? "Waiting for Claude sign-in..."
+          ? t("acpConnectAffordance.subtitleWaiting")
           : phase === "exchanging"
-            ? "Completing sign-in..."
+            ? t("acpConnectAffordance.subtitleExchanging")
             : phase === "connected"
-              ? "Claude Code connected — continuing..."
-              : "Sign in — no API key needed";
+              ? t("acpConnectAffordance.subtitleConnected")
+              : t("acpConnectAffordance.subtitleIdle");
 
   const subtitleColor =
     phase === "error"
@@ -244,119 +257,109 @@ function OneStepCard({
 
       {canConnect ? (
         <Button variant="primary" onClick={() => void connect()}>
-          Connect
+          {t("acpConnectAffordance.connectButton")}
         </Button>
       ) : busy ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
       ) : phase === "connected" ? (
         <Check className="h-5 w-5 shrink-0 text-[var(--system-positive-strong)]" />
       ) : null}
-
-      <DismissButton onDismiss={onDismiss} />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Two-step (browser / cloud): stacked card with a paste step
+// Two-step (browser / cloud): the same compact row, plus a paste step
 // ---------------------------------------------------------------------------
 
-function TwoStepCard({
+export function TwoStepCard({
   connection,
   pastedCode,
   onPastedCodeChange,
-  onDismiss,
 }: {
   connection: UseConnectClaudeResult;
   pastedCode: string;
   onPastedCodeChange: (value: string) => void;
-  onDismiss: () => void;
 }) {
   const { phase, error, connect, submitPastedCode } = connection;
+  const { t } = useTranslation("chat");
+
+  // A failed exchange (bad/expired code, 400) returns to `awaiting_paste` with
+  // an error set; surface it in the subtitle so Save doesn't look like a no-op.
+  // The input keeps its value for a retry.
+  const subtitle =
+    phase === "error"
+      ? (error ?? t("acpConnectAffordance.errorFallback"))
+      : phase === "starting"
+        ? t("acpConnectAffordance.subtitleStarting")
+        : phase === "awaiting_capture"
+          ? t("acpConnectAffordance.subtitleWaiting")
+          : phase === "exchanging"
+            ? t("acpConnectAffordance.subtitleExchanging")
+            : phase === "awaiting_paste"
+              ? (error ?? t("acpConnectAffordance.subtitlePaste"))
+              : phase === "connected"
+                ? t("acpConnectAffordance.subtitleConnected")
+                : t("acpConnectAffordance.subtitleIdle");
+
+  const subtitleColor =
+    phase === "error" || (phase === "awaiting_paste" && error)
+      ? "text-[var(--system-negative-strong)]"
+      : phase === "connected"
+        ? "text-[var(--system-positive-strong)]"
+        : "text-[var(--content-quiet)]";
+
+  const canConnect = phase === "idle" || phase === "error";
+  const busy =
+    phase === "starting" ||
+    phase === "awaiting_capture" ||
+    phase === "exchanging";
 
   return (
     <div
       data-testid="acp-connect-affordance"
-      className="mt-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)] p-4 shadow-sm"
+      className="mt-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)] px-3 py-2.5 shadow-sm"
     >
       <div className="flex items-center gap-3">
         <BrandIcon />
         <div className="min-w-0 flex-1">
           <Title />
+          <div className={`text-body-medium-lighter ${subtitleColor}`}>
+            {subtitle}
+          </div>
         </div>
-        <DismissButton onDismiss={onDismiss} />
+
+        {canConnect ? (
+          <Button variant="primary" onClick={() => void connect()}>
+            {t("acpConnectAffordance.connectButton")}
+          </Button>
+        ) : busy ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
+        ) : phase === "connected" ? (
+          <Check className="h-5 w-5 shrink-0 text-[var(--system-positive-strong)]" />
+        ) : null}
       </div>
 
-      <div className="mt-3 space-y-3">
-        {phase === "idle" || phase === "error" ? (
-          <>
-            <p
-              className={`text-body-medium-lighter ${
-                phase === "error"
-                  ? "text-[var(--system-negative-strong)]"
-                  : "text-[var(--content-quiet)]"
-              }`}
-            >
-              {phase === "error"
-                ? (error ?? "Connecting Claude failed. Please try again.")
-                : "Sign in with your Claude account to run this agent. No API key required."}
-            </p>
-            <Button variant="primary" fullWidth onClick={() => void connect()}>
-              Connect
-            </Button>
-          </>
-        ) : null}
-
-        {phase === "starting" ? <BusyRow label="Starting sign-in..." /> : null}
-        {phase === "awaiting_capture" ? (
-          <BusyRow label="Waiting for Claude sign-in..." />
-        ) : null}
-        {phase === "exchanging" ? (
-          <BusyRow label="Completing sign-in..." />
-        ) : null}
-
-        {phase === "awaiting_paste" ? (
-          <>
-            <p
-              className={`text-body-medium-lighter ${
-                error
-                  ? "text-[var(--system-negative-strong)]"
-                  : "text-[var(--content-quiet)]"
-              }`}
-            >
-              {/* A failed exchange (bad/expired code, 400) returns here with an
-                  error set; show it on the paste step so Save doesn't look
-                  like a no-op. The input keeps its value for a retry. */}
-              {error ??
-                "A browser tab opened. Paste the key it gives you to finish."}
-            </p>
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <Input
-                  type="password"
-                  value={pastedCode}
-                  onChange={(e) => onPastedCodeChange(e.target.value)}
-                  placeholder="Paste your key"
-                  fullWidth
-                />
-              </div>
-              <Button
-                variant="primary"
-                disabled={!pastedCode.trim()}
-                onClick={() => void submitPastedCode(pastedCode)}
-              >
-                Save
-              </Button>
-            </div>
-          </>
-        ) : null}
-
-        {phase === "connected" ? (
-          <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
-            Claude Code connected — continuing...
-          </p>
-        ) : null}
-      </div>
+      {phase === "awaiting_paste" ? (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Input
+              type="password"
+              value={pastedCode}
+              onChange={(e) => onPastedCodeChange(e.target.value)}
+              placeholder={t("acpConnectAffordance.pastePlaceholder")}
+              fullWidth
+            />
+          </div>
+          <Button
+            variant="primary"
+            disabled={!pastedCode.trim()}
+            onClick={() => void submitPastedCode(pastedCode)}
+          >
+            {t("acpConnectAffordance.saveButton")}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

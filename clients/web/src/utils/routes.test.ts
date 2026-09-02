@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ABOUT_ASSISTANT_SECTIONS,
+  conversationIdForPath,
   isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
@@ -65,8 +66,8 @@ describe("isAboutAssistantPath", () => {
     }
   });
 
-  test("rejects the Activity page and conversations", () => {
-    expect(isAboutAssistantPath(routes.home)).toBe(false);
+  test("rejects settings and conversations", () => {
+    expect(isAboutAssistantPath(routes.settings.root)).toBe(false);
     expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
   });
 });
@@ -83,8 +84,45 @@ describe("isConversationPath (conversation area, subroutes included)", () => {
   });
 
   test("rejects non-conversation routes", () => {
-    expect(isConversationPath("/assistant/home")).toBe(false);
+    expect(isConversationPath("/assistant/identity")).toBe(false);
     expect(isConversationPath("/assistant/library")).toBe(false);
+  });
+});
+
+describe("conversationIdForPath (the id a path names, if any)", () => {
+  test("extracts the id from a bare conversation route", () => {
+    expect(conversationIdForPath(routes.conversation("conv-1"))).toBe("conv-1");
+  });
+
+  test("tolerates a trailing slash", () => {
+    expect(conversationIdForPath(`${routes.conversation("conv-1")}/`)).toBe(
+      "conv-1",
+    );
+    expect(conversationIdForPath(`${routes.conversation("conv-1")}//`)).toBe(
+      "conv-1",
+    );
+  });
+
+  test("rejects the chat index, which names no conversation", () => {
+    // `isConversationChatPath` accepts it (a composer mounts there), so the
+    // two must stay distinguishable.
+    expect(conversationIdForPath("/assistant")).toBeNull();
+    expect(conversationIdForPath("/assistant/")).toBeNull();
+    expect(isConversationChatPath("/assistant")).toBe(true);
+  });
+
+  test("rejects conversation subroutes like the inspector", () => {
+    expect(conversationIdForPath(routes.inspect("conv-1"))).toBeNull();
+  });
+
+  test("rejects the conversations list, with or without a trailing slash", () => {
+    expect(conversationIdForPath(routes.conversations)).toBeNull();
+    expect(conversationIdForPath(`${routes.conversations}/`)).toBeNull();
+  });
+
+  test("rejects non-conversation routes", () => {
+    expect(conversationIdForPath("/assistant/identity")).toBeNull();
+    expect(conversationIdForPath("/assistant/library")).toBeNull();
   });
 });
 
@@ -110,7 +148,7 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
   });
 
   test("rejects non-conversation routes", () => {
-    expect(isConversationChatPath("/assistant/home")).toBe(false);
+    expect(isConversationChatPath("/assistant/identity")).toBe(false);
     expect(isConversationChatPath("/assistant/library")).toBe(false);
   });
 });

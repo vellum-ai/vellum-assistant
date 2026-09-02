@@ -23,6 +23,7 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { buildForChatSentinel } from "../../daemon/chat-credential-redaction.js";
+import { invalidateEmailReadinessForByoCredential } from "../../email/byo-email-credential.js";
 import {
   disconnectOAuthProvider,
   getConnectionByProvider,
@@ -53,6 +54,10 @@ import {
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { recordForChatMint } from "../for-chat-mint-registry.js";
 import { recordRevealSuccess } from "../reveal-success-registry.js";
+import {
+  assertCredentialNotInUse,
+  invalidateConnectionsAfterCredentialDelete,
+} from "./credential-in-use.js";
 import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -68,7 +73,8 @@ function scrubSecret(secret: string | undefined): string {
   if (secret.length <= 4) {
     return "****";
   }
-  return "****" + secret.slice(-4);
+  // Keep the leading 4 characters so vendor prefixes stay visible.
+  return secret.slice(0, 4) + "****";
 }
 
 function safeGetConnectionByProvider(
@@ -477,9 +483,10 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Request body is required");
   }
 
-  const { service, field } = body as {
+  const { service, field, force } = body as {
     service?: string;
     field?: string;
+    force?: boolean;
   };
 
   if (!service || typeof service !== "string") {
@@ -501,6 +508,7 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
     service === "slack_channel" && field === "user_token";
 
   const key = credentialKey(service, field);
+  const affectedConnections = assertCredentialNotInUse(key, force === true);
   const existing = await getSecureKeyAsync(key);
   const deleteResult =
     existing != null ? await deleteSecureKeyAsync(key) : "not-found";
@@ -510,6 +518,11 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
       `Failed to delete credential from secure storage: ${service}:${field}`,
     );
   }
+
+  // Cached provider adapters hold the deleted credential, so they are dropped
+  // as soon as the secure vault no longer has it: a later failure in this
+  // handler must not leave them dispatching with a credential that is gone.
+  invalidateConnectionsAfterCredentialDelete(affectedConnections);
 
   const metadataDeleted = deleteCredentialMetadata(service, field);
 
@@ -537,7 +550,11 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Credential not found");
   }
 
-  return { service, field };
+  invalidateConnectionsAfterCredentialDelete(affectedConnections);
+
+  await invalidateEmailReadinessForByoCredential(service);
+
+  return { service, field, affectedConnections };
 }
 
 async function handleCredentialsStatus() {
@@ -690,15 +707,28 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a credential",
     description:
-      "Remove a secret, its metadata, and any associated OAuth connection from the vault.",
+      "Remove a secret, its metadata, and any associated OAuth connection from the vault. " +
+      "Refused with CREDENTIAL_IN_USE while an LLM provider connection resolves its auth " +
+      "through the credential, unless `force` is set.",
     tags: ["credentials"],
     requestBody: z.object({
       service: z.string().describe("Service namespace"),
       field: z.string().describe("Field name"),
+      force: z
+        .boolean()
+        .optional()
+        .describe(
+          "Delete even when provider connections depend on the credential",
+        ),
     }),
     responseBody: z.object({
       service: z.string(),
       field: z.string(),
+      affectedConnections: z
+        .array(z.string())
+        .describe(
+          "Provider connections that depended on the deleted credential",
+        ),
     }),
     handler: handleCredentialsDelete,
   },

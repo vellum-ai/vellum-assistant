@@ -1,14 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Phone, Send } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+
+import { useViewerStore } from "@/stores/viewer-store";
+
+import { Trans, useTranslation } from "@/i18n";
 
 import { Button, Input, Typography } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { DiscordSetupWizard } from "@/components/discord-setup-wizard";
 import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { DetailShell } from "@/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSaveDiscordConfig } from "@/hooks/use-save-discord-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 import type {
@@ -22,30 +28,38 @@ interface ChannelSetupPanelProps {
   onClose: () => void;
 }
 
-const CHANNEL_META: Record<
+/**
+ * Exhaustive over the channels the drawer accepts, so one it cannot draw
+ * fails to compile rather than falling through to another channel's copy.
+ */
+const CONNECTED_MESSAGE_KEY: Record<
   ChannelSetupType,
-  { label: string; connectedMessage: string }
+  | "channelSetupPanel.slackConnected"
+  | "channelSetupPanel.telegramConnected"
+  | "channelSetupPanel.discordConnected"
+  | "channelSetupPanel.phoneConnected"
 > = {
-  slack: {
-    label: "Slack",
-    connectedMessage: "Your assistant is ready to receive messages on Slack.",
-  },
-  telegram: {
-    label: "Telegram",
-    connectedMessage:
-      "Your assistant is ready to receive messages on Telegram.",
-  },
-  phone: {
-    label: "Phone",
-    connectedMessage: "Your assistant is ready for phone calls via Twilio.",
-  },
+  slack: "channelSetupPanel.slackConnected",
+  telegram: "channelSetupPanel.telegramConnected",
+  discord: "channelSetupPanel.discordConnected",
+  phone: "channelSetupPanel.phoneConnected",
+};
+
+const CHANNEL_BRAND_LABEL: Record<ChannelSetupType, string | null> = {
+  slack: "Slack",
+  telegram: "Telegram",
+  discord: "Discord",
+  phone: null,
 };
 
 export function ChannelSetupPanel({
   payload,
   onClose,
 }: ChannelSetupPanelProps) {
-  const meta = CHANNEL_META[payload.channel];
+  const { t } = useTranslation("chat");
+  const channelLabel =
+    CHANNEL_BRAND_LABEL[payload.channel] ?? t("channelSetupPanel.phoneLabel");
+  const connectedMessage = t(CONNECTED_MESSAGE_KEY[payload.channel]);
 
   const saveSlack = useSaveSlackConfig({
     assistantId: payload.assistantId,
@@ -59,9 +73,29 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
+  // Discord does NOT close on save: its wizard has more steps after the
+  // token, adding the bot to a server and the verification handoff, and
+  // closing here would unmount the only surface that shows the invite link.
+  // The user finishes or closes, which emits the notifications the skill
+  // waits on.
+  const saveDiscord = useSaveDiscordConfig({
+    assistantId: payload.assistantId,
+  });
+
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,
   });
+
+  // The finish step's "Verify me": record why the session is ending, then
+  // close. The close auto-notify reads the outcome and reports the hand-off
+  // rather than a bare dismissal, so the assistant carries verification
+  // forward in chat. Offered only when a conversation exists to signal; the
+  // wizard otherwise falls back to telling the user what to say.
+  const canSignalConversation = Boolean(payload.conversationId);
+  const handleVerifyRequest = useCallback(() => {
+    useViewerStore.getState().markChannelSetupOutcome("verify_requested");
+    onClose();
+  }, [onClose]);
 
   const readinessOpts = useMemo(
     () => ({ path: { assistant_id: payload.assistantId } }),
@@ -73,7 +107,12 @@ export function ChannelSetupPanel({
       data.snapshots?.some((s) => s.channel === payload.channel && s.ready) ??
       false,
   });
-  const isConnected = readinessQuery.data === true;
+  // Discord flips ready the moment its token stores, which would swap this
+  // panel to the connected view mid-flow and hide the invite step. A save
+  // performed in this mount keeps the wizard until the user closes.
+  const discordFlowActive =
+    payload.channel === "discord" && saveDiscord.isSuccess;
+  const isConnected = readinessQuery.data === true && !discordFlowActive;
 
   const channelIcon =
     payload.channel === "slack" ? (
@@ -95,8 +134,12 @@ export function ChannelSetupPanel({
     <DetailShell
       icon={channelIcon}
       Glyph={channelGlyph}
-      title={isConnected ? `${meta.label} settings` : `${meta.label} setup`}
-      closeLabel="Close setup panel"
+      title={
+        isConnected
+          ? t("channelSetupPanel.settingsTitle", { channel: channelLabel })
+          : t("channelSetupPanel.setupTitle", { channel: channelLabel })
+      }
+      closeLabel={t("channelSetupPanel.closeSetupAria")}
       onClose={onClose}
     >
       {isConnected ? (
@@ -106,20 +149,21 @@ export function ChannelSetupPanel({
             variant="title-small"
             className="text-[color:var(--content-strong)]"
           >
-            {meta.label} is connected
+            {t("channelSetupPanel.connectedHeading", { channel: channelLabel })}
           </Typography>
           <Typography
             variant="body-small-default"
             className="text-[color:var(--content-subtle)]"
           >
-            {meta.connectedMessage}
+            {connectedMessage}
           </Typography>
           <Button variant="outlined" size="compact" onClick={onClose}>
-            Close
+            {t("channelSetupPanel.close")}
           </Button>
         </div>
       ) : payload.channel === "slack" ? (
         <SlackSetupWizard
+          assistantId={payload.assistantId}
           assistantName={payload.assistantName}
           onSave={(bot, app) =>
             saveSlack.mutate({ botToken: bot, appToken: app })
@@ -129,10 +173,25 @@ export function ChannelSetupPanel({
         />
       ) : payload.channel === "telegram" ? (
         <TelegramSetupWizard
+          assistantId={payload.assistantId}
           assistantName={payload.assistantName}
           saveStatus={saveTelegram.status}
           saveError={saveTelegram.error?.message ?? null}
           onSave={(botToken) => saveTelegram.mutate(botToken)}
+        />
+      ) : payload.channel === "discord" ? (
+        <DiscordSetupWizard
+          assistantId={payload.assistantId}
+          assistantName={payload.assistantName}
+          saveStatus={saveDiscord.status}
+          saveError={saveDiscord.error?.message ?? null}
+          onSave={(botToken) => saveDiscord.mutate(botToken)}
+          {...(saveDiscord.data?.data?.inviteUrl
+            ? { inviteUrl: saveDiscord.data.data.inviteUrl }
+            : {})}
+          {...(canSignalConversation
+            ? { onVerifyRequest: handleVerifyRequest }
+            : {})}
         />
       ) : payload.channel === "phone" ? (
         <TwilioCredentialForm
@@ -162,6 +221,7 @@ function TwilioCredentialForm({
   error,
   onSave,
 }: TwilioCredentialFormProps) {
+  const { t } = useTranslation("chat");
   const [accountSid, setAccountSid] = useState("");
   const [authToken, setAuthToken] = useState("");
 
@@ -171,33 +231,36 @@ function TwilioCredentialForm({
         variant="body-small-default"
         className="text-[color:var(--content-secondary)]"
       >
-        Enter your Twilio credentials from the{" "}
-        <a
-          href="https://console.twilio.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[color:var(--content-link)] hover:underline"
-        >
-          Twilio Console
-        </a>
-        . After saving, return to the chat — your assistant will finish
-        configuring your phone number and webhooks.
+        <Trans
+          ns="chat"
+          i18nKey="channelSetupPanel.twilioIntro"
+          components={{
+            consoleLink: (
+              <a
+                href="https://console.twilio.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[color:var(--content-link)] hover:underline"
+              />
+            ),
+          }}
+        />
       </Typography>
       <Input
-        label="Account SID"
+        label={t("channelSetupPanel.accountSid")}
         type="text"
         value={accountSid}
         onChange={(e) => setAccountSid(e.target.value)}
-        placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        placeholder={t("channelSetupPanel.accountSidPlaceholder")}
         disabled={status === "pending"}
         fullWidth
       />
       <Input
-        label="Auth Token"
+        label={t("channelSetupPanel.authToken")}
         type="password"
         value={authToken}
         onChange={(e) => setAuthToken(e.target.value)}
-        placeholder="Twilio auth token"
+        placeholder={t("channelSetupPanel.authTokenPlaceholder")}
         disabled={status === "pending"}
         fullWidth
       />
@@ -214,7 +277,7 @@ function TwilioCredentialForm({
           variant="body-small-default"
           className="text-[color:var(--content-positive)]"
         >
-          Credentials saved. Return to the chat to finish setup.
+          {t("channelSetupPanel.credentialsSaved")}
         </Typography>
       ) : null}
       <div>
@@ -224,7 +287,9 @@ function TwilioCredentialForm({
             !accountSid.trim() || !authToken.trim() || status === "pending"
           }
         >
-          {status === "pending" ? "Saving…" : "Save"}
+          {status === "pending"
+            ? t("channelSetupPanel.saving")
+            : t("channelSetupPanel.save")}
         </Button>
       </div>
     </div>

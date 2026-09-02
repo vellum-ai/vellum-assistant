@@ -126,6 +126,7 @@ export const oneTimeMigrations = sqliteTable("one_time_migrations", {
 //
 // Gateway-owned (this table + contact_channels): id, role, principalId,
 // displayName (cache only — NOT used for ACL, kept for log readability),
+// autoApproveThreshold (per-contact RiskThreshold override, null = inherit),
 // and every contact_channels column (type, address, status, policy,
 // verifiedAt, verifiedVia, inviteId, lastSeenAt, interactionCount,
 // lastInteraction, revokedReason, blockedReason).
@@ -139,6 +140,13 @@ export const contacts = sqliteTable("contacts", {
   displayName: text("display_name").notNull(),
   role: text("role").notNull().default("contact"),
   principalId: text("principal_id"),
+  /**
+   * Per-contact auto-approve ceiling (`none` | `low` | `medium` | `high`).
+   * Null means unset: later approval resolution inherits the existing
+   * room / trust-class cascade. Same vocabulary as `auto_approve_thresholds`
+   * and the channel-permission matrix (`RiskThreshold`).
+   */
+  autoApproveThreshold: text("auto_approve_threshold"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -270,9 +278,13 @@ export const actorTokenRecords = sqliteTable(
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
+    // Siblings of platform so rotation carries them forward. Raw, never parsed here.
+    pairingUserAgent: text("pairing_user_agent"),
+    clientReportedName: text("client_reported_name"),
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     expiresAt: integer("expires_at"),
+    lastUsedAt: integer("last_used_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -283,6 +295,15 @@ export const actorTokenRecords = sqliteTable(
     // Unfiltered (not WHERE status='active') so the hot-path revocation lookup
     // — which matches by token_hash and must find REVOKED rows — is indexed.
     index("idx_actor_tokens_hash").on(table.tokenHash),
+    // Covers the device list's max(last_used_at) group-by, which spans every
+    // status and so cannot use the active-only unique index. Device-first so
+    // the active-only lookup keeps preferring the narrower partial index, and
+    // so per-device revocation (status IN ('active','derived')) seeks too.
+    index("idx_actor_tokens_device_last_used").on(
+      table.hashedDeviceId,
+      table.guardianPrincipalId,
+      table.lastUsedAt,
+    ),
   ],
 );
 
@@ -295,6 +316,8 @@ export const actorRefreshTokenRecords = sqliteTable(
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
+    pairingUserAgent: text("pairing_user_agent"),
+    clientReportedName: text("client_reported_name"),
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     absoluteExpiresAt: integer("absolute_expires_at").notNull(),
@@ -330,6 +353,12 @@ export const trustRules = sqliteTable(
       .notNull()
       .default(false),
     deleted: integer("deleted", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Optional directory scope. When non-null the rule applies only when the
+     * tool is invoked from within this directory (or a subdirectory of it).
+     * Null means the rule is global (applies in any directory).
+     */
+    scope: text("scope"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -561,6 +590,12 @@ export const guardianRequests = sqliteTable(
   },
   (table) => [
     index("idx_gw_guardian_requests_status").on(table.status),
+    // The expiry sweep's probe: narrows to pending AND orders by deadline
+    // without scanning the whole pending set each round.
+    index("idx_gw_guardian_requests_status_expires").on(
+      table.status,
+      table.expiresAt,
+    ),
     index("idx_gw_guardian_requests_guardian").on(
       table.guardianExternalUserId,
       table.status,

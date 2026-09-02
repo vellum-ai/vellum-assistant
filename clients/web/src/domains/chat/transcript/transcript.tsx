@@ -6,18 +6,23 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  type ClipboardEvent as ReactClipboardEvent,
   type ReactNode,
 } from "react";
 
+import { writeSelectionClipboard } from "@vellumai/design-library";
+
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
-import { resolveResponseDocumentIds } from "@/domains/chat/transcript/resolve-response-documents";
+import { resolveResponseArtifacts } from "@/domains/chat/transcript/resolve-response-artifacts";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
+import { keepFocusedFieldVisible } from "@/domains/chat/transcript/focused-field";
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import { useAcpConnectInlineToolUseId } from "@/domains/chat/hooks/use-acp-connect-placement";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useContentAboveViewport } from "@/domains/chat/transcript/use-content-above-viewport";
@@ -70,7 +75,6 @@ export interface TranscriptProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
    *  nudge below their chip. */
@@ -136,6 +140,10 @@ export interface TranscriptHandle {
    *  `false` when no element with that message id is currently rendered (e.g.
    *  the message lives in an older history page not yet loaded). */
   scrollToMessage(messageId: string): boolean;
+  /** If a text field inside the transcript holds focus, scroll it just far
+   *  enough to stay visible and report `true`, so a caller can skip a pin that
+   *  would scroll past it. Reports `false` when focus is anywhere else. */
+  keepFocusedFieldVisible(): boolean;
   getScrollElement(): HTMLDivElement | null;
   /** Inner wrapper that surrounds all rendered children. Sized to the
    *  scroll content; observable via `ResizeObserver` to detect when
@@ -151,6 +159,32 @@ export interface TranscriptHandle {
     showScrollToLatest: boolean;
     shouldLoadOlder: boolean;
   };
+}
+
+/**
+ * Copy the selected transcript as semantic HTML and markdown.
+ *
+ * The browser's own `text/html` flavor inlines the computed style of every
+ * selected node, so a transcript copied out of the app pastes into Gmail or
+ * Outlook carrying the chat's own background color, text color, and font
+ * size. Its `text/plain` flavor is a flat dump that drops every marker the
+ * reader could see.
+ *
+ * The handler sits on the scroll container rather than on each message
+ * because one assistant turn is several sibling blocks (prose, diagrams,
+ * tool cards) and a drag over "the message" routinely covers more than the
+ * rendered markdown. `MarkdownMessage` keeps its own handler for the
+ * selection that stays inside one message; whichever runs first wins, and
+ * both write the same flavors.
+ */
+function handleTranscriptCopy(event: ReactClipboardEvent<HTMLDivElement>) {
+  if (
+    !event.defaultPrevented &&
+    event.clipboardData &&
+    writeSelectionClipboard(event.clipboardData, event.currentTarget)
+  ) {
+    event.preventDefault();
+  }
 }
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
@@ -213,16 +247,17 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       ? -1
       : partition.historyItems.findLastIndex((item) => item.kind === "message");
 
-    // A document a response changed earns one reopen link at the end of that
-    // response, not one per message that wrote to it. Resolved here because
-    // this is where the flat item list is read as turns; the in-flight response
-    // is withheld until the turn settles, `awaiting_user_input` included, so a
-    // paused turn never reads as finished.
+    // A document the thread changed earns one reopen link, at the end of the
+    // response that first reached it. Not one per message that wrote to it,
+    // and not another one each time a later response writes to it again.
+    // Resolved here because this is where the flat item list is read as turns;
+    // the in-flight response is withheld until the turn settles,
+    // `awaiting_user_input` included, so a paused turn never reads as finished.
     const turnPhase = useTurnStore.use.phase();
     const turnActive = isSending(turnPhase);
-    const changedDocumentIdsByKey = useMemo(
-      () => resolveResponseDocumentIds(items, { turnActive }),
-      [items, turnActive],
+    const responseArtifactsByKey = useMemo(
+      () => resolveResponseArtifacts(items, { turnActive, conversationId }),
+      [items, turnActive, conversationId],
     );
 
     useImperativeHandle(
@@ -253,6 +288,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             highlightTimerRef.current = null;
           }, 2000);
           return true;
+        },
+        keepFocusedFieldVisible() {
+          return keepFocusedFieldVisible(scrollRef.current);
         },
         getScrollElement() {
           return scrollRef.current;
@@ -290,8 +328,12 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       [rest.scrollCoordinatorState],
     );
 
+    // One read for the whole transcript; rows take the answer as a prop.
+    const acpConnectInlineToolUseId = useAcpConnectInlineToolUseId();
+
     const rowProps = {
       conversationId,
+      acpConnectInlineToolUseId,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
       onSummarizeUpToHere: rest.onSummarizeUpToHere,
@@ -318,6 +360,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         key={conversationId}
         ref={scrollRef}
         data-testid="transcript-scroll-container"
+        onCopy={handleTranscriptCopy}
         className={`flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none] ${
           hideIdleScrollbar
             ? "[&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
@@ -357,7 +400,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 <TranscriptRow
                   item={item}
                   {...rowProps}
-                  changedDocumentIds={changedDocumentIdsByKey.get(item.key)}
+                  responseArtifacts={responseArtifactsByKey.get(item.key)}
                   isLatestMessage={i === latestHistoryMessageIndex}
                 />
               </TranscriptColumn>
@@ -405,12 +448,13 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   anchorMessage={partition.anchorMessage}
                   responseItems={partition.responseItems}
                   {...rowProps}
-                  changedDocumentIdsByKey={changedDocumentIdsByKey}
+                  responseArtifactsByKey={responseArtifactsByKey}
                 />
               )}
               {rest.renderAvatar && (
                 <div
                   data-latest-assistant-avatar="true"
+                  data-copy-exclude
                   className="flex justify-start pl-1 pt-3 pb-2"
                 >
                   {rest.renderAvatar()}

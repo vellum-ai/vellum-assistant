@@ -20,9 +20,9 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import type { OAuth2Config } from "../../security/oauth2.js";
 import { subcommand } from "../lib/cli-command-help.js";
 import { writeCliError } from "../lib/cli-output.js";
+import { openInHostBrowser } from "../lib/open-browser.js";
 import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +41,22 @@ interface ProviderConnection {
   baseUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Save-time probe of a custom base URL; advisory, never blocks the save. */
+  endpoint_check?: {
+    ok: boolean;
+    status?: number;
+    resolved_url: string;
+    hint?: string;
+  };
+}
+
+/** Human-mode warning line for a failed save-time endpoint probe. */
+function formatEndpointCheckWarning(conn: ProviderConnection): string {
+  const check = conn.endpoint_check;
+  if (!check || check.ok) {
+    return "";
+  }
+  return `Warning: ${check.hint ?? `The endpoint returned HTTP ${check.status} for a test request.`} (probed ${check.resolved_url})\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +320,7 @@ function attachCreateSubcommand(parent: Command): void {
         } else {
           process.stdout.write(
             `Added provider "${conn.name}" (provider=${conn.provider})\n` +
+              formatEndpointCheckWarning(conn) +
               `Verify it works: point a profile at "${conn.name}", then run: assistant inference send --profile <profile> "Reply with OK"\n`,
           );
         }
@@ -394,6 +411,7 @@ function attachUpdateSubcommand(parent: Command): void {
         } else {
           process.stdout.write(
             `Updated provider "${name}" (auth=${formatAuth(conn.auth)})\n` +
+              formatEndpointCheckWarning(conn) +
               `Verify it works: assistant inference send --profile <profile-using-this-provider> "Reply with OK"\n`,
           );
         }
@@ -430,19 +448,6 @@ function attachDeleteSubcommand(parent: Command): void {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI Codex OAuth config (PKCE, no client secret)
-// ---------------------------------------------------------------------------
-
-const OPENAI_CODEX_OAUTH_CONFIG: OAuth2Config = {
-  authorizeUrl: "https://auth.openai.com/oauth/authorize",
-  tokenExchangeUrl: "https://auth.openai.com/oauth/token",
-  clientId: "app_EMoamEEZ73f0CkXaXp7hrann",
-  scopes: ["openid", "profile", "email", "offline_access"],
-  scopeSeparator: " ",
-  authorizeParams: { id_token_add_organizations: "true" },
-};
-
-// ---------------------------------------------------------------------------
 // Subcommand: login-chatgpt
 // ---------------------------------------------------------------------------
 
@@ -450,18 +455,33 @@ function attachLoginChatgptSubcommand(providers: Command): void {
   subcommand(providers, "login-chatgpt").action(
     async (opts: { json?: boolean }) => {
       try {
-        // Deferred: loads the OAuth and secure-key graphs on demand.
-        const [{ startOAuth2Flow }, { setSecureKeyAsync }] = await Promise.all([
+        // Deferred: loads the OAuth and credential graphs on demand.
+        const [
+          { startOAuth2Flow },
+          {
+            CHATGPT_SUBSCRIPTION_AUTH_INPUT,
+            CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
+            OPENAI_OAUTH_CONFIG,
+            storeChatgptSubscriptionCredentials,
+          },
+        ] = await Promise.all([
           import("../../security/oauth2.js"),
-          import("../../security/secure-keys.js"),
+          import("../../providers/inference/chatgpt-subscription-credentials.js"),
         ]);
         // Step 1: Run browser-based PKCE OAuth flow
-        process.stdout.write("Opening browser for ChatGPT authentication...\n");
+        if (!opts.json) {
+          process.stdout.write(
+            "Opening browser for ChatGPT authentication...\n",
+          );
+        }
         const result = await startOAuth2Flow(
-          OPENAI_CODEX_OAUTH_CONFIG,
+          OPENAI_OAUTH_CONFIG,
           {
             openUrl: (url) => {
-              Bun.spawn(["open", url]);
+              openInHostBrowser(url);
+              const fallbackMessage = `If the browser did not open, visit:\n${url}\n`;
+              const output = opts.json ? process.stderr : process.stdout;
+              output.write(fallbackMessage);
             },
           },
           {
@@ -470,43 +490,14 @@ function attachLoginChatgptSubcommand(providers: Command): void {
             loopbackCallbackPath: "/auth/callback",
           },
         );
-        const tokens = result.tokens;
-
         // Step 2: Store tokens in CES
-        const accessStored = await setSecureKeyAsync(
-          "credential/chatgpt/access_token",
-          tokens.accessToken,
-        );
-        if (!accessStored) {
-          writeCliError("Failed to store access token", opts.json);
-          return;
-        }
+        await storeChatgptSubscriptionCredentials(result.tokens);
 
-        if (tokens.refreshToken) {
-          const refreshStored = await setSecureKeyAsync(
-            "credential/chatgpt/refresh_token",
-            tokens.refreshToken,
-          );
-          if (!refreshStored) {
-            writeCliError("Failed to store refresh token", opts.json);
-            return;
-          }
-        }
-
-        if (tokens.expiresIn) {
-          const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
-          await setSecureKeyAsync(
-            "credential/chatgpt/expires_at",
-            String(expiresAt),
-          );
-        }
-
-        // Step 3: Create (or update) the provider entry via IPC
-        const connectionName = "chatgpt-subscription";
-        const authInput = {
-          type: "oauth_subscription",
-          credential: "credential/chatgpt/access_token",
-        };
+        // Step 3: Create (or update) the provider entry via IPC. The CLI runs
+        // outside the daemon and has no database handle, so the connection
+        // upsert goes over IPC rather than through the shared store helper.
+        const connectionName = CHATGPT_SUBSCRIPTION_CONNECTION_NAME;
+        const authInput = CHATGPT_SUBSCRIPTION_AUTH_INPUT;
 
         // Try to update first; if the entry doesn't exist, create it.
         const updateResult = await cliIpcCall<ProviderConnection>(

@@ -4,10 +4,12 @@ import { z } from "zod";
 import {
   DICTATION_OVERLAY_GET_STATE,
   DICTATION_OVERLAY_REQUEST_STOP,
+  DICTATION_OVERLAY_SET_HIT_REGION,
   DICTATION_OVERLAY_SET_INTERACTIVE,
   DICTATION_OVERLAY_SET_STATE,
   DICTATION_OVERLAY_STATE_EVENT,
   DICTATION_OVERLAY_STOP_REQUESTED,
+  type DictationOverlayHitRegion,
   type DictationOverlayMessage,
   type DictationOverlayState,
 } from "@vellumai/ipc-contract";
@@ -67,17 +69,38 @@ export const DONE_HIDE_MS = 800;
 /** How long error states stay up — mirrors the recording store's 3 s. */
 export const ERROR_HIDE_MS = 3000;
 
-export type { DictationOverlayMessage, DictationOverlayState };
+export type {
+  DictationOverlayHitRegion,
+  DictationOverlayMessage,
+  DictationOverlayState,
+};
 
 export interface DictationOverlayWindowDependencies {
   closeOnHide?: boolean;
+  /**
+   * Poll the cursor from main and hit-test it against the renderer-reported
+   * Stop region, toggling interactivity directly. Windows workaround:
+   * Electron forwards mouse moves to a click-through window
+   * (`setIgnoreMouseEvents(true, { forward: true })`) through a low-level
+   * hook that posts to a child HWND cached once at window creation and
+   * never refreshed (electron/electron#15376, #49982; fix pending in
+   * #52633), and the hook is blind while an elevated window is in front
+   * (#33281). Either way the page never sees the pointer reach the Stop
+   * button, never asks to become interactive, and the click falls through
+   * to the app behind. `webContents.sendInputEvent` is no fix: it requires
+   * a focused window, and this one is deliberately unfocusable.
+   */
+  pollCursorForHover?: boolean;
+  /** Diagnostic sink for overlay lifecycle and hit-test decisions. */
+  log?: (message: string) => void;
   handle: IpcHandle;
   on: IpcOn;
 }
 
-const configuration = createModuleConfiguration<DictationOverlayWindowDependencies>(
-  "Dictation overlay window module",
-);
+const configuration =
+  createModuleConfiguration<DictationOverlayWindowDependencies>(
+    "Dictation overlay window module",
+  );
 export const configureDictationOverlayWindow = configuration.configure;
 
 const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
@@ -91,6 +114,13 @@ const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("error"), message: z.string() }),
   z.object({ kind: z.literal("dismiss") }),
 ]);
+
+const dictationOverlayHitRegionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().min(0),
+  height: z.number().min(0),
+});
 
 export type DictationOverlayDeps = {
   showOverlay: () => void;
@@ -160,6 +190,89 @@ export const createDictationOverlayController = (
   return { handleMessage };
 };
 
+export const CURSOR_HOVER_POLL_MS = 50;
+
+export type CursorHoverPollerDeps = {
+  getCursor: () => { x: number; y: number };
+  /** Overlay window bounds in screen coordinates, or null once it is gone. */
+  getOverlayBounds: () => {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+  /** The Stop control's rect in window-relative CSS pixels, if reported. */
+  getHitRegion: () => DictationOverlayHitRegion | null;
+  /**
+   * The overlay page's zoom factor. Window bounds and the cursor are in
+   * DIPs while the reported region is in CSS pixels; the two only match at
+   * zoom 1, and Chromium persists per-origin zoom, so a zoomed main window
+   * carries over to the overlay route.
+   */
+  getZoomFactor: () => number;
+  isInteractive: () => boolean;
+  setInteractive: (interactive: boolean) => void;
+  setInterval: (callback: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+};
+
+/**
+ * Stand-in for Electron's broken mouse-move forwarding on Windows (see
+ * `pollCursorForHover`): while the overlay is up, watch the cursor and
+ * hit-test it against the Stop region the renderer reported, toggling the
+ * window's interactivity from main. The renderer cannot run this hit-test
+ * itself there: the forwarded mouse moves never arrive, and synthesized
+ * input events are ignored by unfocused windows.
+ */
+export const createCursorHoverPoller = (
+  deps: CursorHoverPollerDeps,
+): { start: () => void; stop: () => void } => {
+  let timer: unknown = null;
+
+  const stop = (): void => {
+    if (timer !== null) {
+      deps.clearInterval(timer);
+      timer = null;
+    }
+  };
+
+  const tick = (): void => {
+    const bounds = deps.getOverlayBounds();
+    if (!bounds) {
+      stop();
+      return;
+    }
+    const region = deps.getHitRegion();
+    let inside = false;
+    if (region) {
+      const cursor = deps.getCursor();
+      const zoom = deps.getZoomFactor();
+      const left = bounds.x + region.x * zoom;
+      const top = bounds.y + region.y * zoom;
+      inside =
+        cursor.x >= left &&
+        cursor.x < left + region.width * zoom &&
+        cursor.y >= top &&
+        cursor.y < top + region.height * zoom;
+    }
+    // Only toggle on change; the renderer's own setInteractive messages
+    // (real mouse events, once the window is interactive) stay in charge
+    // between ticks.
+    if (inside !== deps.isInteractive()) {
+      deps.setInteractive(inside);
+    }
+  };
+
+  const start = (): void => {
+    if (timer !== null) {
+      return;
+    }
+    timer = deps.setInterval(tick, CURSOR_HOVER_POLL_MS);
+  };
+
+  return { start, stop };
+};
+
 // ---------------------------------------------------------------------------
 // Window plumbing
 // ---------------------------------------------------------------------------
@@ -186,17 +299,47 @@ const broadcastStopRequested = (): void => {
   }
 };
 
+let overlayInteractive = false;
+let overlayHitRegion: DictationOverlayHitRegion | null = null;
+
+const debug = (message: string): void => {
+  configuration.get().log?.(`[dictation-overlay] ${message}`);
+};
+
 const setOverlayInteractive = (interactive: boolean): void => {
   const win = getFloatingWindow(OVERLAY_KIND);
   if (!win || win.isDestroyed()) {
     return;
   }
+  if (interactive !== overlayInteractive) {
+    debug(`interactive=${interactive}`);
+  }
+  overlayInteractive = interactive;
   if (interactive) {
     win.setIgnoreMouseEvents(false);
   } else {
     win.setIgnoreMouseEvents(true, { forward: true });
   }
 };
+
+const hoverPoller = createCursorHoverPoller({
+  getCursor: () => screen.getCursorScreenPoint(),
+  getOverlayBounds: () => getFloatingWindow(OVERLAY_KIND)?.getBounds() ?? null,
+  getHitRegion: () => overlayHitRegion,
+  getZoomFactor: () =>
+    getFloatingWindow(OVERLAY_KIND)?.webContents.getZoomFactor() ?? 1,
+  isInteractive: () => overlayInteractive,
+  setInteractive: (interactive) => {
+    const win = getFloatingWindow(OVERLAY_KIND);
+    debug(
+      `poll -> ${interactive}: cursor=${JSON.stringify(screen.getCursorScreenPoint())} bounds=${JSON.stringify(win?.getBounds() ?? null)} region=${JSON.stringify(overlayHitRegion)} zoom=${win?.webContents.getZoomFactor() ?? 1}`,
+    );
+    setOverlayInteractive(interactive);
+  },
+  setInterval: (callback, ms) => setInterval(callback, ms),
+  clearInterval: (handle) =>
+    clearInterval(handle as ReturnType<typeof setInterval>),
+});
 
 export const positionDictationOverlayInWorkArea = (workArea: {
   x: number;
@@ -244,10 +387,22 @@ const showOverlay = (): void => {
   // `createFloatingWindow` uses `showInactive()` when `focusOnShow` is false;
   // never activate the app or steal focus from the dictation target.
   ensureOverlayWindow();
+  // A (re)shown window starts click-through regardless of what the last
+  // session left behind.
+  overlayInteractive = false;
+  overlayHitRegion = null;
+  const poll = Boolean(configuration.get().pollCursorForHover);
+  debug(`show (pollCursorForHover=${poll})`);
+  if (poll) {
+    hoverPoller.start();
+  }
 };
 
 const hideOverlay = (): void => {
+  debug("hide");
   latestState = null;
+  overlayHitRegion = null;
+  hoverPoller.stop();
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
     setOverlayInteractive(false);
@@ -265,11 +420,10 @@ export const installDictationOverlay = (
   options: {
     /**
      * Raw recording-lifecycle tap, true while the renderer reports an
-     * active recording. Feeds the escape monitor (injected from `index.ts`
-     * rather than imported — pulling `escape-monitor`'s module graph in
-     * here would drag `main-window` into this module's unit tests). Raw
-     * rather than suppression-aware on purpose: Esc must cancel a
-     * recording even when the overlay itself is suppressed.
+     * active recording. The shell injects its Escape monitor through this
+     * callback so this shared window module does not depend on main-window
+     * routing. The raw state is intentional: Escape must cancel a recording
+     * even when the overlay itself is suppressed.
      */
     onRecordingLifecycle?: (recording: boolean) => void;
   } = {},
@@ -304,6 +458,7 @@ export const installDictationOverlay = (
   );
 
   on(DICTATION_OVERLAY_REQUEST_STOP, z.tuple([]), () => {
+    debug("stop requested by the overlay page; broadcasting");
     broadcastStopRequested();
   });
 
@@ -312,6 +467,15 @@ export const installDictationOverlay = (
     z.tuple([z.boolean()]),
     ([interactive]) => {
       setOverlayInteractive(interactive);
+    },
+  );
+
+  on(
+    DICTATION_OVERLAY_SET_HIT_REGION,
+    z.tuple([dictationOverlayHitRegionSchema.nullable()]),
+    ([region]) => {
+      debug(`hit region ${region ? JSON.stringify(region) : "cleared"}`);
+      overlayHitRegion = region;
     },
   );
 

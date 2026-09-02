@@ -52,7 +52,7 @@ interface ToolExecutionResult {
 }
 ```
 
-Existing examples: `EditEngineResult` in `edit-engine.ts`, `PathResult` in `path-policy.ts`, `ToolExecutionResult` in `tools/types.ts`, `MemoryRecallResult` in `memory/retriever.ts`.
+Existing examples: `EditEngineResult` in `edit-engine.ts`, `PathResult` in `path-policy.ts`, `ToolExecutionResult` in `tools/types.ts`.
 
 ## 3. Never return null/undefined to indicate failure
 
@@ -66,7 +66,6 @@ Returning `undefined` is acceptable only for **lookup functions** where "not fou
 | ----------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | Agent loop (`agent/loop.ts`)                          | Throws + catch-and-emit                                                         | Unrecoverable provider errors break the loop; expected errors (abort, tool-use limits) are caught and emitted as events        |
 | Tool executor (`tools/executor.ts`)                   | Result object (`ToolExecutionResult`)                                           | Tool failures are expected operational outcomes — permission denied, unknown tool, sandbox violations. Never throws to callers |
-| Memory retriever (`memory/retriever.ts`)              | Result object (`MemoryRecallResult`) with degraded/reason fields                | Graceful degradation — embedding failures, search failures degrade quality without crashing                                    |
 | Filesystem tools (`path-policy.ts`, `edit-engine.ts`) | Discriminated union (`{ ok, reason }`)                                          | Validation outcomes that the caller must handle (out of bounds, not found, ambiguous)                                          |
 | Subagent manager (`subagent/manager.ts`)              | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' \| 'terminal' \| 'queue_full'` as expected states            |
 | Interactive UI (`cli/commands/ui.ts`)                 | Result object (`InteractiveUiResult`) with `status` + exit codes                | User cancel and timeout are expected operational outcomes, not errors. IPC failures are exceptional.                           |

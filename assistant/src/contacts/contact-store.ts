@@ -9,6 +9,7 @@ import {
   contacts,
 } from "../persistence/schema/index.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { recordContactTombstone } from "./mirror-tombstones.js";
 import { notifyContactsChanged } from "./notify-contacts-changed.js";
 import type {
   AssistantContactMetadata,
@@ -256,6 +257,16 @@ export function upsertContact(params: {
    *  mirror to create faithful null-user_file stubs. `userFile` takes
    *  precedence when both are supplied. */
   userFileOnCreate?: string | null;
+  /** contactType to seed ONLY when inserting a new contact; ignored on update
+   *  (and on channel-identity adoption) so a guardian-curated classification
+   *  is never clobbered by an inbound seed. `contactType` takes precedence
+   *  when both are supplied. */
+  contactTypeOnCreate?: ContactType;
+  /** notes to seed ONLY when inserting a new contact; ignored on update (and
+   *  on channel-identity adoption) so guardian-authored notes are never
+   *  clobbered by an inbound seed. `notes` takes precedence when both are
+   *  supplied. */
+  notesOnCreate?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
    *  contact instead of being skipped. Used by invite redemption to bind a
@@ -317,8 +328,20 @@ export function upsertContact(params: {
     }
   }
 
-  // Try to find by channel canonical identity to avoid duplicates
-  if (!contactId && canonicalChannels && canonicalChannels.length > 0) {
+  // Try to find by channel canonical identity to avoid duplicates. This also
+  // covers an explicit-id CREATE (the id was not found above) when the caller
+  // did not opt into reassignment: syncChannels would skip a channel owned by
+  // another contact, so inserting the supplied id would mint a channel-less
+  // duplicate of that contact. Adopting the existing owner instead keeps one
+  // contact per channel identity; the supplied id is dropped, and the
+  // *OnCreate record fields never apply here. Reassigning callers (invite
+  // binding, the guardian bootstrap mirror) skip this and keep their
+  // bind-to-target semantics.
+  if (
+    canonicalChannels &&
+    canonicalChannels.length > 0 &&
+    (!contactId || !params.reassignConflictingChannels)
+  ) {
     for (const ch of canonicalChannels) {
       const existingChannel = findConflictingChannel(db, ch.type, ch.address);
 
@@ -362,8 +385,8 @@ export function upsertContact(params: {
     .values({
       id: contactId,
       displayName: params.displayName,
-      notes: params.notes ?? null,
-      contactType: params.contactType ?? "human",
+      notes: params.notes ?? params.notesOnCreate ?? null,
+      contactType: params.contactType ?? params.contactTypeOnCreate ?? "human",
       userFile: resolvedUserFile,
       createdAt: now,
       updatedAt: now,
@@ -390,6 +413,9 @@ export function upsertContact(params: {
  */
 export function deleteContact(id: string): void {
   getDb().delete(contacts).where(eq(contacts.id, id)).run();
+  // The mirror reconciler must not resurrect this id from a gateway snapshot
+  // pulled before the delete.
+  recordContactTombstone(id);
   notifyContactsChanged();
 }
 
@@ -482,6 +508,16 @@ function syncChannels(
 
     if (existing) {
       const updateSet: Record<string, unknown> = {};
+      // Adopt a caller-supplied (gateway-minted) id onto a row still keyed
+      // by a divergent legacy id: the byId lookup above missed, so the id is
+      // free, and aligning it converges the two stores' keys (id-keyed
+      // gateway read-backs and client PATCHes then resolve directly).
+      // Nothing daemon-side persists a mirror channel id elsewhere, and
+      // readers holding the old id already fall back to the (type, address)
+      // logical key, so the swap only removes divergence.
+      if (ch.id && ch.id !== existing.id) {
+        updateSet.id = ch.id;
+      }
       // Self-heal legacy lowercased addresses to canonical form.
       if (existing.address !== ch.address) {
         updateSet.address = ch.address;
@@ -514,6 +550,12 @@ function syncChannels(
           contactId,
           updatedAt: now,
         };
+        // Adopt the caller-supplied (gateway-minted) id in the same write:
+        // the byId lookup above missed, so the id is free (same rationale as
+        // the same-contact adopt branch).
+        if (ch.id && ch.id !== conflicting.id) {
+          reassignSet.id = ch.id;
+        }
         if (ch.externalChatId !== undefined) {
           reassignSet.externalChatId = ch.externalChatId;
         }
@@ -773,6 +815,7 @@ export function mergeContactMirror(params: {
 
     // Delete the donor (cascade removes remaining duplicate channels).
     tx.delete(contacts).where(eq(contacts.id, params.mergeContactId)).run();
+    recordContactTombstone(params.mergeContactId);
     return true;
   });
 

@@ -16,14 +16,18 @@ const TOC_ITEMS = [
 export function SkillsReferenceContactsContent() {
   return (
     <>
-      <DocsContent title="Contacts" breadcrumb="Docs / Skills Reference / Contacts">
+      <DocsContent
+        title="Contacts"
+        breadcrumb="Docs / Skills Reference / Contacts"
+      >
         <section id="what-it-does">
           <SectionHeading id="what-it-does" level={2}>
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Manages your contacts, communication channels, access control, and invite links. Tracks
-            who can reach your assistant and through which channels.
+            Manages your contacts, communication channels, access control, and
+            invite links. Tracks who can reach your assistant and through which
+            channels.
           </p>
         </section>
 
@@ -32,7 +36,8 @@ export function SkillsReferenceContactsContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            None for basic contact management. Google Contacts integration available via OAuth.
+            None for basic contact management. Google Contacts integration
+            available via OAuth.
           </p>
         </section>
 
@@ -68,16 +73,22 @@ export function SkillsReferenceContactsContent() {
                     &ldquo;Add Alice as a contact&rdquo;
                   </td>
                   <td className="px-3 py-2">
-                    Creates a new contact entry
+                    Opens an add-contact form for you to confirm
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2">
+                    &ldquo;Delete Alice&rdquo; / &ldquo;Rename Alice&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Opens an edit or delete confirmation
                   </td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;What&apos;s Jake&apos;s email?&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Searches contact details
-                  </td>
+                  <td className="px-3 py-2">Searches contact details</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -91,9 +102,7 @@ export function SkillsReferenceContactsContent() {
                   <td className="px-3 py-2">
                     &ldquo;Import my Google Contacts&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Syncs contacts from Google
-                  </td>
+                  <td className="px-3 py-2">Syncs contacts from Google</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -107,9 +116,7 @@ export function SkillsReferenceContactsContent() {
                   <td className="px-3 py-2">
                     &ldquo;Block messages from this number&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Updates channel status
-                  </td>
+                  <td className="px-3 py-2">Updates channel status</td>
                 </tr>
               </tbody>
             </table>
@@ -137,16 +144,31 @@ export function SkillsReferenceContactsContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Access management.</strong> Contacts are how you manage who can reach your
-              assistant through external channels.
+              <strong>Access management.</strong> Contacts are how you manage
+              who can reach your assistant through external channels.
             </li>
             <li>
-              <strong>Trusted contacts.</strong> Making someone a &ldquo;trusted contact&rdquo;
-              gives them limited access to your assistant &mdash; they can chat but can&apos;t
-              access your memories or sensitive tools without guardian approval.
+              <strong>You approve every write.</strong> The assistant can look
+              up and merge contacts on its own, but creating, editing, or
+              deleting one opens a form in your app first. Nothing is written
+              until you submit it, and you can edit the values it proposes
+              before you do.
             </li>
             <li>
-              <strong>Invite links.</strong> Invite links are channel-specific and can be revoked.
+              <strong>A contact is not access.</strong> Adding someone records
+              who they are. It does not let them message your assistant: that
+              takes a verified channel, through an invite they redeem themselves
+              or an address you enter and verify.
+            </li>
+            <li>
+              <strong>Trusted contacts.</strong> Making someone a &ldquo;trusted
+              contact&rdquo; gives them limited access to your assistant: they
+              can chat but can&apos;t access your memories or sensitive tools
+              without guardian approval.
+            </li>
+            <li>
+              <strong>Invite links.</strong> Invite links are channel-specific
+              and can be revoked.
             </li>
           </ul>
         </section>

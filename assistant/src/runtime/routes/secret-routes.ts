@@ -21,27 +21,30 @@ import {
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../../config/env.js";
-import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { getConfig } from "../../config/loader.js";
 import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
-import { evictConversationsForReload } from "../../daemon/conversation-store.js";
 import {
   isNonSecretPlatformField,
   scrubStoredCredentialFromTranscripts,
 } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
-import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { syncAvatarToPlatform } from "../../platform/sync-avatar.js";
+import { syncWorkspaceIdentityToPlatform } from "../../platform/sync-identity.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
+import {
+  refreshProvidersAfterSecretChange,
+  refreshProvidersForRotatedCredential,
+} from "../../providers/inference/credential-rotation.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
 import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
-import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -58,7 +61,16 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  assertCredentialNotInUse,
+  invalidateConnectionsAfterCredentialDelete,
+} from "./credential-in-use.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -160,29 +172,6 @@ export async function notifyCesOfAssistantApiKeyUpdate(
     return;
   }
   void queueApiKeyPropagation(cesClient, value, generation);
-}
-
-// ---------------------------------------------------------------------------
-// Provider refresh after secret changes
-// ---------------------------------------------------------------------------
-
-async function refreshProvidersAfterSecretChange(): Promise<void> {
-  clearEmbeddingBackendCache();
-  invalidateConfigCache();
-  await initializeProviders(getConfig());
-
-  // Provider instances are captured when conversations are created, so a key
-  // change must evict or mark them stale before the next turn. Best-effort:
-  // the credential write has already succeeded, so a disposal failure must not
-  // surface as a 500 that makes clients think the secret change failed.
-  try {
-    evictConversationsForReload();
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Error evicting conversations after credential change (non-fatal)",
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +410,8 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         if (service === "vellum" && field === "assistant_api_key") {
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
         }
+      } else if (!isTrimmedIdentity) {
+        await refreshProvidersForRotatedCredential(service, field);
       }
       if (
         service === "vellum" &&
@@ -434,6 +425,11 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         // defaulting; the hook no-ops until the connection is complete.
         // Detached — must not block the response.
         void maybeDefaultSpeechToManaged();
+        // Same last-write-wins shape: the startup syncs no-op before live
+        // registration, so re-enqueue them here. Both dedup and no-op until
+        // the client and assistant id exist.
+        syncWorkspaceIdentityToPlatform();
+        syncAvatarToPlatform();
       }
       log.info({ service, field }, "Credential added via HTTP");
       return { success: true, type, name };
@@ -550,7 +546,11 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Request body is required");
   }
 
-  const { type, name } = body as { type?: string; name?: string };
+  const { type, name, force } = body as {
+    type?: string;
+    name?: string;
+    force?: boolean;
+  };
 
   if (!type || typeof type !== "string") {
     throw new BadRequestError("type is required");
@@ -583,6 +583,13 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
           throw new NotFoundError(`API key not found: ${name}`);
         }
       }
+      // Provider connections reference the namespaced account, so the in-use
+      // check keys off `credKey`: the bare pre-migration account is never a
+      // connection's `resolve_auth` target.
+      const affectedConnections = assertCredentialNotInUse(
+        credKey,
+        force === true,
+      );
       // Delete from both locations. During a migration overlap both may exist;
       // ignore "not-found" since one location may already be empty.
       const credDeleteResult = await deleteSecureKeyAsync(credKey);
@@ -598,6 +605,7 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         );
       }
       await refreshProvidersAfterSecretChange();
+      invalidateConnectionsAfterCredentialDelete(affectedConnections);
       log.info({ provider: name }, "API key deleted via HTTP");
       return { success: true, type, name };
     }
@@ -617,6 +625,7 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       if (existing === undefined) {
         throw new NotFoundError(`Credential not found: ${name}`);
       }
+      const affectedConnections = assertCredentialNotInUse(key, force === true);
       const deleteResult = await deleteSecureKeyAsync(key);
       if (deleteResult === "error") {
         throw new InternalError(
@@ -639,6 +648,7 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
       }
+      invalidateConnectionsAfterCredentialDelete(affectedConnections);
       log.info({ service, field }, "Credential deleted via HTTP");
       return { success: true, type, name };
     }
@@ -647,11 +657,10 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       `Unknown secret type: ${type}. Valid types: api_key, credential`,
     );
   } catch (err) {
-    if (
-      err instanceof BadRequestError ||
-      err instanceof InternalError ||
-      err instanceof NotFoundError
-    ) {
+    // Every RouteError is already a deliberate client-facing outcome (including
+    // CREDENTIAL_IN_USE); re-wrapping one as a 500 would hide its code, status,
+    // and details from the caller.
+    if (err instanceof RouteError) {
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -793,11 +802,20 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Delete a secret",
-    description: "Remove a secret from the credential vault by name.",
+    description:
+      "Remove a secret from the credential vault by name. Refused with " +
+      "CREDENTIAL_IN_USE while an LLM provider connection resolves its auth " +
+      "through the credential, unless `force` is set.",
     tags: ["secrets"],
     requestBody: z.object({
       type: z.string().describe("Secret type: 'api_key' or 'credential'"),
       name: z.string().describe("Name of the secret to delete"),
+      force: z
+        .boolean()
+        .optional()
+        .describe(
+          "Delete even when provider connections depend on the credential",
+        ),
     }),
     responseBody: z.object({
       success: z.boolean(),

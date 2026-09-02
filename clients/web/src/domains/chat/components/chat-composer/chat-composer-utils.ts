@@ -10,7 +10,13 @@
 export interface ComposerKeyDownPolicy {
   input: string;
   canSendAttachments: boolean;
-  hasStagedQuotes?: boolean;
+  /**
+   * Whether staged context (staged quotes, a staged channel reference) makes
+   * an otherwise empty input sendable. The caller folds every staged-context
+   * source into this one flag so the Enter policy and the send button cannot
+   * disagree about what counts as content.
+   */
+  hasStagedContext?: boolean;
   sendDisabled: boolean;
   attachmentsUploadingCount: number;
   cmdEnterMode: boolean;
@@ -63,7 +69,7 @@ export function shouldSubmitOnEnter(
   const hasContent =
     Boolean(policy.input.trim()) ||
     policy.canSendAttachments ||
-    Boolean(policy.hasStagedQuotes);
+    Boolean(policy.hasStagedContext);
   if (
     hasContent &&
     !policy.sendDisabled &&

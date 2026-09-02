@@ -14,6 +14,7 @@ import path from "node:path";
 type CliRuntimeManifest = {
   version: string;
   bunVersion: string;
+  runtimeBuildId?: string;
   releaseChannel?: string;
 };
 
@@ -100,6 +101,22 @@ export function isValidCliRuntime(
   );
 }
 
+function isSameRuntimeBuild(firstDir: string, secondDir: string): boolean {
+  const first = readRuntimeManifest(firstDir)?.runtimeBuildId;
+  const second = readRuntimeManifest(secondDir)?.runtimeBuildId;
+  return first === second;
+}
+
+function runtimeInstallDirName(
+  version: string,
+  manifest: CliRuntimeManifest | undefined,
+): string {
+  const buildId = manifest?.runtimeBuildId;
+  return buildId && /^[a-f0-9]{64}$/i.test(buildId)
+    ? `${version}-${buildId.slice(0, 24).toLowerCase()}`
+    : version;
+}
+
 function readState(installRoot: string): InstallState | undefined {
   const state = readJson<InstallState>(path.join(installRoot, STATE));
   return typeof state?.currentInstallDir === "string" ? state : undefined;
@@ -150,11 +167,11 @@ function isOwnedCliRuntime(installRoot: string, runtimeDir: string): boolean {
   const ownership = readJson<CliRuntimeOwnership>(
     path.join(runtimeDir, CLI_RUNTIME_OWNERSHIP_MARKER),
   );
-  const version = path.basename(runtimeDir);
+  const manifest = readRuntimeManifest(runtimeDir);
   return (
     ownership?.owner === "vellum-assistant" &&
-    ownership.version === version &&
-    isValidCliRuntime(runtimeDir, version)
+    ownership.version === manifest?.version &&
+    isValidCliRuntime(runtimeDir, manifest.version)
   );
 }
 
@@ -211,7 +228,14 @@ function writeState(installRoot: string, state: InstallState): void {
 export function provisionCliRuntime(paths: CliRuntimePaths) {
   const { sourceDir, installRoot, version } = paths;
   mkdirSync(installRoot, { recursive: true });
-  const target = path.join(installRoot, version);
+  const sourceIsValid = isValidCliRuntime(sourceDir, version);
+  const sourceManifest = sourceIsValid
+    ? readRuntimeManifest(sourceDir)
+    : undefined;
+  const target = path.join(
+    installRoot,
+    runtimeInstallDirName(version, sourceManifest),
+  );
   const priorState = readState(installRoot);
   const priorCurrent = isValidInstalledRuntime(
     installRoot,
@@ -239,7 +263,8 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
 
   if (
     isValidInstalledRuntime(installRoot, target) &&
-    isValidCliRuntime(target, version)
+    isValidCliRuntime(target, version) &&
+    (!sourceIsValid || isSameRuntimeBuild(target, sourceDir))
   ) {
     const previousInstallDir = selectPreviousInstallDir(target);
     writeOwnershipMarker(target, version);
@@ -258,7 +283,7 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
     };
   }
 
-  if (!isValidCliRuntime(sourceDir, version)) {
+  if (!sourceIsValid) {
     for (const fallback of [priorCurrent, priorPrevious]) {
       if (!fallback) {
         continue;

@@ -7,20 +7,31 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
+import { useCameraGateHudAvailable } from "@/hooks/use-camera-gate-hud";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 import { isVellumStaff } from "@/lib/auth/staff";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
+import { useCameraGateDebugStore } from "@/stores/camera-gate-debug-store";
 import { clearConsentForUser } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function DebugControlsPanel() {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
   const showInternalControls = isVellumStaff(user);
+  // A wider audience than the staff rows above: the flag exists so a local
+  // gateway session, which carries no platform identity and is where the gate
+  // gets tuned, can reach the switch.
+  const showCameraGateHud = useCameraGateHudAvailable();
+  const cameraGateHudEnabled = useCameraGateDebugStore.use.hudEnabled();
+  const setCameraGateHudEnabled = useCameraGateDebugStore.use.setHudEnabled();
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,32 +39,35 @@ export function DebugControlsPanel() {
 
   const handleReplayOnboarding = useCallback(() => {
     clearConsentForUser(user?.id ?? null);
-    toast.success("Onboarding flags cleared.");
+    toast.success(t("debugControlsPanel.onboardingClearedToast"));
     navigate(routes.onboarding.privacy);
-  }, [navigate, user?.id]);
+  }, [navigate, t, user?.id]);
 
-  const fetchAssistant = useCallback(async (force?: boolean) => {
-    if (!force && fetchedRef.current) {
-      return;
-    }
-    if (!force) {
-      setLoading(true);
-    }
-    try {
-      const result = await getAssistant();
-      if (result.ok) {
-        fetchedRef.current = true;
-        setAssistant(result.data);
-      } else {
-        setAssistant(null);
+  const fetchAssistant = useCallback(
+    async (force?: boolean) => {
+      if (!force && fetchedRef.current) {
+        return;
       }
-    } catch (error) {
-      captureError(error, { context: "fetch_assistant_for_debug_controls" });
-      toast.error("Failed to load assistant info");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      if (!force) {
+        setLoading(true);
+      }
+      try {
+        const result = await getAssistant();
+        if (result.ok) {
+          fetchedRef.current = true;
+          setAssistant(result.data);
+        } else {
+          setAssistant(null);
+        }
+      } catch (error) {
+        captureError(error, { context: "fetch_assistant_for_debug_controls" });
+        toast.error(t("debugControlsPanel.loadFailedToast"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     fetchAssistant();
@@ -67,11 +81,10 @@ export function DebugControlsPanel() {
         </div>
         <div>
           <h2 className="text-title-small text-[var(--content-default)]">
-            General
+            {t("debugControlsPanel.title")}
           </h2>
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Manage backups, restart your assistant, or enter Recovery Mode to
-            connect to the debug terminal.
+            {t("debugControlsPanel.subtitle")}
           </p>
         </div>
       </div>
@@ -79,18 +92,17 @@ export function DebugControlsPanel() {
       {loading ? (
         <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading assistant info...
+          {t("debugControlsPanel.loading")}
         </div>
       ) : assistant ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
             <div className="min-w-0">
               <p className="text-body-medium-default text-[var(--content-default)]">
-                Restart Assistant
+                {t("debugControlsPanel.restartTitle")}
               </p>
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
-                Restart the assistant machine. It will be briefly unavailable
-                during the restart.
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                {t("debugControlsPanel.restartDescription")}
               </p>
             </div>
             <div className="ml-4 shrink-0">
@@ -111,11 +123,10 @@ export function DebugControlsPanel() {
             <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
               <div className="min-w-0">
                 <p className="text-body-medium-default text-[var(--content-default)]">
-                  Replay onboarding (Vellum-only)
+                  {t("debugControlsPanel.replayTitle")}
                 </p>
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  Clear local onboarding flags and re-walk the privacy → hatch
-                  screens. Your existing assistant is preserved.
+                <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                  {t("debugControlsPanel.replayDescription")}
                 </p>
               </div>
               <div className="ml-4 shrink-0">
@@ -124,15 +135,35 @@ export function DebugControlsPanel() {
                   leftIcon={<RotateCw />}
                   onClick={handleReplayOnboarding}
                 >
-                  Replay
+                  {t("debugControlsPanel.replay")}
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {showCameraGateHud && (
+            <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+              <div className="min-w-0">
+                <p className="text-body-medium-default text-[var(--content-default)]">
+                  {t("debugControlsPanel.cameraGateHudTitle")}
+                </p>
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  {t("debugControlsPanel.cameraGateHudDescription")}
+                </p>
+              </div>
+              <div className="ml-4 shrink-0">
+                <Toggle
+                  checked={cameraGateHudEnabled}
+                  onChange={setCameraGateHudEnabled}
+                  aria-label={t("debugControlsPanel.cameraGateHudTitle")}
+                />
               </div>
             </div>
           )}
 
           {platformGate === "disabled" && (
             <PlatformLoginNotice>
-              Log in to the Vellum platform to manage backups.
+              {t("debugControlsPanel.loginNotice")}
             </PlatformLoginNotice>
           )}
           {platformGate !== "disabled" && (
@@ -140,7 +171,7 @@ export function DebugControlsPanel() {
               <div className="mb-3 flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-[var(--content-secondary)]" />
                 <h3 className="text-body-medium-default text-[var(--content-default)]">
-                  Backups
+                  {t("debugControlsPanel.backups")}
                 </h3>
               </div>
               <AssistantBackups assistantId={assistant.id} />
@@ -149,7 +180,7 @@ export function DebugControlsPanel() {
         </div>
       ) : (
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          No assistant found. Hatch an assistant to access debug controls.
+          {t("debugControlsPanel.noAssistant")}
         </p>
       )}
     </div>

@@ -17,6 +17,17 @@ describe("negotiateLocale", () => {
   test("falls back to the primary subtag for a regional variant", () => {
     expect(negotiateLocale(["es-MX"])).toBe("es");
     expect(negotiateLocale(["es-419"])).toBe("es");
+    expect(negotiateLocale(["ru-RU"])).toBe("ru");
+    expect(negotiateLocale(["zh-CN"])).toBe("zh");
+  });
+
+  test("matches traditional Chinese regional variants to zh-TW", () => {
+    expect(negotiateLocale(["zh-TW"])).toBe("zh-TW");
+    expect(negotiateLocale(["zh-tw"])).toBe("zh-TW");
+    expect(negotiateLocale(["zh-HK"])).toBe("zh-TW");
+    expect(negotiateLocale(["zh-MO"])).toBe("zh-TW");
+    expect(negotiateLocale(["zh-Hant"])).toBe("zh-TW");
+    expect(negotiateLocale(["zh-Hant-HK"])).toBe("zh-TW");
   });
 
   test("is case-insensitive", () => {

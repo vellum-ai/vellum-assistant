@@ -99,7 +99,7 @@ describe("config recovery compacts arrays after stripping invalid elements", () 
 
   test("emptied-by-compaction array reverts to a non-empty schema default (backup.offsite.destinations)", () => {
     // `backup.offsite.destinations` defaults to `null`, where `null` means "use
-    // the iCloud default destination" and `[]` means "no offsite destinations".
+    // the platform default" and `[]` means "no offsite destinations".
     // Stripping the sole invalid element must NOT leave an explicit `[]` that
     // overrides the default — it must fall back to the schema default `null`.
     writeConfig({

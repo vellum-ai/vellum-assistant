@@ -18,6 +18,10 @@ import {
 import {
   adjustSectionUnreadCache,
   adjustUnreadCountCache,
+  recordConversationPlacements,
+  removeConversation,
+  restoreRemovedConversation,
+  type ConversationCachePlacement,
 } from "@/utils/conversation-cache-mutations";
 import { sidebarSectionsQueryKey } from "@/utils/conversation-list-fetchers";
 import {
@@ -29,6 +33,7 @@ import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
   conversationsArchiveBulkPost,
   conversationsByIdArchivePost,
+  conversationsByIdDelete,
   conversationsByIdUnarchivePost,
   conversationsReorderPost,
   conversationsSeenBulkPost,
@@ -57,6 +62,10 @@ type ArchiveVars = {
   previousArchivedAt: number | undefined;
 };
 type UnarchiveVars = ArchiveVars;
+type DeleteVars = {
+  assistantId: string;
+  conversation: Conversation;
+};
 type MarkUnreadVars = { assistantId: string; conversationId: string };
 type MoveToGroupVars = {
   assistantId: string;
@@ -109,6 +118,18 @@ type PlacementContext = { token: number };
 type MarkUnreadContext = MutationContext & {
   unreadCountDelta: number;
   /** The row the deltas hit, for bucket-exact reversal; see MarkSeenContext. */
+  unreadRow?: Conversation;
+};
+
+/**
+ * Context for a per-conversation delete. Restores only the deleted row at
+ * the indexes it left, so a failed delete does not rewind concurrent
+ * mutations of other conversations in the same list cache. Unread deltas
+ * reverse the same way mark-unread does.
+ */
+type DeleteContext = {
+  placements: ConversationCachePlacement[];
+  unreadCountDelta: number;
   unreadRow?: Conversation;
 };
 
@@ -167,8 +188,8 @@ function reconcilePlacement(
 }
 
 /**
- * Conversation CRUD actions: archive, unarchive, rename, mark read/unread,
- * pin/unpin, and move between groups.
+ * Conversation CRUD actions: archive, unarchive, delete, rename, mark
+ * read/unread, pin/unpin, and move between groups.
  *
  * Single-item mutations use `useMutation` with the TanStack-recommended
  * optimistic update lifecycle (`onMutate` → `onError` → `onSettled`):
@@ -304,6 +325,56 @@ export function useConversationActions({
         archivedAt: previousArchivedAt,
       });
       captureError(err, { context: "unarchiveConversation" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) =>
+      invalidateConversationQueries(queryClient, aid),
+  });
+
+  const deleteMutation = useMutation<void, Error, DeleteVars, DeleteContext>({
+    mutationFn: async ({ assistantId: aid, conversation }) => {
+      await conversationsByIdDelete({
+        path: { assistant_id: aid, id: conversation.conversationId },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, conversation }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const placements = recordConversationPlacements(
+        queryClient,
+        aid,
+        conversation.conversationId,
+      );
+      const unreadRow =
+        conversation.hasUnseenLatestAssistantMessage &&
+        contributesToUnreadCount(conversation)
+          ? conversation
+          : undefined;
+      const unreadCountDelta = unreadRow ? -1 : 0;
+      if (unreadRow) {
+        adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
+        adjustSectionUnreadCache(queryClient, aid, unreadRow, unreadCountDelta);
+      }
+      removeConversation(queryClient, aid, conversation.conversationId);
+      return { placements, unreadCountDelta, unreadRow };
+    },
+    onError: (err, { assistantId: aid, conversation }, context) => {
+      if (context?.placements) {
+        restoreRemovedConversation(
+          queryClient,
+          conversation,
+          context.placements,
+        );
+      }
+      if (context && context.unreadCountDelta !== 0 && context.unreadRow) {
+        adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
+        adjustSectionUnreadCache(
+          queryClient,
+          aid,
+          context.unreadRow,
+          -context.unreadCountDelta,
+        );
+      }
+      captureError(err, { context: "deleteConversation" });
     },
     onSettled: (_data, _err, { assistantId: aid }) =>
       invalidateConversationQueries(queryClient, aid),
@@ -537,6 +608,41 @@ export function useConversationActions({
       });
     },
     [assistantId, unarchiveMutation],
+  );
+
+  const handleDeleteConversation = useCallback(
+    (conversation: Conversation) => {
+      if (!assistantId || !conversation.conversationId || conversation.draft) {
+        return;
+      }
+      haptic.medium();
+
+      const wasActive = conversation.conversationId === activeConversationId;
+      if (wasActive) {
+        const nextKey = findNextConversationId(
+          conversations,
+          conversation.conversationId,
+        );
+        if (nextKey) {
+          switchConversation(nextKey);
+        } else {
+          startNewConversation({ silent: true });
+        }
+      }
+
+      deleteMutation.mutate({
+        assistantId,
+        conversation,
+      });
+    },
+    [
+      activeConversationId,
+      assistantId,
+      conversations,
+      switchConversation,
+      startNewConversation,
+      deleteMutation,
+    ],
   );
 
   const handleMarkConversationUnread = useCallback(
@@ -785,6 +891,7 @@ export function useConversationActions({
   return {
     handleArchiveConversation,
     handleUnarchiveConversation,
+    handleDeleteConversation,
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,

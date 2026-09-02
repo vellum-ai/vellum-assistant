@@ -16,6 +16,13 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Mean absolute amplitude (16-bit linear scale) above which a frame counts as speech — mirrors DEFAULT_SPEECH_ENERGY_THRESHOLD in stt/speech-energy.ts",
       ),
+    noiseFloorMargin: z
+      .number({ error: "liveVoice.vad.noiseFloorMargin must be a number" })
+      .nonnegative("liveVoice.vad.noiseFloorMargin must be nonnegative")
+      .default(3)
+      .describe(
+        "Multiple of the room's measured background noise level that the speech gate is raised to, so a noisy room does not read as continuous speech. The gate never falls below speechEnergyThreshold and never exceeds 4x it. 0 disables the adaptation and pins the gate to speechEnergyThreshold.",
+      ),
     silenceThresholdMs: z
       .number({ error: "liveVoice.vad.silenceThresholdMs must be a number" })
       .int("liveVoice.vad.silenceThresholdMs must be an integer")
@@ -219,9 +226,16 @@ const LiveVoiceFluxTurnEndConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "liveVoice.flux.turnEnd.enabled must be a boolean" })
-      .default(false)
+      // On by default because it is the only reason to select Flux, and
+      // because off is not a neutral setting on this provider: managed Flux
+      // exposes no `finalizeUtterance` (Flux commits turns itself), so the
+      // session's persistence check falls through and it opens a socket per
+      // utterance, putting a full Deepgram handshake on every turn. Ignored
+      // by any provider that does not own its turn boundary, so the default
+      // reaches only the sessions it is about.
+      .default(true)
       .describe(
-        "Commit the live-voice turn on Flux's EndOfTurn instead of the front-door [0] hold verdict. Requires services.stt.provider to be deepgram-flux; ignored otherwise.",
+        "Commit the live-voice turn on Flux's EndOfTurn instead of the front-door [0] hold verdict. Requires the active STT provider to be running the flux model family (services.stt.providers.<provider>.model); ignored otherwise.",
       ),
   })
   .describe(
@@ -235,8 +249,10 @@ export const LiveVoiceFluxConfigSchema = z
     ),
     model: z
       .string({ error: "liveVoice.flux.model must be a string" })
-      .default("flux-general-en")
-      .describe("Deepgram Flux model requested when opening the STT stream"),
+      .optional()
+      .describe(
+        "Deepgram Flux model to pin when opening the STT stream. Unset (the default) selects the model from services.stt.language: English and unset use the English model, everything else uses the multilingual one",
+      ),
     eotThreshold: z
       .number({ error: "liveVoice.flux.eotThreshold must be a number" })
       .min(0.5, "liveVoice.flux.eotThreshold must be >= 0.5")

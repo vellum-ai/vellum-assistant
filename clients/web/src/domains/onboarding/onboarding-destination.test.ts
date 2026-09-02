@@ -1,7 +1,28 @@
 import { describe, expect, test } from "bun:test";
 
-import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import {
+  NEW_ASSISTANT_PARAM,
+  SKIP_RESEARCH_PARAM,
+  canSkipOnboardingResearch,
+  isNewAssistantFunnel,
+  onboardingDestinationAfterConsent,
+  shouldSkipResearchAfterHatch,
+  withSkipResearch,
+} from "@/domains/onboarding/onboarding-destination";
 import { routes } from "@/utils/routes";
+
+describe("canSkipOnboardingResearch", () => {
+  test("allows skip on local, dev, staging, and unset", () => {
+    expect(canSkipOnboardingResearch(undefined)).toBe(true);
+    expect(canSkipOnboardingResearch("local")).toBe(true);
+    expect(canSkipOnboardingResearch("dev")).toBe(true);
+    expect(canSkipOnboardingResearch("staging")).toBe(true);
+  });
+
+  test("blocks skip on production", () => {
+    expect(canSkipOnboardingResearch("production")).toBe(false);
+  });
+});
 
 describe("onboardingDestinationAfterConsent", () => {
   test("platform/Vellum-Cloud routes straight to the research flow", () => {
@@ -16,5 +37,153 @@ describe("onboardingDestinationAfterConsent", () => {
     expect(
       onboardingDestinationAfterConsent({ isLocalHatch: true }),
     ).toBe(routes.onboarding.hatching);
+  });
+
+  test("skip-to-chat routes platform onboarding to hatching so the assistant is provisioned", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: false,
+        skipResearch: true,
+        env: "staging",
+      }),
+    ).toBe(routes.onboarding.hatching);
+  });
+
+  test("skip-to-chat keeps local hosting on hatching", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: true,
+        skipResearch: true,
+        env: "dev",
+      }),
+    ).toBe(routes.onboarding.hatching);
+  });
+
+  test("production ignores skip-to-chat and keeps the research destination", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: false,
+        skipResearch: true,
+        env: "production",
+      }),
+    ).toBe(routes.onboarding.research);
+  });
+
+  test("an onboarded selected assistant skips research on every build", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: false,
+        selectedAssistantOnboarded: true,
+        env: "production",
+      }),
+    ).toBe(routes.assistant);
+  });
+
+  test("a new-assistant walk hatches even when the selected assistant is onboarded", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: false,
+        selectedAssistantOnboarded: true,
+        newAssistant: true,
+        env: "production",
+      }),
+    ).toBe(routes.onboarding.research);
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: true,
+        selectedAssistantOnboarded: true,
+        newAssistant: true,
+        env: "production",
+      }),
+    ).toBe(routes.onboarding.hatching);
+  });
+
+  test("a local hatch outranks the onboarded shortcut without the marker", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: true,
+        skipResearch: true,
+        selectedAssistantOnboarded: true,
+        env: "staging",
+      }),
+    ).toBe(routes.onboarding.hatching);
+  });
+});
+
+describe("isNewAssistantFunnel", () => {
+  test("true only when the marker is set to 1", () => {
+    expect(
+      isNewAssistantFunnel(new URLSearchParams(`${NEW_ASSISTANT_PARAM}=1`)),
+    ).toBe(true);
+    expect(isNewAssistantFunnel(new URLSearchParams())).toBe(false);
+    expect(
+      isNewAssistantFunnel(new URLSearchParams(`${NEW_ASSISTANT_PARAM}=0`)),
+    ).toBe(false);
+  });
+});
+
+describe("withSkipResearch", () => {
+  test("adds skip_research and rewrites a research URL onto hatching", () => {
+    expect(
+      withSkipResearch(
+        `${routes.onboarding.research}?hosting=managed`,
+        "staging",
+      ),
+    ).toBe(
+      `${routes.onboarding.hatching}?hosting=managed&${SKIP_RESEARCH_PARAM}=1`,
+    );
+  });
+
+  test("adds skip_research to an already-hatching destination", () => {
+    expect(
+      withSkipResearch(`${routes.onboarding.hatching}?hosting=local`, "dev"),
+    ).toBe(
+      `${routes.onboarding.hatching}?hosting=local&${SKIP_RESEARCH_PARAM}=1`,
+    );
+  });
+
+  test("adds skip_research to a paid hatch return without dropping post_checkout", () => {
+    expect(
+      withSkipResearch(
+        `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`,
+        "staging",
+      ),
+    ).toBe(
+      `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1&${SKIP_RESEARCH_PARAM}=1`,
+    );
+  });
+
+  test("production leaves the destination unchanged", () => {
+    const destination = `${routes.onboarding.research}?hosting=managed`;
+    expect(withSkipResearch(destination, "production")).toBe(destination);
+  });
+});
+
+describe("shouldSkipResearchAfterHatch", () => {
+  test("true only when skip_research=1 is present", () => {
+    expect(
+      shouldSkipResearchAfterHatch(
+        new URLSearchParams("skip_research=1"),
+        "staging",
+      ),
+    ).toBe(true);
+    expect(
+      shouldSkipResearchAfterHatch(new URLSearchParams(), "staging"),
+    ).toBe(false);
+    expect(
+      shouldSkipResearchAfterHatch(
+        new URLSearchParams("skip_research=0"),
+        "staging",
+      ),
+    ).toBe(false);
+  });
+
+  test("production ignores skip_research even when the param is set", () => {
+    expect(
+      shouldSkipResearchAfterHatch(
+        new URLSearchParams("skip_research=1"),
+        "production",
+      ),
+    ).toBe(false);
   });
 });

@@ -409,9 +409,15 @@ describe("MultiActivityGroup — unknown-command nudge", () => {
       onOpenRuleEditor: () => {},
       onDismissUnknownNudge: () => {},
     });
-    expect(getByText("This command wasn't recognized.")).toBeTruthy();
+    // Trans splits the nudge across text nodes and a link button, so match
+    // substrings rather than a single exact text node.
+    expect(
+      getByText("This command wasn't recognized.", { exact: false }),
+    ).toBeTruthy();
     expect(getByText("Create a rule")).toBeTruthy();
-    expect(getByText("to classify it for next time.")).toBeTruthy();
+    expect(
+      getByText("to classify it for next time.", { exact: false }),
+    ).toBeTruthy();
   });
 
   test("'Create a rule' click invokes onOpenRuleEditor with the tool call's context", () => {

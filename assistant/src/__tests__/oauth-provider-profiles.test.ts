@@ -14,16 +14,15 @@ await initializeDb();
 seedOAuthProviders();
 
 describe("oauth provider profiles (DB-seeded)", () => {
-  test("google provider row includes Drive in default scopes", () => {
+  test("google provider row includes Drive, Sheets, and Slides in default scopes", () => {
     const provider = getProvider("google");
 
     expect(provider).toBeDefined();
-    expect(JSON.parse(provider!.defaultScopes)).toContain(
-      "https://www.googleapis.com/auth/drive",
-    );
+    const scopes = JSON.parse(provider!.defaultScopes) as string[];
+    expect(scopes).toContain("https://www.googleapis.com/auth/drive");
   });
 
-  test("google provider row contains bearer injection templates for 6 Google API hosts", () => {
+  test("google provider row contains bearer injection templates for 8 Google API hosts", () => {
     const provider = getProvider("google");
 
     expect(provider).toBeDefined();
@@ -36,7 +35,7 @@ describe("oauth provider profiles (DB-seeded)", () => {
       valuePrefix: string;
     }>;
 
-    expect(templates).toHaveLength(6);
+    expect(templates).toHaveLength(8);
 
     const byHost = new Map(templates.map((t) => [t.hostPattern, t]));
 
@@ -45,6 +44,8 @@ describe("oauth provider profiles (DB-seeded)", () => {
       "www.googleapis.com",
       "people.googleapis.com",
       "docs.googleapis.com",
+      "sheets.googleapis.com",
+      "slides.googleapis.com",
       "tasks.googleapis.com",
       "calendar.googleapis.com",
     ]) {

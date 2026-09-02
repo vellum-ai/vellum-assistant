@@ -2,11 +2,12 @@
 <!--
   Custom SF Symbol template for the Vellum "V" brand glyph, used by the
   Control Center control (OpenVellumControl). The path is the same letterform
-  as App/AppIcon*.icon/Assets/white-V.svg (a 92x92 viewBox), uniformly scaled
-  so its 92pt height fills the 400pt capline-to-baseline band of each size
-  and centered at x=1650. Regenerate by re-deriving the six path points from
-  white-V.svg if the brand mark ever changes: x' = 1650 + (x - 46) * s,
-  y' = capline + y * s, with s = 400 / 92.
+  as clients/macos/build-resources/icons/production/Assets/white-V.svg
+  (a 92x92 viewBox), uniformly scaled so its 92pt height fills the 400pt
+  capline-to-baseline band of each size and centered at x=1650. Regenerate
+  by re-deriving the six path points from white-V.svg if the brand mark
+  ever changes: x' = 1650 + (x - 46) * s, y' = capline + y * s, with
+  s = 400 / 92.
 -->
 <svg width="3300" height="2200" viewBox="0 0 3300 2200" version="1.1" xmlns="http://www.w3.org/2000/svg">
   <g id="Notes">

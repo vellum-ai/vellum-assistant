@@ -2,6 +2,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { CompanionContext } from "@vellumai/ipc-contract";
+import type * as WatchController from "@/domains/chat/watch/watch-controller";
 
 const published: CompanionContext[] = [];
 // Counted rather than reimplemented: what this hook owns is calling the clear
@@ -14,6 +15,19 @@ mock.module("@/runtime/companion-surface", () => ({
     published.push(context);
   },
   clearCompanionWorking: clearWorkingMock,
+  // The targeted path the running dictation's words take, which reuses the
+  // last context rather than rebuilding one. Recorded the same way, since what
+  // matters to these cases is what reached the surface.
+  setCompanionDictation: (
+    dictating: CompanionContext["dictating"],
+    dictationText: string,
+  ) => {
+    const last = published[published.length - 1];
+    if (last === undefined) {
+      return;
+    }
+    published.push({ ...last, dictating, dictationText });
+  },
 }));
 
 let isPopout = false;
@@ -21,11 +35,62 @@ mock.module("@/runtime/popout-window", () => ({
   isPopoutWindowLifetime: () => isPopout,
 }));
 
+// The session itself is the watch controller's, and its own test drives the
+// real socket and the real capture. What this hook owns is publishing the flag
+// and ending the session at teardown, so the module is stood in for by the
+// flag and a counted stop.
+let watching = false;
+let captureCount = 0;
+const watchListeners = new Set<() => void>();
+const stopWatchMock = mock(() => {
+  setWatching(false);
+});
+mock.module(
+  "@/domains/chat/watch/watch-controller",
+  (): Partial<typeof WatchController> => ({
+    stopWatch: stopWatchMock,
+    useWatchStore: {
+      getState: () => ({ watching, captureCount }),
+      subscribe: (listener: () => void) => {
+        watchListeners.add(listener);
+        return () => {
+          watchListeners.delete(listener);
+        };
+      },
+    } as unknown as typeof WatchController.useWatchStore,
+  }),
+);
+
+/** Wake the hook the way any write to the controller's store does. */
+const notifyWatchListeners = () => {
+  for (const listener of [...watchListeners]) {
+    listener();
+  }
+};
+
+/** Flip the session the way the controller does, listeners and all. */
+const setWatching = (next: boolean) => {
+  watching = next;
+  captureCount = 0;
+  notifyWatchListeners();
+};
+
+/** One screen read landing, which is the other thing the session publishes. */
+const captureLanded = () => {
+  captureCount += 1;
+  notifyWatchListeners();
+};
+
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
+// The summary store is the real one: it holds nothing but a value and a timer,
+// and what this hook owns is publishing the phase it reports.
+const { beginWatchRetro, clearWatchRetro, settleWatchRetro } =
+  await import("@/domains/chat/watch/watch-retro");
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -37,10 +102,16 @@ afterEach(() => {
   cleanup();
   published.length = 0;
   clearWorkingMock.mockClear();
+  stopWatchMock.mockClear();
+  watching = false;
+  captureCount = 0;
+  watchListeners.clear();
+  clearWatchRetro();
   isPopout = false;
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
   useChatSessionStore.setState({ snapshot: null } as never);
+  useVoiceRecordingStore.getState().reset();
 });
 
 /** The most recent push, which is what the surface would be drawing. */
@@ -147,7 +218,6 @@ describe("the working flag the companion mirror publishes", () => {
     await waitFor(() => {
       expect(published.length).toBeGreaterThan(before);
     });
-    expect(latest().turns).toEqual([]);
   });
 });
 
@@ -222,4 +292,277 @@ describe("the middle of a turn, where the client looks idle", () => {
       expect(latest().working).toBe(false);
     });
   });
+});
+
+/**
+ * The summary of a finished session crosses the same bridge as the flag, and
+ * has one more reason to: the runtime announces the retrospective on this
+ * window's event stream, and the surface's own renderer is not subscribed to
+ * it. Without this the surface would go quiet for the whole of a turn the user
+ * is waiting on.
+ */
+describe("the watch summary the companion mirror publishes", () => {
+  const SESSION = {
+    sessionId: "sess-1",
+    conversationId: "conv-1",
+    assistantId: "asst-owner",
+  };
+
+  test("says nothing when no session has finished", () => {
+    render(<Mirror />);
+    expect(latest().watchRetro).toBeUndefined();
+  });
+
+  test("is pending from the stop press", async () => {
+    render(<Mirror />);
+    beginWatchRetro(SESSION);
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("pending");
+    });
+  });
+
+  test("becomes the question once the runtime answers", async () => {
+    render(<Mirror />);
+    beginWatchRetro(SESSION);
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("pending");
+    });
+
+    settleWatchRetro({
+      type: "watch_retro_completed",
+      sessionId: SESSION.sessionId,
+      conversationId: SESSION.conversationId,
+      reportReady: true,
+    });
+
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("ready");
+    });
+  });
+
+  test("goes back to silence once the question is answered", async () => {
+    render(<Mirror />);
+    beginWatchRetro(SESSION);
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("pending");
+    });
+
+    clearWatchRetro();
+
+    await waitFor(() => {
+      expect(latest().watchRetro).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * The watch session runs in this window and is drawn on another, so the flag
+ * has to cross the same bridge the tail does. It moves on its own schedule:
+ * the session is started by a command from the surface and can end on its own
+ * when the socket drops, neither of which writes any store the tail reads.
+ */
+describe("the watch flag the companion mirror publishes", () => {
+  test("is false with no session running", () => {
+    render(<Mirror />);
+    expect(latest().watching).toBe(false);
+  });
+
+  test("goes true when a session starts", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+  });
+
+  test("goes false again when the session ends", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+
+    setWatching(false);
+
+    await waitFor(() => {
+      expect(latest().watching).toBe(false);
+    });
+  });
+
+  /**
+   * Every push is an IPC message and a repaint of a window floating over
+   * another app's work, and the stores under this hook are written far more
+   * often than the card changes.
+   */
+  test("says nothing when the session has not moved", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+    const count = published.length;
+
+    setWatching(true);
+    setWatching(true);
+
+    expect(published.length).toBe(count);
+  });
+});
+
+/**
+ * The session's screen reads cross the same bridge the flag does, and they are
+ * the half the surface draws a capture from: the flag says a session is open,
+ * and only this says the screen has been read.
+ */
+describe("the capture count the companion mirror publishes", () => {
+  test("is none for a session that has captured nothing", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+
+    expect(latest().captureCount).toBe(0);
+  });
+
+  test("publishes each capture the session reports", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+
+    captureLanded();
+    await waitFor(() => {
+      expect(latest().captureCount).toBe(1);
+    });
+
+    captureLanded();
+    await waitFor(() => {
+      expect(latest().captureCount).toBe(2);
+    });
+  });
+
+  /**
+   * A capture that moved nothing else about the card still has to go out. It
+   * is the one fact on this bridge with no other carrier: the tail, the name,
+   * and the working flag are all unchanged by a screen being read.
+   */
+  test("pushes for a capture that changed nothing else", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+    const count = published.length;
+
+    captureLanded();
+
+    await waitFor(() => {
+      expect(published.length).toBe(count + 1);
+    });
+  });
+});
+
+/**
+ * The microphone and the socket are in this window. A layout going away takes
+ * the only thing that could stop them with it, so the session goes with the
+ * layout rather than being left running with nothing able to reach it.
+ */
+describe("the watch session at teardown", () => {
+  test("ends the session on unmount", () => {
+    const view = render(<Mirror />);
+    setWatching(true);
+
+    view.unmount();
+
+    expect(stopWatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Ended before the subscriptions go, so the flip is still published. A stop
+   * the surface never hears about leaves a capture indicator standing over a
+   * machine nothing is reading.
+   */
+  test("publishes the session ending before it stops listening", () => {
+    const view = render(<Mirror />);
+    setWatching(true);
+
+    view.unmount();
+
+    expect(latest().watching).toBe(false);
+  });
+
+  test("says nothing when no session was running", () => {
+    const view = render(<Mirror />);
+    const count = published.length;
+
+    view.unmount();
+
+    expect(published.length).toBe(count);
+  });
+});
+
+/**
+ * The dictation, which is the surface's business only when a held key started
+ * it. The recording store is the real one and is shared with the composer's
+ * microphone; it carries which of the two opened it.
+ */
+describe("dictating", () => {
+  const recording = useVoiceRecordingStore.getState;
+
+  /**
+   * A recording begun from the composer is already visible where it was
+   * begun; the surface saying so too would be the same fact drawn twice.
+   */
+  test("says nothing for a recording the composer started", () => {
+    render(<Mirror />);
+    recording().startRecording();
+    recording().setInterimTranscript("typed into the composer");
+
+    expect(latest().dictating).toBeUndefined();
+    expect(latest().dictationText ?? "").toBe("");
+  });
+
+  test("draws a hold's words as they arrive", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().setInterimTranscript("the quick brown");
+
+    expect(latest().dictating).toBe("listening");
+    expect(latest().dictationText).toBe("the quick brown");
+  });
+
+  /**
+   * The keys come up before the recording is over, and the wait after them is
+   * the stretch with nothing else on screen to explain it.
+   */
+  test("stays with the hold through the wait after the keys come up", () => {
+    render(<Mirror />);
+    recording().startRecording({ hold: true });
+    recording().stopRecording();
+
+    expect(latest().dictating).toBe("transcribing");
+
+    recording().reset();
+
+    expect(latest().dictating).toBeUndefined();
+  });
+});
+
+/**
+ * The mount itself, with nothing arranged around it.
+ *
+ * The effect publishes once before wiring any subscription, so anything the
+ * first publish reads has to exist by then. A binding declared later in the
+ * effect body is in its dead zone at that point and throws, which takes the
+ * mirror down and the layout with it, and no case about what gets published
+ * would notice because nothing gets published at all.
+ */
+test("mounts and publishes without throwing", () => {
+  expect(() => {
+    render(<Mirror />);
+  }).not.toThrow();
+
+  expect(published.length).toBeGreaterThan(0);
 });

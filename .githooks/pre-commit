@@ -223,6 +223,15 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift static let feature-flag key constants — values are plain kebab-case
     # flag names, not secrets. Matches both *FeatureFlagKey and *FlagKey.
     "(private[[:space:]]+static[[:space:]]+)?(let|var)[[:space:]]+[a-zA-Z]*FlagKey[[:space:]]*[:=][[:space:]]*['\"][a-z][a-z0-9-]*['\"]"
+    # i18n catalog entry whose value is a bullet mask (e.g.
+    # `"bearerTokenPlaceholderKeep": "••••••••  (leave blank to keep current)"`).
+    # A camelCase key can carry 20+ characters after a `token`/`secret`/`bearer`
+    # prefix and trip the keyword patterns; a value made of mask bullets is UI
+    # copy standing in for a hidden value, never a credential.
+    # The value is anchored end to end (bullets plus an optional parenthesised
+    # hint made of letters and spaces, then the closing quote) so a real secret
+    # appended after the bullets is never prefix-matched as safe.
+    "['\"][a-zA-Z0-9_]+['\"][[:space:]]*:[[:space:]]*['\"]•+([[:space:]]*\([a-zA-Z][a-zA-Z[:space:]]*\))?['\"]"
     # OAuth managed-service config key — always a `<provider>-oauth` slug that
     # crosses the 16-char threshold for some providers (e.g. salesforce-oauth).
     # The value is a routing identifier, not a credential.
@@ -271,7 +280,7 @@ matches_safe_line_pattern() {
             # `.yaml`/`.yml` file path AND a following line that looks like
             # a YAML schema annotation (`type:`, `$ref:`, `description:`,
             # etc.). Without either, treat the line as a potential secret.
-            if [ "$pattern" = '^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
+            if [ "$pattern" = '^[[:space:]]+[a-zA-Z0-9_-]*[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
                 if [[ ! "$file" =~ \.(yaml|yml)$ ]]; then
                     continue
                 fi
@@ -372,6 +381,10 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
     SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
     SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from assistant credentials reveal for twilio/auth_token>"'
+    # i18n bullet-mask placeholder (safe) versus a real secret hiding behind a
+    # bullet prefix (must stay flagged).
+    SAFE_BULLET_MASK_PLACEHOLDER='  "bearerTokenPlaceholderKeep": "••••••••  (leave blank to keep current)",'
+    UNSAFE_BULLET_MASK_SECRET='  "clientSecret": "••••sk_live_a1b2c3d4e5f6g7h8i9",'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
     # TS: clientSecret with union type annotation (false positive to whitelist)
@@ -867,6 +880,14 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} real client_secret value with an UPPER_SNAKE prefix was incorrectly whitelisted"
         exit 1
     fi
+    if matches_secret_pattern "$SAFE_BULLET_MASK_PLACEHOLDER" && ! matches_safe_line_pattern "$SAFE_BULLET_MASK_PLACEHOLDER"; then
+        echo -e "${RED}Self-test failed:${NC} i18n bullet-mask placeholder false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_BULLET_MASK_SECRET" && matches_safe_line_pattern "$UNSAFE_BULLET_MASK_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} real secret behind a bullet-mask prefix was incorrectly whitelisted"
+        exit 1
+    fi
 
     # Bare-key `clientSecret:` whitelist: context-guarded so an indented
     # bare key only counts as safe inside an OpenAPI / YAML schema. The
@@ -948,6 +969,15 @@ while IFS= read -r -d '' FILE; do
         continue
     fi
 
+    # i18n catalogs hold user-facing display copy, so a credential-field label
+    # ("Client Secret", "Enter your client secret") reads as a secret
+    # assignment to the keyword patterns. Entries are filtered per line below:
+    # prose passes, a credential-shaped value is still reported.
+    IS_I18N_CATALOG=0
+    if [[ "$FILE" =~ /i18n/locales/.*\.json$ ]]; then
+        IS_I18N_CATALOG=1
+    fi
+
     # Skip release scripts — they reference password variables for SSH auth
     # via shell parameter expansions, not hardcoded secrets.
     if [[ "$FILE" =~ ^scripts/.*-release\.sh$ ]]; then
@@ -974,6 +1004,14 @@ while IFS= read -r -d '' FILE; do
             fi
             MATCH_LINENO="${line%%:*}"
             CONTENT="${line#*:}"
+            # An i18n entry whose value carries no credential-shaped token (a
+            # 16+ character unbroken run of key alphabet) is display copy.
+            # Checked on the value alone: a camelCase key such as
+            # `clientSecretPlaceholder` is itself a long run.
+            if [ "$IS_I18N_CATALOG" -eq 1 ] &&
+                ! printf '%s\n' "${CONTENT#*: }" | grep -qE '[A-Za-z0-9+/=_-]{16,}'; then
+                continue
+            fi
             # Context-aware patterns need the line that follows the match
             # in the staged blob (e.g. to confirm a bare `clientSecret:` key
             # sits in an OpenAPI schema). Compute lazily — only when needed.

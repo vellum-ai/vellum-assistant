@@ -380,6 +380,7 @@ export class VellumAcpClientHandler implements Client {
       cwd: params.cwd ?? undefined,
       stdio: ["ignore", "pipe", "pipe"],
       env,
+      windowsHide: true,
     });
 
     const state: TerminalState = {

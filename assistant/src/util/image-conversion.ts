@@ -1,5 +1,5 @@
 /**
- * JPEG conversion for images, backed by macOS `sips`.
+ * JPEG conversion for images, backed by sharp with a macOS `sips` fallback.
  *
  * Two consumers share this converter:
  *   - transport optimization (`agent/image-optimize.ts`) downscales large
@@ -7,10 +7,8 @@
  *   - storage normalization (attachment ingress + history hydration) converts
  *     HEIF/HEIC — which Chromium-based clients cannot decode — to JPEG.
  *
- * Conversion runs `sips` (a macOS builtin); on other platforms or on any
- * failure it returns null and callers keep the original bytes. Results are
- * cached on disk keyed by content hash + conversion options, so repeated
- * conversions of the same image (or daemon restarts) skip the sips call.
+ * Results are cached on disk keyed by content hash + conversion options, so
+ * repeated conversions of the same image skip the encoder call.
  */
 
 import { createHash } from "node:crypto";
@@ -262,6 +260,7 @@ async function runSips(
       stdout: "ignore",
       stderr: "ignore",
       timeout: 15_000,
+      windowsHide: true,
     });
     await proc.exited;
     if (proc.exitCode !== 0) {
@@ -291,9 +290,41 @@ async function runSips(
   }
 }
 
+async function runSharp(
+  inputBytes: Uint8Array,
+  options: ConvertToJpegOptions,
+): Promise<Buffer | null> {
+  try {
+    const { default: sharp } = await import("sharp");
+    let pipeline = sharp(inputBytes, { failOn: "error" }).autoOrient();
+    if (options.resizeToPx != null) {
+      pipeline = pipeline.resize(
+        options.resizeToPx.width,
+        options.resizeToPx.height,
+        { fit: "fill" },
+      );
+    } else if (options.maxDimensionPx != null) {
+      pipeline = pipeline.resize(
+        options.maxDimensionPx,
+        options.maxDimensionPx,
+        {
+          fit: "inside",
+          withoutEnlargement: true,
+        },
+      );
+    }
+    const out = await pipeline
+      .jpeg({ quality: options.quality ?? DEFAULT_JPEG_QUALITY })
+      .toBuffer();
+    return isCompleteJpeg(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Convert an image to JPEG, optionally downscaling. Returns null when
- * conversion is unavailable (non-macOS) or fails; callers keep the original.
+ * conversion is unavailable or fails; callers keep the original.
  */
 export async function convertImageToJpeg(
   bytes: Uint8Array,
@@ -313,7 +344,9 @@ export async function convertImageToJpeg(
     return cached;
   }
 
-  const converted = await runSips(bytes, options);
+  const converted =
+    (await runSharp(bytes, options)) ??
+    (process.platform === "darwin" ? await runSips(bytes, options) : null);
   if (!converted) {
     return null;
   }
@@ -339,14 +372,22 @@ const HEIF_FTYP_BRANDS = new Set([
   "msf1",
 ]);
 
-/**
- * Content-based HEIF/HEIC detection. MIME metadata is unreliable here:
- * Chromium reports an empty `file.type` for `.heic`, which clients coerce to
- * `application/octet-stream`.
- */
-export function isHeifImage(bytes: Uint8Array): boolean {
+// Brands whose canonical MIME is `image/heic`; the remaining HEIF brands
+// (`heif`, `mif1`, `msf1`) are `image/heif`.
+const HEIC_FTYP_BRANDS = new Set([
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "heim",
+  "heis",
+  "hevm",
+  "hevs",
+]);
+
+function heifFtypBrand(bytes: Uint8Array): string | null {
   if (bytes.length < 12) {
-    return false;
+    return null;
   }
   // ISO BMFF layout: bytes 4-8 are "ftyp", bytes 8-12 the major brand.
   if (
@@ -355,7 +396,7 @@ export function isHeifImage(bytes: Uint8Array): boolean {
     bytes[6] !== 0x79 || // y
     bytes[7] !== 0x70 // p
   ) {
-    return false;
+    return null;
   }
   const brand = String.fromCharCode(
     bytes[8]!,
@@ -363,7 +404,30 @@ export function isHeifImage(bytes: Uint8Array): boolean {
     bytes[10]!,
     bytes[11]!,
   );
-  return HEIF_FTYP_BRANDS.has(brand);
+  return HEIF_FTYP_BRANDS.has(brand) ? brand : null;
+}
+
+/**
+ * Content-based HEIF/HEIC detection. MIME metadata is unreliable here:
+ * Chromium reports an empty `file.type` for `.heic`, which clients coerce to
+ * `application/octet-stream`.
+ */
+export function isHeifImage(bytes: Uint8Array): boolean {
+  return heifFtypBrand(bytes) !== null;
+}
+
+/**
+ * Canonical HEIF MIME type for bytes whose container brand names one, and null
+ * for everything else. For providers that read HEIF directly and key on the
+ * declared media type (Gemini accepts `image/heic` and `image/heif`:
+ * https://ai.google.dev/gemini-api/docs/image-understanding).
+ */
+export function heifImageMimeType(bytes: Uint8Array): string | null {
+  const brand = heifFtypBrand(bytes);
+  if (!brand) {
+    return null;
+  }
+  return HEIC_FTYP_BRANDS.has(brand) ? "image/heic" : "image/heif";
 }
 
 /**

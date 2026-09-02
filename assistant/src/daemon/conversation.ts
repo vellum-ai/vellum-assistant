@@ -21,7 +21,7 @@ import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
 import type { AssistantEvent } from "../api/index.js";
-import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
+import { syncTerminalGuardianRequestStatus } from "../approvals/guardian-request-status-sync.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -55,6 +56,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { extractTextFromStoredMessageContent } from "../persistence/message-content.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
@@ -76,6 +78,7 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
+import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/types.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -137,6 +140,7 @@ import type {
 } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
+  applySightFrameRetention,
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
   getSlackWatermarkAdvanceForRowPrefix,
@@ -172,6 +176,8 @@ import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import { renderReactionHistoryText } from "./reaction-history-render.js";
+import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
   resolveSummarizeBoundary,
   startsNewTurn,
@@ -301,12 +307,37 @@ function abortReasonOf(signal?: AbortSignal): unknown {
   );
 }
 
+/**
+ * Thrown by the processing fence when the claim it was asked about is no
+ * longer the live one, which is the conversation having moved on to another
+ * holder rather than anything failing.
+ */
+export class ProcessingClaimLostError extends Error {
+  constructor(conversationId: string) {
+    super(`Processing claim lost for conversation ${conversationId}`);
+    this.name = "ProcessingClaimLostError";
+  }
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
   /** @internal */ messages: Message[] = [];
   /** @internal */ agentLoop: AgentLoop;
   private _processing = false;
+  /**
+   * Which claim on the processing flag is the live one, as a value that changes
+   * every time the flag is taken. Zero while it is free.
+   *
+   * The flag itself is a boolean and cannot say who holds it, so a release has
+   * no way to tell its own hold from one taken since. This is what lets
+   * {@link releaseProcessing} refuse to release someone else's.
+   */
+  private processingOwner = 0;
+  private nextProcessingOwner = 0;
+  /** The live claim's marker write, awaited through the fence below. */
+  private processingMarker: { owner: number; landed: Promise<void> } | null =
+    null;
   /**
    * Pending {@link waitForIdle} resolvers, notified from the committed
    * `processing → false` transition inside {@link setProcessing}. Every
@@ -530,7 +561,7 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /** @internal */   currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
@@ -538,6 +569,14 @@ export class Conversation {
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
+  /** @internal */ loadedHistoryStale = false;
+  /**
+   * @internal Reactions the current turn delivered, awaiting their durable
+   * rows. Written mid-turn by the react tool, drained by the agent loop at
+   * the turn boundary so the rows never land between a tool_use and its
+   * tool_result.
+   */
+  pendingReactionRecords: QueuedReactionRecord[] = [];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /**
@@ -887,6 +926,16 @@ export class Conversation {
           conv.createdAt,
         );
       },
+      // Compaction rebuilds history from the stored rows, so it can retain
+      // camera frames the turn's pre-run pass had already stubbed, and the
+      // rebuilt array is sent on the next request of that same turn. Re-running
+      // the retention pass here is what holds the frame bound across a
+      // compaction instead of only from the next turn onward. The row read
+      // repeats rather than sharing the pre-run pass's map: compactions are
+      // rare, and a map captured before the turn's awaits would describe a
+      // conversation that has since gained rows.
+      transformCompactedHistory: (messages) =>
+        applySightFrameRetention(messages, this.conversationId),
     });
     createContextWindowManager({
       provider,
@@ -1052,6 +1101,9 @@ export class Conversation {
 
   async loadFromDb(): Promise<LoadFromDbResult> {
     const loadStartedAt = performance.now();
+    // Cleared before the rows are read: a channel event persisted mid-load
+    // re-marks the flag, so the next turn reloads rather than missing it.
+    this.loadedHistoryStale = false;
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
@@ -1142,12 +1194,104 @@ export class Conversation {
       }
       return v3PrunedSlugsMemo;
     };
+    // Provider-id → row-text index for reaction target resolution, built
+    // lazily on the first reaction row: most conversations carry none, so
+    // most loads never walk the rows a second time. Keyed over the full
+    // (unsliced) history so a reaction whose target was compacted out of
+    // context still resolves its quote.
+    let reactionTargetIndexMemo: Map<string, string> | null = null;
+    const resolveReactionTarget = (
+      targetMessageId: string,
+    ): string | undefined => {
+      if (reactionTargetIndexMemo === null) {
+        reactionTargetIndexMemo = new Map();
+        for (const row of dbMessages) {
+          const rowMeta = readProviderMetadata(row.metadata);
+          // A deleted target is a logical erasure (same rule as the Slack
+          // transcript renderer), so its text is never quoted back.
+          if (
+            rowMeta?.eventKind === "message" &&
+            rowMeta.deletedAt === undefined &&
+            rowMeta.messageId
+          ) {
+            const text = extractTextFromStoredMessageContent(row.content);
+            if (text) {
+              // A split reply posts several provider messages from one row;
+              // a reaction may name any of them. A post deleted on its own
+              // (partial deletion of a split reply) stops being quotable
+              // while its siblings remain.
+              for (const id of [
+                rowMeta.messageId,
+                ...(rowMeta.additionalMessageIds ?? []),
+              ]) {
+                if (
+                  !reactionTargetIndexMemo.has(id) &&
+                  !rowMeta.deletedMessageIds?.includes(id)
+                ) {
+                  reactionTargetIndexMemo.set(id, text);
+                }
+              }
+            }
+          }
+        }
+      }
+      return reactionTargetIndexMemo.get(targetMessageId);
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
       let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
+
+      // Channel facts stamped in metadata render at load time rather than
+      // at persist time, so every stored row reads correctly whenever it
+      // was written: a reaction row's "[reaction]" sentinel renders as who
+      // reacted with what to which message, and a deleted row's original
+      // text gives way to a deletion marker (the delete intercepts stamp
+      // metadata and deliberately leave the content column untouched). The
+      // substring guard keeps the per-row metadata parse off rows that can
+      // carry neither fact: both envelopes spell these keys literally, in
+      // providerMeta and in nested slackMeta alike.
+      if (
+        m.metadata &&
+        (m.metadata.includes("reaction") || m.metadata.includes("deletedAt"))
+      ) {
+        const providerMeta = readProviderMetadata(m.metadata);
+        if (providerMeta?.eventKind === "reaction") {
+          const rendered = renderReactionHistoryText(
+            providerMeta,
+            resolveReactionTarget,
+            // An assistant-role reaction row is the assistant's own act,
+            // persisted by the react tool.
+            { selfAuthored: role === "assistant" },
+          );
+          if (rendered) {
+            content = [{ type: "text", text: rendered }];
+          }
+        } else if (role === "user" && providerMeta?.deletedAt !== undefined) {
+          // Neutral marker, no actor: Discord deletes can be authorless
+          // (`actorUnattributed`), so the marker never claims who deleted.
+          content = [{ type: "text", text: "[This message was deleted]" }];
+        } else if (
+          role === "assistant" &&
+          providerMeta?.deletedAt !== undefined
+        ) {
+          // The assistant's own deleted post keeps its content: erasure is
+          // how a retracted USER message is honored, but rewriting what the
+          // assistant said would falsify its memory of its own output. The
+          // rendered fact is visibility: the message no longer exists on the
+          // channel, so the assistant should not refer to it as something
+          // participants can see.
+          content = [
+            ...content,
+            {
+              type: "text",
+              text: "[This message was deleted from the channel and is no longer visible to participants]",
+            },
+          ];
+        }
+      }
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
@@ -1178,7 +1322,8 @@ export class Conversation {
           // at the memory boundary after the `<info>` block but before
           // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+          //    <info>v2static</info>, <memory>v3cards</memory>,
+          //    <memory_spotlight>, <NOW.md>,
           //    <system_reminder>, <knowledge_base>, ...original]
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
@@ -1204,6 +1349,28 @@ export class Conversation {
           if (!isTail && typeof meta.nowScratchpadBlock === "string") {
             content = [
               { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
+          // The memory-v3 per-turn `<memory_spotlight>` persists under its
+          // own key as the wrapped block that was sent. Rehydrated on ALL
+          // rows (tail included), matching frozen cards: after a reload the
+          // last completed turn is the tail, and the next user message is
+          // appended without re-running loadFromDb. Prepended here, after
+          // now-md and before the v3 card block, so the inverted prepends
+          // land as [cards, spotlight, now-md, ...]. Trust-gated on
+          // `personalMemoryAllowed` like the cards: the spotlight carries
+          // matched personal-memory sections.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] === "string"
+          ) {
+            content = [
+              {
+                type: "text" as const,
+                text: meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] as string,
+              },
               ...content,
             ];
           }
@@ -1510,24 +1677,70 @@ export class Conversation {
     }
   }
 
-  async ensureActorScopedHistory(): Promise<void> {
-    const currentTrustClass = this.trustContext?.trustClass;
-    // Tracked alongside the trust class because `loadFromDb` gates
-    // personal-memory rehydration on `isPersonalMemoryAllowed`, which folds in
-    // the disabled-auth elevation of an unbound actor: two contexts can share a
-    // trust class and still differ here. A reuse that changes the answer has to
-    // reload, or stale personal-memory blocks persist into a turn that must not
-    // see them, or stay stripped from one that should.
-    const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
-      this.trustContext,
+  /**
+   * Whether the resident history is the one an actor carrying `trustContext`
+   * would be given.
+   *
+   * Personal memory is asked alongside the trust class because `loadFromDb`
+   * gates personal-memory rehydration on `isPersonalMemoryAllowed`, which folds
+   * in the disabled-auth elevation of an unbound actor: two contexts can share
+   * a trust class and still differ here. A reuse that changes the answer has to
+   * reload, or stale personal-memory blocks persist into a turn that must not
+   * see them, or stay stripped from one that should.
+   */
+  private historyMatchesScope(trustContext: TrustContext | undefined): boolean {
+    return (
+      !this.loadedHistoryStale &&
+      this.loadedHistoryTrustClass === trustContext?.trustClass &&
+      this.loadedHistoryPersonalMemoryAllowed ===
+        isPersonalMemoryAllowed(trustContext)
     );
-    if (
-      this.loadedHistoryTrustClass === currentTrustClass &&
-      this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
-    ) {
+  }
+
+  async ensureActorScopedHistory(): Promise<void> {
+    if (this.historyMatchesScope(this.trustContext)) {
       return;
     }
     await this.loadFromDb();
+  }
+
+  /**
+   * Mark stale when a row has been appended to the resident history under an
+   * actor this history is not scoped for.
+   *
+   * A persist that runs outside any turn has nothing ensuring the history for
+   * its sender first, so its row joins `this.messages` as it is. Left alone,
+   * the next turn under the resident scope reuses that array rather than
+   * reloading, and sends the model a row a reload would have filtered out.
+   *
+   * `trustContext` is the actor the row was attributed to, which for a caller
+   * that resolved none is the conversation's own, matching what the persist
+   * stamps. A scope that already matches is left alone: rows can arrive on a
+   * camera's cadence, and a reload apiece is a cost worth the comparison.
+   */
+  markHistoryStaleForForeignScope(
+    trustContext: TrustContext | undefined,
+  ): void {
+    if (this.historyMatchesScope(trustContext ?? this.trustContext)) {
+      return;
+    }
+    this.markHistoryStale();
+  }
+
+  /**
+   * Mark the resident history stale: a channel event (a reaction, edit, or
+   * delete) was persisted straight to the store while this conversation was
+   * loaded, so `this.messages` no longer reflects the rows. The next
+   * {@link ensureActorScopedHistory} reloads instead of reusing the resident
+   * history.
+   */
+  markHistoryStale(): void {
+    this.loadedHistoryStale = true;
+  }
+
+  /** Queue a delivered reaction for its durable row at the turn boundary. */
+  queueReactionRecord(record: QueuedReactionRecord): void {
+    this.pendingReactionRecords.push(record);
   }
 
   /**
@@ -1686,7 +1899,12 @@ export class Conversation {
    */
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
+    const wasOwner = this.processingOwner;
     this._processing = value;
+    // Every set is a claim, including one over a flag another holder already
+    // has: a caller setting it unconditionally is asserting the hold is now
+    // theirs, and the previous holder's release must not undo that.
+    this.processingOwner = value ? ++this.nextProcessingOwner : 0;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
     // by reading the conversations row directly.
@@ -1695,6 +1913,7 @@ export class Conversation {
         setConversationProcessingStartedAt(this.conversationId, Date.now());
       } catch (err) {
         this._processing = wasProcessing;
+        this.processingOwner = wasOwner;
         throw err;
       }
     } else {
@@ -1715,6 +1934,171 @@ export class Conversation {
         conversationMetadataSyncTag(this.conversationId),
       ]);
     }
+  }
+
+  /**
+   * Take the processing flag if it is free, reporting the claim a later release
+   * has to name. Null means someone already holds it.
+   *
+   * The read and the take are one synchronous step, so no second acquirer can
+   * land between them, and the flag stays held while the marker write below
+   * retries: reverting it because that write lost a race would publish an idle
+   * conversation for as long as the retry sleeps, and anything polling for idle
+   * takes the flag in that window while this caller believes its turn is
+   * starting.
+   *
+   * The marker is a fence, not a hope. `processing_started_at` is what a
+   * reconnecting client and the out-of-process retrospective worker read to
+   * decide whether a turn is live, so a turn that proceeds while the column is
+   * null lets a client stop waiting mid-turn and lets the worker fork partial
+   * history. Every caller therefore awaits {@link ensureProcessingMarker}
+   * before doing anything with the hold, and gives the hold back when it does
+   * not land.
+   */
+  acquireProcessing(): number | null {
+    if (this._processing) {
+      return null;
+    }
+    this._processing = true;
+    const owner = ++this.nextProcessingOwner;
+    this.processingOwner = owner;
+    this.processingMarker = {
+      owner,
+      landed: this.mirrorProcessingStarted(owner, Date.now()),
+    };
+    return owner;
+  }
+
+  /**
+   * Resolve once this claim's processing marker is durable. Reject when the
+   * retry budget runs out without it landing, and reject when the claim is not
+   * the live one.
+   *
+   * Lost ownership is a failure here, not a pass. The caller does its work
+   * between this fence and its release, so answering "fine" for a hold that
+   * Stop or a teardown has already cleared would let that work run under a
+   * dead claim while a new turn acquires and writes alongside it.
+   *
+   * Asked again after the await because both can happen in one window: the
+   * write lands, and the hold is claimed away before this resumes. The fence
+   * has to describe the present, not the moment it started waiting.
+   */
+  async ensureProcessingMarker(owner: number): Promise<void> {
+    const marker = this.processingMarker;
+    if (!marker || marker.owner !== owner || this.processingOwner !== owner) {
+      throw new ProcessingClaimLostError(this.conversationId);
+    }
+    await marker.landed;
+    if (this.processingOwner !== owner) {
+      throw new ProcessingClaimLostError(this.conversationId);
+    }
+  }
+
+  /**
+   * Take the flag and wait out its marker, giving the claim back rather than
+   * ever leaving a live one unreleased.
+   *
+   * Null is "this conversation is someone else's", by either route: the flag
+   * was already held, or the hold was claimed away while the marker was still
+   * landing. Callers answer both with the busy behaviour they already owe.
+   *
+   * A throw is the marker itself refusing to persist, which is a real failure
+   * rather than a busy conversation, and the claim is already released before
+   * it is raised. Every acquire goes through here, so no call site can get the
+   * ordering wrong: there is no window where a claim exists and its release is
+   * not yet guaranteed.
+   */
+  async acquireProcessingFenced(): Promise<number | null> {
+    const owner = this.acquireProcessing();
+    if (owner === null) {
+      return null;
+    }
+    try {
+      await this.ensureProcessingMarker(owner);
+    } catch (err) {
+      // A no-op when the claim is already gone, which is exactly the case
+      // this is here to make harmless.
+      this.releaseProcessing(owner);
+      if (err instanceof ProcessingClaimLostError) {
+        return null;
+      }
+      throw err;
+    }
+    return owner;
+  }
+
+  /**
+   * Whether this claim is still the live hold on the conversation.
+   *
+   * For work that runs across awaits under a claim it took earlier. A Stop on
+   * a hold with no live turn behind it force-clears the flag, and the next
+   * request acquires, so a claim can go stale while its holder is mid-write.
+   * Asking here is a plain field read, which is what lets a write fence ask it
+   * in the same tick as the statement it guards.
+   */
+  holdsProcessingClaim(owner: number): boolean {
+    return this.processingOwner === owner;
+  }
+
+  /**
+   * Release a hold taken by {@link acquireProcessing}, and only that hold.
+   * Reports whether it released.
+   *
+   * A hold can be claimed away by any unconditional `setProcessing(true)`,
+   * which is how a turn starts. The earlier holder's release then has to do
+   * nothing: clearing there would release a turn that is still running and let
+   * the next one interleave into the rows it is still writing.
+   */
+  releaseProcessing(owner: number): boolean {
+    if (this.processingOwner !== owner) {
+      log.debug(
+        {
+          conversationId: this.conversationId,
+          owner,
+          holder: this.processingOwner,
+        },
+        "Not releasing the processing flag: another holder claimed it",
+      );
+      return false;
+    }
+    this.setProcessing(false);
+    return true;
+  }
+
+  /**
+   * Write a taken processing lock into the `processing_started_at` column,
+   * reporting through the promise {@link ensureProcessingMarker} hands back.
+   *
+   * The retry runs while the flag stays held, so the lock has no gap for
+   * another acquirer, and it re-checks ownership rather than the flag: a hold
+   * claimed since has written its own timestamp, and a late write from this one
+   * would describe the wrong turn.
+   */
+  private mirrorProcessingStarted(
+    owner: number,
+    startedAt: number,
+  ): Promise<void> {
+    const landed = withSqliteRetry(
+      () => {
+        if (this.processingOwner !== owner) {
+          return;
+        }
+        setConversationProcessingStartedAt(this.conversationId, startedAt);
+      },
+      {
+        op: "conversation:acquireProcessing",
+        context: { conversationId: this.conversationId },
+      },
+    );
+    // The caller awaits this, but only on its own next tick, so subscribe now
+    // rather than let a rejection land with nothing attached to it.
+    landed.catch((err: unknown) => {
+      log.error(
+        { err, conversationId: this.conversationId },
+        "Failed to persist the processing marker; the claim holding this conversation is given back",
+      );
+    });
+    return landed;
   }
 
   /**
@@ -1878,6 +2262,18 @@ export class Conversation {
     return !this.queue.isEmpty;
   }
 
+  /**
+   * True when dropping this instance would lose work that is still in flight:
+   * a live turn, a queued successor, or a child subagent.
+   */
+  hasInFlightWork(): boolean {
+    return (
+      this.isProcessing() ||
+      this.hasQueuedMessages() ||
+      getSubagentManager().hasActiveChildren(this.conversationId)
+    );
+  }
+
   /** FIFO snapshot of the messages currently waiting in the in-memory queue.
    * Read-only — used to surface queued user messages in history responses. */
   snapshotQueuedMessages(): QueuedMessage[] {
@@ -1917,8 +2313,6 @@ export class Conversation {
     requestId: string,
     decision: UserDecision,
     options?: {
-      selectedPattern?: string;
-      selectedScope?: string;
       decisionContext?: string;
       emissionContext?: {
         source?: ConfirmationStateChangedEvent["source"];
@@ -1937,8 +2331,6 @@ export class Conversation {
     const toolUseId = this.prompter.getToolUseId(requestId);
 
     this.prompter.resolveConfirmation(requestId, decision, {
-      selectedPattern: options?.selectedPattern,
-      selectedScope: options?.selectedScope,
       decisionContext: options?.decisionContext,
     });
 
@@ -1967,20 +2359,16 @@ export class Conversation {
     });
 
     // Sync the gateway request status so stale "pending" records don't get
-    // matched by later guardian reply routing. Fire-and-forget: this method
-    // is sync with many callers (HTTP handlers, /v1/confirm, channel
-    // bridges), the in-memory resolution above is authoritative, and a CAS
-    // miss (the decision primitive already resolved it, e.g. the channel
-    // approval path) is expected and harmless.
-    void decideGuardianRequest({
-      id: requestId,
-      expectedStatus: "pending",
+    // matched by later guardian reply routing, and withdraw the request's
+    // approval cards when this sync is the write that landed. Fire-and-forget:
+    // this method is sync with many callers (HTTP handlers, /v1/confirm,
+    // channel bridges), the in-memory resolution above is authoritative, and
+    // a CAS miss (the decision primitive already resolved it and withdrew the
+    // cards itself, e.g. the channel approval path) is expected and harmless.
+    void syncTerminalGuardianRequestStatus({
+      requestId,
       status: resolvedState,
-    }).catch((err) => {
-      log.warn(
-        { err, requestId },
-        "Post-confirmation guardian request status sync failed",
-      );
+      syncContext: "post-confirmation",
     });
   }
 
@@ -2309,6 +2697,20 @@ export class Conversation {
   }
 
   /**
+   * Trim this conversation's aged camera frames out of a history about to be
+   * sent to a provider, keeping only the newest few as real images.
+   *
+   * Thin binding of {@link applySightFrameRetention} to the conversation's own
+   * id, for the send paths that hold the instance rather than a turn context:
+   * the compaction pipeline's summarizer input, and the wake, which sends its
+   * run input itself. Best-effort inside, so a failed row read degrades to the
+   * untrimmed history.
+   */
+  trimAgedSightFrames(messages: Message[]): Message[] {
+    return applySightFrameRetention(messages, this.conversationId);
+  }
+
+  /**
    * Auto-threshold compaction gate. Runs the same durable compaction
    * pipeline as {@link forceCompact} (summary call, circuit-breaker
    * accounting, Slack provenance, in-memory + DB commit) but honors the
@@ -2407,8 +2809,16 @@ export class Conversation {
             },
           )
         : null;
-    const messagesToCompact =
-      slackChronologicalContext?.messages ?? this.messages;
+    // Trim aged camera frames out of the summarizer's own input. Compaction
+    // sends this array to a provider like any other request, so a long camera
+    // session would otherwise put every frame it ever captured into the summary
+    // call, which is the payload-size and many-image rejection retention exists
+    // to prevent. Safe against the caller-fixed boundary below: the pass
+    // replaces blocks inside messages and never adds, drops, or reorders one,
+    // so `fixedTailStartIndex` still names the same message.
+    const messagesToCompact = this.trimAgedSightFrames(
+      slackChronologicalContext?.messages ?? this.messages,
+    );
     const compactedRowCountAtCall = this.contextCompactedMessageCount;
     let result = await defaultCompact({
       conversationId: this.conversationId,

@@ -156,7 +156,10 @@ export async function exec(): Promise<void> {
   const cloud = entry.cloud;
 
   if (cloud === "local") {
-    const child = spawn(command[0], command.slice(1), { stdio: "inherit" });
+    const child = spawn(command[0], command.slice(1), {
+      stdio: "inherit",
+      windowsHide: true,
+    });
     await new Promise<void>((resolve) => {
       child.on("close", (code) => {
         process.exitCode = code ?? 0;
@@ -187,7 +190,10 @@ export async function exec(): Promise<void> {
       ? ["exec", "-it", container, ...command]
       : ["exec", container, ...command];
 
-    const child = spawn("docker", dockerArgs, { stdio: "inherit" });
+    const child = spawn("docker", dockerArgs, {
+      stdio: "inherit",
+      windowsHide: true,
+    });
     await new Promise<void>((resolve, reject) => {
       child.on("close", (code) => {
         if (code === 0) resolve();

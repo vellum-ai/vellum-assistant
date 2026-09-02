@@ -144,7 +144,7 @@ export function SegmentControl<T extends string>({
       data-slot="segment-control"
       onKeyDown={handleKeyDown}
       className={cn(
-        "inline-flex rounded-md bg-[var(--surface-active)] p-0.5",
+        "inline-flex rounded-md bg-[var(--segment-track)] p-0.5",
         !iconOnly && "w-full",
         className,
       )}

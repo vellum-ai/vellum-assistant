@@ -13,13 +13,17 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutProviders,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
+import type * as ChooserAvatarChipModule from "@/components/avatar/chooser-avatar-chip";
+import type { AvatarRead } from "@/types/avatar";
+import type * as UseChooserRowAvatarModule from "@/hooks/use-chooser-row-avatar";
 import type { RememberedOrigin } from "@/stores/remembered-origins-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 
@@ -37,9 +41,6 @@ let hasPlatformSessionValue = false;
 let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
 let isLocalClientValue = true;
-let assistantSwitcherValue = false;
-let webRemoteIngressValue = true;
-let flagsHydratedValue = true;
 let originsValue: RememberedOrigin[] = [];
 let originsHydratedValue = true;
 /** The origin url `isCurrentOrigin` reports as the serving deployment. */
@@ -73,9 +74,7 @@ const addOriginMock = mock(
   async (input: {
     url: string;
     name?: string;
-  }): Promise<
-    { ok: true; origin: RememberedOrigin } | { ok: false }
-  > => ({
+  }): Promise<{ ok: true; origin: RememberedOrigin } | { ok: false }> => ({
     ok: true,
     origin: {
       url: input.url,
@@ -84,12 +83,16 @@ const addOriginMock = mock(
     },
   }),
 );
-const switchToOriginMock = mock(async (_origin: RememberedOrigin) => {});
+const switchToOriginMock = mock(
+  async (_origin: RememberedOrigin, _deviceCode?: string) => {},
+);
 const nativeSwitchToOriginMock = mock(async (_url: string | null) => true);
 let isNativeMobileValue = false;
 const installNativeRememberedOriginsMock = mock(() => {});
 /** What the native shell reports as its baked Vellum Cloud origin, if any. */
 let nativeCloudOriginValue: string | null = null;
+/** Avatar data per assistant id; rows absent here resolve to nulls (glyph). */
+let rowAvatars = new Map<string, AvatarRead>();
 
 // Stands in for the real error class (the screen's `instanceof` check runs
 // against this mocked module's export).
@@ -151,22 +154,11 @@ mock.module("@/lib/local-mode", () => ({
   UnresolvedLocalGatewayError: MockUnresolvedLocalGatewayError,
 }));
 
-mock.module("@/stores/client-feature-flag-store", () => ({
-  useClientFeatureFlagStore: {
-    use: {
-      assistantSwitcher: () => assistantSwitcherValue,
-      webRemoteIngress: () => webRemoteIngressValue,
-      hydrated: () => flagsHydratedValue,
-    },
-  },
-}));
-
 // The real normalizer, captured before the module mock below replaces the
 // registry entry, so the screen's register-param validation runs with
 // production semantics.
-const { normalizeOriginUrl } = await import(
-  "@/stores/remembered-origins-store"
-);
+const { normalizeOriginUrl } =
+  await import("@/stores/remembered-origins-store");
 
 mock.module("@/stores/remembered-origins-store", () => ({
   normalizeOriginUrl,
@@ -210,22 +202,22 @@ mock.module("@/domains/onboarding/components/connect-recovery-dialog", () => ({
 mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
   ConnectAssistantDialog: ({
     open,
-    initialBundle,
-    guidanceMessage,
+    initialAddress,
+    guidanceKind,
     onClose,
     onImported,
   }: {
     open: boolean;
-    initialBundle?: string;
-    guidanceMessage?: string;
+    initialAddress?: string;
+    guidanceKind?: "legacy" | "generic";
     onClose: () => void;
     onImported: (assistantId: string) => void;
   }) =>
     open ? (
       <div>
         Connect dialog open
-        {initialBundle && <div>{`bundle:${initialBundle}`}</div>}
-        {guidanceMessage && <div>{guidanceMessage}</div>}
+        {initialAddress && <div>{`address:${initialAddress}`}</div>}
+        {guidanceKind && <div>{`guidance:${guidanceKind}`}</div>}
         <button onClick={onClose}>Close dialog</button>
         <button onClick={() => onImported("paired-new")}>
           Simulate import
@@ -244,7 +236,7 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
   }: {
     open: boolean;
     onClose: () => void;
-    onAdded: (origin: RememberedOrigin) => void;
+    onAdded: (origin: RememberedOrigin, deviceCode: string | null) => void;
   }) =>
     open ? (
       <div>
@@ -252,17 +244,63 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
         <button onClick={onClose}>Close add dialog</button>
         <button
           onClick={() =>
-            onAdded({
-              url: "https://added.example/assistant-1",
-              addedAt: "2026-01-01T00:00:00.000Z",
-            })
+            onAdded(
+              {
+                url: "https://added.example/assistant-1",
+                addedAt: "2026-01-01T00:00:00.000Z",
+              },
+              null,
+            )
           }
         >
           Simulate origin add
         </button>
+        <button
+          onClick={() =>
+            onAdded(
+              {
+                url: "https://added.example/assistant-1",
+                addedAt: "2026-01-01T00:00:00.000Z",
+              },
+              "DEVICE-CODE-1",
+            )
+          }
+        >
+          Simulate paired origin add
+        </button>
       </div>
     ) : null,
 }));
+
+const forgetAssistantAvatarMock = mock((_qc: unknown, _id: string) => {});
+const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
+  useChooserRowAvatar: (assistant) => ({
+    onImageError: () => {},
+    ...(rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null }),
+  }),
+  forgetAssistantAvatar: forgetAssistantAvatarMock,
+};
+mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
+
+// The real chip lazily loads the character chunk; a marker keeps the suite
+// hermetic while still exercising the fallback branch. The img mirrors the
+// real chip's alt handling so accessible-name assertions stay meaningful.
+const chooserAvatarChipMock: Partial<typeof ChooserAvatarChipModule> = {
+  ChooserAvatarChip: ({ traits, imageUrl, fallback, decorative }) =>
+    traits || imageUrl ? (
+      <img
+        data-testid="chooser-avatar-chip"
+        src={imageUrl ?? undefined}
+        alt={decorative ? "" : "Assistant avatar"}
+      />
+    ) : (
+      fallback
+    ),
+};
+mock.module(
+  "@/components/avatar/chooser-avatar-chip",
+  () => chooserAvatarChipMock,
+);
 
 mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
@@ -351,7 +389,11 @@ mock.module("@vellumai/design-library/components/button", () => ({
     disabled?: boolean;
     "aria-label"?: string;
   }) => (
-    <button onClick={onClick} disabled={disabled} aria-label={rest["aria-label"]}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={rest["aria-label"]}
+    >
       {children}
     </button>
   ),
@@ -392,13 +434,24 @@ mock.module("@vellumai/design-library/components/menu", () => ({
 
 // The real (unmocked) store: the screen reads its dialog state from it so a
 // deep link parked by the global consumer opens the dialog on mount.
-const { __resetConnectDialogForTesting, useConnectDialogStore } = await import(
-  "@/stores/connect-dialog-store"
-);
+const { __resetConnectDialogForTesting, useConnectDialogStore } =
+  await import("@/stores/connect-dialog-store");
 
-const { SelectAssistantScreen } = await import(
-  "@/domains/onboarding/pages/select-assistant-screen"
-);
+const { SelectAssistantScreen } =
+  await import("@/domains/onboarding/pages/select-assistant-screen");
+
+/** The screen reads the query client for post-removal avatar cleanup. */
+function render(ui: ReactNode) {
+  const queryClient = new QueryClient();
+  const withProviders = (node: ReactNode) => (
+    <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>
+  );
+  const result = renderWithoutProviders(withProviders(ui));
+  return {
+    ...result,
+    rerender: (node: ReactNode) => result.rerender(withProviders(node)),
+  };
+}
 
 // --- Helpers ------------------------------------------------------------------
 
@@ -484,9 +537,6 @@ beforeEach(() => {
   localModeHostAvailableValue = false;
   isElectronValue = false;
   isLocalClientValue = true;
-  assistantSwitcherValue = false;
-  webRemoteIngressValue = true;
-  flagsHydratedValue = true;
   originsValue = [];
   originsHydratedValue = true;
   currentOriginUrl = null;
@@ -509,12 +559,17 @@ beforeEach(() => {
   nativeSwitchToOriginMock.mockImplementation(async () => true);
   isNativeMobileValue = false;
   nativeCloudOriginValue = null;
+  rowAvatars = new Map();
   installNativeRememberedOriginsMock.mockClear();
   removePairedAssistantFromLockfileMock.mockClear();
   removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
     ok: true,
   }));
   removePlatformAssistantFromLockfileMock.mockClear();
+  removePlatformAssistantFromLockfileMock.mockImplementation(async () => ({
+    ok: true,
+  }));
+  forgetAssistantAvatarMock.mockClear();
   activeAssistantIdValue = null;
   setActiveAssistantIdMock.mockClear();
   refreshPlatformAssistantsIfStaleMock.mockClear();
@@ -756,11 +811,13 @@ describe("SelectAssistantScreen paired assistants", () => {
 
     const radios = screen.getAllByRole("radio");
     expect(
-      radios.find((r) => r.textContent?.includes("Office Mac"))
+      radios
+        .find((r) => r.textContent?.includes("Office Mac"))
         ?.getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      radios.find((r) => r.textContent?.includes("Second Mac"))
+      radios
+        .find((r) => r.textContent?.includes("Second Mac"))
         ?.getAttribute("aria-checked"),
     ).toBe("false");
   });
@@ -807,39 +864,37 @@ describe("SelectAssistantScreen paired assistants", () => {
     expect(screen.queryByText("Connect dialog open")).toBeNull();
   });
 
-  test("a connect deep link parked in the store opens the dialog on mount with the bundle prefilled", () => {
-    // What `useGlobalDeepLinkConsumer` does for a `<scheme>://connect?bundle=`
-    // link before navigating here.
+  test("a connect deep link parked in the store opens the dialog on mount with the address prefilled", () => {
+    // What `useGlobalDeepLinkConsumer` does for a `<scheme>://connect` link
+    // carrying a pairing address before navigating here.
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
     expect(screen.getByText("Connect dialog open")).toBeTruthy();
-    expect(screen.getByText("bundle:eyJnYXRld2F5")).toBeTruthy();
+    expect(screen.getByText("address:https://gw.example.com")).toBeTruthy();
   });
 
-  test("a bundle-less connect deep link opens the dialog with its guidance copy", () => {
-    useConnectDialogStore.getState().openConnectDialog({
-      guidanceMessage: "Run vellum pair on the assistant's machine.",
-    });
+  test("an address-less connect deep link opens the dialog with its guidance kind", () => {
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog({ guidanceKind: "legacy" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
-    expect(
-      screen.getByText("Run vellum pair on the assistant's machine."),
-    ).toBeTruthy();
+    expect(screen.getByText("guidance:legacy")).toBeTruthy();
   });
 
   test("closing the dialog clears the parked deep-link payload", () => {
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -849,13 +904,13 @@ describe("SelectAssistantScreen paired assistants", () => {
 
     expect(screen.queryByText("Connect dialog open")).toBeNull();
     expect(useConnectDialogStore.getState().open).toBe(false);
-    expect(useConnectDialogStore.getState().initialBundle).toBeNull();
+    expect(useConnectDialogStore.getState().initialAddress).toBeNull();
   });
 
   test("a manual open after a deep-link close starts empty", () => {
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -865,13 +920,13 @@ describe("SelectAssistantScreen paired assistants", () => {
     fireEvent.click(screen.getByText("Connect a remote assistant"));
 
     expect(screen.getByText("Connect dialog open")).toBeTruthy();
-    expect(screen.queryByText("bundle:eyJnYXRld2F5")).toBeNull();
+    expect(screen.queryByText("address:https://gw.example.com")).toBeNull();
   });
 
   test("a parked connect deep link suppresses the sole-assistant auto-skip", async () => {
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant()];
 
@@ -919,7 +974,7 @@ describe("SelectAssistantScreen paired assistants", () => {
     act(() => {
       useConnectDialogStore
         .getState()
-        .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+        .openConnectDialog({ initialAddress: "https://gw.example.com" });
       useConnectDialogStore.getState().markDeepLinkDrainSettled();
     });
 
@@ -967,36 +1022,57 @@ describe("SelectAssistantScreen paired assistants", () => {
     );
     expect(removePairedAssistantFromLockfileMock).not.toHaveBeenCalled();
   });
+
+  test("a successful platform removal forgets the assistant's avatar", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(forgetAssistantAvatarMock).toHaveBeenCalledWith(
+        expect.anything(),
+        PLATFORM_ID,
+      ),
+    );
+  });
+
+  test("a failed platform removal leaves the avatar caches alone", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePlatformAssistant()];
+    removePlatformAssistantFromLockfileMock.mockImplementation(async () => ({
+      ok: false,
+      error: "nope",
+    }));
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removePlatformAssistantFromLockfileMock).toHaveBeenCalled(),
+    );
+    expect(forgetAssistantAvatarMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("SelectAssistantScreen remembered origins", () => {
-  test("origin cards render from the store when the assistant-switcher flag is on", () => {
-    assistantSwitcherValue = true;
+  test("origin cards render from the store", () => {
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
     expect(screen.getByText("Home Server")).toBeTruthy();
-    expect(
-      screen.getByText("Remote · assistant.example.com"),
-    ).toBeTruthy();
+    expect(screen.getByText("Remote · assistant.example.com")).toBeTruthy();
     expect(hydrateOriginsMock).toHaveBeenCalled();
   });
 
-  test("no origin UI renders with the flag off, even with stored origins", () => {
-    originsValue = [makeOrigin()];
-    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
-
-    render(<SelectAssistantScreen />);
-
-    expect(screen.queryByText("Home Server")).toBeNull();
-    expect(screen.queryByText(/assistant\.example\.com/)).toBeNull();
-    expect(hydrateOriginsMock).not.toHaveBeenCalled();
-  });
-
   test("an unnamed origin falls back to its hostname as the title", () => {
-    assistantSwitcherValue = true;
     originsValue = [makeOrigin({ name: undefined })];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1006,7 +1082,6 @@ describe("SelectAssistantScreen remembered origins", () => {
   });
 
   test("Continue on a selected origin card performs the origin switch", async () => {
-    assistantSwitcherValue = true;
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1025,16 +1100,13 @@ describe("SelectAssistantScreen remembered origins", () => {
   });
 
   test("the current-origin card shows Current and Continue stays in-app", async () => {
-    assistantSwitcherValue = true;
     currentOriginUrl = "https://assistant.example.com";
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
-    expect(
-      screen.getByText("Current · assistant.example.com"),
-    ).toBeTruthy();
+    expect(screen.getByText("Current · assistant.example.com")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Home Server"));
     fireEvent.click(screen.getByText("Continue"));
@@ -1050,7 +1122,6 @@ describe("SelectAssistantScreen remembered origins", () => {
   test("the current-origin card offers no remove menu on a native shell", () => {
     // A native shell always lists the origin it serves, and forgetting that
     // one relocates the app, which the removal copy promises it will not do.
-    assistantSwitcherValue = true;
     isNativeMobileValue = true;
     currentOriginUrl = "https://assistant.example.com";
     originsValue = [makeOrigin()];
@@ -1064,7 +1135,6 @@ describe("SelectAssistantScreen remembered origins", () => {
   test("the current-origin card keeps its remove menu in a browser", () => {
     // The browser list is local and inert: forgetting the entry cannot move
     // the page, so the user keeps the affordance.
-    assistantSwitcherValue = true;
     currentOriginUrl = "https://assistant.example.com";
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
@@ -1075,7 +1145,6 @@ describe("SelectAssistantScreen remembered origins", () => {
   });
 
   test("removing an origin shows the origin copy and forgets the entry", async () => {
-    assistantSwitcherValue = true;
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1098,7 +1167,6 @@ describe("SelectAssistantScreen remembered origins", () => {
   });
 
   test("a persistence failure keeps the dialog open with an error", async () => {
-    assistantSwitcherValue = true;
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
     // The store's removeOrigin resolves silently on failure and leaves the
@@ -1118,8 +1186,7 @@ describe("SelectAssistantScreen remembered origins", () => {
     );
   });
 
-  test("a flagged origin suppresses the sole-assistant auto-skip", async () => {
-    assistantSwitcherValue = true;
+  test("a remembered origin suppresses the sole-assistant auto-skip", async () => {
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant()];
 
@@ -1132,19 +1199,7 @@ describe("SelectAssistantScreen remembered origins", () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  test("with the flag off, stored origins leave the auto-skip untouched", async () => {
-    originsValue = [makeOrigin()];
-    assistantsValue = [makePairedAssistant()];
-
-    render(<SelectAssistantScreen />);
-
-    await waitFor(() =>
-      expect(connectPairedAssistantMock).toHaveBeenCalledWith(PAIRED_ID),
-    );
-  });
-
-  test("auto-skip holds until the origins store hydrates when the flag is on", async () => {
-    assistantSwitcherValue = true;
+  test("auto-skip holds until the origins store hydrates", async () => {
     originsHydratedValue = false;
     originsValue = [];
     assistantsValue = [makePairedAssistant()];
@@ -1156,34 +1211,10 @@ describe("SelectAssistantScreen remembered origins", () => {
     );
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
   });
-
-  test("auto-skip holds until the feature flags hydrate", async () => {
-    // The flag store boots to the registry default (off), so a targeted `on`
-    // lands after mount; skipping before then would strand this device's
-    // remembered origins behind an auto-connect.
-    flagsHydratedValue = false;
-    assistantsValue = [makePairedAssistant()];
-
-    const { rerender } = render(<SelectAssistantScreen />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
-    );
-    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
-
-    flagsHydratedValue = true;
-    assistantSwitcherValue = true;
-    originsValue = [makeOrigin()];
-    rerender(<SelectAssistantScreen />);
-
-    await waitFor(() => expect(screen.getByText("Home Server")).toBeTruthy());
-    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("SelectAssistantScreen native mobile", () => {
-  test("the flag-gated mount installs the native origins provider", () => {
-    assistantSwitcherValue = true;
+  test("mount installs the native origins provider", () => {
     assistantsValue = [makePairedAssistant()];
 
     render(<SelectAssistantScreen />);
@@ -1191,16 +1222,7 @@ describe("SelectAssistantScreen native mobile", () => {
     expect(installNativeRememberedOriginsMock).toHaveBeenCalled();
   });
 
-  test("with the flag off nothing reaches the native bridge", () => {
-    assistantsValue = [makePairedAssistant()];
-
-    render(<SelectAssistantScreen />);
-
-    expect(installNativeRememberedOriginsMock).not.toHaveBeenCalled();
-  });
-
   test("a shell serving a self-hosted origin offers a Vellum Cloud card", async () => {
-    assistantSwitcherValue = true;
     isNativeMobileValue = true;
     nativeCloudOriginValue = BAKED_CLOUD_URL;
     assistantsValue = [];
@@ -1221,7 +1243,6 @@ describe("SelectAssistantScreen native mobile", () => {
   });
 
   test("a rejected cloud switch navigates to the baked url as-is", async () => {
-    assistantSwitcherValue = true;
     isNativeMobileValue = true;
     // The shell's baked `server.url` already carries the hub's `/assistant`
     // root, so the fallback must not append the route a second time.
@@ -1256,7 +1277,6 @@ describe("SelectAssistantScreen native mobile", () => {
   });
 
   test("an origins-only chooser defaults its selection so Continue can act", async () => {
-    assistantSwitcherValue = true;
     isNativeMobileValue = true;
     nativeCloudOriginValue = BAKED_CLOUD_URL;
     originsValue = [makeOrigin()];
@@ -1273,9 +1293,9 @@ describe("SelectAssistantScreen native mobile", () => {
           ?.getAttribute("aria-checked"),
       ).toBe("true"),
     );
-    expect(
-      (screen.getByText("Continue") as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
 
     fireEvent.click(screen.getByText("Continue"));
 
@@ -1283,7 +1303,6 @@ describe("SelectAssistantScreen native mobile", () => {
   });
 
   test("with only the cloud card the selection defaults to it", async () => {
-    assistantSwitcherValue = true;
     isNativeMobileValue = true;
     nativeCloudOriginValue = BAKED_CLOUD_URL;
     assistantsValue = [];
@@ -1294,9 +1313,9 @@ describe("SelectAssistantScreen native mobile", () => {
     // The default selection commits in an effect after the card renders, so
     // clicking on render alone hits a disabled Continue and does nothing.
     await waitFor(() =>
-      expect(
-        (screen.getByText("Continue") as HTMLButtonElement).disabled,
-      ).toBe(false),
+      expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
     );
     fireEvent.click(screen.getByText("Continue"));
 
@@ -1306,7 +1325,6 @@ describe("SelectAssistantScreen native mobile", () => {
   });
 
   test("no Vellum Cloud card when the shell already serves the baked origin", async () => {
-    assistantSwitcherValue = true;
     isNativeMobileValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1319,7 +1337,6 @@ describe("SelectAssistantScreen native mobile", () => {
   });
 
   test("no Vellum Cloud card on a browser surface", async () => {
-    assistantSwitcherValue = true;
     nativeCloudOriginValue = BAKED_CLOUD_URL;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1333,14 +1350,13 @@ describe("SelectAssistantScreen native mobile", () => {
 });
 
 describe("SelectAssistantScreen add-remote-assistant affordance", () => {
-  test("renders on hostless surfaces with the flag on and opens the dialog", () => {
-    assistantSwitcherValue = true;
+  test("renders on hostless surfaces and opens the dialog", () => {
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
     expect(screen.queryByText("Add origin dialog open")).toBeNull();
-    // The local bundle-paste affordance needs a local-mode host.
+    // The local connect affordance needs a local-mode host.
     expect(screen.queryByText("Connect a remote assistant")).toBeNull();
 
     fireEvent.click(screen.getByText("Add a remote assistant"));
@@ -1349,7 +1365,6 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
   });
 
   test("renders on the platform hub", () => {
-    assistantSwitcherValue = true;
     isLocalClientValue = false;
     hasPlatformSessionValue = true;
     assistantsValue = [makePlatformAssistant()];
@@ -1359,8 +1374,7 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     expect(screen.getByText("Add a remote assistant")).toBeTruthy();
   });
 
-  test("is hidden where a local-mode host offers the bundle-paste connect instead", () => {
-    assistantSwitcherValue = true;
+  test("is hidden where a local-mode host offers the pairing connect instead", () => {
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1370,26 +1384,7 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     expect(screen.getByText("Connect a remote assistant")).toBeTruthy();
   });
 
-  test("is hidden with the flag off", () => {
-    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
-
-    render(<SelectAssistantScreen />);
-
-    expect(screen.queryByText("Add a remote assistant")).toBeNull();
-  });
-
-  test("is hidden when web-remote-ingress is off", () => {
-    assistantSwitcherValue = true;
-    webRemoteIngressValue = false;
-    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
-
-    render(<SelectAssistantScreen />);
-
-    expect(screen.queryByText("Add a remote assistant")).toBeNull();
-  });
-
   test("an added origin closes the dialog and switches to it", async () => {
-    assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
@@ -1400,13 +1395,29 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     await waitFor(() =>
       expect(switchToOriginMock).toHaveBeenCalledWith(
         expect.objectContaining({ url: "https://added.example/assistant-1" }),
+        undefined,
       ),
     );
     expect(screen.queryByText("Add origin dialog open")).toBeNull();
   });
 
+  test("a pasted pairing link carries its device code into the switch", async () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Add a remote assistant"));
+    fireEvent.click(screen.getByText("Simulate paired origin add"));
+
+    await waitFor(() =>
+      expect(switchToOriginMock).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "https://added.example/assistant-1" }),
+        "DEVICE-CODE-1",
+      ),
+    );
+  });
+
   test("closing the dialog leaves the chooser untouched", () => {
-    assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
@@ -1427,7 +1438,6 @@ describe("SelectAssistantScreen register handoff", () => {
   }
 
   test("a valid register param records the origin with its label and strips the params through the router", async () => {
-    assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
     searchParams = new URLSearchParams(
       "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab&keep=1",
@@ -1454,7 +1464,6 @@ describe("SelectAssistantScreen register handoff", () => {
   });
 
   test("a failed add keeps the register params for a retry", async () => {
-    assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
     searchParams = new URLSearchParams(
       "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
@@ -1470,7 +1479,6 @@ describe("SelectAssistantScreen register handoff", () => {
   });
 
   test("a name-less register param records the origin without a label", async () => {
-    assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
     searchParams = new URLSearchParams(
       "register=https%3A%2F%2Fhost.example%2Fassistant-1",
@@ -1493,7 +1501,6 @@ describe("SelectAssistantScreen register handoff", () => {
   ])(
     "an invalid register value is ignored without error UI: %s",
     async (value) => {
-      assistantSwitcherValue = true;
       assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
       searchParams = new URLSearchParams([["register", value]]);
 
@@ -1509,54 +1516,16 @@ describe("SelectAssistantScreen register handoff", () => {
       expect(strippedQuery()).toBe("");
     },
   );
-
-  test("with the flag off the register params are ignored and left untouched", async () => {
-    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
-    searchParams = new URLSearchParams(
-      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
-    );
-
-    render(<SelectAssistantScreen />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
-    );
-    expect(addOriginMock).not.toHaveBeenCalled();
-    expect(setSearchParamsMock).not.toHaveBeenCalled();
-  });
 });
 
-describe("SelectAssistantScreen platform-mode gate", () => {
+describe("SelectAssistantScreen platform hub", () => {
   beforeEach(() => {
     isLocalClientValue = false;
     hasPlatformSessionValue = true;
     assistantsValue = [makePlatformAssistant()];
   });
 
-  test("holds on the connecting state until the flag hydrates", () => {
-    flagsHydratedValue = false;
-
-    render(<SelectAssistantScreen />);
-
-    expect(screen.getByText("Connecting to your assistant…")).toBeTruthy();
-    expect(screen.queryByText("Choose an Assistant")).toBeNull();
-    expect(navigateMock).not.toHaveBeenCalled();
-  });
-
-  test("redirects to /assistant once hydration lands with the flag off", async () => {
-    render(<SelectAssistantScreen />);
-
-    await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith("/assistant", {
-        replace: true,
-      }),
-    );
-    expect(screen.queryByText("Choose an Assistant")).toBeNull();
-  });
-
-  test("with the flag on the hub renders the chooser and never auto-connects", async () => {
-    assistantSwitcherValue = true;
-
+  test("the hub renders the chooser and never auto-connects", async () => {
     render(<SelectAssistantScreen />);
 
     await waitFor(() =>
@@ -1567,18 +1536,16 @@ describe("SelectAssistantScreen platform-mode gate", () => {
   });
 
   test("Back leaves for /assistant instead of the local-only welcome", async () => {
-    assistantSwitcherValue = true;
-
     render(<SelectAssistantScreen />);
 
     fireEvent.click(screen.getByText("Back"));
 
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/assistant"));
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/assistant"),
+    );
   });
 
   test("hides the local-only create action on non-local clients", async () => {
-    assistantSwitcherValue = true;
-
     render(<SelectAssistantScreen />);
 
     await waitFor(() =>
@@ -1605,7 +1572,6 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
   beforeEach(() => {
     isLocalClientValue = false;
     hasPlatformSessionValue = true;
-    assistantSwitcherValue = true;
   });
 
   test("hides a local registration with no ingress", async () => {
@@ -1681,7 +1647,6 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
   test("a local entry on a local client still connects through the local path", async () => {
     isLocalClientValue = true;
     hasPlatformSessionValue = false;
-    assistantSwitcherValue = false;
     assistantsValue = [
       makeLocalRegistration({ id: "asst-local", cloud: "local" }),
       makePlatformAssistant(),
@@ -1710,6 +1675,43 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
     await waitFor(() =>
       expect(refreshPlatformAssistantsIfStaleMock).toHaveBeenCalledTimes(1),
     );
+  });
+});
+
+describe("SelectAssistantScreen assistant avatars", () => {
+  test("a row with avatar data renders the chip in place of the glyph", () => {
+    assistantsValue = [makePlatformAssistant()];
+    rowAvatars.set(PLATFORM_ID, {
+      traits: { bodyShape: "round", eyeStyle: "dot", color: "blue" },
+      imageUrl: null,
+    });
+    render(<SelectAssistantScreen />);
+    expect(screen.getByTestId("chooser-avatar-chip")).toBeTruthy();
+    expect(document.querySelector("svg.lucide-cloud")).toBeNull();
+  });
+
+  test("an image-backed row's radio is named by its title, not the alt", () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    rowAvatars.set(PAIRED_ID, {
+      traits: null,
+      imageUrl: "https://example.test/a.png",
+    });
+    render(<SelectAssistantScreen />);
+    expect(screen.getByRole("radio", { name: /^Office Mac/ })).toBeTruthy();
+    expect(
+      screen.queryByRole("radio", { name: /Assistant avatar/ }),
+    ).toBeNull();
+    expect(screen.getByTestId("chooser-avatar-chip").getAttribute("alt")).toBe(
+      "",
+    );
+  });
+
+  test("a row with no avatar keeps its glyph", () => {
+    assistantsValue = [makePairedAssistant(), makeLocalAssistant()];
+    render(<SelectAssistantScreen />);
+    expect(screen.queryByTestId("chooser-avatar-chip")).toBeNull();
+    expect(document.querySelector("svg.lucide-link-2")).not.toBeNull();
+    expect(document.querySelector("svg.lucide-laptop")).not.toBeNull();
   });
 });
 

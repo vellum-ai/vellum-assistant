@@ -20,7 +20,13 @@ Channel inbound turns (Slack/Telegram/etc. — `processChannelMessageInBackgroun
 
 **Invariant:** do NOT "fix" this by routing channel turns through `conversation.enqueueMessage` — the drain has no channel-callback delivery, so the reply would run but never reach the channel. A channel turn that still hits `CONVERSATION_BUSY_MESSAGE` (a non-channel turn raced in after admission) is re-scheduled for the channel-retry sweep via `deferRetryUntilIdle` — never `recordProcessingFailure` (which `classifyError` treats as fatal → dead-letter → silent drop, JARVIS-1346). The sweep is itself busy-aware: it `deferRetryUntilIdle`s a retry whose conversation is mid-turn. Busy deferral must **not** burn the retry budget: `deferRetryUntilIdle` pushes `retryAfter` forward but never increments `processingAttempts` and never dead-letters, so a conversation that stays busy across many sweeps re-defers indefinitely rather than dropping the reply at `RETRY_MAX_ATTEMPTS` (~10 min). Crash durability: while the in-memory admission waits, the inbound row sits `pending`; a crash mid-wait is recovered at startup by `recoverOrphanedChannelEvents` (`monitoring/recovery/`), which promotes boot-fenced orphan `pending` rows onto the sweep's `failed` retry path.
 
+**Delivery has its own crash window, and its own recovery.** A turn is marked `processing_status = 'processed'` as soon as it persists, while its reply delivery finalizes afterwards in memory, so a crash in between strands the row `processed` + `delivery_status = 'pending'`. Neither existing path recovers that: the sweep selects `delivery_status = 'failed'`, and the orphan step above selects `processing_status = 'pending'`. `recoverStrandedDeliveryEvents` (`monitoring/recovery/`) closes it, promoting boot-fenced rows whose stored payload names both a `replyCallbackUrl` and a `replyMessageId` onto the delivery-retry arm. That payload requirement is load-bearing, not a cheap filter: it keeps the step off the intercept-settled rows (reactions, edits, admission denials) which legitimately end `processed` + `pending` with no reply owed. The corollary for new code: any path that finishes a channel turn WITHOUT delivering must settle its own `deliveryStatus` rather than leaving it `pending`, or this step will re-post a reply that was never owed. The deduplicated-ingress skip in `background-dispatch.ts` calls `markDeliveryDelivered` for exactly that reason.
+
 **Faithful replay:** the sweep reconstructs a turn from the stored raw payload, so it must produce the SAME turn the live ingress path would have run — not an impoverished one. Two invariants, each learned from a live-path hardening change that originally skipped the sweep: (1) **content fencing** — non-guardian content is wrapped in `<external_content>` via the shared `prepareChannelInboundContent` (`routes/inbound-stages/inbound-content-prep.ts`), used by BOTH `inbound-message-handler.ts` and the sweep; replaying raw, unwrapped text would drop the untrusted-content boundary the model relies on (regression window: #30785 wrapped only the live path). (2) **idempotency key + slackMeta** — the live turn captures its `slackInbound` onto the stored payload (`storeInboundSlackMetadata`) and the sweep replays that EXACT object (`parseStoredSlackInbound`), so `deriveIngressIdempotencyKey` yields a byte-identical `client_message_id` (a replay of an already-persisted turn dedups the agent loop) and full slackMeta survives the replay. Dedup is not enough on its own: on a dedup hit the sweep gates `finalizeEventDelivery` on `isDeduplicatedDeliveryOwnedBySibling` — skipping delivery when a sibling event already owns it, so it never double-posts — and, when the deduped turn crashed before writing any reply, completes it with a fresh run rather than delivering nothing. A `buildReplaySlackInbound` fallback reconstructs the key-bearing fields for payloads stored before the capture existed (regression window: #38378 added the key to the live path only, though the sweep IS the "Slack retry" path it targeted). Any future hardening applied at channel ingress must be mirrored in the sweep, or a retried/recovered turn silently loses it.
+
+**Reaction wake turns are the deliberate exception to the sweep's processing lane.** A reaction an admitted actor ADDS to the assistant's own post dispatches a discretion turn through `processChannelMessageInBackground` (`inbound-stages/reaction-intercept.ts`, `buildReactionWakeTurn`): the turn's persisted user row carries the reaction envelope through the ordinary ingress carriers (`channelInbound` for every channel whose lane accepts it, the transitional `slackReactionRowMeta` for Slack), so the row reads as a reaction everywhere, and its content is the same line the reload renderer produces. The reply's destination is resolved from the target row's own thread rather than the reaction event's callback, which names the reacted message as its thread.
+
+These turns are at-most-once BY DESIGN: the sweep's processing lane rebuilds a turn from its stored payload as a plain message, which would corrupt a reaction into a fabricated user message. So the event is marked processed up front, and the payload it stores is delivery-only (callback, chat, assistant id): enough for the delivery lane to re-post a reply whose first delivery failed, and carrying no content or channel, so no processing replay can fabricate a turn from it. A post-admission busy loss degrades through the dispatch's `onTurnLostToBusy` hook to the passive transcript row instead of the sweep. Do not "fix" a lost reaction turn by widening that payload into a replayable one - teach the sweep to rebuild reaction turns first.
 
 ### SSE backpressure shedding must be observable
 
@@ -41,9 +47,8 @@ Approvals are **orthogonal to message sending**. The assistant asks for approval
 
 - **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
 - **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
-  - `POST /v1/confirm` — `{ requestId, decision, selectedPattern?, selectedScope? }`. Valid decisions: `"allow"`, `"allow_10m"`, `"allow_conversation"`, `"deny"`, `"always_allow"`, `"always_deny"`. For persistent decisions (`always_allow`, `always_deny`), `selectedPattern` and `selectedScope` are validated against the server-provided allowlist/scope options from the original confirmation request before trust rules are persisted.
+  - `POST /v1/confirm` — `{ requestId, decision }`. Valid decisions: `"allow"`, `"deny"`. The confirm route resolves the pending interaction and nothing else: durable Always-Allow rules are minted through the gateway trust-rules API (`POST /v1/trust-rules`, also served assistant-scoped), which carries the rule's tool, pattern, and risk. The daemon's own `trust-rules` surface is read-only (`GET /v1/trust-rules` list, `POST /v1/trust-rules/suggest`).
   - `POST /v1/secret` — `{ requestId, value, delivery }`
-  - `POST /v1/trust-rules` — `{ requestId, pattern, scope, decision }`. Validates pattern/scope against server-provided options. Does not resolve the confirmation itself.
 - **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → conversation`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.
 
 Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
@@ -74,6 +79,7 @@ Host CU allows the assistant to proxy computer-use actions (screenshots, mouse/k
 - **Resolution**: Clients execute the CU action on the host and respond via:
   - `POST /v1/host-cu-result` — `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance? }`
 - **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-cu-routes.ts`.
+- **Conversation-agnostic observation**: `observeHostScreen()` in `host-observe.ts` issues a `computer_use_observe` request with no conversation, for callers outside an agent turn (`HostCuProxy` only exists inside one). It takes the initiating actor's principal id and reaches only that actor's own `host_cu` clients: `pickSameUserAutoResolve` picks the default target and `enforceSameActorOrErrorResult` gates an explicitly named one, both before the request is registered or broadcast. Its pending interaction carries no `conversationId`, so `host-cu-routes.ts` hands the raw observation fields straight to the waiting caller instead of routing through a conversation's CU proxy. On the desktop side the ordinary `host_cu` executor services the request.
 
 ### Host browser (desktop proxy CDP execution)
 
@@ -156,11 +162,11 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 **Auto-mode fallback logging**: In auto mode, fallback transitions are logged at `warn` level with structured metadata including the full candidate sequence and per-candidate failure reasons. This ensures fallback events are always observable in production logs.
 
-**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path and macOS SSE bridge path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
+**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. Route-wiring coverage for the macOS fallback path lives in `__tests__/conversation-routes-disk-view.test.ts`, which asserts a macOS turn carries its interface context rather than exercising the backends themselves. Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
 
 ### Interactive requests on channels (approvals, questions)
 
-**The guardian-request pipeline is the canonical rail for anything interactive on a channel** — cards with buttons, request-code replies, emoji reactions, typed answers. The end-to-end map (promotion → gateway `guardian_requests` row → notification broadcaster → per-channel adapters → reply router → decision primitive → per-kind resolver) lives in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). New interactive features extend that pipeline's seams; do NOT add per-feature watchers, callback schemes, or inbound intercepts.
+**The guardian-request pipeline is the canonical rail for anything interactive on a channel**: cards with buttons, request-code replies, typed answers. The end-to-end map (promotion → gateway `guardian_requests` row → notification broadcaster → per-channel adapters → reply router → decision primitive → per-kind resolver) lives in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). New interactive features extend that pipeline's seams; do NOT add per-feature watchers, callback schemes, or inbound intercepts.
 
 Identifiers and plumbing notes:
 
@@ -190,18 +196,41 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
 - **`slackMeta`** is the per-row key describing what a row is in its Slack
   conversation: `channelTs` for the row's own id, `threadTs` for its thread,
   `reaction.targetChannelTs` for the message a reaction was attached to, plus
-  Slack's own file markers and timezone labels. Every channel-path reader goes
-  through it today.
+  Slack's own file markers and timezone labels. Most channel-path readers
+  still go through it directly; the lookups in `persistence/delivery-crud.ts`
+  read through `readProviderMetadata` instead, which serves this envelope and
+  the neutral shape below from one call.
 - **`providerMeta`** is the channel-neutral counterpart of that key
-  (`messaging/provider-message-metadata.ts`): `conversationExternalId`,
-  `messageId`, `threadId`, `actorExternalId`, `eventKind` and
-  `reaction.targetMessageId`, deliberately the same vocabulary the inbound
-  wire uses in `InboundEventBase`, so a channel that can describe itself at
-  ingress can describe its stored rows without a translation of its own.
-  Writable by any channel, including one this repo has no code for. `readProviderMetadata` reads it and maps `slackMeta` onto it.
-  **Nothing writes or reads it yet**; it is the home a new channel should use
-  rather than inventing a sixth key, and existing readers move onto it as
-  channels adopt it.
+  (`messaging/provider-message-metadata.ts`): `source`,
+  `conversationExternalId`, `messageId`, `threadId`, `actorExternalId`,
+  `eventKind`, the `reaction` sub-key, and the `editedAt` / `deletedAt`
+  marks. Deliberately the same vocabulary the inbound wire uses in
+  `InboundEventBase`, so a channel that can describe itself at ingress can
+  describe its stored rows without a translation of its own. Writable by any
+  channel, including one this repo has no code for, which is why a new
+  channel belongs here rather than in a sixth key of its own.
+
+  Every channel except Slack writes it: a reaction row carries the whole
+  shape (`inbound-stages/reaction-intercept.ts`), an edit or a delete
+  stamps `editedAt` / `deletedAt` onto whatever the row already said about
+  itself through `mergeProviderMessageMetadata`
+  (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`), and an
+  outbound assistant reply is stamped with a partial envelope at reserve time
+  (`buildAssistantChannelMetadata`) whose `messageId` (and, for a reply
+  split into several posts, `additionalMessageIds`) the post-send
+  reconciliation in `channel-reply-delivery.ts` back-fills from the
+  transport's delivery results. The same reconciliation writes each id into
+  the `channel_outbound_posts` index (the outbound counterpart of
+  `channel_inbound_events`' provider-id resolution), which is what lets a
+  later reaction or delete naming the assistant's own post resolve back to
+  its row exactly; the envelope stays the row's self-description, and the
+  capped envelope scan in `findMessageByProviderMessageId` survives only as
+  the transitional fallback for rows reconciled before the table. Slack
+  keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
+  onto this shape on read, so the channel-agnostic readers in
+  `persistence/delivery-crud.ts` (thread evidence, and finding the
+  conversation that holds a given provider message id) serve both without a
+  per-channel branch.
 
 ### Channel verification: gateway-owned
 

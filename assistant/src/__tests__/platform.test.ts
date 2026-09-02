@@ -1,10 +1,11 @@
 import { existsSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { join, win32 } from "node:path";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 
 import {
   ensureDataDir,
+  formatHomeRelativePath,
   getDataDir,
   getDbPath,
   getHistoryPath,
@@ -23,6 +24,21 @@ import {
 } from "../util/platform.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+
+// This file characterizes path resolution itself (including the ~/.vellum
+// fallback and literal override paths) without reading or writing those
+// locations, so the live-workspace guard is deliberately bypassed.
+const originalAllowRealWorkspace =
+  process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
+process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS = "1";
+afterAll(() => {
+  if (originalAllowRealWorkspace === undefined) {
+    delete process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
+  } else {
+    process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS =
+      originalAllowRealWorkspace;
+  }
+});
 const originalVellumEnvironment = process.env.VELLUM_ENVIRONMENT;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
@@ -49,6 +65,23 @@ afterEach(() => {
 // Workspace helpers resolve under VELLUM_WORKSPACE_DIR when set,
 // otherwise under ~/.vellum/workspace.
 describe("path characterization", () => {
+  test("formats Windows workspace paths relative to the home directory", () => {
+    expect(
+      formatHomeRelativePath(
+        "C:\\Users\\Alice\\.vellum\\workspace",
+        "C:\\Users\\Alice",
+        win32,
+      ),
+    ).toBe("~\\.vellum\\workspace");
+    expect(
+      formatHomeRelativePath(
+        "D:\\Vellum\\workspace",
+        "C:\\Users\\Alice",
+        win32,
+      ),
+    ).toBe("D:\\Vellum\\workspace");
+  });
+
   test("all path helpers resolve to expected locations", () => {
     // Without VELLUM_WORKSPACE_DIR override, workspace is under ~/.vellum
     delete process.env.VELLUM_WORKSPACE_DIR;

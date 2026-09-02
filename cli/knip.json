@@ -2,13 +2,13 @@
   "entry": [
     "src/**/*.test.ts",
     "src/**/__tests__/**/*.ts",
-    "src/adapters/openclaw-http-server.ts",
     "src/lib/version-compat.ts",
     "src/lib/platform-releases.ts",
     "src/lib/cli-error.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx"],
   "ignoreDependencies": [
+    "@vellumai/avatar-manifest",
     "@vellumai/environments",
     "@vellumai/ipc-server-utils",
     "@vellumai/local-mode",

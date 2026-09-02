@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.11.4",
+  "version": "0.11.8",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -43,6 +43,8 @@
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
     "@slack/types": "2.22.0",
+    "@vellumai/avatar-catalog": "workspace:*",
+    "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/credential-storage": "workspace:*",
     "@vellumai/egress-proxy": "workspace:*",
@@ -72,6 +74,7 @@
     "remark-parse": "11.0.0",
     "rrule": "2.8.1",
     "semver": "7.8.0",
+    "sharp": "0.34.5",
     "stemmer": "2.0.1",
     "tar-stream": "3.1.7",
     "tldts": "7.0.25",
@@ -85,6 +88,8 @@
     "node": ">=20.12.0"
   },
   "bundledDependencies": [
+    "@vellumai/avatar-catalog",
+    "@vellumai/avatar-manifest",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/service-contracts",

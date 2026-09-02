@@ -103,7 +103,10 @@ function parseCron(time: string): string {
 // interpreted as shell syntax. Never reintroduce a string/shell form here.
 function run(file: string, args: string[]): string {
   try {
-    return execFileSync(file, args, { encoding: "utf-8" }).trim();
+    return execFileSync(file, args, {
+      windowsHide: true,
+      encoding: "utf-8",
+    }).trim();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     const display = [file, ...args].join(" ");

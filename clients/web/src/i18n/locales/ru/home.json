@@ -1,0 +1,73 @@
+{
+  "actions": {
+    "markAsRead": "Отметить как прочитанное",
+    "markAsUnread": "Отметить как непрочитанное",
+    "restore": "Восстановить",
+    "dismiss": "Скрыть",
+    "goToThread": "Перейти к ветке",
+    "goToConversation": "Перейти к диалогу",
+    "viewSchedule": "Открыть расписание",
+    "viewSkill": "Открыть навык",
+    "markAllAsRead": "Отметить всё как прочитанное",
+    "clearAll": "Очистить всё"
+  },
+  "category": {
+    "security": "Безопасность",
+    "email": "Почта",
+    "scheduling": "Расписания",
+    "background": "Фон",
+    "system": "Система",
+    "guardianAction": "Требуется действие опекуна",
+    "guardianQuestion": "Вопрос опекуну",
+    "guardianRequest": "Запрос опекуна"
+  },
+  "homeRecapRow": {
+    "actionsTitle": "Действия по обновлению"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "Не хватает разрешений",
+    "status": {
+      "revoked": "Отозвано",
+      "expired": "Истекло",
+      "missingScopes": "Не хватает разрешений",
+      "missingToken": "Нет токена",
+      "pingFailed": "Ошибка проверки",
+      "unreachable": "Недоступно"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "Уведомления",
+    "ariaLabelUnread": "Уведомления (непрочитанные)",
+    "heading": "Уведомления",
+    "loadFailed": "Не удалось загрузить уведомления.",
+    "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
+  },
+  "notificationsBellDetail": {
+    "back": "Назад к уведомлениям"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "Одобрить",
+    "reject": "Отклонить",
+    "answerHint": "Перейдите к диалогу, чтобы ответить на этот вопрос.",
+    "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
+    "receipt": {
+      "approved": "Запрос одобрен",
+      "rejected": "Запрос отклонён",
+      "expired": "Срок запроса истёк",
+      "superseded": "Запрос заменён",
+      "leftUnverified": "Осталось непроверенным",
+      "cancelled": "Запрос отменён",
+      "alreadyResolved": "Уже решено"
+    },
+    "viewSourceThread": "Открыть исходный тред",
+    "toolRequested": "Запрошен запуск <code>{toolName}</code>",
+    "toolRequesting": "Запрашивает запуск <code>{toolName}</code>"
+  },
+  "notificationsBellEmptyState": {
+    "title": "Пока ничего.",
+    "briefingRecipeTitle": "Настроить утреннюю сводку",
+    "briefingRecipeMeta": "Ежедневно",
+    "briefingRecipeDescription": "Первое уведомление придёт завтра утром.",
+    "briefingRecipePrompt": "Помоги настроить утреннюю сводку. Прежде чем что-то создавать, проверь, какие мои аккаунты подключены, а потом предложи несколько вариантов того, что в неё включить и в какое время её присылать. Когда я выберу, настрой её."
+  }
+}

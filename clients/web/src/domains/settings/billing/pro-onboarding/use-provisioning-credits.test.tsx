@@ -13,6 +13,7 @@ import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tans
 import type {
   CreditTierEnum,
   PlanListResponse,
+  ProPlan,
 } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 
@@ -31,7 +32,12 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 const { useProvisioningCredits, useResizeCreditsChange } =
   await import("./use-provisioning-credits");
 
-/** A pro-plan catalog with a `credits_50` tier and a Mighty package on it. */
+/**
+ * A pro-plan catalog with a `credits_50` tier and a Mighty package on it. The
+ * tier label is a usage bundle's Stripe product name, amount-free like the
+ * real catalog's, and deliberately distinct from the package's `usage_label`
+ * so the label-precedence assertions can tell the two apart.
+ */
 function plansResponse(): PlanListResponse {
   return {
     plans: [
@@ -47,7 +53,7 @@ function plansResponse(): PlanListResponse {
         credit_tiers: [
           {
             tier: "credits_50",
-            label: "$50 credits/mo",
+            label: "Mighty Usage Monthly",
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
@@ -66,6 +72,7 @@ function plansResponse(): PlanListResponse {
             machine_size: null,
             storage_gib: 10,
             credits_usd: 50,
+            usage_label: "Mighty Usage",
             include_platform_fee: false,
             base_price_cents: 4000,
             machine_price_cents: 0,
@@ -84,6 +91,7 @@ function plansResponse(): PlanListResponse {
             machine_size: null,
             storage_gib: 10,
             credits_usd: null,
+            usage_label: null,
             include_platform_fee: false,
             base_price_cents: 4000,
             machine_price_cents: 0,
@@ -162,13 +170,17 @@ describe("useProvisioningCredits", () => {
     ).toBeNull();
   });
 
-  test("resolves a package's credits from $0, since the base plan bundles none", () => {
+  test("resolves a package's credits from the no-bundle side, since the base plan bundles none", () => {
     expect(
       renderCredits(
         { kind: "package", packageKey: "mighty", savedAt: 0 },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromLabel: null,
+      // The customer-facing usage_label wins over the tier label.
+      toLabel: "Mighty Usage",
+    });
   });
 
   test("falls back to the package's credit tier when it carries no credits_usd", () => {
@@ -177,7 +189,24 @@ describe("useProvisioningCredits", () => {
         { kind: "package", packageKey: "tierless", savedAt: 0 },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromLabel: null,
+      toLabel: "Mighty Usage Monthly",
+    });
+  });
+
+  test("labels from the package's usage_label when its tier is missing from the catalog", () => {
+    const plans = plansResponse();
+    (plans.plans[0] as ProPlan).credit_tiers = [];
+    expect(
+      renderCredits(
+        { kind: "package", packageKey: "mighty", savedAt: 0 },
+        plans,
+      ),
+    ).toEqual({
+      fromLabel: null,
+      toLabel: "Mighty Usage",
+    });
   });
 
   test("returns null for an unknown package key", () => {
@@ -201,7 +230,10 @@ describe("useProvisioningCredits", () => {
         },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromLabel: null,
+      toLabel: "Mighty Usage Monthly",
+    });
   });
 
   test("returns null for a custom intent without credits", () => {
@@ -235,25 +267,36 @@ describe("useResizeCreditsChange", () => {
   test("resolves both sides from the catalog", () => {
     expect(
       renderChange({ fromTier: null, toTier: "credits_50" }, plansResponse()),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromLabel: null,
+      toLabel: "Mighty Usage Monthly",
+    });
   });
 
-  test("reads a dropped bundle as a move down to $0", () => {
-    // "No extra credits" is a real endpoint of the change, not a missing side.
+  test("reads a dropped bundle as a move down to the no-bundle side", () => {
+    // Dropping the bundle is a real endpoint of the change, not a missing
+    // side.
     expect(
       renderChange({ fromTier: "credits_50", toTier: null }, plansResponse()),
-    ).toEqual({ fromUsd: 50, toUsd: 0 });
+    ).toEqual({
+      fromLabel: "Mighty Usage Monthly",
+      toLabel: null,
+    });
   });
 
   test("reads a held tier the catalog no longer lists off its key", () => {
     // A grandfathered bundle is absent from the offered tiers, so the catalog
-    // can't price it; its key carries the dollars.
+    // can't price it; the amount its key carries keeps the change resolvable.
     expect(
       renderChange(
         { fromTier: "credits_115", toTier: "credits_50" },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 115, toUsd: 50 });
+    ).toEqual({
+      // No catalog entry to word the held tier, so its label side is absent.
+      fromLabel: undefined,
+      toLabel: "Mighty Usage Monthly",
+    });
   });
 
   test("omits the chip when a tier carries no resolvable amount", () => {

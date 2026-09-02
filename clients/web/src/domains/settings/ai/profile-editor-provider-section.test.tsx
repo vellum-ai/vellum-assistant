@@ -47,6 +47,16 @@ function optionLabels(): string[] {
   ).map((o) => o.textContent?.trim() ?? "");
 }
 
+/** The Model field, which is a filter input rather than a button trigger. */
+function modelField(): HTMLInputElement {
+  return screen.getByLabelText("Model") as HTMLInputElement;
+}
+
+/** Focus opens the list, the same way a pointer press on the field does. */
+function openModelList(): void {
+  fireEvent.focus(modelField());
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -87,8 +97,7 @@ describe("ProfileEditorProviderSection with a ChatGPT subscription", () => {
       availableConnectionsForProvider: [SUBSCRIPTION_CONNECTION],
     });
 
-    const modelTrigger = screen.getByLabelText("Model");
-    fireEvent.click(modelTrigger);
+    openModelList();
 
     const labels = optionLabels();
     expect(labels.some((l) => l.includes("GPT-5.6 Terra"))).toBe(true);
@@ -119,9 +128,7 @@ describe("ProfileEditorProviderSection with an openai-compatible connection", ()
     });
 
     expect(onModelChange).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Model").textContent?.trim()).toBe(
-      "gateway-alias",
-    );
+    expect(modelField().value).toBe("gateway-alias");
   });
 
   test("offers the unlisted bound model in the Model dropdown", () => {
@@ -133,7 +140,7 @@ describe("ProfileEditorProviderSection with an openai-compatible connection", ()
       availableConnectionsForProvider: [connection],
     });
 
-    fireEvent.click(screen.getByLabelText("Model"));
+    openModelList();
     expect(optionLabels()).toContain("gateway-alias");
   });
 });

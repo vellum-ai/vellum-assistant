@@ -325,15 +325,23 @@ export function createChannelVerificationSessionProxyHandler(
         secretsInFlight.add(providedIndex);
       }
       try {
-        // Parse the request body for platform + deviceId.
+        // Parse the request body for platform + deviceId, plus the
+        // optional client-reported hostname (the gateway may run in a
+        // separate container or VM from the machine issuing this request).
         let platform: string;
         let deviceId: string;
+        let clientReportedName: string | undefined;
         try {
           const body = (await req.json()) as Record<string, unknown>;
           platform =
             typeof body.platform === "string" ? body.platform.trim() : "";
           deviceId =
             typeof body.deviceId === "string" ? body.deviceId.trim() : "";
+          clientReportedName =
+            typeof body.clientReportedName === "string" &&
+            body.clientReportedName.trim()
+              ? body.clientReportedName.trim()
+              : undefined;
           if (!platform || !deviceId) {
             guardianInitInFlight = false;
             return Response.json(
@@ -346,18 +354,28 @@ export function createChannelVerificationSessionProxyHandler(
           return Response.json({ error: "Invalid JSON body" }, { status: 400 });
         }
 
-        if (platform !== "macos" && platform !== "cli" && platform !== "web") {
+        if (
+          platform !== "macos" &&
+          platform !== "windows" &&
+          platform !== "cli" &&
+          platform !== "web"
+        ) {
           guardianInitInFlight = false;
           return Response.json(
             {
-              error: "Invalid platform. Bootstrap is macOS/CLI/web-only.",
+              error:
+                "Invalid platform. Bootstrap supports macOS, Windows, CLI, and web.",
             },
             { status: 400 },
           );
         }
 
         // Execute the bootstrap directly — no round-trip to the runtime.
-        const result = await bootstrapGuardian({ platform, deviceId });
+        const result = await bootstrapGuardian({
+          platform,
+          deviceId,
+          clientReportedName,
+        });
 
         // Bootstrap succeeded — record consumption and write lock files.
         if (expectedSecrets.length > 0 && providedIndex >= 0) {

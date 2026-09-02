@@ -50,6 +50,18 @@ describe("agent_view", () => {
       "app_context_changed",
     );
   });
+
+  it("subscribes to both directions of a reaction, since both are handled", () => {
+    // The daemon dispatches reactions by `callbackData` prefix and handles
+    // `reaction_removed:` as its own case, persisting the removal so a
+    // transcript shows it. Both directions have to be subscribed for that to
+    // run. Asserted as a pair, because a subscription dropped on one side is
+    // invisible from the handler: the code still reads as working and simply
+    // never receives anything.
+    const events = manifest.settings.event_subscriptions.bot_events;
+    expect(events).toContain("reaction_added");
+    expect(events).toContain("reaction_removed");
+  });
 });
 
 describe("field limits", () => {

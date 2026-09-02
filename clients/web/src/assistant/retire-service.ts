@@ -1,4 +1,7 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import { listAssistants, retireAssistantById } from "@/assistant/api";
+import { forgetAssistantAvatar } from "@/hooks/use-chooser-row-avatar";
 import {
   getLockfile,
   isLocalAssistant,
@@ -9,6 +12,7 @@ import {
 } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
+import { forgetAssistantOnboarded } from "@/domains/onboarding/onboarded-assistant-record";
 import { clearResearchSnapshot } from "@/domains/onboarding/research-onboarding-persistence";
 import { removeLocalSetting } from "@/utils/local-settings";
 import { useAuthStore } from "@/stores/auth-store";
@@ -59,6 +63,7 @@ function getPostRetireRoute(): string {
  * `{ ok: false, error }`.
  */
 export async function retireAssistant(
+  queryClient: QueryClient,
   assistantId: string,
 ): Promise<RetireOutcome> {
   try {
@@ -112,11 +117,14 @@ export async function retireAssistant(
     }
 
     useResolvedAssistantsStore.getState().remove(assistantId);
+    forgetAssistantAvatar(queryClient, assistantId);
     // Retiring ends any in-flight onboarding journey with it: drop the
     // research-onboarding resume snapshot so the next onboarding starts at the
     // form instead of resuming the retired assistant's run deep in the flow
     // (e.g. straight onto the wake gate).
     clearResearchSnapshot(useAuthStore.getState().user?.id ?? null);
+    // The completion record goes with it, so a reused id is never pre-marked.
+    forgetAssistantOnboarded(assistantId);
     // Drop the marketing nav's cached assistant name (same-origin localStorage,
     // written by the platform's `useNavbarAuth`). Otherwise the marketing site
     // keeps optimistically showing "My Assistant" after a retire until its own

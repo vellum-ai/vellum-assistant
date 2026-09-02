@@ -66,9 +66,9 @@ describe("command palette bridge actions", () => {
     };
 
     await dismissCommandPaletteWindow();
-    await selectCommandPaletteCommand({ kind: "home" });
+    await selectCommandPaletteCommand({ kind: "sidebarToggle" });
 
     expect(dismiss).toHaveBeenCalledTimes(1);
-    expect(select).toHaveBeenCalledWith({ kind: "home" });
+    expect(select).toHaveBeenCalledWith({ kind: "sidebarToggle" });
   });
 });

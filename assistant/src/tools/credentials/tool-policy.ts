@@ -5,6 +5,8 @@
  * based on the credential's allowed tools list.
  */
 
+import type { CredentialMetadata } from "./metadata-store.js";
+
 /**
  * Canonical capability key for browser-based credential fills.
  *
@@ -63,4 +65,69 @@ export function isToolAllowed(
   return allowedTools.some(
     (allowed) => resolveCanonical(allowed) === canonical,
   );
+}
+
+/**
+ * Remediation for a credential whose allowed_tools list is empty. Points at
+ * `credentials prompt` (not inline `credentials set`, which agent shells
+ * refuse): the secure prompt re-collects the value and sets allowed_tools.
+ */
+const NO_TOOLS_ALLOWED_REMEDIATION =
+  "No tools are currently allowed - grant access via `assistant credentials prompt --service <service> --field <field> --label <label> --allowed-tools <tools>` (re-collects the value securely and sets allowed_tools).";
+
+/** Denial reason for a tool that is not in a credential's allowed_tools list. */
+export function toolNotAllowedReason(
+  toolName: string,
+  service: string,
+  field: string,
+  allowedTools: string[] | undefined,
+): string {
+  const tools = allowedTools ?? [];
+  return (
+    `Tool "${toolName}" is not allowed to use credential ${service}/${field}. ` +
+    (tools.length === 0
+      ? NO_TOOLS_ALLOWED_REMEDIATION
+      : `Allowed tools: ${tools.join(", ")}.`)
+  );
+}
+
+/**
+ * Evaluate the policy that gates server-side use of a credential.
+ *
+ * Pure: it inspects only the metadata it is handed, performs no store reads,
+ * and has no side effects. Returns the denial reason, or `undefined` when the
+ * tool may read the credential server-side.
+ *
+ * Domain-restricted credentials are scoped to browser fills on those domains,
+ * so they are refused here even when the tool itself is allowed.
+ */
+export function serverUseDenialReason(
+  metadata: CredentialMetadata | undefined,
+  toolName: string,
+  service: string,
+  field: string,
+): string | undefined {
+  if (!metadata) {
+    return `No credential found for ${service}/${field}`;
+  }
+
+  if (!isToolAllowed(toolName, metadata.allowedTools)) {
+    return toolNotAllowedReason(
+      toolName,
+      service,
+      field,
+      metadata.allowedTools,
+    );
+  }
+
+  const serverDomains = metadata.allowedDomains ?? [];
+  if (serverDomains.length > 0) {
+    return (
+      `Credential ${service}/${field} has domain restrictions ` +
+      `(${serverDomains.join(", ")}) and cannot be used server-side. ` +
+      "Remove domain restrictions or use a separate credential without domain policy."
+    );
+  }
+
+  return undefined;
 }

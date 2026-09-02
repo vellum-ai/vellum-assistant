@@ -97,11 +97,6 @@ mock.module("../persistence/attachments-store.js", () => ({
   linkAttachmentToMessage: () => {},
 }));
 
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => null,
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
-
 mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));

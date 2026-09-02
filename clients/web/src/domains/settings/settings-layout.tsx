@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
@@ -43,6 +44,10 @@ export function SettingsLayout() {
   // so a stale cross-store version can't light a tab mid-switch.
   const supportsBookmarks = useSupportsBookmarks(activeAssistantId);
   const supportsCredentials = useSupportsCredentialsSettings(activeAssistantId);
+  // Bookmarks are internal-only, behind the same gate as the fork and
+  // inspector affordances. Hides the tab rather than leaving a route whose
+  // only content-producing affordance (the per-message toggle) is hidden.
+  const canUseInternalActions = useCanUseInternalThreadActions();
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
   // Billing tab is actually shown — i.e. signed in to the Vellum platform
@@ -62,7 +67,10 @@ export function SettingsLayout() {
         if (item.id === "notifications" && !isNativeAndroid) {
           return false;
         }
-        if (item.id === "bookmarks" && !supportsBookmarks) {
+        if (
+          item.id === "bookmarks" &&
+          (!supportsBookmarks || !canUseInternalActions)
+        ) {
           return false;
         }
         if (item.id === "credentials" && !supportsCredentials) {
@@ -75,7 +83,13 @@ export function SettingsLayout() {
       }).map((item) =>
         item.id === "billing" ? { ...item, label: billingLabel } : item,
       ),
-    [isNativeAndroid, supportsBookmarks, supportsCredentials, billingLabel],
+    [
+      isNativeAndroid,
+      supportsBookmarks,
+      canUseInternalActions,
+      supportsCredentials,
+      billingLabel,
+    ],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {

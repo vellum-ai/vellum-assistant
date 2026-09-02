@@ -43,6 +43,14 @@ mock.module("@capacitor/filesystem", () => ({
 mock.module("@capacitor/share", () => ({ Share: { share } }));
 
 const { saveFile, shareFile } = await import("@/runtime/native-file");
+const { subscribe, __resetForTesting } = await import("@/lib/event-bus");
+type BusEvents = import("@/lib/event-bus").BusEventMap;
+
+// Bus signals are the outcome contract: `download.started` on the plain-web
+// handoff, `download.done` when an Electron URL fetch fails before any
+// download could start. Captured through the real bus.
+const started: Array<BusEvents["download.started"]> = [];
+const done: Array<BusEvents["download.done"]> = [];
 
 // Anchor clicks are the web download path; capture them instead of letting
 // jsdom/happy-dom try to navigate.
@@ -77,6 +85,11 @@ beforeEach(() => {
   mock.clearAllMocks();
   writeFile.mockResolvedValue({ uri: "file:///tmp/x" });
   fetchMock.mockResolvedValue(new Response("bytes", { status: 200 }));
+  __resetForTesting();
+  started.length = 0;
+  done.length = 0;
+  subscribe("download.started", (event) => started.push(event));
+  subscribe("download.done", (event) => done.push(event));
 });
 
 describe("saveFile, the Download intent", () => {
@@ -106,15 +119,30 @@ describe("saveFile, the Download intent", () => {
     expect(shareFileViaMacSheet).not.toHaveBeenCalled();
   });
 
-  test("falls back to the plain anchor when that fetch fails", async () => {
+  test("reports a failed URL fetch on Electron instead of a dead anchor click", async () => {
+    // The shell denies cross-origin top-level navigation, so a plain-anchor
+    // fallback could never start a download; the honest outcome is a
+    // terminal failure report on the channel main itself uses.
     electron = true;
     fetchMock.mockRejectedValueOnce(new Error("offline"));
 
     await saveFile("https://cdn.example.com/report.pdf", "report.pdf");
 
-    expect(clicks).toEqual([
-      { download: "report.pdf", href: "https://cdn.example.com/report.pdf" },
-    ]);
+    expect(clicks).toEqual([]);
+    expect(done).toEqual([{ filename: "report.pdf", state: "interrupted" }]);
+    expect(started).toEqual([]);
+  });
+
+  test("announces the browser hand-off on web, and only there", async () => {
+    await saveFile(blob, "report.pdf");
+    expect(started).toEqual([{ filename: "report.pdf" }]);
+
+    started.length = 0;
+    electron = true;
+    await saveFile(blob, "report.pdf");
+    // Electron's outcome arrives from the main process as `download.done`;
+    // a hand-off announcement here would double-report.
+    expect(started).toEqual([]);
   });
 
   test("does not re-fetch a blob source on Electron", async () => {
@@ -134,6 +162,28 @@ describe("saveFile, the Download intent", () => {
     expect(writeFile).toHaveBeenCalledTimes(1);
     expect(share).toHaveBeenCalledTimes(1);
     expect(clicks).toHaveLength(0);
+  });
+
+  test("flattens path separators in a title-derived filename on native", async () => {
+    // Filesystem.writeFile reads the name as a cache-relative path; a
+    // separator would point into a directory that does not exist.
+    isNative = true;
+
+    await saveFile(blob, "Q3/Q4 plan.pdf");
+
+    const written = writeFile.mock.calls[0]?.[0] as { path: string };
+    expect(written.path).toBe("Q3-Q4 plan.pdf");
+  });
+
+  test("reports a native fetch failure instead of dying before the sheet", async () => {
+    isNative = true;
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+
+    await saveFile("https://cdn.example.com/report.pdf", "report.pdf");
+
+    expect(share).not.toHaveBeenCalled();
+    expect(done).toEqual([{ filename: "report.pdf", state: "interrupted" }]);
+    expect(started).toEqual([]);
   });
 });
 

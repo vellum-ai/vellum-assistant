@@ -8,6 +8,10 @@
 import type { ServerWebSocket } from "bun";
 
 import {
+  startAppPinReconcileSweep,
+  stopAppPinReconcileSweep,
+} from "../apps/app-pin-reconciler.js";
+import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
@@ -27,6 +31,7 @@ import {
   isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
+import { makeAddrInUseError } from "../daemon/startup-error.js";
 import {
   createLiveVoiceConnection,
   type LiveVoiceConnection,
@@ -37,6 +42,7 @@ import {
   startPluginScheduleReconcileSweep,
   stopPluginScheduleReconcileSweep,
 } from "../schedule/plugin-schedule-reconciler.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import {
   activeSttStreamSessions,
   SttStreamSession,
@@ -92,6 +98,12 @@ import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
 } from "./routes/inference-profile-session-reaper.js";
+import {
+  activeWatchStreamSessions,
+  closeWatchIngress,
+  drainWatchRetros,
+  WatchStreamSession,
+} from "./routes/watch-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -165,6 +177,25 @@ interface LiveVoiceWebSocketData {
   wsType: "live-voice";
 }
 
+/**
+ * WebSocket data attached to `/v1/watch/stream` connections. The `wsType`
+ * discriminator routes frames to the watch session orchestrator instead of
+ * the other WebSocket handlers.
+ */
+interface WatchStreamWebSocketData {
+  wsType: "watch-stream";
+  mimeType: string;
+  sampleRate?: number;
+  /** Conversation the session's timeline is keyed on, when the client names one. */
+  conversationId?: string;
+  /** Desktop client to observe, when the actor has more than one connected. */
+  clientId?: string;
+  /** The session ID for tracking in the active sessions registry. */
+  sessionId: string;
+  /** Bound at open time so the close handler tears down the exact session. */
+  session?: WatchStreamSession;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -203,7 +234,8 @@ export class RuntimeHttpServer {
     type AllWebSocketData =
       | MediaStreamWebSocketData
       | SttStreamWebSocketData
-      | LiveVoiceWebSocketData;
+      | LiveVoiceWebSocketData
+      | WatchStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -234,16 +266,22 @@ export class RuntimeHttpServer {
             const sttData = data;
 
             // The runtime is config-authoritative: always resolve the
-            // provider from `services.stt.provider` regardless of what
-            // the client/gateway requested.
+            // provider from config regardless of what the client/gateway
+            // requested. Dictation's own role selects it, matching the dial
+            // below, so the session's label, its failure copy and the
+            // mismatch telemetry all name the provider this socket actually
+            // reaches.
             //
             // getConfig() can throw (e.g. after invalidateConfigCache()
             // when config.json is temporarily invalid). Wrap in try/catch
-            // so the session still starts normally — resolveStreamingTranscriber
+            // so the session still starts normally: resolveStreamingTranscriber
             // reads config inside SttStreamSession.start()'s own guarded path.
             let configuredProvider: string | undefined;
             try {
-              configuredProvider = getConfig().services.stt.provider;
+              configuredProvider = sttCatalogKeyForRole(
+                getConfig().services.stt,
+                "dictation",
+              );
 
               // Mismatch telemetry: when the optional requested provider
               // disagrees with the configured provider, log a warning so
@@ -296,6 +334,7 @@ export class RuntimeHttpServer {
             // transcriber and sends a `ready` event on success.
             void session.start(() =>
               resolveStreamingTranscriber({
+                role: "dictation",
                 sampleRate: sttData.sampleRate,
               }),
             );
@@ -309,9 +348,39 @@ export class RuntimeHttpServer {
                 send: (frame) => {
                   ws.send(JSON.stringify(frame));
                 },
+                // Lets the daemon hang up on a client that stopped answering.
+                // A normal close (not a retryable one) so the client ends the
+                // call rather than reconnecting into a session that is gone.
+                close: () => {
+                  ws.close(1000, "Live voice session released");
+                },
               }),
             );
             log.info("Live voice WebSocket opened");
+            return;
+          }
+          if (data.wsType === "watch-stream") {
+            const watchData = data;
+            log.info(
+              {
+                sessionId: watchData.sessionId,
+                mimeType: watchData.mimeType,
+              },
+              "Watch stream WebSocket opened",
+            );
+            const session = new WatchStreamSession(ws, {
+              mimeType: watchData.mimeType,
+              ...(watchData.sampleRate !== undefined
+                ? { sampleRate: watchData.sampleRate }
+                : {}),
+              ...(watchData.conversationId
+                ? { conversationId: watchData.conversationId }
+                : {}),
+              ...(watchData.clientId ? { clientId: watchData.clientId } : {}),
+            });
+            watchData.session = session;
+            activeWatchStreamSessions.set(watchData.sessionId, session);
+            void session.start();
             return;
           }
           log.warn("WebSocket opened with unknown data type — closing");
@@ -350,6 +419,18 @@ export class RuntimeHttpServer {
               ws as ServerWebSocket<LiveVoiceWebSocketData>,
             );
             void connection?.handleMessage(message);
+            return;
+          }
+          if (data.wsType === "watch-stream") {
+            const session = data.session;
+            if (!session) {
+              return;
+            }
+            if (typeof message === "string") {
+              session.handleMessage(message);
+            } else {
+              session.handleBinaryAudio(message);
+            }
             return;
           }
           log.warn("WebSocket message on unknown data type — closing");
@@ -420,6 +501,29 @@ export class RuntimeHttpServer {
               "Live voice WebSocket closed",
             );
             connection?.release();
+            return;
+          }
+          if (data.wsType === "watch-stream") {
+            const watchData = data;
+            log.info(
+              {
+                sessionId: watchData.sessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "Watch stream WebSocket closed",
+            );
+            const session = watchData.session;
+            if (session) {
+              session.handleClose(code, reason?.toString());
+              // Only drop our own session from the registry, since a
+              // reconnect may have already replaced it under a new id.
+              if (
+                activeWatchStreamSessions.get(watchData.sessionId) === session
+              ) {
+                activeWatchStreamSessions.delete(watchData.sessionId);
+              }
+            }
             return;
           }
           log.warn(
@@ -522,10 +626,16 @@ export class RuntimeHttpServer {
     // migrations are unready.
     startPluginScheduleReconcileSweep();
     log.info("Plugin schedule reconcile sweep started");
+
+    // Same backstop for sidebar pins: a disabled plugin's app stops existing,
+    // and its id returns intact when the plugin is re-enabled.
+    startAppPinReconcileSweep();
+    log.info("App pin reconcile sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
+    stopAppPinReconcileSweep();
     stopInferenceProfileSessionReaper();
     stopTelegramWebhookHealthSweep();
     stopPluginScheduleReconcileSweep();
@@ -541,6 +651,20 @@ export class RuntimeHttpServer {
       session.destroy();
       activeSttStreamSessions.delete(sessionId);
     }
+
+    // Watch shuts down in order: refuse new sessions, tear down the open ones,
+    // then wait on the retrospectives they left running. Refusing first is what
+    // makes the wait meaningful, because the Bun server below keeps accepting
+    // connections until the very end and a session opened during the wait would
+    // register a retrospective after it had already taken its snapshot.
+    closeWatchIngress();
+    for (const [sessionId, session] of activeWatchStreamSessions) {
+      session.destroy();
+      activeWatchStreamSessions.delete(sessionId);
+    }
+    // Destroying a session starts no retrospective, so this waits only on one
+    // that a socket closing just before shutdown had already under way.
+    await drainWatchRetros();
 
     const liveVoiceManager = getLiveVoiceSessionManager();
     const liveVoiceSessionId = liveVoiceManager.activeSessionId;
@@ -633,6 +757,16 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleLiveVoiceUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for watch narration capture, under the same
+    // private-network restrictions and gateway-service token verification as
+    // STT streaming.
+    if (
+      path === "/v1/watch/stream" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleWatchStreamUpgrade(req, server);
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -922,6 +1056,61 @@ export class RuntimeHttpServer {
     return undefined!;
   }
 
+  /**
+   * Handle WebSocket upgrade for `/v1/watch/stream`.
+   *
+   * Gated exactly as `/v1/stt/stream` is: private network peers and origins
+   * only, then a gateway service token. The gateway owns downstream client
+   * auth and dials this upstream on the client's behalf.
+   */
+  private handleWatchStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct watch stream access disabled: only private network peers allowed",
+        403,
+      );
+    }
+
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) {
+      return tokenError;
+    }
+
+    const wsUrl = new URL(req.url);
+    const mimeType = wsUrl.searchParams.get("mimeType");
+    if (!mimeType) {
+      return new Response("Missing required query parameter: mimeType", {
+        status: 400,
+      });
+    }
+
+    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
+    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
+    const conversationId =
+      wsUrl.searchParams.get("conversationId")?.trim() || undefined;
+    const clientId = wsUrl.searchParams.get("clientId")?.trim() || undefined;
+
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "watch-stream",
+        mimeType,
+        sampleRate,
+        conversationId,
+        clientId,
+        sessionId: crypto.randomUUID(),
+      } satisfies WatchStreamWebSocketData,
+    });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
+    return undefined!;
+  }
+
   private async handleTwilioWebhook(
     req: Request,
     path: string,
@@ -975,9 +1164,14 @@ let instance: RuntimeHttpServer | null = null;
 
 /**
  * Start the runtime HTTP server singleton early in daemon startup so /healthz
- * answers ASAP. A bind failure (port in use, permission denied, fd exhaustion)
- * is non-fatal: it is logged and the daemon falls back to IPC-only operation,
- * leaving the singleton unset.
+ * answers ASAP.
+ *
+ * An occupied address (`EADDRINUSE`) aborts startup: whatever holds the port
+ * owns every HTTP client of this workspace, including the gateway proxy that
+ * fronts `/v1/*`. Continuing would leave a daemon that answers IPC (so `vellum
+ * ps` and platform status read healthy) while every proxied HTTP route 502s
+ * against a foreign listener. Any other bind failure (permission denied, fd
+ * exhaustion) is non-fatal, logged with the singleton left unset.
  */
 export async function startRuntimeHttpServer(): Promise<void> {
   const port = getRuntimeHttpPort();
@@ -992,11 +1186,20 @@ export async function startRuntimeHttpServer(): Promise<void> {
       "Daemon startup: runtime HTTP server listening",
     );
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      log.error(
+        { err, port, hostname },
+        "Runtime HTTP port already in use, aborting startup to avoid an HTTP-blind daemon",
+      );
+      throw makeAddrInUseError(
+        `Runtime HTTP port ${hostname}:${port} is already in use by another process. Stop it, or set RUNTIME_HTTP_PORT to a free port.`,
+        err,
+      );
+    }
     log.warn(
       { err, port },
       "Failed to start runtime HTTP server, continuing without it",
     );
-    instance = null;
   }
 }
 
@@ -1007,7 +1210,7 @@ export async function startRuntimeHttpServer(): Promise<void> {
  * expiry, profile reaping) must still run; the retry sweep additionally skips
  * its cycles while readiness is unready. Never called before migrations settle,
  * so the sweeps can't race a schema mid-migration. No-op if the HTTP server
- * failed to bind (IPC-only mode) or sweeps already started.
+ * isn't running or sweeps already started.
  */
 export function startRuntimeHttpServerBackgroundSweeps(): void {
   instance?.startBackgroundSweeps();

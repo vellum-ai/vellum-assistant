@@ -1,5 +1,6 @@
 import { MessageSquarePlus } from "lucide-react";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
@@ -9,9 +10,9 @@ export interface SideMenuOverlayBottomColumnProps {
   onStartNewConversation?: () => void;
   onClose?: () => void;
   /**
-   * Reports the column's measured height so the scrollport behind it can
-   * reserve matching bottom padding. Measured (not static) because the tip
-   * card appears/disappears and its copy length varies.
+   * Reports the column's measured height so the scrollport behind it can end
+   * above the column. Measured (not static) because the tip card
+   * appears/disappears and its copy length varies.
    */
   onHeightChange: (height: number) => void;
 }
@@ -33,6 +34,7 @@ export function SideMenuOverlayBottomColumn({
   onClose,
   onHeightChange,
 }: SideMenuOverlayBottomColumnProps) {
+  const { t } = useTranslation("chat");
   const columnRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
@@ -95,7 +97,7 @@ export function SideMenuOverlayBottomColumn({
               onClose?.();
             }}
           >
-            New Chat
+            {t("sideMenuOverlayBottomColumn.newChat")}
           </Button>
         ) : null}
       </div>

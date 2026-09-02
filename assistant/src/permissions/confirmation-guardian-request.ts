@@ -8,7 +8,7 @@
  * generic event hub — lets the hub stay a pure pub/sub primitive with no
  * dependency on the conversation registry or guardian bridge.
  *
- * Channel guardian decisions (reactions, buttons, text) all route through the
+ * Channel guardian decisions (buttons, text) all route through the
  * guardian-request pipeline, so without this record none of them can resolve the
  * confirmation.
  *
@@ -55,6 +55,7 @@ export async function createGuardianRequestForConfirmation(
       { summarizeToolInput },
       { DAEMON_INTERNAL_ASSISTANT_ID },
       { bridgeConfirmationRequestToGuardian },
+      { resolveInlineGrantWaitMs },
     ] = await Promise.all([
       import("../daemon/conversation-registry.js"),
       import("../channels/gateway-guardian-requests.js"),
@@ -62,6 +63,7 @@ export async function createGuardianRequestForConfirmation(
       import("../tools/tool-input-summary.js"),
       import("../runtime/assistant-scope.js"),
       import("../runtime/confirmation-request-guardian-bridge.js"),
+      import("../tools/tool-approval-handler.js"),
     ]);
 
     const conversation = findConversation(conversationId);
@@ -100,7 +102,9 @@ export async function createGuardianRequestForConfirmation(
       activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
       executionTarget: msg.executionTarget,
       status: "pending",
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      // The row stays decidable exactly as long as the prompt stays parked:
+      // one budget, so raising `timeouts.permissionTimeoutSec` moves both.
+      expiresAt: Date.now() + resolveInlineGrantWaitMs(),
     });
 
     // The prompt is actionable before this fire-and-forget create lands, so
@@ -131,7 +135,7 @@ export async function createGuardianRequestForConfirmation(
     if (err instanceof IntegrityError) {
       // The confirmation could not be promoted to a guardian request
       // (e.g. its trust context resolved no guardianPrincipalId). Channel
-      // guardian decisions — reactions, buttons, and text — all route through
+      // guardian decisions (buttons and text) all route through
       // the guardian-request pipeline, so without this record none of them can resolve
       // the confirmation. Surface it rather than swallowing: for a guardian's
       // own confirmation a bound principal should always be present.

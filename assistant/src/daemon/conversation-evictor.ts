@@ -74,11 +74,9 @@ export class ConversationEvictor {
     getSubagentManager().abortAllForParent(conversationId);
   }
 
-  /** Protect conversations with running or pending subagents from eviction. */
+  /** Protect conversations with in-flight subagents from eviction. */
   shouldProtect(conversationId: string): boolean {
-    return getSubagentManager()
-      .getChildrenOf(conversationId)
-      .some((c) => c.status === "running" || c.status === "pending");
+    return getSubagentManager().hasActiveChildren(conversationId);
   }
 
   /** Record an access for the given conversation (resets its idle clock). */

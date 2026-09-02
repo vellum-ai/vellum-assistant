@@ -33,7 +33,7 @@ mock.module("@/runtime/platform-detection", () => ({
 const env = import.meta.env as Record<string, string | undefined>;
 env.VITE_SESSION_REPLAY_APP_ID = "example/app";
 
-const { initSessionReplay } =
+const { initSessionReplay, sessionReplayProxyBase } =
   await import("@/lib/session-replay/session-replay-init");
 
 beforeEach(() => {
@@ -41,6 +41,32 @@ beforeEach(() => {
   nativePlatform = false;
   electron = false;
   clientOs = "web";
+});
+
+describe("sessionReplayProxyBase", () => {
+  test("uses the app origin on packaged Electron", () => {
+    expect(
+      sessionReplayProxyBase(
+        { protocol: "app:", origin: "app://vellum.ai" },
+        "https://app.vellum.ai",
+      ),
+    ).toBe("app://vellum.ai");
+  });
+
+  test("uses the platform URL on hosted and Electron-dev surfaces", () => {
+    expect(
+      sessionReplayProxyBase(
+        { protocol: "https:", origin: "https://app.vellum.ai" },
+        "https://app.vellum.ai",
+      ),
+    ).toBe("https://app.vellum.ai");
+    expect(
+      sessionReplayProxyBase(
+        { protocol: "http:", origin: "http://localhost:5173" },
+        "https://app.vellum.ai",
+      ),
+    ).toBe("https://app.vellum.ai");
+  });
 });
 
 describe("initSessionReplay surface selection", () => {

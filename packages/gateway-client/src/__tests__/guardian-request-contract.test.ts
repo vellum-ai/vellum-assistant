@@ -16,7 +16,6 @@ import {
   ExpireGuardianRequestIpcParamsSchema,
   ExpireInteractionBoundIpcResponseSchema,
   GetGuardianRequestByCallSessionIpcParamsSchema,
-  GetGuardianRequestByDestinationMessageIpcParamsSchema,
   GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GUARDIAN_REQUESTS_IPC_METHODS,
   GuardianRequestAclOutcomeSchema,
@@ -31,8 +30,7 @@ import {
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  SweepExpiredGuardianRequestsIpcParamsSchema,
-  SweepExpiredGuardianRequestsIpcResponseSchema,
+  ListExpiredPendingGuardianRequestsIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
   type GuardianRequestWire,
 } from "../guardian-request-contract.js";
@@ -439,29 +437,20 @@ describe("decide IPC schemas", () => {
 });
 
 describe("expiry IPC schemas", () => {
-  test("expire and sweep round-trip", () => {
+  test("expire and expired-pending list round-trip", () => {
     expect(ExpireGuardianRequestIpcParamsSchema.parse({ id: "req-1" })).toEqual(
       { id: "req-1" },
     );
 
     expect(
-      SweepExpiredGuardianRequestsIpcParamsSchema.parse({
+      ListExpiredPendingGuardianRequestsIpcParamsSchema.parse({
         now: 1_700_000_000_000,
+        limit: 50,
       }),
-    ).toEqual({ now: 1_700_000_000_000 });
-    expect(SweepExpiredGuardianRequestsIpcParamsSchema.parse({})).toEqual({});
-    // The sweep returns full rows so the daemon fan-out never re-reads.
-    const expiredRow = { ...accessRequest, status: "expired" as const };
-    expect(
-      SweepExpiredGuardianRequestsIpcResponseSchema.parse({
-        expired: [expiredRow],
-      }),
-    ).toEqual({ expired: [expiredRow] });
-    expect(() =>
-      SweepExpiredGuardianRequestsIpcResponseSchema.parse({
-        expired: ["req-1"],
-      }),
-    ).toThrow();
+    ).toEqual({ now: 1_700_000_000_000, limit: 50 });
+    expect(ListExpiredPendingGuardianRequestsIpcParamsSchema.parse({})).toEqual(
+      {},
+    );
 
     expect(
       ExpireInteractionBoundIpcResponseSchema.parse({ expired: 3 }),
@@ -490,23 +479,6 @@ describe("delivery + destination IPC schemas", () => {
     expect(CreateGuardianRequestDeliveryIpcParamsSchema.parse(minimal)).toEqual(
       minimal,
     );
-  });
-
-  test("get_by_destination_message requires all three keys", () => {
-    const params = {
-      channel: "telegram",
-      chatId: "tg-chat-guardian",
-      messageId: "msg-42",
-    };
-    expect(
-      GetGuardianRequestByDestinationMessageIpcParamsSchema.parse(params),
-    ).toEqual(params);
-    expect(() =>
-      GetGuardianRequestByDestinationMessageIpcParamsSchema.parse({
-        channel: "telegram",
-        chatId: "tg-chat-guardian",
-      }),
-    ).toThrow();
   });
 
   test("list_pending_by_destination accepts either addressing form", () => {

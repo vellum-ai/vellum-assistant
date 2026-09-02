@@ -1,12 +1,17 @@
 import { Button, Input, Notice, Typography } from "@vellumai/design-library";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
+import { Trans, useTranslation } from "@/i18n";
 import {
   APP_TOKEN_PREFIX,
   BOT_TOKEN_PREFIX,
   validateSlackToken,
 } from "@/utils/slack-token-validation";
 
+import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
+import { ChannelSetupCompleteNotice } from "@/components/channel-setup-complete-notice";
 export interface SlackSetupTokensStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   botToken: string;
   appToken: string;
   saveStatus: MutationStatus;
@@ -21,8 +26,21 @@ export interface SlackSetupTokensStepProps {
  *
  * Slack mints the `xapp-` app token alongside the `xoxb-` bot token on Create
  * and Install, so both are collected here rather than across separate steps.
+ *
+ * The avatar card sits here rather than on the create step because an app icon
+ * cannot be set until the app exists: it is absent from the manifest schema,
+ * and the create step leaves the user in a modal for an app Slack has not made
+ * yet. By this step they are on the app's own screen.
+ *
+ * Saving is not the end of setup: until the guardian's Slack identity is
+ * linked, the default admission policy leaves the bot seeing their messages
+ * and declining to answer. The chat drawer closes on a successful save and
+ * hands off to the assistant, so this success state is only ever the Channels
+ * page's, where no conversation is listening and the copy has to tell the
+ * user what to say instead.
  */
 export function SlackSetupTokensStep({
+  assistantId,
   botToken,
   appToken,
   saveStatus,
@@ -31,15 +49,16 @@ export function SlackSetupTokensStep({
   onAppTokenChange,
   onSave,
 }: SlackSetupTokensStepProps) {
+  const { t } = useTranslation();
   const botTokenError = validateSlackToken(
     botToken,
     BOT_TOKEN_PREFIX,
-    "Bot token",
+    t("slackSetupTokensStep.botTokenLabel"),
   );
   const appTokenError = validateSlackToken(
     appToken,
     APP_TOKEN_PREFIX,
-    "App token",
+    t("slackSetupTokensStep.appTokenLabel"),
   );
 
   const canSave =
@@ -49,6 +68,20 @@ export function SlackSetupTokensStep({
     !appTokenError &&
     saveStatus !== "pending";
 
+  // A saved credential retires the form. The wizard empties both fields on
+  // success, so leaving them up would pair "Credentials saved" with blank
+  // boxes and a dead button, which reads as a save that did not take.
+  if (saveStatus === "success") {
+    return (
+      <ChannelSetupCompleteNotice
+        assistantId={assistantId}
+        channel="slack"
+        savedTitle={t("slackSetupTokensStep.credentialsSaved")}
+        savedBody={t("slackSetupTokensStep.savedBody")}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <Typography
@@ -56,18 +89,21 @@ export function SlackSetupTokensStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        On Slack&apos;s confirmation screen, expand{" "}
-        <strong>Your app credentials</strong> and copy both tokens.
+        <Trans
+          i18nKey="slackSetupTokensStep.instructions"
+          components={{ credentials: <strong /> }}
+        />
       </Typography>
 
       <Notice tone="warning">
-        That screen also offers a command-line walkthrough and a{" "}
-        <strong>Download app files</strong> button. Skip both. They set up a
-        separate local app, and this assistant needs only the two tokens.
+        <Trans
+          i18nKey="slackSetupTokensStep.skipNotice"
+          components={{ download: <strong /> }}
+        />
       </Notice>
 
       <Input
-        label="Bot Token"
+        label={t("slackSetupTokensStep.botTokenLabel")}
         type="password"
         value={botToken}
         onChange={(e) => onBotTokenChange(e.target.value)}
@@ -78,7 +114,7 @@ export function SlackSetupTokensStep({
       />
 
       <Input
-        label="App Token"
+        label={t("slackSetupTokensStep.appTokenLabel")}
         type="password"
         value={appToken}
         onChange={(e) => onAppTokenChange(e.target.value)}
@@ -88,6 +124,8 @@ export function SlackSetupTokensStep({
         fullWidth
       />
 
+      <ChannelAvatarDownload assistantId={assistantId} channel="slack" />
+
       <Button
         type="button"
         variant="primary"
@@ -95,26 +133,13 @@ export function SlackSetupTokensStep({
         onClick={onSave}
         disabled={!canSave}
       >
-        {saveStatus === "pending" ? "Connecting…" : "Connect Slack"}
+        {saveStatus === "pending"
+          ? t("slackSetupTokensStep.connecting")
+          : t("slackSetupTokensStep.connectSlack")}
       </Button>
 
-      {saveStatus === "success" && (
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="text-[color:var(--content-positive)]"
-        >
-          Credentials saved.
-        </Typography>
-      )}
       {saveStatus === "error" && saveError && (
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="text-[color:var(--system-negative-strong)]"
-        >
-          {saveError}
-        </Typography>
+        <Notice tone="error">{saveError}</Notice>
       )}
     </div>
   );

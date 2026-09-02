@@ -160,6 +160,13 @@ function cachedPrefixBlock(text: string): ContentBlock {
   } as unknown as ContentBlock;
 }
 
+/**
+ * A 1x1 PNG. The send boundary validates image bytes before serialization, so
+ * an image fixture has to carry a real signature to reach the wire.
+ */
+const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+
 const sampleTools: ToolDefinition[] = [
   {
     name: "file_read",
@@ -2754,7 +2761,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
                 source: {
                   type: "base64",
                   media_type: "image/png",
-                  data: "iVBOR",
+                  data: PNG_B64,
                 },
               },
               { type: "text", text: "extra error detail" },
@@ -2806,7 +2813,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
                 source: {
                   type: "base64",
                   media_type: "image/png",
-                  data: "iVBOR",
+                  data: PNG_B64,
                 },
               },
             ],
@@ -2853,7 +2860,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
                 source: {
                   type: "base64",
                   media_type: "image/png",
-                  data: "iVBOR",
+                  data: PNG_B64,
                 },
               },
             ],
@@ -2963,6 +2970,62 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
       type: "ephemeral",
       ttl: "1h",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests - internal `_attachmentId` never reaches the wire
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider - internal attachment id", () => {
+  let provider: AnthropicProvider;
+
+  beforeEach(() => {
+    lastStreamParams = null;
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+  });
+
+  test("drops _attachmentId from image and file blocks", async () => {
+    // The declared media type matches the bytes, so `resolveMediaReferences`
+    // takes its identity fast path and hands the block through untouched. What
+    // keeps the field off the wire is the client rebuilding each payload out of
+    // `source` alone.
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this" },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: PNG_B64,
+            },
+            _attachmentId: "att-image-1",
+          },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "cGRm",
+              filename: "notes.pdf",
+            },
+            _attachmentId: "att-file-1",
+          },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = JSON.stringify(lastStreamParams!.messages);
+    expect(sent).not.toContain("_attachmentId");
+    expect(sent).not.toContain("att-image-1");
+    expect(sent).not.toContain("att-file-1");
+    // The image itself still went out.
+    expect(sent).toContain(PNG_B64);
   });
 });
 
@@ -3539,6 +3602,8 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     "claude-sonnet-5",
     "anthropic/claude-sonnet-5",
     "claude-fable-5",
+    "claude-fable-5-1",
+    "anthropic/claude-fable-5.1",
   ]) {
     test(`strips temperature, top_p, and top_k for ${model}`, async () => {
       const provider = new AnthropicProvider("sk-ant-test", model);

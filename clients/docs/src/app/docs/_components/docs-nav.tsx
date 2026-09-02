@@ -27,14 +27,16 @@ import {
   Lock,
   MessageSquare,
   Package,
+  Plug,
   Puzzle,
+  Radio,
   Rocket,
   Scale,
   Scroll,
   Search,
-  Settings,
   Shield,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Store,
   Wand2,
@@ -97,6 +99,25 @@ const FishingHook = ({ size = ICON_SIZE }: { size?: number }): ReactNode => (
     <path d="M15 6 L15 14" />
     <path d="M15 14 a5.5 5.5 0 1 1 -5.5 -5.5" />
     <path d="M9.5 8.5 l 2.6 0.7" />
+  </svg>
+);
+
+// The Google Cloud mark's geometry: a flat-top hexagon with left and right
+// points. Drawn monochrome in lucide's stroke style so it sits with the rest of
+// the nav, rather than reproducing Google's colored trademark.
+const GoogleCloudHex = ({ size = ICON_SIZE }: { size?: number }): ReactNode => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M7.5 4 h9 L21 12 l-4.5 8 h-9 L3 12 Z" />
   </svg>
 );
 
@@ -402,6 +423,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         icon: icon(Wrench),
       },
       {
+        label: "MCP",
+        href: "/docs/extensibility/mcp",
+        icon: icon(Plug),
+      },
+      {
         label: "Skills",
         href: "/docs/extensibility/skills",
         icon: icon(Sparkles),
@@ -410,6 +436,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         label: "Routes",
         href: "/docs/extensibility/routes",
         icon: icon(Webhook),
+      },
+      {
+        label: "Channels",
+        href: "/docs/extensibility/channels",
+        icon: icon(Radio),
       },
       {
         label: "Apps",
@@ -433,6 +464,7 @@ const NAV_ITEMS: DocsNavItem[] = [
     href: "/docs/hosting-options",
     icon: icon(Globe),
     children: [
+      { label: "Overview", href: "/docs/hosting-options", icon: icon(Book) },
       {
         label: "Cloud hosting",
         href: "/docs/hosting-options/cloud-hosting",
@@ -444,9 +476,14 @@ const NAV_ITEMS: DocsNavItem[] = [
         icon: icon(HardDrive),
       },
       {
-        label: "Advanced options",
-        href: "/docs/hosting-options/advanced-options",
-        icon: icon(Settings),
+        label: "GCP",
+        href: "/docs/hosting-options/gcp",
+        icon: <GoogleCloudHex />,
+      },
+      {
+        label: "Pair a device",
+        href: "/docs/hosting-options/pair-a-device",
+        icon: icon(Smartphone),
       },
     ],
   },

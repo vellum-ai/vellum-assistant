@@ -243,7 +243,7 @@ mock.module("./about.client", () => ({
   openAboutWindow: mock(() => undefined),
 }));
 
-mock.module("./auto-update", () => ({
+mock.module("./auto-update.client", () => ({
   checkForUpdates: mock(() => undefined),
 }));
 
@@ -253,6 +253,15 @@ mock.module("./devtools", () => ({
 
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => false,
+  onCompanionHiddenChange: () => () => {},
+}));
+
+// Stubbed so `./menu`, imported below for `dispatchMenuCommand`, doesn't drag
+// the real companion surface into this file's module graph, along with the
+// rest of `window-state` that the mock above deliberately doesn't cover.
+mock.module("./companion-window", () => ({
+  setCompanionSurfaceVisible: () => undefined,
 }));
 
 // Full `./cli-path-installer` surface so this mock — which leaks into co-run
@@ -412,9 +421,9 @@ describe("installCommandPaletteWindow", () => {
 
     currentMainWindow = makeMainWindow({ visible: true });
     await ipcHandlers.get("vellum:commandPalette:select")?.([
-      { kind: "home" },
+      { kind: "sidebarToggle" },
     ]);
-    expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "home" });
+    expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "sidebarToggle" });
 
     await ipcHandlers.get("vellum:commandPalette:select")?.([
       { kind: "openConversation", conversationId: "conv-123" },
@@ -452,7 +461,7 @@ describe("selectCommandPaletteCommand", () => {
 describe("commandPaletteDispatchCommandSchema", () => {
   test("accepts palette-dispatchable commands, with and without payloads", () => {
     expect(
-      commandPaletteDispatchCommandSchema.safeParse({ kind: "home" }).success,
+      commandPaletteDispatchCommandSchema.safeParse({ kind: "sidebarToggle" }).success,
     ).toBe(true);
     expect(
       commandPaletteDispatchCommandSchema.safeParse({

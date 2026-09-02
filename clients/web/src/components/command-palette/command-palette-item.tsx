@@ -1,7 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { PanelItem } from "@vellumai/design-library";
+import {
+  PanelItem,
+  ShortcutKeys,
+  acceleratorToAriaKeyShortcuts,
+} from "@vellumai/design-library";
 
 export interface CommandPaletteItemProps {
   icon?: LucideIcon;
@@ -11,7 +15,13 @@ export interface CommandPaletteItemProps {
   snippet?: string;
   /** Lexical tokens used to highlight matches inside the snippet. */
   highlightTokens?: string[];
-  shortcutHint?: ReactNode;
+  /**
+   * Electron accelerator for this command's binding on this host, e.g.
+   * `"CmdOrCtrl+Shift+O"`. Drawn as glyphs and announced through
+   * `aria-keyshortcuts` from the one value, so a row cannot show a binding it
+   * does not announce.
+   */
+  shortcut?: string;
   isSelected: boolean;
   onClick: () => void;
   surface?: "overlay" | "window";
@@ -74,7 +84,7 @@ export function CommandPaletteItem({
   subtitle,
   snippet,
   highlightTokens,
-  shortcutHint,
+  shortcut,
   isSelected,
   onClick,
   surface = "overlay",
@@ -88,6 +98,9 @@ export function CommandPaletteItem({
         role="option"
         aria-current={isSelected ? "page" : undefined}
         aria-selected={isSelected}
+        aria-keyshortcuts={
+          shortcut ? acceleratorToAriaKeyShortcuts(shortcut) : undefined
+        }
         onClick={onClick}
         className={[
           "flex w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium outline-none transition-colors",
@@ -116,10 +129,13 @@ export function CommandPaletteItem({
                 {subtitle}
               </span>
             ) : null}
-            {shortcutHint ? (
-              <span className="ml-auto shrink-0 text-xs text-[var(--content-tertiary)]">
-                {shortcutHint}
-              </span>
+            {shortcut ? (
+              <ShortcutKeys
+                accelerator={shortcut}
+                variant="inline"
+                aria-hidden
+                className="ml-auto shrink-0"
+              />
             ) : null}
           </span>
           {snippet ? (
@@ -135,6 +151,9 @@ export function CommandPaletteItem({
   return (
     <PanelItem
       icon={icon}
+      aria-keyshortcuts={
+        shortcut ? acceleratorToAriaKeyShortcuts(shortcut) : undefined
+      }
       label={
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-2">
@@ -144,10 +163,13 @@ export function CommandPaletteItem({
                 {subtitle}
               </span>
             ) : null}
-            {shortcutHint ? (
-              <span className="ml-auto shrink-0 text-[var(--content-tertiary)] text-body-small-default">
-                {shortcutHint}
-              </span>
+            {shortcut ? (
+              <ShortcutKeys
+                accelerator={shortcut}
+                variant="inline"
+                aria-hidden
+                className="ml-auto shrink-0"
+              />
             ) : null}
           </span>
           {snippet ? (

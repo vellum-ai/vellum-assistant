@@ -99,14 +99,20 @@ export function Tag({
       className={cn(tagVariants({ tone }), className)}
     >
       {leftIcon != null ? (
-        <span
-          aria-hidden="true"
-          style={{ ...iconStyle, color: iconColor }}
-        >
+        <span aria-hidden="true" style={{ ...iconStyle, color: iconColor }}>
           {leftIcon}
         </span>
       ) : null}
-      {children}
+      {/*
+        The label carries its own truncation. The root is `inline-flex` and
+        `whitespace-nowrap`, so a bare text node here cannot ellipsize: it has
+        no width to overflow and pushes the tag past its container instead,
+        leaving the parent to clip it mid-word. Its own slot can shrink
+        (`min-w-0`) and ellipsize, and consumers can target it by slot.
+      */}
+      <span data-slot="tag-label" className="min-w-0 truncate">
+        {children}
+      </span>
       {rightIcon != null && onRemove == null ? (
         <span
           aria-hidden="true"

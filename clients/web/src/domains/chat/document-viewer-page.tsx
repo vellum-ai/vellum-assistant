@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Route component for viewing a single document with comment integration.
  *
@@ -8,6 +10,7 @@
  */
 
 import { Typography } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
@@ -18,9 +21,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   documentsByIdConversationsPost,
   documentsByIdGet,
-  documentsByIdPdfGet,
 } from "@/generated/daemon/sdk.gen";
+import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
 import {
@@ -40,6 +44,7 @@ import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
 // ---------------------------------------------------------------------------
 
 export function DocumentViewerPage() {
+  const { t } = useTranslation("chat");
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -138,9 +143,7 @@ export function DocumentViewerPage() {
     const conversationId =
       doc.conversationId ||
       getEditChatConversationId(assistantId, surfaceId) ||
-      (typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      createDraftConversationId();
 
     setEditChatConversationId(assistantId, surfaceId, conversationId);
 
@@ -175,22 +178,12 @@ export function DocumentViewerPage() {
     if (!doc || !assistantId) {
       return;
     }
-    const { data: blob, response: pdfResponse } = await documentsByIdPdfGet({
-      path: { assistant_id: assistantId, id: doc.surfaceId },
-      throwOnError: false,
-      parseAs: "blob",
-    });
-    if (!pdfResponse?.ok || !blob) {
-      return;
+    try {
+      await downloadDocumentPdf(assistantId, doc.surfaceId, doc.title);
+    } catch {
+      toast.error(t("documentViewerPage.exportFailed"));
     }
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), {
-      href: url,
-      download: `${doc.title || "document"}.pdf`,
-    });
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [doc, assistantId]);
+  }, [doc, assistantId, t]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -215,7 +208,7 @@ export function DocumentViewerPage() {
           variant="body-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          {error ?? "Document not found."}
+          {error ?? t("documentViewerPage.notFound")}
         </Typography>
       </div>
     );
@@ -231,6 +224,7 @@ export function DocumentViewerPage() {
         documentName={doc.title}
         content={doc.content}
         onClose={handleClose}
+        onRenamed={(title) => setDoc((prev) => (prev ? { ...prev, title } : prev))}
         onExport={handleExport}
         onSubmitFeedback={handleSubmitFeedback}
         handleRef={viewerRef}

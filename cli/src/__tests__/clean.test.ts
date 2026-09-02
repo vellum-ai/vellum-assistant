@@ -31,6 +31,7 @@ beforeAll(() => {
     detectOrphanedProcesses: detectOrphansMock,
   }));
   mock.module("../lib/process.js", () => ({
+    ...realProcess,
     stopProcess: stopProcessMock,
   }));
 });

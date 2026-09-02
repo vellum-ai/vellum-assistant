@@ -7,10 +7,9 @@
  * background skill update). Turning one of those ids into a button needs three
  * things the id itself does not carry: the route to build, the copy and icon to
  * render, and the list query that vouches the target still exists. That per
- * entity knowledge lives here, once, so the two surfaces that render a feed
- * item's detail (the Activity page's panel and the notifications bell) offer
- * the same links on the same items without either one growing a second copy of
- * the validation logic.
+ * entity knowledge lives here, once, so the notifications bell's detail offers
+ * the links without growing its own copy of the validation logic, and so a
+ * second surface can be given the same links by calling this hook.
  *
  * Adding a linkable entity is one entry in `ENTITY_LINKS` plus its query below.
  *
@@ -20,7 +19,7 @@
  * rendering a link to a tombstone.
  */
 import { useQuery } from "@tanstack/react-query";
-import type { ParseKeys } from "i18next";
+import type { ParseKeys } from "@/i18n";
 import type { LucideIcon } from "lucide-react";
 import { Brain, Calendar } from "lucide-react";
 import { useMemo } from "react";
@@ -91,8 +90,8 @@ const ENTITY_LINKS = [
  *
  * `enabled` gates both list fetches. The bell renders in the top bar on every
  * route and passes `false` until a detail is open, so its list view costs
- * nothing; the Activity page holds them open. Disabled queries stay subscribed
- * to their caches, so a list another surface already loaded is read for free.
+ * nothing. Disabled queries stay subscribed to their caches, so a list another
+ * surface already loaded is read for free.
  *
  * A candidate link whose list is still loading is returned anyway, marked by
  * `isPending`, so a caller can hold the space it will occupy rather than

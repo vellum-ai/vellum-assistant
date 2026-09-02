@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { getLocalAssistantStatus } from "../status";
+import { getLocalAssistantStatus, resolveLockfileInstanceDir } from "../status";
 
 let tempDir: string;
 let lockfilePath: string;
@@ -225,5 +225,75 @@ describe("getLocalAssistantStatus", () => {
         error: "Local assistant not found",
       },
     );
+  });
+});
+
+describe("resolveLockfileInstanceDir", () => {
+  test("reads the instance dir from the parsed entry", () => {
+    writeLocalLockfile();
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toEqual({
+      ok: true,
+      instanceDir,
+    });
+  });
+
+  test("honors legacy top-level baseDataDir", () => {
+    writeLockfile({ assistantId: "local-1", baseDataDir: instanceDir });
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toEqual({
+      ok: true,
+      instanceDir,
+    });
+  });
+
+  test("falls back to the default instance dir for an entry without one", () => {
+    writeLockfile({ assistantId: "local-1", cloud: "local" });
+    const dataHome = path.join(tempDir, "data-home");
+    expect(
+      resolveLockfileInstanceDir([lockfilePath], "local-1", {
+        VELLUM_ENVIRONMENT: "production",
+        XDG_DATA_HOME: dataHome,
+      }),
+    ).toEqual({
+      ok: true,
+      instanceDir: path.join(dataHome, "vellum", "assistants", "local-1"),
+    });
+  });
+
+  test("has no instance dir for a missing entry", () => {
+    writeLocalLockfile();
+    expect(
+      resolveLockfileInstanceDir([lockfilePath], "local-2", {
+        VELLUM_ENVIRONMENT: "production",
+        XDG_DATA_HOME: tempDir,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  test("fails when the authoritative lockfile is unreadable", () => {
+    const legacyPath = path.join(tempDir, "legacy.json");
+    writeFileSync(lockfilePath, "{ not json");
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        assistants: [{ assistantId: "local-1", baseDataDir: instanceDir }],
+      }),
+    );
+    expect(
+      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1", {}),
+    ).toEqual({ ok: false });
+  });
+
+  test("empty authoritative lockfile never falls through to a legacy file", () => {
+    const legacyPath = path.join(tempDir, "legacy.json");
+    writeFileSync(lockfilePath, "");
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        assistants: [{ assistantId: "local-1", baseDataDir: instanceDir }],
+      }),
+    );
+    expect(
+      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1", {}),
+    ).toEqual({ ok: true });
   });
 });

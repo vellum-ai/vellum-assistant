@@ -1,0 +1,73 @@
+{
+  "actions": {
+    "markAsRead": "標示為已讀",
+    "markAsUnread": "標示為未讀",
+    "restore": "還原",
+    "dismiss": "關閉",
+    "goToThread": "前往討論串",
+    "goToConversation": "前往對話",
+    "viewSchedule": "檢視排程",
+    "viewSkill": "檢視技能",
+    "markAllAsRead": "全部標示為已讀",
+    "clearAll": "全部清除"
+  },
+  "category": {
+    "security": "安全性",
+    "email": "電子郵件",
+    "scheduling": "排程",
+    "background": "背景",
+    "system": "系統",
+    "guardianAction": "需要監護人操作",
+    "guardianQuestion": "監護人問題",
+    "guardianRequest": "監護人請求"
+  },
+  "homeRecapRow": {
+    "actionsTitle": "更新動作"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "缺少範圍",
+    "status": {
+      "revoked": "已撤銷",
+      "expired": "已過期",
+      "missingScopes": "缺少範圍",
+      "missingToken": "缺少權杖",
+      "pingFailed": "Ping 失敗",
+      "unreachable": "無法連線"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "通知",
+    "ariaLabelUnread": "通知 (未讀)",
+    "heading": "通知",
+    "loadFailed": "無法載入通知。",
+    "actionFailed": "無法開始該對話。請再試一次。"
+  },
+  "notificationsBellDetail": {
+    "back": "返回通知"
+  },
+  "homeGuardianRequestCard": {
+    "approve": "核准",
+    "reject": "拒絕",
+    "answerHint": "前往對話回答這個問題。",
+    "decisionFailed": "無法送出決定。請再試一次。",
+    "receipt": {
+      "approved": "請求已核准",
+      "rejected": "請求已拒絕",
+      "expired": "請求已過期",
+      "superseded": "請求已被取代",
+      "leftUnverified": "未驗證",
+      "cancelled": "請求已取消",
+      "alreadyResolved": "已處理"
+    },
+    "viewSourceThread": "檢視來源討論串",
+    "toolRequested": "已請求執行 <code>{toolName}</code>",
+    "toolRequesting": "請求執行 <code>{toolName}</code>"
+  },
+  "notificationsBellEmptyState": {
+    "title": "尚無內容。",
+    "briefingRecipeTitle": "設定晨間簡報",
+    "briefingRecipeMeta": "每日",
+    "briefingRecipeDescription": "你的第一則通知，明天早上送達。",
+    "briefingRecipePrompt": "幫我設定晨間簡報。在建立任何內容之前，先看看我的哪些帳戶已連接，然後給我幾個選項，說明簡報可以包含哪些內容、在什麼時間發送。等我選好之後再進行設定。"
+  }
+}
