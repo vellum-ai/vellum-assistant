@@ -461,7 +461,7 @@ describe("telegramTransport.streamReply", () => {
     const calls = callsTo("sendMessageDraft");
     expect(calls).toHaveLength(1);
     expect(calls[0]![1]).toMatchObject({
-      chat_id: "123",
+      chat_id: 123,
       text: "Looking that up",
     });
     // The id is minted here, not handed back by Telegram, and must be usable
@@ -483,7 +483,7 @@ describe("telegramTransport.streamReply", () => {
     // Telegram animates between drafts sharing an id, so the call carries the
     // whole reply so far rather than the delta.
     expect(calls[0]![1]).toMatchObject({
-      chat_id: "123",
+      chat_id: 123,
       draft_id: 4242,
       text: "Looking that up. Found it.",
     });
@@ -519,6 +519,31 @@ describe("telegramTransport.streamReply", () => {
 
     expect(callsTo("sendMessageDraft")).toHaveLength(0);
     expect(result).toEqual({ ok: true, ts: "4242" });
+  });
+
+  test("sends the chat id as the integer the draft method requires", async () => {
+    // `sendMessageDraft` takes an Integer chat_id, not the "Integer or String"
+    // most methods accept, so the string the transport carries has to become a
+    // number on the wire.
+    await telegramTransport.streamReply?.(ctx, "123", {
+      action: "start",
+      text: "Hi",
+      appended: "Hi",
+    });
+
+    const body = callsTo("sendMessageDraft")[0]![1] as { chat_id: unknown };
+    expect(body.chat_id).toBe(123);
+  });
+
+  test("refuses a chat id that cannot be an integer, without calling out", async () => {
+    const result = await telegramTransport.streamReply?.(ctx, "@somechannel", {
+      action: "start",
+      text: "Hi",
+      appended: "Hi",
+    });
+
+    expect(callsTo("sendMessageDraft")).toHaveLength(0);
+    expect(result).toEqual({ ok: false });
   });
 
   test("a refused draft reports not-ok so the caller falls back", async () => {

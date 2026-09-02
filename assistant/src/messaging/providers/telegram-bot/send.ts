@@ -460,6 +460,13 @@ export async function sendTelegramTypingIndicator(
 export const TELEGRAM_DRAFT_TEXT_LIMIT = 4096;
 
 /**
+ * How long a draft survives without being re-sent: Telegram describes it as
+ * "a temporary 30-second preview". A draft that stops being advanced
+ * disappears rather than lingering with stale text.
+ */
+export const TELEGRAM_DRAFT_TTL_MS = 30_000;
+
+/**
  * Show, or advance, the live draft of a reply still being written.
  *
  * `sendMessageDraft` takes the whole partial reply rather than a delta and
@@ -469,8 +476,15 @@ export const TELEGRAM_DRAFT_TEXT_LIMIT = 4096;
  * Empty text is meaningful, rendering Telegram's own "Thinking..." placeholder,
  * so it is passed through rather than skipped.
  *
- * Private chats only, and the draft expires on its own or the moment the bot
- * sends a real message, so nothing has to clear it.
+ * The draft is a preview and never the reply. Telegram's own words: "once the
+ * output is finalized, you must call sendMessage with the complete message to
+ * persist it". It also clears the moment the bot sends a real message, so
+ * nothing has to clear it, and it survives only {@link TELEGRAM_DRAFT_TTL_MS}
+ * without being re-sent.
+ *
+ * Private chats only, and `chat_id` here is an Integer rather than the
+ * "Integer or String" most methods accept, so a non-numeric chat id cannot
+ * address a draft at all and is refused rather than sent to be rejected.
  *
  * @see https://core.telegram.org/bots/api#sendmessagedraft
  */
@@ -480,9 +494,17 @@ export async function sendTelegramMessageDraft(
   text: string,
   opts?: TelegramSendOptions,
 ): Promise<boolean> {
+  const numericChatId = Number(chatId);
+  if (!Number.isSafeInteger(numericChatId)) {
+    log.debug(
+      { chatId, draftId },
+      "Telegram drafts address a chat by integer id; skipping draft",
+    );
+    return false;
+  }
   try {
     await callTelegramBotApi("sendMessageDraft", {
-      chat_id: chatId,
+      chat_id: numericChatId,
       draft_id: draftId,
       text: text.slice(0, TELEGRAM_DRAFT_TEXT_LIMIT),
       ...threadIdPayloadFields(opts),
