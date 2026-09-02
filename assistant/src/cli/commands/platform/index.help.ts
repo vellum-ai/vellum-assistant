@@ -92,9 +92,6 @@ Fields:
   low_balance_threshold  Low-balance alert threshold in USD
   low_balance_warning    True when the balance is below the threshold and auto top-up is off
 
-Combine with 'assistant usage daily' to compute runway (remaining divided
-by rolling daily average) and warn before credits run out.
-
 Requires platform credentials (run 'assistant platform connect' first or
 ensure VELLUM_PLATFORM_URL is set and credentials are stored).
 

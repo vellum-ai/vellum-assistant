@@ -143,12 +143,35 @@ const PlatformCreditsResponseSchema = z.object({
   unit: z.literal("USD"),
   stale: z.boolean(),
   as_of: z.string(),
-  daily_spend: z.number().nullable(),
-  daily_limit: z.number().nullable(),
-  daily_limit_reached: z.boolean(),
-  daily_limit_snoozed: z.boolean(),
-  low_balance_threshold: z.number().nullable(),
-  low_balance_warning: z.boolean(),
+  daily_spend: z
+    .number()
+    .nullable()
+    .describe(
+      "Today's (UTC) spend counted against the daily credit limit, in USD. Excludes spend covered by plan-included credits (initial credit, Pro credit bundle), so it is not total spend. Null when the platform did not report it.",
+    ),
+  daily_limit: z
+    .number()
+    .nullable()
+    .describe("Daily credit limit in USD, or null when none is set."),
+  daily_limit_reached: z
+    .boolean()
+    .describe(
+      "True when today's spend has reached the daily limit and the limit is being enforced.",
+    ),
+  daily_limit_snoozed: z
+    .boolean()
+    .describe(
+      "True when the daily limit has been skipped for the rest of the current UTC day.",
+    ),
+  low_balance_threshold: z
+    .number()
+    .nullable()
+    .describe("Low-balance alert threshold in USD."),
+  low_balance_warning: z
+    .boolean()
+    .describe(
+      "True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.",
+    ),
 });
 type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
 
@@ -893,7 +916,7 @@ export const ROUTES: RouteDefinition[] = [
     summary:
       "Get the organization's remaining credit balance and daily-limit state",
     description:
-      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary, plus today's spend against the daily credit limit and the low-balance warning state.",
+      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the low-balance warning state.",
     tags: ["platform"],
     handler: handlePlatformCredits,
     responseBody: PlatformCreditsResponseSchema,
