@@ -13,10 +13,16 @@ import {
 } from "../../guardian-form-registry.js";
 import { resolveFormFromCallback } from "../guardian-form-routes.js";
 
+/**
+ * What a parked form settles as here. The rail passes a writer's own fields
+ * through, so the base result alone would reject them as excess properties.
+ */
+type PassthroughResult = GuardianFormResult & Record<string, unknown>;
+
 /** Park a form and hand back the id its broadcast carried. */
 function park() {
   let requestId = "";
-  const settled = openGuardianForm<GuardianFormResult>({
+  const settled = openGuardianForm<PassthroughResult>({
     kind: "test.form",
     broadcast: {
       open: (id) => {
