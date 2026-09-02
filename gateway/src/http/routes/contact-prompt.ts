@@ -258,19 +258,11 @@ async function bindSubmittedChannel(input: {
   }
 
   try {
-    if (role === "guardian") {
-      return await bindGuardianChannel({
-        requestId,
-        channelType,
-        address: normalizedAddress,
-        displayName,
-        verify: input.verify,
-        parkedVerify,
-      });
-    }
-
-    // The target's row is checked first because upsertContact INSERTs an
-    // unknown explicit id, which would mint a stray contact for a typo'd one.
+    // A named target decides the bind, whatever role the client sent: the form
+    // showed that contact, so binding the address anywhere else would grant an
+    // identity the guardian never saw. The target's row is read before the
+    // upsert because upsertContact INSERTs an unknown explicit id, which would
+    // mint a stray contact for a typo'd one.
     if (targetContactId) {
       const target = getStore().getContact(targetContactId);
 
@@ -295,6 +287,17 @@ async function bindSubmittedChannel(input: {
         verify: input.verify,
         parkedVerify,
         conflictHint: MERGE_HINT,
+      });
+    }
+
+    if (role === "guardian") {
+      return await bindGuardianChannel({
+        requestId,
+        channelType,
+        address: normalizedAddress,
+        displayName,
+        verify: input.verify,
+        parkedVerify,
       });
     }
 
@@ -339,6 +342,7 @@ async function bindSubmittedChannel(input: {
       channelType,
       address: normalizedAddress,
       displayName,
+      notes: proposedNotes,
       verify: input.verify,
       parkedVerify,
     });

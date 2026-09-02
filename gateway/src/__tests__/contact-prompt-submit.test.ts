@@ -1304,6 +1304,39 @@ describe("handleContactPromptSubmit", () => {
     expect(channels[0].contactId).toBe("c-alice");
   });
 
+  test("targeted bind: the named target wins over a submitted guardian role", async () => {
+    seedGuardian();
+    seedContact("c-alice", "Alice");
+    parkedFlags = { contactId: "c-alice" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-target-over-role",
+        address: "alice.role@example.com",
+        channelType: "email",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+
+    // The card named Alice, so the address is Alice's; a role the client sent
+    // alongside it must not hand the address guardian identity.
+    const channels = getGatewayDb().select().from(gwContactChannels).all();
+    expect(channels).toHaveLength(1);
+    expect(channels[0].contactId).toBe("c-alice");
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContactChannels)
+        .where(eq(gwContactChannels.contactId, "guardian-1"))
+        .all(),
+    ).toHaveLength(0);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(2);
+
+    expect(resolveCall(ipcMock).body.contactId).toBe("c-alice");
+  });
+
   test("named create: the contact takes the proposed name and notes, not the address", async () => {
     parkedFlags = { displayName: "Alice", notes: "Neighbour" };
 
@@ -1325,6 +1358,28 @@ describe("handleContactPromptSubmit", () => {
     expect(mirror).toHaveLength(1);
     expect(mirror[0].body.displayName).toBe("Alice");
     expect(mirror[0].body.notes).toBe("Neighbour");
+  });
+
+  test("parked notes are kept when the form proposes no name", async () => {
+    parkedFlags = { notes: "Neighbour" };
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-notes-only",
+        address: "neighbour@example.com",
+        channelType: "email",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+
+    // Notes and name are independently optional, so a nameless confirmation
+    // still carries the notes the guardian saw over the mirror op.
+    const mirror = callsFor(ipcMock, "contacts_mirror_upsert_full");
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body.notes).toBe("Neighbour");
+    expect(mirror[0].body.displayName).toBeUndefined();
   });
 
   test("named create: the name the guardian left in the form wins over the parked one", async () => {
