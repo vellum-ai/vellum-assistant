@@ -7,7 +7,6 @@
  */
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
-import { escapeRegExp } from "../util/regexp.js";
 
 const log = getLogger("document-store");
 
@@ -494,7 +493,7 @@ export function replaceInDocument(
     const flags = "g" + (options.caseSensitive === true ? "" : "i");
     const pattern = options.regex
       ? new RegExp(find, flags)
-      : new RegExp(escapeRegExp(find), flags);
+      : new RegExp(RegExp.escape(find), flags);
 
     const totalMatches = [...row.content.matchAll(pattern)].length;
     if (

@@ -17,7 +17,6 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
-import { escapeRegExp } from "../util/regexp.js";
 import { isLexicalBackfillComplete } from "./checkpoints.js";
 import { unseenAttentionStateConditions } from "./conversation-attention-store.js";
 import type { ConversationRow } from "./conversation-crud.js";
@@ -1272,7 +1271,7 @@ function findEarliestMatch(
     ).exec(text);
   };
 
-  const whole = execAnchored(escapeRegExp(query));
+  const whole = execAnchored(RegExp.escape(query));
   if (whole) {
     return { index: whole.index, length: whole[0].length };
   }
@@ -1282,7 +1281,9 @@ function findEarliestMatch(
   if (tokens.length === 0) {
     return null;
   }
-  const match = execAnchored(tokens.map(escapeRegExp).join("|"));
+  const match = execAnchored(
+    tokens.map((token) => RegExp.escape(token)).join("|"),
+  );
   return match ? { index: match.index, length: match[0].length } : null;
 }
 

@@ -5,7 +5,6 @@
  * - applyDictionary: post-LLM, dictation + command modes (including fallback paths)
  */
 
-import { escapeRegExp } from "../util/regexp.js";
 import type {
   DictationDictionaryEntry,
   DictationSnippet,
@@ -61,7 +60,7 @@ export function expandSnippets(
 
   // Build a single alternation pattern for single-pass replacement
   const alternatives = sorted.map((s) =>
-    wrapWordBoundary(escapeRegExp(s.trigger), s.trigger),
+    wrapWordBoundary(RegExp.escape(s.trigger), s.trigger),
   );
   const pattern = new RegExp(`(?:${alternatives.join("|")})`, "gi");
 
@@ -112,7 +111,7 @@ export function applyDictionary(
   }
 
   const entries: EntryWithPattern[] = sorted.map((entry) => {
-    const escaped = escapeRegExp(entry.spoken);
+    const escaped = RegExp.escape(entry.spoken);
     const wholeWord = entry.wholeWord !== false; // default true
     const pat = wholeWord ? wrapWordBoundary(escaped, entry.spoken) : escaped;
     return { pattern: pat, entry };

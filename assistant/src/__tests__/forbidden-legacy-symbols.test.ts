@@ -35,7 +35,7 @@ describe("forbidden legacy symbols", () => {
       "calls.webhookBaseUrl",
     ];
     const escapedPattern = forbiddenSymbols
-      .map((symbol) => symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .map((symbol) => RegExp.escape(symbol))
       .join("|");
 
     const repoRoot = resolve(__dirname, "..", "..", "..");

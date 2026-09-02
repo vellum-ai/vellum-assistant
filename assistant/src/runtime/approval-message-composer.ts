@@ -7,7 +7,6 @@
  *   3. Deterministic fallback templates (natural, scenario-specific messages)
  */
 import { getLogger } from "../util/logger.js";
-import { escapeRegExp } from "../util/regexp.js";
 import type {
   ApprovalCopyGenerator,
   ApprovalMessageContext,
@@ -50,7 +49,7 @@ export function includesRequiredKeywords(
     return true;
   }
   return requiredKeywords.every((keyword) => {
-    const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
+    const re = new RegExp(`\\b${RegExp.escape(keyword)}\\b`, "i");
     return re.test(text);
   });
 }
