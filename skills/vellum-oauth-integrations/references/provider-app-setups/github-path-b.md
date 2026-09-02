@@ -57,9 +57,17 @@ Tell the user:
 
 Wait for the Client ID. Then ask for the secret:
 
-> Now click **Generate a new client secret**. GitHub will show it only once, so copy it immediately. Send it as a standalone message with no other text.
+> Click **Generate a new client secret**. GitHub shows it only once, so copy it immediately. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: GitHub app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service github --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the client secret from the app settings page."
+```
+
+Never solicit the secret in chat or store a chat-pasted value with `assistant credentials set`. Always collect it through the secure `assistant credentials prompt` flow so it never transits the conversation.
 
 ## Path B Step 5: Authorize and Verify
 

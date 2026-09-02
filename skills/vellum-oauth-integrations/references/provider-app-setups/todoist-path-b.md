@@ -68,9 +68,17 @@ Wait for the Client ID.
 
 Then ask for the secret:
 
-> Now send me the **app secret**. Send it as a standalone message with no other text.
+> Copy the **app secret**. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: Todoist app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service todoist --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the app secret from the app settings page."
+```
+
+Never solicit the secret in chat or store a chat-pasted value with `assistant credentials set`. Always collect it through the secure `assistant credentials prompt` flow so it never transits the conversation.
 
 ## Path B Step 6: Authorize and Verify
 
