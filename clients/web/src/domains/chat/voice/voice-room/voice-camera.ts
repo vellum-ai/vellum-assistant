@@ -94,6 +94,14 @@ export type VoiceCameraError =
  */
 const CAPTURE_JPEG_QUALITY = 0.85;
 
+/**
+ * The same quality as a percentage, which is the unit the native bridge takes.
+ *
+ * Shared so a photo and a Live keep off the same camera are encoded alike: the
+ * two land side by side in the transcript and are read by the same model.
+ */
+export const NATIVE_CAPTURE_QUALITY = Math.round(CAPTURE_JPEG_QUALITY * 100);
+
 // Ideals keep lower-resolution cameras usable while asking capable devices for
 // enough detail to fill a phone-sized viewfinder without visible upscaling.
 const VIEWFINDER_IDEAL_WIDTH = 1920;
@@ -736,7 +744,7 @@ export function useVoiceCamera(
 
     if (sourceRef.current === "native") {
       const encoded = await captureNativeVoiceCameraFrame(
-        Math.round(CAPTURE_JPEG_QUALITY * 100),
+        NATIVE_CAPTURE_QUALITY,
       );
       if (encoded) {
         try {

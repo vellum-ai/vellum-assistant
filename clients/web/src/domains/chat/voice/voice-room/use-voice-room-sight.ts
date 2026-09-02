@@ -17,12 +17,31 @@
  *
  * ## The shape of it
  *
- * The gate (`lib/camera/frame-gate.ts`) watches the room's own `<video>` and
- * says which frames are worth keeping. Every keep is uploaded at once and sent
- * to the session with `sight_frame`, which the daemon persists as its own user
+ * The gate (`lib/camera/frame-gate.ts`) says which frames are worth keeping.
+ * What it is fed depends on which viewfinder is up: the room's own `<video>` in
+ * a browser, and behind the native shells' preview layer a poll of the camera
+ * plugin's own sample call, decoded through the same downscale chain so one set
+ * of thresholds serves both. Every keep is uploaded at once and sent to the
+ * session with `sight_frame`, which the daemon persists as its own user
  * message. The transcript is therefore the record of what the call has seen,
  * in the order it saw it, and the model correlates a frame with speech by
  * adjacency rather than by any attachment to a turn.
+ *
+ * The native path keeps the very JPEG the gate judged rather than capturing a
+ * second one, so what the transcript holds is the frame the decision was about.
+ * The browser path cannot: its decision is made on a canvas readback, and the
+ * frame is encoded afterwards.
+ *
+ * ## What a shell with no sample call does
+ *
+ * Live is offered wherever the native preview is up, without asking the bridge
+ * anything first. The preview is up only because the camera plugin accepted a
+ * start, the sample call ships in that same plugin, and both shells load this
+ * bundle from the network, so a shell that has one call and not the other is a
+ * population of about nobody. A shell whose samples answer nothing anyway runs
+ * Live and keeps nothing: the pill is on, the poll turns, and no frame reaches
+ * the transcript, which is the same shape as a scene the gate never judges
+ * worth keeping and costs a poll rather than an error surface.
  *
  * ## Why every keep persists, rather than one staged for the next turn
  *
@@ -81,9 +100,15 @@ import {
   recordFrameGateKeep,
 } from "@/lib/camera/frame-gate-debug";
 import { createFrameSampler } from "@/lib/camera/frame-sampler";
+import { createNativeFrameSource } from "@/lib/camera/native-frame-source";
 import { captureError } from "@/lib/sentry/capture-error";
+import { captureNativeVoiceCameraSample } from "@/runtime/native-voice-camera";
 
-import { captureVideoFrame, type VoiceCameraFacing } from "./voice-camera";
+import {
+  captureVideoFrame,
+  NATIVE_CAPTURE_QUALITY,
+  type VoiceCameraFacing,
+} from "./voice-camera";
 
 /** Where a failure is filed, so the tag reads the same from every path. */
 const ERROR_CONTEXT = "voice-room sight: sample/upload frame";
@@ -130,11 +155,10 @@ export interface VoiceRoomSight {
   readonly heldFrame: VoiceRoomSightFrame | null;
   /**
    * Whether Live can be entered at all: the flag, an assistant, that
-   * assistant understanding the frame, a session that has not latched the
-   * frame as unsupported, and a viewfinder this can read. The room reads it to
-   * decide whether to offer the hold and the hint, so an unavailable Live is a
-   * shutter that only takes photos rather than one that takes a hold and does
-   * nothing with it.
+   * assistant understanding the frame, and a session that has not latched the
+   * frame as unsupported. The room reads it to decide whether to offer the hold
+   * and the hint, so an unavailable Live is a shutter that only takes photos
+   * rather than one that takes a hold and does nothing with it.
    */
   readonly liveAvailable: boolean;
   /** Whether the viewfinder is streaming. Only then is anything sampled. */
@@ -166,10 +190,11 @@ export interface VoiceRoomSightOptions {
   /**
    * Whether the viewfinder on screen is the native shells' preview layer.
    *
-   * It sits behind the web view and mounts no `<video>`, so there is nothing
-   * here to sample. Which preview is up is decided per acquire and can change
-   * mid-viewfinder: a shell whose native start failed runs the browser
-   * fallback, and a later flip retries the native one.
+   * It sits behind the web view and mounts no `<video>`, so it is sampled
+   * through the camera plugin instead of the room's element. Which preview is
+   * up is decided per acquire and can change mid-viewfinder: a shell whose
+   * native start failed runs the browser fallback, and a later flip retries the
+   * native one.
    */
   readonly nativePreview: boolean;
 }
@@ -250,9 +275,9 @@ export function useVoiceRoomSight(
    * There are two tiers of caller, and the difference is whether a user acted.
    * An act (the shutter's stop, the camera control's close, the app being put
    * away) revokes in the handler itself, which is the only place with no gap
-   * at all. Everything state-derived (availability going, the preview turning
-   * native, a flip that failed its way out of the viewfinder) has no such tick
-   * to sit in, so it revokes at the earliest point a hook offers, the commit
+   * at all. Everything state-derived (availability going, a flip that failed
+   * its way out of the viewfinder) has no such tick to sit in, so it revokes at
+   * the earliest point a hook offers, the commit
    * that carries the change, before paint and before the effect that lowers
    * the mode. Neither is the user withdrawing consent, so a frame crossing
    * that narrower window is a stale view rather than a broken promise.
@@ -272,23 +297,23 @@ export function useVoiceRoomSight(
     captureEpochRef.current += 1;
   }, []);
 
-  // All five, so the feature is absent rather than half-present: a flag off is
+  // All four, so the feature is absent rather than half-present: a flag off is
   // not shipped, an assistant that predates `sight_frame` answers every keep
   // with the error code the transport reads as a settings rejection, without an
-  // assistant there is nothing to upload against, a session that has latched
-  // the frame as unsupported drops every keep at the capture guard below, and
-  // the native preview leaves the sampler no `<video>` to read. Each belongs in
-  // the offer and not only in the state: taking Live down while leaving the
-  // hold on the shutter is a gesture that raises a pill saying Live over a
-  // camera nothing is reading. Availability is also what the mode is held to,
-  // by the effect below, so a term going false mid-viewfinder ends a Live that
-  // is already running rather than stranding it.
+  // assistant there is nothing to upload against, and a session that has
+  // latched the frame as unsupported drops every keep at the capture guard
+  // below. Which viewfinder is up is not among them: both have a source, and
+  // the effect below picks between them. Each belongs in the offer and not only
+  // in the state: taking Live down while leaving the hold on the shutter is a
+  // gesture that raises a pill saying Live over a camera nothing is reading.
+  // Availability is also what the mode is held to, by the effect below, so a
+  // term going false mid-viewfinder ends a Live that is already running rather
+  // than stranding it.
   const liveAvailable =
     isVisionModeOn(visionMode) &&
     supportsFrames &&
     !!assistantId &&
-    !sightFramesUnsupported &&
-    !nativePreview;
+    !sightFramesUnsupported;
   // The camera on screen is the consent, and Live is the ask. Nothing samples
   // without both.
   const active = cameraOpen && liveAvailable && live;
@@ -335,10 +360,9 @@ export function useVoiceRoomSight(
   );
 
   // Live never outlives what makes it honest. The viewfinder closing takes the
-  // consent away, and availability going (a flag, an assistant, the latch, or
-  // the preview swapping to the native layer) takes the destination away, so in
-  // either case the mode goes back to photo rather than staying raised over a
-  // camera that is sampling nothing.
+  // consent away, and availability going (a flag, an assistant, the latch)
+  // takes the destination away, so in either case the mode goes back to photo
+  // rather than staying raised over a camera nothing can act on.
   useEffect(() => {
     if (cameraOpen && liveAvailable) {
       return;
@@ -349,8 +373,8 @@ export function useVoiceRoomSight(
   // The same ending, taken at the commit rather than after it. Every way the
   // viewfinder or the destination can go without the user acting arrives as
   // one of these two values changing: a flip that failed its way out of the
-  // camera, the preview turning native, the latch, the flag, the assistant
-  // unbinding. None has a handler to be synchronous with, so this is the
+  // camera, the latch, the flag, the assistant unbinding. None has a handler to
+  // be synchronous with, so this is the
   // earliest they can be answered, a paint and a passive flush ahead of the
   // effect above. The user's own acts do not wait for it.
   useLayoutEffect(() => {
@@ -360,19 +384,27 @@ export function useVoiceRoomSight(
     revokeCaptureConsent();
   }, [cameraOpen, liveAvailable, revokeCaptureConsent]);
 
-  // Backgrounding ends Live, rather than pausing it.
+  // Backgrounding ends Live, rather than pausing it, and this is where both
+  // sources learn that the app went away.
   //
   // The hold is the consent, and it is given to a viewfinder the user is
-  // watching. The sampler only pauses while the page is hidden and picks its
-  // loop back up on the way in, so a Live that survived a backgrounding would
-  // resume sharing what the camera sees on a gesture made before the app was
-  // put away. Coming back to a viewfinder on photo costs one hold; coming back
-  // to one that is already streaming costs whatever it captured first.
+  // watching. Neither source stops itself: one pauses its loop while the page
+  // is hidden and picks it back up on the way in, the other polls a bridge that
+  // has no opinion about the app being on screen. A Live that survived a
+  // backgrounding would therefore resume sharing what the camera sees on a
+  // gesture made before the app was put away. Coming back to a viewfinder on
+  // photo costs one hold; coming back to one that is already streaming costs
+  // whatever it captured first.
+  //
+  // Lowering the mode is what stops the source, one commit later, and the
+  // revocation is what covers the commit: it is synchronous with the edge, and
+  // every capture path reads it before it takes or shares a frame.
   //
   // The bus's own edge rather than a `visibilitychange` listener here: it is
   // published once per physical edge from the two sources that describe it,
-  // which is what the iOS shell needs (see docs/EVENT_BUS.md, and the
-  // composer's sight store, which gives its camera back on the same event).
+  // which is what the mobile shells need, since they can report a background
+  // with no DOM event at all (see docs/EVENT_BUS.md, and the composer's sight
+  // store, which gives its camera back on the same event).
   useBusSubscription("app.hidden", () => {
     revokeCaptureConsent();
     setLiveState(false);
@@ -513,8 +545,17 @@ export function useVoiceRoomSight(
     nextSendSeqRef.current = captureSeqRef.current;
   }, []);
 
+  /**
+   * Take one kept frame all the way to the transcript and the pulse.
+   *
+   * Everything past the frame itself is the same on both paths: the same
+   * guards, the same order, the same upload, the same send, the same preview
+   * lifecycle. Only where the JPEG comes from differs, so that is what the
+   * caller supplies: the browser path encodes the `<video>` it is watching, the
+   * native path wraps the sample the gate has already judged.
+   */
   const captureAndHold = useCallback(
-    async (video: HTMLVideoElement) => {
+    async (produceFrame: (filename: string) => Promise<File | null>) => {
       if (!assistantId) {
         return;
       }
@@ -544,10 +585,7 @@ export function useVoiceRoomSight(
       let pending: PendingSightSend | null = null;
       try {
         frameCountRef.current += 1;
-        const frame = await captureVideoFrame(
-          video,
-          `sight-${frameCountRef.current}.jpg`,
-        );
+        const frame = await produceFrame(`sight-${frameCountRef.current}.jpg`);
         if (!frame) {
           return;
         }
@@ -631,8 +669,11 @@ export function useVoiceRoomSight(
     if (!active) {
       return;
     }
-    const video = videoRef.current;
-    if (!video) {
+    // The native preview mounts no element, so the element is the browser
+    // path's premise and not the run's: reading it there and only there is what
+    // lets one effect drive both sources.
+    const video = nativePreview ? null : videoRef.current;
+    if (!nativePreview && !video) {
       return;
     }
     // The run this consent was given for. Raised here rather than derived from
@@ -646,25 +687,51 @@ export function useVoiceRoomSight(
     const gate = createFrameGate(FRAME_GATE_LIVE_OPTIONS);
     gate.reset(performance.now());
     gateRef.current = gate;
-    const sampler = createFrameSampler({
-      gate,
-      onDecision: (decision, nowMs) => {
-        recordFrameGateDecision("voice", decision, nowMs);
-        if (!decision.keep) {
-          return;
-        }
-        void captureAndHold(video);
-      },
-    });
-    sampler.start(video);
+
+    let stopSampling: () => void;
+    if (video) {
+      const sampler = createFrameSampler({
+        gate,
+        onDecision: (decision, nowMs) => {
+          recordFrameGateDecision("voice", decision, nowMs);
+          if (!decision.keep) {
+            return;
+          }
+          void captureAndHold((filename) => captureVideoFrame(video, filename));
+        },
+      });
+      sampler.start(video);
+      stopSampling = sampler.stop;
+    } else {
+      const source = createNativeFrameSource({
+        gate,
+        captureSample: () =>
+          captureNativeVoiceCameraSample(NATIVE_CAPTURE_QUALITY),
+        onDecision: (decision, nowMs, sample) => {
+          recordFrameGateDecision("voice", decision, nowMs);
+          if (!decision.keep) {
+            return;
+          }
+          // The judged bytes, not a second capture: one round trip, and the
+          // frame the transcript ends up with is the one the gate said yes to.
+          void captureAndHold(
+            async (filename) =>
+              new File([sample], filename, { type: "image/jpeg" }),
+          );
+        },
+      });
+      source.start();
+      stopSampling = source.stop;
+    }
     return () => {
       // What voids the work in flight for every other way a run can end: an
-      // unmount, a closed room, a `<video>` swapped under it. The revocation
-      // is the bump, so a run the user ended finds it already spent and this
-      // is a no-op against captures that have failed their guard once already.
+      // unmount, a closed room, a viewfinder swapped under it, the app being
+      // put away. The revocation is the bump, so a run the user ended finds it
+      // already spent and this is a no-op against captures that have failed
+      // their guard once already.
       revokeCaptureConsent();
       rebaseSendOrder();
-      sampler.stop();
+      stopSampling();
       gateRef.current = null;
       hold(null);
     };
@@ -672,6 +739,7 @@ export function useVoiceRoomSight(
     active,
     captureAndHold,
     hold,
+    nativePreview,
     rebaseSendOrder,
     revokeCaptureConsent,
     videoRef,
@@ -679,13 +747,18 @@ export function useVoiceRoomSight(
 
   // A flip points the camera somewhere else entirely and mirrors it, so every
   // score against the old baseline is meaningless and every capture still
-  // encoding belongs to the camera that is gone. The sampler keeps running: it
-  // is the same element, only the stream behind it changed.
+  // encoding belongs to the camera that is gone. The source keeps running: on
+  // the browser path it is the same element with a new stream behind it, and on
+  // the native path the poll never knew which camera it was reading.
   //
   // The frame on screen is the old camera's view, and the exposure warmup plus
   // the gate's rate floor put the replacement seconds away, so leaving it up
   // would show the user's own face as what the call is being shown of the room
   // in front of them. On mount nothing is held and this is a no-op.
+  //
+  // A preview swapping between the element and the native layer needs nothing
+  // here: the sampling effect below re-runs for it, and its teardown voids the
+  // captures, rebases the order and drops the pulse on the way past.
   useEffect(() => {
     invalidateCaptures();
   }, [facing, invalidateCaptures]);
