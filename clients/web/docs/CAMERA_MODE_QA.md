@@ -89,11 +89,20 @@ scrim.
       readout scrolls to the reset button and back, and the room never starts
       sliding toward a minimize. Drag a threshold sideways across its whole
       range and the same holds.
-- [ ] The room is still pulled down by everything around the sheet. With the
-      sheet open, drag downward on the frame outside it: the room minimizes,
-      which is the room's own gesture, and the readout goes down with it. Close
-      the sheet and drag from the same place the sheet occupied: the room
-      minimizes there too.
+- [ ] The open sheet stands the room's pull-down down, and closing gives it
+      back. With the sheet open, drag downward on the frame outside it: nothing
+      moves, because a press out there is aimed at dismissing the readout and
+      answering it with a minimize would hang the call off a tap that missed.
+      Tap once to close, then drag downward from the same place, and from the
+      strip: the room minimizes both times.
+- [ ] The room's own pull-down is unchanged everywhere else. With no readout on
+      screen at all, drag the room down from its chrome, from the middle of the
+      feed, and from over a control: it tracks the finger, springs back from a
+      short pull and minimizes past the threshold, exactly as on main. Sliding
+      a finger sideways across the control row still does not start it.
+- [ ] Holding still raises no callout. Press and hold on the room for a couple
+      of seconds: no text is selected and iOS shows no selection callout or
+      magnifier.
 - [ ] Tuning survives the collapse. Move a threshold in the sheet, close it,
       and open it again: the value is where it was left, and the dot marking a
       moved threshold is still beside it. Reset puts every slider back.

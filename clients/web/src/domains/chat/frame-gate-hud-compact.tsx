@@ -42,40 +42,42 @@
  * downward drag by minimizing the whole call, so a sheet that read drags here
  * would be competing with that for the same gesture.
  *
- * ## Why the sheet claims the presses that land on it
+ * ## Why the sheet keeps the presses that land on it
  *
- * That same room drag is what a scroll inside this sheet would be competing
- * with. Motion attaches the drag as a `pointerdown` listener on the room's own
- * element, in the bubble phase and passive
- * (`VisualElementDragControls.addListeners` through `addPointerEvent` and
- * `addDomEvent`), and its only carve-out is a press on a text input, so a
- * button, a slider or a scrolling column inside the room starts a room drag
- * like anything else. The readout is taller than its own height cap, so the
- * lower sliders are reachable only by a vertical swipe, and that swipe would
- * pull the room down instead of scrolling.
+ * That same room drag is what a swipe down this sheet would be competing with.
+ * The readout is taller than the sheet's height cap, so the lower sliders are
+ * reachable only by scrolling, and the room answers a downward drag anywhere
+ * inside it by minimizing the whole call.
  *
- * The sheet therefore stops `pointerdown` from leaving it, on the element that
- * is both its surface and its scroll container. Stopping propagation is not
- * `preventDefault`: `docs/CAPACITOR.md` bans the latter on `pointerdown`
- * because WebKit drops the rest of the sequence with it, and the tap that
- * follows this press still lands, which is what the grabber's dismissal and
- * every switch inside the readout ride. It is the bubble phase, so the slider
- * or button under the finger has already been handed the press by the time the
- * sheet takes it out of the room's reach.
+ * The room's drag is started from a React `onPointerDown` on the room's own
+ * element rather than from Motion's built-in listener, which is what makes this
+ * expressible at all: see `voice-room.tsx` for why a native listener there
+ * cannot be declined from in here. Inside React's propagation the tree order is
+ * the useful one, so the sheet keeps its own presses with a plain
+ * `stopPropagation()` in its own `onPointerDown`, which runs before the room's
+ * and leaves every handler under it, Radix's sliders included, untouched.
+ *
+ * Stopping propagation is not `preventDefault`: `docs/CAPACITOR.md` bans the
+ * latter on `pointerdown` because WebKit drops the rest of the sequence with
+ * it, and the tap that follows this press still lands, which is what the
+ * grabber's dismissal and every switch inside the readout ride.
  *
  * The whole sheet rather than an inner scroll region: a press that lands on
- * this surface is aimed at this surface. The backdrop is a sibling and keeps
- * its press, so the room is still dragged by everything around the sheet, and
- * a sheet that is closed leaves the room exactly as it was.
+ * this surface is aimed at this surface. The backdrop keeps its presses too,
+ * for the same reason read the other way: it exists to be tapped through, and a
+ * press aimed at dismissing a panel must not turn into a pull on the call
+ * behind it. Between them they cover the room while the sheet is open, which
+ * they already did for the eye; a sheet that is closed attaches nothing and
+ * leaves the room dragged from everywhere, the strip included.
  *
- * The drag has a second half that is the browser's rather than motion's: the
- * same props put `touch-action: pan-x` on the room (`useHTMLProps`), which is
- * how it stops the browser panning vertically under a gesture it means to own.
- * The sheet asks for the vertical pan back on its own box, the way every other
- * scrolling panel over a claimed gesture in this app does.
+ * The drag has a second half that is the browser's rather than Motion's: the
+ * room carries `touch-action: pan-x` for as long as it is draggable, which is
+ * how it stops the browser panning under the gesture it owns. The sheet asks
+ * for the vertical pan back on its own box, the way every other scrolling panel
+ * over a claimed gesture in this app does.
  */
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type PointerEvent } from "react";
 import { cn } from "@vellumai/design-library";
 
 import { CAMERA_MEDIA_GLASS_CLASS } from "@/domains/chat/voice/voice-room/camera-mode-paint";
@@ -107,24 +109,11 @@ export function FrameGateHudCompact({
   const { t } = useTranslation("chat");
   const overrides = useCameraGateDebugStore.use.overrides();
   const [expanded, setExpanded] = useState(false);
-  const [sheet, setSheet] = useState<HTMLDivElement | null>(null);
   const collapseLabel = t("frameGateHud.collapse");
 
-  // A native listener rather than React's `onPointerDown`: React delegates to
-  // the app's root container, which the room's own element sits inside, so a
-  // synthetic stop runs long after the room has already been handed the press.
-  useEffect(() => {
-    if (!sheet) {
-      return;
-    }
-    const claimPress = (event: PointerEvent) => {
-      event.stopPropagation();
-    };
-    sheet.addEventListener("pointerdown", claimPress);
-    return () => {
-      sheet.removeEventListener("pointerdown", claimPress);
-    };
-  }, [sheet]);
+  const keepPress = (event: PointerEvent<HTMLElement>) => {
+    event.stopPropagation();
+  };
 
   return (
     <>
@@ -161,12 +150,13 @@ export function FrameGateHudCompact({
             aria-hidden
             data-testid="frame-gate-hud-backdrop"
             className="absolute inset-0 z-30"
+            onPointerDown={keepPress}
             onClick={() => setExpanded(false)}
           />
           <div
-            ref={setSheet}
             data-slot="frame-gate-hud"
             data-testid="frame-gate-hud-sheet"
+            onPointerDown={keepPress}
             className={cn(
               "absolute inset-x-0 bottom-0 z-30 max-h-[70%] overflow-y-auto overscroll-contain",
               "flex flex-col gap-3 rounded-t-xl px-3 pt-2 text-[11px] leading-tight shadow-lg",

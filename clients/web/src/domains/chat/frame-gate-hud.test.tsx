@@ -14,7 +14,15 @@
  * app agrees on.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+  type Mock,
+} from "bun:test";
 import {
   act,
   cleanup,
@@ -331,32 +339,80 @@ const strip = () => screen.queryByTestId("frame-gate-hud-strip");
 const sheet = () => screen.queryByTestId("frame-gate-hud-sheet");
 const backdrop = () => screen.queryByTestId("frame-gate-hud-backdrop");
 
-/**
- * Put a decision on the record and render a mount that may stand down.
- *
- * The element handed back is the readout's parent, which in the app is the
- * room's own box: the element motion attaches the room's drag to.
- */
-function renderCollapsible(): HTMLElement {
-  const { container } = render(<FrameGateHud surface="composer" collapsible />);
+/** Put a decision on the record and render a mount that may stand down. */
+function renderCollapsible(): void {
+  render(<FrameGateHud surface="composer" collapsible />);
   judge("composer", "novel", true);
-  return container;
 }
 
 /** Render the collapsible mount on a narrow window and open its sheet. */
-function openSheet(): HTMLElement {
+function openSheet(): void {
   isMobileRef.value = true;
-  const container = renderCollapsible();
+  renderCollapsible();
   act(() => {
     fireEvent.click(strip()!);
   });
-  return container;
 }
 
-/** A press, as the room's drag listener would receive one. */
-function press(target: Element): void {
-  target.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+/**
+ * The shape the room puts around the readout: one drag surface carrying a
+ * React `onPointerDown`, with the readout and some bare chrome inside it.
+ *
+ * `voice-room.tsx` hands that press to `dragControls.start`. Here it is a spy,
+ * because what the sheet has to be sure of is only which presses the room is
+ * asked to open a drag from.
+ */
+function RoomHarness({ onRoomPress }: { onRoomPress: () => void }) {
+  return (
+    <div data-testid="room" onPointerDown={onRoomPress}>
+      <div data-testid="bare-chrome" />
+      <FrameGateHud surface="composer" collapsible />
+    </div>
+  );
 }
+
+/** Render the readout inside the room's shape. Hands back the room's spy. */
+function renderRoom(): Mock<() => void> {
+  const roomPress = mock(() => {});
+  render(<RoomHarness onRoomPress={roomPress} />);
+  judge("composer", "novel", true);
+  return roomPress;
+}
+
+/** The same, on a narrow window and with the sheet already open. */
+function openSheetInRoom(): Mock<() => void> {
+  isMobileRef.value = true;
+  const roomPress = renderRoom();
+  act(() => {
+    fireEvent.click(strip()!);
+  });
+  roomPress.mockClear();
+  return roomPress;
+}
+
+/** The element a slider reads a press against: Radix's own root. */
+function sliderSurface(key: string): HTMLElement {
+  const surface = screen
+    .getByTestId(`frame-gate-hud-slider-${key}`)
+    .querySelector("[data-owns-horizontal-drag]");
+  if (!(surface instanceof HTMLElement)) {
+    throw new Error(`no slider surface for ${key}`);
+  }
+  return surface;
+}
+
+/** A 200px track starting at the origin, so a press at 100 is the midpoint. */
+const TRACK_RECT = {
+  x: 0,
+  y: 0,
+  left: 0,
+  top: 0,
+  right: 200,
+  bottom: 20,
+  width: 200,
+  height: 20,
+  toJSON: () => ({}),
+} as DOMRect;
 
 /**
  * Which presentation a mount gets.
@@ -554,74 +610,86 @@ describe("FrameGateHud sheet", () => {
 
   /**
    * The room the sheet opens in is dragged down to minimize the call, and
-   * motion arms that by listening for `pointerdown` on the room's own element
-   * in the bubble phase. A scroll down the readout would be the same gesture,
-   * so a press the sheet has taken must not reach the room.
+   * `voice-room.tsx` starts that drag from a React `onPointerDown` on the
+   * room's own element rather than from Motion's own listener, exactly so a
+   * surface inside the room can decline to pass a press on. A swipe down the
+   * readout is the same gesture as a pull on the room, so the sheet has to be
+   * the one that keeps it.
    *
-   * The gesture loop itself needs a layout engine, so what is asserted here is
-   * the property the loop turns on: which presses reach an ancestor of the
-   * mount, standing in for the element the room attaches its drag to.
+   * The gesture loop itself needs a layout engine, so what these render is the
+   * room's shape rather than the room: one drag surface carrying the press
+   * handler the room carries, with the readout mounted inside it. What is
+   * asserted is the thing the loop turns on, which presses the room is asked to
+   * start a drag from.
    */
   describe("the room's drag", () => {
-    test("never sees a press that lands on the sheet", () => {
-      const room = openSheet();
-      const roomDrag = mock(() => {});
-      room.addEventListener("pointerdown", roomDrag);
+    test("is never asked to start from a press inside the sheet", () => {
+      const roomPress = openSheetInRoom();
 
-      press(screen.getByRole("button", { name: "Reset" }));
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Reset" }));
 
-      expect(roomDrag).not.toHaveBeenCalled();
+      expect(roomPress).not.toHaveBeenCalled();
     });
 
-    test("still sees a press that lands anywhere else", () => {
-      const room = openSheet();
-      const roomDrag = mock(() => {});
-      room.addEventListener("pointerdown", roomDrag);
+    test("is never asked to start from a press on the backdrop", () => {
+      const roomPress = openSheetInRoom();
 
-      // The backdrop is a sibling of the sheet, not part of it, so the room is
-      // still pulled down by everything around the readout.
-      press(backdrop()!);
-      expect(roomDrag).toHaveBeenCalledTimes(1);
+      // A press there is aimed at dismissing the readout. Letting it open a
+      // drag would answer a tap that missed by a few pixels by pulling the
+      // whole call toward a minimize.
+      fireEvent.pointerDown(backdrop()!);
+      expect(roomPress).not.toHaveBeenCalled();
 
-      // And by the strip, which is chrome over the feed rather than a surface
-      // with a gesture of its own.
-      press(strip()!);
-      expect(roomDrag).toHaveBeenCalledTimes(2);
+      // And the dismissal it was aimed at still happens, since only the press
+      // was kept and the tap rides on.
+      act(() => {
+        fireEvent.click(backdrop()!);
+      });
+      expect(sheet()).toBeNull();
     });
 
-    test("the sheet's own children are handed the press first", () => {
-      openSheet();
-      const slider = within(
-        screen.getByTestId("frame-gate-hud-slider-noveltyThreshold"),
-      ).getByRole("slider");
-      const sliderPress = mock(() => {});
-      slider.addEventListener("pointerdown", sliderPress);
+    test("is asked to start from everything the readout has not covered", () => {
+      isMobileRef.value = true;
+      const roomPress = renderRoom();
 
-      // Taken on the way back up rather than on the way down: a slider still
-      // starts its own drag, and only the room is left out.
-      press(slider);
+      fireEvent.pointerDown(screen.getByTestId("bare-chrome"));
+      expect(roomPress).toHaveBeenCalledTimes(1);
 
-      expect(sliderPress).toHaveBeenCalledTimes(1);
+      // The strip included: it is chrome over the feed, not a surface with a
+      // gesture of its own.
+      fireEvent.pointerDown(strip()!);
+      expect(roomPress).toHaveBeenCalledTimes(2);
+    });
+
+    test("a threshold slider inside the open sheet still moves the gate", () => {
+      const roomPress = openSheetInRoom();
+      const slider = sliderSurface("noveltyThreshold");
+      // The gate reads a fraction of the track, and happy-dom lays nothing
+      // out, so the track is given a width to be a fraction of.
+      slider.getBoundingClientRect = () => TRACK_RECT;
+
+      act(() => {
+        fireEvent.pointerDown(slider, { clientX: 100, pointerId: 1 });
+      });
+
+      // The end of the whole argument: React hands its delegated press to the
+      // slider's own handler even though the sheet keeps the press from the
+      // room, so the control the sheet exists to expose actually works, and the
+      // room was never asked to drag while it happened.
+      const moved =
+        useCameraGateDebugStore.getState().overrides.noveltyThreshold;
+      expect(moved).toBe(1);
+      expect(FRAME_GATE_LIVE_OPTIONS.noveltyThreshold).toBe(1);
+      expect(roomPress).not.toHaveBeenCalled();
     });
 
     test("the sheet asks the browser back for the vertical pan", () => {
       openSheet();
 
       // The room carries `pan-x` for as long as it is draggable, which is how
-      // it stops the browser scrolling under the gesture it owns. Stopping
-      // motion's listener does not give that back; the sheet has to say so.
+      // it stops the browser scrolling under the gesture it owns. Keeping the
+      // press does not give that back; the sheet has to say so.
       expect(sheet()?.style.touchAction).toBe("pan-y");
-    });
-
-    test("is left alone while the readout is a strip", () => {
-      isMobileRef.value = true;
-      const room = renderCollapsible();
-      const roomDrag = mock(() => {});
-      room.addEventListener("pointerdown", roomDrag);
-
-      press(strip()!);
-
-      expect(roomDrag).toHaveBeenCalledTimes(1);
     });
   });
 });
