@@ -38,7 +38,7 @@ const DELETED_ROWS: TranscriptItem[] = [
     "assistant",
     "Posted. Three fixes, one migration, no flag flips.",
   ),
-  deletedRow("m3", "assistant", "[reaction]"),
+  deletedRow("m3", "assistant", "Posted the summary a second time by mistake."),
   message("m4", "user", "Thanks, and please remove the duplicate."),
   deletedRow("m5", "user", "oops, wrong channel"),
   message("m6", "assistant", "Removed it."),
