@@ -12,7 +12,6 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
-import { safeParseRecord } from "../../../../../util/json.js";
 import { getLogger } from "../../logging.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
@@ -301,7 +300,19 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
   if (!slackMeta) {
     return null;
   }
-  const metadata = safeParseRecord(rawMetadata);
+  // The trust class sits beside the envelope, on the row's top-level
+  // metadata. Parsed here rather than through the host's JSON helper, which
+  // is outside the plugin's import boundary.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawMetadata);
+  } catch {
+    parsed = null;
+  }
+  const metadata =
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
 
   return {
     ...(slackMeta.displayName ? { displayName: slackMeta.displayName } : {}),
