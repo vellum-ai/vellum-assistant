@@ -108,7 +108,7 @@ describe("contacts_prompt binding target", () => {
     // submission still resolves by address the way it always has.
     expect(
       promptFlags.handler({ body: { requestId: message.requestId } }),
-    ).toEqual({ verify: false });
+    ).toEqual({ known: true, verify: false });
 
     await settle(pending, message.requestId as string);
   });
@@ -122,6 +122,7 @@ describe("contacts_prompt binding target", () => {
     // Read from the daemon rather than the submission, so a client that
     // predates the field still binds where the command said.
     expect(promptFlags.handler({ body: { requestId } })).toEqual({
+      known: true,
       verify: true,
       contactId: "ct_1",
     });
@@ -136,12 +137,23 @@ describe("contacts_prompt binding target", () => {
     const requestId = parkedRequest().requestId as string;
 
     expect(promptFlags.handler({ body: { requestId } })).toEqual({
+      known: true,
       verify: false,
       displayName: "Bob",
       notes: "Plumber",
     });
 
     await settle(pending, requestId);
+  });
+
+  test("a form this process never parked reads back as unknown", () => {
+    // A restart between the gateway's claim and this read leaves the target
+    // unreadable rather than absent, and the gateway refuses the write rather
+    // than resolving the address itself.
+    expect(promptFlags.handler({ body: { requestId: "req-gone" } })).toEqual({
+      known: false,
+      verify: false,
+    });
   });
 
   test("naming a contact and proposing a new one is refused, and opens no form", async () => {
@@ -152,6 +164,19 @@ describe("contacts_prompt binding target", () => {
     expect(result.ok).toBe(false);
     expect(String(result.error)).toContain("contactId");
     expect(String(result.error)).toContain("displayName");
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  test("naming a contact and proposing notes is refused, and opens no form", async () => {
+    // A targeted bind writes no record, so notes riding along would be
+    // reported as saved and dropped.
+    const result = (await addressPrompt.handler({
+      body: { channel: "email", contactId: "ct_1", notes: "Met at the talk" },
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toContain("contactId");
+    expect(String(result.error)).toContain("notes");
     expect(broadcasts).toHaveLength(0);
   });
 });
