@@ -26,10 +26,9 @@
  *   (Settings, and the camera's view options) agree across every window the
  *   account has open. The restored payload goes through the same `merge` a
  *   reload does, so a stale or hand-edited value is clamped exactly as one
- *   from disk. Whose account the restored payload belongs to is settled by
- *   the caller, which is the half this module cannot answer: another tab can
- *   sign the browser into a different account, and the payload it leaves
- *   behind names an owner this tab has to be told about.
+ *   from disk. A payload belonging to another account is not restored at all:
+ *   the owner named in the event is checked first, by a caller that knows
+ *   which account this tab holds.
  *
  * **What every write does.** A write moves this slice and nothing else. The
  * gate's live options record is owned by `lib/camera/frame-gate-debug.ts` and
@@ -210,17 +209,57 @@ export const useCameraGateDebugStore = createSelectors(
 // ---------------------------------------------------------------------------
 
 /**
- * Re-read this slice whenever another tab writes it, and hand back an
- * unsubscribe.
+ * The account a payload another tab wrote belongs to, or nothing readable.
  *
- * `onRestored` runs once the payload is in. It is where the caller settles
- * whose preference was just restored: another tab can sign the browser into a
- * different account between two writes, and the payload names an owner that
- * only a module holding this tab's identity can check. Restoring first and
- * settling after is what keeps the storage key's shape here and the account
- * rules there.
+ * A `null` owner is a real answer: a slice written before any account claimed
+ * it names none, and the claim that follows a restore is what settles those.
+ * An absent value (the key was removed) or a payload that does not parse is
+ * not an answer at all, and nothing is restored from one.
+ */
+function readPersistedOwner(
+  raw: string | null,
+): { readable: true; ownerUserId: string | null } | { readable: false } {
+  if (raw === null) {
+    return { readable: false };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { readable: false };
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return { readable: false };
+  }
+  const state = (parsed as { state?: unknown }).state;
+  if (typeof state !== "object" || state === null) {
+    return { readable: false };
+  }
+  const owner = (state as { ownerUserId?: unknown }).ownerUserId;
+  return {
+    readable: true,
+    ownerUserId: typeof owner === "string" ? owner : null,
+  };
+}
+
+/**
+ * Re-read this slice when another tab writes one this tab is allowed to hold,
+ * and hand back an unsubscribe.
+ *
+ * The owner is checked BEFORE anything is restored. Adopting a payload and
+ * correcting it afterwards looks equivalent and is not: the correction is
+ * itself a persisted write, the other tab reads it, corrects it back, and two
+ * signed-in accounts trade the key forever. A payload this tab may not hold is
+ * therefore left entirely alone, on disk and in memory, and the account that
+ * wrote it keeps it until someone's next boot claims it.
+ *
+ * The split is what each side knows. The payload's shape is this module's, so
+ * the owner is parsed here; whether that owner is the one this tab is signed
+ * in as is the caller's, so it answers `shouldAccept`. `onRestored` then runs
+ * for an accepted payload only.
  */
 export function watchCameraGateDebugStorage(
+  shouldAccept: (ownerUserId: string | null) => boolean,
   onRestored: () => void,
 ): () => void {
   if (typeof window === "undefined") {
@@ -228,6 +267,10 @@ export function watchCameraGateDebugStorage(
   }
   const onStorage = (event: StorageEvent): void => {
     if (event.key !== CAMERA_GATE_DEBUG_STORE_KEY) {
+      return;
+    }
+    const owner = readPersistedOwner(event.newValue);
+    if (!owner.readable || !shouldAccept(owner.ownerUserId)) {
       return;
     }
     void Promise.resolve(useCameraGateDebugStoreBase.persist.rehydrate()).then(

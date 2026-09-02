@@ -94,6 +94,16 @@ describe("CameraViewSettings", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });
 
+  test("the panel is announced by its own heading", async () => {
+    await openPanel();
+
+    // Radix presents the content as a dialog, and an unnamed dialog is
+    // announced as nothing at all.
+    const labelledBy = panel()?.getAttribute("aria-labelledby");
+    expect(labelledBy).toBeTruthy();
+    expect(document.getElementById(labelledBy ?? "")?.textContent).toBe("Show");
+  });
+
   test("the panel renders into the host it is handed, not beside the trigger", async () => {
     await openPanel();
 

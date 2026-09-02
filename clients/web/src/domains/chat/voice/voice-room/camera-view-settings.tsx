@@ -31,7 +31,7 @@
  * keeps a dismissing tap from reaching the shutter underneath it.
  */
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SlidersHorizontal } from "lucide-react";
 
@@ -99,6 +99,7 @@ export interface CameraViewSettingsProps {
 export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
+  const titleId = useId();
   const hudAvailable = useCameraGateHudAvailable();
   const hudEnabled = useCameraGateDebugStore.use.hudEnabled();
   const setHudEnabled = useCameraGateDebugStore.use.setHudEnabled();
@@ -138,13 +139,19 @@ export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
           align="end"
           sideOffset={8}
           data-testid="camera-view-settings-panel"
+          // Radix presents this as a dialog, and an unnamed one is announced
+          // as nothing. The heading it already carries is the name.
+          aria-labelledby={titleId}
           style={cameraModeStyle()}
           className={cn(
             "flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-lg p-3 shadow-lg",
             CAMERA_MEDIA_GLASS_CLASS,
           )}
         >
-          <p className="text-label-small-default uppercase tracking-wide text-white/60">
+          <p
+            id={titleId}
+            className="text-label-small-default uppercase tracking-wide text-white/60"
+          >
             {t("cameraViewOptions.title")}
           </p>
           {hudAvailable ? (

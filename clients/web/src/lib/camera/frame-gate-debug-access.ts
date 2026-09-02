@@ -101,18 +101,41 @@ function onAuthChange(): void {
 }
 
 /**
+ * Whether a payload another tab left is this tab's to read.
+ *
+ * Answered before anything is restored, because the alternative is a loop. A
+ * foreign payload adopted here would be corrected by the claim, that
+ * correction is a persisted write, and the tab that wrote the original reads
+ * it and corrects it back: two signed-in accounts trading the key with nobody
+ * touching a switch. Refusing to read it costs this tab nothing, since the
+ * preference it is holding is already its own.
+ *
+ * A payload naming no owner is accepted: nothing has claimed it, so there is
+ * no account to disagree with, and the claim that follows the restore is what
+ * binds it. A window with no user resolved yet accepts nothing owned, which is
+ * the same caution {@link claimForCurrentUser} takes for the same reason: boot
+ * and a token refresh both look like a signed-out window.
+ */
+function ownsPersistedPreference(ownerUserId: string | null): boolean {
+  if (ownerUserId === null) {
+    return true;
+  }
+  return ownerUserId === (useAuthStore.getState().user?.id ?? null);
+}
+
+/**
  * Call once at startup. Returns an unsubscribe for tests.
  *
  * The subscriptions carry no selector: the answer is a function of slices in
  * three stores, and a selectorless subscriber runs on every write to any of
  * them, including the persist middleware restoring a switch left on.
  *
- * Another tab's write is restored here too, and settled through the same
+ * Another tab's write is picked up here too, gated on
+ * {@link ownsPersistedPreference} and then settled through the same
  * {@link onAuthChange} an account change runs. A second window can sign the
- * browser into a different account, so a payload arriving from one names an
- * owner that has to be checked against whoever this tab holds before its
- * thresholds are allowed anywhere near the gate. The store restores; the claim
- * decides whether what it restored is this account's to keep.
+ * browser into a different account, so the owner named in the event is checked
+ * before anything is restored, and only a payload this tab may hold reaches
+ * the store or the gate.
  */
 export function setupCameraGateHudAccessSync(): () => void {
   onAuthChange();
@@ -123,7 +146,10 @@ export function setupCameraGateHudAccessSync(): () => void {
   const unsubscribeDebug = useCameraGateDebugStore.subscribe(
     applyEffectiveOptions,
   );
-  const unwatchStorage = watchCameraGateDebugStorage(onAuthChange);
+  const unwatchStorage = watchCameraGateDebugStorage(
+    ownsPersistedPreference,
+    onAuthChange,
+  );
   return () => {
     unsubscribeAuth();
     unsubscribeFlags();

@@ -252,29 +252,43 @@ describe("camera gate readout access", () => {
   /**
    * What another window's write does to this one.
    *
-   * The restore is the store's and the account check is this module's, which
-   * is the whole reason the listener is wired here: a second window can sign
-   * the browser into a different account, so the payload it leaves behind is
-   * not automatically this tab's to adopt.
+   * The owner check is this module's and the payload's shape is the store's,
+   * which is the whole reason the listener is wired here: a second window can
+   * sign the browser into a different account, so the payload it leaves behind
+   * is not automatically this tab's to read.
    */
   describe("another tab's write", () => {
-    /** Leave a payload behind and tell this tab about it, as a tab swap does. */
+    /** The payload a tab owned by `ownerUserId` leaves on the key. */
+    function payloadFrom(ownerUserId: string, minDetail: number): string {
+      return JSON.stringify({
+        state: {
+          hudEnabled: true,
+          ownerUserId,
+          overrides: { ...defaultFrameGateOverrides(), minDetail },
+        },
+        version: 0,
+      });
+    }
+
+    /** Leave a payload behind and tell this tab about it, as another tab does. */
     async function arriveFromAnotherTab(
       ownerUserId: string,
       minDetail: number,
     ): Promise<void> {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          state: {
-            hudEnabled: true,
-            ownerUserId,
-            overrides: { ...defaultFrameGateOverrides(), minDetail },
-          },
-          version: 0,
-        }),
+      const newValue = payloadFrom(ownerUserId, minDetail);
+      localStorage.setItem(STORAGE_KEY, newValue);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue }),
       );
-      window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    /** Announce a payload this tab could not read even if it wanted to. */
+    async function arriveUnreadable(newValue: string | null): Promise<void> {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue }),
+      );
       await Promise.resolve();
       await Promise.resolve();
     }
@@ -291,31 +305,88 @@ describe("camera gate readout access", () => {
       expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
     });
 
-    test("from another account is dropped, and takes nothing to the gate", async () => {
-      // The window that wrote it signed the browser into a different account.
-      // Restoring it here would hand this session a switch and a set of
-      // thresholds it never asked for, with no panel on screen to say so.
+    test("naming no owner is read, and the claim then settles it", async () => {
+      // A slice written before any account claimed it. Nobody owns it, so
+      // there is no account for this tab to disagree with and it is read; the
+      // claim that follows is what binds it, and binding a preference no
+      // session recorded is what puts the switch back to shipped. That is the
+      // store's standing rule for an unowned payload, not a new one.
       useAuthStore.setState({ user: STAFF_USER });
-      useCameraGateDebugStore.getState().setHudEnabled(false);
+      const store = useCameraGateDebugStore.getState();
+      store.setHudEnabled(true);
+      store.setOverride("minDetail", 30);
 
-      await arriveFromAnotherTab(OTHER_STAFF_USER.id ?? "", 42);
+      const newValue = JSON.stringify({
+        state: {
+          hudEnabled: true,
+          ownerUserId: null,
+          overrides: { ...defaultFrameGateOverrides(), minDetail: 42 },
+        },
+        version: 0,
+      });
+      localStorage.setItem(STORAGE_KEY, newValue);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: STORAGE_KEY, newValue }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
 
       const state = useCameraGateDebugStore.getState();
-      expect(state.hudEnabled).toBe(false);
-      expect(state.overrides).toEqual(defaultFrameGateOverrides());
       expect(state.ownerUserId).toBe(STAFF_USER.id);
-      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(
+      expect(state.hudEnabled).toBe(false);
+      expect(state.overrides.minDetail).toBe(
         DEFAULT_FRAME_GATE_OPTIONS.minDetail,
       );
     });
 
-    test("under another key is not this store's to answer", async () => {
+    test("from another account is refused outright, with nothing written back", async () => {
+      // Adopting it and correcting afterwards would persist the correction,
+      // the other tab would read that and correct it back, and two signed-in
+      // accounts would trade the key with nobody touching a switch. Refusing
+      // to read it is what has no second half.
+      useAuthStore.setState({ user: STAFF_USER });
+      const store = useCameraGateDebugStore.getState();
+      store.setHudEnabled(true);
+      store.setOverride("minDetail", 30);
+
+      const foreign = payloadFrom(OTHER_STAFF_USER.id ?? "", 42);
+      localStorage.setItem(STORAGE_KEY, foreign);
+      const writes: string[] = [];
+      const setItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = (key: string, value: string) => {
+        writes.push(key);
+        setItem(key, value);
+      };
+      try {
+        window.dispatchEvent(
+          new StorageEvent("storage", { key: STORAGE_KEY, newValue: foreign }),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      } finally {
+        localStorage.setItem = setItem;
+      }
+
+      // Nothing of this tab's moved, and nothing of this tab's was written:
+      // the key still holds the other account's payload, which is theirs until
+      // somebody's next boot claims it.
+      const state = useCameraGateDebugStore.getState();
+      expect(state.hudEnabled).toBe(true);
+      expect(state.overrides.minDetail).toBe(30);
+      expect(state.ownerUserId).toBe(STAFF_USER.id);
+      expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(30);
+      expect(writes).toEqual([]);
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(foreign);
+    });
+
+    test("that cannot be read is left alone", async () => {
+      // A removal, a hand-edited value, and a payload with no state in it.
+      // None of them says whose preference this is, so none of them is acted
+      // on, and none of them throws out of the handler. The key is left
+      // holding something this tab would otherwise have taken, so an event
+      // that was acted on anyway would show up here.
       useAuthStore.setState({ user: STAFF_USER });
       useCameraGateDebugStore.getState().setHudEnabled(true);
-
-      // A payload nobody announced. Reading it would mean any key's event
-      // restores this slice, which is a switch moving under a session that
-      // changed nothing.
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
@@ -327,9 +398,28 @@ describe("camera gate readout access", () => {
           version: 0,
         }),
       );
+
+      await arriveUnreadable(null);
+      await arriveUnreadable("not json at all");
+      await arriveUnreadable(JSON.stringify({ version: 0 }));
+
+      expect(useCameraGateDebugStore.getState().hudEnabled).toBe(true);
+    });
+
+    test("under another key is not this store's to answer", async () => {
+      useAuthStore.setState({ user: STAFF_USER });
+      useCameraGateDebugStore.getState().setHudEnabled(true);
+
+      // A payload nobody announced. Reading it would mean any key's event
+      // restores this slice, which is a switch moving under a session that
+      // changed nothing.
+      localStorage.setItem(STORAGE_KEY, payloadFrom(STAFF_USER.id ?? "", 42));
       localStorage.setItem("vellum:debug:somethingElse", "{}");
       window.dispatchEvent(
-        new StorageEvent("storage", { key: "vellum:debug:somethingElse" }),
+        new StorageEvent("storage", {
+          key: "vellum:debug:somethingElse",
+          newValue: "{}",
+        }),
       );
       await Promise.resolve();
       await Promise.resolve();
