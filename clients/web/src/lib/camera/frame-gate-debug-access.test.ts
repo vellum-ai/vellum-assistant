@@ -32,6 +32,27 @@ const STAFF_USER: AuthUser = {
   lastName: "Member",
 };
 
+/**
+ * The same account as {@link STAFF_USER}, no longer staff. Same id, so it
+ * moves availability without moving identity, which is what the tests below
+ * are about.
+ */
+const DEMOTED_USER: AuthUser = {
+  ...STAFF_USER,
+  email: "person@example.com",
+  isStaff: false,
+};
+
+const OTHER_STAFF_USER: AuthUser = {
+  kind: "platform",
+  id: "user-2",
+  username: "colleague",
+  email: "colleague@vellum.ai",
+  isStaff: true,
+  firstName: "Other",
+  lastName: "Staffer",
+};
+
 const LOCAL_USER: AuthUser = {
   kind: "local",
   id: "gateway-local",
@@ -108,7 +129,7 @@ describe("camera gate readout access", () => {
     store.setOverride("minDetail", 30);
     expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(30);
 
-    useAuthStore.setState({ user: LOCAL_USER });
+    useAuthStore.setState({ user: DEMOTED_USER });
 
     expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
       ...DEFAULT_FRAME_GATE_OPTIONS,
@@ -122,7 +143,7 @@ describe("camera gate readout access", () => {
     const store = useCameraGateDebugStore.getState();
     store.setHudEnabled(true);
     store.setOverride("settleThreshold", 0.25);
-    useAuthStore.setState({ user: LOCAL_USER });
+    useAuthStore.setState({ user: DEMOTED_USER });
     expect(FRAME_GATE_LIVE_OPTIONS.settleThreshold).toBe(
       DEFAULT_FRAME_GATE_OPTIONS.settleThreshold,
     );
@@ -130,6 +151,102 @@ describe("camera gate readout access", () => {
     useAuthStore.setState({ user: STAFF_USER });
 
     expect(FRAME_GATE_LIVE_OPTIONS.settleThreshold).toBe(0.25);
+  });
+
+  test("a session that expires without a logout leaves nothing for the next account", () => {
+    useAuthStore.setState({ user: STAFF_USER });
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("noveltyThreshold", 1.3);
+
+    // An expired or revoked session ends without the logout sweep running.
+    useAuthStore.setState({ user: null });
+    useAuthStore.setState({ user: OTHER_STAFF_USER });
+
+    const state = useCameraGateDebugStore.getState();
+    expect(state.hudEnabled).toBe(false);
+    expect(state.overrides).toEqual(defaultFrameGateOverrides());
+    expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+    });
+    expect(persistedHudEnabled()).toBe(false);
+  });
+
+  test("a different account signing in straight after another finds nothing of theirs", () => {
+    useAuthStore.setState({ user: STAFF_USER });
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("minDetail", 42);
+
+    useAuthStore.setState({ user: OTHER_STAFF_USER });
+
+    const state = useCameraGateDebugStore.getState();
+    expect(state.hudEnabled).toBe(false);
+    expect(state.overrides.minDetail).toBe(
+      DEFAULT_FRAME_GATE_OPTIONS.minDetail,
+    );
+  });
+
+  test("a stored preference from another account is dropped on the next load", async () => {
+    // What a reload finds: the slice restored from the account that tuned it,
+    // with a different one about to sign in.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          hudEnabled: true,
+          ownerUserId: STAFF_USER.id,
+          overrides: { ...defaultFrameGateOverrides(), minDetail: 42 },
+        },
+        version: 0,
+      }),
+    );
+    await useCameraGateDebugStore.persist.rehydrate();
+
+    useAuthStore.setState({ user: OTHER_STAFF_USER });
+
+    const state = useCameraGateDebugStore.getState();
+    expect(state.hudEnabled).toBe(false);
+    expect(state.overrides).toEqual(defaultFrameGateOverrides());
+  });
+
+  test("the same account returning through a no-user window keeps its tuning", () => {
+    useAuthStore.setState({ user: STAFF_USER });
+    const store = useCameraGateDebugStore.getState();
+    store.setHudEnabled(true);
+    store.setOverride("minDetail", 42);
+
+    // Boot and a token refresh both pass through a window with no user, and
+    // neither is a change of account.
+    useAuthStore.setState({ user: null });
+    useAuthStore.setState({ user: STAFF_USER });
+
+    const state = useCameraGateDebugStore.getState();
+    expect(state.hudEnabled).toBe(true);
+    expect(state.overrides.minDetail).toBe(42);
+    expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
+  });
+
+  test("a boot that resolves its user does not disturb a restored preference", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          hudEnabled: true,
+          ownerUserId: STAFF_USER.id,
+          overrides: { ...defaultFrameGateOverrides(), minDetail: 42 },
+        },
+        version: 0,
+      }),
+    );
+    await useCameraGateDebugStore.persist.rehydrate();
+
+    useAuthStore.setState({ user: STAFF_USER });
+
+    const state = useCameraGateDebugStore.getState();
+    expect(state.hudEnabled).toBe(true);
+    expect(state.overrides.minDetail).toBe(42);
+    expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(42);
   });
 
   test("a switch left on by a session with no access never reaches the gate", () => {

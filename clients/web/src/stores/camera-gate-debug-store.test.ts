@@ -78,7 +78,11 @@ describe("camera gate debug store", () => {
       ...defaultFrameGateOverrides(),
       noveltyThreshold: 0.9,
     });
-    expect(Object.keys(state).sort()).toEqual(["hudEnabled", "overrides"]);
+    expect(Object.keys(state).sort()).toEqual([
+      "hudEnabled",
+      "overrides",
+      "ownerUserId",
+    ]);
   });
 
   test("a threshold written while the readout is on reaches the gate", () => {

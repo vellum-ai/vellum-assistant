@@ -13,6 +13,12 @@
  * preference on every launch, because access reads false during boot until the
  * session and the flags land.
  *
+ * The account is watched from here too. A tuning session belongs to whoever
+ * ran it, so the preference is dropped when a different account signs in.
+ * That is keyed on the account rather than on a session ending, because a
+ * session can end without the logout sweep running and because the two can be
+ * separated by a reload.
+ *
  * The watcher runs outside React. Both gates are built from `sight-store` and
  * `use-voice-room-sight` whenever a camera opens, whether or not anything that
  * reads `hooks/use-camera-gate-hud.ts` is mounted, so a component-scoped
@@ -51,6 +57,29 @@ function availableNow(): boolean {
 }
 
 /**
+ * Bind the stored preference to whoever is signed in now.
+ *
+ * A session can end without the logout sweep running: an expired or revoked
+ * one is discovered by a probe and simply ends, which leaves the switch and
+ * the thresholds behind for the next account to inherit. Reacting to the
+ * account rather than to the ending covers both, and covers the reload in
+ * between, because the store remembers whose preference it holds.
+ *
+ * A window with no user is not an account change. Boot before the session
+ * resolves, a token refresh, and an expired session all sit in one, and
+ * dropping the preference there would cost the user their tuning every launch
+ * for no gain: with no identity there is no access, so the thresholds already
+ * stop reaching the gate.
+ */
+function claimForCurrentUser(): void {
+  const userId = useAuthStore.getState().user?.id ?? null;
+  if (userId === null) {
+    return;
+  }
+  useCameraGateDebugStore.getState().claimForUser(userId);
+}
+
+/**
  * Push the effective enable bit and the thresholds in hand at the gate.
  *
  * Every store write that can change either lands here, which keeps
@@ -62,6 +91,12 @@ function applyEffectiveOptions(): void {
   syncFrameGateDebugOptions(availableNow() && hudEnabled, overrides);
 }
 
+/** Settle ownership first, so the options applied are the current account's. */
+function onAuthChange(): void {
+  claimForCurrentUser();
+  applyEffectiveOptions();
+}
+
 /**
  * Call once at startup. Returns an unsubscribe for tests.
  *
@@ -70,8 +105,8 @@ function applyEffectiveOptions(): void {
  * them, including the persist middleware restoring a switch left on.
  */
 export function setupCameraGateHudAccessSync(): () => void {
-  applyEffectiveOptions();
-  const unsubscribeAuth = useAuthStore.subscribe(applyEffectiveOptions);
+  onAuthChange();
+  const unsubscribeAuth = useAuthStore.subscribe(onAuthChange);
   const unsubscribeFlags = useClientFeatureFlagStore.subscribe(
     applyEffectiveOptions,
   );
