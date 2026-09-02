@@ -263,31 +263,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   50% { transform: translateY(-3px); }
 }
 
-/* The glow's breath, with both ends written out. Tailwind's `animate-pulse`
-   synthesises its 0%/100% from whatever opacity the element already carries,
-   which on a glow this faint is a swing nobody can see. */
-@keyframes companion-glow-breathe {
-  0%, 100% { opacity: 0.32; }
-  50% { opacity: 0.5; }
-}
-
 .companion-avatar-bob {
   animation: companion-avatar-bob 5s ease-in-out infinite;
   will-change: transform;
 }
 
-.companion-glow {
-  /* Where the breath starts and where it is held when it cannot run. */
-  opacity: 0.32;
-  animation: companion-glow-breathe 4s ease-in-out infinite;
-}
-
-/* Held still rather than dropped: the glow is the avatar's own colour thrown
-   onto the desktop, so it stays lit at rest, and the creature keeps its
-   baseline rather than disappearing from it. */
+/* Held still rather than dropped: the creature keeps its baseline rather than
+   disappearing from it. */
 @media (prefers-reduced-motion: reduce) {
-  .companion-avatar-bob,
-  .companion-glow {
+  .companion-avatar-bob {
     animation: none;
   }
 }
@@ -307,10 +291,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 /* Companion surface working ring: a band of the assistant's accent travelling
  * around the edge of the macOS floating companion while a turn is in flight.
  *
- * The surface's resting state already carries a pulsing accent glow behind the
- * avatar, so a second pulse would not read as a second thing. Travel is the
- * property nothing else on the surface uses, which is what lets "it is working"
- * be legible out of the corner of an eye without reading a word.
+ * The creature already breathes and bobs at rest, so a pulse would not read as
+ * a second thing. Travel is the property nothing else on the surface uses,
+ * which is what lets "it is working" be legible out of the corner of an eye
+ * without reading a word.
  *
  * The band is the border and not the fill: the conic gradient is masked down to
  * the padding band so the light rides the edge instead of washing across the

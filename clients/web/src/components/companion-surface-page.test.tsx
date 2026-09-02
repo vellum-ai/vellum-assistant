@@ -1141,9 +1141,9 @@ describe("the companion's own menu", () => {
 });
 
 /**
- * The glow is the assistant's own light, not the surface's: an idle companion
- * with no call running glows its character's accent, and a running call's
- * accent wins over it.
+ * The capsule is the assistant's own colour, not the surface's: an idle
+ * companion with no call running wears its character's accent, and a running
+ * call's accent wins over it.
  */
 describe("the companion's accent colour", () => {
   const CHARACTER = {
@@ -1165,22 +1165,23 @@ describe("the companion's accent colour", () => {
   });
 
   /**
-   * The glow is the only thing on the surface painted in the accent, so it is
-   * where the resolved colour is read back from.
+   * The resting capsule is painted whole in the accent and is always mounted,
+   * so it is where the resolved colour is read back from.
    *
    * Awaited, because the state the colour comes from arrives after mount, so
    * the first render is always the default.
    */
-  const expectGlow = async (
+  const expectAccent = async (
     container: HTMLElement,
     hex: string,
   ): Promise<void> => {
     await waitFor(() => {
-      const glow = container.querySelector<HTMLElement>(".companion-glow");
-      if (!glow) {
-        throw new Error("Expected the glow to render");
+      const capsule =
+        container.querySelector<HTMLElement>(".companion-capsule");
+      if (!capsule) {
+        throw new Error("Expected the capsule to render");
       }
-      expect(glow.style.background.trim().toLowerCase()).toContain(hex);
+      expect(capsule.style.background.trim().toLowerCase()).toContain(hex);
     });
   };
 
@@ -1188,7 +1189,7 @@ describe("the companion's accent colour", () => {
     STATE.character = { ...CHARACTER };
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectGlow(container, "#e9642f");
+    await expectAccent(container, "#e9642f");
   });
 
   test("lets a running call's accent win", async () => {
@@ -1196,7 +1197,7 @@ describe("the companion's accent colour", () => {
     STATE.call = listening("#123456");
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectGlow(container, "#123456");
+    await expectAccent(container, "#123456");
   });
 
   /**
@@ -1209,7 +1210,7 @@ describe("the companion's accent colour", () => {
     STATE.call = listening("");
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectGlow(container, "#e9642f");
+    await expectAccent(container, "#e9642f");
   });
 
   /**
@@ -1219,6 +1220,6 @@ describe("the companion's accent colour", () => {
   test("falls back to the component default without a character", async () => {
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectGlow(container, "#5eead4");
+    await expectAccent(container, "#5eead4");
   });
 });

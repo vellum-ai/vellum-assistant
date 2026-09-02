@@ -360,8 +360,8 @@ export function CompanionSurfacePage() {
   // The avatar's own colour. A running call publishes one, and it wins: it is
   // the colour the call surfaces elsewhere are already tinted with. Outside a
   // call the character's palette id resolves to the same hex the app draws the
-  // creature in, so the resting glow is the assistant's colour rather than the
-  // component's teal default.
+  // creature in, so the resting capsule is the assistant's colour rather than
+  // the component's teal default.
   //
   // The call's hex is `""` until the avatar resolves and the contract makes no
   // promise it parses, so anything that is not an obvious `#RRGGBB` falls
