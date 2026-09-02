@@ -40,10 +40,21 @@
  * the user holds Live. That is the price of the blur check, and it is bounded
  * by the same hold: nothing samples while the shutter is idle.
  *
- * A pair whose two frames land further apart than the motion window (a slow
- * device, a slow bridge) simply reports no motion, which is the behavior of a
- * poll with no pairing at all. The readout shows motion as absent when that
- * happens, so it is visible on a device rather than silent.
+ * The gap is measured between the two CAPTURES, and the primer decodes while
+ * the second capture is already in flight, so what separates the two stamps is
+ * the spacing plus one bridge call. Decode latency is out of it entirely,
+ * and a pair whose captures land further apart than the window is discarded
+ * rather than offered. That case is a slow bridge, and it is precisely the
+ * hardware the blur check matters most on: offering the frame anyway would
+ * hand the gate a motion of null, skip the settle check, and let a mid-pan
+ * frame through on novelty alone. So a device too slow to produce a comparable
+ * pair keeps nothing at all.
+ *
+ * Its signature on a handset is a Live session that runs and never pulses: no
+ * held frame, no rows in the transcript, and a tuning readout whose decision
+ * count stops advancing while the camera is plainly open. Each discarded pair
+ * also logs the gap it measured against the window, which is the number to
+ * report. See `docs/CAMERA_MODE_QA.md`.
  *
  * ## What this module does not do
  *
@@ -89,11 +100,10 @@ export const NATIVE_FRAME_SAMPLE_INTERVAL_MS = 1000;
 /**
  * Gap between the two samples of one tick.
  *
- * Half the gate's motion window rather than all of it, because what the gate
- * measures is the time between the two frames LANDING, which carries the second
- * capture's own bridge and decode latency on top of this delay. Half leaves
- * that latency room to vary without pushing the pair outside the window, where
- * motion would silently stop being reported.
+ * Half the gate's motion window rather than all of it. What the gate measures
+ * is the time between the two CAPTURES, which is this delay plus the second
+ * bridge call, so half leaves that call room to vary before the pair falls
+ * outside the window and is discarded.
  *
  * Derived from {@link FrameGateOptions.motionMaxAgeMs} rather than written
  * beside it, so retuning the gate cannot leave the pairing quietly useless.
@@ -101,6 +111,35 @@ export const NATIVE_FRAME_SAMPLE_INTERVAL_MS = 1000;
 export const NATIVE_PAIR_SPACING_MS = Math.round(
   DEFAULT_FRAME_GATE_OPTIONS.motionMaxAgeMs / 2,
 );
+
+/**
+ * Widest capture-to-capture gap a pair may have and still be offered.
+ *
+ * The gate's own motion window, read from the shipped options rather than the
+ * live record: `motionMaxAgeMs` is not one of the thresholds a slider can move
+ * (see `FRAME_GATE_OVERRIDE_KEYS`), so the two are the same number and the
+ * source can know it without holding the gate's configuration.
+ */
+export const NATIVE_PAIR_MAX_GAP_MS = DEFAULT_FRAME_GATE_OPTIONS.motionMaxAgeMs;
+
+/** A sample off the bridge, stamped with the moment it landed. */
+interface CapturedSample {
+  readonly encoded: string;
+  /**
+   * When the capture resolved, which is what the gate is stamped with.
+   *
+   * Not when the decode finished: a pair is compared across the time between
+   * the two PICTURES, and a decode that ran between them would count against a
+   * window it has nothing to do with.
+   */
+  readonly capturedAtMs: number;
+}
+
+/** That sample decoded and reduced, ready for the gate. */
+interface DecodedSample {
+  readonly grid: FrameGrid;
+  readonly blob: Blob;
+}
 
 /** A decoded sample, plus whatever holding it costs. */
 export interface DecodedFrame {
@@ -212,19 +251,28 @@ export function createNativeFrameSource(
    */
   let samplingGeneration: number | null = null;
 
-  /** One sample, taken through the shared chain, or null if it produced none. */
-  async function takeSample(
-    run: number,
-  ): Promise<{ grid: FrameGrid; blob: Blob } | null> {
+  /** Ask the bridge for one sample and stamp the moment it answers. */
+  async function captureStamped(run: number): Promise<CapturedSample | null> {
     const encoded = await captureSample();
+    // The closest moment to the native snap that JS can observe, and the only
+    // one that keeps a decode out of the gap the gate measures.
+    const capturedAtMs = now();
     // A stop, a flip, or a camera mid-teardown answers with nothing. That is
     // the ordinary shape of this call and not a reason to end the poll.
     if (!encoded || generation !== run) {
       return null;
     }
+    return { encoded, capturedAtMs };
+  }
+
+  /** Decode one sample and reduce it through the shared chain. */
+  async function decodeSample(
+    sample: CapturedSample,
+    run: number,
+  ): Promise<DecodedSample | null> {
     // The bridge answers with bare base64, and the shared decoder also takes
     // the data URI a plugin might send instead.
-    const bytes = decodeBase64Payload(encoded);
+    const bytes = decodeBase64Payload(sample.encoded);
     if (!bytes) {
       return null;
     }
@@ -244,10 +292,16 @@ export function createNativeFrameSource(
     }
   }
 
-  /** Wait out the pair's spacing, on the timer the cadence already runs on. */
-  function waitPairSpacing(): Promise<void> {
+  /**
+   * Wait until `targetMs`, on the timer the cadence already runs on.
+   *
+   * Measured from the first capture rather than from the moment its decode
+   * finished, so decoding the primer runs inside the spacing instead of being
+   * added to it. A decode slower than the spacing simply leaves no wait.
+   */
+  function waitUntil(targetMs: number): Promise<void> {
     return new Promise((resolve) => {
-      setTimeout(resolve, NATIVE_PAIR_SPACING_MS);
+      setTimeout(resolve, Math.max(0, targetMs - now()));
     });
   }
 
@@ -262,25 +316,65 @@ export function createNativeFrameSource(
       // so the frame that IS offered has something recent to measure motion
       // against. Its grid is read synchronously by `observe`, so the buffer the
       // producer reuses for the second sample is free to overwrite it.
-      const first = await takeSample(run);
+      const first = await captureStamped(run);
       if (!first || generation !== run) {
         return;
       }
-      gate.observe(first.grid, now());
 
-      await waitPairSpacing();
-      if (generation !== run) {
-        return;
+      // The second capture is scheduled off the FIRST capture's stamp and is
+      // fired without waiting for the first to decode, so decoding the primer
+      // runs alongside it instead of inside the gap. What is left between the
+      // two stamps is the spacing and one bridge call.
+      const secondPromise = waitUntil(
+        first.capturedAtMs + NATIVE_PAIR_SPACING_MS,
+      ).then(
+        // A run that ended while the spacing elapsed does not spend a bridge
+        // call on a frame nobody can use.
+        () => (generation === run ? captureStamped(run) : null),
+        // A bridge that refuses the second call costs this tick and no more.
+        () => null,
+      );
+
+      const primer = await decodeSample(first, run);
+      if (primer) {
+        // Read synchronously by the gate, so the producer's one reused grid is
+        // free again before the second sample is drawn through it.
+        gate.observe(primer.grid, first.capturedAtMs);
       }
 
-      const second = await takeSample(run);
+      // Awaited on every path, so a refusal cannot outlive this tick unhandled.
+      const second = await secondPromise;
       // No fallback to the primer. Offering it would be a frame with no motion
       // baseline of its own, which is the blind keep the pair exists to stop.
-      if (!second || generation !== run) {
+      if (!primer || !second || generation !== run) {
         return;
       }
-      const nowMs = now();
-      onDecision(gate.offer(second.grid, nowMs), nowMs, second.blob);
+
+      // The invariant, enforced rather than hoped for. Past the window the gate
+      // reports no motion, the settle check does not run, and the frame becomes
+      // keepable on novelty alone: a blurred mid-pan view, uploaded and
+      // persisted as what the call is being shown. A device too slow to produce
+      // a comparable pair must therefore produce no keeps at all, which is a
+      // feature that visibly does nothing rather than one that quietly sends
+      // the wrong picture.
+      const gapMs = second.capturedAtMs - first.capturedAtMs;
+      if (gapMs > NATIVE_PAIR_MAX_GAP_MS) {
+        console.debug(
+          "[native-frame-source] pair outside the motion window, skipped:",
+          { gapMs, limitMs: NATIVE_PAIR_MAX_GAP_MS },
+        );
+        return;
+      }
+
+      const judged = await decodeSample(second, run);
+      if (!judged || generation !== run) {
+        return;
+      }
+      onDecision(
+        gate.offer(judged.grid, second.capturedAtMs),
+        second.capturedAtMs,
+        judged.blob,
+      );
     } catch (err) {
       // A camera that stops answering is the common case, and the next tick is
       // its retry. Nothing a single sample can do is worth ending the poll.

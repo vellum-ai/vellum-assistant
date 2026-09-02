@@ -26,6 +26,7 @@ import {
   test,
 } from "bun:test";
 
+import { FRAME_GATE_OVERRIDE_KEYS } from "./frame-gate-debug";
 import {
   createFrameGate,
   DEFAULT_FRAME_GATE_OPTIONS,
@@ -39,6 +40,7 @@ import type { FrameSource } from "./frame-sampler";
 import {
   createNativeFrameSource,
   NATIVE_FRAME_SAMPLE_INTERVAL_MS,
+  NATIVE_PAIR_MAX_GAP_MS,
   NATIVE_PAIR_SPACING_MS,
   type DecodedFrame,
 } from "./native-frame-source";
@@ -153,6 +155,22 @@ async function advance(ms: number): Promise<void> {
 }
 
 /**
+ * The same, a millisecond at a time.
+ *
+ * A single jump moves the clock to the END of the window before running the
+ * timers inside it, so anything resolving partway through reads a later time
+ * than it happened at. Cases that assert on a measured gap need the two to
+ * stay in step; the rest do not pay for it.
+ */
+async function advanceInSteps(ms: number): Promise<void> {
+  for (let elapsed = 0; elapsed < ms; elapsed++) {
+    clock += 1;
+    jest.advanceTimersByTime(1);
+  }
+  await settle();
+}
+
+/**
  * Reach a tick and let its first sample land, leaving the pair open.
  *
  * The second sample is a pair spacing away, which is where a flip, a stop, or
@@ -188,6 +206,15 @@ interface CaptureStub {
   rejectNext(): void;
   /** Resolve the next capture with nothing, as a stopped camera does. */
   emptyNext(): void;
+  /**
+   * Make every capture take this long, as a slow bridge does.
+   *
+   * Spent on the fake timers, so a case advances through it and the clock the
+   * source stamps with moves by the same amount.
+   */
+  setLatency(ms: number): void;
+  /** The same, for the next capture only. */
+  latencyNext(ms: number): void;
 }
 
 function createCaptureStub(): CaptureStub {
@@ -197,6 +224,8 @@ function createCaptureStub(): CaptureStub {
   let holdNext = false;
   let rejectNext = false;
   let emptyNext = false;
+  let latency = 0;
+  let latencyOnce: number | null = null;
 
   return {
     captureSample: () => {
@@ -215,7 +244,20 @@ function createCaptureStub(): CaptureStub {
           held = resolve;
         });
       }
+      const takes = latencyOnce ?? latency;
+      latencyOnce = null;
+      if (takes > 0) {
+        return new Promise<string | null>((resolve) => {
+          setTimeout(() => resolve(sample), takes);
+        });
+      }
       return Promise.resolve(sample);
+    },
+    setLatency(ms) {
+      latency = ms;
+    },
+    latencyNext(ms) {
+      latencyOnce = ms;
     },
     callCount: () => calls,
     setSample(next) {
@@ -246,6 +288,8 @@ interface DecodeStub {
   /** Hold the next decode open until {@link DecodeStub.releaseHeld}. */
   holdNext(): void;
   releaseHeld(): void;
+  /** Make every decode take this long, on the fake timers. */
+  setLatency(ms: number): void;
 }
 
 function createDecodeStub(): DecodeStub {
@@ -262,6 +306,8 @@ function createDecodeStub(): DecodeStub {
     },
   };
 
+  let latency = 0;
+
   return {
     decode: async () => {
       decodes += 1;
@@ -271,7 +317,15 @@ function createDecodeStub(): DecodeStub {
           held = resolve;
         });
       }
+      if (latency > 0) {
+        return new Promise<DecodedFrame>((resolve) => {
+          setTimeout(() => resolve(frame), latency);
+        });
+      }
       return frame;
+    },
+    setLatency(ms) {
+      latency = ms;
     },
     image,
     releaseCount: () => releases,
@@ -962,5 +1016,188 @@ describe("native frame source motion pairing", () => {
 
     expect(offers).toHaveLength(0);
     expect(capture.callCount()).toBe(1);
+  });
+});
+
+/**
+ * What the gate is told the time is.
+ *
+ * The pair only buys a motion reading if the two frames land inside the gate's
+ * window, and what sits between them on a real handset is latency: a bridge
+ * call, a JPEG decode. These drive both with the fake clock, because the whole
+ * point of the pair is a number measured in milliseconds and a real clock in a
+ * test moves by microseconds.
+ */
+describe("native frame source pair timing", () => {
+  function fastPairOptions() {
+    return {
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      warmupMs: 0,
+      minIntervalMs: 0,
+    };
+  }
+
+  test("reads the motion window from the shipped options, which no slider moves", () => {
+    // The source knows the window without holding the gate's configuration,
+    // which is only sound while the window is not one of the tunable
+    // thresholds. Make that a failing test rather than a stale comment.
+    expect(FRAME_GATE_OVERRIDE_KEYS).not.toContain("motionMaxAgeMs");
+    expect(NATIVE_PAIR_MAX_GAP_MS).toBe(
+      DEFAULT_FRAME_GATE_OPTIONS.motionMaxAgeMs,
+    );
+  });
+
+  test("stamps both frames of the pair at capture, not at decode", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    // Four times the whole motion window, on both frames.
+    decode.setLatency(NATIVE_PAIR_MAX_GAP_MS * 2);
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS * 2);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS * 2);
+
+    expect(observed).toHaveLength(1);
+    expect(offers).toHaveLength(1);
+    // The two pictures were taken exactly a spacing apart. The decodes that
+    // followed them took far longer than the window, and neither one is in
+    // this number: that is the whole difference between a stamp at capture and
+    // a stamp at decode, and it is what keeps the gap inside the window on
+    // hardware slow enough to need the check.
+    expect(offers[0]!.nowMs - observed[0]!.nowMs).toBe(NATIVE_PAIR_SPACING_MS);
+  });
+
+  test("a slow decode does not cost the pair its motion reading", async () => {
+    const gate = createFrameGate(fastPairOptions());
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    // Longer than the whole motion window. Stamped after the decode, or
+    // decoded before the second capture was even asked for, this pair would
+    // measure well outside the window and be discarded.
+    decode.setLatency(NATIVE_PAIR_MAX_GAP_MS * 2);
+    const decisions: FrameGateDecision[] = [];
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: (decision) => {
+        decisions.push(decision);
+      },
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    // Both captures land first, a spacing apart, while nothing has decoded.
+    await advance(NATIVE_FRAME_SAMPLE_INTERVAL_MS);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+
+    // Then the decodes finish, far later than the window, and each reads the
+    // view its capture held: the camera panned between the two.
+    readback = grayReadback((cell) => cell);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS * 2);
+    readback = grayReadback((cell) => 255 - cell);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS * 2);
+
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.motion).not.toBeNull();
+    expect(decisions[0]!.keep).toBe(false);
+    expect(decisions[0]!.reason).toBe("moving");
+    source.stop();
+  });
+
+  test("discards a pair whose second capture landed outside the window", async () => {
+    const { gate, offers, observed } = createRecordingGate();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    expect(observed).toHaveLength(1);
+
+    // A bridge slow enough that the two pictures are further apart than the
+    // window. Offering the second would hand the gate a motion of null, skip
+    // the settle check, and make a mid-pan frame keepable on novelty alone.
+    capture.latencyNext(NATIVE_PAIR_MAX_GAP_MS);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS);
+
+    expect(offers).toHaveLength(0);
+    // The gap it measured is logged, which is the number a device test reports.
+    expect(debug).toHaveBeenCalledWith(
+      "[native-frame-source] pair outside the motion window, skipped:",
+      expect.objectContaining({ limitMs: NATIVE_PAIR_MAX_GAP_MS }),
+    );
+    debug.mockRestore();
+    source.stop();
+  });
+
+  test("a bridge inside the window still offers", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+
+    // The same shape as the case above with a bridge fast enough to fit: the
+    // discard is about the measured gap, not about latency existing.
+    capture.latencyNext(NATIVE_PAIR_MAX_GAP_MS - NATIVE_PAIR_SPACING_MS - 1);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS);
+
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
+  test("recovers on the next tick once the bridge speeds up", async () => {
+    const { gate, offers } = createRecordingGate();
+    const debug = spyOn(console, "debug").mockImplementation(() => {});
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    capture.latencyNext(NATIVE_PAIR_MAX_GAP_MS);
+    await advanceInSteps(NATIVE_PAIR_SPACING_MS);
+    await advanceInSteps(NATIVE_PAIR_MAX_GAP_MS);
+    expect(offers).toHaveLength(0);
+
+    // A discarded pair costs its tick and nothing else.
+    await pollTimes(1);
+    expect(offers).toHaveLength(1);
+    debug.mockRestore();
+    source.stop();
   });
 });
