@@ -47,15 +47,10 @@ import {
 import { composeFallbackCopy, resolveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
-  buildGuardianRequestCodeInstruction,
+  applyGuardianReplyMechanics,
   buildQuestionDeliveryText,
-  hasGuardianRequestCodeInstruction,
   parseGuardianQuestionPayload,
-  parseInteractiveApprovalPayload,
   resolveGuardianInstructionModeFromPayload,
-  resolveGuardianQuestionInstructionMode,
-  stripConflictingGuardianRequestInstructions,
-  stripGuardianRequestCodeInstructions,
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
@@ -165,6 +160,7 @@ function buildSystemPrompt(
     `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
     `  - For slack approval requests: the message renders inside an interactive card with Approve/Reject buttons. Describe only what needs approval — never include approval/reference codes, code-reply instructions, or directions to respond in another app.`,
+    `  - For vellum and platform guardian requests: the copy is read in the notification bell, the banner, and the push, which act through the request card. Never include reference codes, code-reply instructions, or directions to respond elsewhere.`,
     `- \`conversationSeedMessage\` is the opening message in the internal notification conversation and also the expanded detail shown in the home feed. It should be richer and more contextual than the popup body.`,
     `  - For vellum (desktop): use structured markdown for readability. Break content into bullet points, numbered lists, or short sections with **bold** labels. Avoid long unbroken paragraphs — scan-friendly formatting is preferred.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
@@ -600,77 +596,14 @@ export function validateConversationActions(
   return result;
 }
 
-function ensureGuardianRequestCodeInCopy(
-  copy: RenderedChannelCopy,
-  requestCode: string,
-  mode: "approval" | "answer",
-): RenderedChannelCopy {
-  const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
-
-  const ensureText = (text: string | undefined): string => {
-    const base = typeof text === "string" ? text.trim() : "";
-    const sanitized = stripConflictingGuardianRequestInstructions(
-      base,
-      requestCode,
-      mode,
-    );
-    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) {
-      return sanitized;
-    }
-    return sanitized.length > 0
-      ? `${sanitized}\n\n${instruction}`
-      : instruction;
-  };
-
-  return {
-    ...copy,
-    body: ensureText(copy.body),
-    deliveryText: copy.deliveryText
-      ? ensureText(copy.deliveryText)
-      : copy.deliveryText,
-    conversationSeedMessage: copy.conversationSeedMessage
-      ? ensureText(copy.conversationSeedMessage)
-      : copy.conversationSeedMessage,
-  };
-}
-
-/**
- * Remove request-code reply instructions from copy for a channel whose
- * approval UI makes them redundant. Instruction-only fields keep their
- * original text rather than becoming empty — downstream treats an empty
- * body as missing copy.
- */
-function stripGuardianRequestCodeInCopy(
-  copy: RenderedChannelCopy,
-  requestCode: string,
-): RenderedChannelCopy {
-  const strip = (text: string): string => {
-    const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
-    return stripped.length > 0 ? stripped : text;
-  };
-
-  return {
-    ...copy,
-    body: strip(copy.body),
-    deliveryText: copy.deliveryText
-      ? strip(copy.deliveryText)
-      : copy.deliveryText,
-    conversationSeedMessage: copy.conversationSeedMessage
-      ? strip(copy.conversationSeedMessage)
-      : copy.conversationSeedMessage,
-  };
-}
-
 /**
  * Guardian questions that share a conversation require explicit request-code
- * targeting. Enforce request-code instructions in rendered copy so guardians
- * can always disambiguate replies even when model copy omits them.
- *
- * Slack is the exception for approval-mode questions: the Slack adapter
- * renders those as an interactive card with Approve/Reject buttons (see
- * `resolveApprovalContext` in broadcaster.ts, gated on the same
- * `parseInteractiveApprovalPayload`), so code-reply instructions are
- * redundant noise there and are stripped instead of enforced in.
+ * targeting, so the reply-mechanics rule runs on every decision path: a
+ * channel the guardian answers by typing gets the instruction enforced into
+ * its copy even when the model left it out, and a channel that acts through
+ * a card (the vellum bell and banner, the platform push, Slack approval
+ * cards) gets it stripped, model-authored code phrasing included. The
+ * per-channel rule is `guardianCopyCarriesReplyMechanics`.
  */
 function enforceGuardianRequestCode(
   decision: NotificationDecision,
@@ -679,17 +612,6 @@ function enforceGuardianRequestCode(
   if (signal.sourceEventName !== "guardian.question") {
     return decision;
   }
-  const rawCode = signal.contextPayload.requestCode;
-  if (typeof rawCode !== "string" || rawCode.trim().length === 0) {
-    return decision;
-  }
-
-  const requestCode = rawCode.trim().toUpperCase();
-  const modeResolution = resolveGuardianQuestionInstructionMode(
-    signal.contextPayload,
-  );
-  const slackRendersApprovalButtons =
-    parseInteractiveApprovalPayload(signal.contextPayload) != null;
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
@@ -699,14 +621,7 @@ function enforceGuardianRequestCode(
     if (!copy) {
       continue;
     }
-    nextCopy[channel] =
-      channel === "slack" && slackRendersApprovalButtons
-        ? stripGuardianRequestCodeInCopy(copy, requestCode)
-        : ensureGuardianRequestCodeInCopy(
-            copy,
-            requestCode,
-            modeResolution.mode,
-          );
+    nextCopy[channel] = applyGuardianReplyMechanics(copy, channel, signal);
   }
 
   return {
@@ -759,6 +674,10 @@ function ensureSeedContentBlocks(
  *
  * Scoped to answer mode. A `pending_question` carrying a tool name is a voice
  * tool approval, where composed copy is the right thing.
+ *
+ * The pinned text carries the reference-code instruction; the
+ * reply-mechanics pass runs after this one and keeps or strips it per
+ * channel, so this pin never has to know which surfaces take a typed reply.
  */
 function pinQuestionDeliveryCopy(
   decision: NotificationDecision,
@@ -993,17 +912,28 @@ function buildPassThroughDecision(params: {
     verbatimCopy: true,
     ...(deepLinkTarget ? { deepLinkTarget } : {}),
   };
-  decision = enforceGuardianRequestCode(decision, signal);
-  decision = enforceToolApprovalSeedBlocks(decision, signal);
-  decision = pinQuestionDeliveryCopy(decision, signal);
-  decision = enforceAccessRequestInstructions(decision, signal);
-  decision = enforceGuardianRequestConversationAffinity(decision, signal);
-  decision = enforceConversationAffinity(
-    decision,
-    signal.conversationAffinityHint,
-  );
+  decision = applyDecisionGuards(decision, signal);
   decision.persistedDecisionId = persistDecision(signal, decision);
   return decision;
+}
+
+/**
+ * The deterministic guards every decision passes through once the model,
+ * the assistant-tool pass-through, or the fallback has rendered copy. In
+ * dependency order: the question pin writes the copy the reply-mechanics
+ * pass then settles per channel, and the seed-block guard is independent
+ * of both.
+ */
+function applyDecisionGuards(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  decision = pinQuestionDeliveryCopy(decision, signal);
+  decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceToolApprovalSeedBlocks(decision, signal);
+  decision = enforceAccessRequestInstructions(decision, signal);
+  decision = enforceGuardianRequestConversationAffinity(decision, signal);
+  return enforceConversationAffinity(decision, signal.conversationAffinityHint);
 }
 
 // ── Core evaluation function ───────────────────────────────────────────
@@ -1118,15 +1048,9 @@ export async function evaluateSignal(
     log.warn(
       "Configured provider unavailable for notification decision, using fallback",
     );
-    let decision = buildFallbackDecision(signal, availableChannels);
-    decision = enforceGuardianRequestCode(decision, signal);
-    decision = enforceToolApprovalSeedBlocks(decision, signal);
-    decision = pinQuestionDeliveryCopy(decision, signal);
-    decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianRequestConversationAffinity(decision, signal);
-    decision = enforceConversationAffinity(
-      decision,
-      signal.conversationAffinityHint,
+    const decision = applyDecisionGuards(
+      buildFallbackDecision(signal, availableChannels),
+      signal,
     );
     decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
@@ -1150,15 +1074,7 @@ export async function evaluateSignal(
     decision = buildFallbackDecision(signal, availableChannels);
   }
 
-  decision = enforceGuardianRequestCode(decision, signal);
-  decision = enforceToolApprovalSeedBlocks(decision, signal);
-  decision = pinQuestionDeliveryCopy(decision, signal);
-  decision = enforceAccessRequestInstructions(decision, signal);
-  decision = enforceGuardianRequestConversationAffinity(decision, signal);
-  decision = enforceConversationAffinity(
-    decision,
-    signal.conversationAffinityHint,
-  );
+  decision = applyDecisionGuards(decision, signal);
   decision.persistedDecisionId = persistDecision(signal, decision);
 
   return decision;

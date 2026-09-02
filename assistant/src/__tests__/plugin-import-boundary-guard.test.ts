@@ -441,7 +441,7 @@ const NAMESPACE_IMPORT = "*";
  *  namespace import yields the {@link NAMESPACE_IMPORT} sentinel — it reaches
  *  the whole surface, so it must not slip past the anti-backslide check. */
 function symbolsImportedFrom(source: string, hostPathSuffix: string): string[] {
-  const escaped = hostPathSuffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = RegExp.escape(hostPathSuffix);
   const from = String.raw`\s*from\s*['"]([^'"]*` + escaped + String.raw`)['"]`;
   const namedRegex = new RegExp(
     String.raw`import\s+(?:type\s+)?\{([^}]*)\}` + from,

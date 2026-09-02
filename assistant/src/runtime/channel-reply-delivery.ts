@@ -11,8 +11,10 @@ import { getAttachmentMetadataForMessage } from "../persistence/attachments-stor
 import {
   getMessageById,
   getMessages,
+  parseMessageMetadata,
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { isReactionMessageMetadata } from "../persistence/conversation-types.js";
 import { recordOutboundPost } from "../persistence/delivery-crud.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
@@ -294,10 +296,48 @@ export type DeliverReplyOptions = {
 
 type PersistedMessage = ReturnType<typeof getMessages>[number];
 
+/**
+ * A row read that contributes nothing to deliver. Spelled out rather than
+ * rendered from empty content so the read stays independent of the renderer;
+ * the annotation is what keeps it complete as the shape grows.
+ */
+const NO_REPLY_CONTENT: RenderedHistoryContent = {
+  text: "",
+  toolCalls: [],
+  toolCallsBeforeText: false,
+  textSegments: [],
+  contentOrder: [],
+  surfaces: [],
+  thinkingSegments: [],
+  attachments: [],
+  contentBlocks: [],
+};
+
+/**
+ * Read a persisted assistant row as a candidate channel reply.
+ *
+ * A reaction row reads as empty on purpose. Its `"[reaction]"` body is a
+ * storage sentinel for an emoji the react tool already delivered to the
+ * channel, not speech the turn owes anyone, and the row is drained at the
+ * turn boundary, so it is the newest assistant row of any turn that
+ * reacted. Read literally, its non-empty text counts as a real deliverable
+ * reply and outranks the turn's actual reply (or its `<no_response/>`
+ * silence) in every newest-first scan below, posting the raw sentinel to the
+ * channel as visible text. Reading it as empty is what makes a reaction-only
+ * turn silent, and it is the one seam every delivery path shares: the turn
+ * scan, the unbounded fallback sweep, and the targeted `messageId` path,
+ * which needs it too because the sweep durably stores whatever the scan
+ * returns. The history renderers project these rows as a structured reaction
+ * fact for the same reason; delivery owes the channel nothing for them.
+ */
 function readPersistedAssistantReply(msg: PersistedMessage): {
   rendered: RenderedHistoryContent;
   replyAttachments: RuntimeAttachmentMetadata[];
 } {
+  if (isReactionMessageMetadata(parseMessageMetadata(msg.metadata))) {
+    return { rendered: NO_REPLY_CONTENT, replyAttachments: [] };
+  }
+
   const parsed: unknown = msg.content;
   const rendered = renderHistoryContent(parsed);
 

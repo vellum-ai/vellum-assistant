@@ -242,7 +242,12 @@ function addDictationSessionBreadcrumb(
 // ---------------------------------------------------------------------------
 
 export interface VoiceInputButtonHandle {
-  start: () => void;
+  /**
+   * Begin a recording. `false` when one could not begin: the button is
+   * disabled, the platform cannot record, or the previous session is still
+   * transcribing.
+   */
+  start: () => boolean;
   stop: () => void;
 }
 
@@ -1064,7 +1069,10 @@ export const VoiceInputButton = forwardRef<
       // timeslice should come back paired with that consumer.
       recorder.start();
       sessionStartedAtRef.current = Date.now();
-      vsStartRecording();
+      // Carried on the store because the key may be up again by now: the
+      // flag was read before the awaits above, and the surface that draws
+      // this recording reads the store, not the flag.
+      vsStartRecording({ hold: holdSession });
       onError?.(null);
     } catch (err) {
       mediaRecorderRef.current = null;
@@ -1119,16 +1127,17 @@ export const VoiceInputButton = forwardRef<
     () => ({
       start: () => {
         if (disabled || !assistantId || !supported) {
-          return;
+          return false;
         }
         // Refuse to start while the previous session is still transcribing.
         // Mirrors the visual `disabled` + `aria-busy` state on the button
         // and prevents push-to-talk from silently dropping the in-flight
         // transcript by incrementing the session id mid-flight.
         if (useVoiceRecordingStore.getState().phase === "processing") {
-          return;
+          return false;
         }
         startRecording();
+        return true;
       },
       stop: stopRecording,
     }),

@@ -45,6 +45,14 @@ export interface PendingDeepLinkState {
    */
   pendingVoiceStartAt: number | null;
   /**
+   * The first turn the parked start-voice request takes on its session, or
+   * `null` for a plain start. A press from a surface that already knows what
+   * the user wants to say (a hold made over a selection) parks its question
+   * here, and the drain hands it to the starter. Travels with
+   * `pendingVoiceStartAt` and clears with it.
+   */
+  pendingVoiceStartAsk: string | null;
+  /**
    * A message that a *proven* App Intent asked to send into a specific
    * conversation (`deeplink.sendToThread` with `provenance: "intent"`), or
    * `null` if none. Unlike `pendingComposerMessage` this is a request to
@@ -110,17 +118,21 @@ export interface PendingDeepLinkActions {
    * none was set. Used by `useDeepLinkConsumer` in the chat domain.
    */
   consumePendingComposerMessage: () => string | null;
-  /** Park a start-voice deep link until a session starter is registered. */
-  setPendingVoiceStart: () => void;
   /**
-   * Read and clear the parked start-voice request. Returns `false` when none
+   * Park a start-voice request until a session starter is registered, with
+   * the first turn it should take, if it has one. A newer park replaces the
+   * older one's ask.
+   */
+  setPendingVoiceStart: (ask?: string) => void;
+  /**
+   * Read and clear the parked start-voice request. Returns `null` when none
    * was parked, and when the parked one is older than `maxAgeMs` — a park that
    * was never drained (its navigation bounced off a route guard, say) must not
    * open a full-screen voice session minutes later. Either way the park is
    * cleared. Used by `drainPendingVoiceStart` in the live-voice domain,
    * which owns the age bound.
    */
-  consumePendingVoiceStart: (maxAgeMs: number) => boolean;
+  consumePendingVoiceStart: (maxAgeMs: number) => { ask: string | null } | null;
   /**
    * Park a proven send-into-thread request. A newer request replaces an
    * older one: the most recent intent wins, same as the composer message.
@@ -176,6 +188,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingVoiceStartAsk: null,
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,
@@ -188,14 +201,19 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       }
       return message;
     },
-    setPendingVoiceStart: () => set({ pendingVoiceStartAt: Date.now() }),
+    setPendingVoiceStart: (ask) =>
+      set({
+        pendingVoiceStartAt: Date.now(),
+        pendingVoiceStartAsk: ask ?? null,
+      }),
     consumePendingVoiceStart: (maxAgeMs) => {
-      const parkedAt = get().pendingVoiceStartAt;
+      const { pendingVoiceStartAt: parkedAt, pendingVoiceStartAsk: ask } =
+        get();
       if (parkedAt === null) {
-        return false;
+        return null;
       }
-      set({ pendingVoiceStartAt: null });
-      return Date.now() - parkedAt <= maxAgeMs;
+      set({ pendingVoiceStartAt: null, pendingVoiceStartAsk: null });
+      return Date.now() - parkedAt <= maxAgeMs ? { ask } : null;
     },
     setPendingThreadSend: (threadId, message) =>
       set({ pendingThreadSend: { threadId, message, parkedAt: Date.now() } }),
@@ -234,6 +252,7 @@ export function __resetPendingDeepLinkForTesting(): void {
   usePendingDeepLinkStoreBase.setState({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingVoiceStartAsk: null,
     pendingThreadSend: null,
     pendingCamera: null,
     pendingConversationListAt: null,

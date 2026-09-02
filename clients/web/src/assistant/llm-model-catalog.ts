@@ -439,7 +439,7 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 25_000,
     },
     {
-      id: "accounts/fireworks/models/deepseek-v4-pro",
+      id: "accounts/fireworks/models/deepseek-v4-pro-0813",
       displayName: "DeepSeek V4 Pro",
       vendor: "deepseek",
       contextWindowTokens: 1_040_000,

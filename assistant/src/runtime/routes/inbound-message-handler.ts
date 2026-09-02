@@ -540,10 +540,11 @@ export async function handleChannelInbound({
   // A delete names the original via `sourceMetadata.messageId` and
   // short-circuits the rest of the pipeline: no agent loop, no approval
   // routing. The stored row keeps its content for audit; rendering elides on
-  // the deletedAt marker. An attributed delete (the wire names the deleted
-  // message's author, as Slack's does) passed the ingress ACL above; an
-  // unattributed one bypassed it under the ACL's stated contract and applies
-  // only to a row this daemon ingested.
+  // the deletedAt marker. An attributed delete (the wire names a human
+  // author for the deleted message, as Slack's does for a member's post)
+  // passed the ingress ACL above; an unattributed one bypassed it under the
+  // ACL's stated contract and applies only to a row this daemon already
+  // holds for the chat.
   if (eventKind === "delete") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"

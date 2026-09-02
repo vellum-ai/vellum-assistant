@@ -17,10 +17,10 @@
  * "match my avatar" shortcut beside the picker.
  *
  * The whole surface reports `enabled: false`, and therefore draws nothing,
- * outside the native mobile shells, with the running shell's own flag off
- * (`ios-avatar-app-icon` on iOS, `android-avatar-app-icon` on Android), or when
- * the installed shell answers `supported: false` (`docs/CAPACITOR.md` § The
- * skew rule).
+ * outside the native mobile shells, on Android with `android-avatar-app-icon`
+ * off, or when the installed shell answers `supported: false`
+ * (`docs/CAPACITOR.md` § The skew rule). iOS carries no flag of its own: every
+ * capable iOS shell offers the picker.
  *
  * The shell's answer is one fact about one device, so it lives in
  * {@link useAppIconStore} rather than in per-instance state: an apply from one
@@ -68,13 +68,10 @@ const NO_ICONS: string[] = [];
 export function useAppIconSync(assistantId: string | null): AppIconSync {
   const isNativeIOS = useIsNativeIOS();
   const isNativeAndroid = useIsNativeAndroid();
-  const iosFlagEnabled = useClientFeatureFlagStore.use.iosAvatarAppIcon();
   const androidFlagEnabled =
     useClientFeatureFlagStore.use.androidAvatarAppIcon();
-  // A flag per shell, so either platform can ship while the other waits, and
-  // one platform's rollout never opens the other's.
-  const gateOpen =
-    (isNativeIOS && iosFlagEnabled) || (isNativeAndroid && androidFlagEnabled);
+  // Android keeps its own flag, so its rollout opens on its own schedule.
+  const gateOpen = isNativeIOS || (isNativeAndroid && androidFlagEnabled);
 
   const { state } = useAssistantAvatar(assistantId);
   const iconState = useAppIconStore.use.snapshot();

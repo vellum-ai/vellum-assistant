@@ -54,10 +54,7 @@ export function includesRequiredKeywords(
     return true;
   }
   return requiredKeywords.every((keyword) => {
-    const re = new RegExp(
-      `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-      "i",
-    );
+    const re = new RegExp(`\\b${RegExp.escape(keyword)}\\b`, "i");
     return re.test(text);
   });
 }
