@@ -79,11 +79,7 @@ import { create } from "zustand";
 
 import {
   buildSelfHostedGatewayWsUrl,
-  buildVelayWsUrl,
-  isPairedGatewayIngress,
-  mintVelayWsToken,
-  PairedVoiceUnavailableError,
-  VelayWsTokenError,
+  resolveGatewayWsUrl,
 } from "@/domains/chat/voice/live-voice/connection";
 import {
   isLiveVoiceSessionActive,
@@ -99,10 +95,6 @@ import { LIVE_VOICE_AUDIO_FORMAT_PARAMS } from "@/domains/chat/voice/live-voice/
 import { beginWatchRetro } from "@/domains/chat/watch/watch-retro";
 import { supportsWatchRetroCompletion } from "@/lib/backwards-compat/watch-retro-completion";
 import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
-import {
-  getSelfHostedActorToken,
-  getSelfHostedIngressUrl,
-} from "@/lib/self-hosted/connection";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
@@ -287,53 +279,26 @@ export function buildWatchStreamWsUrl({
 }
 
 /**
- * Resolve the watch stream WebSocket URL for `assistantId`, choosing the
- * transport by deployment kind exactly as {@link resolveLiveVoiceWsUrl} does.
+ * Resolve the watch stream WebSocket URL for `assistantId`. Thin wrapper over
+ * {@link resolveGatewayWsUrl} for the `/v1/watch/stream` route.
  *
- * - **Self-hosted / local** — dial the user's own gateway ingress with the
- *   actor edge JWT. No token is minted; the gateway validates the JWT and
- *   checks its principal against the guardian binding.
- * - **Managed / cloud** — mint a short-lived velay token and dial velay, which
- *   validates and consumes it, then injects the authenticated user and org as
- *   `X-Velay-*` headers. The gateway takes its managed branch on those and
- *   cross-checks the caller against the stored `platform_user_id`
- *   (`gateway/src/http/routes/guardian-pin.ts`), so the guardian-only rule is
- *   the same rule on both paths, proven two different ways.
+ * On the managed path velay injects the authenticated user and org as
+ * `X-Velay-*` headers; the gateway takes its managed branch on those and
+ * cross-checks the caller against the stored `platform_user_id`
+ * (`gateway/src/http/routes/guardian-pin.ts`). On the self-hosted path it
+ * validates the actor JWT against the guardian binding instead, so the
+ * guardian-only rule is the same rule on both paths, proven two ways.
  *
- * Throws rather than returning null, so a start that cannot resolve a URL is
- * distinguishable from one this environment simply does not support:
- *
- * - {@link PairedVoiceUnavailableError} for a paired ingress, whose proxy is
- *   HTTP-only with no loopback to fall back to. Still genuinely unsupported.
- * - {@link VelayWsTokenError} when the ingress is known but its actor token
- *   has not been provisioned yet (a brief post-hatch window), and for a mint
- *   that the platform refuses.
- *
- * Exported for unit tests.
+ * Throws `PairedVoiceUnavailableError` for a paired ingress and
+ * `VelayWsTokenError` for a missing actor token or a refused mint, so a
+ * start that cannot resolve a URL is distinguishable from one this
+ * environment simply does not support. Exported for unit tests.
  */
-export async function resolveWatchStreamWsUrl(
-  assistantId: string,
-): Promise<string> {
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl) {
-    if (isPairedGatewayIngress(ingressUrl)) {
-      throw new PairedVoiceUnavailableError();
-    }
-    const token = getSelfHostedActorToken();
-    if (!token) {
-      throw new VelayWsTokenError(
-        0,
-        "Self-hosted watch has no actor token yet; the gateway isn't ready.",
-      );
-    }
-    return buildWatchStreamWsUrl({ ingressUrl, token });
-  }
-
-  const { token } = await mintVelayWsToken(assistantId);
-  return buildVelayWsUrl({
+export function resolveWatchStreamWsUrl(assistantId: string): Promise<string> {
+  return resolveGatewayWsUrl({
     assistantId,
     routePath: WATCH_STREAM_ROUTE,
-    token,
+    label: "watch",
     params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
   });
 }

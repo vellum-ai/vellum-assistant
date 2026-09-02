@@ -1,25 +1,23 @@
 import { Button, Modal } from "@vellumai/design-library";
 import { Monitor } from "lucide-react";
-import { useState } from "react";
+import { lazy, useState } from "react";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-import { DesktopPanel } from "./desktop-panel";
+// The panel pulls in noVNC, which nobody should download for a default-off
+// feature; the chunk loads the first time the modal opens.
+const DesktopPanel = lazy(() =>
+  import("./desktop-panel").then((m) => ({ default: m.DesktopPanel })),
+);
 
 /**
  * The header control that opens the pod desktop, and the modal it opens.
- *
- * Renders nothing unless the `pod-desktop` assistant flag is positively on
- * for the active assistant. The flag is served per assistant and defaults
- * off, so an assistant that cannot serve a desktop (no container, no X
- * server) never advertises one; the runtime's own gate is the backstop, and
- * its refusal reaches the panel as a close code it explains.
- *
- * The panel mounts only while the modal is open, which is what starts and
- * ends the session: Radix unmounts closed content, and the panel closes its
- * session on unmount.
+ * Renders nothing unless the per-assistant `pod-desktop` flag is positively
+ * on, since it is off wherever no desktop exists; the runtime's own refusal
+ * is the backstop. The panel mounts only while the modal is open.
  */
 export function PodDesktopAffordance() {
   const { t } = useTranslation("chat");
@@ -46,7 +44,9 @@ export function PodDesktopAffordance() {
             <Modal.Title>{t("podDesktop.title")}</Modal.Title>
           </Modal.Header>
           <Modal.Body className="min-h-0 overflow-hidden p-0">
-            <DesktopPanel assistantId={assistantId} />
+            <LazyBoundary>
+              <DesktopPanel assistantId={assistantId} />
+            </LazyBoundary>
           </Modal.Body>
         </Modal.Content>
       </Modal.Root>

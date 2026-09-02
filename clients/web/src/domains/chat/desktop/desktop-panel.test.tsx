@@ -1,13 +1,21 @@
 /**
- * The desktop panel's states, driven from the two things that can end a
- * session: the socket's close code and noVNC's own events.
+ * The desktop panel's states, driven from the things that can end a session:
+ * the socket's close code, noVNC's own events, and the connect timeout.
  *
  * noVNC is stood in for with a fake that records what the session configures
- * and lets a test raise its events; the socket is a fake handed in through the
- * session's factory seam. No real socket or display is touched.
+ * and lets a test raise its events; the global WebSocket is a fake, and the
+ * URL resolver is mocked so no transport rules run here.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import {
   act,
   cleanup,
@@ -15,8 +23,6 @@ import {
   render,
   screen,
 } from "@testing-library/react";
-
-import type { DesktopSessionOptions } from "./desktop-session";
 
 type Listener = (event: unknown) => void;
 
@@ -27,6 +33,7 @@ class FakeRFB {
   resizeSession = false;
   clipViewport = true;
   disconnectCalls = 0;
+  pasted: string[] = [];
   private listeners = new Map<string, Listener[]>();
 
   constructor(_target: HTMLElement, channel: unknown) {
@@ -38,7 +45,9 @@ class FakeRFB {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
-  clipboardPasteFrom(_text: string): void {}
+  clipboardPasteFrom(text: string): void {
+    this.pasted.push(text);
+  }
 
   disconnect(): void {
     this.disconnectCalls += 1;
@@ -54,6 +63,8 @@ class FakeRFB {
 mock.module("@novnc/novnc", () => ({ default: FakeRFB }));
 
 class FakeWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
   static instances: FakeWebSocket[] = [];
   url: string;
   binaryType = "blob";
@@ -83,19 +94,43 @@ class FakeWebSocket {
   }
 }
 
-const { DesktopPanel } = await import("./desktop-panel");
+const originalWebSocket = globalThis.WebSocket;
+globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
 
 /** The URL the resolver answers with, or an error it throws. */
 let resolved: string | Error = "ws://127.0.0.1:8500/v1/desktop/stream?token=t";
 
-const sessionOptions: DesktopSessionOptions = {
-  webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
-  resolveWsUrl: async () => {
+const connection = await import("./desktop-connection");
+mock.module("./desktop-connection", () => ({
+  ...connection,
+  resolveDesktopStreamWsUrl: mock(async () => {
     if (resolved instanceof Error) {
       throw resolved;
     }
     return resolved;
-  },
+  }),
+}));
+
+const { DesktopPanel } = await import("./desktop-panel");
+
+// bun:test has no fake timers, so the session's connect timeout is captured
+// from a patched `setTimeout` and fired by hand.
+interface Timeout {
+  fn: () => void;
+  ms: number;
+  cleared: boolean;
+}
+let timeouts: Timeout[] = [];
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+
+/** The session's connect timeout, whether or not it has since been cleared. */
+const connectTimer = (): Timeout => {
+  const timer = timeouts.find((t) => t.ms === 15_000);
+  if (!timer) {
+    throw new Error("Expected the session to arm a connect timeout");
+  }
+  return timer;
 };
 
 const rfb = (): FakeRFB => {
@@ -120,7 +155,7 @@ const status = (): string | null =>
 
 /** Mount the panel and let the URL resolve, which is when noVNC attaches. */
 const mountPanel = async () => {
-  render(<DesktopPanel assistantId="asst-1" sessionOptions={sessionOptions} />);
+  render(<DesktopPanel assistantId="asst-1" />);
   await act(async () => {
     await Promise.resolve();
   });
@@ -129,10 +164,23 @@ const mountPanel = async () => {
 beforeEach(() => {
   FakeRFB.instances = [];
   FakeWebSocket.instances = [];
+  timeouts = [];
   resolved = "ws://127.0.0.1:8500/v1/desktop/stream?token=t";
+  globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+    timeouts.push({ fn, ms: ms ?? 0, cleared: false });
+    return timeouts.length;
+  }) as unknown as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = ((id: unknown) => {
+    const timer = typeof id === "number" ? timeouts[id - 1] : undefined;
+    if (timer) {
+      timer.cleared = true;
+    }
+  }) as typeof globalThis.clearTimeout;
 });
 
 afterEach(() => {
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
   cleanup();
 });
 
@@ -156,10 +204,10 @@ describe("DesktopPanel", () => {
     expect(status()).toBeNull();
   });
 
-  test("1013 says another viewer has the desktop, with no reconnect", async () => {
+  test("4013 says another viewer has the desktop, with no reconnect", async () => {
     await mountPanel();
 
-    act(() => socket().serverClose(1013));
+    act(() => socket().serverClose(4013));
 
     expect(status()).toBe("busy");
     expect(
@@ -168,22 +216,32 @@ describe("DesktopPanel", () => {
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
   });
 
-  test("1008 says the assistant has no desktop, with no reconnect", async () => {
+  test("4008 says the assistant has no desktop, with no reconnect", async () => {
     await mountPanel();
 
-    act(() => socket().serverClose(1008));
+    act(() => socket().serverClose(4008));
 
     expect(status()).toBe("unavailable");
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
   });
 
-  test("1011 says the desktop could not start and offers a reconnect", async () => {
+  test("4011 says the desktop could not start and offers a reconnect", async () => {
     await mountPanel();
 
-    act(() => socket().serverClose(1011));
+    act(() => socket().serverClose(4011));
 
     expect(status()).toBe("failed");
     expect(screen.getByText("The desktop couldn't start.")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Reconnect" })).not.toBeNull();
+  });
+
+  test("velay's 1013 tunnel drop is a lost connection with a reconnect", async () => {
+    await mountPanel();
+    act(() => rfb().emit("connect"));
+
+    act(() => socket().serverClose(1013));
+
+    expect(status()).toBe("lost");
     expect(screen.getByRole("button", { name: "Reconnect" })).not.toBeNull();
   });
 
@@ -206,7 +264,7 @@ describe("DesktopPanel", () => {
     await mountPanel();
 
     act(() => {
-      socket().serverClose(1013);
+      socket().serverClose(4013);
       rfb().emit("disconnect", { clean: false });
     });
 
@@ -220,6 +278,32 @@ describe("DesktopPanel", () => {
 
     expect(status()).toBe("failed");
     expect(rfb().disconnectCalls).toBe(1);
+  });
+
+  test("a socket that never opens times out as a lost connection", async () => {
+    await mountPanel();
+
+    act(() => connectTimer().fn());
+
+    expect(status()).toBe("lost");
+    expect(rfb().disconnectCalls).toBe(1);
+    expect(screen.getByRole("button", { name: "Reconnect" })).not.toBeNull();
+  });
+
+  test("a session that connects in time disarms the timeout", async () => {
+    await mountPanel();
+
+    act(() => rfb().emit("connect"));
+
+    expect(connectTimer().cleared).toBe(true);
+  });
+
+  test("unmounting while connecting disarms the timeout", async () => {
+    await mountPanel();
+
+    cleanup();
+
+    expect(connectTimer().cleared).toBe(true);
   });
 
   test("reconnect opens a fresh session", async () => {
@@ -255,7 +339,7 @@ describe("DesktopPanel", () => {
         writeText: async (text: string) => {
           written.push(text);
         },
-        readText: async () => "",
+        readText: async () => "never read",
       },
     });
     await mountPanel();
@@ -268,6 +352,33 @@ describe("DesktopPanel", () => {
     expect(written).toEqual(["from the pod"]);
   });
 
+  test("a local copy reaches the pod; the clipboard is never read on focus", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {},
+        readText: async () => "copied in another app",
+      },
+    });
+    await mountPanel();
+    const node = document.createTextNode("selected here");
+    document.body.appendChild(node);
+    document.getSelection()?.selectAllChildren(document.body);
+    const selected = document.getSelection()?.toString() ?? "";
+    expect(selected).toContain("selected here");
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event("copy"));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rfb().pasted).toEqual([selected]);
+    node.remove();
+  });
+
   test("closes the session on unmount", async () => {
     await mountPanel();
 
@@ -275,4 +386,8 @@ describe("DesktopPanel", () => {
 
     expect(rfb().disconnectCalls).toBe(1);
   });
+});
+
+afterAll(() => {
+  globalThis.WebSocket = originalWebSocket;
 });
