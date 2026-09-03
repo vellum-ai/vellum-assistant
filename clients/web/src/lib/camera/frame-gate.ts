@@ -248,6 +248,24 @@ export interface FrameGate {
    */
   offer(grid: FrameGrid, nowMs: number): FrameGateDecision;
   /**
+   * Record one frame as the motion baseline, without judging it.
+   *
+   * {@link FrameGateDecision.motion} is only computed against a frame that
+   * arrived within {@link FrameGateOptions.motionMaxAgeMs}, which a sampler
+   * polling once a second cannot produce out of consecutive offers: every
+   * offer would report no motion, and the settle check would never run. Such a
+   * sampler takes a PAIR instead. The first frame comes in here, the second is
+   * offered, and the offer's motion is measured across the pair's spacing
+   * rather than across the poll interval.
+   *
+   * This does exactly what every {@link FrameGate.offer} already does on its
+   * way out, and nothing else. A frame passed here can never be kept, does not
+   * become the novelty baseline, does not move the rate floor, does not end
+   * warmup, and does not start the settle grace. The only thing it can change
+   * about the next offer is that offer's motion.
+   */
+  observe(grid: FrameGrid, nowMs: number): void;
+  /**
    * Drop all comparison history: no last-kept baseline, no previous frame,
    * and a fresh warmup window starting at `nowMs`. The one survivor is the
    * rate floor's clock: a keep made just before the reset still counts
@@ -495,6 +513,19 @@ export function createFrameGate(
         return keepFrame(nowMs, "novel", motion, novelty);
       }
       return skipFrame(nowMs, "unchanged", motion, novelty);
+    },
+
+    observe(grid: FrameGrid, nowMs: number): void {
+      if (grid.length !== FRAME_GRID_CELLS) {
+        throw new Error(
+          `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
+        );
+      }
+      // `current` is scratch that every offer normalizes into again before
+      // reading, and `detail` is deliberately left alone: it describes the
+      // frame being decided, and this one is not being decided.
+      normalizeGrid(grid, current);
+      rememberPrevious(nowMs);
     },
 
     reset(nowMs: number): void {

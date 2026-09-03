@@ -42,6 +42,8 @@ import {
   type CameraMode,
 } from "./voice-room/camera-status-pill";
 import type { CameraVoiceState } from "./voice-room/use-camera-voice-state";
+import type { VoiceRoomPhoto } from "./voice-room/use-voice-room-camera";
+import { VoiceRoomCaptureRow } from "./voice-room/voice-room-capture-row";
 import { VoiceRoomControl } from "./voice-room/voice-room-control";
 
 /**
@@ -79,6 +81,28 @@ const SHUTTER_LABELS: Record<CameraMode, string> = {
 
 const noop = () => {};
 
+/**
+ * A flat swatch standing in for a captured frame, since the row draws whatever
+ * bytes the camera handed it and the question these stories ask is how wide the
+ * tiles are, not what is in them.
+ */
+const captureThumb = (hue: number) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="88" height="88"><rect width="88" height="88" fill="hsl(${hue} 42% 52%)"/></svg>`,
+  )}`;
+
+/** The strip at the cap the camera hook holds it to: three, oldest first. */
+const FULL_STRIP: readonly VoiceRoomPhoto[] = [
+  { id: 1, previewUrl: captureThumb(28), status: "sent" },
+  { id: 2, previewUrl: captureThumb(96), status: "sent" },
+  { id: 3, previewUrl: captureThumb(210), status: "sending" },
+];
+
+const KEPT_FRAME = {
+  attachmentId: "att-story",
+  previewUrl: captureThumb(340),
+};
+
 interface CameraModeScreenProps {
   /** What the camera is doing. Drives the pill's fill and the shutter's core. */
   mode?: CameraMode;
@@ -90,6 +114,10 @@ interface CameraModeScreenProps {
   assistantName?: string;
   /** Mic off: the control goes red and loses the row's only white fill. */
   micMuted?: boolean;
+  /** How many photo receipts sit on the floor's left edge. Capped at three. */
+  photos?: number;
+  /** Whether Live's newest kept frame sits beside them. */
+  keptFrame?: boolean;
 }
 
 /**
@@ -113,6 +141,8 @@ function CameraModeScreen({
   statusLabel,
   assistantName,
   micMuted = false,
+  photos = 0,
+  keptFrame = false,
 }: CameraModeScreenProps) {
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-black">
@@ -183,14 +213,19 @@ function CameraModeScreen({
       </div>
 
       {/* The shutter row, a row of its own above the session controls, with
-          the hint over it. Full width here because the app's is: flash and
-          flip ride the room's edges rather than a fixed measure. The room
-          shows the hint only where Live can run; this screen always can, so
-          it always carries one. */}
+          the hint over it and the capture row above that. Full width here
+          because the app's is: flash and flip ride the room's edges rather
+          than a fixed measure, and the capture row rides the left one. The
+          room shows the hint only where Live can run; this screen always can,
+          so it always carries one. */}
       <div
         className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
         style={{ bottom: SHUTTER_ROW_BOTTOM }}
       >
+        <VoiceRoomCaptureRow
+          photos={FULL_STRIP.slice(0, photos)}
+          keptFrame={keptFrame ? KEPT_FRAME : null}
+        />
         <CameraRowScene
           className="w-full"
           hint={{ mode }}
@@ -260,6 +295,8 @@ const meta: Meta<typeof CameraModeScreen> = {
     statusLabel: "Listening…",
     assistantName: "Luna",
     micMuted: false,
+    photos: 0,
+    keptFrame: false,
   },
   argTypes: {
     mode: {
@@ -273,6 +310,12 @@ const meta: Meta<typeof CameraModeScreen> = {
       control: { type: "inline-radio" },
       description:
         "Whose voice is live. The room derives it; the pill paints it.",
+    },
+    photos: {
+      options: [0, 1, 2, 3],
+      control: { type: "inline-radio" },
+      description:
+        "How many photo receipts are on the floor. Three is the cap the camera hook holds the strip to.",
     },
     statusLabel: {
       options: [
@@ -372,6 +415,26 @@ export const LongAssistantName: Story = {
     statusLabel: "Speaking…",
     assistantName: "A considerably longer configured assistant name",
   },
+};
+
+/**
+ * The floor at its fullest, at the narrowest width the app runs at: the photo
+ * strip at its three-tile cap, Live's kept frame beside it, and the shutter in
+ * Live below.
+ *
+ * The read to check is the capture row's right edge against the shutter's
+ * column. Four 44px tiles and the 8px between them is 200px of content behind a
+ * 24px offset, so at 320px the row ends well short of the right edge and holds
+ * a line of its own above the shutter, rather than wrapping, scrolling, or
+ * running under the flip control.
+ *
+ * This composition belongs to a phone and reaches one only through the native
+ * frame source, so this story is where its geometry is answerable: a desktop
+ * width has slack enough to hide whether the row fits.
+ */
+export const NarrowPhoneCaptureRow: Story = {
+  args: { mode: "live", photos: 3, keptFrame: true },
+  globals: { viewport: { value: "sbNarrowPhone" } },
 };
 
 /**

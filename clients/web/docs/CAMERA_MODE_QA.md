@@ -72,6 +72,40 @@ scrim.
       flagged session the panel has two rows; on an ordinary session it has one.
       This panel is the only place the readout is switched on and off, so check
       Settings, Debug, General carries no row for it.
+- [ ] The readout is a strip on a phone. On a staff or flagged session, switch
+      the frame gate readout on with the camera up. What appears under the
+      chrome band is one slim glass row: the verdict and three small meters,
+      never the full card. It clears both the status pill above it and the two
+      corner controls beside them, with a long assistant name in the pill.
+- [ ] The strip opens the readout, and gives the frame back. Tap the strip: a
+      sheet rises from the bottom with the decision order, the recent frames,
+      the keeps and the threshold sliders. Tap the frame anywhere outside it,
+      and separately tap the bar at the top of the sheet: each closes it, and
+      neither press reaches the shutter underneath. The strip stays up while
+      the sheet is open and its meters keep moving.
+- [ ] The sheet scrolls, and the room holds still under it. The readout is
+      taller than the sheet's height cap, so the lower sliders are reachable
+      only by scrolling. With the sheet open, swipe up and down its body: the
+      readout scrolls to the reset button and back, and the room never starts
+      sliding toward a minimize. Drag a threshold sideways across its whole
+      range and the same holds.
+- [ ] The open sheet stands the room's pull-down down, and closing gives it
+      back. With the sheet open, drag downward on the frame outside it: nothing
+      moves, because a press out there is aimed at dismissing the readout and
+      answering it with a minimize would hang the call off a tap that missed.
+      Tap once to close, then drag downward from the same place, and from the
+      strip: the room minimizes both times.
+- [ ] The room's own pull-down is unchanged everywhere else. With no readout on
+      screen at all, drag the room down from its chrome, from the middle of the
+      feed, and from over a control: it tracks the finger, springs back from a
+      short pull and minimizes past the threshold, exactly as on main. Sliding
+      a finger sideways across the control row still does not start it.
+- [ ] Holding still raises no callout. Press and hold on the room for a couple
+      of seconds: no text is selected and iOS shows no selection callout or
+      magnifier.
+- [ ] Tuning survives the collapse. Move a threshold in the sheet, close it,
+      and open it again: the value is where it was left, and the dot marking a
+      moved threshold is still beside it. Reset puts every slider back.
 - [ ] VoiceOver hears a failure. Deny the camera permission in Settings, then
       press the camera control. The refusal is spoken, not only drawn.
 - [ ] The capture pulse reads. Take a photo against a bright frame and a dark
@@ -81,32 +115,61 @@ scrim.
       press lands on flip, on flash, or on end session.
 - [ ] iOS does not take the press. Holding never raises the text-selection
       callout, the magnifier, or a share sheet over the viewfinder.
-- [ ] The native preview offers no Live. In the installed app, with the plugin
-      drawing the preview, press and keep pressing the shutter. Nothing enters
-      Live: the pill stays "Photo", there is no hint under the shutter, and
-      letting go takes an ordinary photo, the same as a tap. VoiceOver reads no
-      keyboard shortcut on the shutter.
+- [ ] The native preview offers Live. In the installed app, with the plugin
+      drawing the preview, press and keep pressing the shutter. At half a second
+      the pill says Live and the hint changes to "Live · Tap to stop", the same
+      as in the browser, and letting go takes no photo. Tap to stop and the
+      shutter takes ordinary photos again.
+- [ ] Keeps pulse behind the native preview. With Live running, hold the phone
+      steady on a subject. Within a few seconds the crimson held-frame thumbnail
+      appears beside the photo strip and a frame lands in the transcript; move
+      to a new subject and another follows. Nothing ever pulsing is the
+      slow-bridge case in the section below, not a hang.
 
-### Live on iPhone, which is iOS Safari
+### Live on iPhone
 
-Live samples the room's own `<video>` element, and the installed app usually has
-none: the Capacitor plugin draws its preview behind the web view, so wherever
-that preview is up Live is not offered and the shutter is the plain photo button
-the checks above describe. Run this section in mobile Safari, where the
-viewfinder is always the web one.
+Live runs behind either viewfinder. In mobile Safari it samples the room's own
+`<video>`; in the installed app, where the Capacitor plugin draws its preview
+behind the web view and there is no element to read, it polls the plugin for a
+sample instead. Run this section in both: they are two different samplers
+feeding one gate, and only the installed app exercises the bridge.
 
-Two consequences worth knowing before filing a bug. Flash is native-only, so a
-session that can run these checks has no flash control in it: the flash checks
-above and these are never reachable in the same viewfinder. And in the installed
-app the web preview also appears as a fallback when a native start fails, which
-makes Live briefly available there; every later acquire retries the native
-start, so a flip that succeeds takes the preview back, and Live ends with it
-rather than the pill going on claiming a stream nothing is reading.
+The native path takes a PAIR of samples about 60ms apart on every poll. The
+first is only a motion baseline and is never kept; the second is the one judged
+and, on a keep, the exact frame uploaded. That is what lets the gate tell a
+steady camera from a moving one, which on a handheld phone is also the blur
+check. It costs two bridge round trips a second for as long as the hold lasts,
+which is the thing to watch for battery and heat below.
+
+- [ ] **Slow-bridge signature, if Live keeps nothing.** A pair whose two
+      captures land further apart than the gate's motion window is discarded
+      rather than offered, because a frame with no motion reading is keepable
+      while the camera is still moving. On a device that never manages the
+      window this looks like a Live session that runs and never pulses: pill on,
+      no held-frame thumbnail, nothing new in the transcript, and a tuning
+      readout whose decision count sits still while the camera is plainly open.
+      That is the expected refusal, not a hang. Each discarded pair logs
+      `[native-frame-source] pair outside the motion window, skipped:` with the
+      gap it measured and the limit; capture that number in the report, since it
+      is what decides whether the pairing needs retuning or the poll needs a
+      native sampler.
+- [ ] **Battery and thermals over a ten-minute call.** Hold Live for a sustained
+      stretch and note case temperature and battery drain against the same call
+      without Live. Two captures a second is the cost being measured.
 
 - [ ] The hold reads as a hold. Press and keep pressing the shutter: at half a
       second the haptic fires, the ring goes crimson, the pill says Live and the
       hint changes to "Live · Tap to stop". Letting go takes no photo, so
       nothing joins the strip and nothing new lands in the transcript.
+- [ ] Every keep is felt. With Live running on a subject the gate keeps from,
+      one light tap lands with each crimson thumbnail and no others: a scene the
+      gate skips is silent, and so is a keep that never reaches the call. Turn
+      the phone to airplane mode mid-Live and hold it on a new subject: through
+      the reconnect gap nothing taps, because nothing was shared. The tap is
+      what the feature has instead of a screen the user is looking at, since
+      Live is aimed at the thing being talked about.
+- [ ] The tap is not the shutter's. Take ordinary photos: no haptic fires on a
+      tap, only on the hold that enters Live and on the keeps that follow.
 - [ ] The hold survives a real thumb. Hold with the phone at arm's length: a
       small wobble still enters Live. Slide the thumb off the shutter, or more
       than a finger's width across it, and nothing happens: no photo either,
@@ -124,6 +187,38 @@ rather than the pill going on claiming a stream nothing is reading.
       Listening" on the next state change, and the shutter is named "Stop live".
       Back on photo it reads "Photo. Listening" and "Take a photo".
 
+## Small screens and rotation
+
+Both shells. Live reaches a phone through the native frame source, so the kept
+frame and the photo strip share a floor at widths no desktop imposes on them,
+and every check here is about what that floor does as it runs out of room.
+
+Handsets, not simulators: the iOS Simulator provides no camera feed, so it
+answers nothing here.
+
+- [ ] The capture row fits the narrowest phone. On a 320pt-wide device, take
+      three photos and then hold for Live: the three receipts and the crimson
+      kept frame sit in one row above the shutter. Nothing is clipped at the
+      right edge, nothing scrolls or wraps, and the row is on its own line
+      rather than reaching the shutter or the flip control. Storybook's
+      Chat/Voice/CameraModeScreen, story "NarrowPhoneCaptureRow", is the same
+      composition at the same width to check it against.
+- [ ] The row clears the sensor housing in landscape. Rotate to landscape with
+      photos on the floor: the first thumbnail starts inboard of the notch on
+      the notched side, on the same left edge the tuning readout uses.
+- [ ] The landscape floor still reads. Rotate with the camera up. The bottom
+      scrim's 15rem floor is most of a short viewport, so check that the
+      shutter, the hint, the capture row and the session row are all on screen
+      and legible over a bright frame, and that the scrim does not reach the
+      status pill at the top.
+- [ ] Rotating with Live running. Enter Live, rotate the device, rotate back.
+      Android recreates the camera fragment on rotation, and no automated test
+      covers a rotation with sampling active, so watch for all of: the pill
+      stays Live or drops cleanly back to photo (never Live over a dead poll),
+      the tuning readout's decision rate is unchanged rather than doubled, no
+      keep from before the rotation lands in the transcript after one from
+      after it, and the viewfinder is live video rather than a frozen frame.
+
 ## Android
 
 - [ ] Flipping does not crash. Open on the rear camera, flip to front, flip
@@ -139,6 +234,17 @@ rather than the pill going on claiming a stream nothing is reading.
 - [ ] The scrims reach the native preview. Point at a white wall: the top and
       bottom bands darken enough to read the pill and the row, and the middle of
       the frame stays untinted.
+- [ ] Live behind the native preview. Android runs the same poll as iOS, so run
+      the "Live on iPhone" section here too: the hold enters Live, keeps pulse
+      and land in the transcript, and a device that keeps nothing shows the
+      slow-bridge signature rather than hanging.
+- [ ] Haptics on Android. The light impact is the only effect this shell fires,
+      so it is the whole surface to check. Hold the shutter: a tap at half a
+      second, then one per keep, the same as iPhone. Then the gesture that has
+      an effect at each end: pull the transcript to refresh and feel exactly one
+      tap, as it crosses the threshold. Its completion is a heavier impact or a
+      notification, neither of which Android fires, so a second tap there is the
+      regression to watch for.
 - [ ] TalkBack says it once. Same check as VoiceOver above.
 
 ## Desktop web and macOS
@@ -157,6 +263,11 @@ rather than the pill going on claiming a stream nothing is reading.
 - [ ] Escape closes the panel before it minimizes the room. With the view
       options open, one Escape closes the panel and leaves the room up; a second
       minimizes the room.
+- [ ] The readout is a card here, and it changes width with the window. On a
+      staff or flagged session with the readout on, the full card is parked
+      under the chrome band with every slider on it. Narrow the browser window
+      past the mobile breakpoint: the card is replaced by the strip. Widen it
+      again and the card comes back, with the thresholds where they were left.
 - [ ] A mouse can hold. Press and keep the button down on the shutter for half a
       second: Live starts, and releasing takes no photo. Press and drag off the
       button before the half second and nothing happens at all.

@@ -13,6 +13,7 @@
 import { z } from "zod";
 
 import { CHANNEL_IDS } from "../../channels/types.js";
+import { isAssistantInitiatedThreadsEnabled } from "../../config/assistant-initiated-threads-gate.js";
 import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
@@ -35,7 +36,10 @@ import {
   listConversations,
   listPinnedConversations,
 } from "../../persistence/conversation-queries.js";
-import type { ConversationType } from "../../persistence/conversation-types.js";
+import {
+  ASSISTANT_INITIATED_GROUP_ID,
+  type ConversationType,
+} from "../../persistence/conversation-types.js";
 import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
 import { listGroups } from "../../persistence/group-crud.js";
 import { UserError } from "../../util/errors.js";
@@ -170,9 +174,16 @@ const sectionCountFields = {
  * `chats` is the ungrouped-native bucket. In a view without channel sections
  * the Chats card holds every ungrouped row: the buckets are disjoint, so
  * that reading is `chats` plus the sum of `channel` entries.
+ *
+ * `assistant` is emitted only under the `assistant-initiated-threads` flag,
+ * and while it is emitted its rows are withheld from `chats`, so the
+ * disjointness above holds in both states. A client that does not know the
+ * kind ignores it, which is the same thing an older client does with a
+ * `channel` section for a channel it has no label for.
  */
 const conversationSectionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pinned"), ...sectionCountFields }),
+  z.object({ kind: z.literal("assistant"), ...sectionCountFields }),
   z.object({
     kind: z.literal("group"),
     groupId: z.string(),
@@ -274,6 +285,23 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? true
       : undefined;
 
+  /* The list half of the section split. A read already scoped to the
+     assistant section obviously keeps its rows; every other standard-listing
+     read withholds them, so they appear in their own section and nowhere
+     else. Confined to `standard`: the background and scheduled buckets are
+     back-compat umbrellas addressed by conversation type, and narrowing them
+     by source would drop rows their callers still page through. Confined to
+     active reads too: the Archive view asks `archiveStatus=archived` with no
+     `groupId`, and the section only ever lists active rows, so withholding
+     there would leave an archived section thread visible nowhere. */
+  const excludeAssistantInitiated =
+    isAssistantInitiatedThreadsEnabled() &&
+    conversationType === "standard" &&
+    archiveStatus === "active" &&
+    groupId !== ASSISTANT_INITIATED_GROUP_ID
+      ? (true as const)
+      : undefined;
+
   const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
@@ -281,6 +309,7 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
     groupId,
     needsAttention,
     foregroundOnly,
+    excludeAssistantInitiated,
   };
   let rows = listConversations({ ...filter, limit, offset });
   const totalCount = countConversations(filter);
@@ -371,9 +400,21 @@ function handleGetUnreadConversationCount() {
  * dangling id is a transient state around group deletion, not a section.
  */
 function handleGetConversationSections() {
-  const counts = countConversationSections();
+  const splitAssistantInitiated = isAssistantInitiatedThreadsEnabled();
+  const counts = countConversationSections({ splitAssistantInitiated });
   const groupsById = new Map(listGroups().map((g) => [g.id, g]));
   const sections: Array<z.infer<typeof conversationSectionSchema>> = [];
+
+  /* Unlike every other section this one renders at zero, the way Chats does:
+     it is where the assistant's own threads accumulate, and a user who has
+     none yet is exactly who the section's empty state is written for. */
+  if (counts.assistantInitiated) {
+    sections.push({
+      kind: "assistant",
+      total: counts.assistantInitiated.total,
+      unread: counts.assistantInitiated.unread,
+    });
+  }
 
   for (const row of counts.groups) {
     if (row.groupId === "system:pinned") {
@@ -655,7 +696,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Sidebar section index",
     description:
-      "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section. Chats is always present, even at zero: it is the leftover bucket and renders regardless.",
+      "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section. Chats is always present, even at zero: it is the leftover bucket and renders regardless. Under the `assistant-initiated-threads` flag an `assistant` section is also present at every count — the threads the assistant started on its own, selectable as a list via `groupId=system:assistant` — and its rows are withheld from Chats so the buckets stay disjoint. With the flag off no `assistant` row is emitted and those conversations are counted in Chats as before.",
     tags: ["conversations"],
     responseBody: conversationSectionsResponseSchema,
     handler: handleGetConversationSections,

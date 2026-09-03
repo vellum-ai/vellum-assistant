@@ -25,6 +25,19 @@
  * focused renderer window via `vellum:command` IPC; the renderer routes
  * them through the event bus.
  */
+/**
+ * How long a `startVoice` request stays live once asked for, in the renderer
+ * that parked it.
+ *
+ * The park exists for one race, a request that lands before the layout that
+ * owns sessions mounts, which resolves in seconds or not at all. A bound is
+ * what stops a request bounced by a route guard from opening a session out of
+ * nowhere on some later mount. Here in the contract because the shell reads
+ * it too: the companion draws a dial for the request and has to know how long
+ * one can still turn into a session.
+ */
+export const VOICE_START_REQUEST_TTL_MS = 60_000;
+
 export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
@@ -72,6 +85,17 @@ export type VellumCommand =
    * running is a no-op, because the running session is the one the user is in.
    */
   | { kind: "startVoice" }
+  /**
+   * Take back a `startVoice` that has been asked for and not yet served, which
+   * is what ending the companion's dial means.
+   *
+   * A command rather than a session control, because there may be no session
+   * to control yet: the request is parked or partway through its preflight,
+   * and the layout that owns sessions may not even be mounted. The root
+   * layout consumes commands for the life of the window, so this one lands
+   * whatever route the app is on. See {@link VOICE_START_REQUEST_TTL_MS}.
+   */
+  | { kind: "cancelVoiceStart" }
   /**
    * Turn a watch session on or off, the way the companion surface's Watch
    * option asks.
@@ -151,11 +175,7 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
+  "function" | "control" | "shift" | "option" | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -176,9 +196,7 @@ export type VoiceModeChord =
  * has to run for exactly as long as the keys are held can run across it.
  */
 export type HotkeyEventKind =
-  | "fnPushToTalk"
-  | "voiceModeChord"
-  | "modifierHold";
+  "fnPushToTalk" | "voiceModeChord" | "modifierHold";
 
 /**
  * What the user had highlighted in the application in front when a hold
@@ -189,6 +207,15 @@ export type HotkeyEventKind =
 export interface HotkeySelection {
   text: string;
   truncated: boolean;
+  /**
+   * Whether the control the selection sits in takes text. For a selection
+   * Accessibility handed over, the element reports its text as settable; for
+   * one that had to be copied out (see `FrontSelection.selectionFromCopy` in
+   * the helper), the focused control is a text control. A hold that is asked
+   * to change an editable selection can put the result back in its place;
+   * over anything else the words are a question.
+   */
+  editable: boolean;
 }
 
 export interface HotkeyEvent {
@@ -206,8 +233,7 @@ export interface HotkeyEvent {
 }
 
 export type FnPushToTalkResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
 
@@ -216,8 +242,7 @@ export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = FnPushToTalkResult;
 
@@ -295,11 +320,7 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
+  "suspend" | "resume" | "lock" | "unlock" | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -377,8 +398,7 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -400,8 +420,7 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  | DictationOverlayState
-  | { kind: "dismiss" };
+  DictationOverlayState | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -640,12 +659,7 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
+  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -709,8 +723,7 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
+  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -932,8 +945,13 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
  * A ceiling rather than a width, since every other state is as wide as its
  * content. Main sizes the canvas to hold this much beyond the gap, so a state
  * that wanted more would be clipped by the window.
+ *
+ * Generous on purpose. The call row is a handlebar that grows with what it
+ * carries, and the canvas is click-through, so room the pill never uses costs
+ * the desktop nothing where a control clipped off the end costs the user the
+ * control.
  */
-export const COMPANION_BASE_MAX_PILL_WIDTH = 316;
+export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
  * The room between the avatar's edge and the options pill beside it, at the
@@ -1387,6 +1405,14 @@ export interface CompanionSurfaceState {
    */
   character?: CompanionCharacter;
   /**
+   * The avatar's accent as `#rrggbb`: the colour the resting capsule and the
+   * display's edge glow light in. Carried apart from `character` because an
+   * uploaded image has an accent and no traits. `undefined` when the avatar
+   * has no colour yet, or on a shell that predates the field, where the
+   * surface falls back to the character's palette colour.
+   */
+  accentHex?: string;
+  /**
    * The live-voice session the surface is showing, or `null` when none is
    * running.
    *
@@ -1396,6 +1422,21 @@ export interface CompanionSurfaceState {
    * that only shows itself on hover is a live microphone the user cannot see.
    */
   call: VoiceActivityState | null;
+  /**
+   * Whether Talk has been pressed and no session has answered it yet.
+   *
+   * The press leaves the surface at once and the session it asks for opens in
+   * the app's window, behind whatever the user is working in, after a network
+   * round trip. Without this the pill draws nothing across that wait, and a
+   * press that changes nothing on screen reads as a press that did nothing.
+   * Main sets it on the press and clears it when the session's `start`
+   * arrives, when the window asked declines by sending `end` with no session
+   * running, when the user ends the dial from the pill, or after a bound.
+   *
+   * Optional, and absence means not dialing, the bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  dialing?: boolean;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

@@ -160,8 +160,7 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -292,8 +291,14 @@ export interface VellumBridge {
      * Publish the traits the assistant's character is composed from, so
      * surfaces that can render it live do, rather than showing the still that
      * `setAvatar` ships. `null` when the avatar is a custom image or absent.
+     * `accentHex` is the avatar's accent as `#rrggbb`, carried separately
+     * because an uploaded image has one and no traits; `null` when the
+     * avatar has no colour yet. Omitted by a web bundle that predates it.
      */
-    setCharacter(character: CompanionCharacter | null): void;
+    setCharacter(
+      character: CompanionCharacter | null,
+      accentHex?: string | null,
+    ): void;
   };
   dock: {
     setBadge(count: number): void;

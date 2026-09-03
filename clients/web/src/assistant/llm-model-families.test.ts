@@ -27,13 +27,13 @@ const NEWEST_IN_FAMILY: Record<string, string> = {
   "claude-opus": "Claude Opus 5",
   "claude-sonnet": "Claude Sonnet 5",
   "gpt-5": "GPT-5.5",
-  "gemini-flash": "Gemini 3.6 Flash",
+  "gemini-flash": "Gemini 3.7 Flash",
   "gemini-flash-lite": "Gemini 3.5 Flash-Lite",
   "gemini-pro": "Gemini 3.1 Pro Preview",
   grok: "Grok 4.6",
   "kimi-k": "Kimi K3",
   "minimax-m": "MiniMax M3",
-  glm: "GLM-5.3",
+  glm: "GLM 5.3",
 };
 
 describe("model families", () => {

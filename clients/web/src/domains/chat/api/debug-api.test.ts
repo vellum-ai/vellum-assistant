@@ -13,7 +13,7 @@ function makeEnvelope(): AssistantEventEnvelope {
   return {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
-    message: { type: "conversation_list_invalidated", reason: "created" },
+    message: { type: "conversation_title_updated", conversationId: "conv-1", title: "Test" },
   };
 }
 

@@ -184,6 +184,18 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isNoResponse).toBe(true);
   });
 
+  test("carries deletedAt onto the display message", () => {
+    const plain = makeMessage({ id: "m-plain", role: "user" });
+    expect(mapRuntimeToDisplayMessage(plain).deletedAt).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-deleted",
+      role: "user",
+      deletedAt: 1725100001000,
+    });
+    expect(mapRuntimeToDisplayMessage(m).deletedAt).toBe(1725100001000);
+  });
+
   test("carries the reaction fact onto the display message", () => {
     const m = makeMessage({
       id: "m-react",

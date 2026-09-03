@@ -105,7 +105,9 @@ export function applyLiveActivityControl(
   // A press against a session that has already ended does nothing. The island
   // outlives the session by the moment it takes ActivityKit to dismiss it, and
   // an end landing in that window must not tear down a session the user has
-  // since started.
+  // since started, nor take back one still on its way: the companion's dial
+  // is ended by its own command (`cancelVoiceStart`), never by a control
+  // shared with a surface that can deliver a stale end.
   if (!isLiveVoiceSessionActive(session.state)) {
     return;
   }

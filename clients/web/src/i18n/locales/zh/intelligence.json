@@ -138,7 +138,7 @@
     },
     "superpowers": {
       "description": "我能做的事情",
-      "label": "超能力"
+      "label": "技能"
     },
     "workspace": {
       "description": "我的文件",
@@ -282,7 +282,7 @@
     "library": "库",
     "memory": "记忆",
     "schedules": "定时任务",
-    "superpowers": "我的超能力",
+    "superpowers": "我的技能",
     "workspace": "工作区"
   },
   "skillDetail": {
@@ -304,7 +304,7 @@
   },
   "skillDetailPage": {
     "backToConversation": "返回对话",
-    "backToSuperpowers": "返回我的超能力",
+    "backToSuperpowers": "返回技能",
     "notFoundSubtitle": "此技能可能已被移除，或链接已过期。",
     "notFoundTitle": "未找到技能"
   },
@@ -336,7 +336,7 @@
   "superpowersFilters": {
     "categoriesLabel": "类别",
     "done": "完成",
-    "filterAriaLabel": "筛选超能力",
+    "filterAriaLabel": "筛选技能",
     "filterLabel": {
       "all": "全部",
       "assistantMemory": "助手记忆",
@@ -347,15 +347,15 @@
       "skills": "技能"
     },
     "filtersTitle": "筛选器",
-    "searchAriaLabel": "搜索超能力",
-    "searchPlaceholder": "搜索超能力",
+    "searchAriaLabel": "搜索技能",
+    "searchPlaceholder": "搜索技能",
     "sourceLabel": "来源",
     "statusLabel": "状态",
     "typeLabel": "类型"
   },
   "superpowersTab": {
     "catalogBrowsingUnavailableNotice": "插件目录浏览暂时不可用。已安装的插件仍列于下方。",
-    "categoriesAriaLabel": "超能力类别",
+    "categoriesAriaLabel": "技能类别",
     "dismissTipAriaLabel": "关闭提示",
     "emptyState": {
       "assistantMemorySubtitle": "您的助手从过去的对话中创作的技能将显示在此处。",
@@ -369,9 +369,9 @@
       "customSubtitle": "通过在聊天中描述您的需求来创建自定义技能。",
       "customTitle": "无自定义技能",
       "defaultSubtitle": "检查您与 Vellum 目录的连接。",
-      "defaultTitle": "无可用超能力",
+      "defaultTitle": "无可用技能",
       "installedSubtitle": "在聊天中要求您的助手搜索并安装新技能和插件。",
-      "installedTitle": "未安装超能力",
+      "installedTitle": "未安装技能",
       "pluginsSubtitle": "浏览目录以安装扩展您助手的插件。",
       "pluginsTitle": "未找到插件",
       "skillsshSubtitle": "未找到 skills.sh 技能。请尝试搜索目录。",
@@ -382,7 +382,7 @@
       "vellumTitle": "无 Vellum 技能"
     },
     "errorStateSubtitle": "发生错误。请尝试刷新页面。",
-    "errorStateTitle": "加载超能力失败",
+    "errorStateTitle": "加载技能失败",
     "pluginsUnavailableNotice": "插件暂时不可用。技能仍列于下方。",
     "skillsUnavailableNotice": "技能暂时不可用。插件仍列于下方。",
     "tipBannerText": "通过在聊天中描述您的需求来创建新的自定义技能，或安装插件以扩展您的助手。"
@@ -431,5 +431,20 @@
       "v1": "将我的记忆从 v1 迁移到 v3。这很可能是两步操作，您的“记忆 v2 迁移”技能，然后是您的“记忆 v3 迁移”技能，但请弄清楚我的助手实际需要什么，并严格遵循您使用的任何技能。\n\n在后台运行它，并在完成后或遇到阻碍时通知我。",
       "enable": "重新开启我的记忆。我希望您再次开始记住我们对话中的内容。"
     }
+  },
+  "categories": {
+    "email": "邮件",
+    "calendar": "日历",
+    "messaging": "消息",
+    "browsing": "浏览",
+    "productivity": "生产力",
+    "development": "开发",
+    "voice": "语音",
+    "commerce": "电商",
+    "content": "内容",
+    "health": "健康",
+    "system": "系统",
+    "integrations": "集成",
+    "other": "其他"
   }
 }

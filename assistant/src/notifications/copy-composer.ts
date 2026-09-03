@@ -13,7 +13,7 @@ import { normalizeTitle } from "../util/short-title.js";
 import { truncate } from "../util/truncate.js";
 import {
   accessRequestCardTitle,
-  buildAccessRequestContractText,
+  buildAccessRequestContextText,
   isAdmittedIntroduction,
 } from "./access-request-copy.js";
 import {
@@ -251,7 +251,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
 
   "ingress.access_request": (payload) => ({
     title: accessRequestCardTitle(isAdmittedIntroduction(payload)),
-    body: buildAccessRequestContractText(payload),
+    body: buildAccessRequestContextText(payload),
     seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),
 

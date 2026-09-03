@@ -17,7 +17,7 @@ import { getConversation } from "../persistence/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import {
-  buildAccessRequestContractText,
+  buildAccessRequestReplyMechanics,
   buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
@@ -102,7 +102,7 @@ function resolveApprovalContext(
         actions: buildIntroductionActionsForPayload(
           parseAccessRequestPayload(payload),
         ),
-        plainTextFallback: buildAccessRequestContractText(payload),
+        plainTextFallback: buildAccessRequestReplyMechanics(payload),
       },
     };
   }

@@ -108,12 +108,16 @@ describe("WatchRetroSurface", () => {
       />,
     );
 
-    // Past the record, then skip all three questions.
-    fireEvent.click(screen.getByText("That's it"));
+    // Past the recap, then skip all three questions, which lands on the
+    // summary. Skipping every page reaches review without submitting: saving
+    // is its own act, asked for on the summary and nowhere else.
+    fireEvent.click(screen.getByText("Looks right"));
     fireEvent.click(screen.getByText("Skip"));
     fireEvent.click(screen.getByText("Skip"));
     fireEvent.click(screen.getByText("Skip"));
+    expect(calls).toHaveLength(0);
 
+    fireEvent.click(screen.getByText("Save skill"));
     expect(calls).toHaveLength(1);
     // A `card` is not one-shot daemon-side, so the card has to ask to be
     // completed or it stays answerable after it has been answered.
@@ -162,7 +166,7 @@ describe("WatchRetroSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("That's it"));
+    fireEvent.click(screen.getByText("Looks right"));
     fireEvent.click(screen.getByText("Next"));
     // A single-select surface commits on tap everywhere else in the app, so
     // the pick page carries no advance button: the option is the gesture.
@@ -174,6 +178,10 @@ describe("WatchRetroSurface", () => {
     ).toBeDefined();
 
     fireEvent.click(screen.getByText("Go ahead"));
+    // The gate was the last question, so this lands on the summary rather than
+    // submitting. Saving is the explicit act.
+    expect(calls).toHaveLength(0);
+    fireEvent.click(screen.getByText("Save skill"));
     const answers = calls[0]!.data!.answers as {
       questionId: string;
       optionId?: string;
@@ -202,6 +210,108 @@ describe("WatchRetroSurface", () => {
     // saves rather than advancing to a page that does not exist.
     fireEvent.click(screen.getByText("Save skill"));
     expect(calls).toEqual(["answer"]);
+  });
+
+  test("goes back a page, and back to any page already visited", () => {
+    render(<CardSurface surface={surface()} onAction={() => undefined} />);
+
+    fireEvent.click(screen.getByText("Looks right"));
+    expect(screen.getByText("What would you say to start this?")).toBeDefined();
+
+    // Back steps one page at a time.
+    fireEvent.click(screen.getByText("Back"));
+    expect(
+      screen.getByText("Filing a Linear bug from a Sentry alert"),
+    ).toBeDefined();
+
+    // The step row jumps further than one page: a decision made three pages
+    // ago is one tap away rather than a restart. Only visited steps are
+    // navigable, which is what makes the row safe to expose.
+    fireEvent.click(screen.getByText("Looks right"));
+    fireEvent.click(screen.getByText("Next"));
+    expect(
+      screen.getByText("You set this one to High. What decides that?"),
+    ).toBeDefined();
+    fireEvent.click(screen.getByText("Recap"));
+    expect(
+      screen.getByText("Filing a Linear bug from a Sentry alert"),
+    ).toBeDefined();
+  });
+
+  test("an answer changed from the summary is the one submitted", () => {
+    const calls: { data?: Record<string, unknown> }[] = [];
+    render(
+      <CardSurface
+        surface={surface()}
+        onAction={(_surfaceId, _actionId, data) => {
+          calls.push({ data });
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Looks right"));
+    fireEvent.click(screen.getByText("Next"));
+    fireEvent.click(screen.getByText("Over 100 events"));
+    fireEvent.click(screen.getByText("Ask me first"));
+
+    // On the summary, every line is the answer to something asked earlier and
+    // goes back to where it was asked. Changing one there has to reach the
+    // payload, or the review step would be decoration. These questions carry
+    // no `eyebrow`, so the row is titled by the prompt, which is the fallback.
+    fireEvent.click(
+      screen.getByText("You set this one to High. What decides that?"),
+    );
+    fireEvent.click(screen.getByText("It hit a customer"));
+    fireEvent.click(screen.getByText("Save skill"));
+
+    const answers = calls[0]!.data!.answers as {
+      questionId: string;
+      optionId?: string;
+    }[];
+    expect(answers[1]).toMatchObject({
+      questionId: "priority",
+      optionId: "customer",
+    });
+  });
+
+  test("the session can only be dropped from the summary", () => {
+    const calls: string[] = [];
+    render(
+      <CardSurface
+        surface={surface()}
+        onAction={(_surfaceId, actionId) => {
+          calls.push(actionId);
+        }}
+      />,
+    );
+
+    // Nothing destructive while the user is still reading what they have.
+    expect(screen.queryByText("Don't save")).toBeNull();
+
+    fireEvent.click(screen.getByText("Looks right"));
+    fireEvent.click(screen.getByText("Skip"));
+    fireEvent.click(screen.getByText("Skip"));
+    fireEvent.click(screen.getByText("Skip"));
+
+    fireEvent.click(screen.getByText("Don't save"));
+    expect(calls).toEqual(["discard"]);
+  });
+
+  test("saying the recap read wrong ends the card without saving", () => {
+    const calls: string[] = [];
+    render(
+      <CardSurface
+        surface={surface()}
+        onAction={(_surfaceId, actionId) => {
+          calls.push(actionId);
+        }}
+      />,
+    );
+
+    // A correction rather than a refusal: the turn picks the action up and
+    // asks what was off, so it does not go through the discard path.
+    fireEvent.click(screen.getByText("Something's off"));
+    expect(calls).toEqual(["not_right"]);
   });
 
   test("falls back to a readable card when the template is not recognized", () => {
@@ -290,11 +400,12 @@ describe("WatchRetroSurface", () => {
     // Answers are held under the question id, so two questions sharing one
     // would share a slot: answering either would overwrite the other, and both
     // would submit whichever answer landed last. The first use of an id wins.
-    fireEvent.click(screen.getByText("That's it"));
+    fireEvent.click(screen.getByText("Looks right"));
     expect(screen.getByText("First question")).toBeDefined();
     expect(screen.queryByText("Second question")).toBeNull();
 
     fireEvent.click(screen.getByText("First B"));
+    fireEvent.click(screen.getByText("Save skill"));
     const answers = calls[0]!.data!.answers as { optionId?: string }[];
     expect(answers).toHaveLength(1);
     expect(answers[0]).toMatchObject({ optionId: "b" });

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  VOICE_START_REQUEST_TTL_MS,
   COMPANION_SIZES,
   companionBoxFor,
   companionCardSideFor,
@@ -106,6 +107,7 @@ mock.module("electron", () => ({
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
     getDisplayNearestPoint: () => ({
+      bounds: { x: 0, y: 0, width: 1440, height: 900 },
       workArea: { x: 0, y: 0, width: 1440, height: 900 },
     }),
     on: () => undefined,
@@ -137,14 +139,83 @@ mock.module("./main-window", () => ({
   },
 }));
 
+/**
+ * The display's edge glow, which main opens for a watch session and closes
+ * after it. Kept apart from the surface so a push to both is two sends on two
+ * windows, and so a case can see the light come on and go out.
+ */
+type GlowWindow = {
+  bounds: { x: number; y: number; width: number; height: number };
+  closed: boolean;
+  level: [string, number] | null;
+  webContents: {
+    send: (channel: string, state: CompanionSurfaceState) => void;
+  };
+  getBounds: () => { x: number; y: number; width: number; height: number };
+  setBounds: (bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => void;
+  setAlwaysOnTop: (flag: boolean, level: string, relative: number) => void;
+  close: () => void;
+  isDestroyed: () => boolean;
+  on: () => void;
+};
+let glow: GlowWindow | null = null;
+const glowPushes: CompanionSurfaceState[] = [];
+
+const openGlow = (options: {
+  position?: { x: number; y: number } | (() => { x: number; y: number });
+  width: number;
+  height: number;
+}): GlowWindow => {
+  const at =
+    typeof options.position === "function"
+      ? options.position()
+      : (options.position ?? { x: 0, y: 0 });
+  const window: GlowWindow = {
+    bounds: { ...at, width: options.width, height: options.height },
+    closed: false,
+    level: null,
+    webContents: {
+      send: (_channel, state) => {
+        glowPushes.push(state);
+      },
+    },
+    getBounds: () => window.bounds,
+    setBounds: (bounds) => {
+      window.bounds = bounds;
+    },
+    setAlwaysOnTop: (_flag, level, relative) => {
+      window.level = [level, relative];
+    },
+    close: () => {
+      window.closed = true;
+      glow = null;
+    },
+    isDestroyed: () => false,
+    on: () => {},
+  };
+  glow = window;
+  return window;
+};
+
 mock.module("@vellumai/electron-desktop/floating-window", () => ({
-  createFloatingWindow: () => surface,
-  getFloatingWindow: () => surface,
+  createFloatingWindow: (options: {
+    kind: string;
+    width: number;
+    height: number;
+    position?: { x: number; y: number } | (() => { x: number; y: number });
+  }) => (options.kind === "companion" ? surface : openGlow(options)),
+  getFloatingWindow: (kind: string) => (kind === "companion" ? surface : glow),
 }));
 
 mock.module("@vellumai/electron-desktop/avatar", () => ({
   getAvatarPng: () => null,
   getCharacter: () => null,
+  getAccentHex: () => null,
   onAvatarChange: () => () => {},
 }));
 
@@ -204,6 +275,9 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
+  callSurfaceFor,
+  COMPANION_DIAL_TIMEOUT_MS,
+  dialOnTalk,
   introOnAdvance,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
@@ -222,6 +296,8 @@ beforeEach(() => {
   setCompanionSurfaceSize("avatar", "small");
   origin = { x: 0, y: 0 };
   boundsSet.length = 0;
+  glow = null;
+  glowPushes.length = 0;
 });
 
 /** Put a set of evaluated flags in settings and tell main they changed. */
@@ -563,6 +639,233 @@ describe("avatarOffsetFor", () => {
   });
 });
 
+describe("the dial", () => {
+  test("starts on a press with no session on the surface", () => {
+    expect(dialOnTalk(null)).toBe(true);
+  });
+
+  /**
+   * The window that owns the session spends the press on the call the user is
+   * in, so nothing is coming that a dial could wait for.
+   */
+  test("does not start over a running session", () => {
+    expect(dialOnTalk({ ...START })).toBe(false);
+  });
+
+  /**
+   * A dial that closed while its request could still become a session would
+   * reopen on that session a moment later, so the bound outlives the request.
+   */
+  test("outlives the request it is drawn for", () => {
+    expect(COMPANION_DIAL_TIMEOUT_MS).toBeGreaterThan(
+      VOICE_START_REQUEST_TTL_MS,
+    );
+  });
+
+  /**
+   * The press that ends a dial takes the request back by a command the root
+   * layout consumes, since the session's own controls are heard only where a
+   * session is owned and a dial can be ended before any layout owns one.
+   */
+  test("ending it takes the request back through a command", () => {
+    mainWindowOpen = true;
+    dispatched.length = 0;
+    send("vellum:companion:startVoice");
+    dispatched.length = 0;
+
+    send("vellum:voiceActivity:control", { action: "endSession" });
+
+    expect(dispatched).toEqual([{ kind: "cancelVoiceStart" }]);
+    expect(state().dialing).toBe(false);
+  });
+
+  test("an end with no dial takes nothing back", () => {
+    mainWindowOpen = true;
+    send("vellum:voiceActivity:end");
+    dispatched.length = 0;
+
+    send("vellum:voiceActivity:control", { action: "endSession" });
+
+    expect(dispatched).toEqual([]);
+  });
+});
+
+/**
+ * When the surface is the call's rather than the pill: taken to the bottom of
+ * the display, the creature standing beside it, the display's edge lit.
+ */
+describe("the call surface", () => {
+  test("is the pill with nothing running", () => {
+    expect(callSurfaceFor(null, false)).toBe(false);
+  });
+
+  test("is the call's from the dial, before any session answers", () => {
+    expect(callSurfaceFor(null, true)).toBe(true);
+  });
+
+  test("is the call's for a running session", () => {
+    expect(callSurfaceFor({ ...START }, false)).toBe(true);
+  });
+});
+
+/**
+ * The surface the call takes: the handlebar goes to the bottom centre of the
+ * display from the dial until the call ends, and then the pill goes home.
+ */
+describe("the surface a call takes", () => {
+  /** The screen the electron mock answers for, whatever point it is asked. */
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + GEOMETRY.canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
+  });
+  const bottomCentre = defaultAvatarCentre(SCREEN, GEOMETRY);
+  /** Somewhere the user parked the pill, away from where a call puts it. */
+  const park = (): { x: number; y: number } => {
+    send("vellum:companion:moveBy", 300 - centre().x, 200 - centre().y);
+    return centre();
+  };
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    send("vellum:voiceActivity:end");
+    send("vellum:voiceActivity:control", { action: "endSession" });
+  });
+
+  test("goes to the bottom centre of the display on the dial", () => {
+    park();
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(bottomCentre);
+  });
+
+  /**
+   * A call is a microphone, not a screen: the frame around the display is
+   * the watch session's, and a call alone leaves it dark.
+   */
+  test("does not light the display's edge", () => {
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:start", START);
+    expect(glow).toBeNull();
+    send("vellum:voiceActivity:end");
+  });
+
+  test("goes home once the call is over", () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:start", START);
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+
+  test("goes home when the dial is declined", () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+
+  test("goes home when the user ends the dial", () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:control", { action: "endSession" });
+    expect(centre()).toEqual(home);
+  });
+
+  /**
+   * The bottom centre is a default, not a pin: the user can drag the handlebar
+   * for the length of the call, and it is the pill's home they go back to.
+   */
+  test("stays draggable for the call and still goes home after it", () => {
+    const home = park();
+    send("vellum:companion:startVoice");
+    send("vellum:companion:moveBy", -200, -100);
+    expect(centre()).not.toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+
+  test("does not move again for a session answering a dial", () => {
+    send("vellum:companion:startVoice");
+    send("vellum:companion:moveBy", -200, -100);
+    const dragged = centre();
+    send("vellum:voiceActivity:start", START);
+    expect(centre()).toEqual(dragged);
+  });
+
+  test("is the call's for a session started in the app, not only for a dial", () => {
+    park();
+    send("vellum:voiceActivity:start", START);
+    expect(centre()).toEqual(bottomCentre);
+    send("vellum:voiceActivity:end");
+  });
+});
+
+/**
+ * The display's edge, lit while a watch session reads it: the whole screen
+ * says it is being read, the way a shared screen is framed.
+ */
+describe("the light a watch session puts on the display", () => {
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context({ watching: false }));
+  });
+
+  test("comes on with the session", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(glow).not.toBeNull();
+    expect(glow?.bounds).toEqual(SCREEN);
+  });
+
+  test("sits under the surface", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(glow?.level).toEqual(["floating", -1]);
+  });
+
+  test("is told what the surface is told", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    glowPushes.length = 0;
+    send(
+      "vellum:companion:setContext",
+      context({ watching: true, captureCount: 2 }),
+    );
+    expect(glowPushes.at(-1)?.captureCount).toBe(2);
+  });
+
+  test("goes out with the session", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    send("vellum:companion:setContext", context({ watching: false }));
+    expect(glow).toBeNull();
+  });
+
+  test("stays dark for a context that says nothing about a session", () => {
+    send("vellum:companion:setContext", context({}));
+    expect(glow).toBeNull();
+  });
+
+  /**
+   * The window that owns the session is gone, so nothing is reading the
+   * screen, whatever the last push said.
+   */
+  test("goes out when the window holding the session is destroyed", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    mainWindowOpen = false;
+    fireVisibilityChange();
+    expect(glow).toBeNull();
+  });
+
+  test("stays lit through a call", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    send("vellum:companion:startVoice");
+    send("vellum:voiceActivity:start", START);
+    expect(glow).not.toBeNull();
+    send("vellum:voiceActivity:end");
+    expect(glow).not.toBeNull();
+    send("vellum:companion:setContext", context({ watching: false }));
+  });
+});
+
 describe("the session main holds", () => {
   test("update merges content and leaves the fixed fields alone", () => {
     const running = { ...START };
@@ -674,11 +977,11 @@ describe("geometryFor", () => {
       CompanionSize,
       { maxReach: number; canvasWidth: number; canvasHeight: number }
     > = {
-      small: { maxReach: 261, canvasWidth: 570, canvasHeight: 267 },
-      medium: { maxReach: 361, canvasWidth: 794, canvasHeight: 374 },
-      large: { maxReach: 536, canvasWidth: 1168, canvasHeight: 547 },
-      huge: { maxReach: 711, canvasWidth: 1542, canvasHeight: 720 },
-      ridiculous: { maxReach: 930, canvasWidth: 2100, canvasHeight: 1035 },
+      small: { maxReach: 322, canvasWidth: 692, canvasHeight: 267 },
+      medium: { maxReach: 445, canvasWidth: 962, canvasHeight: 374 },
+      large: { maxReach: 662, canvasWidth: 1420, canvasHeight: 547 },
+      huge: { maxReach: 879, canvasWidth: 1878, canvasHeight: 720 },
+      ridiculous: { maxReach: 1140, canvasWidth: 2520, canvasHeight: 1035 },
     };
     for (const size of COMPANION_SIZES) {
       const { maxReach, canvasWidth, canvasHeight } = geometryFor(size, size);
@@ -826,7 +1129,7 @@ describe("geometryFor with the two axes apart", () => {
    * The width is where the gap rule shows: the gap is breathing room, so the
    * smaller of the two boxes decides how much of it there is, and the creature
    * below takes its small pill's gap rather than the chasm its own scale would
-   * ask for, which would put its reach at 315. The two heights are the two
+   * ask for, which would put its reach at 376. The two heights are the two
    * sides of the avatar: the near edge clears the creature's box and the pill's
    * top alike, and the far edge clears the card growing either way.
    */
@@ -836,8 +1139,8 @@ describe("geometryFor with the two axes apart", () => {
     expect(BIG_CREATURE).toEqual({
       avatarBox: 110,
       optionsBox: 32,
-      maxReach: 294,
-      canvasWidth: 708,
+      maxReach: 355,
+      canvasWidth: 830,
       riseAbove: 274,
       dropBelow: 115,
       canvasHeight: 389,
@@ -846,8 +1149,8 @@ describe("geometryFor with the two axes apart", () => {
     expect(BIG_OPTIONS).toEqual({
       avatarBox: 44,
       optionsBox: 88,
-      maxReach: 666,
-      canvasWidth: 1428,
+      maxReach: 834,
+      canvasWidth: 1764,
       riseAbove: 614,
       dropBelow: 122,
       canvasHeight: 736,
@@ -909,20 +1212,38 @@ describe("companionContextMenuTemplate", () => {
     },
   ) => {
     let hidden = false;
+    let opened = false;
     const items = companionContextMenuTemplate(current, {
+      open: () => {
+        opened = true;
+      },
       setSize: () => {},
       hide: () => {
         hidden = true;
       },
     }) as MenuItem[];
-    return { items, wasHidden: () => hidden };
+    return { items, wasHidden: () => hidden, wasOpened: () => opened };
   };
+
+  /**
+   * The way back to Vellum leads, since a press on the creature is a call now
+   * and this is where going back to the app lives.
+   */
+  test("opens with the way back to Vellum", () => {
+    const { items, wasOpened } = build();
+    expect(items.slice(0, 2).map((item) => item.label ?? item.type)).toEqual([
+      "Open Vellum",
+      "separator",
+    ]);
+    items[0]?.click?.();
+    expect(wasOpened()).toBe(true);
+  });
 
   test("closes with a separator and the way out, past the headings", () => {
     expect(
       build()
         .items.map((item) => item.label ?? item.type)
-        .slice(2),
+        .slice(4),
     ).toEqual(["separator", "Hide Companion"]);
   });
 
@@ -933,14 +1254,14 @@ describe("companionContextMenuTemplate", () => {
    */
   test("draws its two headings from the builder the tray reads", () => {
     const current = { avatar: "ridiculous", options: "medium" } as const;
-    expect(JSON.stringify(build(current).items.slice(0, 2))).toBe(
+    expect(JSON.stringify(build(current).items.slice(2, 4))).toBe(
       JSON.stringify(companionSizeSubmenus(current, () => {})),
     );
   });
 
   test("the last item takes the surface away", () => {
     const menu = build();
-    menu.items[3]?.click?.();
+    menu.items[5]?.click?.();
     expect(menu.wasHidden()).toBe(true);
   });
 });

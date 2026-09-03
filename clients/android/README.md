@@ -64,9 +64,15 @@ The default launcher icon is the `quirky` eye pair from the avatar library in
 in `app/src/main/res/drawable/ic_launcher_foreground.xml` and in the
 pre-adaptive `app/src/main/res/mipmap-anydpi/ic_launcher*.xml` fallbacks are
 copied verbatim from that table and only repositioned by a VectorDrawable
-`<group>`, so the icon stays in sync with the in-app avatars. Launcher
-background colors distinguish production (`#4C9B50`, the avatar palette green),
-staging, and dev installs.
+`<group>`, so the icon stays in sync with the in-app avatars.
+
+Each flavor's `launcher_background` in
+`app/src/<flavor>/res/values/colors.xml` distinguishes the installs: production
+`#4C9B50` (the avatar palette green), staging `#E9C91A`, and dev `#FF88C9`.
+Those three are the shared cross-platform standard: a flavor and the iOS
+`AppIcon-*.icon` bundle for the same environment sit on the same color, which
+the web app names once as `APP_ICON_GROUNDS`. Change one and change the rest
+with it.
 
 ### Alternate Icons
 

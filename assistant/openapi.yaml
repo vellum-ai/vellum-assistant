@@ -2019,6 +2019,103 @@ paths:
                   - userId
                   - authenticated
                 additionalProperties: false
+  /v1/avatar/accent:
+    post:
+      operationId: avatar_accent_post
+      summary: Set avatar accent
+      description:
+        "Set the accent colour over the current avatar as #rrggbb, or null to return to the automatic one (the
+        character's palette colour, or the colour read out of the uploaded image)."
+      tags:
+        - avatar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hex:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - hex
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - character
+                      - image
+                      - none
+                  traits:
+                    anyOf:
+                      - type: object
+                        properties:
+                          bodyShape:
+                            type: string
+                          eyeStyle:
+                            type: string
+                          color:
+                            type: string
+                        required:
+                          - bodyShape
+                          - eyeStyle
+                          - color
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - builder
+                          - upload
+                          - ai
+                      - type: "null"
+                  image:
+                    anyOf:
+                      - type: object
+                        properties:
+                          updatedAt:
+                            type: string
+                          etag:
+                            type: string
+                        required:
+                          - updatedAt
+                          - etag
+                        additionalProperties: false
+                      - type: "null"
+                  accent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          hex:
+                            type: string
+                          source:
+                            type: string
+                            enum:
+                              - palette
+                              - derived
+                              - custom
+                        required:
+                          - hex
+                          - source
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - kind
+                  - traits
+                  - source
+                  - image
+                  - accent
+                additionalProperties: false
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get
@@ -2390,7 +2487,7 @@ paths:
     get:
       operationId: avatar_state_get
       summary: Get avatar state
-      description: Return the authoritative avatar render mode (character, image, or none).
+      description: Return the authoritative avatar render mode (character, image, or none) and its accent colour.
       tags:
         - avatar
       responses:
@@ -2444,11 +2541,29 @@ paths:
                           - etag
                         additionalProperties: false
                       - type: "null"
+                  accent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          hex:
+                            type: string
+                          source:
+                            type: string
+                            enum:
+                              - palette
+                              - derived
+                              - custom
+                        required:
+                          - hex
+                          - source
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - kind
                   - traits
                   - source
                   - image
+                  - accent
                 additionalProperties: false
   /v1/background-tools:
     get:
@@ -9978,7 +10093,11 @@ paths:
         unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which
         sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard
         listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section.
-        Chats is always present, even at zero: it is the leftover bucket and renders regardless."
+        Chats is always present, even at zero: it is the leftover bucket and renders regardless. Under the
+        `assistant-initiated-threads` flag an `assistant` section is also present at every count — the threads the
+        assistant started on its own, selectable as a list via `groupId=system:assistant` — and its rows are withheld
+        from Chats so the buckets stay disjoint. With the flag off no `assistant` row is emitted and those conversations
+        are counted in Chats as before."
       tags:
         - conversations
       responses:
@@ -9998,6 +10117,20 @@ paths:
                             kind:
                               type: string
                               const: pinned
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: assistant
                             total:
                               type: number
                             unread:
@@ -11079,7 +11212,9 @@ paths:
                     description: Processed text output
                   mode:
                     type: string
-                    description: "Detected mode: dictation, command, or action"
+                    description:
+                      "Detected mode: dictation, command, action, or question (selected text the words asked about rather than
+                      changed; text is the transcription)"
                   actionPlan:
                     description: Action plan (only when mode is action)
                     type: string
@@ -21187,6 +21322,8 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        deletedAt:
+                          type: number
                         queueStatus:
                           type: string
                           enum:
@@ -24406,7 +24543,9 @@ paths:
     post:
       operationId: platform_connect_post
       summary: Connect to the Vellum Platform
-      description: Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.
+      description:
+        Checks whether the stored platform credentials still connect. Reports a stored key the platform rejects as
+        credentialRejected, so the caller can direct the user to sign in again and replace it.
       tags:
         - platform
       responses:
@@ -24423,14 +24562,18 @@ paths:
                     type: string
                   showPlatformLogin:
                     type: boolean
+                  credentialRejected:
+                    type: boolean
                 additionalProperties: false
   /v1/platform/credits:
     get:
       operationId: platform_credits_get
-      summary: Get the organization's remaining credit balance
+      summary: Get the organization's remaining credit balance and daily-limit state
       description:
-        Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
-        billing summary.
+        "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
+        billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which
+        excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the
+        low-balance warning state."
       tags:
         - platform
       responses:
@@ -24454,6 +24597,33 @@ paths:
                     type: boolean
                   as_of:
                     type: string
+                  daily_spend:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Today's (UTC) spend counted against the daily credit limit, in USD. Excludes spend covered by plan-included
+                      credits (initial credit, Pro credit bundle), so it is not total spend. Null when the platform did
+                      not report it.
+                  daily_limit:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Daily credit limit in USD, or null when none is set.
+                  daily_limit_reached:
+                    type: boolean
+                    description: True when today's spend has reached the daily limit and the limit is being enforced.
+                  daily_limit_snoozed:
+                    type: boolean
+                    description: True when the daily limit has been skipped for the rest of the current UTC day.
+                  low_balance_threshold:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Low-balance alert threshold in USD.
+                  low_balance_warning:
+                    type: boolean
+                    description: True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.
                 required:
                   - remaining
                   - settled
@@ -24461,6 +24631,12 @@ paths:
                   - unit
                   - stale
                   - as_of
+                  - daily_spend
+                  - daily_limit
+                  - daily_limit_reached
+                  - daily_limit_snoozed
+                  - low_balance_threshold
+                  - low_balance_warning
                 additionalProperties: false
   /v1/platform/disconnect:
     post:
@@ -24790,6 +24966,32 @@ paths:
                   - selectedCreditTier
                   - package
                   - entitlements
+                additionalProperties: false
+  /v1/platform/verify-credential:
+    post:
+      operationId: platform_verifycredential_post
+      summary: Verify the Vellum-managed credential against the platform
+      description:
+        Asks the platform whether the stored assistant API key authenticates. POST because it performs a check; the
+        result is returned, not stored.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - valid
+                      - rejected
+                      - unknown
+                required:
+                  - status
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:
