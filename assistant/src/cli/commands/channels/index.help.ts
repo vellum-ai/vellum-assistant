@@ -14,14 +14,19 @@ export const KNOWN_CHANNELS = [
   "a2a",
 ] as const;
 
+export const CHANNELS_PLUGIN_SEARCH_HINT =
+  "If the channel you are looking for is not listed, search the plugin marketplace with 'assistant plugins search <name>'.";
+
 export const channelsHelp: CliCommandHelp = {
   name: "channels",
-  description:
-    "Inspect and repair messaging channels (slack, telegram, email, etc.)",
+  description: "Inspect and repair messaging channels",
   helpText: `
-Channels are the messaging surfaces the assistant talks over — slack,
-telegram, whatsapp, email, phone, vellum, platform, a2a. Each channel
-has a probe that reports whether it's configured and reachable.
+Channels are the messaging surfaces the assistant talks over. Built-in
+readiness probes cover slack, telegram, whatsapp, email, phone, vellum,
+platform, and a2a.
+
+${CHANNELS_PLUGIN_SEARCH_HINT} Plugins can bundle additional channels
+from other Vellum users.
 
   list                    Overview of every channel + ready state
   get <channel>           Live snapshot of one channel (always re-probes)
@@ -45,6 +50,14 @@ Examples:
           defaultValue: false,
         },
       ],
+      helpText: `
+Shows readiness for every built-in channel.
+
+${CHANNELS_PLUGIN_SEARCH_HINT}
+
+Examples:
+  $ assistant channels list
+  $ assistant channels list --json`,
     },
     {
       name: "get",
@@ -53,7 +66,7 @@ Examples:
       arguments: [
         {
           name: "<channel>",
-          description: `Channel id: ${KNOWN_CHANNELS.join(", ")}`,
+          description: `Channel id: ${KNOWN_CHANNELS.join(", ")}. If the channel is not in this list, run 'assistant plugins search <name>'.`,
         },
       ],
       options: [

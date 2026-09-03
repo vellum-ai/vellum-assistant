@@ -4,6 +4,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SKIP_RESEARCH_PARAM } from "@/domains/onboarding/onboarding-destination";
 import { ONBOARDED_HATCH_AGE_MS } from "@/domains/onboarding/onboarded-assistant";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  clearSelectedAssistantId,
+  writeSelectedAssistantId,
+} from "@/assistant/selected-assistant-storage";
 import { routes } from "@/utils/routes";
 
 // react-router: capture navigate() targets and drive the ?preview flag.
@@ -142,6 +146,7 @@ describe("PrivacyScreen — Start navigation", () => {
     checkoutIntentValue = null;
     takeoverValue = "enabled";
     useResolvedAssistantsStore.setState({ assistants: [] });
+    clearSelectedAssistantId();
   });
   afterEach(() => {
     cleanup();
@@ -150,6 +155,7 @@ describe("PrivacyScreen — Start navigation", () => {
     checkoutIntentValue = null;
     takeoverValue = "enabled";
     useResolvedAssistantsStore.setState({ assistants: [] });
+    clearSelectedAssistantId();
   });
 
   test("preview mode no-ops on Start without persisting consent", () => {
@@ -224,7 +230,7 @@ describe("PrivacyScreen — Start navigation", () => {
     });
   });
 
-  test("skips research when the assistant was hatched over a week ago", () => {
+  test("skips research when the selected assistant is over a week old", () => {
     useResolvedAssistantsStore.setState({
       assistants: [
         {
@@ -236,12 +242,45 @@ describe("PrivacyScreen — Start navigation", () => {
         },
       ],
     });
+    writeSelectedAssistantId("asst-1");
     searchParamsValue = new URLSearchParams();
     render(<PrivacyScreen />);
 
     clickStart();
 
     expect(navigateMock).toHaveBeenCalledWith(routes.assistant, {
+      replace: true,
+    });
+  });
+
+  // The chooser loop: an established sibling must not answer for the assistant
+  // this walk is creating.
+  test("still hatches when a week-old sibling is not the selected assistant", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-old",
+          hatchedAt: new Date(Date.now() - ONBOARDED_HATCH_AGE_MS).toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+        {
+          id: "asst-new",
+          hatchedAt: new Date().toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+    writeSelectedAssistantId("asst-new");
+    searchParamsValue = new URLSearchParams();
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.research, {
       replace: true,
     });
   });

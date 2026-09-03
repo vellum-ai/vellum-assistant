@@ -29,7 +29,10 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import { companionSizeSubmenus } from "./companion-menu";
+import {
+  companionSizeSubmenus,
+  companionVisibilityItem,
+} from "./companion-menu";
 
 export type TrayMenuIcon =
   | "check"
@@ -361,19 +364,12 @@ const buildTrayMenu = (
     // that mentions it exists.
     ...(trayRuntime.companionSupported()
       ? [
-          {
-            // A checkbox rather than a toggle-action item: once the surface is
-            // hidden, this menu is the only place left to bring it back from,
-            // so the item has to show which state it is in. Electron flips
-            // `checked` before `click` runs, so the item carries the state
-            // being asked for.
-            label: "Show Companion",
-            type: "checkbox" as const,
-            checked: !trayRuntime.companionHidden(),
-            click: (item: Electron.MenuItem) => {
-              trayRuntime.setCompanionVisible(item.checked);
-            },
-          },
+          // The show/hide checkbox the application menu offers too, from the one
+          // builder both read.
+          companionVisibilityItem(
+            trayRuntime.companionHidden(),
+            trayRuntime.setCompanionVisible,
+          ),
           // The size pickers the surface's own right-click offers too, from the
           // one builder both read. Disabled rather than hidden while the
           // surface is: items that came and went with the checkbox above them

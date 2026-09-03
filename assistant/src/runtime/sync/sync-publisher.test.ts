@@ -78,7 +78,7 @@ describe("sync publisher", () => {
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: async (event) => {
-        if (event.message.type === "conversation_list_invalidated") {
+        if (event.message.type === "conversation_title_updated") {
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
         receivedTypes.push(event.message.type);
@@ -87,15 +87,16 @@ describe("sync publisher", () => {
 
     try {
       broadcastMessage({
-        type: "conversation_list_invalidated",
-        reason: "created",
+        type: "conversation_title_updated",
+        conversationId: "conv-1",
+        title: "Test",
       });
       await publishSyncInvalidation([SYNC_TAGS.conversationsList]);
 
       await waitFor(() => receivedTypes.length === 2);
 
       expect(receivedTypes).toEqual([
-        "conversation_list_invalidated",
+        "conversation_title_updated",
         "sync_changed",
       ]);
     } finally {

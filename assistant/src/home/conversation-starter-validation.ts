@@ -79,10 +79,6 @@ function mentionsCurrentUser(
   context: ConversationStarterValidationContext,
 ): boolean {
   return context.userReferences.some((reference) =>
-    new RegExp(`\\b${escapeRegExp(reference)}\\b`, "i").test(text),
+    new RegExp(`\\b${RegExp.escape(reference)}\\b`, "i").test(text),
   );
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

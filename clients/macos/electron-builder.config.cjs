@@ -42,6 +42,13 @@ module.exports = {
   directories: {
     output: "dist",
   },
+  // Only the electron-vite output belongs in app.asar. Without this allowlist
+  // electron-builder packs the whole project dir: the Swift helper build tree,
+  // a second copy of web-dist, src/, scripts/, and whatever else sits in
+  // clients/macos at pack time (a local pack once shipped a 12GB asar this
+  // way). Production node_modules are collected from the dependency tree
+  // regardless of these patterns.
+  files: ["out/main/**", "out/preload/**", "package.json"],
   extraResources: [
     { from: "resources/bun", to: "bun" },
     {

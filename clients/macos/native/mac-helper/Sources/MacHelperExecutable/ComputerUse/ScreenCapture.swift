@@ -6,16 +6,30 @@ import UniformTypeIdentifiers
 
 enum CaptureError: LocalizedError {
     case noDisplay
+    case displayNotFound
+    case windowNotFound
     case conversionFailed
     case permissionDenied
 
     var errorDescription: String? {
         switch self {
         case .noDisplay: return "No display found"
+        case .displayNotFound: return "The display to capture is no longer connected"
+        case .windowNotFound: return "The window to capture is no longer on screen"
         case .conversionFailed: return "Failed to convert screenshot to JPEG"
         case .permissionDenied: return "Screen Recording permission denied"
         }
     }
+}
+
+/// What a capture reads when the caller picked something narrower than the
+/// main display: one display or one window, by the window server's own ids.
+/// The daemon carries the user's pick from the companion's Teach picker here
+/// unchanged, so a session scoped to one window keeps reading that window
+/// while the user works in another.
+enum CaptureTarget: Sendable {
+    case display(CGDirectDisplayID)
+    case window(CGWindowID)
 }
 
 struct ScreenCaptureMetadata: Sendable {
@@ -32,6 +46,7 @@ struct ScreenCaptureResult: Sendable {
 protocol ScreenCaptureProviding: Sendable {
     func captureScreen(maxWidth: Int, maxHeight: Int) async throws -> Data
     func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int) async throws -> ScreenCaptureResult
+    func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int, target: CaptureTarget?) async throws -> ScreenCaptureResult
     func screenSize() -> CGSize
 }
 
@@ -44,6 +59,11 @@ extension ScreenCaptureProviding {
         let data = try await captureScreen(maxWidth: maxWidth, maxHeight: maxHeight)
         return ScreenCaptureResult(jpegData: data, metadata: nil)
     }
+
+    /// A provider that knows nothing of targets reads what it always reads.
+    func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int, target: CaptureTarget?) async throws -> ScreenCaptureResult {
+        try await captureScreenWithMetadata(maxWidth: maxWidth, maxHeight: maxHeight)
+    }
 }
 
 final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
@@ -53,6 +73,10 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
     }
 
     func captureScreenWithMetadata(maxWidth: Int = 1280, maxHeight: Int = 720) async throws -> ScreenCaptureResult {
+        try await captureScreenWithMetadata(maxWidth: maxWidth, maxHeight: maxHeight, target: nil)
+    }
+
+    func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int, target: CaptureTarget?) async throws -> ScreenCaptureResult {
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.current
@@ -60,36 +84,53 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
             throw CaptureError.permissionDenied
         }
 
-        // Match the main display (CGMainDisplayID) so screenshots align with AX tree coordinates.
-        // content.displays.first is arbitrary and may return an external monitor.
-        let mainDisplayID = CGMainDisplayID()
-        guard let display = content.displays.first(where: { $0.displayID == mainDisplayID })
-                ?? content.displays.first else {
-            throw CaptureError.noDisplay
+        let filter: SCContentFilter
+        let sourceSize: CGSize
+        let captureDisplayId: CGDirectDisplayID
+
+        switch target {
+        case .window(let windowID):
+            // One window, wherever it is and whatever is over it. A single
+            // window filter has nothing to exclude, and the helper's own
+            // windows are never the pick.
+            guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+                throw CaptureError.windowNotFound
+            }
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            sourceSize = window.frame.size
+            captureDisplayId = Self.displayHolding(window.frame)
+
+        case .display(let displayID):
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+                throw CaptureError.displayNotFound
+            }
+            filter = SCContentFilter(display: display, excludingWindows: Self.ownWindows(in: content))
+            sourceSize = CGSize(width: display.width, height: display.height)
+            captureDisplayId = display.displayID
+
+        case nil:
+            // Match the main display (CGMainDisplayID) so screenshots align with AX tree coordinates.
+            // content.displays.first is arbitrary and may return an external monitor.
+            let mainDisplayID = CGMainDisplayID()
+            guard let display = content.displays.first(where: { $0.displayID == mainDisplayID })
+                    ?? content.displays.first else {
+                throw CaptureError.noDisplay
+            }
+            filter = SCContentFilter(display: display, excludingWindows: Self.ownWindows(in: content))
+            sourceSize = CGSize(width: display.width, height: display.height)
+            captureDisplayId = display.displayID
         }
 
-        // Exclude this helper's and the Electron host app's windows so the
-        // screenshot shows the app behind our UI — matching the AX tree, which
-        // skips the same processes (AccessibilityTreeEnumerator.isOwnOrHostApp).
-        // Otherwise the model reasons over a screenshot of the chat window while
-        // the AX tree describes the app behind it, and clicks the wrong place.
-        let myPID = ProcessInfo.processInfo.processIdentifier
-        let hostPID = getppid()
-        let excluded = content.windows.filter {
-            guard let pid = $0.owningApplication?.processID else { return false }
-            return pid == myPID || pid == hostPID
-        }
-        let filter = SCContentFilter(display: display, excludingWindows: excluded)
         let config = SCStreamConfiguration()
 
-        let displayWidth = CGFloat(display.width)
-        let displayHeight = CGFloat(display.height)
-        let scaleX = CGFloat(maxWidth) / displayWidth
-        let scaleY = CGFloat(maxHeight) / displayHeight
+        let sourceWidth = max(sourceSize.width, 1)
+        let sourceHeight = max(sourceSize.height, 1)
+        let scaleX = CGFloat(maxWidth) / sourceWidth
+        let scaleY = CGFloat(maxHeight) / sourceHeight
         let scale = min(scaleX, scaleY, 1.0) // Don't upscale
 
-        config.width = Int(displayWidth * scale)
-        config.height = Int(displayHeight * scale)
+        config.width = max(Int(sourceWidth * scale), 1)
+        config.height = max(Int(sourceHeight * scale), 1)
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = true
 
@@ -111,9 +152,43 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
             metadata: ScreenCaptureMetadata(
                 screenshotWidthPx: image.width,
                 screenshotHeightPx: image.height,
-                captureDisplayId: display.displayID
+                captureDisplayId: captureDisplayId
             )
         )
+    }
+
+    /// Exclude this helper's and the Electron host app's windows so the
+    /// screenshot shows the app behind our UI, matching the AX tree, which
+    /// skips the same processes (AccessibilityTreeEnumerator.isOwnOrHostApp).
+    /// Otherwise the model reasons over a screenshot of the chat window while
+    /// the AX tree describes the app behind it, and clicks the wrong place.
+    private static func ownWindows(in content: SCShareableContent) -> [SCWindow] {
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let hostPID = getppid()
+        return content.windows.filter {
+            guard let pid = $0.owningApplication?.processID else { return false }
+            return pid == myPID || pid == hostPID
+        }
+    }
+
+    /// The display holding most of `frame`, or the main display when the
+    /// window server names none (a window dragged fully off screen).
+    static func displayHolding(_ frame: CGRect) -> CGDirectDisplayID {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        let status = CGGetDisplaysWithRect(frame, UInt32(ids.count), &ids, &count)
+        guard status == .success, count > 0 else { return CGMainDisplayID() }
+        var best = ids[0]
+        var bestArea: CGFloat = -1
+        for id in ids.prefix(Int(count)) {
+            let area = CGDisplayBounds(id).intersection(frame).size
+            let covered = area.width * area.height
+            if covered > bestArea {
+                bestArea = covered
+                best = id
+            }
+        }
+        return best
     }
 
     /// Returns the main display size in logical points (same coordinate space as AX tree and CGEvent).

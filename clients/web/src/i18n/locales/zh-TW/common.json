@@ -70,6 +70,10 @@
     "updateFailed": "無法更新「{label}」。您的變更已還原。"
   },
   "avatarManagementModal": {
+    "accent": "強調色",
+    "accentAutomatic": "自動",
+    "accentPickerLabel": "強調色",
+    "accentReset": "重設",
     "body": "身體",
     "color": "顏色",
     "eyes": "眼睛",
@@ -102,6 +106,14 @@
   },
   "byoVoiceNote": {
     "body": "您的助理透過您自行設定的供應商發聲。請在<settingsLink>模型與服務</settingsLink>中設定其語音。"
+  },
+  "channelSetupCompleteNotice": {
+    "verifyTitle": "最後一步：確認您的身分",
+    "verifyAction": "驗證我",
+    "verifyBody": "您的助理還不知道哪個 {channel} 帳號是您的，所以暫時不會回覆您。在聊天中說「在 {channel} 上驗證我」即可完成。",
+    "verifyActionBody": "您的助理還不知道哪個 {channel} 帳號是您的，所以暫時不會回覆您。它會在聊天中陪您完成。",
+    "verifiedTitle": "身分已驗證",
+    "verifiedBody": "您的助理已識別您的 {channel} 帳號，會回覆您。一切就緒。"
   },
   "chatAvatar": {
     "alt": "助理頭像",
@@ -140,28 +152,29 @@
     "talk": {
       "body": "開始語音對話。",
       "title": "交談"
-    },
-    "type": {
-      "body": "從這裡傳送訊息，並在這裡閱讀回覆。",
-      "title": "輸入"
     }
   },
   "companionSurface": {
     "allow": "允許",
+    "calling": "正在呼叫…",
+    "callingNamed": "正在呼叫 {name}…",
+    "captureNothing": "沒有可顯示的內容",
+    "capturePicker": "教學來源",
+    "captureScreen": "螢幕 {n}",
+    "captureScreens": "螢幕",
+    "captureTabs": "Chrome 分頁",
+    "captureWindows": "視窗",
     "deny": "拒絕",
     "endSession": "結束會話",
-    "goBack": "返回",
-    "messagePlaceholder": "傳送訊息給 {name}",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
-    "send": "傳送",
+    "openVellum": "開啟 Vellum",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
-    "type": "輸入",
     "unmuteAssistant": "解除助理靜音",
     "unmuteMicrophone": "解除麥克風靜音"
   },
@@ -209,7 +222,9 @@
   },
   "detailPrimitives": {
     "copied": "已複製",
-    "copy": "複製"
+    "copy": "複製",
+    "showLess": "顯示較少",
+    "showMore": "顯示更多"
   },
   "dictationOverlayPage": {
     "stopRecording": "停止錄音"
@@ -224,6 +239,8 @@
   },
   "discordSetupConnectStep": {
     "instructions": "貼上您從「機器人」頁面複製的機器人金鑰。",
+    "verificationNoticeTitle": "請忽略「驗證您的應用程式」頁面",
+    "verificationNoticeBody": "Discord 對每個新應用程式都會顯示它。只有超過 100 個伺服器時才有意義。",
     "botTokenLabel": "機器人金鑰",
     "save": "連線",
     "saving": "正在連線...",
@@ -231,21 +248,33 @@
     "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
   },
   "discordSetupCreateStep": {
-    "instructions": "開啟 Discord 開發者入口網站並建立新的應用程式。在其 <resetLine>機器人</resetLine> 頁面上，點擊「重設金鑰」並立即複製金鑰：Discord 只會顯示一次，之後無法再次讀取。",
-    "intentsNote": "關閉所有三個特權閘道意圖。您的助理只會讀取直接訊息和提及它的訊息，Discord 將這些訊息排除在「訊息內容」意圖之外。",
+    "inPortal": "在 Discord 開發者入口網站中：",
+    "stepCreateApp": "點擊<strong>New Application</strong>，並用您助理的名字命名應用程式：",
+    "copyName": "複製名稱",
+    "copied": "已複製！",
+    "stepAppIcon": "可選：下載頭像，然後在<strong>一般資訊</strong>頁面上傳為應用程式圖示。",
+    "stepResetToken": "前往應用程式選單中的<strong>機器人</strong>頁面，點擊<strong>重設金鑰</strong>並立即複製金鑰。Discord 只會顯示一次。",
+    "stepIntentsOff": "在同一頁面，保持三個<strong>特權閘道意圖</strong>開關全部關閉。您的助理不需要它們：它只會讀取私訊和提及它的訊息。",
     "openPortal": "開啟 Discord 入口網站",
     "continue": "我已擁有金鑰"
   },
+  "discordSetupFinishStep": {
+    "connectedTitle": "機器人已新增",
+    "connectedBody": "金鑰已儲存，機器人已加入您的伺服器。Discord 這邊已完成。"
+  },
   "discordSetupInviteStep": {
-    "instructions": "您的機器人必須加入伺服器才能看到任何內容。此連結使用您應用程式「安裝」頁面上的安裝設定。",
+    "instructions": "機器人加入伺服器前什麼都看不到、也無法回覆。開啟連結，選擇您的伺服器並核准。",
     "openInvite": "新增至伺服器",
+    "confirmJoined": "我已新增機器人",
     "noAppId": "請先連線機器人金鑰，然後再回來將其新增至伺服器。"
   },
   "discordSetupWizard": {
     "channelLabel": "Discord",
     "stepCreate": "建立應用程式",
     "stepConnect": "連線",
-    "stepInvite": "新增至伺服器"
+    "stepInvite": "新增至伺服器",
+    "stepFinish": "完成",
+    "copyError": "無法複製名稱。請改為在 Discord 中輸入。"
   },
   "diskPressureBanner": {
     "acknowledge": "確認",
@@ -295,6 +324,9 @@
   "lazyBoundary": {
     "loadError": "此區段無法載入。請重新載入頁面再試一次。"
   },
+  "localNotification": {
+    "goToConversation": "前往對話"
+  },
   "macosAppBanner": {
     "ariaLabel": "下載 macOS 應用程式",
     "ctaAriaLabel": "下載 macOS 應用程式",
@@ -311,9 +343,6 @@
     "subtitle": "推播通知 · 生物辨識登入 · 觸覺回饋",
     "title": "取得 {appName} 應用程式",
     "titleGeneric": "取得 Vellum 應用程式"
-  },
-  "nativeSplash": {
-    "logoAlt": "Vellum"
   },
   "notFound": {
     "backToAssistant": "返回您的助理",
@@ -513,9 +542,10 @@
     "botTokenLabel": "機器人權杖",
     "connectSlack": "連接 Slack",
     "connecting": "正在連接…",
-    "credentialsSaved": "憑證已儲存。",
+    "credentialsSaved": "憑證已儲存",
     "instructions": "在 Slack 的確認畫面中，展開 <credentials>您的應用程式憑證</credentials> 並複製兩個權杖。",
-    "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。"
+    "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。",
+    "savedBody": "兩個金鑰都已儲存。Slack 這邊已完成。"
   },
   "slackSetupWizard": {
     "channelLabel": "Slack",
@@ -592,7 +622,8 @@
     "connectTelegram": "連接 Telegram",
     "instructions": "貼上 BotFather 回覆中的權杖。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之後的整行內容。",
     "saving": "正在儲存…",
-    "successNotice": "權杖已儲存。其餘部分將自動完成。您的助理會在您下次聊天時確認 Telegram 正在傳送訊息，並確保可以聯絡到您。"
+    "savedTitle": "權杖已儲存",
+    "savedBody": "機器人金鑰已儲存。Telegram 這邊已完成。"
   },
   "telegramSetupCreateStep": {
     "copied": "已複製！",
@@ -659,8 +690,19 @@
     "velvet": "絲絨"
   },
   "tipCard": {
+    "computerUseBodyLinux": "在這台電腦上，我可以處理檔案、終端機和瀏覽器。",
+    "computerUseBodyMacos": "在此 Mac 上，我可以為您控制應用程式和桌面。",
+    "computerUseBodyWindows": "在此電腦上，我可以為您控制應用程式和桌面。",
+    "computerUseTitleLinux": "讓我使用這台電腦",
+    "computerUseTitleMacos": "讓我使用您的 Mac",
+    "computerUseTitleWindows": "讓我使用您的電腦",
     "dismiss": "關閉",
     "nextTip": "下一個提示",
+    "pluginsBodyLinux": "從個人理財副駕駛到每日家庭簡報。",
+    "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
+    "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
+    "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",
+    "quickInputBodyWithoutShortcut": "使用快速輸入，即可從任何應用程式向我傳送快速訊息。",
     "previousTip": "上一個提示"
   },
   "ttsProviderForm": {
@@ -773,7 +815,11 @@
     "body": "語音提供者、轉錄和 API 金鑰位於<modelsLink>模型與服務</modelsLink>中。"
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "建議關閉"
+    "recommendedOff": "建議關閉",
+    "userTranscriptLabel": "顯示你說的話",
+    "userTranscriptDescription": "在你說話時即時轉錄文字。",
+    "assistantTranscriptLabel": "顯示助手說的話",
+    "assistantTranscriptDescription": "在語音回覆旁同步顯示文字。"
   },
   "windowsMenuBar": {
     "developer": "開發人員",
@@ -807,6 +853,24 @@
       "slack": "下載您的助理頭像，以上傳為應用程式圖示。",
       "discord": "下載您的助理頭像，以上傳為機器人圖示。",
       "telegram": "下載您的助理頭像，然後透過 /setuserpic 傳送給 BotFather。"
+    }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "嚴格",
+      "description": "執行任何操作前均需確認。不自動批准任何操作。"
+    },
+    "conservative": {
+      "label": "保守",
+      "description": "自動批准低風險操作，例如網路搜尋以及在其自身工作區中讀寫檔案。"
+    },
+    "relaxed": {
+      "label": "寬鬆",
+      "description": "自動批准低風險與中等風險操作，例如修改其工作區之外的檔案。"
+    },
+    "fullAccess": {
+      "label": "完全存取",
+      "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
   }
 }

@@ -156,7 +156,7 @@ function SuggestionList({
       {showAddHint && (
         <li
           role="presentation"
-          className="mt-0.5 border-t border-[var(--border-base)] px-2.5 pb-0.5 pt-1.5 text-body-small-default text-[var(--content-tertiary)]"
+          className="mt-0.5 border-t border-[var(--border-base)] px-2.5 pb-0.5 pt-1.5 text-body-small-lighter text-[var(--content-tertiary)]"
         >
           {t("onboardingAutocomplete.freeTextHint")}
         </li>

@@ -1,4 +1,8 @@
 import {
+  type PlatformCredentialVerificationStatus,
+  PlatformVerifyCredentialResponseSchema,
+} from "@vellumai/service-contracts/platform-credential";
+import {
   chmodSync,
   readFileSync,
   writeFileSync,
@@ -289,7 +293,10 @@ export interface ReprovisionApiKeyResponse {
  * Reprovision (rotate) the API key for a self-hosted local assistant.
  *
  * Calls `POST /v1/assistants/self-hosted-local/reprovision-api-key/`.
- * Returns a fresh API key. The previous key is revoked server-side.
+ * Returns a fresh API key. The platform keeps the previous key valid for a
+ * grace period rather than revoking it on the spot, so a rotation whose
+ * replacement never gets stored leaves the assistant on a key that still
+ * works until that window closes.
  */
 export async function reprovisionAssistantApiKey(
   token: string,
@@ -350,15 +357,61 @@ export interface GatewayCredentialResult {
 }
 
 /**
+ * Ask a running assistant to check its stored managed credential against the
+ * platform, via the gateway-proxied `POST /v1/platform/verify-credential`.
+ *
+ * Returns `"rejected"` only when the platform settled that answer. Every other
+ * case, including a daemon too old to serve the route and any failure to reach
+ * one, returns null: the answer decides whether a key is rotated, so an absent
+ * answer must never read as a rejection.
+ *
+ * Never throws.
+ */
+export async function verifyGatewayManagedCredential(
+  gatewayUrl: string,
+  bearerToken?: string,
+): Promise<PlatformCredentialVerificationStatus | null> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (bearerToken) {
+      headers["Authorization"] = `Bearer ${bearerToken}`;
+    }
+
+    const response = await loopbackSafeFetch(
+      `${gatewayUrl}/v1/platform/verify-credential`,
+      {
+        method: "POST",
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+
+    const parsed = PlatformVerifyCredentialResponseSchema.safeParse(
+      await response.json(),
+    );
+    if (parsed.success) {
+      return parsed.data.status;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read an existing credential from the assistant's secret store via the
  * gateway-proxied `POST /v1/secrets/read` endpoint (with `reveal: true`).
  *
  * Returns a result distinguishing "key not found" (`value: null,
  * unreachable: false`) from "gateway unreachable" (`value: null,
  * unreachable: true`). Callers should only reprovision when the gateway
- * is reachable but the key is genuinely missing — reprovisioning while
- * the gateway is down would revoke the old key server-side without being
- * able to inject the replacement.
+ * is reachable: the platform keeps the outgoing key valid for a grace
+ * period, so reprovisioning while the gateway is down does not break the
+ * assistant immediately, but it starts a clock on a key the caller cannot
+ * yet replace.
  *
  * Never throws.
  */
@@ -385,7 +438,7 @@ export async function readGatewayCredential(
 
     if (!response.ok) {
       // 5xx means the gateway/daemon backend is down — treat as unreachable
-      // so callers don't revoke a potentially valid key.
+      // so callers don't rotate away from a working key they cannot replace.
       return { value: null, unreachable: response.status >= 500 };
     }
 

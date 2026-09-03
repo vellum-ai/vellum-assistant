@@ -33,7 +33,13 @@ const log = getLogger("diagnostics-routes");
 // Dictation
 // ---------------------------------------------------------------------------
 
-type DictationMode = "dictation" | "command" | "action";
+/**
+ * `command` is a selection changed by the words, `question` a selection the
+ * words asked about. Both need selected text; which one comes back is the
+ * model's reading of the words, so a client that holds a key over a passage
+ * and says "what does this mean" is not handed a rewrite of it.
+ */
+type DictationMode = "dictation" | "command" | "action" | "question";
 
 const DICTATION_CLASSIFICATION_TIMEOUT_MS = 5000;
 const MAX_WINDOW_TITLE_LENGTH = 100;
@@ -65,61 +71,47 @@ function buildCombinedDictationPrompt(
   body: DictationBody,
   stylePrompt?: string,
 ): string {
+  // Every line here is read on every hold, so the prompt says each thing
+  // once and leaves the model no reasoning to write.
   const sections = [
-    "You are a voice input assistant. You will receive a speech transcription and must:",
-    '1. Classify it as "dictation" (text to insert) or "action" (task for an assistant to execute)',
-    "2. If dictation, clean up the text. If action, return the raw transcription.",
+    "You are a voice input assistant. Given a speech transcription, classify it and, if it is dictation, clean it up.",
     "",
     "## Classification",
-    'DICTATION examples: "Hey how are you doing", "I think we should move forward with the proposal", "Dear team comma please review the attached document"',
-    'ACTION examples: "Message Aaron on Slack saying hey what\'s up", "Send an email to the team about the meeting", "Open Spotify and play my playlist", "Search for flights to Denver", "Create a new document in Google Docs"',
+    "dictation: the user is composing text to be typed as-is.",
+    "action: the user is asking an assistant to do something (send, message, open, search, create, schedule). Return the transcription unchanged.",
+    `Cursor in text field: ${body.context.cursorInTextField ? "yes" : "no"}. If yes, lean toward dictation unless the intent to command is clear.`,
     "",
-    "Key signals for ACTION: the user is addressing an assistant and asking it to DO something (send, message, open, search, create, schedule, etc.)",
-    "Key signals for DICTATION: the user is composing text content that should be typed out as-is",
-    `Cursor in text field: ${body.context.cursorInTextField ? "yes" : "no"} -- if yes, lean toward dictation unless the intent to command is clear.`,
-    "",
-    "## Cleanup Rules (for dictation mode only)",
-    "- Fix grammar, punctuation, and capitalization",
-    "- Remove filler words (um, uh, like, you know)",
-    '- Rewrite vague or hedging language ("so yeah probably", "I guess maybe") into clear, confident statements',
-    "- Maintain the speaker's intent and meaning",
+    "## Cleanup",
+    "- Fix grammar, punctuation and capitalization; remove filler words",
+    "- Rewrite hedging into clear statements, keeping the speaker's meaning",
+    "- When the speaker enumerates items, lay them out as a list, one per line",
+    "- Keep the user's natural voice; do not over-formalize casual speech",
   ];
 
   if (stylePrompt) {
     sections.push(
       "",
-      "## User Style (HIGHEST PRIORITY)",
-      "The user has configured these style preferences. They OVERRIDE the default tone adaptation below.",
-      "Follow these instructions precisely -- they reflect the user's personal writing voice and preferences.",
+      "## User Style (highest priority)",
+      "The user's own writing preferences. They override the tone guidance below.",
       "",
       stylePrompt,
     );
   }
 
-  sections.push("", "## Tone Adaptation");
-
-  if (stylePrompt) {
-    sections.push(
-      "Use these as fallback guidance only when the User Style above does not cover a specific aspect:",
-    );
-  } else {
-    sections.push("Adapt your output tone based on the active application:");
-  }
-
   sections.push(
-    "- Email apps (Gmail, Mail): Professional but warm. Use proper greetings and sign-offs if appropriate.",
-    "- Slack: Casual and conversational. Match typical chat style.",
-    "- Code editors (VS Code, Xcode): Technical and concise. Code comments style.",
-    "- Terminal: Command-like, terse.",
-    "- Messages/iMessage: Very casual, texting style. Short sentences.",
-    "- Notes/Docs: Neutral, clear writing.",
-    "- Default: Match the user's natural voice.",
     "",
-    "## Context Clues",
-    "- Window title may contain recipient name (Slack DMs, email compose)",
-    "- If you can identify a recipient, adapt formality to the apparent relationship",
-    "- Maintain the user's natural voice -- don't over-formalize casual speech",
-    "- The user's writing patterns and preferences may be available from memory context -- follow those when present",
+    "## Tone",
+    stylePrompt
+      ? "Fallback guidance where the User Style above is silent:"
+      : "Adapt tone to the active application:",
+    "- Email: professional but warm, greetings and sign-offs where they fit",
+    "- Slack: casual and conversational",
+    "- Code editors: technical and concise",
+    "- Terminal: terse, command-like",
+    "- Messages: very casual, short sentences",
+    "- Notes and docs: neutral, clear writing",
+    "- Otherwise: the user's natural voice",
+    "The window title may name the recipient; adapt formality to the apparent relationship.",
     "",
     buildAppMetadataBlock(body.context),
   );
@@ -129,12 +121,12 @@ function buildCombinedDictationPrompt(
 
 function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
   const sections = [
-    "You are a text transformation assistant. The user has selected text and given a voice command to transform it.",
+    "You are a text transformation assistant. The user has selected text and spoken. The words are either an instruction to change the selected text or a question about it.",
     "",
     "## Rules",
-    "- Apply the instruction to the selected text",
-    "- Return ONLY the transformed text, nothing else",
-    "- Do NOT add explanations or commentary",
+    "- If the words ask for a changed version of the selected text (rewrite, shorten, translate, fix, make it lighter, turn it into a list), kind is edit and text is ONLY the transformed text, nothing else",
+    "- If the words ask about the selected text rather than for a changed version of it (what does this mean, is this right, who said this, summarize it for me), kind is answer and text is empty",
+    "- Do NOT add explanations or commentary to an edit",
   ];
 
   if (stylePrompt) {
@@ -233,6 +225,9 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
   // Non-command: single LLM call that classifies AND cleans in one shot
   const transcription = expandSnippets(body.transcription, profile.snippets);
 
+  // Covers provider resolution as well as the call, which is what the caller
+  // waits for.
+  const modelStartedAt = Date.now();
   try {
     const provider = await getConfiguredProvider("interactionClassifier");
     if (!provider) {
@@ -289,12 +284,8 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
                     description:
                       "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
                   },
-                  reasoning: {
-                    type: "string",
-                    description: "Brief reasoning for the classification",
-                  },
                 },
-                required: ["mode", "text", "reasoning"],
+                required: ["mode", "text"],
               },
             },
           ],
@@ -317,12 +308,16 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
         const input = toolBlock.input as {
           mode?: string;
           text?: string;
-          reasoning?: string;
         };
         const mode: DictationMode =
           input.mode === "action" ? "action" : "dictation";
         log.info(
-          { mode, reasoning: input.reasoning },
+          {
+            mode,
+            modelMs: Date.now() - modelStartedAt,
+            inChars: transcription.length,
+            outChars: input.text?.length ?? 0,
+          },
           "LLM dictation classify+clean",
         );
 
@@ -343,14 +338,17 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
         };
       }
 
-      log.warn("No tool_use block in combined dictation call, using heuristic");
+      log.warn(
+        { modelMs: Date.now() - modelStartedAt },
+        "No tool_use block in combined dictation call, using heuristic",
+      );
     } finally {
       cleanup();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
-      { err: message },
+      { err: message, modelMs: Date.now() - modelStartedAt },
       "Combined dictation LLM call failed, using heuristic",
     );
   }
@@ -407,20 +405,69 @@ async function handleCommandMode(
       };
     }
 
+    const modelStartedAt = Date.now();
     const response = await provider.sendMessage(
       [userMessage(body.transcription)],
       {
-        tools: [],
+        tools: [
+          {
+            name: "transform_selection",
+            description:
+              "Return the selected text changed as instructed, or say the words were a question about it",
+            input_schema: {
+              type: "object" as const,
+              properties: {
+                kind: {
+                  type: "string",
+                  enum: ["edit", "answer"],
+                  description:
+                    "edit = the words ask for a changed version of the selected text. answer = the words ask about the selected text and no changed version is wanted.",
+                },
+                text: {
+                  type: "string",
+                  description:
+                    "If edit: the transformed text only, ready to replace the selection. If answer: empty.",
+                },
+              },
+              required: ["kind", "text"],
+            },
+          },
+        ],
         systemPrompt,
-        config: { callSite: "interactionClassifier", max_tokens: maxTokens },
+        config: {
+          callSite: "interactionClassifier",
+          max_tokens: maxTokens,
+          tool_choice: { type: "tool" as const, name: "transform_selection" },
+        },
       },
     );
 
-    const textBlock = response.content.find((b) => b.type === "text");
+    const toolBlock = extractToolUse(response);
+    const input = (toolBlock?.input ?? {}) as { kind?: string; text?: string };
+    const edited = input.text?.trim() ?? "";
+    const isQuestion =
+      input.kind === "answer" || (toolBlock !== undefined && !edited);
+    log.info(
+      {
+        mode: isQuestion ? "question" : "command",
+        modelMs: Date.now() - modelStartedAt,
+        inChars: inputLength,
+        outChars: edited.length,
+      },
+      "LLM selection transform",
+    );
+    if (isQuestion) {
+      return {
+        text: body.transcription,
+        mode: "question",
+        ...profileMeta,
+      };
+    }
+    // No tool block at all is a model that did not answer the question
+    // asked; the selection goes back unchanged, which a client reads as
+    // nothing to put in its place.
     const cleanedText =
-      textBlock && "text" in textBlock
-        ? textBlock.text.trim()
-        : (body.context.selectedText ?? body.transcription);
+      edited || (body.context.selectedText ?? body.transcription);
     const normalizedText = applyDictionary(cleanedText, profile.dictionary);
     return {
       text: normalizedText,
@@ -461,7 +508,11 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: DictationRequestSchema,
     responseBody: z.object({
       text: z.string().describe("Processed text output"),
-      mode: z.string().describe("Detected mode: dictation, command, or action"),
+      mode: z
+        .string()
+        .describe(
+          "Detected mode: dictation, command, action, or question (selected text the words asked about rather than changed; text is the transcription)",
+        ),
       actionPlan: z
         .string()
         .optional()

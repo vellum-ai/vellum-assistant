@@ -116,6 +116,10 @@ function isKataFamilyRuntime(runtime: string | undefined): boolean {
 
 function kataAptPaths(dataRoot: string): string[] {
   return [
+    // Shims for chroot wrapper scripts with hardcoded absolute paths must
+    // shadow the broken originals in the chroot bin dirs below (see
+    // docker-kata-apt-shims.sh).
+    `${dataRoot}/.host-shims`,
     `${dataRoot}/bin`,
     `${dataRoot}/usr/local/sbin`,
     `${dataRoot}/usr/local/bin`,

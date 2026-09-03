@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import {
   ASSISTANT_STATUSES,
+  COMPANION_DICTATION_TAIL,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
@@ -84,30 +85,48 @@ export const voiceActivityControlSchema = z.object({
 // Companion surface
 // ---------------------------------------------------------------------------
 
-/** See `CompanionTurn`: a side and some text, and deliberately nothing else. */
-export const companionTurnSchema = z.object({
-  role: z.union([z.literal("user"), z.literal("assistant")]),
-  text: z.string(),
-});
+/**
+ * A display or a window, by the ids the window server names them. Whole
+ * numbers, since both ids are unsigned integers on the host and anything else
+ * names nothing.
+ */
+export const watchCaptureTargetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("display"),
+    displayId: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("window"),
+    windowId: z.number().int().nonnegative(),
+  }),
+]);
 
 /**
- * The conversation tail the card draws.
- *
- * Capped at the boundary rather than trusted, because the publisher is a
- * renderer and this ends up in a window that floats over every other app. The
- * card scrolls, so the cap is what the user can plausibly scroll back through
- * on a floating panel rather than what fits on it.
+ * A row of the companion's picker, pressed. The two target shapes plus a tab,
+ * which main resolves to a window before anything downstream sees it.
  */
-export const companionTurnsSchema = z.array(companionTurnSchema).max(40);
+export const companionCapturePickSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("display"),
+    displayId: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("window"),
+    windowId: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("tab"),
+    chromeWindowId: z.number().int().nonnegative(),
+    tabIndex: z.number().int().positive(),
+  }),
+]);
 
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),
-  turns: companionTurnsSchema,
   // Defaulted rather than required so a renderer that predates the field still
-  // publishes a valid context: the tail it sends is worth drawing, and the
-  // honest answer for a publisher that cannot report a turn is that it is not
-  // reporting one.
+  // publishes a valid context: the honest answer for a publisher that cannot
+  // report a turn is that it is not reporting one.
   working: z.boolean().default(false),
   // Defaulted for the same reason `working` is: a publisher that runs no watch
   // session has nothing to report, and staying silent is its truthful answer.
@@ -122,6 +141,22 @@ export const companionContextSchema = z.object({
   // capture having happened, and the only shape that can say that is a whole
   // number that goes up.
   captureCount: z.number().int().nonnegative().default(0),
+  // Optional rather than defaulted, for the reason `watchRetro` is: every shape
+  // it can hold names something the session is reading, and absence is the
+  // only way to say it reads the whole screen.
+  captureTarget: watchCaptureTargetSchema.optional(),
+  // Defaulted for the reason `watching` is: a publisher that does not say
+  // whether its sessions can be aimed is one whose sessions cannot.
+  watchTargets: z.boolean().default(false),
+  // Optional rather than defaulted, for the reason `watchRetro` is: both values
+  // claim a microphone is doing something, and absence is the only way to say
+  // none is.
+  dictating: z.enum(["listening", "transcribing"]).optional(),
+  // Defaulted rather than optional: a publisher with nothing recognised yet is
+  // reporting no words, and empty is the truthful reading of that. Bounded at
+  // the boundary as well as at the publisher, since the surface draws one line
+  // and the length is the only part of this a sender controls.
+  dictationText: z.string().max(COMPANION_DICTATION_TAIL).catch("").default(""),
 });
 
 // ---------------------------------------------------------------------------

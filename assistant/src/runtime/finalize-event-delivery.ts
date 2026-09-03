@@ -4,7 +4,7 @@ import {
   recordDeliveryFailure,
 } from "../persistence/delivery-status.js";
 import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
-import type { SlackReplySession } from "./slack-reply-session.js";
+import type { ChannelReplySession } from "./channel-reply-session.js";
 
 /**
  * Owns the complete delivery-after-processing sequence for a channel
@@ -26,7 +26,7 @@ export async function finalizeEventDelivery(params: {
   assistantId: string | undefined;
   replyMessageId: string | undefined;
   userMessageId: string | undefined;
-  slackReplySession: SlackReplySession | undefined;
+  replySession: ChannelReplySession | undefined;
   /**
    * `ts` of a Slack message streamed on a previous, failed attempt. A retry
    * has no live stream of its own, so it edits this message in place rather
@@ -42,11 +42,11 @@ export async function finalizeEventDelivery(params: {
     assistantId,
     replyMessageId,
     userMessageId,
-    slackReplySession,
+    replySession,
     priorStreamMessageTs,
   } = params;
 
-  const reconciliation = await slackReplySession?.finish();
+  const reconciliation = await replySession?.finish();
 
   // A streamed reply already delivered its text live into a single message;
   // durable delivery skips that text, reconciles `slackMeta.channelTs` to the

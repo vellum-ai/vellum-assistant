@@ -20,6 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
@@ -36,6 +38,8 @@ import type {
   DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -161,6 +165,9 @@ declare global {
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
           ): Promise<VoiceModeChordRegistrationResult>;
+          setModifierHold?(
+            hold: ModifierHold,
+          ): Promise<ModifierHoldRegistrationResult>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;
@@ -205,7 +212,10 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
-        setCharacter?(character: CompanionCharacter | null): void;
+        setCharacter?(
+          character: CompanionCharacter | null,
+          accentHex?: string | null,
+        ): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -240,6 +250,10 @@ declare global {
         renameLockfileAssistant?(
           assistantId: string,
           name: string,
+        ): Promise<LockfileWriteResult>;
+        stampLockfileAssistantOnboarded?(
+          assistantId: string,
+          onboardedAt: string,
         ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
@@ -369,15 +383,13 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
-        toggleWatch?(): void;
+        toggleWatch?(pick?: CompanionCapturePick): void;
+        listCaptureSources?(): Promise<CompanionCaptureSources>;
         answerWatchRetro?(open: boolean): void;
         activate?(): void;
-        setComposing?(composing: boolean): void;
-        submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
         showContextMenu?(): void;
-        openLink?(url: string): void;
       };
     };
   }

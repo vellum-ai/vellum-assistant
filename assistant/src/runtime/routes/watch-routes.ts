@@ -40,6 +40,7 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import { runWatchRetro } from "../../watch/watch-retro.js";
 import {
+  type HostCaptureTarget,
   WatchSessionManager,
   type WatchSessionSummary,
 } from "../../watch/watch-session-manager.js";
@@ -54,6 +55,50 @@ const log = getLogger("watch-stream");
  * against the next press of Watch.
  */
 const IDLE_TIMEOUT_MS = 60_000;
+
+// ---------------------------------------------------------------------------
+// Capture target
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the session's capture target off the upgrade URL.
+ *
+ * `captureDisplayId` names a display and `captureWindowId` a window, both as
+ * the window server numbers them on the client. Neither is a session that
+ * reads what it reads today. Both at once is refused rather than resolved:
+ * the surface offered one pick, and a request carrying two is a client that
+ * built its URL wrong, which is better told than guessed at.
+ *
+ * Kept out of `http-server.ts` so it can be tested without a socket.
+ */
+export function parseWatchCaptureTarget(
+  searchParams: URLSearchParams,
+): { captureTarget?: HostCaptureTarget } | { error: string } {
+  const displayRaw = searchParams.get("captureDisplayId");
+  const windowRaw = searchParams.get("captureWindowId");
+  if (displayRaw !== null && windowRaw !== null) {
+    return {
+      error: "Only one of captureDisplayId and captureWindowId may be given",
+    };
+  }
+  if (displayRaw === null && windowRaw === null) {
+    return {};
+  }
+  const [name, raw] =
+    displayRaw !== null
+      ? (["captureDisplayId", displayRaw] as const)
+      : (["captureWindowId", windowRaw as string] as const);
+  const id = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : Number.NaN;
+  if (!Number.isSafeInteger(id)) {
+    return { error: `Invalid query parameter: ${name} must be a whole number` };
+  }
+  return {
+    captureTarget:
+      name === "captureDisplayId"
+        ? { kind: "display", displayId: id }
+        : { kind: "window", windowId: id },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Frames
@@ -154,6 +199,8 @@ export interface WatchStreamSessionOptions {
   readonly conversationId?: string;
   /** The desktop client to observe, when the actor has more than one. */
   readonly clientId?: string;
+  /** What the session reads, when the client picked one display or window. */
+  readonly captureTarget?: HostCaptureTarget;
   /** Override the idle window for testing. */
   readonly idleTimeoutMs?: number;
   /** The manager the session drives. Defaults to the process-wide one. */
@@ -288,6 +335,9 @@ export class WatchStreamSession {
           ? { conversationId: this.options.conversationId }
           : {}),
         ...(this.options.clientId ? { clientId: this.options.clientId } : {}),
+        ...(this.options.captureTarget
+          ? { captureTarget: this.options.captureTarget }
+          : {}),
       });
       if (started.status !== "started") {
         this.failStart(

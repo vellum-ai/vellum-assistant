@@ -19,8 +19,16 @@ let addMessageShouldThrow = false;
 /** Simulated existing conversations for getConversation mock. */
 let mockExistingConversations: Record<
   string,
-  { id: string; source: string; title: string | null }
+  {
+    id: string;
+    source: string;
+    title: string | null;
+    conversationType?: string;
+  }
 > = {};
+
+/** Mutable arm for the assistant-initiated-threads gate mock. */
+let assistantInitiatedThreadsEnabled = false;
 
 const createConversationMock = mock((_opts?: unknown) => {
   if (createConversationShouldThrow) {
@@ -102,6 +110,12 @@ mock.module("../persistence/external-conversation-store.js", () => ({
   upsertOutboundBinding: upsertOutboundBindingMock,
 }));
 
+/* The registry resolves through workspace override files; a mutable arm keeps
+   these tests off the filesystem, mirroring the section-split suite. */
+mock.module("../config/assistant-initiated-threads-gate.js", () => ({
+  isAssistantInitiatedThreadsEnabled: () => assistantInitiatedThreadsEnabled,
+}));
+
 import { pairDeliveryWithConversation } from "../notifications/conversation-pairing.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type {
@@ -162,6 +176,7 @@ describe("pairDeliveryWithConversation", () => {
     addMessageShouldThrow = false;
     mockExistingConversations = {};
     mockBindings = {};
+    assistantInitiatedThreadsEnabled = false;
   });
 
   // ── start_new_conversation (vellum) ─────────────────────────────────
@@ -319,7 +334,10 @@ describe("pairDeliveryWithConversation", () => {
     );
 
     expect(result.conversationId).toBe("conv-001");
-    expect(result.messageId).toBe("msg-001");
+    // A channel delivery writes no row before the send; the broadcaster
+    // records the post once the channel acknowledges it.
+    expect(result.messageId).toBeNull();
+    expect(addMessageMock).not.toHaveBeenCalled();
     expect(result.strategy).toBe("continue_existing_conversation");
     expect(result.createdNewConversation).toBe(true);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
@@ -361,14 +379,13 @@ describe("pairDeliveryWithConversation", () => {
     );
 
     expect(result.conversationId).toBe("conv-bound");
-    expect(result.messageId).toBe("msg-001");
+    expect(result.messageId).toBeNull();
     expect(result.createdNewConversation).toBe(false);
     expect(result.conversationFallbackUsed).toBe(false);
     expect(result.strategy).toBe("continue_existing_conversation");
-    // Should append to existing, not create new
+    // Resolves the existing home; writes nothing before the send.
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock).toHaveBeenCalledTimes(1);
-    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-bound");
+    expect(addMessageMock).not.toHaveBeenCalled();
     // Should touch the outbound binding
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
   });
@@ -529,12 +546,11 @@ describe("pairDeliveryWithConversation", () => {
 
     // Should use the inbound conversation, not the notification one
     expect(result.conversationId).toBe("conv-inbound");
-    expect(result.messageId).toBe("msg-001");
+    expect(result.messageId).toBeNull();
     expect(result.createdNewConversation).toBe(false);
     expect(result.conversationFallbackUsed).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock).toHaveBeenCalledTimes(1);
-    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-inbound");
+    expect(addMessageMock).not.toHaveBeenCalled();
     // Should NOT touch the notification binding — we only read the inbound one
     expect(upsertOutboundBindingMock).not.toHaveBeenCalled();
   });
@@ -574,7 +590,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.conversationId).toBe("conv-inbound-null-source");
     expect(result.createdNewConversation).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
-    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-inbound-null-source");
+    expect(addMessageMock).not.toHaveBeenCalled();
   });
 
   test("falls back to notification binding when inbound binding points to deleted conversation", async () => {
@@ -1301,5 +1317,184 @@ describe("pairDeliveryWithConversation", () => {
       );
       expect(result.conversationId).toBeNull();
     }
+  });
+  // ── Guardian delivery projections (channel cards pair nothing) ────
+
+  test.each(["slack", "telegram", "discord"])(
+    "a guardian card delivered to a channel pairs no conversation",
+    async (channel) => {
+      const signal = makeSignal({
+        sourceEventName: "guardian.question",
+        contextPayload: { requestKind: "tool_approval", requestId: "req-1" },
+      });
+
+      const result = await pairDeliveryWithConversation(
+        signal,
+        channel as NotificationChannel,
+        makeCopy(),
+      );
+
+      expect(result.conversationId).toBeNull();
+      expect(result.messageId).toBeNull();
+      expect(createConversationMock).not.toHaveBeenCalled();
+      expect(addMessageMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test("an access-request card delivered to a channel pairs no conversation", async () => {
+    const signal = makeSignal({
+      sourceEventName: "ingress.access_request",
+      contextPayload: { requestId: "req-a" },
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      makeCopy(),
+    );
+
+    expect(result.conversationId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+  });
+
+  test("the vellum delivery of a guardian card still pairs its conversation", async () => {
+    const signal = makeSignal({
+      sourceEventName: "guardian.question",
+      contextPayload: { requestKind: "tool_approval", requestId: "req-1" },
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy(),
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.messageId).toBe("msg-001");
+  });
+  // ── assistant.share → assistant-initiated thread (flag-gated) ────────
+
+  describe("assistant.share promotion under assistant-initiated-threads", () => {
+    const share = (overrides?: Partial<NotificationSignal>) =>
+      makeSignal({
+        requiresConversation: undefined,
+        sourceEventName: "assistant.share",
+        sourceContextId: "conv-heartbeat",
+        ...overrides,
+      });
+
+    test("flag on: a share from a background run materializes a section thread", async () => {
+      assistantInitiatedThreadsEnabled = true;
+      mockExistingConversations["conv-heartbeat"] = {
+        id: "conv-heartbeat",
+        source: "heartbeat",
+        title: null,
+        conversationType: "background",
+      };
+
+      const result = await pairDeliveryWithConversation(
+        share(),
+        "vellum" as NotificationChannel,
+        makeCopy({ conversationTitle: "Noticed something" }),
+      );
+
+      expect(result.createdNewConversation).toBe(true);
+      const callArgs = createConversationMock.mock.calls[0]![0] as Record<
+        string,
+        unknown
+      >;
+      expect(callArgs.source).toBe("assistant_initiated");
+      expect(callArgs.conversationType).toBe("standard");
+      expect(callArgs.title).toBe("Noticed something");
+    });
+
+    test("flag on: an unresolvable source context still materializes", async () => {
+      assistantInitiatedThreadsEnabled = true;
+
+      const result = await pairDeliveryWithConversation(
+        share({ sourceContextId: "cli-123" }),
+        "vellum" as NotificationChannel,
+        makeCopy(),
+      );
+
+      expect(result.createdNewConversation).toBe(true);
+      const callArgs = createConversationMock.mock.calls[0]![0] as Record<
+        string,
+        unknown
+      >;
+      expect(callArgs.source).toBe("assistant_initiated");
+    });
+
+    test("flag on: a share from a user-facing thread keeps the passive append", async () => {
+      assistantInitiatedThreadsEnabled = true;
+      mockExistingConversations["conv-user"] = {
+        id: "conv-user",
+        source: "user",
+        title: "Ongoing chat",
+        conversationType: "standard",
+      };
+
+      const result = await pairDeliveryWithConversation(
+        share({ sourceContextId: "conv-user" }),
+        "vellum" as NotificationChannel,
+        makeCopy(),
+      );
+
+      expect(result.createdNewConversation).toBe(false);
+      expect(result.conversationId).toBe("conv-user");
+      expect(createConversationMock).not.toHaveBeenCalled();
+    });
+
+    test("flag off: shares keep the passive append even from background runs", async () => {
+      mockExistingConversations["conv-heartbeat"] = {
+        id: "conv-heartbeat",
+        source: "heartbeat",
+        title: null,
+        conversationType: "background",
+      };
+
+      const result = await pairDeliveryWithConversation(
+        share(),
+        "vellum" as NotificationChannel,
+        makeCopy(),
+      );
+
+      expect(result.createdNewConversation).toBe(false);
+      expect(result.conversationId).toBe("conv-heartbeat");
+      expect(createConversationMock).not.toHaveBeenCalled();
+    });
+
+    test("flag on: an explicit conversationMetadata.source wins over promotion", async () => {
+      assistantInitiatedThreadsEnabled = true;
+
+      const result = await pairDeliveryWithConversation(
+        share({ conversationMetadata: { source: "schedule" } }),
+        "vellum" as NotificationChannel,
+        makeCopy(),
+      );
+
+      // The producer declared its own filing, so the passive rule holds.
+      expect(result.createdNewConversation).toBe(false);
+      expect(createConversationMock).not.toHaveBeenCalled();
+    });
+
+    test("flag on: non-share passive events keep the passive append", async () => {
+      assistantInitiatedThreadsEnabled = true;
+      mockExistingConversations["conv-heartbeat"] = {
+        id: "conv-heartbeat",
+        source: "heartbeat",
+        title: null,
+        conversationType: "background",
+      };
+
+      const result = await pairDeliveryWithConversation(
+        share({ sourceEventName: "scheduler.reminder_fired" }),
+        "vellum" as NotificationChannel,
+        makeCopy(),
+      );
+
+      expect(result.createdNewConversation).toBe(false);
+      expect(createConversationMock).not.toHaveBeenCalled();
+    });
   });
 });

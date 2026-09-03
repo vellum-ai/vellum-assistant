@@ -1,9 +1,10 @@
 /**
  * Bridge to the iOS shell's `RecentChats` plugin
  * (`clients/ios/App/App/RecentChatsPlugin.swift`), which caches the sidebar
- * conversation list in UserDefaults so the Shortcuts app's chat picker
- * (`ChatEntityQuery`) can offer the user's chats without a network stack or
- * auth of its own. `useNativeRecentChatsSync` is the one caller.
+ * conversation list in App Group UserDefaults so the Shortcuts app's chat
+ * picker (`ChatEntityQuery`) and the share extension's destination list can
+ * offer the user's chats without a network stack or auth of their own.
+ * `useNativeRecentChatsSync` is the one caller.
  *
  * iOS-only by design: Android has no App Intents equivalent wired up, and
  * pushing a cache no one reads would be pure bridge traffic. Widen the gate

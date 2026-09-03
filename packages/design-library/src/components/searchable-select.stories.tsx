@@ -242,9 +242,15 @@ function RenderGrouped(args: SearchableSelectProps) {
   const [value, setValue] = useState("");
   const [unfolded, setUnfolded] = useState(false);
   const options = unfolded
-    ? GROUPED_MODELS.filter((option) => !option.listAction).map((option) =>
-        option.folded ? { ...option, folded: false, disclosed: true } : option,
-      )
+    ? GROUPED_MODELS.map((option) => {
+        if (option.listAction) {
+          // Kept once the section is open, so the same control closes it.
+          return { ...option, label: "Show fewer", expanded: true };
+        }
+        return option.folded
+          ? { ...option, folded: false, disclosed: true }
+          : option;
+      })
     : GROUPED_MODELS;
   return (
     <SearchableSelect
@@ -253,7 +259,7 @@ function RenderGrouped(args: SearchableSelectProps) {
       value={value}
       onChange={(next) => {
         if (next === "__older-anthropic__") {
-          setUnfolded(true);
+          setUnfolded((previous) => !previous);
           return;
         }
         setValue(next);
@@ -265,8 +271,8 @@ function RenderGrouped(args: SearchableSelectProps) {
 /**
  * Sections and progressive disclosure. Headings come from each row's `group`,
  * in the order their first row appears; a `folded` row waits for a query or
- * for the `listAction` row that stands in for it, which is the one row a pick
- * leaves the list open on.
+ * for the `listAction` row that stands in for it, which sits on the section's
+ * heading and is the one row a pick leaves the list open on.
  *
  * The state a `listAction` row toggles belongs to the caller, so this story
  * owns it locally rather than through args.
@@ -298,15 +304,19 @@ export const Grouped: Story = {
 
     await userEvent.click(unfold);
 
-    // The list stays open on the row that acted on it, and the folded rows
-    // take the place of the row that stood in for them.
+    // The list stays open on the control that acted on it, the folded rows
+    // join the section, and the control now says it can close it again.
     await waitFor(() => {
       const labels = screen
         .getAllByRole("option")
         .map((option) => option.textContent);
       expect(labels).toContain("Claude Opus 4.7");
-      expect(labels).not.toContain("Show older versions (2)");
     });
+    expect(
+      (await screen.findByRole("option", { name: "Show fewer" })).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("true");
   },
 };
 

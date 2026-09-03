@@ -283,13 +283,14 @@ experience works. Do not enable it.
 The Xcode project has three _app_ targets — one per environment. Each has its own
 bundle ID, display name, and icon colour so they can be installed side by
 side on the same device. Each also embeds its own `VoiceActivity` widget
-extension target (`<app bundle id>.VoiceActivity`). With the host-less
-`AppTests` logic-test bundle, `xcodegen generate` produces seven targets and
-four schemes in total; of those, the three app schemes are the ones worth
-building, since the extensions build as embedded dependencies. See
-[`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for what the extension
-contains and [Signing: two profiles per environment](#signing-two-profiles-per-environment)
-for what it costs at release time.
+extension (`<app bundle id>.VoiceActivity`) and `Share` extension
+(`<app bundle id>.Share`). With the host-less `AppTests` logic-test
+bundle, `xcodegen generate` produces ten targets and four schemes in
+total; of those, the three app schemes are the ones worth building,
+since the extensions build as embedded dependencies. See
+[`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for the widget extension
+and [Signing: three profiles per environment](#signing-three-profiles-per-environment)
+for what the extra App IDs cost at release time.
 
 | Target | Bundle ID | Display Name | Icon | Server |
 |--------|-----------|-------------|------|--------|
@@ -312,12 +313,12 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   width. The six paths in `Assets/eyes.svg` are copied verbatim out of
   `getCharacterComponents().eyeStyles`, keeping the icon and the in-app
   avatars in sync.
-- `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) carry the
-  same eyes; only the `fill.solid` colour differs.
-- `fill.solid` is a **Display P3** value, so an sRGB hex has to be
-  converted before it goes in. Pasting the raw sRGB components straight
-  through renders noticeably more saturated than the hex you started
-  from.
+- `AppIcon-Staging.icon` (`#E9C91A`) and `AppIcon-Dev.icon` (`#FF88C9`)
+  carry the same eyes; only the `fill-specializations` colour differs.
+- A bundle's `fill-specializations` solid is a **Display P3** value, so an
+  sRGB hex has to be converted before it goes in. All three bundles carry a
+  true conversion of their hex. Pasting the raw sRGB components straight
+  through renders noticeably more saturated than the hex you started from.
 - `App/App/AvatarIcons.xcassets` holds the alternate icons, one
   `.appiconset` per eye style and color, named `avatar-eyes-<eye>-<color>`.
   Every combination ships: 9 eye styles × 6 colors, so 54 sets. Each set is a
@@ -363,17 +364,18 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   `AppIconPlugin.swift` reads back at runtime.
 - Which alternate is showing is a user's choice, made in the web app under
   Settings -> General -> Preferences -> App icon
-  (`clients/web/src/domains/settings/components/app-icon-modal.tsx`) and gated
-  on the dark `ios-avatar-app-icon` flag. The picker cycles eyes and color over
-  the same component library the artwork is generated from, seeds its selection
-  from the assistant's avatar when that avatar is a character one, and resets
-  back to the target's primary icon. Applying is always a press: iOS puts up a
+  (`clients/web/src/domains/settings/components/app-icon-modal.tsx`), which
+  every capable iOS shell offers: a native iOS shell carrying the `AppIcon`
+  plugin is the whole gate. The picker cycles eyes and color over the same
+  component library the artwork is generated from, seeds its selection from
+  the assistant's avatar when that avatar is a character one, and resets back
+  to the target's primary icon. Applying is always a press: iOS puts up a
   system alert of its own on every icon change, so nothing swaps on its own.
   Version skew degrades in two layers, neither an error: a shell without the
   `AppIcon` plugin reports unsupported, so the picker row does not render at
   all, and on a shell that has the plugin a composed name is applied only when
-  the shell lists it in `available`, so a missing name reads as a disabled
-  Set button rather than a failed swap.
+  the shell lists it in `available`, so a missing name reads as a disabled Set
+  button rather than a failed swap.
 - `App/App/Base.lproj/LaunchScreen.storyboard` uses a black background with the
   white Vellum wordmark centered at its native 92×28 point size. The vector
   image lives in the `VellumLogo` imageset in `Assets.xcassets/`.
@@ -666,20 +668,22 @@ workflow called from the release pipelines — it intentionally has no
 extracted into their own reusable workflow because it's the only iOS
 workflow.
 
-### Signing: two profiles per environment
+### Signing: three profiles per environment
 
-Each app target embeds a `VoiceActivity` widget extension whose bundle ID
-is prefixed by its host app's (`<app bundle id>.VoiceActivity`). Apple
-treats that appex as its own App ID with its own provisioning profile, so
-**every environment signs with two profiles, not one**: the app's and the
-extension's.
+Each app target embeds a `VoiceActivity` widget extension and a `Share`
+extension, each whose bundle ID is prefixed by its host app's
+(`<app bundle id>.VoiceActivity`, `<app bundle id>.Share`). Apple treats
+each appex as its own App ID with its own provisioning profile, so
+**every environment signs with three profiles, not one**: the app's and
+one per embedded extension.
 
 That has three consequences in the pipeline:
 
-- The **install step** writes both profiles into
+- The **install step** writes all three profiles into
   `~/Library/MobileDevice/Provisioning Profiles/` under distinct
-  filenames (`ios_distribution.mobileprovision` and
-  `ios_distribution_ext.mobileprovision`). Writing both to one name
+  filenames (`ios_distribution.mobileprovision`,
+  `ios_distribution_ext.mobileprovision`, and
+  `ios_distribution_share.mobileprovision`). Writing two to one name
   silently clobbers the first.
 - **`ExportOptions.plist`** carries a `provisioningProfiles` entry for
   each bundle ID. `xcodebuild -exportArchive` fails when an embedded
@@ -700,8 +704,9 @@ That has three consequences in the pipeline:
 
 Profile names are therefore written down in three places that must agree
 character for character: the Apple Developer portal, the xcconfig, and
-the `profile_name` / `ext_profile_name` outputs of the `config` step in
-`release-ios.yaml`. A mismatch fails the build with an unhelpful message.
+the `profile_name` / `ext_profile_name` / `share_profile_name` outputs of
+the `config` step in `release-ios.yaml`. A mismatch fails the build with
+an unhelpful message.
 
 ### Manual Apple Developer portal setup
 
@@ -734,11 +739,15 @@ build of the affected environment fails while signing or exporting.
 | production | `ai.vocify-inc.vellum-assistant-ios.VoiceActivity` | `Vellum Assistant iOS VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT` |
 | staging | `ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity` | `Vellum Assistant iOS Staging VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_STAGING` |
 | dev | `ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity` | `Vellum Assistant iOS Dev VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_DEV` |
+| production | `ai.vocify-inc.vellum-assistant-ios.Share` | `Vellum Assistant iOS Share Distribution` | `IOS_PROVISIONING_PROFILE_SHARE` |
+| staging | `ai.vocify-inc.vellum-assistant-ios.staging.Share` | `Vellum Assistant iOS Staging Share Distribution` | `IOS_PROVISIONING_PROFILE_SHARE_STAGING` |
+| dev | `ai.vocify-inc.vellum-assistant-ios.dev.Share` | `Vellum Assistant iOS Dev Share Distribution` | `IOS_PROVISIONING_PROFILE_SHARE_DEV` |
 
-The containing app App IDs already exist, and each one gains the App
-Group capability as part of the same row. A capability added to an App
-ID does not reach profiles already issued against it, so every row also
-reissues the app's distribution profile and replaces its secret:
+The containing app App IDs already exist, and each one already carries
+the App Group from the VoiceActivity row. A new Share App ID still
+needs that same group assigned. A capability added to an App ID does
+not reach profiles already issued against it, so a first-time Share
+row also issues the Share distribution profile:
 
 | Environment | App bundle ID | Profile name (exact) | GitHub secret |
 |-------------|--------------|----------------------|---------------|
@@ -827,6 +836,7 @@ All iOS signing secrets are stored as GitHub Actions secrets:
 - `IOS_PROVISIONING_PROFILE` — Production provisioning profile (App Store Distribution)
 - `IOS_PROVISIONING_PROFILE_STAGING` / `_DEV` — Per-environment profiles
 - `IOS_PROVISIONING_PROFILE_EXT` / `_EXT_STAGING` / `_EXT_DEV` — Per-environment profiles for the embedded `VoiceActivity` widget extension. See [Manual Apple Developer portal setup](#manual-apple-developer-portal-setup).
+- `IOS_PROVISIONING_PROFILE_SHARE` / `_SHARE_STAGING` / `_SHARE_DEV` — Per-environment profiles for the embedded Share Sheet extension. Same portal setup as VoiceActivity (App Group only; no push).
 - `APPLE_APP_ID_PROD` / `_STAGING` / `_DEV` — Numeric App Store Connect app IDs (e.g. `123456789`), passed as `--apple-id` to [`xcrun altool --upload-package`](https://keith.github.io/xcode-man-pages/altool.7.html). Each environment has its own ASC app record with its own ID.
 - `SLACK_WEBHOOK_URL` — Slack incoming webhook for `#build-alerts` notifications
 
@@ -871,14 +881,16 @@ clients/
     │   │   ├── ApnsEnvironmentPlugin.swift # APNs entitlement environment
     │   │   ├── SelfHostedServer.swift      # Active + remembered self-hosted origins
     │   │   ├── SelfHostedServersPlugin.swift # Server list / origin switching bridge
-    │   │   ├── RecentChatsPlugin.swift # Conversation-list cache for the Shortcuts chat picker
+    │   │   ├── RecentChatsPlugin.swift # Conversation-list cache for Shortcuts + Share
     │   │   ├── WidgetSnapshotPlugin.swift # App Group snapshot the Home Screen widgets render
     │   │   ├── AppIconPlugin.swift   # Alternate app icon state + selection bridge
+    │   │   ├── ShareInboxPlugin.swift # Drain the App Group share inbox
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
     │   ├── AppTests/                 # XCTest bundle for the framework-free
     │   │                             # helpers under App/ (no host app)
+    │   ├── ShareExtension/           # Share Sheet: write inbox + open host
     │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
     │   │   │                         # presentations + Control Center controls
     │   │   └── Widgets/              # Catch Up, Status, and Quick Actions

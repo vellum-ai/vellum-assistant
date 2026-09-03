@@ -171,6 +171,37 @@ describe("isToolActiveForContext - client OS eligibility", () => {
     }
   });
 
+  test("falls back to linux client OS from the linux transport interface", () => {
+    const skillId = "linux-transport-client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "linux_transport_os_test_tool",
+        supportedClientOs: ["linux"],
+      }),
+    ]);
+
+    try {
+      expect(
+        isToolActiveForContext(
+          "linux_transport_os_test_tool",
+          makeCtx({
+            transportInterface: "linux",
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        isToolActiveForContext(
+          "linux_transport_os_test_tool",
+          makeCtx({
+            transportInterface: "windows",
+          }),
+        ),
+      ).toBe(false);
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
+
   test("uses pinned client OS without falling through to live context", () => {
     const skillId = "pinned-client-os-test-skill";
     registerSkillTools(skillId, [

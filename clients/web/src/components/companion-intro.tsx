@@ -34,23 +34,21 @@ import type {
  * the canvas in every state (see `CompanionSurface`), so the card hangs off
  * that instead and never moves for the whole run.
  *
- * **It costs the canvas nothing.** The window is already sized for the tallest
- * state the surface has, which is the typing card, and that height is reserved
- * on the `cardGrowth` side of the avatar. No beat of the introduction opens the
- * composer, so that whole region is free while the run is on, and the card is
- * drawn into it. Growing the window for the introduction would have meant
- * moving it, and moving it would have meant re-deciding growth and placement in
- * the main process for a card that is on screen once in an install's life.
+ * **It costs the canvas nothing.** The window already reserves a card's height
+ * on the `cardGrowth` side of the avatar (`COMPANION_BASE_CARD_HEIGHT`), and
+ * nothing else draws into that region, so the card is drawn there. Growing the
+ * window for the introduction would have meant moving it, and moving it would
+ * have meant re-deciding growth and placement in the main process for a card
+ * that is on screen once in an install's life.
  */
 
 /**
  * The card's width, fixed rather than measured.
  *
  * Prose has no natural width, so measuring would size the card to whichever
- * beat happened to say the most and change its shape as the run advanced. This
- * is the same bargain the typing card makes, and it fits the canvas at every
- * size, which main sizes by its own `maxReach` (`geometryFor` in
- * `companion-window.ts`).
+ * beat happened to say the most and change its shape as the run advanced. It
+ * fits the canvas at every size, which main sizes by its own `maxReach`
+ * (`geometryFor` in `companion-window.ts`).
  */
 const CARD_WIDTH = 244;
 
@@ -67,12 +65,10 @@ const CARD_WIDTH = 244;
  * checks against nothing, which is how a renamed beat becomes a card printing
  * its own key path at someone.
  *
- * **`talk` and `type` quote the pill.** Their titles are the labels on the two
- * controls the beat spotlights, so they are not free copy: when the surface
- * itself is translated (`companion-surface.tsx` is still English throughout),
- * these two titles move with the labels, in the same edit and to the same
- * words. A card reading "Hablar" beside a button reading "Talk" points at
- * nothing.
+ * **`talk` quotes the pill.** Its title is the label on the control the beat
+ * spotlights, so it is not free copy: it moves with that label, in the same
+ * edit and to the same words. A card reading "Hablar" beside a button reading
+ * "Talk" points at nothing.
  */
 const INTRO_COPY_KEYS = {
   meet: {
@@ -82,10 +78,6 @@ const INTRO_COPY_KEYS = {
   talk: {
     title: "companionIntro.talk.title",
     body: "companionIntro.talk.body",
-  },
-  type: {
-    title: "companionIntro.type.title",
-    body: "companionIntro.type.body",
   },
   menu: {
     title: "companionIntro.menu.title",
@@ -106,8 +98,7 @@ const INTRO_COPY_KEYS = {
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
-): "talk" | "type" | undefined =>
-  beat === "talk" || beat === "type" ? beat : undefined;
+): "talk" | undefined => (beat === "talk" ? beat : undefined);
 
 /**
  * The phase the surface holds while a beat is on screen, or `null` to leave the
@@ -233,9 +224,9 @@ export function CompanionIntro({
     >
       {/* Clamped, because the only variable in this card is a name the user
           chose and there is no length it has to be. The card's width is fixed
-          and its height is borrowed from the canvas the typing card reserves,
-          so a title free to wrap is a title free to grow the card past what it
-          was drawn into. Two lines holds every name worth reading. */}
+          and its height is borrowed from the canvas main reserves for it, so a
+          title free to wrap is a title free to grow the card past what it was
+          drawn into. Two lines holds every name worth reading. */}
       <p className="line-clamp-2 text-[13px] leading-tight font-medium text-white">
         {/* The first beat is the introduction proper, so it is the one that
             says the name. Two keys rather than one with an empty argument: a

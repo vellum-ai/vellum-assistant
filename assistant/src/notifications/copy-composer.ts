@@ -13,7 +13,7 @@ import { normalizeTitle } from "../util/short-title.js";
 import { truncate } from "../util/truncate.js";
 import {
   accessRequestCardTitle,
-  buildAccessRequestContractText,
+  buildAccessRequestContextText,
   isAdmittedIntroduction,
 } from "./access-request-copy.js";
 import {
@@ -21,10 +21,8 @@ import {
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
 import {
-  buildGuardianRequestCodeInstruction,
+  GUARDIAN_QUESTION_TITLE,
   parseGuardianQuestionPayload,
-  resolveGuardianInstructionModeFromPayload,
-  resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
@@ -231,34 +229,11 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
         ? buildToolApprovalSeedContentBlocks(parsed)
         : buildToolApprovalSeedContentBlocks(payload)) ?? undefined;
 
-    const requestCode = parsed
-      ? nonEmpty(parsed.requestCode)
-      : nonEmpty(
-          typeof payload.requestCode === "string"
-            ? payload.requestCode
-            : undefined,
-        );
-
-    if (!requestCode) {
-      return {
-        title: "Guardian Question",
-        body: question,
-        conversationSeedMessage,
-        seedContentBlocks,
-      };
-    }
-
-    const normalizedCode = requestCode.toUpperCase();
-    const modeResolution = parsed
-      ? resolveGuardianInstructionModeFromPayload(parsed)
-      : resolveGuardianQuestionInstructionMode(payload);
-    const instruction = buildGuardianRequestCodeInstruction(
-      normalizedCode,
-      modeResolution.mode,
-    );
+    // No reply mechanics here: the broadcaster's plainTextFallback carries
+    // them for the channels that need them.
     return {
-      title: "Guardian Question",
-      body: `${question}\n\n${instruction}`,
+      title: GUARDIAN_QUESTION_TITLE,
+      body: question,
       conversationSeedMessage,
       seedContentBlocks,
     };
@@ -275,7 +250,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
 
   "ingress.access_request": (payload) => ({
     title: accessRequestCardTitle(isAdmittedIntroduction(payload)),
-    body: buildAccessRequestContractText(payload),
+    body: buildAccessRequestContextText(payload),
     seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),
 

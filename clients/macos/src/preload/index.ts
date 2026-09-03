@@ -6,18 +6,15 @@ import {
 } from "electron";
 
 import { createLocalModeBridge } from "@vellumai/electron-desktop/local-mode-bridge";
-import {
-  createFileOpenPreloadBridge,
-} from "@vellumai/electron-desktop/file-open-preload";
+import { createFileOpenPreloadBridge } from "@vellumai/electron-desktop/file-open-preload";
 
-import type {
-  Lockfile,
-  LockfileWriteResult,
-} from "@vellumai/local-mode";
+import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode";
 import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionContext,
   CompanionIntroAction,
   CompanionSurfaceState,
@@ -33,6 +30,8 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
@@ -59,6 +58,7 @@ import {
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_SET_MODIFIER_HOLD,
 } from "@vellumai/ipc-contract";
 import {
   createBundleConfirmBridge,
@@ -133,9 +133,7 @@ const bridge: VellumBridge = {
         text,
       ) as Promise<TextInsertionResult>,
     openAutomationSettings: (): Promise<void> =>
-      ipcRenderer.invoke(
-        "vellum:text:openAutomationSettings",
-      ) as Promise<void>,
+      ipcRenderer.invoke("vellum:text:openAutomationSettings") as Promise<void>,
   },
   auth: {
     startOAuth: (options: {
@@ -165,8 +163,7 @@ const bridge: VellumBridge = {
     },
   },
   helper: {
-    ping: () =>
-      ipcRenderer.invoke("vellum:helper:ping") as Promise<"pong">,
+    ping: () => ipcRenderer.invoke("vellum:helper:ping") as Promise<"pong">,
     getState: () =>
       ipcRenderer.invoke("vellum:helper:state:get") as Promise<HelperState>,
     restart: () =>
@@ -188,6 +185,13 @@ const bridge: VellumBridge = {
           "vellum:helper:hotkey:fnPushToTalk",
           enable,
         ) as Promise<FnPushToTalkResult>,
+      setModifierHold: (
+        hold: ModifierHold,
+      ): Promise<ModifierHoldRegistrationResult> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_SET_MODIFIER_HOLD,
+          hold,
+        ) as Promise<ModifierHoldRegistrationResult>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
@@ -214,12 +218,8 @@ const bridge: VellumBridge = {
         ipcRenderer.send("vellum:helper:dictation:audio", chunk);
       },
       onPartial: subscribeDictationEvent(HELPER_DICTATION_PARTIAL_EVENT),
-      onFinalized: subscribeDictationEvent(
-        HELPER_DICTATION_FINALIZED_EVENT,
-      ),
-      transcribe: (
-        audio: ArrayBuffer,
-      ): Promise<DictationTranscribeResult> =>
+      onFinalized: subscribeDictationEvent(HELPER_DICTATION_FINALIZED_EVENT),
+      transcribe: (audio: ArrayBuffer): Promise<DictationTranscribeResult> =>
         ipcRenderer.invoke(
           HELPER_DICTATION_TRANSCRIBE,
           audio,
@@ -286,8 +286,12 @@ const bridge: VellumBridge = {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
     },
-    setCharacter: (character): void => {
-      ipcRenderer.send("vellum:icon:setCharacter", character);
+    setCharacter: (character, accentHex): void => {
+      ipcRenderer.send(
+        "vellum:icon:setCharacter",
+        character,
+        accentHex ?? null,
+      );
     },
   },
   dock: {
@@ -303,7 +307,10 @@ const bridge: VellumBridge = {
   localMode: createLocalModeBridge(ipcRenderer),
   menu: {
     setPlatformSession: (has: boolean): Promise<void> =>
-      ipcRenderer.invoke("vellum:menu:setPlatformSession", has) as Promise<void>,
+      ipcRenderer.invoke(
+        "vellum:menu:setPlatformSession",
+        has,
+      ) as Promise<void>,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>
@@ -333,22 +340,20 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(FEEDBACK_DIAGNOSTICS) as Promise<
         Record<string, unknown>
       >,
-    logs: () =>
-      ipcRenderer.invoke(FEEDBACK_LOGS) as Promise<string>,
+    logs: () => ipcRenderer.invoke(FEEDBACK_LOGS) as Promise<string>,
   },
   connectivity: {
     onState: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        state: ConnectivityState,
-      ) => {
+      const handler = (_event: IpcRendererEvent, state: ConnectivityState) => {
         callback(state);
       };
       ipcRenderer.on("vellum:connectivity:state", handler);
       // Emit the current state so late subscribers (window loaded after
       // the first probe) don't wait for the next state transition.
       void (
-        ipcRenderer.invoke("vellum:connectivity:get") as Promise<ConnectivityState>
+        ipcRenderer.invoke(
+          "vellum:connectivity:get",
+        ) as Promise<ConnectivityState>
       ).then(callback);
       return () => {
         ipcRenderer.off("vellum:connectivity:state", handler);
@@ -370,10 +375,10 @@ const bridge: VellumBridge = {
     show: (
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }> =>
-      ipcRenderer.invoke(
-        "vellum:notifications:show",
-        payload,
-      ) as Promise<{ success: boolean; errorMessage?: string }>,
+      ipcRenderer.invoke("vellum:notifications:show", payload) as Promise<{
+        success: boolean;
+        errorMessage?: string;
+      }>,
     onAction: (callback) => {
       const handler = (
         _event: IpcRendererEvent,
@@ -496,24 +501,24 @@ const bridge: VellumBridge = {
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },
-    toggleWatch: (): void => {
-      ipcRenderer.send("vellum:companion:toggleWatch");
+    toggleWatch: (pick?: CompanionCapturePick): void => {
+      // Sent with no argument at all when there is no pick, so a main that
+      // predates the picker still sees the empty tuple its schema expects.
+      if (pick === undefined) {
+        ipcRenderer.send("vellum:companion:toggleWatch");
+        return;
+      }
+      ipcRenderer.send("vellum:companion:toggleWatch", pick);
     },
+    listCaptureSources: (): Promise<CompanionCaptureSources> =>
+      ipcRenderer.invoke(
+        "vellum:companion:listCaptureSources",
+      ) as Promise<CompanionCaptureSources>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
-    },
-    setComposing: (composing: boolean): void => {
-      ipcRenderer.send("vellum:companion:setComposing", composing);
-    },
-    submit: (message: string, startsConversation: boolean): void => {
-      ipcRenderer.send(
-        "vellum:companion:submit",
-        message,
-        startsConversation,
-      );
     },
     setContext: (context: CompanionContext): void => {
       ipcRenderer.send("vellum:companion:setContext", context);
@@ -523,9 +528,6 @@ const bridge: VellumBridge = {
     },
     showContextMenu: (): void => {
       ipcRenderer.send("vellum:companion:contextMenu");
-    },
-    openLink: (url: string): void => {
-      ipcRenderer.send("vellum:companion:openLink", url);
     },
   },
   popout: {

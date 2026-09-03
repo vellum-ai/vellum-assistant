@@ -40,9 +40,14 @@ function isReactError185(message: string): boolean {
 /** Resolve the Sentry DSN for the current host. */
 function resolveDsn(): string | undefined {
   if (isElectron()) {
-    return detectElectronHostOS() === "windows"
-      ? import.meta.env.VITE_SENTRY_DSN_WINDOWS
-      : import.meta.env.VITE_SENTRY_DSN_MACOS;
+    const hostOS = detectElectronHostOS();
+    if (hostOS === "windows") {
+      return import.meta.env.VITE_SENTRY_DSN_WINDOWS;
+    }
+    if (hostOS === "linux") {
+      return import.meta.env.VITE_SENTRY_DSN_LINUX;
+    }
+    return import.meta.env.VITE_SENTRY_DSN_MACOS;
   }
   if (isNativePlatform()) {
     const platform = Capacitor.getPlatform();

@@ -3,7 +3,7 @@
   "skills": {
     "acp": {
       "docsSlug": "acp",
-      "sha256": "721a130b51cc08112b057387fe43a6427d2987c8a36631ed84c6ee2131ea64e9"
+      "sha256": "67517f5395e67fb866c6c114bca282cbae5160a9862d25d824c7b0ca46eb01e6"
     },
     "app-builder": {
       "docsSlug": "app-builder",
@@ -31,7 +31,7 @@
     },
     "media-processing": {
       "docsSlug": "media-processing",
-      "sha256": "2355e860b9ae5c06036ca2ef206679647a9c73ff38af50a23268503959f189cd"
+      "sha256": "aa38b7020be5ef92cd4f065b9d30a135947cd800bb09884b3fdc3323a49c8ac8"
     },
     "messaging": {
       "docsSlug": "messaging",
@@ -47,7 +47,7 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "536613209f592d138a42bd95c28e7bf619b327f1091807465012c2bf842b37e4"
+      "sha256": "8a762849311b4c35c8448a399afa062fa29ba4972a1803ee114e4fabdc7da7e2"
     },
     "skill-management": {
       "docsSlug": "skill-management",

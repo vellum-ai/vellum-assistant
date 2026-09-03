@@ -166,11 +166,7 @@ export interface ChannelApprovalPrompt {
  * joins (every channel's buttons ride the same `apr:` callback), and no
  * consumer reads a channel off this field.
  */
-export type ApprovalDecisionSource =
-  | "button"
-  | "reaction"
-  | "vellum_surface"
-  | "plain_text";
+export type ApprovalDecisionSource = "button" | "vellum_surface" | "plain_text";
 
 /** The structured result of a user's approval decision. */
 export interface ApprovalDecisionResult {

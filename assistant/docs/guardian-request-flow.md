@@ -21,17 +21,17 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
   notification pipeline                          (notifications/emit-signal.ts →
   decision engine → destination resolver →        decision-engine.ts → destination-resolver.ts →
   broadcaster builds the card context ONCE        broadcaster.ts: resolveApprovalContext /
-  (generic actions[] + plainTextFallback)         resolveQuestionOptionsContext)
+  (generic actions[] + plainTextFallback)         resolveQuestionContext)
         │
         ▼ per-channel rendering ONLY
   channel adapters                               (notifications/adapters/{telegram,slack,macos,platform},
   telegram: inline keyboard; slack: blocks;       vellum: conversation card via approval-card-builder)
   card deliveries recorded per channel            (guardian-delivery-recorder.ts → guardian_request_deliveries)
         │
-        ▼ user responds: button tap / emoji reaction / "CODE <reply>" / bare text
+        ▼ user responds: button tap / "CODE <reply>" / bare text
   guardian reply router                          (runtime/guardian-reply-router.ts, invoked from
-  reactions → callbacks → request codes →         routes/inbound-stages/guardian-reply-intercept.ts,
-  bare answer → explicit approve/reject → NL      BEFORE background dispatch — replies to parked
+  callbacks → request codes → bare answer →       routes/inbound-stages/guardian-reply-intercept.ts,
+  explicit approve/reject → NL                    BEFORE background dispatch: replies to parked
         │                                         prompts resolve inline, never deferred)
         ▼ one decision primitive
   applyGuardianDecision                          (approvals/guardian-decision-primitive.ts:
@@ -45,14 +45,14 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
 
 ## Who owns what
 
-| Concern                                 | Owner                                                    | Never                               |
-| --------------------------------------- | -------------------------------------------------------- | ----------------------------------- |
-| The "what": card text, actions, options | broadcaster context build (once per broadcast)           | built per-adapter                   |
-| The "how": channel-native rendering     | `notifications/adapters/<channel>`                       | domain logic, payload parsing       |
-| Request state                           | gateway `guardian_requests` (+ deliveries)               | daemon-side request tables          |
-| Decisions                               | `applyGuardianDecision` (CAS, atomic ACL outcome)        | inline decision logic at call sites |
-| Kind-specific follow-through            | resolver registry (`kind` → resolver)                    | switch statements in the router     |
-| Reply understanding                     | guardian reply router (codes, buttons, reactions, modes) | per-feature inbound intercepts      |
+| Concern                                 | Owner                                             | Never                               |
+| --------------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| The "what": card text, actions, options | broadcaster context build (once per broadcast)    | built per-adapter                   |
+| The "how": channel-native rendering     | `notifications/adapters/<channel>`                | domain logic, payload parsing       |
+| Request state                           | gateway `guardian_requests` (+ deliveries)        | daemon-side request tables          |
+| Decisions                               | `applyGuardianDecision` (CAS, atomic ACL outcome) | inline decision logic at call sites |
+| Kind-specific follow-through            | resolver registry (`kind` → resolver)             | switch statements in the router     |
+| Reply understanding                     | guardian reply router (codes, buttons, modes)     | per-feature inbound intercepts      |
 
 ## The canonical home-feed projection
 
@@ -64,9 +64,9 @@ it end to end:
   `guardian:<requestId>`, so the feed's replace-in-place merge keeps one
   item per request. Its typed `guardianRequest` field
   (`FeedItemGuardianRequestSchema` in `api/responses/home.ts`) is a read
-  projection of the gateway row: intent, status, requester, tool, source
-  reference, and the Slack-DM card deep links. It is never a delivery
-  row of its own; clients derive every affordance from `status`.
+  projection of the gateway row: intent, status, requester, tool, and
+  source reference. It is never a delivery row of its own; clients
+  derive every affordance from `status`.
 - `withdrawGuardianRequestCards` rewrites it into a terminal receipt as
   one of the surfaces it settles, and its failure gates `complete` the
   same way a failed card edit does. The write-vs-resolve race converges
@@ -80,24 +80,28 @@ it end to end:
   request row (no conversation is generated), and an item still
   actionable for a terminal request is receipted with a loud log line.
 
-Routing policy for the Slack guardian DM: the card message there is a
-delivery projection, not conversation content. Its delivery is not
-paired with any conversation (`conversation-pairing.ts` skips
-guardian.question Slack deliveries), and the Slack DM cold backfill
-skips messages whose ts matches a recorded guardian delivery for the
-chat (`guardian_requests_list_deliveries_by_chat`), so the card never
-enters a Vellum transcript. The in-app homes of a request are the feed
-item and the source conversation's pinned vellum card.
+Routing policy for channel-delivered cards: a guardian card sent to a
+channel chat (Slack, Telegram, Discord, WhatsApp) is a delivery
+projection, not conversation content. Channel deliveries are not
+paired with any conversation (`conversation-pairing.ts` skips every
+non-vellum guardian delivery), and the Slack DM cold backfill skips
+messages whose ts matches a recorded guardian delivery for the chat
+(`guardian_requests_list_deliveries_by_chat`), so a card never enters
+a Vellum transcript. The in-app homes of a request are the feed item
+and the source conversation's pinned vellum card.
 
 ## Cards are not conversation history
 
-`pairDeliveryWithConversation` persists one message row per delivery so the
-card renders and deep-links. For a guardian card that row is addressed to a
+`pairDeliveryWithConversation` persists one message row for the vellum
+delivery so the card renders and deep-links. That row is addressed to a
 conversation the request is _about_, not one the assistant is speaking in:
 `buildVellumCardAffinity` pins the vellum card to the originating
-conversation, and a channel card lands in whatever conversation the guardian's
-chat binds to. Either way the row is written straight to the DB by the
-notification pipeline, so the live turn's in-memory history never sees it.
+conversation. Channel guardian deliveries pair no conversation (see the
+routing policy above), so the vellum row is the only card row written; it
+goes straight to the DB by the notification pipeline, so the live turn's
+in-memory history never sees it. Rows that channel deliveries paired
+before the projection-only policy still exist and are covered by the same
+filter below.
 
 That row must never be replayed to the model. The conversation it lands in is
 typically parked mid-approval, with its last assistant message carrying the
@@ -127,6 +131,13 @@ routing after a restart even though the card is absent from the model's history.
 Two instruction modes exist per request kind (`notifications/guardian-question-mode.ts`):
 **approval** ("CODE approve" / approve–reject buttons) and **answer**
 ("CODE <your answer>" / option buttons). `pending_question` is answer-mode.
+The "CODE <reply>" instruction lives in exactly one place: the
+`plainTextFallback` the broadcaster builds beside the card's actions. Composed
+copy never carries it (the decision engine strips a model's echo of it on
+every channel), and a transport appends it only when it sends text without
+buttons: a rich delivery that failed, or a request with no actions to draw,
+which is how an option-less voice question stays answerable. Every surface
+with buttons, and the bell, banner, and push, show the ask alone.
 
 ## Worked example: `ask_question` on a channel
 
@@ -182,8 +193,8 @@ chat the turn is running in. On Slack that chat can be a shared room, and the
 card carries the tool, a command preview and live buttons.
 `resolveGuardianPromptDelivery` addresses it to the guardian's bound DM
 instead, by chat id rather than user id because that address is written to the
-delivery row and read back to match reactions, scope plain-text replies and
-edit the decided card. It returns the address and its route together, since
+delivery row and read back to scope plain-text replies and edit the decided
+card. It returns the address and its route together, since
 the turn's own callback carries a `threadTs` naming a thread that does not
 exist in the DM. When no private address resolves it returns nothing and the
 prompt is left to the in-app confirmation, because the room is the disclosure

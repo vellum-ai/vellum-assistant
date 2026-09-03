@@ -7,12 +7,10 @@
  * the agent so a setting that silently reverted (e.g. a managed Outlook/OAuth
  * service mode) becomes explainable — matching LUM-2758.
  *
- * The revealing case: an unknown `llm.callSites` key produces a Zod
- * `invalid_key` that aborts the record parse and *masks* the LLM
- * `superRefine` on the first pass, so only the invalid-key warning logs. The
- * loader strips the unknown key and re-parses, which unmasks a latent
- * `superRefine` violation (here an `activeProfile` referencing a profile that
- * doesn't exist); the retry fails and the whole config resets to defaults.
+ * The revealing case: a wrong-type `llm.profiles` fails the first parse so
+ * `superRefine` never runs. The loader strips it and re-parses, which unmasks
+ * a latent `activeProfile` / call-site reference to a profile that does not
+ * exist; the retry fails and the whole config resets to defaults.
  */
 
 import {
@@ -65,10 +63,10 @@ function readNotice(): { resetAt: string; invalidPaths: string[] } {
 }
 
 /**
- * A config.json that parses as JSON but forces the full-defaults fallback: the
- * unknown `llm.callSites.proactiveArtifactDecision` key masks the LLM
- * superRefine on the first parse, and stripping it unmasks the invalid
- * `activeProfile` on the retry, which then fails.
+ * A config.json that parses as JSON but forces the salvage ladder: a
+ * wrong-type `llm.profiles` fails the first parse (so superRefine never
+ * runs), and stripping it unmasks ghost `activeProfile` / call-site refs
+ * on the retry.
  */
 function writeFullResetConfig(): void {
   writeFileSync(
@@ -78,9 +76,10 @@ function writeFullResetConfig(): void {
         provider: "anthropic",
         model: "claude-opus-4-7",
         llm: {
+          profiles: "not-an-object",
           activeProfile: "ghostActive",
           callSites: {
-            proactiveArtifactDecision: { profile: "cost-optimized" },
+            mainAgent: { profile: "ghostActive" },
           },
         },
       },
@@ -110,11 +109,9 @@ describe("config-validation-reset notice sentinel", () => {
     expect(existsSync(NOTICE_PATH)).toBe(true);
     const notice = readNotice();
     expect(Number.isNaN(Date.parse(notice.resetAt))).toBe(false);
-    // Records both the masking unknown key and the unmasked retry violation.
+    // Records both the first-parse type error and the unmasked retry violation.
     expect(notice.invalidPaths).toContain("llm.activeProfile");
-    expect(notice.invalidPaths).toContain(
-      "llm.callSites.proactiveArtifactDecision",
-    );
+    expect(notice.invalidPaths).toContain("llm.profiles");
     // The on-disk config is left intact for recovery — not quarantined/rewritten.
     expect(existsSync(CONFIG_PATH)).toBe(true);
   });
@@ -163,6 +160,41 @@ describe("config-validation-reset notice sentinel", () => {
     withSuppressedConfigDiskWritesSync(() => loadConfig());
 
     expect(existsSync(NOTICE_PATH)).toBe(false);
+  });
+
+  test("unknown call-site keys with a defined profile do not write a sentinel", () => {
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              "glm-default": {
+                provider: "vellum",
+                model: "accounts/fireworks/models/glm-5p2",
+              },
+            },
+            activeProfile: "glm-default",
+            callSites: {
+              mainAgent: { profile: "glm-default" },
+              proactiveArtifactDecision: { profile: "glm-default" },
+              meetConsentMonitor: { profile: "glm-default" },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const config = loadConfig();
+
+    expect(existsSync(NOTICE_PATH)).toBe(false);
+    expect(config.llm.activeProfile).toBe("glm-default");
+    expect(config.llm.callSites.mainAgent?.profile).toBe("glm-default");
+    expect(config.llm.profiles["glm-default"]?.model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
   });
 
   test("a later clean load clears a stale reset sentinel", () => {

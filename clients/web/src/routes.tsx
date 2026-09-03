@@ -15,6 +15,19 @@ import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
+
+/**
+ * What a floating window shows while its route's chunk loads: nothing.
+ *
+ * These routes are drawn in transparent, click-through windows the desktop
+ * shell floats over the desktop, sized well past what they draw. A spinner
+ * centred in one of those is a spinner floating over the desktop with nothing
+ * around it, and the shell's HTML splash is kept off them for the same reason
+ * (`index.html`). The surface appears when it is ready.
+ */
+function FloatingHydrateFallback() {
+  return null;
+}
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
@@ -351,11 +364,42 @@ export const routeTree = [
   {
     path: "/assistant/floating/companion",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/companion-surface-page").then(
           (m) => m.CompanionSurfacePage,
+        ),
+    },
+  },
+
+  // The frame around what a watch session reads: a display, or the window
+  // the user picked. Its own click-through window the size of that surface,
+  // opened, moved and closed by the shell with the session; standalone for
+  // the reason the companion surface is.
+  {
+    path: "/assistant/floating/companion-watch-frame",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-watch-frame-page").then(
+          (m) => m.CompanionWatchFramePage,
+        ),
+    },
+  },
+  // The frame's old URL. A shell that predates the rename still opens it,
+  // and a renderer newer than its shell has to draw the frame there rather
+  // than a not-found page over the desktop. Remove once no shipped shell
+  // opens it.
+  {
+    path: "/assistant/floating/companion-watch-glow",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-watch-frame-page").then(
+          (m) => m.CompanionWatchFramePage,
         ),
     },
   },
@@ -368,7 +412,7 @@ export const routeTree = [
   {
     path: "/assistant/floating/dictation-overlay",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/dictation-overlay-page").then(
@@ -381,7 +425,7 @@ export const routeTree = [
   {
     path: "/assistant/dictation-overlay",
     ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
+    HydrateFallback: FloatingHydrateFallback,
     lazy: {
       Component: () =>
         import("@/components/dictation-overlay-page").then(
@@ -868,6 +912,19 @@ export const routeTree = [
                         ),
                     },
                   },
+                  // `/assistant/home` is a URL bookmarks and login `returnTo`
+                  // links still name, so it forwards to the assistant root
+                  // instead of reaching the catch-all. Ungated: a redirect
+                  // needs no assistant.
+                  {
+                    path: "home",
+                    lazy: {
+                      Component: () =>
+                        import("@/domains/home/activity-redirect-page").then(
+                          (m) => m.ActivityRedirectPage,
+                        ),
+                    },
+                  },
                   // Everything below requires a resolved assistantId AND an
                   // active daemon. The gate defers child rendering until the
                   // lifecycle resolves so route components can rely on a
@@ -875,15 +932,6 @@ export const routeTree = [
                   {
                     Component: ActiveAssistantGate,
                     children: [
-                      {
-                        path: "home",
-                        lazy: {
-                          Component: () =>
-                            import("@/home-page-route").then(
-                              (m) => m.HomePageRoute,
-                            ),
-                        },
-                      },
                       {
                         lazy: {
                           Component: () =>

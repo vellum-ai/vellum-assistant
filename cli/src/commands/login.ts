@@ -10,6 +10,7 @@ import {
   saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
+import { resolveAssistantApiKeyForInjection } from "../lib/assistant-api-key-resolution";
 import { computeDeviceId } from "../lib/guardian-token";
 import { openBrowser } from "../lib/open-browser";
 import {
@@ -20,9 +21,7 @@ import {
   fetchPlatformAssistants,
   getPlatformUrl,
   injectCredentialsIntoAssistant,
-  readGatewayCredential,
   readPlatformToken,
-  reprovisionAssistantApiKey,
   savePlatformToken,
 } from "../lib/platform-client";
 import { syncCloudAssistants } from "../lib/sync-cloud-assistants";
@@ -405,33 +404,21 @@ export async function login(): Promise<void> {
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
 
-        // Resolve the API key to inject, mirroring the macOS app's
-        // LocalAssistantBootstrapService 3-step flow:
-        // 1. Use fresh key from registration (first-time only)
-        // 2. Use existing key from the daemon's credential store
-        // 3. Reprovision (rotate) as a last resort — this revokes the
-        //    old key server-side, so we only do it when the gateway
-        //    confirms no key exists (not when it's merely unreachable).
-        let assistantApiKey = registration.assistant_api_key;
-        if (!assistantApiKey) {
-          const cached = await readGatewayCredential(
-            entry.runtimeUrl,
-            "vellum:assistant_api_key",
-            entry.bearerToken,
-          );
-          if (cached.value) {
-            assistantApiKey = cached.value;
-          } else if (!cached.unreachable) {
-            console.log("No API key available locally — reprovisioning...");
-            const reprovision = await reprovisionAssistantApiKey(
-              token,
-              orgId,
-              clientInstallationId,
-              entry.assistantId,
-              "cli",
-            );
-            assistantApiKey = reprovision.provisioning.assistant_api_key;
-          }
+        // Which key to hand the assistant, and why. Shared with teleport so
+        // the two injection paths cannot drift.
+        const resolved = await resolveAssistantApiKeyForInjection({
+          registrationApiKey: registration.assistant_api_key,
+          runtimeUrl: entry.runtimeUrl,
+          bearerToken: entry.bearerToken,
+          token,
+          organizationId: orgId,
+          clientInstallationId,
+          runtimeAssistantId: entry.assistantId,
+          clientPlatform: "cli",
+        });
+        const assistantApiKey = resolved.apiKey;
+        if (resolved.source === "reprovisioned") {
+          console.log("Provisioning a replacement API key...");
         }
 
         // Inject credentials into the running assistant via the gateway,

@@ -6,11 +6,11 @@
     android:viewportHeight="108">
     <!--
         Themed-icon mask: the two outer sclera beans from the quirky eye pair
-        in assistant/src/avatar/character-components.ts, same placement
-        transform as ic_launcher_foreground.xml. Monochrome rendering only
-        consumes alpha, and punching the pupils out with even-odd fill leaves
-        crescent slivers because each pupil nearly fills and overhangs its
-        sclera, so the mask is deliberately the bean silhouette pair.
+        in packages/avatar-catalog, same placement transform as
+        ic_launcher_foreground.xml. Monochrome rendering only consumes alpha,
+        and punching the pupils out with even-odd fill leaves crescent slivers
+        because each pupil nearly fills and overhangs its sclera, so the mask
+        is deliberately the bean silhouette pair.
     -->
     <group
         android:pivotX="335"

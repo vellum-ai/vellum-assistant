@@ -177,14 +177,50 @@ describe("LLMSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("unknown call-site key (typo) fails Zod parse", () => {
+  test("unknown call-site key is ignored (version-skew / typo)", () => {
     const result = LLMSchema.safeParse({
       callSites: {
         // typo of `mainAgent`
         mainAgnt: { temperature: 0.5 },
       },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(
+        (result.data.callSites as Record<string, unknown>).mainAgnt,
+      ).toBeUndefined();
+      expect(result.data.callSites.mainAgent).toBeUndefined();
+    }
+  });
+
+  test("unknown call-site keys do not mask a defined profile referenced by known sites", () => {
+    const result = LLMSchema.safeParse({
+      profiles: {
+        "glm-default": {
+          provider: "vellum",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+      },
+      activeProfile: "glm-default",
+      callSites: {
+        mainAgent: { profile: "glm-default" },
+        heartbeatAgent: { profile: "glm-default" },
+        proactiveArtifactDecision: { profile: "glm-default" },
+        proactiveArtifactBuild: { profile: "glm-default" },
+        meetConsentMonitor: { profile: "glm-default" },
+        meetChatOpportunity: { profile: "glm-default" },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activeProfile).toBe("glm-default");
+      expect(result.data.callSites.mainAgent?.profile).toBe("glm-default");
+      expect(result.data.callSites.heartbeatAgent?.profile).toBe("glm-default");
+      expect(
+        (result.data.callSites as Record<string, unknown>)
+          .proactiveArtifactDecision,
+      ).toBeUndefined();
+    }
   });
 
   test("thinking partial override accepted (only `enabled`, no `streamThinking`)", () => {

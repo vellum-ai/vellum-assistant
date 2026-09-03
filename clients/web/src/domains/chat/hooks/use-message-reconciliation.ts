@@ -87,8 +87,9 @@ interface UseMessageReconciliationReturn {
   /** Fetches the latest messages, refreshes the history cache, and reconciles
    *  turn state (dispatches POLL_RECONCILED when the turn is stuck in a
    *  sending phase). Pass `authoritative` to force a history refetch
-   *  regardless of whether the snapshot looks changed — set by reconnect
-   *  reconciles, where the live suffix may be non-contiguous. */
+   *  regardless of whether the latest page looks changed: reconnect
+   *  reconciles, where the live suffix may be non-contiguous, and sync-tag
+   *  reconciles, where the change may sit on an older loaded page. */
   reconcileActiveConversation: (
     trigger: ReconcileTrigger,
     authoritative?: boolean,

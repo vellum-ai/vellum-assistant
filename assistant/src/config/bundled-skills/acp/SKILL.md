@@ -8,12 +8,11 @@ metadata:
     display-name: "ACP"
     category: "development"
     activation-hints:
-      - "User wants to set up, install, configure, authenticate, or connect Claude Code or Codex"
-      - "User asks to use Claude Code or Codex, or delegate a coding task to an ACP agent"
+      - "User names Claude Code or Codex, or wants to set up, install, configure, authenticate, connect, use, or delegate work to them"
       - "User wants an agent to work autonomously and report back later"
       - "User mentions ACP, claude-agent-acp, or codex-acp"
     avoid-when:
-      - "The task is small enough to do inline"
+      - "The task is small enough to do inline and the user did not name Claude Code or Codex"
 ---
 
 ACP agent orchestration - spawn external coding agents (Claude Code, Codex) to work on tasks via the Agent Client Protocol. Each agent runs as its own subprocess speaking ACP over stdio and streams results back into the conversation.
@@ -23,6 +22,14 @@ ACP agent orchestration - spawn external coding agents (Claude Code, Codex) to w
 Use `acp_spawn` to delegate a coding task to an external agent. The agent runs as a subprocess speaking the ACP protocol over stdio and streams results back.
 
 Users can refer to agents by natural names: "claude code", "codex cli", and "openai codex" all resolve to the canonical `claude` and `codex` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
+
+## When the user names Claude Code or Codex
+
+If they name Claude Code or Codex without asking you to run it here (for example they say that tool will do the work), offer once, in one short sentence, that you can connect and run it in this conversation. Then continue with whatever they were doing.
+
+- Do not spawn unless they accept.
+- Skip if you already offered this conversation, they declined, or they are already connected.
+- This is not the missing-token card path. Do not invent setup steps.
 
 ## First-time setup
 

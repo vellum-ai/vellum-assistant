@@ -140,11 +140,12 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(existsSync(join(convDir, TOOL_RESULT_DIR))).toBe(false);
   });
 
-  test("spools an oversized file read of an ordinary path", () => {
+  test("leaves an oversized file read of an ordinary path inline (explicit self-sized read)", () => {
     const blocks = [
       makeToolResult(LONG, "tu_read"),
       makeToolResult(LONG, "tu_host_read"),
     ];
+    const originals = blocks.map((b) => b);
 
     const count = spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
@@ -154,13 +155,9 @@ describe("spoolAndStubOversizedToolResults", () => {
           : { name: "host_file_read", input: { path: "/Users/me/notes.md" } },
     });
 
-    expect(count).toBe(2);
-    expect((blocks[0] as { content: string }).content).toContain(
-      TRUNCATION_MARKER,
-    );
-    expect((blocks[1] as { content: string }).content).toContain(
-      TRUNCATION_MARKER,
-    );
+    expect(count).toBe(0);
+    expect(blocks).toEqual(originals);
+    expect(existsSync(join(convDir, TOOL_RESULT_DIR))).toBe(false);
   });
 
   test("leaves a file read of a spooled .tool-results path inline", () => {

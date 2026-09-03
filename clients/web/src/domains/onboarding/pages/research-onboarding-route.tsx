@@ -61,6 +61,7 @@ import {
   writeResearchSnapshot,
   type ResearchStep,
 } from "@/domains/onboarding/research-onboarding-persistence";
+import { stampAssistantOnboarded } from "@/domains/onboarding/stamp-assistant-onboarded";
 import {
   emitResearchOnboardingStepCompleted,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
@@ -740,6 +741,8 @@ export function ResearchOnboardingRoute() {
     // Handing off to the chat ends the research-onboarding journey — drop the
     // resume snapshot so a later visit starts clean instead of resuming this one.
     clearResearchSnapshot(userId);
+    // The completion record this assistant is judged by from here on.
+    stampAssistantOnboarded(hatchedAssistantId);
 
     const { firstName, lastName, role, hobbies } = values;
     const fullName = [firstName.trim(), lastName.trim()]
@@ -1303,6 +1306,8 @@ export function ResearchOnboardingRoute() {
             { userId, outcome: "completed" },
           );
           clearResearchSnapshot(userId);
+          // Keeping an established assistant settles its onboarding too.
+          stampAssistantOnboarded(hatchedAssistantId);
           // Pin the selection to the adopted assistant, then enter the app —
           // with no pre-chat context, kickoff, or persona write of any kind.
           void lifecycleService

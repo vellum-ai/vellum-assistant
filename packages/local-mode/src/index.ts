@@ -44,6 +44,7 @@ export {
 export {
   getLockfileData,
   renameLockfileAssistantIfPresent,
+  stampLockfileAssistantOnboardedIfPresent,
   upsertLockfileAssistant,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,

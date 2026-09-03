@@ -47,6 +47,15 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
+// Independent of the two above, which is the point: a tablet is hoverless at a
+// width that is neither mobile nor touch-mobile, so it takes the menu branch.
+const hoverCapableRef = { value: true };
+mock.module("@/hooks/use-hover-affordance", () => ({
+  useHoverCapable: () => hoverCapableRef.value,
+  useShowsHoverAffordance: (hasTouchPath: boolean) =>
+    hasTouchPath ? hoverCapableRef.value : true,
+}));
+
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 const toastError = mock((_msg: string) => {});
@@ -381,6 +390,7 @@ function renderMenu(scaffold?: Scaffold) {
 beforeEach(() => {
   isMobileRef.value = false;
   isTouchMobileRef.value = false;
+  hoverCapableRef.value = true;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   configPatchMock.mockClear();
@@ -801,16 +811,20 @@ describe("mobile pill triggers", () => {
   const PILL_FILL_CLASS = "bg-[var(--border-subtle)]";
 
   /**
-   * The pill's glyph sits at the design's 20px (Figma 7840-8818), so it rides
-   * as a child of the button rather than in the Button's own narrower icon
-   * box. Both classes matter: the box holds the space, the `svg` rule sizes
-   * the icon, which would otherwise render at its own default.
+   * The pill's glyph rides as a child of the button rather than in the Button's
+   * own icon box, so the button's `gap` sets the space between glyph and label.
+   * Both classes matter: the box holds the space, the `svg` rule sizes the
+   * icon, which would otherwise render at its own default.
+   *
+   * 16px, matching the status controls sharing this row. The desktop variants
+   * of these same two triggers sit at 14px, so a larger glyph here reads as a
+   * size out of step with everything around it.
    */
   function expectGlyphSizedForPill(pill: HTMLElement) {
     const glyph = pill.querySelector('span[aria-hidden="true"]');
     const glyphClass = glyph?.getAttribute("class") ?? "";
-    expect(glyphClass).toContain("size-5");
-    expect(glyphClass).toContain("[&_svg]:size-5");
+    expect(glyphClass).toContain("size-4");
+    expect(glyphClass).toContain("[&_svg]:size-4");
   }
 
   beforeEach(() => {
@@ -837,7 +851,7 @@ describe("mobile pill triggers", () => {
     expect(profileTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
   });
 
-  test("renders both pill glyphs at the design's 20px", async () => {
+  test("renders both pill glyphs at 16px", async () => {
     renderMenu();
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
@@ -1615,5 +1629,101 @@ describe("Profile selection on a draft stub conversation (ATL-1136)", () => {
     });
     expect(inferenceprofilePut).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
+describe("model names on the profile rows", () => {
+  // A managed profile is named for the tier it serves, and the model behind
+  // that tier moves whenever Vellum repoints the pin. A user profile is named
+  // by the person who made it, so naming its model would only repeat itself.
+  const MIXED_CONFIG = {
+    llm: {
+      profileOrder: ["balanced", "my-luna"],
+      profiles: {
+        balanced: {
+          label: "Balanced",
+          source: "managed",
+          provider: "vellum",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        "my-luna": {
+          label: "GPT-5.6 Luna",
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.6-luna",
+        },
+      },
+      activeProfile: "balanced",
+    },
+  };
+
+  function mountMixed() {
+    configGetMock.mockImplementation(async () => ({ data: MIXED_CONFIG }));
+    renderMenu();
+  }
+
+  test("the managed row carries its model on hover, the user row does not", async () => {
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const labels = screen
+      .getAllByTestId("tooltip")
+      .map((el) => el.getAttribute("data-tooltip-content"));
+    // The quick-add "+" carries the only other tooltip on this surface.
+    expect(labels.filter((c) => c !== "New Model")).toEqual(["GLM 5.2"]);
+  });
+
+  test("the hovered row is still the row that selects the profile", async () => {
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const tooltip = screen
+      .getAllByTestId("tooltip")
+      .find((el) => el.getAttribute("data-tooltip-content") === "GLM 5.2");
+    const row = tooltip!.querySelector('[data-testid="menu-item"]');
+    fireEvent.click(row!);
+
+    await waitFor(() => {
+      expect(inferenceprofilePut).toHaveBeenCalled();
+    });
+  });
+
+  test("a hoverless tablet reads the model on the row, not behind a hover", async () => {
+    // An iPad in landscape reports `hover: none` at a width that is neither
+    // mobile nor touch-mobile, so it renders the menu. A tooltip mounts
+    // nothing there, so the model has to be on the row or it is nowhere.
+    hoverCapableRef.value = false;
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GLM 5.2")).toBeTruthy();
+    });
+
+    const rows = screen.getAllByTestId("menu-item");
+    const managed = rows.find((r) => r.textContent?.includes("Balanced"));
+    expect(managed!.textContent).toContain("GLM 5.2");
+    // Nothing is left behind a hover on a device that cannot hover.
+    const labels = screen
+      .queryAllByTestId("tooltip")
+      .map((el) => el.getAttribute("data-tooltip-content"));
+    expect(labels).not.toContain("GLM 5.2");
+  });
+
+  test("touch reads the model on the row itself, where a tooltip cannot go", async () => {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    mountMixed();
+    await waitFor(() => {
+      expect(screen.getByText("GPT-5.6 Luna")).toBeTruthy();
+    });
+
+    const rows = screen.getAllByTestId("panel-item");
+    const managed = rows.find((r) => r.textContent?.includes("Balanced"));
+    expect(managed!.textContent).toContain("GLM 5.2");
+    const user = rows.find((r) => r.textContent?.includes("GPT-5.6 Luna"));
+    expect(user!.textContent).toBe("GPT-5.6 Luna");
   });
 });

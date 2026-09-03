@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  assistantStateCanServeChat,
   ERROR_RETRY_BASE_MS,
   ERROR_RETRY_MAX_MS,
   errorRetryDelayMs,
@@ -9,6 +10,25 @@ import {
   resolveAssistantLifecycleState,
   TRANSPORT_ERROR_MESSAGE,
 } from "./lifecycle";
+
+describe("assistantStateCanServeChat", () => {
+  test("active always serves chat", () => {
+    expect(assistantStateCanServeChat("active", false)).toBe(true);
+    expect(assistantStateCanServeChat("active", true)).toBe(true);
+  });
+
+  test("self_hosted serves chat only when the flag is on", () => {
+    expect(assistantStateCanServeChat("self_hosted", true)).toBe(true);
+    expect(assistantStateCanServeChat("self_hosted", false)).toBe(false);
+  });
+
+  test("every other kind is not serving chat", () => {
+    expect(assistantStateCanServeChat("loading", true)).toBe(false);
+    expect(assistantStateCanServeChat("initializing", true)).toBe(false);
+    expect(assistantStateCanServeChat("cleaning_up", true)).toBe(false);
+    expect(assistantStateCanServeChat("error", true)).toBe(false);
+  });
+});
 
 describe("resolveAssistantLifecycleState — transport-shaped failures (LUM-2402)", () => {
   test("proxy-synthesized network 502 resolves to a transient error with friendly copy", () => {

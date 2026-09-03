@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 /**
- * Full-page empty state shared by the Activity feed and the Schedules page.
+ * Full-page empty state, used by the Schedules page.
  * Mirrors the Library empty state — a rounded-square icon over a title and a
  * one-line description, with optional action buttons beneath. For a compact
  * inline placeholder use `EmptyState` instead.

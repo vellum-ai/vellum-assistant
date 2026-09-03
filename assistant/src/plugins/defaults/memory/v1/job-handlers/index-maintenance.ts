@@ -4,6 +4,7 @@ import {
 } from "@vellumai/plugin-api";
 import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
+import { messageMetadataIsAmbientSightKeep } from "../../../../../persistence/conversation-types.js";
 import { getDb } from "../../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
@@ -66,7 +67,11 @@ export async function rebuildIndexJob(): Promise<void> {
     }
 
     const imageMessages = db
-      .select({ id: messages.id, content: messages.content })
+      .select({
+        id: messages.id,
+        content: messages.content,
+        metadata: messages.metadata,
+      })
       .from(messages)
       .where(
         and(
@@ -76,6 +81,15 @@ export async function rebuildIndexJob(): Promise<void> {
       )
       .all();
     for (const msg of imageMessages) {
+      // Ambient camera keeps were persisted with indexing skipped, and a
+      // rebuild must not be the thing that quietly puts them into memory
+      // after all. `skipIndexing` is a per-write option with no column behind
+      // it, so the row's own tag plus its `scripted` marker is the durable
+      // record of that choice. A spoken turn that merely CARRIED a frame is
+      // indexed by the live path and so is rebuilt like any other message.
+      if (messageMetadataIsAmbientSightKeep(msg.metadata)) {
+        continue;
+      }
       const blocks = extractMediaBlockMeta(msg.content);
       for (const block of blocks) {
         enqueueMemoryJob("embed_attachment", {

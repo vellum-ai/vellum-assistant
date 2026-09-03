@@ -277,6 +277,16 @@ export interface BusEventMap {
     provenance: CommandUrlProvenance;
   };
   /**
+   * Drain one share-inbox item written by the iOS Share Sheet extension:
+   * `<scheme>://share/<id>`, or a Darwin / resume fallback with no id.
+   * `inboxId` names the item when the command URL arrived; `null` means
+   * take the newest unexpired item (the URL never opened the host). The
+   * payload itself is not on the URL: `useGlobalDeepLinkConsumer` consumes
+   * the App Group inbox and parks a send (`useShareInboxSend`). Inbox
+   * existence is the send-authorization. A forged id finds nothing.
+   */
+  "deeplink.share": { inboxId: string | null };
+  /**
    * Electron host only: inbound `<scheme>://connect` URL from the pair
    * page's "Open in the Vellum app" button or a `vellum pair --app`
    * QR code. `url` is the validated https server base and `code` the

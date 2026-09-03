@@ -160,12 +160,28 @@ function makeTestConversation() {
     size: () => 0,
   } as unknown as MessageQueue;
   let processing = false;
+  let owner = 0;
   const messagingCtx: MessagingConversationContext = {
     conversationId: "conv-display-content",
     messages,
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;
+    },
+    acquireProcessingFenced: async () => {
+      if (processing) {
+        return null;
+      }
+      processing = true;
+      owner += 1;
+      return owner;
+    },
+    releaseProcessing: (claim: number) => {
+      if (claim !== owner) {
+        return false;
+      }
+      processing = false;
+      return true;
     },
     abortController: null,
     queue: queueStub,
@@ -398,20 +414,15 @@ describe("processMessage displayContent", () => {
       type: "text",
       text: modelContent,
     });
-    const inMemoryFileBlock = inMemoryMessage.content[1] as unknown as Record<
-      string,
-      unknown
-    >;
-    expect(inMemoryFileBlock._attachmentId).toBe("att-1");
-    expect(inMemoryFileBlock).toMatchObject({
+    expect(inMemoryMessage.content[1]).toEqual({
       type: "file",
       source: {
-        type: "base64",
+        type: "workspace_ref",
         media_type: "application/pdf",
-        data: Buffer.from("pdf bytes").toString("base64"),
+        attachmentId: "att-stored",
+        sizeBytes: 9,
         filename: "attachment.pdf",
       },
-      extracted_text: undefined,
     });
   });
 

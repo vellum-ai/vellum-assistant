@@ -61,7 +61,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
@@ -72,6 +71,7 @@ import {
   stopNativeVoiceCamera,
 } from "@/runtime/native-voice-camera";
 import { useVoicePrefsStore, type FlashMode } from "@/stores/voice-prefs-store";
+import { decodeBase64Payload } from "@/utils/base64";
 
 /** Which way the camera points. `environment` is the rear/world-facing one. */
 export type VoiceCameraFacing = "environment" | "user";
@@ -93,6 +93,14 @@ export type VoiceCameraError =
  * model-readable image without depending on the camera's negotiated size.
  */
 const CAPTURE_JPEG_QUALITY = 0.85;
+
+/**
+ * The same quality as a percentage, which is the unit the native bridge takes.
+ *
+ * Shared so a photo and a Live keep off the same camera are encoded alike: the
+ * two land side by side in the transcript and are read by the same model.
+ */
+export const NATIVE_CAPTURE_QUALITY = Math.round(CAPTURE_JPEG_QUALITY * 100);
 
 // Ideals keep lower-resolution cameras usable while asking capable devices for
 // enough detail to fill a phone-sized viewfinder without visible upscaling.
@@ -127,8 +135,7 @@ const NO_FLASH_MODES: string[] = [];
 
 /**
  * The newest native start or stop any instance of this hook posted to the
- * bridge, corrected to "stop" when a start reports failure with nothing newer
- * behind it. Module-scoped because the native preview is one plugin instance
+ * bridge. Module-scoped because the native preview is one plugin instance
  * shared across hook instances (the room and the capture overlay), so a stale
  * start deciding whether its cleanup is safe cannot consult its own refs: the
  * newest call can belong to an instance it has never seen. When the newest
@@ -138,15 +145,36 @@ const NO_FLASH_MODES: string[] = [];
 let lastNativePreviewCall: "start" | "stop" = "stop";
 
 /**
- * Counts the calls the ledger describes, so a failed start can tell whether
- * it is still the newest one before it downgrades the ledger: when a newer
- * call sits behind it on the bridge, the ledger is that call's to describe.
+ * Counts the calls the ledger describes, so a failed start can tell whether it
+ * is still the newest one before it clears up after an orphaned preview: when
+ * a newer call sits behind it on the bridge, that cleanup is the newer call's.
  */
 let nativePreviewCallSeq = 0;
+
+/**
+ * Whether a preview is running that no hook instance owns.
+ *
+ * Set by a canceled start that resolved into live hardware while another start
+ * sat behind it on the bridge. A stop posted from there would land after that
+ * start and tear down the preview it is installing, so the canceled start
+ * leaves the hardware to whichever call ends up holding it, and this is the
+ * note it leaves behind.
+ *
+ * Cleared by every stop {@link recordNativePreviewCall} takes, which covers
+ * both a release tearing its own capture down and the failed start that posts
+ * a stop deliberately to collect the orphan: either one is posted after the
+ * orphan's own start resolved, so it is the call that finally lands on that
+ * hardware. Cleared as well by a start that succeeds, which both plugins
+ * refuse while a preview is running and so proves there is none left over.
+ */
+let nativePreviewOrphaned = false;
 
 /** Record a native start or stop posted to the bridge, returning its seq. */
 function recordNativePreviewCall(call: "start" | "stop"): number {
   lastNativePreviewCall = call;
+  if (call === "stop") {
+    nativePreviewOrphaned = false;
+  }
   return ++nativePreviewCallSeq;
 }
 
@@ -455,14 +483,22 @@ export function useVoiceCamera(
           // newest call on the bridge is another start, in this instance or
           // any other, the opposite holds: that start sits behind this one on
           // the bridge, and an unscoped stop posted now lands after it,
-          // tearing down the very preview it is installing.
+          // tearing down the very preview it is installing. The hardware this
+          // start raised is then nobody's until that call settles, which is
+          // what `nativePreviewOrphaned` records.
           if (started && lastNativePreviewCall === "stop") {
             await stopNativeVoiceCamera();
+          } else if (started) {
+            nativePreviewOrphaned = true;
           }
           return "aborted";
         }
         if (started) {
           sourceRef.current = "native";
+          // A start the plugin accepted is a start it did not refuse as
+          // "camera already started", so nothing was running in front of it
+          // and no earlier start left a preview behind.
+          nativePreviewOrphaned = false;
           setNative(true);
           setFacing(nextFacing);
           // Not awaited: the viewfinder is already live and the flash control
@@ -472,11 +508,24 @@ export function useVoiceCamera(
           return null;
         }
         sourceRef.current = null;
-        // A failed start raises nothing, so while it is still the ledger's
-        // newest call it stops reading as a live preview a stale sibling
-        // must spare.
-        if (nativeCallSeq === nativePreviewCallSeq) {
-          lastNativePreviewCall = "stop";
+        // A failed start raises nothing itself, so the only hardware it has
+        // any claim on is a preview an earlier canceled start deferred to it.
+        // While this failure is still the newest call on the bridge it is the
+        // one holding that deferral, and the stop it posts is what collects
+        // it. Without an orphan there is nothing to collect: the preview this
+        // start collided with belongs to a viewfinder somewhere else that is
+        // reporting itself open, and stopping it would close that surface's
+        // camera out from under it.
+        if (nativeCallSeq === nativePreviewCallSeq && nativePreviewOrphaned) {
+          recordNativePreviewCall("stop");
+          // Awaited, so the fallback below asks for a device the native side
+          // has finished releasing. A `getUserMedia` racing that release comes
+          // back `NotReadableError`, which closes the replacement viewfinder
+          // instead of opening it.
+          await stopNativeVoiceCamera();
+          if (epoch !== acquireEpochRef.current) {
+            return "aborted";
+          }
         }
       }
 
@@ -695,14 +744,11 @@ export function useVoiceCamera(
 
     if (sourceRef.current === "native") {
       const encoded = await captureNativeVoiceCameraFrame(
-        Math.round(CAPTURE_JPEG_QUALITY * 100),
+        NATIVE_CAPTURE_QUALITY,
       );
       if (encoded) {
         try {
-          const dataUri = encoded.startsWith("data:")
-            ? encoded
-            : `data:image/jpeg;base64,${encoded}`;
-          const bytes = dataUriToUint8Array(dataUri);
+          const bytes = decodeBase64Payload(encoded);
           if (bytes) {
             file = new File([bytes], filename, {
               type: "image/jpeg",

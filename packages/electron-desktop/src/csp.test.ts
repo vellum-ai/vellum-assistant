@@ -1,10 +1,16 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import { CSP_POLICY } from "./csp";
 
-/** Extract the value for a single CSP directive from the policy string. */
-function directiveValue(directive: string): string | undefined {
-  const match = CSP_POLICY.match(new RegExp(`(?:^|;\\s*)${directive}\\s+([^;]+)`));
+/** Extract the value for a single CSP directive from a policy string. */
+function directiveValue(
+  directive: string,
+  policy: string = CSP_POLICY,
+): string | undefined {
+  const match = policy.match(new RegExp(`(?:^|;\\s*)${directive}\\s+([^;]+)`));
   return match?.[1]?.trim();
 }
 
@@ -117,9 +123,34 @@ describe("CSP_POLICY", () => {
     expect(frameSrc).toContain("https://js.stripe.com");
     expect(frameSrc).toContain("https://*.js.stripe.com");
     expect(frameSrc).toContain("https://hooks.stripe.com");
+    // Link wallet frames: see the frame-src note in csp.ts.
+    expect(frameSrc).toContain("https://link.com");
+    expect(frameSrc).toContain("https://*.link.com");
 
     const connectSrc = directiveValue("connect-src")!;
     expect(connectSrc).toContain("https://api.stripe.com");
+    expect(connectSrc).toContain("https://link.com");
+    expect(connectSrc).toContain("https://*.link.com");
+  });
+
+  test("frame-src is a superset of the web bundle's frame-src meta", () => {
+    // See the superset note in csp.ts.
+    const indexHtml = readFileSync(
+      join(import.meta.dir, "../../../clients/web/index.html"),
+      "utf8",
+    );
+    const metaContent = indexHtml.match(
+      /<meta\s+http-equiv="Content-Security-Policy"[^>]*?content="([^"]*)"/,
+    )?.[1];
+    expect(metaContent).toBeDefined();
+    const metaFrameSrc = directiveValue("frame-src", metaContent!);
+    expect(metaFrameSrc).toBeDefined();
+
+    const policySources = directiveValue("frame-src")!.split(/\s+/);
+    const missing = metaFrameSrc!
+      .split(/\s+/)
+      .filter((source) => !policySources.includes(source));
+    expect(missing).toEqual([]);
   });
 
   test("connect-src allows loopback gateway WebSockets but not broad ws:", () => {

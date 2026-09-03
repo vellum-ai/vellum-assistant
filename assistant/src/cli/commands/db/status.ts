@@ -16,6 +16,8 @@
  *     callers will see the row-count path today)
  *   - latest applied workspace migration (proxy for schema version, read
  *     from the `memory_checkpoints` rows the migration runner writes)
+ *   - drizzle-vs-SQLite schema contract (columns the current binary
+ *     selects that no live database file has)
  *   - file mtime + age, for "is this DB live?" triage at a glance
  *
  * If the DB file is missing, exits with code 1 after a loud error. If the file
@@ -28,6 +30,7 @@ import { Database } from "bun:sqlite";
 
 import type { Command } from "commander";
 
+import type { SchemaContractReport } from "../../../persistence/schema-contract.js";
 import { getLogsDbPath } from "../../../util/logs-db-path.js";
 import { getMemoryDbPath } from "../../../util/memory-db-path.js";
 import { getDbPath } from "../../../util/platform.js";
@@ -110,6 +113,12 @@ interface StatusReport {
    */
   telemetryFile?: FileFacts;
   telemetryDb?: DbFacts | null;
+  /**
+   * Drizzle source catalog vs the union of columns in every live SQLite
+   * file (main, logs, memory, telemetry). Extra SQLite-only columns are
+   * ignored. Omitted when the main file could not be opened.
+   */
+  schemaContract?: SchemaContractReport;
 }
 
 interface MigrationSummary {
@@ -260,6 +269,83 @@ function readDbFacts(path: string): DbFacts {
   }
 }
 
+/** Quote a SQLite identifier that came from sqlite_master (never user input). */
+function quoteIdent(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
+/**
+ * Read table → column names from one SQLite file. Skips `sqlite_*`
+ * internals and tables whose `PRAGMA table_info` fails.
+ */
+function readSqliteColumns(path: string): Map<string, Set<string>> {
+  const db = new Database(path, { readonly: true });
+  try {
+    const tables = db
+      .query<{ name: string }, []>(
+        `SELECT name FROM sqlite_master
+         WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+      )
+      .all();
+    const out = new Map<string, Set<string>>();
+    for (const table of tables) {
+      try {
+        const columns = db
+          .query<{ name: string }, []>(
+            `PRAGMA table_info(${quoteIdent(table.name)})`,
+          )
+          .all();
+        out.set(table.name, new Set(columns.map((column) => column.name)));
+      } catch {
+        // Virtual or unreadable table. Skip so one failure does not hide
+        // the rest of the contract.
+      }
+    }
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
+/** Union column sets from several files. Same table name keeps every column. */
+function mergeSqliteColumns(
+  files: Array<Map<string, Set<string>>>,
+): Map<string, Set<string>> {
+  const merged = new Map<string, Set<string>>();
+  for (const file of files) {
+    for (const [table, columns] of file) {
+      const existing = merged.get(table);
+      if (!existing) {
+        merged.set(table, new Set(columns));
+        continue;
+      }
+      for (const column of columns) {
+        existing.add(column);
+      }
+    }
+  }
+  return merged;
+}
+
+async function readSchemaContract(
+  paths: string[],
+): Promise<SchemaContractReport> {
+  // Lazy so the drizzle catalog stays out of the CLI's static graph
+  // (cli/no-daemon-internals).
+  const { diffDrizzleSchemaContract } =
+    await import("../../../persistence/schema-contract.js");
+  const live: Array<Map<string, Set<string>>> = [];
+  for (const path of paths) {
+    try {
+      live.push(readSqliteColumns(path));
+    } catch {
+      // File vanished or is unreadable. The main-file open already
+      // succeeded; skip this sidecar rather than fail the report.
+    }
+  }
+  return diffDrizzleSchemaContract(mergeSqliteColumns(live));
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -350,6 +436,7 @@ function renderHuman(report: StatusReport): string {
   // Cross-database migration summary — the checkpoint ledger lives only in
   // the main DB, so this is a single block at the end covering all three.
   out += renderSummary(report.migration);
+  out += renderSchemaContract(report.schemaContract);
 
   return out;
 }
@@ -469,6 +556,72 @@ function renderSummary(migration: MigrationSummary | undefined): string {
   return out;
 }
 
+const HUMAN_COLUMN_MISS_LIMIT = 40;
+const HUMAN_TABLE_MISS_LIMIT = 15;
+
+function schemaContractIsClean(report: SchemaContractReport): boolean {
+  return (
+    report.missingTables.length === 0 && report.missingColumns.length === 0
+  );
+}
+
+function renderMissList(labels: string[], limit: number): string {
+  let out = "";
+  const shown = labels.slice(0, limit);
+  for (const label of shown) {
+    out += `  ${label}\n`;
+  }
+  if (labels.length > limit) {
+    out += `  … and ${formatCount(labels.length - limit)} more\n`;
+  }
+  return out;
+}
+
+function renderSchemaContract(
+  contract: SchemaContractReport | undefined,
+): string {
+  if (!contract) {
+    return "";
+  }
+
+  let out = "\nSchema contract (drizzle vs SQLite)\n";
+  if (schemaContractIsClean(contract)) {
+    out += row("Status", "ok");
+    return out;
+  }
+
+  const parts: string[] = [];
+  if (contract.missingColumns.length > 0) {
+    parts.push(
+      `${formatCount(contract.missingColumns.length)} missing column${
+        contract.missingColumns.length === 1 ? "" : "s"
+      }`,
+    );
+  }
+  if (contract.missingTables.length > 0) {
+    parts.push(
+      `${formatCount(contract.missingTables.length)} missing table${
+        contract.missingTables.length === 1 ? "" : "s"
+      }`,
+    );
+  }
+  out += row("Status", red(parts.join(", ")));
+
+  if (contract.missingColumns.length > 0) {
+    out += "Missing columns\n";
+    out += renderMissList(
+      contract.missingColumns.map((miss) => `${miss.table}.${miss.column}`),
+      HUMAN_COLUMN_MISS_LIMIT,
+    );
+  }
+  if (contract.missingTables.length > 0) {
+    out += "Missing tables\n";
+    out += renderMissList(contract.missingTables, HUMAN_TABLE_MISS_LIMIT);
+  }
+
+  return out;
+}
+
 function renderMissing(path: string): string {
   return (
     `${red("ERROR")}  Database not found at ${path}\n\n` +
@@ -487,7 +640,7 @@ function renderMissing(path: string): string {
 // ---------------------------------------------------------------------------
 
 export function registerDbStatus(parent: Command): void {
-  subcommand(parent, "status").action(function (this: Command) {
+  subcommand(parent, "status").action(async function (this: Command) {
     const file = readFileFacts(getDbPath());
 
     if (!file.exists) {
@@ -561,10 +714,28 @@ export function registerDbStatus(parent: Command): void {
       migration = null;
     }
 
+    const schemaPaths = [file.path];
+    if (logsFile.exists) {
+      schemaPaths.push(logsFile.path);
+    }
+    if (memoryFile.exists) {
+      schemaPaths.push(memoryFile.path);
+    }
+    if (telemetryFile.exists) {
+      schemaPaths.push(telemetryFile.path);
+    }
+    let schemaContract: SchemaContractReport | undefined;
+    try {
+      schemaContract = await readSchemaContract(schemaPaths);
+    } catch {
+      schemaContract = undefined;
+    }
+
     const report: StatusReport = {
       file,
       db,
       migration: migration ?? undefined,
+      schemaContract,
       logsFile,
       logsDb,
       memoryFile,

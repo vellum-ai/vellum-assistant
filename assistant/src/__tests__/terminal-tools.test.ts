@@ -146,6 +146,15 @@ describe("buildSanitizedEnv", () => {
     expect(env.VELLUM_APT_DATA_ROOT).toBe("/data/system");
     expect(env.PATH.split(":")).toContain("/data/system/usr/bin");
     expect(env.PATH.split(":")).toContain("/data/system/usr/local/bin");
+    // Shims must shadow the chroot bin dirs so a shim beats a wrapper script
+    // whose hardcoded absolute path only resolves inside the chroot.
+    const kataPathParts = env.PATH.split(":");
+    expect(
+      kataPathParts.indexOf("/data/system/.host-shims"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(kataPathParts.indexOf("/data/system/.host-shims")).toBeLessThan(
+      kataPathParts.indexOf("/data/system/bin"),
+    );
     expect(env.LD_LIBRARY_PATH.split(":")).toContain("/data/system/usr/lib");
     expect(env.LD_LIBRARY_PATH.split(":")).toContain(
       "/data/system/usr/local/lib",

@@ -98,23 +98,17 @@ jobs:
             --cache-control="public, max-age=31536000, immutable" \
             storybook-static/assets "${DEST}/assets"
 
-          # 2. Everything else except the root entrypoints/manifests should have
-          #    a moderate cache TTL.
-          #    Storybook has some stable-ish sb-*/ files that might be tied to
-          #    particular versions, so don't mark them as immutable.
+          # 2. Everything else has to revalidate. Only `assets/` is content
+          #    hashed. The rest keeps a stable path while its contents are
+          #    rebuilt every deploy, so any TTL here keeps serving the previous
+          #    build for that long. `sb-manager/` and `sb-addons/` carry the
+          #    manager UI, so a cached copy hides toolbar and sidebar changes,
+          #    and because the two Storybooks expire independently they can
+          #    disagree with each other for up to the TTL.
           gcloud storage rsync -r \
-            --exclude='^assets/.*|^[^/]*\.(html|json)$' \
-            --cache-control="public, max-age=3600" \
+            --exclude='^assets/.*' \
+            --cache-control="no-cache, max-age=0, must-revalidate" \
             storybook-static "${DEST}"
-
-          # 3. Root entrypoints/manifests change every deploy, so don't cache them.
-          for f in index.html iframe.html index.json project.json; do
-            if [ -f "storybook-static/${f}" ]; then
-              gcloud storage cp \
-                --cache-control="no-cache, max-age=0, must-revalidate" \
-                "storybook-static/${f}" "${DEST}/${f}"
-            fi
-          done
           echo "Published Storybook to ${DEST}/"
 
   # ───────────────────────────── web ─────────────────────────────
@@ -191,15 +185,7 @@ jobs:
             storybook-static/assets "${DEST}/assets"
 
           gcloud storage rsync -r \
-            --exclude='^assets/.*|^[^/]*\.(html|json)$' \
-            --cache-control="public, max-age=3600" \
+            --exclude='^assets/.*' \
+            --cache-control="no-cache, max-age=0, must-revalidate" \
             storybook-static "${DEST}"
-
-          for f in index.html iframe.html index.json project.json; do
-            if [ -f "storybook-static/${f}" ]; then
-              gcloud storage cp \
-                --cache-control="no-cache, max-age=0, must-revalidate" \
-                "storybook-static/${f}" "${DEST}/${f}"
-            fi
-          done
           echo "Published Storybook to ${DEST}/"

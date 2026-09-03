@@ -12,7 +12,9 @@
 import { ChevronLeft, ChevronRight, Lightbulb, X } from "lucide-react";
 import { Link } from "react-router";
 
+import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import { useTranslation } from "@/i18n";
+import { resolveDesktopHostOS } from "@/runtime/platform-detection";
 import { cn } from "@/utils/misc";
 import type { Tip } from "@/utils/tips-catalog";
 
@@ -94,6 +96,21 @@ export function TipCard({
   onNextTip,
 }: TipCardProps) {
   const { t } = useTranslation();
+  const desktopHostOS = resolveDesktopHostOS();
+  const quickInputShortcut = useCommandShortcutHint("quickInput");
+  const desktopCopy = tip.desktopCopy?.[desktopHostOS];
+  const titleKey = desktopCopy?.title ?? tip.localizedCopy?.title;
+  const bodyKey = desktopCopy?.body ?? tip.localizedCopy?.body;
+  const title = titleKey ? t(titleKey) : tip.title;
+  const body =
+    quickInputShortcut === undefined &&
+    tip.localizedCopy?.bodyWithoutShortcut !== undefined
+      ? t(tip.localizedCopy.bodyWithoutShortcut)
+      : bodyKey
+        ? t(bodyKey, {
+            shortcut: quickInputShortcut,
+          })
+        : tip.body;
   return (
     <div
       data-slot="tip-card"
@@ -119,11 +136,11 @@ export function TipCard({
       </div>
 
       <div className="mb-1.5 text-body-small-emphasised text-[color:var(--content-emphasised)]">
-        {tip.title}
+        {title}
       </div>
 
       <div className="text-body-small-default leading-[1.55] text-[color:var(--content-secondary)]">
-        {tip.body}
+        {body}
       </div>
 
       {tip.learnMore ? (

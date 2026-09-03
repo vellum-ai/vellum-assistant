@@ -36,6 +36,7 @@ import {
   describeMedia,
   mediaEmbeds,
   sanitizeMessagePreview,
+  sanitizeMultilineMessagePreview,
   sanitizeNotificationTitle,
   stripMarkdownForPreview,
 } from "./notification-utils.js";
@@ -43,17 +44,14 @@ import {
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 
-/** Gates the desktop-attended suppression below, on by default. */
-const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
-
 /** Gates the web-focused suppression below, on by default. */
 const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
 
 /**
- * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
- * list indentation would otherwise eat into the copy's length budget.
+ * Flatten a title onto one line. Notification titles cannot wrap, and
+ * `normalizeTitle` discards any string that still contains a newline.
  */
-function collapseWhitespace(value: string): string {
+function flattenTitleWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
@@ -229,9 +227,8 @@ export async function emitAssistantReplyNotification(params: {
     // text nor media stays silent.
     const text = stringifyMessageContent(assistantRow.content);
     const preview =
-      sanitizeMessagePreview(
-        collapseWhitespace(stripMarkdownForPreview(text)),
-      ) || sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));
+      sanitizeMultilineMessagePreview(stripMarkdownForPreview(text)) ||
+      sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));
     if (!preview) {
       return;
     }
@@ -242,7 +239,7 @@ export async function emitAssistantReplyNotification(params: {
     // title from the body, which reads better than an empty or placeholder
     // conversation title.
     const requestedTitle = sanitizeNotificationTitle(
-      collapseWhitespace(conversation.title ?? ""),
+      flattenTitleWhitespace(conversation.title ?? ""),
     );
 
     // Read as close to the emit as possible: nothing short-circuits on it.
@@ -250,7 +247,6 @@ export async function emitAssistantReplyNotification(params: {
     // own OS evidence. A turn sent from the phone still needs its push while the
     // desktop sits idle within the attendance window.
     const desktopAttended =
-      isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
       isDesktopOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
 

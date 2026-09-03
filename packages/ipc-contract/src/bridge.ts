@@ -27,6 +27,8 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -38,6 +40,8 @@ import type {
   DictationTranscribeResult,
   DownloadDoneEvent,
   FnPushToTalkResult,
+  ModifierHold,
+  ModifierHoldRegistrationResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -78,7 +82,7 @@ export interface LocalUpgradeOptions {
   force?: boolean;
 }
 
-export type ElectronHostOS = "macos" | "windows";
+export type ElectronHostOS = "macos" | "windows" | "linux";
 
 /**
  * What a pairing step failed on, for callers picking recovery copy. The
@@ -158,8 +162,7 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -227,6 +230,13 @@ export interface VellumBridge {
       setVoiceModeChord?(
         activator: VoiceModeChord | null,
       ): Promise<VoiceModeChordRegistrationResult>;
+      /**
+       * Point the hold detector at a modifier set, or clear it with `off`.
+       * Absent on shells whose helper cannot watch the raw keyboard.
+       */
+      setModifierHold?(
+        hold: ModifierHold,
+      ): Promise<ModifierHoldRegistrationResult>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
@@ -283,8 +293,14 @@ export interface VellumBridge {
      * Publish the traits the assistant's character is composed from, so
      * surfaces that can render it live do, rather than showing the still that
      * `setAvatar` ships. `null` when the avatar is a custom image or absent.
+     * `accentHex` is the avatar's accent as `#rrggbb`, carried separately
+     * because an uploaded image has one and no traits; `null` when the
+     * avatar has no colour yet. Omitted by a web bundle that predates it.
      */
-    setCharacter(character: CompanionCharacter | null): void;
+    setCharacter(
+      character: CompanionCharacter | null,
+      accentHex?: string | null,
+    ): void;
   };
   dock: {
     setBadge(count: number): void;
@@ -324,6 +340,14 @@ export interface VellumBridge {
     renameLockfileAssistant(
       assistantId: string,
       name: string,
+    ): Promise<LockfileWriteResult>;
+    /**
+     * Stamp `onboardedAt` on an existing lockfile entry. Update-only on the
+     * same terms as `renameLockfileAssistant`, and keeps an existing stamp.
+     */
+    stampLockfileAssistantOnboarded(
+      assistantId: string,
+      onboardedAt: string,
     ): Promise<LockfileWriteResult>;
     replacePlatformAssistants(
       platformAssistants: Array<Record<string, unknown>>,
@@ -528,8 +552,23 @@ export interface VellumBridge {
      * surface draws a single control and the window holding the session is the
      * only side that knows which edge a press is. What comes back is `watching`
      * on `onState`.
+     *
+     * `pick` is the row of the picker the start edge came from, when it came
+     * from one. Main resolves a tab to the window showing it and hands the
+     * result to the session as its target; what comes back is `captureTarget`
+     * on `onState`, and the frame main draws around it.
      */
-    toggleWatch(): void;
+    toggleWatch(pick?: CompanionCapturePick): void;
+    /**
+     * What a session could read right now: the displays, the Chrome tabs, and
+     * the windows on screen, for the picker Teach opens.
+     *
+     * Listed on demand rather than pushed, because the desktop changes under
+     * every push and the list is only worth anything at the moment it is drawn.
+     * Absent on a shell that predates the picker, which the surface reads as
+     * having nothing to offer and starts the whole-screen session instead.
+     */
+    listCaptureSources?(): Promise<CompanionCaptureSources>;
     /**
      * Answer the summary question a finished watch session leaves on the
      * surface: open the report now, or not.
@@ -545,24 +584,8 @@ export interface VellumBridge {
      */
     activate(): void;
     /**
-     * Whether the surface's composer is open, and with it whether the window
-     * may take key status.
-     *
-     * The counterpart to `setInteractive`: mouse events are granted only while
-     * the pointer is on the pill, and keystrokes only while there is a field to
-     * put them in. A floating panel that held the keyboard after its field
-     * closed would swallow what the user typed next into the app they are
-     * actually working in.
-     */
-    setComposing(composing: boolean): void;
-    /**
-     * Send what the user typed. See the `companionSubmit` command: the first
-     * message of a composer's life starts a conversation, the rest continue it,
-     * and none of them raise the app.
-     */
-    submit(message: string, startsConversation: boolean): void;
-    /**
-     * Publish the assistant's name and the tail of the open conversation.
+     * Publish the assistant's name and what the app's window knows about the
+     * turn and the sessions it is running.
      *
      * The one call here the surface's own route does *not* make: it comes from
      * the window holding the conversation, the way `voiceActivity.update` comes
@@ -587,15 +610,6 @@ export interface VellumBridge {
      * describe the surface differently.
      */
     showContextMenu(): void;
-    /**
-     * Open a link from the card in the user's browser.
-     *
-     * The surface's window denies every navigation and every `window.open`, so
-     * an anchor cannot follow itself: the URL is handed to main, which is the
-     * side allowed to open anything. Main validates the scheme, since a URL
-     * arriving over IPC is untrusted whatever drew the anchor.
-     */
-    openLink(url: string): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;
