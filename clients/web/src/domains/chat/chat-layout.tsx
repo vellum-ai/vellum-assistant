@@ -167,14 +167,26 @@ interface SideMenuRenderArgs {
  */
 export function ChatLayout({
   topBarAccessory,
+  topBarPill,
 }: {
   /**
    * Persistent element for the header's top-right, after the per-route
    * slot content (currently the notifications bell). Injected by
    * `routes.tsx` because its implementation lives in another domain,
    * which this layout must not import directly.
+   *
+   * Restated in the mobile drawer's glyph row, so only a control the drawer
+   * is meant to carry belongs here.
    */
   topBarAccessory?: ReactNode;
+  /**
+   * Persistent element for the header's top-right, ahead of
+   * {@link topBarAccessory}, and nowhere else. Its own slot because the
+   * drawer's glyph row seats icon-sized controls beside the close button and
+   * a full pill does not fit there; the accessory slot reaches that row and
+   * this one does not.
+   */
+  topBarPill?: ReactNode;
 } = {}) {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
@@ -1153,6 +1165,7 @@ export function ChatLayout({
           topBarRightSlot={
             <>
               {topBarRightSlot}
+              {topBarPill}
               {topBarAccessory}
             </>
           }

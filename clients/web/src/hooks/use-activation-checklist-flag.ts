@@ -24,6 +24,18 @@ export function useActivationChecklistArm(): string {
   );
 }
 
+/**
+ * Non-hook variant of {@link useActivationChecklistArm}, for the readers that
+ * run outside a render: telemetry tags every event with the arm and is called
+ * from event handlers and effects.
+ */
+export function readActivationChecklistArm(): string {
+  return (
+    useClientFeatureFlagStore.getState().stringFlags.activationChecklist ??
+    "off"
+  );
+}
+
 /** The task list an arm selects, or null when the surface is off. */
 export function resolveActivationListId(arm: string): ActivationListId | null {
   if (arm === "off" || arm === "") {

@@ -18,10 +18,11 @@
  * external `conversationKey`. One extra round trip buys an id that the link
  * and the send agree about.
  *
- * The seam lives in `utils/` so a feature domain can reach it without
- * importing the chat domain. The conversation is a real conversation: it is in
- * the sidebar list from the moment it exists, and opening it later streams
- * like any other.
+ * The seam lives in `lib/` rather than `utils/` because it does network I/O
+ * and reaches into the chat domain's message API, neither of which belongs in
+ * a directory reserved for pure functions. The conversation is a real
+ * conversation: it is in the sidebar list from the moment it exists, and
+ * opening it later streams like any other.
  */
 
 import {
@@ -43,7 +44,7 @@ export interface CreateBackgroundConversationArgs {
   /**
    * Copy to show when the failure carried no message of its own. Supplied by
    * the caller because the error is displayed by a feature surface and this
-   * seam sits in `utils/`, below any locale namespace a domain owns.
+   * seam sits below any locale namespace a domain owns.
    */
   fallback: string;
 }

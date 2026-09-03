@@ -14,7 +14,6 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 import {
@@ -31,62 +30,33 @@ import {
   ACTIVATION_PROGRESS_ALL_DONE,
   ACTIVATION_PROGRESS_DISMISSED,
   ACTIVATION_PROGRESS_EMPTY,
+  doneTaskProgress,
 } from "@/domains/activation/activation-test-fixtures";
+import {
+  installActivationFetchStub,
+  mockActivationProgress,
+  recordActivationFunnelEvents,
+  resetActivationFlagStore,
+  seedActivationIdentity,
+  setActivationArm,
+  type ActivationFetchStub,
+} from "@/domains/activation/activation-test-helpers";
 import { useActivationUiStore } from "@/domains/activation/activation-ui-store";
 import { getActivationList } from "@/domains/activation/catalog";
-import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
-import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-let progress: ActivationProgress | undefined;
+const progressMock = await mockActivationProgress();
+const funnel = await recordActivationFunnelEvents();
+const { events } = funnel;
 
-// Spread the real module: `mock.module` replaces it for every test file
-// sharing this process, so returning only the mocked export would erase the
-// rest for anything that loads it later.
-const progressModule =
-  await import("@/domains/activation/hooks/use-activation-progress");
-// Captured by value: a module namespace's bindings are live, so reading the
-// export back after the mock is installed would hand out the mock.
-const { useActivationProgress: realUseActivationProgress } = progressModule;
-mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
-  ...progressModule,
-  useActivationProgress: () => ({ data: progress }),
-}));
-
-// The mock outlives this file otherwise, and the surfaces that read the same
-// hook elsewhere (the Preferences entry point) would read this file's leftover
-// snapshot instead of their own.
+// Both mocks outlive this file otherwise, and the surfaces that read the same
+// modules elsewhere would read this file's leftovers instead of their own.
 afterAll(() => {
-  mock.module("@/domains/activation/hooks/use-activation-progress", () => ({
-    ...progressModule,
-    useActivationProgress: realUseActivationProgress,
-  }));
+  progressMock.restore();
+  funnel.restore();
 });
-
-/**
- * Telemetry is caught at its transport rather than at `emitActivationEvent`.
- * `mock.module` replaces a module for every test file sharing the process, and
- * `use-launch-activation-task.test.tsx` already claims
- * `@/utils/activation-telemetry`; taking the same module here would silently
- * erase its mock in a combined run.
- */
-interface FunnelEvent {
-  step_name?: string;
-  screen?: string;
-}
-
-const events: FunnelEvent[] = [];
-const ingestModule = await import("@/lib/telemetry/ingest");
-mock.module("@/lib/telemetry/ingest", () => ({
-  ...ingestModule,
-  postTelemetryEvents: (posted: readonly object[]) => {
-    events.push(...(posted as FunnelEvent[]));
-  },
-}));
 
 const { ActivationController } =
   await import("@/domains/activation/activation-controller");
@@ -96,44 +66,12 @@ const { ActivationSuggestionsPillHost } =
 const { starters } = getActivationList("smb");
 const ASSISTANT_ID = "asst-1";
 
-interface CapturedRequest {
-  url: string;
-  body: Record<string, unknown>;
-}
-
-const requests: CapturedRequest[] = [];
-const originalFetch = globalThis.fetch;
-let dismissStatus = 200;
-
-/** Records what the surfaces write, so a dismissal can be asserted on. */
-function installFetch(): void {
-  globalThis.fetch = (async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const url = input instanceof Request ? input.url : String(input);
-    let bodyText: string | undefined;
-    if (input instanceof Request) {
-      bodyText = await input.clone().text();
-    } else if (typeof init?.body === "string") {
-      bodyText = init.body;
-    }
-    requests.push({
-      url,
-      body: bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {},
-    });
-    const status = url.includes("/activation/dismiss") ? dismissStatus : 200;
-    return new Response("{}", {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }) as typeof fetch;
-}
+let fetchStub: ActivationFetchStub;
 
 /** The dismissals that reached `POST /v1/activation/dismiss`. */
 function dismissals(): Record<string, unknown>[] {
-  return requests
-    .filter((request) => request.url.includes("/activation/dismiss"))
+  return fetchStub
+    .matching("/activation/dismiss")
     .map((request) => request.body);
 }
 
@@ -157,55 +95,39 @@ function renderSurfaces(): ReturnType<typeof render> {
   );
 }
 
-function setArm(arm: string): void {
-  useClientFeatureFlagStore
-    .getState()
-    .setStringFlags({ activationChecklist: arm }, null);
-}
-
 beforeEach(() => {
-  events.length = 0;
-  requests.length = 0;
-  dismissStatus = 200;
-  installFetch();
-  progress = ACTIVATION_PROGRESS_EMPTY;
-  setArm("smb");
-  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
-  useAssistantIdentityStore
-    .getState()
-    .setIdentity("Vel", MIN_VERSION, ASSISTANT_ID);
+  funnel.clear();
+  fetchStub = installActivationFetchStub();
+  progressMock.set(ACTIVATION_PROGRESS_EMPTY);
+  setActivationArm("smb");
+  seedActivationIdentity(ASSISTANT_ID);
   useInChatOnboardingStore.setState({ prototypeActive: false });
   useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
-  useActivationUiStore.setState({
-    expandedTaskId: null,
-    showMore: false,
-    modalReopened: false,
-  });
+  useActivationUiStore.getState().resetTransientState();
 });
 
 afterEach(() => {
   cleanup();
-  globalThis.fetch = originalFetch;
+  resetActivationFlagStore();
+  fetchStub.restore();
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
 describe("ActivationController", () => {
   test("draws nothing when the flag arm is off", () => {
-    setArm("off");
+    setActivationArm("off");
     const { container } = renderSurfaces();
     expect(container.textContent).toBe("");
   });
 
   test("draws nothing when the daemon predates the routes", () => {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("Vel", "0.11.8", ASSISTANT_ID);
+    seedActivationIdentity(ASSISTANT_ID, "0.11.8");
     const { container } = renderSurfaces();
     expect(container.textContent).toBe("");
   });
 
   test("draws nothing until progress has loaded", () => {
-    progress = undefined;
+    progressMock.set(undefined);
     const { container } = renderSurfaces();
     expect(container.textContent).toBe("");
   });
@@ -234,7 +156,7 @@ describe("ActivationController", () => {
   });
 
   test("closing the celebration records it as the celebration", async () => {
-    progress = ACTIVATION_PROGRESS_ALL_DONE;
+    progressMock.set(ACTIVATION_PROGRESS_ALL_DONE);
     const { getByRole } = renderSurfaces();
     await act(async () => {
       fireEvent.click(getByRole("button", { name: "Show me the full list" }));
@@ -263,10 +185,7 @@ describe("ActivationController", () => {
     expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
 
     await act(async () => {
-      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
-      useAssistantIdentityStore
-        .getState()
-        .setIdentity("Vel", MIN_VERSION, "asst-2");
+      seedActivationIdentity("asst-2");
     });
     await waitFor(() => {
       expect(getByRole("button", { name: "Do it Later" })).toBeTruthy();
@@ -279,17 +198,14 @@ describe("ActivationController", () => {
       useActivationUiStore.setState({ showMore: true, expandedTaskId: "x" });
     });
     await act(async () => {
-      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
-      useAssistantIdentityStore
-        .getState()
-        .setIdentity("Vel", MIN_VERSION, "asst-2");
+      seedActivationIdentity("asst-2");
     });
     expect(useActivationUiStore.getState().showMore).toBe(false);
     expect(useActivationUiStore.getState().expandedTaskId).toBeNull();
   });
 
   test("a dismissal the daemon refused does not put the modal back", async () => {
-    dismissStatus = 500;
+    fetchStub.statuses["/activation/dismiss"] = 500;
     const { getByRole, queryByRole } = renderSurfaces();
     await act(async () => {
       fireEvent.click(getByRole("button", { name: "Do it Later" }));
@@ -298,14 +214,14 @@ describe("ActivationController", () => {
   });
 
   test("closing the celebration closes it at once too", () => {
-    progress = ACTIVATION_PROGRESS_ALL_DONE;
+    progressMock.set(ACTIVATION_PROGRESS_ALL_DONE);
     const { getByRole, queryByRole } = renderSurfaces();
     fireEvent.click(getByRole("button", { name: "Show me the full list" }));
     expect(queryByRole("button", { name: "Show me the full list" })).toBeNull();
   });
 
   test("shows the celebration once every starter is done", () => {
-    progress = ACTIVATION_PROGRESS_ALL_DONE;
+    progressMock.set(ACTIVATION_PROGRESS_ALL_DONE);
     const { getByRole, queryByRole } = renderSurfaces();
     expect(
       getByRole("button", { name: "Show me the full list" }),
@@ -314,9 +230,54 @@ describe("ActivationController", () => {
   });
 });
 
+/**
+ * The daemon owns whether a task is done and nothing else in the funnel is
+ * daemon-side, so the completion step is observed here, where the rest of the
+ * funnel is emitted.
+ */
+describe("activation completion telemetry", () => {
+  test("reports a task the daemon finishes while the session is open", () => {
+    const { rerender } = renderSurfaces();
+    expect(events.map((event) => event.step_name)).toEqual([
+      "activation_modal_shown",
+    ]);
+
+    act(() => {
+      progressMock.set({
+        ...ACTIVATION_PROGRESS_EMPTY,
+        tasks: { [starters[0]!.id]: doneTaskProgress() },
+      });
+    });
+    rerender(
+      <>
+        <ActivationSuggestionsPillHost />
+        <ActivationController />
+      </>,
+    );
+
+    const completions = events.filter(
+      (event) => event.step_name === "activation_task_completed",
+    );
+    expect(completions.map((event) => event.screen)).toEqual([
+      `smb/${starters[0]!.id}`,
+    ]);
+  });
+
+  // A reload after finishing a task must not re-report it: the first snapshot
+  // a session sees is the baseline, not a transition.
+  test("reports nothing for a task already done when the session opened", () => {
+    progressMock.set(ACTIVATION_PROGRESS_DISMISSED);
+    renderSurfaces();
+
+    expect(
+      events.filter((event) => event.step_name === "activation_task_completed"),
+    ).toEqual([]);
+  });
+});
+
 describe("ActivationSuggestionsPillHost", () => {
   test("shows the pill once the modal has been put off", () => {
-    progress = ACTIVATION_PROGRESS_DISMISSED;
+    progressMock.set(ACTIVATION_PROGRESS_DISMISSED);
     const { getByRole } = renderSurfaces();
     expect(
       getByRole("button", { name: "Suggestions, 1 of 3 done" }),
@@ -329,17 +290,17 @@ describe("ActivationSuggestionsPillHost", () => {
   });
 
   test("hides the pill once all three starters are done", () => {
-    progress = {
+    progressMock.set({
       ...ACTIVATION_PROGRESS_ALL_DONE,
       modalDismissedAt: "2026-09-02T10:00:00.000Z",
       allDoneShownAt: "2026-09-02T10:05:00.000Z",
-    };
+    });
     const { container } = renderSurfaces();
     expect(container.textContent).toBe("");
   });
 
   test("clicking the pill brings the modal back", () => {
-    progress = ACTIVATION_PROGRESS_DISMISSED;
+    progressMock.set(ACTIVATION_PROGRESS_DISMISSED);
     const { getByRole } = renderSurfaces();
     fireEvent.click(getByRole("button", { name: "Suggestions, 1 of 3 done" }));
     expect(useActivationUiStore.getState().modalReopened).toBe(true);
@@ -355,7 +316,7 @@ describe("ActivationSuggestionsPillHost", () => {
   // A modal reopened from the pill closes locally and nothing else: the
   // dismissal it would write is one the daemon already holds.
   test("closing a reopened modal writes no second dismissal", () => {
-    progress = ACTIVATION_PROGRESS_DISMISSED;
+    progressMock.set(ACTIVATION_PROGRESS_DISMISSED);
     const { getByRole, queryByRole } = renderSurfaces();
     fireEvent.click(getByRole("button", { name: "Suggestions, 1 of 3 done" }));
     fireEvent.click(getByRole("button", { name: "Do it Later" }));

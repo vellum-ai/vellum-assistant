@@ -28,7 +28,8 @@ import {
 } from "./catalog-icons";
 import listsData from "./lists.json";
 
-/** Icon tint, from the avatar palette (see PLAN section 4 for the tokens). */
+/** Icon tint, from the avatar palette. `activation-task-icon.tsx` owns the
+ * token pair each name resolves to. */
 export const ACTIVATION_COLORS = [
   "blue",
   "teal",
@@ -134,7 +135,7 @@ function toTask(id: string, raw: RawActivationTask): ActivationTask {
     // Link URLs are content. The one address the app owns elsewhere, the
     // downloads page, is pinned to `VELLUM_DOWNLOADS_URL` by `catalog.test.ts`
     // so the two cannot drift.
-    ...(raw.link ? { link: { ...raw.link } } : {}),
+    ...(raw.link ? { link: raw.link } : {}),
   };
 }
 

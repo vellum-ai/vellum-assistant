@@ -10,8 +10,8 @@
  *
  * The band inverts between themes, which no single token can express, so the
  * dark stories here are not redundant with the theme toolbar: they are the
- * check that the light ground's inset text has a counterpart that still reads
- * (PLAN A16/A25).
+ * check that the light ground's inset text has a counterpart that still
+ * reads.
  *
  * Every story runs against the real `smb` catalog and the wire shape
  * `GET /v1/activation/progress` returns. The launch path is live, so clicking
@@ -19,9 +19,11 @@
  * pretending to start one.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
+
+import { TOUCH_SURFACE_MEDIA_QUERY } from "@vellumai/design-library";
 
 import {
   ACTIVATION_PROGRESS_ALL_DONE,
@@ -57,6 +59,66 @@ const resetUiStore: Decorator = (Story) => (
     <Story />
   </FreshUiStore>
 );
+
+/** Swap `window.matchMedia`; `configurable` so the teardown can put it back. */
+function setMatchMedia(impl: typeof window.matchMedia): void {
+  Object.defineProperty(window, "matchMedia", {
+    value: impl,
+    configurable: true,
+    writable: true,
+  });
+}
+
+/**
+ * Forces the sheet branch of `useTouchSurface` for the duration of the story.
+ *
+ * The `sbMobile` viewport narrows the preview iframe and nothing else, and the
+ * touch-surface signal is a narrow viewport AND a coarse pointer, so a desktop
+ * browser running a phone-width story still gets the modal. Overriding the
+ * query is the only seam the library offers: it reads `window.matchMedia`
+ * directly rather than through a provider.
+ */
+function ForceTouchSurface({ children }: { children: ReactNode }): ReactNode {
+  // Installed from a `useState` initializer, which runs exactly once and during
+  // this component's render, i.e. before any child samples the query. An
+  // identity check against the saved original would not work here: `bind`
+  // returns a new function object, so it never compares equal to the global.
+  const [original] = useState(() => {
+    const saved = window.matchMedia.bind(window);
+    setMatchMedia(((query: string) => {
+      const result = saved(query);
+      if (query !== TOUCH_SURFACE_MEDIA_QUERY) {
+        return result;
+      }
+      return {
+        ...result,
+        media: query,
+        matches: true,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      } as MediaQueryList;
+    }) as typeof window.matchMedia);
+    return saved;
+  });
+  useEffect(() => () => setMatchMedia(original), [original]);
+  return <>{children}</>;
+}
+
+/** Phone: the `sbMobile` viewport plus the touch-surface signal behind it. */
+const phone = {
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+  decorators: [
+    (Story: () => ReactNode) => (
+      <ForceTouchSurface>
+        <Story />
+      </ForceTouchSurface>
+    ),
+  ],
+} satisfies Partial<StoryObj<typeof ActivationWelcomeModal>>;
 
 /**
  * Every starter finished with nothing to show for it: no file, no step count.
@@ -106,9 +168,7 @@ export const Light800DarkHeaderDark: Story = {
 };
 
 /** The canonical frame as a bottom sheet, which is what a phone gets. */
-export const Light800DarkHeaderMobile: Story = {
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
-};
+export const Light800DarkHeaderMobile: Story = { ...phone };
 
 /**
  * One task launched and still running. The row it came from has collapsed to
@@ -127,8 +187,8 @@ export const Light799WorkingDark: Story = {
 
 /** The working state as a sheet. */
 export const Light799WorkingMobile: Story = {
+  ...phone,
   args: { progress: ACTIVATION_PROGRESS_ONE_WORKING },
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
 /**
@@ -148,8 +208,8 @@ export const Light789AllDoneWithArtifactsDark: Story = {
 
 /** The celebration as a sheet. */
 export const Light789AllDoneWithArtifactsMobile: Story = {
+  ...phone,
   args: { variant: "all-done", progress: ACTIVATION_PROGRESS_ALL_DONE },
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
 /**
@@ -168,8 +228,8 @@ export const Light789AllDoneCollapsedDark: Story = {
 
 /** The same, as a sheet. */
 export const Light789AllDoneCollapsedMobile: Story = {
+  ...phone,
   args: { variant: "all-done", progress: ALL_DONE_BARE },
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
 /** Opens the disclosure the way a reader does, by clicking it. */
@@ -180,9 +240,7 @@ const openShowMore: Story["play"] = async ({ canvasElement }) => {
   await userEvent.click(
     await screen.findByRole("button", { name: /Show More/ }),
   );
-  await expect(
-    await screen.findByText("Try computer use"),
-  ).toBeInTheDocument();
+  await expect(await screen.findByText("Try computer use")).toBeInTheDocument();
 };
 
 /** The rest of the catalog, opened inline. The body scrolls; the header does not. */
@@ -198,7 +256,7 @@ export const ShowMoreExpandedDark: Story = {
 
 /** The expanded catalog in the sheet, which is where the scroll matters most. */
 export const ShowMoreExpandedMobile: Story = {
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
+  ...phone,
   play: openShowMore,
 };
 
@@ -225,6 +283,6 @@ export const TodoExpandedWithLinkDark: Story = {
 
 /** The linked row in the sheet. */
 export const TodoExpandedWithLinkMobile: Story = {
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
+  ...phone,
   play: openComputerUse,
 };

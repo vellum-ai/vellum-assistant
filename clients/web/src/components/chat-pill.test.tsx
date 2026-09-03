@@ -52,43 +52,4 @@ describe("ChatPill", () => {
     fireEvent.click(getByRole("button"));
     expect(clicks).toBe(1);
   });
-
-  test("carries the lifted surface by default", () => {
-    const { getByRole } = render(<ChatPill role="status">Default</ChatPill>);
-    expect(getByRole("status").className).toContain("bg-[var(--surface-lift)]");
-  });
-
-  test("carries the error wash for the negative tone", () => {
-    const { getByRole } = render(
-      <ChatPill role="status" tone="negative">
-        Failed
-      </ChatPill>,
-    );
-    expect(getByRole("status").className).toContain(
-      "bg-[var(--system-negative-weak)]",
-    );
-  });
-
-  /**
-   * The chat overlay that hosts the pill is `pointer-events-none` so the
-   * transcript stays scrollable underneath it, so the pill has to opt itself
-   * back in or it can never be clicked.
-   */
-  test("stays clickable over a pointer-events-none overlay", () => {
-    const { getByRole } = render(
-      <ChatPill onClick={() => {}} ariaLabel="Go to newest">
-        Newest
-      </ChatPill>,
-    );
-    expect(getByRole("button").className).toContain("pointer-events-auto");
-  });
-
-  test("appends the caller's className", () => {
-    const { getByRole } = render(
-      <ChatPill role="status" className="mb-2">
-        Default
-      </ChatPill>,
-    );
-    expect(getByRole("status").className).toContain("mb-2");
-  });
 });

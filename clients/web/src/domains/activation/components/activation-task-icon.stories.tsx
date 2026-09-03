@@ -32,9 +32,20 @@ type Story = StoryObj<typeof ActivationTaskIcon>;
 /** One task's glyph on its own accent. */
 export const Default: Story = {};
 
-/** What a finished task swaps to: a check on the positive wash (PLAN A21). */
+/** What a finished task swaps to: a check on the positive wash. */
 export const Done: Story = {
   args: { state: "done" },
+};
+
+/** The finished treatment on the dark ground, where the check has to hold. */
+export const DoneDark: Story = {
+  args: { state: "done" },
+  globals: { theme: "dark" },
+};
+
+/** A single disc at phone width, where it sits beside a two-line description. */
+export const DefaultMobile: Story = {
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
 /** Every accent the catalog can name, in catalog order. */
@@ -55,6 +66,12 @@ export const AllColorsDark: Story = {
   globals: { theme: "dark" },
 };
 
+/** The row of accents at phone width, where they are drawn smallest. */
+export const AllColorsMobile: Story = {
+  ...AllColors,
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+};
+
 /** The glyphs the three `smb` starters carry, beside the done treatment. */
 export const StarterGlyphs: Story = {
   parameters: { controls: { disable: true } },
@@ -66,4 +83,16 @@ export const StarterGlyphs: Story = {
       <ActivationTaskIcon {...args} icon={Calendar} color="teal" state="done" />
     </div>
   ),
+};
+
+/** The starters' glyphs on the dark ground. */
+export const StarterGlyphsDark: Story = {
+  ...StarterGlyphs,
+  globals: { theme: "dark" },
+};
+
+/** The starters' glyphs at phone width. */
+export const StarterGlyphsMobile: Story = {
+  ...StarterGlyphs,
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };

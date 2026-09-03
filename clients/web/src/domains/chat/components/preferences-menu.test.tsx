@@ -245,21 +245,30 @@ mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
 }));
 
 // The funnel emitter posts to the telemetry ingest, which has nowhere to go
-// in a test process. What the menu owns is that the event is emitted with the
-// arm and list it opened, so the emitter is captured rather than run.
-const activationEvents: Array<{
-  event: string;
-  arm: string;
-  listId: string | null;
-}> = [];
+// in a test process. What the menu owns is that opening the list emits the
+// event at all, so the emitter is captured rather than run.
+//
+// Spread and restored like every other module mock here: `mock.module`
+// replaces a module for the whole process, and `use-launch-activation-task
+// .test.tsx` asserts on the same emitter.
+const activationEvents: string[] = [];
+const telemetryModule = await import("@/utils/activation-telemetry");
+// Captured by value: a module namespace's bindings are live, so reading the
+// export back after the mock is installed would hand out the mock.
+const { emitActivationEvent: realEmitActivationEvent } = telemetryModule;
 mock.module("@/utils/activation-telemetry", () => ({
-  emitActivationEvent: (
-    event: string,
-    context: { arm: string; listId: string | null },
-  ) => {
-    activationEvents.push({ event, ...context });
+  ...telemetryModule,
+  emitActivationEvent: (event: string) => {
+    activationEvents.push(event);
   },
 }));
+
+afterAll(() => {
+  mock.module("@/utils/activation-telemetry", () => ({
+    ...telemetryModule,
+    emitActivationEvent: realEmitActivationEvent,
+  }));
+});
 
 mock.module("@/domains/chat/components/credits-card", () => ({
   CreditsCard: ({
@@ -599,16 +608,10 @@ describe("PreferencesMenu Inspiration List", () => {
     });
 
     expect(navigateArgs).toEqual([routes.activationList]);
-    expect(activationEvents).toEqual([
-      { event: "activation_list_opened", arm: "smb", listId: "smb" },
-    ]);
+    expect(activationEvents).toEqual(["activation_list_opened"]);
     expect(screen.queryByTestId("preferences-usage")).toBeNull();
   });
 
-  // The daemon freezes a list on the first write, and the arm can be
-  // re-bucketed after that. The funnel keys its `screen` dimension off this
-  // event, so an arm-derived id would file the open under a list the user was
-  // never shown.
   // A frozen id from a newer client that this bundle has no catalog for must
   // not enable an empty list; the entry point stays hidden.
   test("hides the entry point when the frozen list is unknown here", async () => {
@@ -626,7 +629,11 @@ describe("PreferencesMenu Inspiration List", () => {
     expect(activationEvents).toEqual([]);
   });
 
-  test("records the frozen list, not the arm the user was re-bucketed into", async () => {
+  // The daemon freezes a list on the first write and the arm can be
+  // re-bucketed after that, so the entry point follows the freeze. Which list
+  // the event is filed under is `use-activation-enabled.test.tsx`'s to prove;
+  // the emitter resolves it, and the menu tells it nothing.
+  test("keeps the entry point on a frozen list the arm no longer names", async () => {
     enableActivationList("parent");
     activationProgressRef.data = {
       version: 1,
@@ -642,9 +649,7 @@ describe("PreferencesMenu Inspiration List", () => {
       await Promise.resolve();
     });
 
-    expect(activationEvents).toEqual([
-      { event: "activation_list_opened", arm: "parent", listId: "smb" },
-    ]);
+    expect(activationEvents).toEqual(["activation_list_opened"]);
   });
 
   test("sits above Share Feedback, as Figma orders the menu", async () => {

@@ -39,6 +39,11 @@
  * two prompts in one thread and give the daemon two tasks pointing at the same
  * turn.
  *
+ * The funnel's arm and list are snapshotted at the click rather than read when
+ * the launch settles. Three round trips separate the two, and the user can
+ * switch assistants across them, which would file the launch under whichever
+ * checklist they landed on.
+ *
  * Launches run concurrently and are tracked as a set, because the list lets the
  * user start a second task while the first is still in flight. A single pending
  * id would clear on whichever launch settled first and hand every other row
@@ -48,68 +53,50 @@
  */
 
 import { useCallback, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import {
-  activationProgressGetQueryKey,
-  activationProgressGetSetQueryData,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { activationProgressGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
 import { activationTasksByTaskIdStartPost } from "@/generated/daemon/sdk.gen";
-import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { emitActivationEvent } from "@/utils/activation-telemetry";
-import { extractErrorMessage } from "@/utils/api-errors";
+import { useTranslation } from "@/i18n";
 import {
   createBackgroundConversation,
   discardBackgroundConversation,
   sendBackgroundPrompt,
-} from "@/utils/background-conversation";
+} from "@/lib/background-conversation";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  captureActivationTelemetryContext,
+  emitActivationEvent,
+} from "@/utils/activation-telemetry";
+import { extractErrorMessage } from "@/utils/api-errors";
 
 import { readRawActivationTask } from "../catalog";
 
-import type {
-  ActivationProgress,
-  ActivationTaskProgress,
+import {
+  activationProgressQueryKey,
+  invalidateActivationProgress,
+  type ActivationProgress,
+  type ActivationTaskProgress,
 } from "./use-activation-progress";
 
 /**
- * How far along each status is. A task only ever moves forward, so the two
- * records for one task can be compared by rank alone.
- */
-const STATUS_RANK: Record<ActivationTaskProgress["status"], number> = {
-  started: 0,
-  done: 1,
-};
-
-/**
- * The further along of the two records for one task.
+ * Fold an answered snapshot's tasks into the cached ones, task by task.
  *
  * The daemon answers a start with a snapshot taken while it handled that
  * start, so a task another launch has since finished can come back as
- * `started` in an answer the cache is already newer than. Taking the answer
- * wholesale would un-finish it, and the row would offer a done task back.
+ * `started` in an answer the cache is already newer than. A task only ever
+ * moves forward, and `done` is the end of the road, so a cached `done` is the
+ * only record an answer must not overwrite: taking the answer wholesale would
+ * un-finish it, and the row would offer a done task back.
  */
-function furtherAlong(
-  cached: ActivationTaskProgress | undefined,
-  answered: ActivationTaskProgress,
-): ActivationTaskProgress {
-  if (!cached) {
-    return answered;
-  }
-  return STATUS_RANK[cached.status] > STATUS_RANK[answered.status]
-    ? cached
-    : answered;
-}
-
-/** Fold an answered snapshot's tasks into the cached ones, task by task. */
 function mergeAnsweredTasks(
   cached: ActivationProgress["tasks"],
   answered: ActivationProgress["tasks"],
 ): ActivationProgress["tasks"] {
   const merged: ActivationProgress["tasks"] = { ...cached };
   for (const [taskId, record] of Object.entries(answered)) {
-    merged[taskId] = furtherAlong(merged[taskId], record);
+    const held: ActivationTaskProgress | undefined = merged[taskId];
+    merged[taskId] = held?.status === "done" ? held : record;
   }
   return merged;
 }
@@ -302,10 +289,12 @@ export interface UseLaunchActivationTask {
     taskId: string,
     promptOverride?: string,
   ) => Promise<LaunchActivationTaskResult>;
-  /** Every task whose launch is in flight, for the rows' pending states. */
+  /**
+   * Every task whose launch is in flight, for the rows' pending states. The
+   * only shape on offer: a `has` on one set cannot drift from a predicate
+   * built beside it.
+   */
   pendingTaskIds: ReadonlySet<string>;
-  /** Whether `taskId`'s own launch is still in flight. */
-  isPending: (taskId: string) => boolean;
 }
 
 const NONE_PENDING: ReadonlySet<string> = new Set();
@@ -314,7 +303,6 @@ export function useLaunchActivationTask(
   listId: string,
 ): UseLaunchActivationTask {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const arm = useActivationChecklistArm();
   const queryClient = useQueryClient();
   const { t } = useTranslation("activation");
   const [pendingTaskIds, setPendingTaskIds] =
@@ -343,6 +331,9 @@ export function useLaunchActivationTask(
       // field, so the turn is typed engagement and activation analytics has to
       // count it. Only the catalog prompt is scripted.
       const scripted = !override;
+      // Read before the first await, and handed to every event this launch
+      // emits, so a switch mid-launch cannot refile it.
+      const telemetryContext = captureActivationTelemetryContext(listId);
 
       // The row is already working. Launching again would open a second
       // conversation for one task and leave the daemon two rows to mark done.
@@ -377,6 +368,12 @@ export function useLaunchActivationTask(
         }
         // The daemon holds the link from here, whatever the send does next, so
         // the row is guarded and the read is refreshed before either can end.
+        // A read already in flight is cancelled first: it was issued before
+        // the link existed, so its answer would land on top of the seed and
+        // hand the row back as Todo.
+        await queryClient.cancelQueries({
+          queryKey: activationProgressQueryKey(assistantId),
+        });
         seedStartedTask(
           queryClient,
           assistantId,
@@ -384,11 +381,7 @@ export function useLaunchActivationTask(
           conversationId,
           link.progress,
         );
-        void queryClient.invalidateQueries({
-          queryKey: activationProgressGetQueryKey({
-            path: { assistant_id: assistantId },
-          }),
-        });
+        invalidateActivationProgress(queryClient, assistantId);
 
         let sent;
         try {
@@ -419,20 +412,19 @@ export function useLaunchActivationTask(
           };
         }
 
-        emitActivationEvent("activation_task_started", { arm, listId, taskId });
+        emitActivationEvent(
+          "activation_task_started",
+          { taskId },
+          telemetryContext,
+        );
         return { ok: true, conversationId };
       } finally {
         inFlight.current.delete(taskId);
         setPendingTaskIds(new Set(inFlight.current));
       }
     },
-    [arm, assistantId, listId, queryClient, t],
+    [assistantId, listId, queryClient, t],
   );
 
-  const isPending = useCallback(
-    (taskId: string) => pendingTaskIds.has(taskId),
-    [pendingTaskIds],
-  );
-
-  return { launch, pendingTaskIds, isPending };
+  return { launch, pendingTaskIds };
 }
