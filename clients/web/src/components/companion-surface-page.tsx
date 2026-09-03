@@ -41,7 +41,6 @@ import type {
   CompanionWatchRetro,
   CompanionDictating,
   VoiceActivityState,
-  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -119,13 +118,6 @@ export function CompanionSurfacePage() {
   // read, which is that window's answer about its assistant's version. It
   // decides whether Teach asks first or starts at once.
   const [watchTargets, setWatchTargets] = useState(false);
-  // What a running session actually reads, or undefined for the whole screen.
-  // Its own state for the reason `watching` is: a shell that predates the
-  // field or a window whose flags have not synced yet reads as no target
-  // rather than a stale one.
-  const [captureTarget, setCaptureTarget] = useState<
-    WatchCaptureTarget | undefined
-  >(undefined);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
@@ -207,7 +199,6 @@ export function CompanionSurfacePage() {
       // from the user is a promise about what will be read, and a window that
       // has not said its assistant can keep it is one that cannot.
       setWatchTargets(state.watchTargets === true);
-      setCaptureTarget(state.captureTarget);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -678,7 +669,6 @@ export function CompanionSurfacePage() {
           picking ? (
             <CompanionCapturePicker
               sources={captureSources}
-              current={watching ? captureTarget : undefined}
               cardGrowth={cardGrowth}
               avatarBox={avatarBox}
               optionsBox={optionsBox}

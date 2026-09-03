@@ -1,15 +1,9 @@
 import { AppWindow, Check, Monitor } from "lucide-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { type CSSProperties, type ReactNode, type Ref } from "react";
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
+import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
   CompanionCapturePick,
@@ -45,17 +39,6 @@ import type {
  * hand between one open and the next.
  */
 const CARD_WIDTH = 260;
-
-/**
- * The most of the card the host's reservation will show, in the units the
- * layout is stated in.
- *
- * The canvas reserves `COMPANION_BASE_CARD_HEIGHT` on the card side of the
- * creature, and the step off the bar takes some of it. What is left is the
- * list's, and a desktop with more on it scrolls inside that rather than
- * growing the card past the edge of a window that never resizes.
- */
-const LIST_MAX_HEIGHT = 224;
 
 /** How many rows the loading state stands in for, in each of its two groups. */
 const SKELETON_ROWS = 3;
@@ -129,8 +112,6 @@ export function CompanionCapturePicker({
     sources.tabs.length === 0 &&
     sources.windows.length === 0;
 
-  const [listRef, overflowing] = useOverflowFade();
-
   return (
     <div
       ref={cardRef}
@@ -147,136 +128,107 @@ export function CompanionCapturePicker({
         event.stopPropagation();
       }}
     >
-      <div className="relative">
-        <div
-          data-slot="companion-capture-picker-list"
-          className="flex flex-col overflow-y-auto px-1.5"
-          style={{ maxHeight: LIST_MAX_HEIGHT }}
-        >
-          <div ref={listRef} className="flex flex-col">
-            {sources === null && <SkeletonList />}
-            {sources !== null && sources.displays.length > 0 && (
-              <Section title={t("companionSurface.captureScreens")} first>
-                {sources.displays.map((display) => (
-                  <Row
-                    key={`display-${display.displayId}`}
-                    icon={<Monitor className="size-4 shrink-0 text-white/70" />}
-                    title={t("companionSurface.captureScreen", {
-                      n: display.index + 1,
-                    })}
-                    current={
-                      current?.kind === "display" &&
-                      current.displayId === display.displayId
-                    }
-                    onClick={() => {
-                      onPick?.({
-                        kind: "display",
-                        displayId: display.displayId,
-                      });
-                    }}
-                  />
-                ))}
-              </Section>
-            )}
-            {sources !== null && sources.tabs.length > 0 && (
-              <Section
-                title={t("companionSurface.captureTabs")}
-                first={sources.displays.length === 0}
-              >
-                {sources.tabs.map((tab) => (
-                  <Row
-                    key={`tab-${tab.chromeWindowId}-${tab.tabIndex}`}
-                    icon={<SourceIcon icon={tab.icon} />}
-                    title={tab.title}
-                    onClick={() => {
-                      onPick?.({
-                        kind: "tab",
-                        chromeWindowId: tab.chromeWindowId,
-                        tabIndex: tab.tabIndex,
-                      });
-                    }}
-                  />
-                ))}
-              </Section>
-            )}
-            {sources !== null && sources.windows.length > 0 && (
-              <Section
-                title={t("companionSurface.captureWindows")}
-                first={
-                  sources.displays.length === 0 && sources.tabs.length === 0
-                }
-              >
-                {sources.windows.map((window) => (
-                  <Row
-                    key={`window-${window.windowId}`}
-                    icon={<SourceIcon icon={window.icon} />}
-                    // The app's name stands in for a window that has none of its
-                    // own, which is common enough (a palette, a player) that a row
-                    // reading as blank would be a row nobody could pick on purpose.
-                    title={window.title === "" ? window.app : window.title}
-                    detail={window.title === "" ? undefined : window.app}
-                    current={
-                      current?.kind === "window" &&
-                      current.windowId === window.windowId
-                    }
-                    onClick={() => {
-                      onPick?.({ kind: "window", windowId: window.windowId });
-                    }}
-                  />
-                ))}
-              </Section>
-            )}
-            {empty && (
-              <span className="px-2 py-3 text-[12px] text-white/50">
-                {t("companionSurface.captureNothing")}
-              </span>
-            )}
-          </div>
+      {/*
+       * `max-h-56` (224px) is the most of the card the host's reservation
+       * will show: the canvas reserves `COMPANION_BASE_CARD_HEIGHT` on the
+       * card side of the creature, and the step off the bar takes some of
+       * it. What is left is the list's, and a desktop with more on it
+       * scrolls inside that rather than growing the card past the edge of a
+       * window that never resizes.
+       *
+       * `ScrollShadow` fades the bottom edge only while content is actually
+       * hidden past it, from the real scroll position rather than a content-
+       * height guess, so the hint disappears once the user scrolls to the
+       * last row. It also hides the scrollbar the same way the surface hides
+       * every other one: a bottom fade already carries the "there is more"
+       * hint a visible thumb would duplicate.
+       */}
+      <ScrollShadow
+        className="max-h-56 flex-col px-1.5"
+        size={24}
+        fadeEdges="end"
+        hideScrollBar
+      >
+        <div className="flex flex-col">
+          {sources === null && <SkeletonList />}
+          {sources !== null && sources.displays.length > 0 && (
+            <Section title={t("companionSurface.captureScreens")} first>
+              {sources.displays.map((display) => (
+                <Row
+                  key={`display-${display.displayId}`}
+                  icon={<Monitor className="size-4 shrink-0 text-white/70" />}
+                  title={t("companionSurface.captureScreen", {
+                    n: display.index + 1,
+                  })}
+                  current={
+                    current?.kind === "display" &&
+                    current.displayId === display.displayId
+                  }
+                  onClick={() => {
+                    onPick?.({
+                      kind: "display",
+                      displayId: display.displayId,
+                    });
+                  }}
+                />
+              ))}
+            </Section>
+          )}
+          {sources !== null && sources.tabs.length > 0 && (
+            <Section
+              title={t("companionSurface.captureTabs")}
+              first={sources.displays.length === 0}
+            >
+              {sources.tabs.map((tab) => (
+                <Row
+                  key={`tab-${tab.chromeWindowId}-${tab.tabIndex}`}
+                  icon={<SourceIcon icon={tab.icon} />}
+                  title={tab.title}
+                  onClick={() => {
+                    onPick?.({
+                      kind: "tab",
+                      chromeWindowId: tab.chromeWindowId,
+                      tabIndex: tab.tabIndex,
+                    });
+                  }}
+                />
+              ))}
+            </Section>
+          )}
+          {sources !== null && sources.windows.length > 0 && (
+            <Section
+              title={t("companionSurface.captureWindows")}
+              first={sources.displays.length === 0 && sources.tabs.length === 0}
+            >
+              {sources.windows.map((window) => (
+                <Row
+                  key={`window-${window.windowId}`}
+                  icon={<SourceIcon icon={window.icon} />}
+                  // The app's name stands in for a window that has none of its
+                  // own, which is common enough (a palette, a player) that a row
+                  // reading as blank would be a row nobody could pick on purpose.
+                  title={window.title === "" ? window.app : window.title}
+                  detail={window.title === "" ? undefined : window.app}
+                  current={
+                    current?.kind === "window" &&
+                    current.windowId === window.windowId
+                  }
+                  onClick={() => {
+                    onPick?.({ kind: "window", windowId: window.windowId });
+                  }}
+                />
+              ))}
+            </Section>
+          )}
+          {empty && (
+            <span className="px-2 py-3 text-[12px] text-white/50">
+              {t("companionSurface.captureNothing")}
+            </span>
+          )}
         </div>
-        {/* A hint that the list keeps going, not a scrollbar: the card never
-          grows past what the canvas reserves, so what does not fit is read by
-          scrolling rather than by resizing. Only drawn once the content
-          actually overflows, so a short list keeps its own last row crisp. */}
-        {overflowing && (
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 rounded-b-2xl bg-gradient-to-t from-[#17181b] to-transparent"
-            aria-hidden
-          />
-        )}
-      </div>
+      </ScrollShadow>
     </div>
   );
-}
-
-/**
- * Whether the list's own content is taller than the room it is given, so the
- * card can hint at what scrolling reveals instead of only stating it never
- * changes.
- *
- * The ref this hands back belongs on an unconstrained wrapper *inside* the
- * scrolling list, not the scrolling element itself: the list's own box is
- * clamped to {@link LIST_MAX_HEIGHT}, so it never resizes when its content
- * does, and a `ResizeObserver` on it would never fire for the one change this
- * is watching for. The wrapper's natural height against that same clamp is
- * the comparison that answers it.
- */
-function useOverflowFade(): [Ref<HTMLDivElement>, boolean] {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [overflowing, setOverflowing] = useState(false);
-  useEffect(() => {
-    const element = ref.current;
-    if (element === null) {
-      return;
-    }
-    const observer = new ResizeObserver(([entry]) => {
-      setOverflowing(entry.contentRect.height > LIST_MAX_HEIGHT);
-    });
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-  return [ref, overflowing];
 }
 
 /**
