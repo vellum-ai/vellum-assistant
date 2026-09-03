@@ -192,17 +192,17 @@ export type VoiceModeChord =
 /**
  * Which binding an edge came from, and what a pair of them means.
  *
- * `fnPushToTalk` and `voiceModeChord` are completed taps, reported as a
- * `down`/`up` pair once the keys are already back up: a tap is only known to be
- * one after it ends, so the pair says "a tap happened" rather than bracketing
- * anything. Consumers read the `down` and discard the `up`.
+ * `voiceModeChord` is a completed tap (the Windows helper), reported as a
+ * `down`/`up` pair once the keys are already back up: a tap is only known to
+ * be one after it ends, so the pair says "a tap happened" rather than
+ * bracketing anything. Consumers read the `down` and discard the `up`.
  *
- * `modifierHold` brackets a hold. `down` arrives while the keys are still down
- * and `up` when they are not, so the two edges are a span, and something that
- * has to run for exactly as long as the keys are held can run across it.
+ * `modifierHold` brackets a hold (the macOS helper). `down` arrives while the
+ * keys are still down and `up` when they are not, so the two edges are a
+ * span, and something that has to run for exactly as long as the keys are
+ * held can run across it.
  */
-export type HotkeyEventKind =
-  "fnPushToTalk" | "voiceModeChord" | "modifierHold";
+export type HotkeyEventKind = "voiceModeChord" | "modifierHold";
 
 /**
  * Why a `modifierHold` closed.
@@ -242,10 +242,11 @@ export interface HotkeyEvent {
   reason?: ModifierHoldUpReason;
 }
 
-export type FnPushToTalkResult =
+/** Whether a helper took a binding, or why it did not. */
+export type HotkeyRegistrationResult =
   { ok: true; enabled: boolean } | { ok: false; reason: string };
 
-export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
+export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
 /**
  * The binding a hold is watched on: every modifier of the set down together,
@@ -254,7 +255,7 @@ export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
 export type ModifierHold =
   { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
-export type ModifierHoldRegistrationResult = FnPushToTalkResult;
+export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
 // ---------------------------------------------------------------------------
 // System permissions
