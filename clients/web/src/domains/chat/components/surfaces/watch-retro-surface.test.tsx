@@ -363,7 +363,9 @@ describe("WatchRetroSurface", () => {
     expect(screen.getByText("Done")).toBeDefined();
 
     // The summary the card sent is what the daemon echoes back and what a
-    // restored conversation carries, so it wins once it is there.
+    // restored conversation carries. It is matched back to its ending and
+    // drawn from the catalog, so the row reads in the viewer's locale rather
+    // than the locale of whoever answered.
     rerender(
       <CardSurface
         surface={{

@@ -178,14 +178,22 @@ interface CompletionStyle {
 
 /**
  * How each ending is drawn once the surface is completed: the glyph, its
- * colour, and the catalog key for the line beside it. `answer` is the one
- * success and `discard` is a void, so both borrow the tones every other
- * completed card uses. `not_right` is neither: the turn picks it up and asks
- * what was off, so it reads as a message sent.
+ * colour, the catalog key for the line beside it, and the summary the action
+ * carries to the daemon. `answer` is the one success and `discard` is a void,
+ * so both borrow the tones every other completed card uses. `not_right` is
+ * neither: the turn picks it up and asks what was off, so it reads as a
+ * message sent.
+ *
+ * `summary` is a fixed English label rather than the catalog string, because
+ * it is persisted with the conversation and every other completion summary
+ * the daemon writes ("Completed", "Cancelled", "Denied") is English too. The
+ * row translates it back through `summaryKey` at render time, so a card
+ * answered in one locale still reads in whichever locale opens it.
  */
 const OUTCOME_STYLE: Record<
   WatchRetroOutcome,
   CompletionStyle & {
+    summary: string;
     summaryKey:
       | "watchRetroSurface.doneSaved"
       | "watchRetroSurface.doneNotRight"
@@ -194,15 +202,18 @@ const OUTCOME_STYLE: Record<
 > = {
   answer: {
     ...COMPLETION_TONE_STYLE.success,
+    summary: "Skill saved",
     summaryKey: "watchRetroSurface.doneSaved",
   },
   not_right: {
     Icon: MessageSquareWarning,
     colorClass: "text-[color:var(--content-quiet)]",
+    summary: "Flagged as not right",
     summaryKey: "watchRetroSurface.doneNotRight",
   },
   discard: {
     ...COMPLETION_TONE_STYLE.neutral,
+    summary: "Not saved",
     summaryKey: "watchRetroSurface.doneDiscarded",
   },
 };
@@ -309,10 +320,10 @@ export function WatchRetroSurface({
           // answer goes out in this one payload. Without it the card would
           // stay answerable after it had been answered.
           _completeSurface: true,
-          // The line the completed row shows. Without it the daemon summarises
-          // the completion as a bare "Completed", and that is what history
-          // would restore in place of what actually happened.
-          _completionSummary: t(OUTCOME_STYLE[actionId].summaryKey),
+          // What the daemon records as the completion. Without it the
+          // completion is summarised as a bare "Completed", and that is what
+          // history would restore in place of what actually happened.
+          _completionSummary: OUTCOME_STYLE[actionId].summary,
         });
       } finally {
         // Released unconditionally, matching `SurfaceContainer`. A rejection is
@@ -324,7 +335,7 @@ export function WatchRetroSurface({
         setSubmitting(false);
       }
     },
-    [onAction, questions, submitting, surface.surfaceId, t],
+    [onAction, questions, submitting, surface.surfaceId],
   );
 
   /**
@@ -551,11 +562,12 @@ export function WatchRetroSurface({
  * completed surface with neither, which is a card answered elsewhere before
  * this client learned the template, still says it is done.
  *
- * The glyph follows the ending. On a restored card the ending is not known
- * directly, so it is read back off the summary: the card wrote that summary
- * from its own catalog, so a match is exact. A summary the card did not
- * write, such as a bare "Completed" from a daemon that ignored the request,
- * takes the tone every other completed card would infer from it.
+ * The glyph and the wording follow the ending. On a restored card the ending
+ * is not known directly, so it is read back off the persisted summary, which
+ * the card wrote from its own fixed labels, and the line is then drawn from
+ * the catalog in the current locale. A summary the card did not write, such
+ * as a bare "Completed" from a daemon that ignored the request, is shown as
+ * it is and takes the tone every other completed card would infer from it.
  */
 function CompletedRow({
   heading,
@@ -572,17 +584,15 @@ function CompletedRow({
   const resolvedOutcome =
     outcome ??
     OUTCOMES.find(
-      (candidate) => summary === t(OUTCOME_STYLE[candidate].summaryKey),
+      (candidate) => summary === OUTCOME_STYLE[candidate].summary,
     ) ??
     null;
   const style: CompletionStyle = resolvedOutcome
     ? OUTCOME_STYLE[resolvedOutcome]
     : COMPLETION_TONE_STYLE[tone ?? inferCompletionTone(summary)];
-  const line =
-    summary ||
-    (resolvedOutcome
-      ? t(OUTCOME_STYLE[resolvedOutcome].summaryKey)
-      : t("surfaceRouter.done"));
+  const line = resolvedOutcome
+    ? t(OUTCOME_STYLE[resolvedOutcome].summaryKey)
+    : summary || t("surfaceRouter.done");
 
   return (
     <Card padding="sm" bordered>
