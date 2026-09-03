@@ -255,10 +255,13 @@ export interface NativeFrameSource {
    * about the pair changes, so what reaches the gate is a properly primed
    * frame rather than a lone capture with no motion baseline.
    *
-   * Ignored while a pair for this run is already out, since that pair is the
-   * fresh one and a second beside it would queue behind it on the bridge and
-   * blow its own gap bound. Ignored on a source that is not polling: a stopped
-   * source samples nothing, however it is asked.
+   * While a pair for this run is already out, the ask is remembered rather
+   * than raced: that pair's captures predate the ask, so the gate will not
+   * spend an arm on them, and a second pair beside it would queue on the
+   * bridge and blow its own gap bound. One follow-up pair is taken when the
+   * outstanding one settles. The memory dies with the run, so a flip or a stop
+   * drops it. Ignored on a source that is not polling: a stopped source
+   * samples nothing, however it is asked.
    */
   sampleNow(): void;
   /**
@@ -347,6 +350,16 @@ export function createNativeFrameSource(
    * interval over a frame nobody wants.
    */
   let samplingGeneration: number | null = null;
+  /**
+   * Whether a `sampleNow` arrived while this run's pair was already out.
+   *
+   * The pair in flight captured its frames before the ask, so it cannot be the
+   * answer: the gate refuses to spend an arm on a capture stamped before it.
+   * The ask is remembered instead, and the tick that holds the claim issues one
+   * follow-up pair when it settles. Cleared with the run it was made in: a
+   * flip or a stop makes it an ask about a camera that is gone.
+   */
+  let immediateWanted = false;
 
   /**
    * Issue one bridge call once the slot is free, and report when it was
@@ -574,19 +587,31 @@ export function createNativeFrameSource(
       // sample onto the bridge next to it.
       if (samplingGeneration === run) {
         samplingGeneration = null;
+        // An ask that arrived mid-pair gets its answer here: one follow-up
+        // pair, whose captures postdate the ask, on the run that heard it.
+        if (immediateWanted && generation === run) {
+          immediateWanted = false;
+          void sampleOnce();
+        }
       }
     }
   }
 
   function invalidate(): void {
     generation += 1;
+    immediateWanted = false;
   }
 
   function sampleNow(): void {
     // The cadence's own claim, `samplingGeneration`, is what keeps this from
-    // running beside a tick; `sampleOnce` takes it on entry and returns to
-    // anyone who finds it held.
+    // running beside a tick.
     if (timer === null) {
+      return;
+    }
+    // The pair already out captured before this ask, so it cannot answer it.
+    // Remember the ask and let that pair's tick issue the follow-up.
+    if (samplingGeneration === generation) {
+      immediateWanted = true;
       return;
     }
     void sampleOnce();

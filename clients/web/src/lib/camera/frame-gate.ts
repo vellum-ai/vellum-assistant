@@ -295,6 +295,13 @@ export interface FrameGate {
    * against. Everything else is skipped: the rate floor, the settle check,
    * novelty and the heartbeat. The keep is recorded exactly as an ambient one,
    * so the next frame is judged against it rather than firing again behind it.
+   *
+   * `nowMs` is also the arm's lower bound: a frame stamped before it was taken
+   * before the ask, which is exactly the stale scene the arm exists to get
+   * past. Such a frame is judged as an ambient one and leaves the arm standing
+   * for the first frame stamped at or after it. The comparison only means
+   * something because the arm and the offers are stamped from one clock, which
+   * every caller of this gate reads from `performance.now`.
    */
   armForcedKeep(nowMs: number): void;
   /**
@@ -439,9 +446,12 @@ export function createFrameGate(
   // keep became possible. Only consulted before that first keep: afterwards
   // eligibility is governed by `minIntervalMs` instead.
   let firstEligibleAtMs: number | null = null;
-  // When an unspent arm from `armForcedKeep` stops being answerable, or null
-  // when nothing is armed.
-  let forcedUntilMs: number | null = null;
+  // An unspent arm from `armForcedKeep`, or null when nothing is armed.
+  // `sinceMs` is when it was made, and only a frame stamped at or after that
+  // moment may spend it: an offer can carry a capture from before the ask,
+  // which is the very scene the arm exists to get past. `untilMs` is when it
+  // stops being answerable at all.
+  let forcedArm: { sinceMs: number; untilMs: number } | null = null;
 
   // Detail of the frame being decided right now. Held here rather than passed
   // through every helper: it is a property of `current`, which the helpers
@@ -499,8 +509,8 @@ export function createFrameGate(
       // Ahead of the vetoes below, so an arm that ran out while the camera had
       // nothing worth keeping is dropped rather than spent on the first frame
       // past them: it was asked for a scene a whole window ago.
-      if (forcedUntilMs !== null && nowMs > forcedUntilMs) {
-        forcedUntilMs = null;
+      if (forcedArm !== null && nowMs > forcedArm.untilMs) {
+        forcedArm = null;
       }
 
       // Warmup is checked before everything else, including the first keep:
@@ -516,11 +526,15 @@ export function createFrameGate(
         return skipFrame(nowMs, "featureless", motion, novelty);
       }
 
+      // Only a frame stamped after the arm may spend it: a native offer can
+      // carry a capture from before the ask, and force-keeping that one would
+      // send the stale scene the arm exists to get past. It falls through to
+      // the ambient rules and the arm stands for the next fresh frame.
       // Through `keepFrame` like every other keep, so the rate floor's clock
       // and both baselines move with it and the next ambient frame is judged
       // against this one instead of firing again behind it.
-      if (forcedUntilMs !== null) {
-        forcedUntilMs = null;
+      if (forcedArm !== null && nowMs >= forcedArm.sinceMs) {
+        forcedArm = null;
         return keepFrame(nowMs, "forced", motion, novelty);
       }
 
@@ -585,14 +599,17 @@ export function createFrameGate(
     },
 
     armForcedKeep(nowMs: number): void {
-      forcedUntilMs = nowMs + FRAME_GATE_FORCED_KEEP_TTL_MS;
+      forcedArm = {
+        sinceMs: nowMs,
+        untilMs: nowMs + FRAME_GATE_FORCED_KEEP_TTL_MS,
+      };
     },
 
     reset(nowMs: number): void {
       hasPrevious = false;
       hasKept = false;
       previousAtMs = 0;
-      forcedUntilMs = null;
+      forcedArm = null;
       // `keptAtMs` is deliberately not cleared: comparison history is invalid
       // after a reset, but the cost of the last keep is already paid and the
       // rate floor still counts it.

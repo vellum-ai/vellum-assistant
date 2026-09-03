@@ -1709,7 +1709,7 @@ describe("native frame source out-of-cycle sample", () => {
     source.stop();
   });
 
-  test("is ignored while the run already has a pair out", async () => {
+  test("is remembered while the run has a pair out, and answered when it settles", async () => {
     const { gate, offers } = createRecordingGate();
     const capture = createCaptureStub();
     const decode = createDecodeStub();
@@ -1726,15 +1726,127 @@ describe("native frame source out-of-cycle sample", () => {
     expect(capture.callCount()).toBe(1);
 
     // The claim spans the whole pair, so the gap between its two samples is
-    // not a hole a second pair can be started in.
+    // not a hole a second pair can be started in. The ask is kept instead.
     source.sampleNow();
     await settle();
     expect(capture.callCount()).toBe(1);
 
+    // The outstanding pair closes, and the remembered ask takes its own pair
+    // right behind it: the closing pair's captures predate the ask.
+    await finishPair();
+    expect(offers).toHaveLength(1);
+    expect(capture.callCount()).toBe(3);
+
+    await finishPair();
+    expect(capture.callCount()).toBe(4);
+    expect(offers).toHaveLength(2);
+    expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
+  test("a pair in flight at the ask is judged plainly; the follow-up is the forced one", async () => {
+    // The real gate, so what is asserted is the arm's time bound itself: the
+    // in-flight pair's judged frame is stamped before the ask and must not
+    // spend it, and the follow-up pair's frame is stamped after and must.
+    const gate = createFrameGate({
+      ...DEFAULT_FRAME_GATE_OPTIONS,
+      warmupMs: 0,
+    });
+    gate.reset(0);
+    const decisions: FrameGateDecision[] = [];
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: (decision) => decisions.push(decision),
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    // Hold the primer's decode open, so the pair's two captures both land and
+    // the pair is still unjudged when speech begins.
+    decode.holdNext();
+    await startPair();
     await finishPair();
     expect(capture.callCount()).toBe(2);
-    expect(offers).toHaveLength(1);
+    expect(decisions).toHaveLength(0);
+
+    // Speech starts. The hook arms the gate and nudges the source, and both
+    // captures already on the books predate this moment.
+    await advance(40);
+    const askAtMs = clock;
+    gate.armForcedKeep(askAtMs);
+    source.sampleNow();
+
+    decode.releaseHeld();
+    await settle();
+    // The stale pair judged by the ambient rules, not force-kept.
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.reason).toBe("first");
+
+    // The follow-up pair, captured after the ask, spends the arm.
+    await finishPair();
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]?.reason).toBe("forced");
     expect(capture.maxConcurrent()).toBe(1);
+    source.stop();
+  });
+
+  test("drops a remembered ask with the run that made it", async () => {
+    const { gate, offers } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    source.sampleNow();
+    // A flip: the ask was about the camera that is gone, so no follow-up pair
+    // is owed to it.
+    source.invalidate();
+    await finishPair();
+    expect(capture.callCount()).toBe(1);
+
+    // The next tick samples for itself, and only for itself.
+    await startPair();
+    await finishPair();
+    await settle();
+    expect(capture.callCount()).toBe(3);
+    expect(offers).toHaveLength(1);
+    source.stop();
+  });
+
+  test("a stop buries a remembered ask, restart owes it nothing", async () => {
+    const { gate } = createRecordingGate();
+    const capture = createCaptureStub();
+    const decode = createDecodeStub();
+    const source = createNativeFrameSource({
+      gate,
+      captureSample: capture.captureSample,
+      onDecision: () => {},
+      decode: decode.decode,
+      now: () => clock,
+    });
+
+    source.start();
+    await startPair();
+    source.sampleNow();
+    source.stop();
+    await finishPair();
+    expect(capture.callCount()).toBe(1);
+
+    source.start();
+    await settle();
+    // Nothing before the new cadence's own first tick.
+    expect(capture.callCount()).toBe(1);
     source.stop();
   });
 

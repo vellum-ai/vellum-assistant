@@ -868,6 +868,38 @@ describe("frame gate forced keep", () => {
     ).toBe("forced");
   });
 
+  test("leaves a frame stamped before the ask to the ambient rules", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    // A native pair in flight when speech starts offers a capture stamped
+    // before the arm: the pre-question scene, exactly what the arm exists to
+    // get past. It is judged like any ambient frame instead.
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("rate-floor");
+  });
+
+  test("stands past a pre-ask frame and is spent by the next fresh one", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("rate-floor");
+    // The follow-up pair, captured after the ask, is the one the arm is for.
+    expect(gate.offer(scene({ seed: 9 }), 60).reason).toBe("forced");
+  });
+
+  test("a frame stamped at the ask's own moment consumes it", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(50);
+    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("forced");
+  });
+
   test("a reset drops an unspent arm", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
