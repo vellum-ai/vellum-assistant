@@ -231,7 +231,6 @@ describe("messaging-send tool", () => {
       expect(options.attachments?.[0]?.mimeType).toBe("application/pdf");
       expect(options.attachments?.[0]?.data.toString()).toBe("pdf-bytes");
     } finally {
-      provider.id = "phone";
       rmSync(dir, { recursive: true, force: true });
     }
   });
