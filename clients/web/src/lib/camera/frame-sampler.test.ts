@@ -72,6 +72,7 @@ interface FakeVideoState {
   currentTime: number;
   requestVideoFrameCallback?: (callback: () => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
+  getVideoPlaybackQuality?: () => VideoPlaybackQuality;
 }
 
 interface FakeVideo {
@@ -83,9 +84,16 @@ interface FakeVideo {
   /**
    * Advance `currentTime` by one frame interval, as presenting a new picture
    * does. The animation-frame path reads that value to tell a fresh frame from
-   * the one it already sampled.
+   * the one it already sampled, where the decoder's own frame count is not
+   * available.
    */
   presentFrame(): void;
+  /**
+   * Advance `currentTime` alone, with no new decoded frame behind it: what a
+   * live `MediaStream` does between decodes, since its `currentTime` tracks
+   * the wall clock rather than the decoder.
+   */
+  advanceClockWithoutDecoding(): void;
   /** Run the callback the sampler is waiting on. False when it is not waiting. */
   fireFrame(): boolean;
 }
@@ -93,9 +101,13 @@ interface FakeVideo {
 /** Playback seconds a single presented frame covers, at 30 fps. */
 const FRAME_INTERVAL_SECONDS = 1 / 30;
 
-function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
+function createFakeVideo({
+  drivesLoop = true,
+  decodesFrames = false,
+} = {}): FakeVideo {
   const pending = new Map<number, () => void>();
   let nextHandle = 1;
+  let totalVideoFrames = 0;
 
   const state: FakeVideoState = {
     readyState: HAVE_CURRENT_DATA,
@@ -114,12 +126,20 @@ function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
       pending.delete(handle);
     };
   }
+  if (decodesFrames) {
+    state.getVideoPlaybackQuality = () =>
+      ({ totalVideoFrames }) as VideoPlaybackQuality;
+  }
 
   return {
     element: state as unknown as HTMLVideoElement,
     state,
     pendingCount: () => pending.size,
     presentFrame() {
+      state.currentTime += FRAME_INTERVAL_SECONDS;
+      totalVideoFrames += 1;
+    },
+    advanceClockWithoutDecoding() {
       state.currentTime += FRAME_INTERVAL_SECONDS;
     },
     fireFrame() {
@@ -132,6 +152,7 @@ function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
       // A video-frame callback fires once per presented frame, so the two go
       // together on this path.
       state.currentTime += FRAME_INTERVAL_SECONDS;
+      totalVideoFrames += 1;
       callback();
       return true;
     },
@@ -629,6 +650,31 @@ describe("frame sampler animation frame fallback", () => {
     // Declining to sample is not declining to run: the loop has to be waiting
     // when the next picture arrives.
     expect(animationFrame.pendingCount()).toBe(1);
+
+    video.presentFrame();
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(2);
+    sampler.stop();
+  });
+
+  test("catches a repeat by the decoder's frame count where the wall clock alone would miss it", () => {
+    // A live `MediaStream`'s `currentTime` keeps advancing between decodes,
+    // unlike a file-backed `<video>` where it only moves when a new frame
+    // arrives. A guard keyed on `currentTime` alone would read the clock's
+    // own advance as a fresh picture and offer the same frame twice.
+    const animationFrame = stubAnimationFrame();
+    const { gate, offers } = createRecordingGate();
+    const video = createFakeVideo({ drivesLoop: false, decodesFrames: true });
+    const sampler = createFrameSampler({ gate, onDecision: () => {} });
+
+    sampler.start(video.element);
+    video.presentFrame();
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(1);
+
+    video.advanceClockWithoutDecoding();
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(1);
 
     video.presentFrame();
     animationFrame.fireFrame();

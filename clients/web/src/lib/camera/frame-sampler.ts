@@ -202,9 +202,31 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   let pendingHandle: number | null = null;
   let frameIndex = 0;
   // Playback position of the last frame sampled, read only by the
-  // animation-frame fallback. NaN compares equal to nothing, so the first tick
-  // after a start always samples.
+  // animation-frame fallback where the decoder's own frame count is not
+  // available. NaN compares equal to nothing, so the first tick after a start
+  // always samples.
   let lastSampledTime = Number.NaN;
+  // Decoded frame count as of the last sample, read the same way. Null
+  // compares equal to nothing either, and also means "not available here".
+  let lastSampledFrameCount: number | null = null;
+
+  /**
+   * The decoder's own count of frames it has delivered, or null where the
+   * browser cannot report one.
+   *
+   * `currentTime` cannot stand in for this on a live `MediaStream`: it tracks
+   * the wall clock there, not the decoder, so two animation-frame ticks with
+   * no new picture between them can still report different `currentTime`
+   * values. A file-backed `<video>` does not have this problem, which is why
+   * `currentTime` remains the fallback for the browsers that lack
+   * `getVideoPlaybackQuality`.
+   */
+  function decodedFrameCount(source: HTMLVideoElement): number | null {
+    if (typeof source.getVideoPlaybackQuality !== "function") {
+      return null;
+    }
+    return source.getVideoPlaybackQuality().totalVideoFrames;
+  }
 
   function sampleFrame(): void {
     const source = video;
@@ -214,6 +236,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
     if (source.readyState < HAVE_CURRENT_DATA) {
       return;
     }
+    let frameCount: number | null = null;
     // Both of these cover the same hazard, which only the animation frame has:
     // it fires on the display's schedule rather than the camera's, so it can
     // read one picture more than once. `requestVideoFrameCallback` runs once
@@ -224,13 +247,17 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
       if (source.paused || source.ended) {
         return;
       }
-      // The same thing at video rate: a 24 fps stream on a 60 Hz display holds
-      // each frame across two or three animation frames, and a repeat sample
-      // scores zero motion against its own twin. That reads as a settled camera
-      // on alternate ticks, and the settle check then waves through a smeared
-      // frame mid-pan, which is the case it exists to catch. An advancing
-      // `currentTime` is what separates a new frame from the same one again.
-      if (source.currentTime === lastSampledTime) {
+      // A 24 or 30 fps stream on a 60 Hz display holds each frame across two
+      // or three animation frames, and a repeat sample scores zero motion
+      // against its own twin. That reads as a settled camera on alternate
+      // ticks, and the settle check then waves through a smeared frame
+      // mid-pan, which is the case this guard exists to catch.
+      frameCount = decodedFrameCount(source);
+      if (frameCount !== null) {
+        if (frameCount === lastSampledFrameCount) {
+          return;
+        }
+      } else if (source.currentTime === lastSampledTime) {
         return;
       }
     }
@@ -240,6 +267,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
       return;
     }
     lastSampledTime = source.currentTime;
+    lastSampledFrameCount = frameCount;
 
     const nowMs = performance.now();
     onDecision(gate.offer(grid, nowMs), nowMs);
@@ -295,6 +323,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
     loop = frameLoopFor(next, pacing);
     frameIndex = 0;
     lastSampledTime = Number.NaN;
+    lastSampledFrameCount = null;
     document.addEventListener("visibilitychange", handleVisibilityChange);
     schedule();
   }

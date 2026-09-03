@@ -39,7 +39,7 @@
  * user presses again, when the session ends or reconnects (the ask is session
  * state), when the assistant refuses the frame for the session, when this
  * hook unmounts, which is the chat layout going away, and when the track ends
- * from outside the app (a webcam unplugged, permission revoked mid-call) —
+ * from outside the app (a webcam unplugged, permission revoked mid-call),
  * the same interruption the sight store's viewfinder watches for. Each keep
  * lands in the transcript, where the user can see it and delete it.
  */
@@ -150,9 +150,21 @@ export function useLiveVoiceCamera(): void {
       video.srcObject = stream;
       try {
         await video.play();
-      } catch {
-        // A stream-backed element plays without a gesture; a refusal here is
-        // an element that is going away, which the cancellation check covers.
+      } catch (cause) {
+        if (cancelled) {
+          // A stream-backed element plays without a gesture; a refusal here
+          // is an element that is going away, which this covers.
+          return;
+        }
+        // Play never started, so no frame will ever reach the sampler below.
+        // The same failure class as a denied acquisition: lowering the ask
+        // is what tells the control, and this effect's own cleanup is what
+        // gives the stream back.
+        console.warn(
+          `[live-voice camera] camera not opened: ${classifyVoiceCameraError(cause)}`,
+        );
+        useLiveVoiceStore.getState().setCameraRequested(false);
+        return;
       }
       if (cancelled) {
         return;

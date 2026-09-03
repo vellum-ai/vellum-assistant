@@ -245,6 +245,19 @@ describe("useLiveVoiceCamera: opening", () => {
     expect(useLiveVoiceStore.getState().cameraStreaming).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
   });
+
+  test("a camera that never plays lowers the ask instead of reading as on", async () => {
+    HTMLMediaElement.prototype.play = () =>
+      Promise.reject(new DOMException("no decoder", "NotSupportedError"));
+    renderCamera();
+    ask(true);
+    await flush();
+
+    expect(samplerStart).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().cameraRequested).toBe(false);
+    expect(useLiveVoiceStore.getState().cameraStreaming).toBe(false);
+    expect(trackStop).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("useLiveVoiceCamera: a kept frame", () => {
