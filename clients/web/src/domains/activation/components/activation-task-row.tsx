@@ -130,10 +130,11 @@ export function ActivationTaskRow({
   const conversationId = progress?.conversationId;
   const customId = `activation-custom-${task.id}`;
 
+  // A count of zero is a turn that called no tools, which the pill has nothing
+  // to report, so the state stands on its own rather than reading "0 steps".
+  const stepCount = progress?.stepCount ?? 0;
   const steps =
-    progress?.stepCount != null
-      ? t("row.steps", { count: progress.stepCount })
-      : undefined;
+    stepCount > 0 ? t("row.steps", { count: stepCount }) : undefined;
 
   const activate = (): void => {
     if (working || done) {
@@ -256,7 +257,9 @@ export function ActivationTaskRow({
     );
   }
 
-  const mutedText = done ? "text-[var(--content-tertiary)]" : undefined;
+  // A finished row steps back rather than disappearing. Secondary is the step
+  // that still clears AA against the row's ground at this size.
+  const mutedText = done ? "text-[var(--content-secondary)]" : undefined;
   const interactive = status === "todo" || conversationId !== undefined;
   // On the list the row is the launch, so a launch in flight has to disable
   // it; the button stays rather than vanishing, because taking the control out
@@ -282,13 +285,10 @@ export function ActivationTaskRow({
         title={<span className={mutedText}>{task.title}</span>}
         subtitle={
           // `ListRow` sets the subtitle a rung lower than the mock; the row's
-          // descriptions are full sentences and need the 11px step.
-          <span
-            className={cn(
-              "text-label-medium-default leading-normal",
-              mutedText,
-            )}
-          >
+          // descriptions are full sentences and need the 11px step, and the
+          // secondary ink over the row's tertiary default so a sentence at
+          // that size still clears AA.
+          <span className="text-label-medium-default leading-normal text-[var(--content-secondary)]">
             {task.description}
           </span>
         }

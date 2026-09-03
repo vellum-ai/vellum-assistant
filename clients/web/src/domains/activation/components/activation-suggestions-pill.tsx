@@ -69,10 +69,12 @@ export function ActivationSuggestionsPill({
         aria-hidden="true"
         className="h-[2px] w-[2px] shrink-0 rounded-full bg-[var(--content-tertiary)] max-[479px]:hidden"
       />
+      {/* Secondary rather than tertiary: at 12px the tertiary ink misses AA on
+          the pill's ground, and on a phone this count is the whole label. */}
       <Typography
         as="span"
         variant="body-small-default"
-        className="pr-1 text-[var(--content-tertiary)]"
+        className="pr-1 text-[var(--content-secondary)]"
       >
         {t("pill.progress", { done, total })}
       </Typography>

@@ -88,6 +88,32 @@ export function useAssistantScopedSupports(
 }
 
 /**
+ * Whether the identity store holds a version fetched for `ownerAssistantId`.
+ *
+ * The gates above collapse "older than the floor" and "not known yet" into one
+ * `false`, which is the right answer for a surface that hides and the wrong one
+ * for a surface that navigates: a redirect fired on the unresolved answer sends
+ * a deep link somewhere else before the version has landed. This is the second
+ * bit, so such a caller can wait instead of acting on a gate that has not
+ * spoken.
+ *
+ * Owner-scoped for the same reason {@link useAssistantScopedSupports} is: a
+ * version still held for the assistant the user just left says nothing about
+ * this one.
+ */
+export function useAssistantVersionKnownFor(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const version = useAssistantIdentityStore.use.version();
+  return (
+    version !== null &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
+/**
  * Non-hook variant of `useAssistantSupports`: reads the version
  * snapshot via `useAssistantIdentityStore.getState()` so it's safe to
  * call from non-hook contexts (event handlers, async ops, request

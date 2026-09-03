@@ -115,6 +115,28 @@ function mergeAnsweredTasks(
 }
 
 /**
+ * The later of two dismissal stamps, where `null` means "not yet".
+ *
+ * These stamps say whether the modal is closed and whether the celebration has
+ * already run. A start is answered with a snapshot the daemon took while it
+ * handled that start, so a dismissal the user made in between is missing from
+ * it, and taking the answer wholesale would reopen the modal or replay the
+ * celebration. Both stamps are ISO-8601 UTC, so they order as strings.
+ */
+function laterStamp(
+  cached: string | null,
+  answered: string | null,
+): string | null {
+  if (cached === null) {
+    return answered;
+  }
+  if (answered === null) {
+    return cached;
+  }
+  return cached > answered ? cached : answered;
+}
+
+/**
  * A link the client never saw succeed. `rejected` is true only when the daemon
  * answered with a 4xx, which is the one case where the link certainly does not
  * exist.
@@ -168,10 +190,19 @@ function seedStartedTask(
       if (answered) {
         // Concurrent starts answer with snapshots taken at different points,
         // so an older answer must neither erase a task a newer one already
-        // seeded nor walk one of them back to an earlier status.
+        // seeded, nor walk one of them back to an earlier status, nor drop a
+        // dismissal the cache already holds.
         return cached
           ? {
               ...answered,
+              modalDismissedAt: laterStamp(
+                cached.modalDismissedAt,
+                answered.modalDismissedAt,
+              ),
+              allDoneShownAt: laterStamp(
+                cached.allDoneShownAt,
+                answered.allDoneShownAt,
+              ),
               tasks: mergeAnsweredTasks(cached.tasks, answered.tasks),
             }
           : answered;

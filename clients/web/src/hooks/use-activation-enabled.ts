@@ -24,7 +24,9 @@ import {
   useActivationChecklistArm,
   type ActivationListId,
 } from "@/hooks/use-activation-checklist-flag";
+import { useAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useSupportsActivationProgress } from "@/lib/backwards-compat/use-supports-activation-progress";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
  * The list the arm selects on `assistantId`, or `null` when either gate fails.
@@ -68,4 +70,23 @@ export function useEffectiveActivationListId(
   // A frozen id this bundle has no catalog for (written by a newer client)
   // hides the surfaces rather than enabling an empty list.
   return isActivationListId(frozen) ? frozen : null;
+}
+
+/**
+ * Whether the gates above can answer yet.
+ *
+ * Both of their inputs start on a value that reads exactly like "off": the flag
+ * store answers the registry default until the first server response, and the
+ * version gate answers `false` until identity lands for this assistant. A
+ * surface that only hides is right to treat that as off and let the answer
+ * arrive. A surface that navigates is not: the Inspiration List is reachable by
+ * a bookmark, a reload and a fresh tab, and a redirect fired on the unsettled
+ * answer takes the user to chat before either gate has spoken.
+ */
+export function useActivationGatesSettled(
+  assistantId: string | null | undefined,
+): boolean {
+  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
+  const versionKnown = useAssistantVersionKnownFor(assistantId);
+  return flagsHydrated && versionKnown;
 }
