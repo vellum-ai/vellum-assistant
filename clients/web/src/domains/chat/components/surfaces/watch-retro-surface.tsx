@@ -556,15 +556,16 @@ export function WatchRetroSurface({
  * What the card becomes once it has been answered: the task, and one line
  * saying what happened to it.
  *
- * The summary comes from the surface when it has one, which is what a
- * restored conversation carries and what the daemon's completion event set.
- * Until that arrives the ending submitted from this mount fills in, and a
- * completed surface with neither, which is a card answered elsewhere before
- * this client learned the template, still says it is done.
+ * The surface's own summary is authoritative: it is what the daemon's
+ * completion event set and what a restored conversation carries, and it is
+ * the ending that actually landed when two clients answered the same card.
+ * Only while the surface is completed with no summary yet does the ending
+ * submitted from this mount fill in, and a completed surface with neither,
+ * which is a card answered elsewhere before this client learned the
+ * template, still says it is done.
  *
- * The glyph and the wording follow the ending. On a restored card the ending
- * is not known directly, so it is read back off the persisted summary, which
- * the card wrote from its own fixed labels, and the line is then drawn from
+ * The glyph and the wording follow the ending. From a summary the ending is
+ * read back off the card's own fixed labels, and the line is then drawn from
  * the catalog in the current locale. A summary the card did not write, such
  * as a bare "Completed" from a daemon that ignored the request, is shown as
  * it is and takes the tone every other completed card would infer from it.
@@ -581,12 +582,11 @@ function CompletedRow({
   tone: Surface["completionTone"];
 }) {
   const { t } = useTranslation("chat");
-  const resolvedOutcome =
-    outcome ??
-    OUTCOMES.find(
-      (candidate) => summary === OUTCOME_STYLE[candidate].summary,
-    ) ??
-    null;
+  const resolvedOutcome = summary
+    ? (OUTCOMES.find(
+        (candidate) => summary === OUTCOME_STYLE[candidate].summary,
+      ) ?? null)
+    : outcome;
   const style: CompletionStyle = resolvedOutcome
     ? OUTCOME_STYLE[resolvedOutcome]
     : COMPLETION_TONE_STYLE[tone ?? inferCompletionTone(summary)];

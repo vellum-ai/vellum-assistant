@@ -399,6 +399,18 @@ describe("WatchRetroSurface", () => {
       expect(screen.getByText("Flagged as not right")).toBeDefined();
     });
     expect(screen.queryByText("Something's off")).toBeNull();
+
+    // The daemon's summary is the ending that actually landed. When it
+    // disagrees with what this mount submitted, because another client
+    // answered the same card first, the summary wins.
+    rerender(
+      <CardSurface
+        surface={{ ...current, completionSummary: "Skill saved" }}
+        onAction={() => undefined}
+      />,
+    );
+    expect(screen.getByText("Skill saved")).toBeDefined();
+    expect(screen.queryByText("Flagged as not right")).toBeNull();
   });
 
   test("saying the recap read wrong ends the card without saving", () => {
