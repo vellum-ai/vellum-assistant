@@ -1,6 +1,7 @@
 /**
  * The sleep stage: the assistant, eyes half shut, filling the conversation
- * page while it is asleep or waking up.
+ * page while it is asleep or waking up, and opening its eyes when it comes
+ * back.
  *
  * A one-line banner is the right size for "your assistant is upgrading" and
  * the wrong size for the one state where the page below it cannot be used at
@@ -8,70 +9,89 @@
  * shows whose sleep it is instead: the user's own avatar, at the size of the
  * page, with its lids down. The banner stands down for the duration (see
  * `StatusBanner`, which reads `visible` off the shared store) so the status is
- * stated once.
+ * stated once. `SleepStageView` draws it; this component decides when.
+ *
+ * **It is an arrival screen, not a status light.** The stage plays only when
+ * the sleep is what the user has just walked into: the page loaded on a
+ * sleeping assistant, or they came back to a tab that fell asleep while they
+ * were away. Someone already working in the tab whose assistant drops out
+ * (a network blip reads as sleep) keeps their conversation on screen and gets
+ * the banner. So arming is latched at the moment the sleep is first seen, and
+ * a resume on the `online` signal is deliberately not an arrival: that is the
+ * network coming back, not the user.
  *
  * **Fullish, not fullscreen.** The stage is an `absolute inset-0` layer inside
  * the conversation's `<main>`, the same placement the desktop voice room
  * takes. The sidenav, the header and the window chrome stay put and stay
  * usable: this covers the thread, which is the part that is waiting. It sits
- * at `z-30`, over the thread's own layered controls (the scroll-to-latest
- * button, the attachment drag overlay), and stands down entirely while the
- * voice room, a takeover of the same box, is up. `ChatLayout` makes the
- * covered thread `inert` for as long as the stage is drawn, so what is behind
- * it is out of the tab order and the accessibility tree rather than merely
- * out of reach of the pointer.
+ * at `z-30`, over the thread's own layered controls, and stands down entirely
+ * while the voice room, a takeover of the same box, is up. `ChatLayout` makes
+ * the covered thread `inert` for as long as the stage is drawn.
  *
  * **Clicking it hands the page back.** The whole stage is a button; one click
- * dismisses it and the banner returns to carrying the status, so nobody is
- * stuck behind it while the assistant takes its time. The dismissal is scoped
- * to this sleep: once the assistant is neither sleeping nor waking the stage
- * resets, and the next sleep draws it again.
+ * dismisses it and the banner returns to carrying the status. The dismissal is
+ * scoped to that assistant's current sleep.
  *
- * The eyes are the avatar's own eye art (the builder's eye style, and its
- * color for the lids), so the creature asleep on the page is the one the user
- * made. An assistant with an uploaded image has no eye art to close, so its
- * image stands in, dimmed; an assistant with neither leaves the line of copy
- * alone on the stage.
+ * **Waking is played, not cut.** When the assistant comes back while the stage
+ * is up, the lids open, the copy says so for a beat, and the stage fades to
+ * the conversation underneath. That outro runs off a phase transition this
+ * component actually witnessed, so an assistant that was never on screen
+ * asleep does not announce that it woke.
+ *
+ * The eyes are the avatar's own eye art, so the creature asleep on the page is
+ * the one the user made. An assistant with an uploaded image has no eye art to
+ * close, so its image stands in, dimmed; an assistant with neither leaves the
+ * line of copy alone on the stage.
+ *
+ * To see it without an assistant that will actually sleep, drive it from the
+ * console: `_vellumDebug.flags.forceSleepStage("sleeping" | "waking" | "woke")`,
+ * and `forceSleepStage(null)` to hand the page back.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
 
 import {
   useAssistantSleepPhase,
   type AssistantSleepPhase,
 } from "@/components/status-banner";
+import {
+  resolveSleepStageEyes,
+  SleepStageView,
+  WOKE_SEQUENCE_MS,
+  type SleepStageScene,
+} from "@/domains/chat/components/sleep-stage-scene";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
-import { resolveVoiceRoomLook } from "@/domains/chat/voice/voice-room/voice-room-eyes";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useTranslation } from "@/i18n";
 import { readLastSeenAvatar } from "@/lib/avatar-last-seen-cache";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-import { tightPathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import { isConversationChatPath } from "@/utils/routes";
 
 /**
- * How much of the eye the lid covers, at rest and at the bottom of a drift.
- * An assistant coming back up is further open than one still under: the same
- * face, a little more of it, which is the difference the two states have.
+ * How long after an arrival a sleep still counts as one the user walked into.
+ * Wide enough to cover a cold load resolving auth, org and the first status
+ * poll before the sleep is even known; short enough that a sleep an hour into
+ * a working session is not dressed up as an arrival.
  */
-const LID_REST: Record<AssistantSleepPhase, number> = {
-  sleeping: 0.62,
-  waking: 0.5,
-};
-const LID_DRIFT = 0.12;
-/** One full drift of the lids, in seconds: a slow breath, not a blink. */
-const LID_DRIFT_SECONDS = 4;
+let arrivalWindowMs = 20_000;
+
+/**
+ * Override the arrival window. Test-only seam so specs can exercise the
+ * unarmed path without real-time waits; never call from production code.
+ * @internal
+ */
+export function __setArrivalWindowMsForTesting(ms: number): void {
+  arrivalWindowMs = ms;
+}
 
 export function AssistantSleepStage() {
   const { t } = useTranslation("chat");
-  const reduce = useReducedMotion();
-  const clipId = useId();
   // Only where the chat surface itself is mounted: the `/assistant` draft and
   // an open conversation, not the inspector or the other routes under
   // `ChatLayout` (home, library, the identity pages), which have content of
@@ -90,6 +110,7 @@ export function AssistantSleepStage() {
   const wasDismissed = useAssistantSleepStageStore.use.dismissed();
   const dismissedAssistantId =
     useAssistantSleepStageStore.use.dismissedAssistantId();
+  const forcedScene = useAssistantSleepStageStore.use.forcedScene();
   const setVisible = useAssistantSleepStageStore.use.setVisible();
   const dismissStage = useAssistantSleepStageStore.use.dismiss();
   const reset = useAssistantSleepStageStore.use.reset();
@@ -99,18 +120,88 @@ export function AssistantSleepStage() {
   // window crossing the mobile breakpoint moves the stage between
   // `ChatLayout`'s branches) stays dismissed.
   const dismissed = wasDismissed && dismissedAssistantId === assistantId;
-  const dismiss = useCallback(
-    () => dismissStage(assistantId),
-    [dismissStage, assistantId],
-  );
 
-  const visible =
-    onConversationPage && !voiceRoomVisible && phase !== null && !dismissed;
+  // The last time the user arrived: this mount is a page load, and a
+  // foreground edge is a return to the tab. Not `signal: "online"`, which is
+  // the network reconnecting under a user who never left.
+  // Stamped in an effect rather than at `useRef` init: reading the clock
+  // during render is impure, and this effect is declared before the arming
+  // one so the timestamp is already there when the first phase is judged.
+  const arrivedAtRef = useRef(0);
+  useEffect(() => {
+    arrivedAtRef.current = Date.now();
+  }, []);
+  const [armed, setArmed] = useState(false);
+  useBusSubscription("app.resume", ({ signal }) => {
+    if (signal === "online") {
+      return;
+    }
+    arrivedAtRef.current = Date.now();
+    if (phase !== null) {
+      setArmed(true);
+    }
+  });
+  // Latched when the sleep is first seen, so a sleep that begins later in the
+  // same session stays with the banner however long the user then sits there.
+  useEffect(() => {
+    if (phase === null) {
+      setArmed(false);
+      return;
+    }
+    if (Date.now() - arrivedAtRef.current <= arrivalWindowMs) {
+      setArmed(true);
+    }
+  }, [phase]);
+
+  const sleepVisible =
+    onConversationPage &&
+    !voiceRoomVisible &&
+    phase !== null &&
+    armed &&
+    !dismissed;
+
+  // The waking outro belongs to a sleep this component actually showed:
+  // an assistant that woke while the stage was never up has nothing to
+  // announce.
+  const showedThisSleepRef = useRef(false);
+  useEffect(() => {
+    if (sleepVisible) {
+      showedThisSleepRef.current = true;
+    }
+  }, [sleepVisible]);
+
+  const [woke, setWoke] = useState(false);
+  const previousPhaseRef = useRef<AssistantSleepPhase | null>(null);
+  useEffect(() => {
+    const previous = previousPhaseRef.current;
+    previousPhaseRef.current = phase;
+    if (phase !== null) {
+      return;
+    }
+    if (previous !== null && showedThisSleepRef.current && !dismissed) {
+      setWoke(true);
+    }
+    showedThisSleepRef.current = false;
+  }, [phase, dismissed]);
 
   useEffect(() => {
-    setVisible(visible);
+    if (!woke) {
+      return;
+    }
+    const timer = setTimeout(() => setWoke(false), WOKE_SEQUENCE_MS);
+    return () => clearTimeout(timer);
+  }, [woke]);
+
+  const scene: SleepStageScene | null = !onConversationPage
+    ? null
+    : (forcedScene ??
+      (sleepVisible ? phase : null) ??
+      (woke && !voiceRoomVisible ? "woke" : null));
+
+  useEffect(() => {
+    setVisible(scene !== null);
     return () => setVisible(false);
-  }, [visible, setVisible]);
+  }, [scene, setVisible]);
 
   // A dismissal lasts as long as the sleep it was aimed at, and only that
   // assistant's waking clears it: visiting an assistant that is awake reports
@@ -120,6 +211,11 @@ export function AssistantSleepStage() {
       reset();
     }
   }, [phase, dismissedAssistantId, assistantId, reset]);
+
+  const dismiss = useCallback(() => {
+    setWoke(false);
+    dismissStage(assistantId);
+  }, [dismissStage, assistantId]);
 
   // Traits from the assistant when it is reachable, else the last ones this
   // device saw it wearing. On a cold load the thing that serves them is the
@@ -133,7 +229,8 @@ export function AssistantSleepStage() {
     // Deliberately not pinned: the record is deleted when the user removes
     // their avatar, and nothing invalidates this key, so a later sleep in the
     // same session re-reads rather than redrawing a character that is gone.
-    enabled: visible && Boolean(assistantId) && !traits && !customImageUrl,
+    enabled:
+      scene !== null && Boolean(assistantId) && !traits && !customImageUrl,
   });
   const effectiveTraits =
     traits ??
@@ -167,154 +264,55 @@ export function AssistantSleepStage() {
     // Measuring the art parses every eye path, so it waits until there is a
     // stage to draw: every conversation mounts this component, and almost
     // none of them are asleep.
-    if (!visible || !effectiveTraits) {
+    if (scene === null || !effectiveTraits) {
       return null;
     }
-    const look = resolveVoiceRoomLook(
+    return resolveSleepStageEyes(
       components ?? BUNDLED_COMPONENTS,
       effectiveTraits,
       imageUrl,
     );
-    if (!look?.art) {
-      return null;
-    }
-    // The lid is placed as a share of the eye, so it has to be measured
-    // against the ink and not against `look.art.bbox`, which is the
-    // control-point box the peeking eyes frame with: `angry` is drawn with
-    // control points nowhere near its curves, and a lid at half of that box
-    // covers the whole eye. See `tightPathBBox`.
-    const bbox = unionBBox(
-      look.art.paths.map((path) => tightPathBBox(path.svgPath)),
-    );
-    if (bbox.w <= 0 || bbox.h <= 0) {
-      return null;
-    }
-    const eyeArt: SleepingEyeArt = {
-      paths: look.art.paths,
-      bbox,
-      lidColor: look.bgHex,
-    };
-    return eyeArt;
-  }, [visible, components, effectiveTraits, imageUrl]);
+  }, [scene, components, effectiveTraits, imageUrl]);
 
-  if (!visible || phase === null) {
+  if (scene === null) {
     return null;
   }
 
-  const line = assistantName
-    ? phase === "waking"
-      ? t("assistantSleepStage.wakingNamed", { name: assistantName })
-      : t("assistantSleepStage.sleepingNamed", { name: assistantName })
-    : phase === "waking"
-      ? t("assistantSleepStage.waking")
-      : t("assistantSleepStage.sleeping");
-
   return (
-    <motion.button
-      type="button"
-      onClick={dismiss}
-      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
-      initial={reduce ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: reduce ? 0 : 0.35 }}
-    >
-      {eyes ? (
-        <SleepingEyes
-          eyes={eyes}
-          phase={phase}
-          clipId={clipId}
-          reduce={Boolean(reduce)}
-        />
-      ) : imageUrl ? (
-        <img
-          src={imageUrl}
-          alt=""
-          aria-hidden="true"
-          className="aspect-square w-[clamp(120px,20vw,200px)] rounded-full object-cover opacity-60"
-        />
-      ) : null}
-
-      <span
-        className="block text-center text-[28px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[36px]"
-        style={{ fontFamily: "var(--font-serif)" }}
-      >
-        {line}
-      </span>
-      {/* The button's accessible name is its text, so the status is announced
-          before what a click does. No `aria-label`: it would replace the line
-          the sighted user reads with the action alone. */}
-      <span className="sr-only">{t("assistantSleepStage.dismissLabel")}</span>
-    </motion.button>
+    <SleepStageView
+      scene={scene}
+      eyes={eyes}
+      imageUrl={imageUrl}
+      line={sceneLine(t, scene, assistantName)}
+      dismissHint={t("assistantSleepStage.dismissLabel")}
+      onDismiss={dismiss}
+    />
   );
 }
 
-/** The eye art the stage draws, plus the lid color it closes them with. */
-interface SleepingEyeArt {
-  paths: { svgPath: string; color: string }[];
-  bbox: BBox;
-  lidColor: string;
-}
+type TranslateChat = ReturnType<typeof useTranslation<"chat">>["t"];
 
 /**
- * The eye art with its lids down: the eyes drawn as they always are, then a
- * lid rectangle wearing the eyes' own silhouette so it closes each eye over
- * its top half and leaves the gap between them empty. The lid drifts a little
- * lower and back, which is what makes a still pair of eyes read as asleep
- * rather than as a drawing of eyes.
+ * The line under the eyes. Named and unnamed are separate messages rather than
+ * a name substituted into one: a language that inflects around the subject can
+ * only write "your assistant is waking up" as its own sentence.
  */
-function SleepingEyes({
-  eyes,
-  phase,
-  clipId,
-  reduce,
-}: {
-  eyes: SleepingEyeArt;
-  phase: AssistantSleepPhase;
-  clipId: string;
-  reduce: boolean;
-}) {
-  const { bbox } = eyes;
-  const restHeight = LID_REST[phase] * bbox.h;
-  const deepHeight = (LID_REST[phase] + LID_DRIFT) * bbox.h;
-
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox={`${bbox.x} ${bbox.y} ${bbox.w} ${bbox.h}`}
-      className="h-auto w-[clamp(140px,26vw,240px)] shrink-0"
-    >
-      <defs>
-        <clipPath id={clipId}>
-          {eyes.paths.map((path, i) => (
-            <path key={i} d={path.svgPath} />
-          ))}
-        </clipPath>
-      </defs>
-      {eyes.paths.map((path, i) => (
-        <path key={i} d={path.svgPath} fill={path.color} />
-      ))}
-      <motion.rect
-        clipPath={`url(#${clipId})`}
-        x={bbox.x}
-        y={bbox.y}
-        width={bbox.w}
-        fill={eyes.lidColor}
-        initial={{ height: restHeight }}
-        animate={
-          reduce
-            ? { height: restHeight }
-            : { height: [restHeight, deepHeight, restHeight] }
-        }
-        transition={
-          reduce
-            ? { duration: 0 }
-            : {
-                duration: LID_DRIFT_SECONDS,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }
-        }
-      />
-    </svg>
-  );
+function sceneLine(
+  t: TranslateChat,
+  scene: SleepStageScene,
+  name: string | null,
+): string {
+  if (scene === "woke") {
+    return name
+      ? t("assistantSleepStage.wokeNamed", { name })
+      : t("assistantSleepStage.woke");
+  }
+  if (scene === "waking") {
+    return name
+      ? t("assistantSleepStage.wakingNamed", { name })
+      : t("assistantSleepStage.waking");
+  }
+  return name
+    ? t("assistantSleepStage.sleepingNamed", { name })
+    : t("assistantSleepStage.sleeping");
 }

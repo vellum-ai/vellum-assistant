@@ -20,18 +20,31 @@ import { createSelectors } from "@/utils/create-selectors";
  *   session-scoped like the low-balance banner's; the stage resets it as soon
  *   as the assistant is neither sleeping nor waking.
  *
+ * - `forcedScene`: a dev override (`_vellumDebug.flags.forceSleepStage(...)`)
+ *   that pins the stage to one scene so the animation can be watched without
+ *   an assistant that will actually go to sleep. Null in every normal session.
+ *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
+
+/**
+ * Where the stage is in the sleep it is drawing. Declared here rather than
+ * beside the view because the store carries the dev override, and
+ * `src/stores/` may not import from a domain.
+ */
+export type SleepStageScene = "sleeping" | "waking" | "woke";
 interface AssistantSleepStageState {
   visible: boolean;
   dismissed: boolean;
   dismissedAssistantId: string | null;
+  forcedScene: SleepStageScene | null;
 }
 
 interface AssistantSleepStageActions {
   setVisible: (visible: boolean) => void;
   dismiss: (assistantId: string | null) => void;
   reset: () => void;
+  setForcedScene: (scene: SleepStageScene | null) => void;
 }
 
 const useAssistantSleepStageStoreBase = create<
@@ -40,11 +53,13 @@ const useAssistantSleepStageStoreBase = create<
   visible: false,
   dismissed: false,
   dismissedAssistantId: null,
+  forcedScene: null,
 
   setVisible: (visible) => set({ visible }),
   dismiss: (assistantId) =>
     set({ dismissed: true, dismissedAssistantId: assistantId, visible: false }),
   reset: () => set({ dismissed: false, dismissedAssistantId: null }),
+  setForcedScene: (forcedScene) => set({ forcedScene }),
 }));
 
 export const useAssistantSleepStageStore = createSelectors(

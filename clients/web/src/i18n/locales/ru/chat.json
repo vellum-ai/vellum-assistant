@@ -42,7 +42,9 @@
     "sleeping": "Ваш ассистент спит",
     "sleepingNamed": "{name} спит",
     "waking": "Ваш ассистент просыпается…",
-    "wakingNamed": "{name} просыпается…"
+    "wakingNamed": "{name} просыпается…",
+    "woke": "Ваш ассистент только что проснулся",
+    "wokeNamed": "{name} только что проснулся"
   },
   "assistantSwitcher": {
     "collapse": "Скрыть ассистентов",

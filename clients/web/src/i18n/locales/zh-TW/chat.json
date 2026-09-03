@@ -101,7 +101,9 @@
     "sleeping": "您的助理正在休眠",
     "sleepingNamed": "{name} 正在休眠",
     "waking": "您的助理正在喚醒…",
-    "wakingNamed": "{name} 正在喚醒…"
+    "wakingNamed": "{name} 正在喚醒…",
+    "woke": "您的助理剛剛醒來",
+    "wokeNamed": "{name} 剛剛醒來"
   },
   "assistantSwitcher": {
     "collapse": "隱藏助理",

@@ -102,7 +102,9 @@
     "sleeping": "Tu asistente está durmiendo",
     "sleepingNamed": "{name} está durmiendo",
     "waking": "Tu asistente se está despertando…",
-    "wakingNamed": "{name} se está despertando…"
+    "wakingNamed": "{name} se está despertando…",
+    "woke": "Tu asistente acaba de despertarse",
+    "wokeNamed": "{name} acaba de despertarse"
   },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",

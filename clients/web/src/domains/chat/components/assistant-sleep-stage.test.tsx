@@ -1,10 +1,12 @@
 /**
  * Tests for `AssistantSleepStage`, the full-page sleeping/waking takeover.
  *
- * Three things decide whether it draws (the route, the assistant's phase, and
- * whether the user has clicked it away this sleep), and the status banner reads
- * the store it publishes to. Those are what the stage gets wrong if it gets
- * anything wrong, so they are what is covered here.
+ * What decides whether it draws: the route, the assistant's phase, whether the
+ * sleep is one the user arrived into (a page load or a return to the tab)
+ * rather than one that began under them, and whether they have clicked it away
+ * this sleep. Plus the waking outro, which plays only for a sleep the stage
+ * actually showed. Those are what it gets wrong if it gets anything wrong, so
+ * they are what is covered here.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -50,8 +52,10 @@ mock.module("@/lib/avatar-last-seen-cache", () => ({
   readLastSeenAvatar: async () => null,
 }));
 
-const { AssistantSleepStage } =
+const { AssistantSleepStage, __setArrivalWindowMsForTesting } =
   await import("@/domains/chat/components/assistant-sleep-stage");
+const { publish, __resetForTesting: resetEventBus } =
+  await import("@/lib/event-bus");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const { useAssistantSleepStageStore } =
@@ -63,13 +67,17 @@ function renderAt(pathname: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  // A fresh element each time: React bails out of re-rendering a referentially
+  // identical one, and the point of a repoll is to read `phaseMock` again.
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[pathname]}>
         <AssistantSleepStage />
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(tree());
+  return { ...view, repoll: () => view.rerender(tree()) };
 }
 
 beforeEach(() => {
@@ -82,7 +90,10 @@ beforeEach(() => {
     visible: false,
     dismissed: false,
     dismissedAssistantId: null,
+    forcedScene: null,
   });
+  __setArrivalWindowMsForTesting(20_000);
+  resetEventBus();
 });
 
 afterEach(cleanup);
@@ -192,6 +203,66 @@ describe("AssistantSleepStage", () => {
 
     view.unmount();
     phaseMock = "sleeping";
+    renderAt("/assistant/conversations/c1");
+
+    expect(screen.getByText("Mel is asleep")).toBeTruthy();
+  });
+
+  test("leaves a sleep that begins mid-session to the banner", () => {
+    // The user has been working in this tab; nothing about that is an
+    // arrival, so a drop-out mid-session is the banner's to report.
+    __setArrivalWindowMsForTesting(-1);
+    phaseMock = null;
+    const view = renderAt("/assistant/conversations/c1");
+
+    phaseMock = "sleeping";
+    view.repoll();
+
+    expect(screen.queryByText("Mel is asleep")).toBeNull();
+    expect(useAssistantSleepStageStore.getState().visible).toBe(false);
+  });
+
+  test("coming back to the tab arms it, the network coming back does not", () => {
+    __setArrivalWindowMsForTesting(-1);
+    phaseMock = null;
+    const view = renderAt("/assistant/conversations/c1");
+    phaseMock = "sleeping";
+    view.repoll();
+
+    act(() => publish("app.resume", { signal: "online" }));
+    expect(screen.queryByText("Mel is asleep")).toBeNull();
+
+    act(() => publish("app.resume", { signal: "visibility" }));
+    expect(screen.getByText("Mel is asleep")).toBeTruthy();
+  });
+
+  test("plays the waking outro for a sleep it showed", () => {
+    const view = renderAt("/assistant/conversations/c1");
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+
+    phaseMock = null;
+    view.repoll();
+
+    expect(screen.getByText("Mel just woke up")).toBeTruthy();
+    expect(useAssistantSleepStageStore.getState().visible).toBe(true);
+  });
+
+  test("does not announce a waking it never showed asleep", () => {
+    __setArrivalWindowMsForTesting(-1);
+    phaseMock = null;
+    const view = renderAt("/assistant/conversations/c1");
+    phaseMock = "waking";
+    view.repoll();
+    phaseMock = null;
+    view.repoll();
+
+    expect(screen.queryByText("Mel just woke up")).toBeNull();
+  });
+
+  test("the dev override pins a scene with no sleep at all", () => {
+    phaseMock = null;
+    useAssistantSleepStageStore.setState({ forcedScene: "sleeping" });
+
     renderAt("/assistant/conversations/c1");
 
     expect(screen.getByText("Mel is asleep")).toBeTruthy();
