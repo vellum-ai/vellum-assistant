@@ -31,14 +31,15 @@ export function formatCreditsLines(result: PlatformCreditsResult): string[] {
   ];
   if (result.plan_credits_spent === true) {
     // Mirrors the web usage panel: extra credit is only said to fund usage
-    // once the wallet provably holds some.
-    const hasExtra =
-      result.extra_credit_remaining !== null &&
-      result.extra_credit_remaining > 0;
+    // once the wallet provably holds some, and an unreported wallet is not
+    // an empty one.
+    const extra = result.extra_credit_remaining;
     lines.push(
-      hasExtra
-        ? "Plan:      plan credit used up or expired; managed usage now draws on extra credit"
-        : "Plan:      plan credit used up or expired, and no extra credit remains",
+      extra === null
+        ? "Plan:      plan credit used up or expired; whether extra credit remains was not reported"
+        : extra > 0
+          ? "Plan:      plan credit used up or expired; managed usage now draws on extra credit"
+          : "Plan:      plan credit used up or expired, and no extra credit remains",
     );
   } else if (
     result.plan_credit_remaining !== null &&

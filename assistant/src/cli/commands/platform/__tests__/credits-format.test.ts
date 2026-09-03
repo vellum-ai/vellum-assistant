@@ -115,7 +115,7 @@ describe("formatCreditsLines", () => {
     );
   });
 
-  test("still reports the spent state when the platform omits the remaining amount", () => {
+  test("reports the spent state with an unknown wallet when the remaining amount is omitted", () => {
     const lines = formatCreditsLines({
       ...BASE,
       plan_credit_remaining: null,
@@ -126,7 +126,7 @@ describe("formatCreditsLines", () => {
     });
 
     expect(lines[2]).toBe(
-      "Plan:      plan credit used up or expired, and no extra credit remains",
+      "Plan:      plan credit used up or expired; whether extra credit remains was not reported",
     );
   });
 
