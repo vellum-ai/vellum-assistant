@@ -9,7 +9,9 @@ import { Command } from "commander";
 let mockCalls: Array<[string, Record<string, unknown> | undefined]> = [];
 let mockResponses: unknown[] = [];
 
+const actualCliClient = await import("../../../../ipc/cli-client.js");
 mock.module("../../../../ipc/cli-client.js", () => ({
+  ...actualCliClient,
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     mockCalls.push([method, params]);
     return mockResponses.shift() ?? { ok: true, result: { success: true } };
