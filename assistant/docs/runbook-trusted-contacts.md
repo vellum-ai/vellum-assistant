@@ -146,9 +146,13 @@ sqlite3 "file:$GW_DB?mode=ro" \
 
 ## 3b. Contact writes
 
-All write operations on contacts are gateway-owned. Use the gateway CLI, not
+Contact writes are gateway-owned, and they reach it two ways. An operator ACL
+write (a risk ceiling) goes through the gateway CLI directly, not through
 `assistant contacts`. From the host, run the same command via
-`vellum exec --service gateway --`.
+`vellum exec --service gateway --`. A write that changes the contact graph
+itself (the record, or a channel binding) goes through `assistant contacts`,
+which opens a form in the guardian's app and writes nothing until they submit
+it; the gateway still performs the write.
 
 ```bash
 gateway contacts set-risk-threshold <contactId> --threshold high

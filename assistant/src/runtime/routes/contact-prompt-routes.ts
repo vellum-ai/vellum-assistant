@@ -53,7 +53,6 @@ export const CONTACT_ADDRESS_FORM_KIND = "contacts.address";
 export const CONTACT_RECORD_FORM_KIND = "contacts.record";
 const ADDRESS_FORM = CONTACT_ADDRESS_FORM_KIND;
 const RECORD_FORM = CONTACT_RECORD_FORM_KIND;
-const CONTACT_FORMS = [ADDRESS_FORM, RECORD_FORM] as const;
 
 const TimeoutMsParam = z
   .number()
@@ -82,6 +81,13 @@ export interface ContactPromptResult {
   notesSaved?: boolean;
   /** Whether nothing the submission asked for landed. */
   nothingWritten?: boolean;
+  /** Whether a merge committed. Absent on every other operation. */
+  merged?: boolean;
+  /**
+   * Whether the survivor took the name the guardian submitted. False when the
+   * merge committed but its rename could not land.
+   */
+  renamed?: boolean;
   /** The guardian dismissed the form. Nothing was written. */
   cancelled?: boolean;
 }
@@ -247,11 +253,12 @@ const ContactPromptFlagsParams = z.object({
  * Clients hold one contact card at a time, so a second broadcast replaces the
  * first and leaves its command waiting on a form nobody can answer. Refusing
  * fails the second command immediately instead, which is a caller that can
- * retry rather than one that hangs. Both contact forms share the rule, so they
- * share this check.
+ * retry rather than one that hangs. Scoped to one kind: the two contact cards live in
+ * separate client slots and render side by side, so only a second card of the
+ * same kind replaces one.
  */
-function contactFormAlreadyOpen(): ContactPromptResult | null {
-  if (!hasUnclaimedGuardianForm(CONTACT_FORMS)) {
+function contactFormAlreadyOpen(kind: string): ContactPromptResult | null {
+  if (!hasUnclaimedGuardianForm([kind])) {
     return null;
   }
   return {
@@ -287,7 +294,7 @@ async function handleContactPrompt({
     };
   }
 
-  const conflict = contactFormAlreadyOpen();
+  const conflict = contactFormAlreadyOpen(ADDRESS_FORM);
   if (conflict) {
     return conflict;
   }
@@ -301,7 +308,7 @@ async function handleContactPrompt({
     meta: {
       verify: verify === true,
       ...(contactId ? { contactId } : {}),
-      ...(displayName ? { displayName } : {}),
+      ...(displayName !== undefined ? { displayName } : {}),
       ...(notes !== undefined ? { notes } : {}),
     },
     logContext: { channel, role, verify: verify === true, contactId },
@@ -370,7 +377,7 @@ async function handleContactRecordPrompt({
     }
   }
 
-  const conflict = contactFormAlreadyOpen();
+  const conflict = contactFormAlreadyOpen(RECORD_FORM);
   if (conflict) {
     return conflict;
   }
@@ -492,6 +499,8 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       contactId: z.string().optional(),
       notesSaved: z.boolean().optional(),
       nothingWritten: z.boolean().optional(),
+      merged: z.boolean().optional(),
+      renamed: z.boolean().optional(),
       cancelled: z.boolean().optional(),
     }),
   },

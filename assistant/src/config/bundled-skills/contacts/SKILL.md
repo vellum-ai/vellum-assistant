@@ -22,6 +22,8 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 >
 > The form needs the guardian's desktop or web app to be open. If a command reports that it timed out, nobody answered: tell the user, and do not retry in a loop.
 >
+> One exception you must not take: the `contact_merge` tool writes immediately, with no confirmation. Use `assistant contacts merge` instead, so the guardian sees what is being combined before the donor record is deleted.
+>
 > A form the guardian closes without answering is not a failure. The command prints `Cancelled: nothing was written`, exits 130, and writes nothing. Report that as "the guardian did not confirm", not as an error, and do not retry in a loop.
 
 ### Create a contact
@@ -48,6 +50,8 @@ assistant contacts create --name "Alice" --channel email --address "alice@exampl
 ```
 
 `--name` is required in that mode, because the contact is created under it. The form shows `--notes` but does not let the guardian edit them, so they are written as passed; use `assistant contacts update` to change them afterwards. `--address` and `--verify` each need `--channel`, so either one without it is refused rather than ignored.
+
+The `--json` shape follows the mode: without `--channel` it is `{ok, contact}`, so the new id is `contact.id`; with `--channel` it is the address form's `{ok, contactId, channelId, channelType, address, verified}`, so the id is `contactId`. Read the right one before passing it to `contacts invites create --contact-id`.
 
 Use this before creating an invite for someone who is not in the contact graph yet.
 

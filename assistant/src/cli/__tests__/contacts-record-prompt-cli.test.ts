@@ -435,6 +435,29 @@ describe("contacts record prompts", () => {
       expect(process.exitCode).toBe(1);
     });
 
+    test("merging away the guardian is refused before any form", async () => {
+      // The gateway refuses this, so opening the form would spend a
+      // confirmation on a write that cannot land.
+      contactsById = {
+        ct_1: contact,
+        ct_2: { ...donor, role: "guardian" },
+      };
+
+      const { stderr } = await runAssistantCommandFull(
+        "contacts",
+        "merge",
+        "ct_1",
+        "ct_2",
+      );
+
+      expect(stderr).toContain("guardian");
+      expect(stderr).toContain("assistant contacts merge ct_2 ct_1");
+      expect(
+        calls.some((c) => c.operationId === "contacts_record_prompt"),
+      ).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
     test("an unknown donor id fails before the guardian sees a form", async () => {
       await runAssistantCommandFull("contacts", "merge", "ct_1", "ct_missing");
 

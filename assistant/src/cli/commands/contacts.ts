@@ -1,6 +1,8 @@
 import type { Command } from "commander";
 
+import type { ChannelId } from "../../channels/types.js";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import {
   GUARDIAN_FORM_DEFAULT_TIMEOUT_MS,
   GUARDIAN_FORM_MAX_TIMEOUT_MS,
@@ -360,6 +362,22 @@ async function runAddressPrompt(
   }
 
   const result = r.result;
+  // A gateway that does not honor the target binds by address instead, which
+  // is the duplicate this command exists to avoid. It reports success, so the
+  // mismatch is the only evidence.
+  if (
+    opts.contactId &&
+    result.contactId &&
+    result.contactId !== opts.contactId
+  ) {
+    writeError(
+      cmd,
+      `The channel was bound to contact ${result.contactId}, not the ${opts.contactId} this command named. The gateway is older than this CLI and cannot target a contact; upgrade it, then run 'assistant contacts merge ${opts.contactId} ${result.contactId}' to combine the two records.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   if (shouldOutputJson(cmd)) {
     writeOutput(cmd, result);
     return;
@@ -407,8 +425,21 @@ async function warnIfAddressLooksTaken(
     return;
   }
 
+  // The search matches an address as a substring, so a returned contact may
+  // hold a longer address that merely contains this one. Warning on that would
+  // name a stranger and point at an irreversible merge. The comparison
+  // canonicalizes the way the gateway's own check does, so a phone number
+  // written differently still counts as the same address.
+  const canonical = (value: string) =>
+    canonicalizeInboundIdentity(channelType as ChannelId, value) ??
+    value.trim().toLowerCase();
+  const wanted = canonical(address);
   const holder = (r.result?.contacts ?? []).find(
-    (c) => c.id !== targetContactId,
+    (c) =>
+      c.id !== targetContactId &&
+      c.channels.some(
+        (ch) => ch.type === channelType && canonical(ch.address) === wanted,
+      ),
   );
   if (!holder) {
     return;
@@ -875,6 +906,16 @@ export function registerContactsCommand(program: Command): void {
           }
           const donor = await readContactForPrompt(donorId, cmd);
           if (!donor) {
+            return;
+          }
+          if (donor.role === "guardian") {
+            // The gateway refuses this, so opening the form would spend a
+            // confirmation on a write that cannot land.
+            writeError(
+              cmd,
+              `Cannot merge away the guardian contact "${donor.displayName}" (${donorId}). Run 'assistant contacts merge ${donorId} ${survivorId}' to keep the guardian as the survivor instead.`,
+            );
+            process.exitCode = 1;
             return;
           }
           await runRecordPrompt(

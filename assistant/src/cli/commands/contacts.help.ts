@@ -166,6 +166,11 @@ change them afterwards.
 --address and --verify only mean something alongside --channel, so either one
 without it is refused rather than ignored.
 
+--json reports what the form wrote, so the shape follows the mode: without
+--channel it is {ok, contact}, and with it the address form's
+{ok, contactId, channelId, channelType, address, verified}. The new id is
+contact.id in the first and contactId in the second.
+
 ${FORM_NOTE}
 
 Examples:
