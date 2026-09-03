@@ -5,7 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { pathListDelimiter } from "@vellumai/environments/shell";
 
@@ -169,6 +170,69 @@ function kataPythonPaths(dataRoot: string): string[] {
   ];
 }
 
+// Bun synthesizes a `node` shim directory (<temp>/bun-node-<hash>/, holding
+// `node` and `bun` symlinks to itself) and prepends it to PATH whenever it
+// starts with no real Node on PATH. That `node` is Bun, which runs a Node CLI
+// under different semantics, so it must never shadow a real interpreter in a
+// sandbox subprocess. It stays when it is the only `node` there is: on a native
+// install (Bun only, no Node) removing it would break every `#!/usr/bin/env
+// node` CLI outright.
+function bunNodeShimParents(sourceEnv: NodeJS.ProcessEnv): string[] {
+  const roots = [
+    tmpdir(),
+    "/tmp",
+    sourceEnv.TMPDIR,
+    sourceEnv.TEMP,
+    sourceEnv.TMP,
+  ];
+  return roots
+    .filter((root): root is string => Boolean(root))
+    .map((root) => root.replace(/[\\/]+$/, ""));
+}
+
+function hasNodeExecutable(dir: string): boolean {
+  for (const name of ["node", "node.exe"]) {
+    try {
+      if (statSync(`${dir}/${name}`).isFile()) {
+        return true;
+      }
+    } catch {
+      // Entry missing or unreadable: not a Node interpreter we can use.
+    }
+  }
+  return false;
+}
+
+function stripBunNodeShimDirs(
+  value: string,
+  sourceEnv: NodeJS.ProcessEnv,
+): string {
+  const parents = bunNodeShimParents(sourceEnv);
+  const separator = pathListDelimiter();
+  const entries = value.split(separator);
+  const kept = entries.filter((entry) => {
+    const normalized = entry.replace(/[\\/]+$/, "");
+    const cut = Math.max(
+      normalized.lastIndexOf("/"),
+      normalized.lastIndexOf("\\"),
+    );
+    if (cut < 0) {
+      return true;
+    }
+    return !(
+      normalized.slice(cut + 1).startsWith("bun-node-") &&
+      parents.includes(normalized.slice(0, cut))
+    );
+  });
+  if (kept.length === entries.length) {
+    return value;
+  }
+  if (!kept.some(hasNodeExecutable)) {
+    return value;
+  }
+  return kept.join(separator);
+}
+
 /**
  * Keys that buildSanitizedEnv always injects into the returned env,
  * independent of what is present in process.env.
@@ -244,6 +308,11 @@ export function buildSanitizedEnv(
         env.PATH.split(pathListDelimiter()).filter(Boolean),
       );
     }
+  }
+  // Runs after the kata entries are in place: a Node installed into the
+  // persistent apt chroot is what makes dropping Bun's shim safe there.
+  if (env.PATH != null) {
+    env.PATH = stripBunNodeShimDirs(env.PATH, sourceEnv);
   }
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();
