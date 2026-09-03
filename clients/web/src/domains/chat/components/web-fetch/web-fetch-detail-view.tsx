@@ -1,15 +1,14 @@
 /**
- * Nested detail view for a subagent `web_fetch` pill. The raw tool result is a
- * metadata header (`Requested URL` / `Final URL` / `Status` / `Content-Type` /
- * `Notices`) wrapping the extracted page text inside an `<external_content>`
- * tag. Rather than dump that verbatim, this view renders a clickable source
- * card, surfaces the fetch notices (truncation / JS-rendered warnings), and
- * shows the extracted text as readable markdown — with a "View raw" toggle for
- * the unparsed result.
+ * The body for a `web_fetch` call. Its result is a metadata header (`Requested
+ * URL` / `Final URL` / `Status` / `Content-Type` / `Notices`) wrapping the
+ * extracted page text in an `<external_content>` tag. Rather than dump that
+ * verbatim, this renders a clickable source card, surfaces the fetch notices
+ * (truncation, JS-rendered warnings), and shows the extracted text as readable
+ * markdown, with a "View raw" toggle for the unparsed result.
  *
- * Static / presentational: parses only the `input` + `result` the panel already
- * built into the `ToolDetailPayload` (see `buildSubagentStepDetails`); never
- * re-fetches.
+ * Parsing only: it reads the `result` its host resolved and never re-fetches.
+ * That result is live wherever the host has a live source, so a fetch that
+ * lands while the drawer is open reaches the reader.
  */
 
 import { useMemo, useState } from "react";
