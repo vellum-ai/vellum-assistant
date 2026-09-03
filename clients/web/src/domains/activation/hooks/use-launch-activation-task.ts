@@ -29,6 +29,12 @@
  * happened, and a launch that has already linked has to hand back the
  * conversation id so the user can open it.
  *
+ * A start the daemon accepted is written into the progress cache before the
+ * launch leaves its pending state. The row is guarded by two things in
+ * sequence, the pending set and then the daemon's `started` record, and a
+ * pending set that clears first leaves a gap the row renders as Todo and
+ * accepts a second click, which relinks the task to a second conversation.
+ *
  * Every launch gets its own conversation. Reusing one across tasks would put
  * two prompts in one thread and give the daemon two tasks pointing at the same
  * turn.
@@ -43,9 +49,12 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  activationProgressGetQueryKey,
+  activationProgressGetSetQueryData,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { activationTasksByTaskIdStartPost } from "@/generated/daemon/sdk.gen";
 import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -59,6 +68,8 @@ import {
 
 import { readRawActivationTask } from "../catalog";
 
+import type { ActivationProgress } from "./use-activation-progress";
+
 /**
  * A link the client never saw succeed. `rejected` is true only when the daemon
  * answered with a 4xx, which is the one case where the link certainly does not
@@ -67,6 +78,71 @@ import { readRawActivationTask } from "../catalog";
 interface LinkFailure {
   rejected: boolean;
   error: string;
+}
+
+interface LinkOutcome {
+  /** Absent once the daemon holds the link. */
+  failure?: LinkFailure;
+  /** The progress document the daemon answered the write with. */
+  progress?: ActivationProgress;
+}
+
+/**
+ * Whether the daemon answered the start with a whole progress document, which
+ * is what the current route returns and what the cache holds.
+ */
+function isActivationProgress(value: unknown): value is ActivationProgress {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const { tasks } = value as Partial<ActivationProgress>;
+  return typeof tasks === "object" && tasks !== null;
+}
+
+/**
+ * Write the started task into the progress cache, on the key
+ * `useActivationProgress` reads, so the row stays guarded from the moment the
+ * daemon holds the link until the next progress read lands.
+ *
+ * The daemon answers the start with the whole document, so that is what is
+ * written. An answer carrying something else falls back to inserting the task
+ * into what is already cached; an absent cache is left absent, because a
+ * progress document the client invented would turn on the surfaces the missing
+ * read keeps hidden.
+ */
+function seedStartedTask(
+  queryClient: QueryClient,
+  assistantId: string,
+  taskId: string,
+  conversationId: string,
+  answered: ActivationProgress | undefined,
+): void {
+  activationProgressGetSetQueryData(
+    queryClient,
+    { path: { assistant_id: assistantId } },
+    (cached) => {
+      if (answered) {
+        return answered;
+      }
+      if (!cached) {
+        return cached;
+      }
+      return {
+        ...cached,
+        tasks: {
+          ...cached.tasks,
+          [taskId]: {
+            status: "started",
+            conversationId,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            stepCount: null,
+            artifacts: [],
+          },
+        },
+      };
+    },
+  );
 }
 
 interface LinkActivationTaskArgs {
@@ -93,25 +169,29 @@ async function linkActivationTask({
   listId,
   conversationId,
   fallback,
-}: LinkActivationTaskArgs): Promise<LinkFailure | null> {
+}: LinkActivationTaskArgs): Promise<LinkOutcome> {
   try {
-    const { error, response } = await activationTasksByTaskIdStartPost({
+    const { data, error, response } = await activationTasksByTaskIdStartPost({
       path: { assistant_id: assistantId, taskId },
       body: { conversationId, listId },
       throwOnError: false,
     });
     if (response?.ok) {
-      return null;
+      return { progress: isActivationProgress(data) ? data : undefined };
     }
     const status = response?.status;
     return {
-      rejected: status !== undefined && status >= 400 && status < 500,
-      error: extractErrorMessage(error, response, fallback),
+      failure: {
+        rejected: status !== undefined && status >= 400 && status < 500,
+        error: extractErrorMessage(error, response, fallback),
+      },
     };
   } catch (error) {
     return {
-      rejected: false,
-      error: extractErrorMessage(error, undefined, fallback),
+      failure: {
+        rejected: false,
+        error: extractErrorMessage(error, undefined, fallback),
+      },
     };
   }
 }
@@ -198,20 +278,34 @@ export function useLaunchActivationTask(
         }
         const { conversationId } = created;
 
-        const linkFailure = await linkActivationTask({
+        const link = await linkActivationTask({
           assistantId,
           taskId,
           listId,
           conversationId,
           fallback: t("launch.failed"),
         });
-        if (linkFailure) {
-          if (linkFailure.rejected) {
+        if (link.failure) {
+          if (link.failure.rejected) {
             void discardBackgroundConversation(assistantId, conversationId);
-            return { ok: false, error: linkFailure.error };
+            return { ok: false, error: link.failure.error };
           }
-          return { ok: false, conversationId, error: linkFailure.error };
+          return { ok: false, conversationId, error: link.failure.error };
         }
+        // The daemon holds the link from here, whatever the send does next, so
+        // the row is guarded and the read is refreshed before either can end.
+        seedStartedTask(
+          queryClient,
+          assistantId,
+          taskId,
+          conversationId,
+          link.progress,
+        );
+        void queryClient.invalidateQueries({
+          queryKey: activationProgressGetQueryKey({
+            path: { assistant_id: assistantId },
+          }),
+        });
 
         let sent;
         try {
@@ -243,11 +337,6 @@ export function useLaunchActivationTask(
         }
 
         emitActivationEvent("activation_task_started", { arm, listId, taskId });
-        void queryClient.invalidateQueries({
-          queryKey: activationProgressGetQueryKey({
-            path: { assistant_id: assistantId },
-          }),
-        });
         return { ok: true, conversationId };
       } finally {
         inFlight.current.delete(taskId);

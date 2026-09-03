@@ -14,8 +14,23 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+} from "@testing-library/react";
 
+import {
+  ACTIVATION_PROGRESS_EMPTY,
+  startedTaskProgress,
+} from "@/domains/activation/activation-test-fixtures";
+import { getActivationList } from "@/domains/activation/catalog";
+import { ActivationListPage } from "@/domains/activation/components/activation-list-page";
+import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
+import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-activation-progress";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -50,6 +65,11 @@ let createStatus = 200;
 /** The `detail` the create leg answers with; `null` for a body carrying none. */
 let createDetail: string | null = "no conversation for you";
 let startStatus = 200;
+/**
+ * What the start leg answers with. The daemon returns the whole progress
+ * document; the default here is the older shape, which is the fallback path.
+ */
+let startBody: unknown = { taskId: "t", status: "started" };
 let sendStatus = 200;
 let sendThrows = false;
 let startThrows = false;
@@ -143,7 +163,7 @@ function installFetch(): void {
         if (startStatus !== 200) {
           return json(startStatus, { detail: "task id rejected" });
         }
-        return json(200, { taskId: "t", status: "started" });
+        return json(200, startBody);
       case "send":
         if (sendThrows) {
           throw new TypeError("network down");
@@ -162,11 +182,27 @@ function installFetch(): void {
   }) as typeof fetch;
 }
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
+let queryClient = new QueryClient();
+
+function newQueryClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+const PROGRESS_KEY = activationProgressGetQueryKey({
+  path: { assistant_id: "asst-1" },
+});
+
+/** What `useActivationProgress` would read right now, without refetching. */
+function cachedProgress(): ActivationProgress | undefined {
+  return queryClient.getQueryData<ActivationProgress>(PROGRESS_KEY);
 }
 
 function launcher() {
@@ -197,11 +233,13 @@ beforeEach(() => {
   createStatus = 200;
   createDetail = "no conversation for you";
   startStatus = 200;
+  startBody = { taskId: "t", status: "started" };
   sendStatus = 200;
   sendThrows = false;
   startThrows = false;
   holdCreates = false;
   parkedCreates = [];
+  queryClient = newQueryClient();
   emitMock.mockClear();
   installFetch();
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
@@ -550,5 +588,127 @@ describe("useLaunchActivationTask concurrency", () => {
     });
 
     expect(again?.ok).toBe(true);
+  });
+});
+
+/**
+ * The row is guarded by two things in sequence: the pending set while the
+ * launch runs, then the daemon's `started` record. The write below is what
+ * closes the gap between them, and without it the row falls back to Todo and
+ * takes a second click that relinks the task to a second conversation.
+ */
+describe("useLaunchActivationTask progress cache", () => {
+  const startedProgress: ActivationProgress = {
+    ...ACTIVATION_PROGRESS_EMPTY,
+    listId: "smb",
+    tasks: {
+      "pdf-proposal": startedTaskProgress({
+        conversationId: "conv-1",
+        stepCount: null,
+      }),
+    },
+  };
+
+  test("writes the progress the daemon answered the start with", async () => {
+    startBody = startedProgress;
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()).toEqual(startedProgress);
+  });
+
+  // An older daemon answers the start with something else, so the started task
+  // is inserted into what is cached rather than taken from the answer.
+  test("inserts the started task when the start answers with something else", async () => {
+    queryClient.setQueryData(PROGRESS_KEY, ACTIVATION_PROGRESS_EMPTY);
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()?.tasks["pdf-proposal"]).toMatchObject({
+      status: "started",
+      conversationId: "conv-1",
+    });
+  });
+
+  // Every surface is hidden while the progress read has not landed, so a
+  // document invented here would turn them on against a daemon that never
+  // answered one.
+  test("invents no progress when none is cached and none is answered", async () => {
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()).toBeUndefined();
+  });
+
+  // A send that fails leaves the link standing, so the task is started and the
+  // row must stay guarded whatever the prompt did.
+  test("guards the row even when the prompt fails to send", async () => {
+    startBody = startedProgress;
+    sendStatus = 500;
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()?.tasks["pdf-proposal"]?.status).toBe("started");
+  });
+
+  test("leaves the cache alone when the daemon refuses the link", async () => {
+    queryClient.setQueryData(PROGRESS_KEY, ACTIVATION_PROGRESS_EMPTY);
+    startStatus = 400;
+    const result = launcher();
+    await act(async () => {
+      await result.current.launch("pdf-proposal");
+    });
+
+    expect(cachedProgress()?.tasks).toEqual({});
+  });
+
+  // The list as the user sees it mid-launch: the rows read the cache and
+  // nothing refetches, so the write above is the only thing guarding the row.
+  test("the launched row is no longer launchable once the launch settles", async () => {
+    startBody = startedProgress;
+    const { starters, items } = getActivationList("smb");
+    const tasks = [...starters, ...items];
+    const launchedFromRow: string[] = [];
+    const openedFromRow: string[] = [];
+    let launch: ((taskId: string) => Promise<unknown>) | undefined;
+
+    function GuardedList() {
+      const launcherState = useLaunchActivationTask("smb");
+      launch = launcherState.launch;
+      // Read the cache directly: the hook's pending-state change re-renders
+      // this component after the launch settles, and a sibling test file mocks
+      // useQuery process-wide, which would hide the seeded write here.
+      const data = queryClient.getQueryData<ActivationProgress>(PROGRESS_KEY);
+      return (
+        <ActivationListPage
+          tasks={tasks}
+          progress={data?.tasks ?? {}}
+          pendingTaskIds={launcherState.pendingTaskIds}
+          onLaunch={(taskId) => launchedFromRow.push(taskId)}
+          onOpenConversation={(conversationId) =>
+            openedFromRow.push(conversationId)
+          }
+        />
+      );
+    }
+
+    render(<GuardedList />, { wrapper });
+    const title = starters[0]?.title ?? "";
+    await act(async () => {
+      await launch?.("pdf-proposal");
+    });
+
+    fireEvent.click(screen.getByText(title).closest("button")!);
+
+    expect(launchedFromRow).toEqual([]);
+    expect(openedFromRow).toEqual(["conv-1"]);
   });
 });

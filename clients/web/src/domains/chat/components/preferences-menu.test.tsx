@@ -111,13 +111,30 @@ const billingRef = {
     | undefined,
 };
 
+/**
+ * What the daemon's activation progress read answers with. `null` is the read
+ * that has not landed, which is every test that does not care about it.
+ */
+const activationProgressRef: { data: unknown } = { data: undefined };
+
+/** Whether a query's options name the activation progress read. */
+function isActivationProgressQuery(options: unknown): boolean {
+  const key = (options as { queryKey?: Array<{ _id?: string }> } | undefined)
+    ?.queryKey;
+  return key?.[0]?._id === "activationProgressGet";
+}
+
 // Spread the real module so shared utilities that import other exports
 // (e.g. `isCancelledError` via `captureError`) keep resolving; only the
-// hook under test's read is overridden.
+// hook under test's read is overridden. The menu makes two reads, so the
+// stub answers by query key rather than handing both the same body.
 const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
   ...actualReactQuery,
-  useQuery: () => ({ data: billingRef.data, isLoading: false, isError: false }),
+  useQuery: (options: unknown) =>
+    isActivationProgressQuery(options)
+      ? { data: activationProgressRef.data, isLoading: false, isError: false }
+      : { data: billingRef.data, isLoading: false, isError: false },
 }));
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
@@ -285,6 +302,7 @@ function enableActivationList(arm = "smb"): void {
 beforeEach(() => {
   navigateArgs = [];
   activationEvents.length = 0;
+  activationProgressRef.data = undefined;
   setActivationArm("off");
   useAssistantIdentityStore.getState().clearIdentity();
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
@@ -560,6 +578,31 @@ describe("PreferencesMenu Inspiration List", () => {
       { event: "activation_list_opened", arm: "smb", listId: "smb" },
     ]);
     expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  // The daemon freezes a list on the first write, and the arm can be
+  // re-bucketed after that. The funnel keys its `screen` dimension off this
+  // event, so an arm-derived id would file the open under a list the user was
+  // never shown.
+  test("records the frozen list, not the arm the user was re-bucketed into", async () => {
+    enableActivationList("parent");
+    activationProgressRef.data = {
+      version: 1,
+      listId: "smb",
+      modalDismissedAt: null,
+      allDoneShownAt: null,
+      tasks: {},
+    };
+    await openMenu();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Inspiration List"));
+      await Promise.resolve();
+    });
+
+    expect(activationEvents).toEqual([
+      { event: "activation_list_opened", arm: "parent", listId: "smb" },
+    ]);
   });
 
   test("sits above Share Feedback, as Figma orders the menu", async () => {

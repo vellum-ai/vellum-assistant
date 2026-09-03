@@ -6,8 +6,9 @@
  * so a new gate is added in exactly one file.
  *
  * The order is deliberate. The cheap local answer comes first
- * (`useActivationEnabledListId`, which carries the flag arm and the daemon
- * support gate every activation surface shares), then the server read, then
+ * (`useEffectiveActivationListId`, which carries the flag arm, the daemon
+ * support gate and the daemon's frozen list, the three every activation
+ * surface shares), then the server read, then
  * the surfaces this one must not fight with: onboarding routes and the in-chat
  * tour own the screen while they run, and a banner already occupies the slot
  * the pill would take.
@@ -15,7 +16,7 @@
 
 import { useLocation } from "react-router";
 
-import { useActivationEnabledListId } from "@/hooks/use-activation-enabled";
+import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useBannerVisible } from "@/stores/banner-visibility-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -68,18 +69,15 @@ export function doneStarterCount(
 
 export function useActivationVisibility(): ActivationVisibility {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const armListId = useActivationEnabledListId(assistantId);
+  const listId = useEffectiveActivationListId(assistantId);
   const { data: progress } = useActivationProgress();
   const { pathname } = useLocation();
   const tourActive = useInChatOnboardingStore.use.prototypeActive();
   const bannerVisible = useBannerVisible();
 
-  if (armListId === null || !progress) {
+  if (listId === null || !progress) {
     return HIDDEN;
   }
-  // The daemon's frozen list wins over the arm, so a re-bucketed user keeps
-  // the checklist they already started.
-  const listId = progress.listId ?? armListId;
   if (isOnboardingRoute(pathname) || tourActive || bannerVisible) {
     return HIDDEN;
   }

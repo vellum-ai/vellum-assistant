@@ -9,7 +9,7 @@
  * The daemon's frozen list wins over the flag arm, the same rule the modal and
  * the pill follow, so a re-bucketed user keeps the checklist they started.
  *
- * The gate is `useActivationEnabledListId`, the one every activation surface
+ * The gate is `useEffectiveActivationListId`, the one every activation surface
  * shares, rather than the flag arm alone: the page is reachable by a bookmark,
  * and against an assistant too old for the `/v1/activation/*` routes every row
  * would offer a launch the daemon cannot link. Gated off, the route hands the
@@ -24,7 +24,7 @@ import { Navigate, useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { useActivationEnabledListId } from "@/hooks/use-activation-enabled";
+import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -40,9 +40,8 @@ export function ActivationListRoute() {
   const navigate = useNavigate();
   const { t } = useTranslation("activation");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const armListId = useActivationEnabledListId(assistantId);
+  const listId = useEffectiveActivationListId(assistantId);
   const { data: progress } = useActivationProgress();
-  const listId = progress?.listId ?? armListId;
 
   const { starters, items } = useActivationList(listId ?? "");
   const availableTags = useAvailableCapabilityTags();
@@ -84,7 +83,7 @@ export function ActivationListRoute() {
     [launch, navigate, t],
   );
 
-  if (armListId === null) {
+  if (listId === null) {
     return <Navigate to={routes.assistant} replace />;
   }
 

@@ -28,7 +28,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useActivationChecklistArm } from "@/hooks/use-activation-checklist-flag";
-import { useActivationEnabledListId } from "@/hooks/use-activation-enabled";
+import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -274,7 +274,7 @@ function PreferencesMenuContent({
   const activationArm = useActivationChecklistArm();
   const activationAssistantId =
     useResolvedAssistantsStore.use.activeAssistantId();
-  const activationListId = useActivationEnabledListId(activationAssistantId);
+  const activationListId = useEffectiveActivationListId(activationAssistantId);
   const {
     enabled: showBillingRows,
     balance: effectiveBalance,
