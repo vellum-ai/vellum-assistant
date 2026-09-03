@@ -33,6 +33,7 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(indexed).toContain("Setup <app> for me");
     expect(indexed.toLowerCase()).toContain("before searching the web");
     expect(indexed).toContain("assistant plugins search");
+    expect(indexed).toContain("assistant plugins install <name>");
     expect(indexed).toContain("assistant skills search");
     expect(indexed.toLowerCase()).toContain("channels");
     expect(pluginsHelp.description).toContain("channels");

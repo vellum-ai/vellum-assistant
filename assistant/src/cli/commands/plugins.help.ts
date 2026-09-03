@@ -8,6 +8,9 @@ import {
   PLUGIN_UPGRADE_STRATEGIES,
 } from "../lib/plugin-constants.js";
 
+export const PLUGINS_SEARCH_INSTALL_HINT =
+  "Install the plugin with `assistant plugins install <name>`.";
+
 export const pluginsHelp: CliCommandHelp = {
   name: "plugins",
   description:
@@ -166,7 +169,7 @@ Arguments:
            user sentence. Use the product or plugin name. Anchors like
            ^example work.
 
-If a match is found, install it with 'assistant plugins install <name>'.
+${PLUGINS_SEARCH_INSTALL_HINT}
 If nothing matches, try 'assistant skills search <query>', then web search.
 
 Examples:
