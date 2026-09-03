@@ -103,10 +103,10 @@ describe("SwipeActionReveal", () => {
       </SwipeActionReveal>,
     );
 
-    // A fill here would be the row's full width whatever shape the row is,
-    // which is what banded the sidebar's `w-fit` pills (LUM-3147). Nothing
-    // needs covering now, so nothing is painted, and a host no longer has to
-    // name the surface its rows rest on for the wrapper to match.
+    // A fill here is the row's full width whatever shape the row is, so it
+    // reads as a band behind any content that does not fill its box, such as
+    // a `w-fit` pill. The clip hides the actions, so there is nothing for a
+    // fill to cover and no surface for a host to name.
     expect(html).not.toContain("--swipe-reveal-bg");
     expect(html).not.toContain("--surface-overlay");
   });
@@ -135,9 +135,9 @@ describe("SwipeActionReveal", () => {
   test("keeps its mark when a parent hands the row a slot name", () => {
     // What `ContextMenu.Trigger` does with `asChild`, which is how the
     // pinned-app pill mounts: it clones the row and passes its own props down.
-    // While the mark shared the `data-slot` channel the injected name replaced
-    // it, so the drawer's swipe-to-close never saw a row to stand down for and
-    // fought the pill for every horizontal drag.
+    // A mark sharing the `data-slot` channel loses it to that name, and a row
+    // the drawer's swipe-to-close cannot see is one it fights for every
+    // horizontal drag.
     const html = renderToStaticMarkup(
       <SwipeActionReveal
         enabled={true}

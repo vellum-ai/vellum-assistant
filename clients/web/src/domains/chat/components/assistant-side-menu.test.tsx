@@ -1456,12 +1456,10 @@ describe("AssistantSideMenu · section spacing", () => {
 });
 
 describe("AssistantSideMenu · section card surface", () => {
-  /* A card used to hand its swipeable rows a fill to paint, because the swipe
-     wrapper covered its actions with an opaque layer and that layer had to
-     match the card or every row read as a sunken band. The wrapper clips its
-     actions away instead now, so it paints nothing and there is no fill for a
-     host to name. Asserted rather than merely deleted: re-publishing the
-     variable would be the band coming back on the pills beside these cards. */
+  /* A swipeable row carries only the surface its own content carries, so a
+     card has no fill to hand down to it. Asserted as an absence because a
+     card that names one puts a row-width band behind the `w-fit` pills
+     standing beside these cards. */
   test("no section card hands its rows a fill to paint", () => {
     const container = parse(
       renderMenu({

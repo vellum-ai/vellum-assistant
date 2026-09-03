@@ -211,10 +211,9 @@ describe("PinnedAppNavItem", () => {
     ).not.toBeNull();
   });
 
-  /* LUM-3518: the pin is a `w-fit` pill, and the swipe wrapper around it is
-     the sidebar's full width. Any fill on the wrapper is therefore a band
-     behind the pill rather than the pill's own surface, which is how this
-     reached a TestFlight build looking like two mismatched shapes. */
+  /* The pin is a `w-fit` pill and the swipe wrapper around it is the sidebar's
+     full width, so any fill on the wrapper is a band behind the pill rather
+     than the pill's own surface, and the row reads as two mismatched shapes. */
   test("expanded: the swipe wrapper paints nothing behind the pill", () => {
     viewport.set({ narrow: true, coarsePointer: true });
 
