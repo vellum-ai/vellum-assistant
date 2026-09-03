@@ -16,11 +16,14 @@
  * served read-only so a rollback cannot erase the newer document, and a
  * write against it fails with a 409 rather than reporting a success that
  * never touched disk.
- * Writes are atomic (temp file + rename) and serialized through a single
- * in-process promise chain so concurrent route calls and turn hooks cannot
- * interleave a read-modify-write. A write that cannot land rejects, so a
- * route never answers with state the next read would contradict; the
- * fire-and-forget turn hooks catch and log instead.
+ * Writes are atomic (temp file + rename) and serialized twice over. A
+ * single in-process promise chain keeps concurrent route calls and turn
+ * hooks from interleaving a read-modify-write, and an exclusive lock file
+ * beside the snapshot extends that to the daemon's sidecar workers, which
+ * load this module against the same workspace and would otherwise read a
+ * snapshot the daemon is about to replace. A write that cannot land
+ * rejects, so a route never answers with state the next read would
+ * contradict; the fire-and-forget turn hooks catch and log instead.
  *
  * A conversation belongs to at most one task: {@link startActivationTask}
  * unlinks any other `started` task pointing at the same conversation, so
@@ -35,12 +38,15 @@
  */
 
 import {
+  closeSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -359,6 +365,161 @@ function linkedTaskIdFor(conversationId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Interprocess lock
+// ---------------------------------------------------------------------------
+
+/** Suffix of the lock file that guards a read-modify-write of the snapshot. */
+const ACTIVATION_PROGRESS_LOCK_SUFFIX = ".lock";
+
+/**
+ * How long a mutation waits for another process to finish before it gives up
+ * and proceeds unlocked. Every holder does one small read and one rename, so
+ * a wait this long means the holder is wedged rather than busy.
+ */
+const LOCK_WAIT_TIMEOUT_MS = 2_000;
+
+/** Pause between attempts while another process holds the lock. */
+const LOCK_RETRY_DELAY_MS = 15;
+
+/**
+ * Age at which a lock is treated as abandoned. Generous next to the work a
+ * holder does, so a slow filesystem is waited out rather than trampled, and
+ * short enough that a process killed mid-mutation does not block its
+ * successors for the life of the workspace.
+ */
+const LOCK_STALE_MS = 5_000;
+
+/** Path of the lock file, beside the snapshot it guards. */
+export function getActivationProgressLockPath(): string {
+  return `${getActivationProgressPath()}${ACTIVATION_PROGRESS_LOCK_SUFFIX}`;
+}
+
+/** Whether a process id still names a live process. */
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM is a process this user may not signal, which is still a process.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * One attempt at the lock.
+ *
+ * `held` is the ordinary contended answer: another process created the file
+ * first. `unavailable` is everything else (an unwritable or occupied data
+ * directory), which the caller treats as "no lock to be had here" rather than
+ * as contention: the write that follows reports the real failure, and
+ * spinning for it would only delay that report.
+ */
+function tryAcquireProgressLock(
+  lockPath: string,
+): "acquired" | "held" | "unavailable" {
+  try {
+    mkdirSync(getDataDir(), { recursive: true });
+  } catch {
+    return "unavailable";
+  }
+  let fd: number;
+  try {
+    fd = openSync(lockPath, "wx");
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EEXIST"
+      ? "held"
+      : "unavailable";
+  }
+  try {
+    writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+  } catch {
+    // The holder identity is an optimization for stale detection, not the
+    // lock itself: an empty lock file still excludes every other writer, and
+    // reads as abandoned once it ages out.
+  } finally {
+    closeSync(fd);
+  }
+  return "acquired";
+}
+
+/**
+ * Whether the lock on disk belongs to a writer that is never coming back:
+ * one whose process is gone, one older than {@link LOCK_STALE_MS}, or one
+ * whose contents say nothing this build can check.
+ *
+ * A lock that has vanished by the time it is read is not stale, it is free,
+ * and the next create attempt takes it.
+ */
+function progressLockIsStale(lockPath: string): boolean {
+  let raw: string;
+  try {
+    raw = readFileSync(lockPath, "utf-8");
+  } catch {
+    return false;
+  }
+  let holder: unknown;
+  try {
+    holder = JSON.parse(raw);
+  } catch {
+    return true;
+  }
+  if (!isRecord(holder)) {
+    return true;
+  }
+  const { pid, at } = holder;
+  if (typeof at !== "number" || Date.now() - at >= LOCK_STALE_MS) {
+    return true;
+  }
+  return typeof pid === "number" && pid !== process.pid && !processIsAlive(pid);
+}
+
+/**
+ * Take the lock for the whole read-modify-write below, so a sidecar worker
+ * and the daemon cannot both read one snapshot and rename over each other's
+ * update.
+ *
+ * Returns whether the lock is held, and only a caller holding it releases it.
+ * Failing to take it is not an error: after
+ * {@link LOCK_WAIT_TIMEOUT_MS} the mutation proceeds unlocked rather than
+ * failing, which is exactly the behaviour the store had before the lock
+ * existed. A wedged holder must not turn a checklist write into a 500.
+ */
+async function acquireProgressLock(): Promise<boolean> {
+  const lockPath = getActivationProgressLockPath();
+  const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
+  for (;;) {
+    const attempt = tryAcquireProgressLock(lockPath);
+    if (attempt === "acquired") {
+      return true;
+    }
+    if (attempt === "unavailable") {
+      return false;
+    }
+    if (progressLockIsStale(lockPath)) {
+      // Whoever left this behind is gone. Clear it and contend for it again
+      // on the next pass rather than assuming the removal was ours.
+      rmSync(lockPath, { force: true });
+    }
+    if (Date.now() >= deadline) {
+      log.warn(
+        { lockPath },
+        "Timed out waiting for the activation progress lock; writing without it",
+      );
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
+  }
+}
+
+function releaseProgressLock(): void {
+  try {
+    rmSync(getActivationProgressLockPath(), { force: true });
+  } catch (err) {
+    log.warn({ err }, "Failed to release the activation progress lock");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Serialized mutation
 // ---------------------------------------------------------------------------
 
@@ -368,7 +529,8 @@ let writeChain: Promise<unknown> = Promise.resolve();
  * Run `mutate` against a freshly read snapshot, persisting and publishing
  * only when it reports a change. Every mutation queues behind the previous
  * one, so a route call and a turn hook can never read the same snapshot and
- * clobber each other.
+ * clobber each other, and the whole read-mutate-write transaction runs under
+ * the interprocess lock so a sidecar worker cannot either.
  *
  * Rejects when the snapshot cannot be persisted, so a route answers 500
  * rather than echoing state that only ever existed in memory. A snapshot a
@@ -384,32 +546,41 @@ async function mutateActivationProgress(
   originClientId?: string,
 ): Promise<ActivationProgress> {
   const run = async (): Promise<ActivationProgress> => {
-    const snapshot = readActivationSnapshot();
-    const { progress } = snapshot;
-    if (snapshot.readOnly) {
-      log.warn(
-        { path: getActivationProgressPath() },
-        "Refusing activation progress write: the stored document is from a newer build",
-      );
-      throw new ConflictError(
-        "Activation progress was written by a newer version of this assistant and cannot be updated by this build",
-      );
-    }
-    if (!mutate(progress)) {
-      return progress;
-    }
+    const locked = await acquireProgressLock();
     try {
-      writeActivationProgress(progress);
-    } catch (err) {
-      // The index was built from what was on disk before the mutation, and
-      // the in-memory document has moved on from both. Drop it.
-      invalidateLinkIndex();
-      log.warn({ err }, "Failed to write activation-progress.json");
-      throw new InternalError("Failed to persist activation progress");
+      // Read inside the lock: a snapshot taken before it was held could
+      // already be the version another process is renaming over.
+      const snapshot = readActivationSnapshot();
+      const { progress } = snapshot;
+      if (snapshot.readOnly) {
+        log.warn(
+          { path: getActivationProgressPath() },
+          "Refusing activation progress write: the stored document is from a newer build",
+        );
+        throw new ConflictError(
+          "Activation progress was written by a newer version of this assistant and cannot be updated by this build",
+        );
+      }
+      if (!mutate(progress)) {
+        return progress;
+      }
+      try {
+        writeActivationProgress(progress);
+      } catch (err) {
+        // The index was built from what was on disk before the mutation, and
+        // the in-memory document has moved on from both. Drop it.
+        invalidateLinkIndex();
+        log.warn({ err }, "Failed to write activation-progress.json");
+        throw new InternalError("Failed to persist activation progress");
+      }
+      refreshLinkIndex(snapshot, null);
+      publishActivationProgressChanged(originClientId);
+      return progress;
+    } finally {
+      if (locked) {
+        releaseProgressLock();
+      }
     }
-    refreshLinkIndex(snapshot, null);
-    publishActivationProgressChanged(originClientId);
-    return progress;
   };
   const next = writeChain.then(run, run);
   // Keep the chain alive even when a link rejects, so one failure cannot
@@ -556,6 +727,80 @@ export async function dismissActivation(params: {
     }
     return changed;
   }, originClientId);
+}
+
+// ---------------------------------------------------------------------------
+// Deleted conversations
+// ---------------------------------------------------------------------------
+
+/**
+ * Drop what the checklist recorded about conversations that no longer exist.
+ *
+ * A `started` task whose conversation is gone has nothing left to report and
+ * nowhere left to send the user, so its record is removed: the row returns to
+ * Todo and the task can be launched again.
+ *
+ * A `done` task keeps its record. The work it describes happened, and the
+ * step count and artifacts on it are the user's history whether or not the
+ * conversation survived. Only the dead link is cleared, the same thing the
+ * home feed does to a "Go to Thread" target it can no longer open, so the
+ * finished row stops offering to open a conversation that is not there.
+ */
+function forgetLinkedConversations(
+  progress: ActivationProgress,
+  matches: (conversationId: string) => boolean,
+): boolean {
+  let changed = false;
+  for (const [taskId, task] of Object.entries(progress.tasks)) {
+    if (!matches(task.conversationId)) {
+      continue;
+    }
+    if (task.status === "started") {
+      delete progress.tasks[taskId];
+      changed = true;
+    } else if (task.conversationId.length > 0) {
+      task.conversationId = "";
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Whether the checklist has ever written anything for this workspace. A
+ * deletion in an assistant that never showed the checklist must not create
+ * the snapshot (or its lock) just to find nothing to forget.
+ */
+function activationProgressFileExists(): boolean {
+  return progressFileStamp() !== "absent";
+}
+
+/**
+ * Release a deleted conversation from the checklist. See
+ * {@link forgetLinkedConversations} for what survives.
+ */
+export async function forgetActivationConversation(
+  conversationId: string,
+): Promise<void> {
+  if (conversationId.length === 0 || !activationProgressFileExists()) {
+    return;
+  }
+  await mutateActivationProgress((progress) =>
+    forgetLinkedConversations(progress, (id) => id === conversationId),
+  );
+}
+
+/**
+ * Release every conversation from the checklist, for the clear-all wipe that
+ * removes all of them at once.
+ */
+export async function forgetAllActivationConversations(): Promise<void> {
+  if (!activationProgressFileExists()) {
+    return;
+  }
+  await mutateActivationProgress((progress) =>
+    forgetLinkedConversations(progress, () => true),
+  );
 }
 
 // ---------------------------------------------------------------------------

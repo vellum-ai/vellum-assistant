@@ -8,6 +8,7 @@
 
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -55,6 +56,9 @@ const {
   ACTIVATION_PROGRESS_FILENAME,
   bumpActivationStepCount,
   dismissActivation,
+  forgetActivationConversation,
+  forgetAllActivationConversations,
+  getActivationProgressLockPath,
   getActivationProgressPath,
   markActivationTurnComplete,
   readActivationProgress,
@@ -127,6 +131,21 @@ function startedTask(conversationId: string) {
     stepCount: 0,
     artifacts: [],
   };
+}
+
+/**
+ * Hold the progress lock the way another process would: a live holder that
+ * has just taken it, so a mutation has to wait rather than take it over.
+ */
+function holdProgressLock(atMs: number = Date.now()): string {
+  mkdirSync(join(workspaceDir, "data"), { recursive: true });
+  const lockPath = getActivationProgressLockPath();
+  writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: process.pid, at: atMs }),
+    "utf-8",
+  );
+  return lockPath;
 }
 
 function syncPublishCount(): number {
@@ -1062,6 +1081,239 @@ describe("activation progress store", () => {
         conversationId: "conv-1",
       });
       expect(tasks["book-travel"]).toMatchObject({ status: "started" });
+    });
+  });
+
+  describe("the interprocess lock", () => {
+    test("waits for a lock another process holds, then lands", async () => {
+      const lockPath = holdProgressLock();
+
+      const pending = startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await Bun.sleep(60);
+      // Still waiting: nothing has been written behind the holder's back.
+      expect(existsSync(getActivationProgressPath())).toBe(false);
+
+      rmSync(lockPath);
+      await pending;
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+        conversationId: "conv-1",
+      });
+      expect(existsSync(lockPath)).toBe(false);
+    });
+
+    test("takes over a lock whose holder never came back", async () => {
+      const lockPath = holdProgressLock(Date.now() - 60_000);
+
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+      });
+      expect(existsSync(lockPath)).toBe(false);
+    });
+
+    test("takes over a lock a dead process left behind", async () => {
+      // Above every pid_max, so it names no process on any host.
+      const lockPath = getActivationProgressLockPath();
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      writeFileSync(
+        lockPath,
+        JSON.stringify({ pid: 0x40000000, at: Date.now() }),
+        "utf-8",
+      );
+
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+      });
+    });
+
+    test("a write that lands while a mutation waits is not clobbered", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      const lockPath = holdProgressLock();
+      // Queued behind a lock it cannot take yet, the way a worker's mutation
+      // queues behind the daemon's.
+      const pending = startActivationTask({
+        taskId: "plan-week",
+        conversationId: "conv-3",
+      });
+      await Bun.sleep(60);
+
+      // The holder's own update, landing while the waiter is still spinning.
+      const external = readRawProgress();
+      external.tasks["book-travel"] = startedTask("conv-2");
+      writeProgressBehindStore(external);
+      rmSync(lockPath);
+
+      await pending;
+
+      // The waiter read after it took the lock, so it built on the holder's
+      // document rather than on the one it saw before it started waiting.
+      expect(Object.keys(readRawProgress().tasks).sort()).toEqual([
+        "book-travel",
+        "draft-email",
+        "plan-week",
+      ]);
+    });
+
+    test("a change another process made between mutations survives", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      // A sidecar worker, with its own module state, records a second task
+      // while nothing here holds the lock.
+      const external = readRawProgress();
+      external.tasks["book-travel"] = startedTask("conv-2");
+      writeProgressBehindStore(external);
+      resetActivationStepThrottleForTesting(THROTTLE_MS);
+
+      await dismissActivation({ kind: "modal" });
+
+      const stored = readRawProgress();
+      expect(Object.keys(stored.tasks).sort()).toEqual([
+        "book-travel",
+        "draft-email",
+      ]);
+      expect(stored.modalDismissedAt).not.toBeNull();
+    });
+  });
+
+  describe("a deleted conversation", () => {
+    test("returns its started task to Todo, ready to launch again", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      const publishesBefore = syncPublishCount();
+
+      await forgetActivationConversation("conv-1");
+
+      expect(readRawProgress().tasks["draft-email"]).toBeUndefined();
+      expect(syncPublishCount()).toBe(publishesBefore + 1);
+
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-9",
+      });
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+        conversationId: "conv-9",
+      });
+    });
+
+    test("keeps a finished task's history and drops only the dead link", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 3,
+        endedAwaitingUser: false,
+        artifacts: [{ workspacePath: "notes.md", displayName: "notes.md" }],
+      });
+
+      await forgetActivationConversation("conv-1");
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "done",
+        conversationId: "",
+        stepCount: 3,
+        artifacts: [{ workspacePath: "notes.md", displayName: "notes.md" }],
+      });
+    });
+
+    test("leaves the tasks other conversations own alone", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await startActivationTask({
+        taskId: "book-travel",
+        conversationId: "conv-2",
+      });
+
+      await forgetActivationConversation("conv-1");
+
+      const tasks = readRawProgress().tasks;
+      expect(tasks["draft-email"]).toBeUndefined();
+      expect(tasks["book-travel"]).toMatchObject({
+        status: "started",
+        conversationId: "conv-2",
+      });
+    });
+
+    test("changes nothing when no task points at it", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      const publishesBefore = syncPublishCount();
+
+      await forgetActivationConversation("conv-unknown");
+
+      expect(syncPublishCount()).toBe(publishesBefore);
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+      });
+    });
+
+    test("writes nothing for an assistant that never showed the checklist", async () => {
+      await forgetActivationConversation("conv-1");
+
+      expect(existsSync(getActivationProgressPath())).toBe(false);
+      expect(existsSync(getActivationProgressLockPath())).toBe(false);
+      expect(syncPublishCount()).toBe(0);
+    });
+
+    test("the clear-all path releases every conversation at once", async () => {
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+      await markActivationTurnComplete({
+        conversationId: "conv-1",
+        toolCallCount: 2,
+        endedAwaitingUser: false,
+        artifacts: [],
+      });
+      await startActivationTask({
+        taskId: "book-travel",
+        conversationId: "conv-2",
+      });
+      await startActivationTask({
+        taskId: "plan-week",
+        conversationId: "conv-3",
+      });
+
+      await forgetAllActivationConversations();
+
+      const tasks = readRawProgress().tasks;
+      expect(tasks["book-travel"]).toBeUndefined();
+      expect(tasks["plan-week"]).toBeUndefined();
+      expect(tasks["draft-email"]).toMatchObject({
+        status: "done",
+        conversationId: "",
+        stepCount: 2,
+      });
     });
   });
 });
